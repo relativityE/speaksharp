@@ -37,6 +37,11 @@ import {
     CONVERSION_SOURCES, UTM_SOURCES, UTM_MEDIUMS, UTM_CAMPAIGNS, closedWith,
 } from './conversionVocabulary';
 import { PROGRESS_DEBT_PHASES, PROGRESS_DEBT_REASONS, PROGRESS_DEBT_TRIGGERS } from './progress/progressDebtVocabulary';
+import {
+    PROVIDER_ATTEMPT_REASONS, PROVIDER_BLOCK_REASONS, PROVIDER_ERROR_INFO_REASONS, PROVIDER_ERROR_STATUSES, PROVIDER_FINISH_REASONS,
+    PROVIDER_TOKEN_MAX, PROVIDER_WAIT_MS_MAX, RETRY_AFTER_S_MAX,
+} from './telemetry/providerCodes';
+import { RECORDING_FAILURE_CODES } from './recordingFailureCode';
 
 /** The checked-in Report Issue vocabularies — the same slugs the database stores. */
 const ISSUE_CATEGORIES = [
@@ -111,6 +116,23 @@ export type FieldRule =
     | { kind: 'enum[]'; values: readonly string[]; maxLength: number };
 
 const enumOf = (values: readonly string[]): FieldRule => ({ kind: 'enum', values });
+
+/** #1593 — the coaching request lifecycle's closed vocabularies (practiceLoopTelemetry's producer types mirror them). */
+export const COACHING_LIFECYCLE_STAGES = Object.freeze([
+    // `response_received` only when a response actually arrived (an HTTP error response counts); `transport_failed` when
+    // the attempt got no response at all (Sam, #1657 review: a FunctionsFetchError is not a received response).
+    'requested', 'response_received', 'transport_failed', 'response_parsed', 'persisted', 'ready', 'rendered', 'ended',
+] as const);
+/**
+ * Why a lifecycle ended. `superseded_session`: the user moved to another session; `superseded_request`: a newer request
+ * for the same session replaced it; `unmounted`: the review left the page (a LOCAL abandonment — not a network abort);
+ * `retry_cancelled`: a scheduled automatic retry was cancelled; `timeout`: the invoke had not settled within the client
+ * allowance (it is not aborted, and a late answer is still reported); `completed`: the review was shown to the user.
+ */
+export const COACHING_LIFECYCLE_END_REASONS = Object.freeze([
+    'completed', 'superseded_session', 'superseded_request', 'unmounted', 'retry_cancelled', 'timeout',
+    'invalid_response', 'failed',
+] as const);
 const slug = (maxLength = 64): FieldRule => ({ kind: 'slug', maxLength });
 const uuid: FieldRule = { kind: 'uuid' };
 
@@ -341,6 +363,8 @@ export const EVENT_SCHEMAS = Object.freeze({
         to_state: enumOf(RUNTIME_STATES),
         transition_cause: slug(),
         ms_since_intent: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        // #1258 (PO 2026-10-12): which failure, as a closed code — never the error message.
+        failure_code: enumOf(RECORDING_FAILURE_CODES),
     },
     /** One stage per row. A single stop-to-review total answers none of F16's six questions. */
     stage_latency: {
@@ -650,6 +674,30 @@ export const EVENT_SCHEMAS = Object.freeze({
     practice_loop_review_failed: {
         reason: enumOf(PRACTICE_LOOP_REVIEW_FAILURE_REASONS),
     },
+    // #1593 (PO via Sam, case-1 diagnosis) — THE COACHING REQUEST LIFECYCLE, one event per stage, so a feedback report can
+    // reconstruct what the user's request did and what they saw: requested → response_received → response_parsed →
+    // persisted → ready → rendered, and exactly one terminal `ended` with a closed reason. `origin_*` is the journey/boot/
+    // recording attempt SNAPSHOTTED AT REQUEST START: the ambient envelope is read at push time, so a late callback for
+    // take A would otherwise carry take B's identity. The opaque diagnostic ids join this chain to the server's
+    // AI_COACHING_DIAGNOSTIC log and to feedback's coaching_diagnostic_ref. No session id, transcript, coaching text,
+    // email or token; an unsent or lost stage stays absent (unknown), never inferred.
+    ai_coaching_lifecycle: {
+        diagnostic_request_id: uuid,
+        diagnostic_attempt_id: uuid,
+        client_attempt: { kind: 'int', min: 1, max: 2 } as FieldRule,
+        stage: enumOf(COACHING_LIFECYCLE_STAGES),
+        end_reason: enumOf(COACHING_LIFECYCLE_END_REASONS),
+        parse_valid: { kind: 'bool' } as FieldRule,
+        // `ended: unmounted` only: the browser's wait was aborted on route exit. It never claims the server stopped.
+        client_aborted: { kind: 'bool' } as FieldRule,
+        elapsed_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        // Bounded tokens, not `uuid`: journeyIdentity mints a UUID, or `j-<base36>-<base36>` where crypto is absent
+        // (Sam, #1657 review) — a uuid rule silently dropped all three origin fields in that fallback.
+        origin_journey_id: slug(48),
+        origin_boot_id: slug(48),
+        origin_attempt_id: slug(48),
+        product: enumOf(['open_mic', 'focus_points', 'unknown']),
+    },
     // #1258 — a content-free request/attempt record. The opaque ids join the server diagnostic to the feedback row;
     // transcripts, phrases, session UUIDs, provider error text and credentials stay out.
     ai_coaching_diagnostic: {
@@ -664,7 +712,7 @@ export const EVENT_SCHEMAS = Object.freeze({
             'service_configuration', 'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded',
             'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
             'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed',
-            'internal_error', 'network', 'invalid_response', 'unavailable',
+            'internal_error', 'network', 'invalid_response', 'unavailable', 'provider_malformed_response',
         ]),
         status: { kind: 'int', min: 0, max: 599 } as FieldRule,
         provider_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
@@ -672,7 +720,8 @@ export const EVENT_SCHEMAS = Object.freeze({
         configured_model: slug(128),
         observed_model: slug(128),
         source: enumOf(['fresh', 'cache', 'unknown']),
-        provider_attempts: { kind: 'int', min: 0, max: 2 } as FieldRule,
+        // #1258 option A: up to three provider attempts inside the one quota charge (MAX_REPORTED_PROVIDER_ATTEMPTS).
+        provider_attempts: { kind: 'int', min: 0, max: 3 } as FieldRule,
         retry_count: { kind: 'int', min: 0, max: 4 } as FieldRule,
         provider_duration_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
         total_duration_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
@@ -680,6 +729,30 @@ export const EVENT_SCHEMAS = Object.freeze({
         product: enumOf(['open_mic', 'focus_points', 'unknown']),
         has_session: { kind: 'bool' } as FieldRule,
         client_release_id: slug(64),
+        // #1258 (PO 2026-10-12): the provider's own closed codes and each attempt's outcome — never its message text.
+        provider_error_status: enumOf(PROVIDER_ERROR_STATUSES),
+        provider_error_reason: enumOf(PROVIDER_ERROR_INFO_REASONS),
+        provider_finish_reason: enumOf(PROVIDER_FINISH_REASONS),
+        provider_block_reason: enumOf(PROVIDER_BLOCK_REASONS),
+        provider_prompt_tokens: { kind: 'int', min: 0, max: PROVIDER_TOKEN_MAX } as FieldRule,
+        provider_output_tokens: { kind: 'int', min: 0, max: PROVIDER_TOKEN_MAX } as FieldRule,
+        provider_thinking_tokens: { kind: 'int', min: 0, max: PROVIDER_TOKEN_MAX } as FieldRule,
+        provider_total_tokens: { kind: 'int', min: 0, max: PROVIDER_TOKEN_MAX } as FieldRule,
+        attempt_1_reason: enumOf(PROVIDER_ATTEMPT_REASONS),
+        attempt_1_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
+        attempt_1_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        attempt_2_reason: enumOf(PROVIDER_ATTEMPT_REASONS),
+        attempt_2_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
+        attempt_2_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        // #1258 option A: the third attempt and content-free retry facts — never the Retry-After header's raw value.
+        attempt_3_reason: enumOf(PROVIDER_ATTEMPT_REASONS),
+        attempt_3_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
+        attempt_3_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        provider_wait_ms_total: { kind: 'int', min: 0, max: PROVIDER_WAIT_MS_MAX } as FieldRule,
+        retry_after_present: { kind: 'bool' } as FieldRule,
+        retry_after_malformed: { kind: 'bool' } as FieldRule,
+        retry_after_s: { kind: 'int', min: 0, max: RETRY_AFTER_S_MAX } as FieldRule,
+        stopped_over_budget: { kind: 'bool' } as FieldRule,
     },
 
     // ── live-coaching experiment ────────────────────────────────────────────

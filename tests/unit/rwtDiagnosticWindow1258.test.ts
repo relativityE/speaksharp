@@ -232,9 +232,12 @@ describe('#1549 Codex P1 r4158574092: process peaks describe only the first-take
     expect(innerFinally.indexOf('sampler.stop();')).toBeGreaterThan(innerFinally.indexOf('await withDeadline(recordTrace'));
   });
 
-  it('the outer finally and the afterEach backstop still stop it (a failure before the window)', () => {
-    expect(SPEC.slice(SPEC.lastIndexOf('} finally {'))).toContain('sampler.stop();');
-    expect(SPEC).toMatch(/test\.afterEach\(async \(\) => \{\s*\/\/[^\n]*\n\s*activeSampler\?\.stop\(\);/);
+  it('the journey finalization and the afterEach backstop still stop it (a failure before the window)', () => {
+    const finalization = SPEC.slice(SPEC.indexOf('finalizer.once(async () => {'), SPEC.indexOf('steps.report(receipt);'));
+    expect(finalization).toContain('sampler.stop();');
+    expect(SPEC).toMatch(/\} finally \{\s*await finish\(\);/);
+    const afterEach = SPEC.slice(SPEC.indexOf('test.afterEach('), SPEC.indexOf("test('a new person completes"));
+    expect(afterEach).toContain('activeSampler?.stop();');
   });
 
   it('once stopped, later activity cannot move the folded peaks', () => {

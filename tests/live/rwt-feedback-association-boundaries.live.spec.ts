@@ -20,8 +20,12 @@ import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
+import {
+    readStoredDiagnosticRef, writeNoSessionReportRows, writeOlderTakeBindingRow, writeOlderTakeReportRows, type StoredDiagnosticRef,
+} from './helpers/feedbackDiagnosticRef';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import {
     expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
     stopBenchmarkRecording, waitForBenchmarkSaveCandidate, waitForPrivateEngineReady,
@@ -127,7 +131,7 @@ async function submitFeedback(
     association: 'selected_older_session' | 'no_session',
     sessionId: string | null,
     newerSessionId?: string,
-): Promise<{ id: string | null; sessionId: string | null; diagnosticRef: string | null; storedRows: number; acknowledged: boolean }> {
+): Promise<{ id: string | null; sessionId: string | null; diagnosticRef: StoredDiagnosticRef; storedRows: number; acknowledged: boolean }> {
     await page.goto('/analytics');
     await expect(page.getByTestId('nav-report-issue-button').first()).toBeVisible({ timeout: 45_000 });
     await page.getByTestId('nav-report-issue-button').first().click();
@@ -154,10 +158,15 @@ async function submitFeedback(
     const since = new Date(Date.now() - 60_000).toISOString();
     // A missing action-time binding is retained as HOLD by bindReadbackJourneys; it must never be
     // guessed from a same-number or unrelated journey.
+    const feedbackBefore = tap.sent('feedback_submit').length;
     await page.getByTestId('issue-report-submit').click();
     const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
         .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
     if (!acknowledged) throw new Error('the feedback acknowledgement was not shown');
+    // #1258 (live round 1, run 38847643414): analytics are batched. Before this scenario reads, cleans up and closes the
+    // page, wait (bounded) until this submission's feedback_submit events — `attempted` plus its outcome — have actually
+    // LEFT the page (the main journeys' R8 settle), so the readback can receive them instead of losing them at unload.
+    await tap.awaitObserved(page, { feedback_submit: feedbackBefore + 2 });
     const { data, error } = await admin!.from('user_issue_reports')
         .select('id,session_id,metadata').eq('user_id', uid).gte('created_at', since);
     if (error) throw new Error(`feedback row read failed (fail closed): ${error.code ?? 'unknown'}`);
@@ -165,7 +174,8 @@ async function submitFeedback(
     const row = rows.length === 1 ? rows[0] : null;
     const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
     const storedSession = typeof row?.session_id === 'string' ? row.session_id : null;
-    const diagnosticRef = typeof metadata.coaching_diagnostic_ref === 'string' ? metadata.coaching_diagnostic_ref : null;
+    // #1539 / #1491 6123627243: absent, valid and MALFORMED are distinct — a malformed stored link is never "no link".
+    const diagnosticRef = readStoredDiagnosticRef(metadata);
     return { id: row ? String(row.id) : null, sessionId: storedSession, diagnosticRef, storedRows: rows.length, acknowledged };
 }
 
@@ -174,8 +184,10 @@ async function finishReceipt(
     testInfo: TestInfo,
     tap: AnalyticsTap,
     claimed: boolean,
+    steps: FinalizationSteps,
 ): Promise<void> {
-    telemetryClassRows(receipt, tap, claimed, true);
+    await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, true));
+    steps.report(receipt);
     receipt.write(testInfo, bindReadbackJourneys(tap.events, {
         recording: [], feedback: true, actionBindings: tap.actionBindings,
         expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
@@ -183,7 +195,14 @@ async function finishReceipt(
     }), tap.trafficTypes());
 }
 
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
+
 test.describe('RWT — Share Feedback association boundaries @live', () => {
+    test.afterEach(async () => {
+        await finalizer.drain();
+    });
+
     test('feedback selected for an older take links only to that take', async ({ page }, testInfo) => {
         test.setTimeout(1_800_000);
         const owner: Owner = { email: '', uid: '' };
@@ -191,11 +210,36 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
+        // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+        const watch = armWatchdog({ page, tap, profile: watchProfileFor(`${SUITE}-older-take`), label: `${SUITE}-older-take` });
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
         // #1594: the takes this scenario saved, for the end-of-scenario one-request-per-take budget.
         const takes: string[] = [];
+        // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+        // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+        const finish = finalizer.once(async () => {
+            // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+            const steps = new FinalizationSteps();
+            // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
+            // (bounded; page-independent, since a finalizer may run after its tabs closed).
+            await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+            await steps.step('watchdog', () => watch.record(receipt));
+            await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+            // The WHOLE scenario, after feedback and navigation: at most one request per saved take (two in all).
+            await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes }));
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
+            // the deletion's own settlement then decides the row — a stalled readback never deletes again.
+            if ((owner.uid || owner.email) && !accountDeleted) {
+                const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+                const report = owner.uid ? reportId : null;
+                accountDeleted = (await finalizeOwnedCleanup(steps, receipt, cleanup, report
+                    ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
+                    : undefined)) === 'deleted';
+            }
+            await finishReceipt(receipt, testInfo, tap, claimed, steps);
+        });
         try {
             await suppressPageSnapshot(testInfo);
             const ready = await prepareDisposable(page, receipt, owner);
@@ -215,56 +259,23 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             receipt.row('older take coaching request observed', olderRequests.length > 0 ? 'PASS' : 'HOLD',
                 olderRequests.length > 0 ? 'the browser sent a coaching request bound to the older saved take' : 'no older-take coaching request was captured');
             const stored = await submitFeedback(page, tap, owner.uid, 'selected_older_session', olderId, newerId);
+            // Captured FIRST: whatever the stored reference holds, cleanup and retention bookkeeping keep this report id.
             reportId = stored.id;
-            receipt.row('older-take report stored once', stored.storedRows === 1 && stored.id ? 'PASS' : 'FAIL',
-                stored.storedRows === 1 && stored.id ? 'one feedback report was acknowledged and read back' : 'feedback was not stored exactly once',
-                { storedRows: stored.storedRows });
-            const correctSession = stored.sessionId === olderId;
-            receipt.row('older-take association', correctSession ? 'PASS' : 'FAIL',
-                correctSession ? 'the persisted report references the selected older take' : 'the persisted report does not reference the selected older take');
+            writeOlderTakeReportRows(receipt, stored, olderId);
             // #1594 (PM 6120326867): the #1590 contract on the SELECTED OLDER take — its own sent request, never the newer
             // take's (named as current so the contract refuses a borrowed link). Settled only by the received readback.
             await generations.settle();
             await feedbackDiagnosticChainRow({
                 receipt, admin: admin as never, userId: owner.uid, reportId, currentSessionId: newerId, reportedSessionId: olderId,
                 acknowledgementVisible: stored.acknowledged,
-                exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'open_mic',
+                exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'open_mic',
             });
-            const exactOlderRequest = Boolean(stored.diagnosticRef && olderRequests.includes(stored.diagnosticRef));
-            const excludesCurrent = stored.diagnosticRef === null || !newerRequests.includes(stored.diagnosticRef);
-            // Codex P1 r4247450898: "not the newer take" is proven only against an OBSERVED newer-take request; with none, HOLD.
-            const bindingVerdict = olderRequests.length === 0 || newerRequests.length === 0 || stored.diagnosticRef === null ? 'HOLD'
-                : exactOlderRequest && excludesCurrent ? 'PASS' : 'FAIL';
-            receipt.row('older-take diagnostic binding', bindingVerdict,
-                bindingVerdict === 'PASS' ? 'the report references a request sent for the older take and not the newer take'
-                    : bindingVerdict === 'HOLD' ? (newerRequests.length === 0 && olderRequests.length > 0 && stored.diagnosticRef !== null
-                        ? 'the newer take sent no observed coaching request, so excluding it is unproven'
-                        : 'the older take has no captured request link, so binding is unproven')
-                        : 'the report references an unrelated or newer-take diagnostic request',
-                { olderRequests: olderRequests.length, newerRequests: newerRequests.length });
+            writeOlderTakeBindingRow(receipt, stored, olderRequests, newerRequests);
         } catch (error) {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
-            await generations.settle();
-            // The WHOLE scenario, after feedback and navigation: at most one request per saved take (two in all).
-            coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes });
-            if (owner.uid && reportId) {
-                accountDeleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, reportId,
-                    () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            } else if (owner.uid && !accountDeleted) {
-                try {
-                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                    accountDeleted = true;
-                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted; no report retention row was available to check');
-                } catch {
-                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-                }
-            }
-            if (owner.uid && !accountDeleted) {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }).catch(() => undefined);
-            }
-            await finishReceipt(receipt, testInfo, tap, claimed);
+            await finish();
         }
     });
 
@@ -275,46 +286,48 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
+        // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+        const watch = armWatchdog({ page, tap, profile: watchProfileFor(`${SUITE}-no-session`), label: `${SUITE}-no-session` });
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
+        // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+        // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+        const finish = finalizer.once(async () => {
+            // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+            const steps = new FinalizationSteps();
+            // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
+            // (bounded; page-independent, since a finalizer may run after its tabs closed).
+            await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+            await steps.step('watchdog', () => watch.record(receipt));
+            await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+            // No session links no take, so the whole scenario must send no coaching request at all.
+            await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
+            // the deletion's own settlement then decides the row — a stalled readback never deletes again.
+            if ((owner.uid || owner.email) && !accountDeleted) {
+                const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+                const report = owner.uid ? reportId : null;
+                accountDeleted = (await finalizeOwnedCleanup(steps, receipt, cleanup, report
+                    ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
+                    : undefined)) === 'deleted';
+            }
+            await finishReceipt(receipt, testInfo, tap, claimed, steps);
+        });
         try {
             await suppressPageSnapshot(testInfo);
             const ready = await prepareDisposable(page, receipt, owner);
             claimed = ready;
             if (!ready) return;
             const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null);
+            // Captured FIRST: whatever the stored reference holds, cleanup and retention bookkeeping keep this report id.
             reportId = stored.id;
-            receipt.row('no-session report stored once', stored.storedRows === 1 && stored.id ? 'PASS' : 'FAIL',
-                stored.storedRows === 1 && stored.id ? 'one no-session feedback report was acknowledged and read back' : 'feedback was not stored exactly once',
-                { storedRows: stored.storedRows });
-            receipt.row('no-session association', stored.sessionId === null ? 'PASS' : 'FAIL',
-                stored.sessionId === null ? 'the report has no session association' : 'the report was linked to a session despite No session being selected');
-            receipt.row('no-session diagnostic binding', stored.diagnosticRef === null ? 'PASS' : 'FAIL',
-                stored.diagnosticRef === null ? 'the report has no coaching diagnostic reference' : 'the report borrowed a coaching diagnostic reference');
+            writeNoSessionReportRows(receipt, stored);
         } catch (error) {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
-            await generations.settle();
-            // No session links no take, so the whole scenario must send no coaching request at all.
-            coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
-            if (owner.uid && reportId) {
-                accountDeleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, reportId,
-                    () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            } else if (owner.uid && !accountDeleted) {
-                try {
-                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                    accountDeleted = true;
-                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted; no report retention row was available to check');
-                } catch {
-                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-                }
-            }
-            if (owner.uid && !accountDeleted) {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }).catch(() => undefined);
-            }
-            await finishReceipt(receipt, testInfo, tap, claimed);
+            await finish();
         }
     });
 });

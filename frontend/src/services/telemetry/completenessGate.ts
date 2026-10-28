@@ -189,8 +189,17 @@ export interface QualificationStage {
     /** Extra conditions over the decoded rows for this journey. Each returns a HOLD reason, or null. */
     readonly invariants: readonly {
         readonly name: string;
-        readonly check: (rows: readonly DecodedTelemetryRow[]) => string | null;
+        readonly check: (rows: readonly DecodedTelemetryRow[], context?: QualificationStageContext) => string | null;
     }[];
+}
+
+/**
+ * What the run itself declared for this journey, beside its rows. `expectedAttemptIds` are the takes the run pressed
+ * (`QUALIFICATION_ATTEMPT_IDS`, one binding's `attemptIds`), so a stage can bind THE declared take rather than guess one
+ * from the rows. Absent means undeclared, never a wildcard.
+ */
+export interface QualificationStageContext {
+    readonly expectedAttemptIds?: readonly string[];
 }
 
 /** One decoded readback row. Governed properties only — the query selects nothing else. */
@@ -390,6 +399,8 @@ const ATTRIBUTION_BINDING = {
 
 /** The readback may return a boolean property as the string `'true'`; nothing else is true. */
 const isTrue = (v: unknown): boolean => v === true || v === 'true';
+/** Only a readable, explicit `false` — never null, missing or garbled — says a take was NOT saved. */
+const isExplicitFalse = (v: unknown): boolean => v === false || v === 'false';
 
 /**
  * #1421 P1 `3984043479` — THE REVIEW THE USER SAW MUST HAVE SHOWN THE SAVED TRANSCRIPT.
@@ -401,13 +412,36 @@ const isTrue = (v: unknown): boolean => v === true || v === 'true';
  * the authority. A review that was ever wrong on screen is not qualifying evidence.
  */
 export const reviewTranscriptReceiptSucceeded = (rows: readonly DecodedTelemetryRow[]): string | null => {
-    const review = propsOf(rows, 'transcript_authority').filter((p) => p?.stage === 'review_rendered');
+    const authority = rows.filter((r) => r?.event === 'transcript_authority');
+    const review = authority.filter((r) => r?.properties?.stage === 'review_rendered');
     if (review.length === 0) {
         return 'no review_rendered transcript receipt was recorded, so the transcript on the review screen is unverified';
     }
-    return review.every((p) => isTrue(p?.transcript_visibly_present) && isTrue(p?.digests_match))
-        ? null
-        : 'a review_rendered transcript receipt did not show the saved transcript (not visibly present, or not matching)';
+    // #1258 (run 38790238983, PM 6200367845) — judged PER TAKE. Only a SAVED take has a transcript the review must show; a
+    // take below the save minimum is truthfully empty. "Saved" is that take's OWN finalize/save receipt (`persisted`),
+    // never another take's: a review with no take identity, or whose take has no save outcome, is unverified.
+    // PM 6205858358 P1: only an EXPLICIT `persisted: false` exempts a take as unsaved. A null, missing or unreadable
+    // outcome is unknown, not unsaved, so it HOLDs; one `true` (a successful retry included) makes the take saved.
+    let savedTakeReviewed = false;
+    for (const r of review) {
+        const attempt = attemptOf(r);
+        if (!attempt) return 'a review_rendered transcript receipt names no take, so which transcript it showed is unverified';
+        const outcomes = authority.filter((x) => attemptOf(x) === attempt
+            && (x?.properties?.stage === 'finalize' || x?.properties?.stage === 'save'));
+        if (outcomes.length === 0) {
+            return 'a review_rendered transcript receipt has no save outcome for its own take, so whether it had a transcript to show is unverified';
+        }
+        if (!outcomes.some((x) => isTrue(x?.properties?.persisted))) {
+            if (outcomes.some((x) => isExplicitFalse(x?.properties?.persisted))) continue; // explicitly unsaved: nothing to show
+            return 'a review_rendered transcript receipt\'s take has no readable save outcome, so whether it had a transcript to show is unverified';
+        }
+        savedTakeReviewed = true;
+        if (!(isTrue(r?.properties?.transcript_visibly_present) && isTrue(r?.properties?.digests_match))) {
+            return 'a review_rendered transcript receipt did not show the saved transcript (not visibly present, or not matching)';
+        }
+    }
+    return savedTakeReviewed ? null
+        : 'no review_rendered transcript receipt belongs to a saved take, so the transcript on the review screen is unverified';
 };
 
 const REVIEW_TRANSCRIPT_RECEIPT = {
@@ -512,6 +546,216 @@ const POST_STOP_CHAIN_OPEN_MIC = {
     check: postStopChainInOrder(OPEN_MIC_POST_STOP_CHAIN),
 } as const;
 
+/**
+ * #1593 (Sam's consolidated disposition, case-1 contract; gate return 16:44:51) — THE INTERRUPTED REPEAT TAKE.
+ *
+ * The RWT journey presses the review's Repeat action the moment the repeat take saves (rapid-repeat stress). Declaring
+ * the full `session_after_open_mic` chain for that take demanded a render it may never reach. This stage asks instead
+ * for a PROVEN causal chain A → the review's Repeat press → R → B, and reads R's outcome from R's own observed rows:
+ *
+ *   A — THE DECLARED take (the binding's one expected attempt that saved), with its post-Stop chain through save in
+ *       order. Never "the earliest save": a later next-Start take can never be chosen in its place.
+ *   R — exactly one coaching request id requested under ORIGIN attempt A, from this boot (`origin_boot_id`), before
+ *       the repeat Start.
+ *   Repeat — the review's own Repeat press (`journey_step` option_selected `practice_next` / `retry_points`, emitted
+ *       before the press delegates to Start) after A saved, made under A in R's boot; then the FIRST Start intent after
+ *       that press is `accepted`. A generic Start with no press, an accepted Start before the press, or a suppressed
+ *       first Start proves no repeat.
+ *   B — the first RECORDING transition after that intent, under a new attempt (the accepted intent's own attempt, when
+ *       it names one), confirmed by B's own `session_started`.
+ *   R's observed state at the invalidation is R's own single `ended` row — `endLifecycle` is once-only:
+ *     completed_before_repeat: `completed`, emitted in the same tick as R's `rendered`, both BEFORE the Repeat press —
+ *       a fast, legitimate review, never a failure.
+ *     open_at_invalidation: `superseded_*`, emitted by R's own lifecycle when the session change is observed, and only
+ *       while R is still open, at or after the press. It is the observed terminal REPORT, not the exact invalidation
+ *       instant (render invalidates before the deferred cleanup reports), so any R `rendered` at or before it — a lost
+ *       pre-repeat completion, or a render between the press and the report — is ambiguous and HOLDs.
+ *     No `ended` row HOLDs: neither branch is ever inferred from a missing row.
+ *   Stale application into B (FAIL) is proven only by R `rendered` under B's attempt. Readiness alone, completion before
+ *   the invalidation, and a labelled saved-review revisit (its own family) are not that failure; any other late or
+ *   unattributable ready/rendered for R is ambiguous and HOLDs. Late transport facts for R (`response_received`,
+ *   `persisted`) are separate facts, never a second terminal.
+ * Ordering is by producer time (`$ts`), as the outcome correlation does. Release is bound by the readback query.
+ */
+export const OPEN_MIC_INTERRUPTED_CHAIN = Object.freeze(['recording_terminated', 'final_transcript', 'session_saved'] as const);
+const SUPERSEDED_END_REASONS: ReadonlySet<string> = new Set(['superseded_session', 'superseded_request']);
+/** The completed review's own Repeat action: Open Mic `verdict-practice-again`, Focus Points `focus-points-retry`. */
+const REVIEW_REPEAT_OPTIONS: ReadonlySet<string> = new Set(['practice_next', 'retry_points']);
+
+export type InterruptedRepeatResult =
+    | {
+        ok: true;
+        branch: 'completed_before_repeat' | 'open_at_invalidation';
+        requestId: string; takeAttempt: string; successorAttempt: string;
+    }
+    | { ok: false; reason: string };
+
+export function classifyInterruptedRepeat(
+    rows: readonly DecodedTelemetryRow[],
+    context: QualificationStageContext = {},
+): InterruptedRepeatResult {
+    const hold = (reason: string): InterruptedRepeatResult => ({ ok: false, reason });
+    const prop = (r: DecodedTelemetryRow, key: string): unknown => r?.properties?.[key];
+    const timed = (r: DecodedTelemetryRow) => producerTime(r);
+    const earliest = (list: readonly DecodedTelemetryRow[]) => [...list].sort((a, b) => timed(a) - timed(b))[0];
+
+    // A — the declared take, saved.
+    const declared = new Set((context.expectedAttemptIds ?? []).filter(nonBlank));
+    if (declared.size === 0) return hold('the interrupted take is not declared by the run, so no saved take can be bound to it');
+    const saved = rows.filter((r) => r?.event === 'session_saved' && declared.has(attemptOf(r) ?? ''));
+    const savedAttempts = new Set(saved.map((r) => attemptOf(r)));
+    if (savedAttempts.size === 0) return hold('the declared interrupted take has no session_saved row to name it');
+    if (savedAttempts.size > 1) return hold('more than one declared take saved, so the interrupted take is ambiguous');
+    if (saved.some((r) => !Number.isFinite(timed(r)))) return hold('the saved take has no producer time, so the transition cannot be ordered');
+    const takeAttempt = [...savedAttempts][0] as string;
+    const savedAt = timed(earliest(saved));
+
+    // A's post-Stop chain through save, in causal (producer-time) order, all its own. The received `timestamp` is the
+    // flush's capture time, shared by events drained together, so it cannot order a chain (Sam, bbc58543 return 1).
+    // Its HOLD is kept but DEFERRED: a stale render into B that the rows independently prove must still dominate as FAIL
+    // (Codex r4308033817), so the chain is judged after that check.
+    const chainHold = ((): string | null => {
+        let previous = Number.NEGATIVE_INFINITY;
+        for (const name of OPEN_MIC_INTERRUPTED_CHAIN) {
+            const own = rows.filter((r) => r?.event === 'stage_latency' && r?.properties?.stage === name && attemptOf(r) === takeAttempt);
+            if (own.length === 0) return `the interrupted take has no ${name} stage for its own attempt`;
+            if (own.some((r) => !Number.isFinite(timed(r)))) return `a ${name} stage row has no producer time, so the chain cannot be ordered`;
+            const first = Math.min(...own.map(timed));
+            if (first < previous) return `the interrupted take's post-Stop chain is out of order at ${name}`;
+            previous = first;
+        }
+        return null;
+    })();
+
+    // R — one request under origin A, from this boot.
+    const lifecycle = rows.filter((r) => r?.event === 'ai_coaching_lifecycle');
+    const requested = lifecycle.filter((r) => prop(r, 'stage') === 'requested' && prop(r, 'origin_attempt_id') === takeAttempt);
+    if (requested.length === 0) return hold('the interrupted take has no coaching request under its own origin attempt');
+    const requestIds = new Set(requested.map((r) => prop(r, 'diagnostic_request_id')));
+    const [requestId] = [...requestIds];
+    if (requestIds.size !== 1 || !nonBlank(requestId)) return hold('the interrupted take\'s coaching requests do not name exactly one request id');
+    if (requested.some((r) => !nonBlank(prop(r, 'origin_boot_id')) || prop(r, 'origin_boot_id') !== r.bootId)) {
+        return hold('the interrupted take\'s coaching request did not start in this boot');
+    }
+    if (requested.some((r) => !Number.isFinite(timed(r)))) return hold('the coaching request has no producer time');
+    const requestedAt = Math.min(...requested.map(timed));
+
+    // Repeat — the review's own Repeat press after A saved, then the first Start after it, accepted.
+    const presses = rows.filter((r) => r?.event === 'journey_step' && prop(r, 'step') === 'option_selected'
+        && REVIEW_REPEAT_OPTIONS.has(String(prop(r, 'option_selected') ?? '')) && Number.isFinite(timed(r)) && timed(r) > savedAt);
+    if (presses.length === 0) return hold('no review Repeat press follows the saved take — a generic Start is not the review\'s Repeat action');
+    const press = earliest(presses);
+    const pressAt = timed(press);
+    // Bound to the declared take and this boot (release is bound by the readback query). A press that names no take is
+    // not inferred to be A's: it HOLDs.
+    if (attemptOf(press) === null) return hold('the review\'s Repeat press names no take, so it cannot be bound to the declared take');
+    if (attemptOf(press) !== takeAttempt) return hold('the Repeat press was made under another take');
+    if (!nonBlank(press.bootId) || press.bootId !== requested[0].bootId) return hold('the review\'s Repeat press was not made in the coaching request\'s boot');
+    const starts = rows.filter((r) => r?.event === 'recording_intent' && prop(r, 'intent_kind') === 'start' && Number.isFinite(timed(r)));
+    if (starts.some((r) => prop(r, 'intent_outcome') === 'accepted' && timed(r) > savedAt && timed(r) < pressAt)) {
+        return hold('an accepted Start preceded the review\'s Repeat press, so the next take is not the press\'s');
+    }
+    const following = starts.filter((r) => timed(r) >= pressAt);
+    if (following.length === 0) return hold('no Start follows the review\'s Repeat press, so no repeat transition is proven');
+    const intent = earliest(following);
+    if (prop(intent, 'intent_outcome') !== 'accepted') {
+        return hold(`the Repeat press's Start was not accepted (${String(prop(intent, 'intent_outcome') ?? 'no outcome')})`);
+    }
+    const repeatAt = timed(intent);
+    if (requestedAt >= repeatAt) return hold('the coaching request did not start before the repeat Start, so it is not the interrupted take\'s');
+
+    // B — the first recording after the accepted repeat Start, under a new attempt, with its own session_started.
+    const recordings = rows.filter((r) => r?.event === 'recording_state' && String(prop(r, 'to_state') ?? '').toUpperCase() === 'RECORDING'
+        && Number.isFinite(timed(r)) && timed(r) >= repeatAt);
+    if (recordings.length === 0) return hold('no recording follows the accepted repeat Start');
+    const successorRecording = earliest(recordings);
+    const successor = attemptOf(successorRecording);
+    if (successor === null || successor === takeAttempt) return hold('the recording after the accepted repeat Start is not a new take');
+    // The accepted intent mints and carries the take it starts; one naming no take is not a wildcard (bbc58543 return 4).
+    if (attemptOf(intent) === null) return hold('the accepted repeat Start names no take, so the recording after it cannot be bound to it');
+    if (attemptOf(intent) !== successor) return hold('the accepted repeat Start names a different take than the recording that followed it');
+    // `session_started` is pushed only after the start resolves, i.e. after the RECORDING transition, so it confirms B only
+    // when it follows THAT transition; an earlier B-tagged start row is out of order and confirms nothing (Codex r4308400151).
+    const successorStarted = rows.some((r) => r?.event === 'session_started' && attemptOf(r) === successor
+        && Number.isFinite(timed(r)) && timed(r) >= timed(successorRecording));
+    if (!successorStarted) return hold('the successor take\'s recording has no session_started of its own after that recording');
+
+    // Stale application into B — R rendered under B's attempt — is an observed failure, whatever else is missing.
+    const own = lifecycle.filter((r) => prop(r, 'diagnostic_request_id') === requestId);
+    const shown = (r: DecodedTelemetryRow) => prop(r, 'stage') === 'ready' || prop(r, 'stage') === 'rendered';
+    // Every row of R names the SAME origin take and boot it was requested under (bbc58543 return 3).
+    const originBoot = prop(requested[0], 'origin_boot_id');
+    if (own.some((r) => prop(r, 'origin_attempt_id') !== takeAttempt || prop(r, 'origin_boot_id') !== originBoot)) {
+        return hold('the interrupted take\'s coaching request reports conflicting origin take or boot across its lifecycle');
+    }
+    if (own.some((r) => prop(r, 'stage') === 'rendered' && attemptOf(r) === successor)) {
+        return hold('FAIL: the interrupted take\'s coaching was rendered under the next take — an observed stale application into B');
+    }
+    if (chainHold !== null) return hold(chainHold);
+
+    // R's observed state at the invalidation: its single UI terminal.
+    const ended = own.filter((r) => prop(r, 'stage') === 'ended');
+    if (ended.length === 0) return hold('the interrupted take\'s coaching request has no observed end — neither branch is inferred from absence');
+    if (ended.length > 1) return hold('the interrupted take\'s coaching request reports more than one UI terminal');
+    const [end] = ended;
+    const endedAt = timed(end);
+    if (!Number.isFinite(endedAt) || endedAt < requestedAt) return hold('the coaching request\'s terminal precedes the request itself');
+    if (own.some((r) => shown(r) && !Number.isFinite(timed(r)))) return hold('a ready/rendered row for the request has no producer time');
+    const reason = String(prop(end, 'end_reason') ?? '');
+    const result = (branch: 'completed_before_repeat' | 'open_at_invalidation'): InterruptedRepeatResult =>
+        ({ ok: true, branch, requestId: requestId as string, takeAttempt, successorAttempt: successor });
+    if (own.some((r) => shown(r) && timed(r) < requestedAt)) return hold('the interrupted take\'s coaching was ready or rendered before it was requested');
+    if (reason === 'completed') {
+        // request ≤ render ≤ completed < Repeat press (bbc58543 return 2). `rendered` and `completed` are published together,
+        // once per session; `ready` is its own once-per-session effect, which may run in the same commit just AFTER a
+        // synchronous render (the rendered effect is declared first), so ready is bounded by the request and the press,
+        // never ordered against the render.
+        const rendered = own.filter((r) => prop(r, 'stage') === 'rendered');
+        const ready = own.filter((r) => prop(r, 'stage') === 'ready');
+        if (rendered.length !== 1 || timed(rendered[0]) > endedAt) {
+            return hold('the interrupted take\'s coaching completed without exactly one render of its own at completion');
+        }
+        // The render is R's (its origin is A and this boot, checked above), and it must not have been shown while ANOTHER
+        // take was current (Codex r4308033814). The producer ties `rendered` to the visible, validated review of its own
+        // session, independent of an open recording attempt, so an ambient take of A, or no ambient attempt reported, is
+        // accepted HERE only — beside the positive origin/boot/readiness/single-render/completed/pre-press bindings. It is no
+        // wildcard elsewhere: any other ambient take makes the render unattributable (HOLD); one under B is FAIL above.
+        const renderedUnder = attemptOf(rendered[0]);
+        if (renderedUnder !== null && renderedUnder !== takeAttempt) {
+            return hold('the interrupted take\'s coaching was rendered while another take was current — unattributable');
+        }
+        if (ready.length !== 1) return hold('the interrupted take\'s coaching completed without exactly one readiness report');
+        // `ended` is the terminal REPORT, emitted after the render: a completion after the press is not certified from silence.
+        if (endedAt >= pressAt) return hold('the interrupted take\'s coaching completed only after the Repeat press, so its target is ambiguous');
+        if (timed(ready[0]) >= pressAt) return hold('the interrupted take\'s coaching readiness was reported only after the Repeat press — ambiguous target');
+        return result('completed_before_repeat');
+    }
+    if (SUPERSEDED_END_REASONS.has(reason)) {
+        if (endedAt < pressAt) return hold('the interrupted take\'s coaching was superseded before the Repeat press — not this transition');
+        if (own.some((r) => prop(r, 'stage') === 'rendered' && timed(r) <= endedAt)) {
+            return hold('the interrupted take\'s coaching was rendered yet ended superseded — a completion was lost, so R\'s state at the invalidation is ambiguous');
+        }
+        if (own.some((r) => shown(r) && timed(r) > endedAt)) {
+            return hold('the interrupted take\'s coaching was ready or rendered after its invalidation with no proven render into the next take — ambiguous target');
+        }
+        return result('open_at_invalidation');
+    }
+    return hold(`the interrupted take's coaching request ended ${reason || 'without a reason'}, neither completed before the repeat nor superseded by it`);
+}
+
+export const interruptedRepeatTake = (
+    rows: readonly DecodedTelemetryRow[],
+    context: QualificationStageContext = {},
+): string | null => {
+    const result = classifyInterruptedRepeat(rows, context);
+    return result.ok ? null : result.reason;
+};
+
+const INTERRUPTED_REPEAT_TAKE = {
+    name: 'open_mic_interrupted_repeat_take',
+    check: interruptedRepeatTake,
+} as const;
+
 const POST_STOP_CHAIN_FOCUS_POINTS = {
     name: 'focus_points_post_stop_chain_in_order',
     check: postStopChainInOrder(FOCUS_POINTS_POST_STOP_CHAIN),
@@ -588,6 +832,15 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
         }, ATTRIBUTION_BINDING, REVIEW_TRANSCRIPT_RECEIPT, POST_STOP_CHAIN_OPEN_MIC],
     },
     {
+        // #1593 (Sam 15:51) — the Practice-again repeat take (Open Mic and Focus Points) that is deliberately interrupted by
+        // the next take. The chain is product-agnostic: only the listed stages are checked, so Focus's evaluation_complete
+        // between them is neither required nor a conflict.
+        stage: 'session_interrupted_repeat',
+        requiredFamilies: ['session_saved', 'transcript_authority', 'stage_latency', 'model_attribution_receipt', 'ai_coaching_lifecycle',
+            'recording_intent', 'recording_state', 'session_started', 'journey_step'],
+        invariants: [ATTRIBUTION_BINDING, INTERRUPTED_REPEAT_TAKE],
+    },
+    {
         stage: 'session_after_focus_points',
         requiredFamilies: [
             'session_saved', 'transcript_authority', 'coverage_evaluation', 'coverage_point',
@@ -608,11 +861,12 @@ export const QUALIFICATION_STAGES: readonly QualificationStage[] = Object.freeze
 export function evaluateQualificationStage(
     stage: QualificationStage,
     rows: readonly DecodedTelemetryRow[],
+    context: QualificationStageContext = {},
 ): string[] {
     const missing = stage.requiredFamilies.filter((family) => !has(rows, family));
     const reasons = missing.map((family) => `${stage.stage}: missing required family ${family}`);
     for (const invariant of stage.invariants) {
-        const failure = invariant.check(rows);
+        const failure = invariant.check(rows, context);
         if (failure !== null) reasons.push(`${stage.stage}: ${failure}`);
     }
     return reasons;
@@ -624,11 +878,12 @@ export function evaluateQualificationStage(
  * `evaluateTelemetryCompleteness` defaults to the recording spine, which is right for any journey that recorded. A
  * FEEDBACK-ONLY journey (feedback shared after a reload minted a new journey) never records, so demanding that spine of
  * it held every good run. When the only declared stage is `share_feedback`, the journey must still produce the
- * pre-journey identity receipts and the feedback families; any recording stage keeps the full spine unchanged. An
- * empty or unknown declaration keeps the full spine (fail closed; the stage loop separately HOLDs unknown names).
+ * pre-journey identity receipts and the feedback families. Recording stages keep the full spine except a known
+ * interrupted repeat with no declared full review: its explicit lifecycle invariant replaces the generic practice-loop
+ * prerequisite. An empty or unknown declaration keeps the full spine (the stage loop separately HOLDs unknown names).
  * The default argument — and so every other caller, including the in-tab record — is unchanged.
  */
-const RECORDING_STAGES: ReadonlySet<string> = new Set(['session_during', 'session_after_open_mic', 'session_after_focus_points']);
+const RECORDING_STAGES: ReadonlySet<string> = new Set(['session_during', 'session_after_open_mic', 'session_after_focus_points', 'session_interrupted_repeat']);
 
 /** Whether a declaration keeps the recording spine: any recording stage, or an empty/unknown declaration (fail closed). */
 export function declaresRecordingStage(declared: readonly string[]): boolean {
@@ -637,7 +892,18 @@ export function declaresRecordingStage(declared: readonly string[]): boolean {
 }
 
 export function requiredFamiliesForStages(declared: readonly string[]): readonly string[] {
-    if (declaresRecordingStage(declared)) return REQUIRED_EVENT_FAMILIES;
+    if (declaresRecordingStage(declared)) {
+        // #1593 case 1: an interrupted repeat proves its own observed coaching lifecycle terminal, not a completed
+        // practice loop. Keep every other recording/identity family. Unknown declarations and ANY stage that requires
+        // practice_loop (including either full after-review stage) retain the original strict recording spine.
+        const interruptedWithoutFullReview = declared.includes('session_interrupted_repeat') && declared.every((name) => {
+            const stage = QUALIFICATION_STAGES.find((s) => s.stage === name);
+            return stage !== undefined && !stage.requiredFamilies.includes('practice_loop');
+        });
+        return interruptedWithoutFullReview
+            ? Object.freeze(REQUIRED_EVENT_FAMILIES.filter((family) => family !== 'practice_loop'))
+            : REQUIRED_EVENT_FAMILIES;
+    }
     const stageFamilies = declared.flatMap((name) => QUALIFICATION_STAGES.find((s) => s.stage === name)!.requiredFamilies);
     return Object.freeze([...new Set<string>([...PRE_JOURNEY_EVENT_FAMILIES, ...stageFamilies])]);
 }

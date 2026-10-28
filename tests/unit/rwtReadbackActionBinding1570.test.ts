@@ -182,3 +182,48 @@ describe('#1570 P1 — action-time readback bindings survive blind anchor beacon
         });
     });
 });
+
+describe.each(['/progress', '/analytics'])('paired readback identity fences: %s', (route) => {
+    const events = BASE.map((event) => event.event === 'journey_step' ? { ...event, toRoute: `${route}/id` } : event);
+    const bind = (bindings: readonly ReadbackActionBinding[], inputEvents = events) => bindReadbackJourneys(inputEvents, {
+        recording: [], feedback: true, actionBindings: bindings,
+        expectedReleaseSha: RELEASE, expectedRunId: RUN_ID, expectedRunAttempt: RUN_ATTEMPT,
+    });
+
+    it('captures and binds the normalized route and actual detail URL without needing an action beacon', () => {
+        const tap = new AnalyticsTap();
+        tap.events.push(...events);
+        const captured = tap.captureActionBinding('share_feedback', RELEASE, RUN_ID, RUN_ATTEMPT, `${ORIGIN}${route}/s-1`);
+        expect(captured).toEqual(action('share_feedback', { capturedAt: expect.any(Number) }));
+        expect(bind(tap.actionBindings).journeys).toEqual([{ journeyId: 'journey-current', stages: ['share_feedback'] }]);
+    });
+
+    it.each([
+        ['wrong run', { runId: 'wrong-run' }],
+        ['wrong attempt', { runAttempt: '99' }],
+        ['wrong boot', { bootId: 'other-boot' }],
+        ['wrong release', { releaseSha: 'b'.repeat(40) }],
+        ['wrong traffic', { trafficType: 'user' }],
+    ])('still rejects %s', (_label, changed) => {
+        const result = bind([action('share_feedback', changed)]);
+        expect(result.journeys).toEqual([]);
+        expect(result.missingBindings).toEqual(['share_feedback']);
+    });
+
+    it('still rejects duplicate action bindings, foreign anchors and a moved latest route', () => {
+        expect(bind([action('share_feedback'), action('share_feedback')]).missingBindings).toEqual(['share_feedback']);
+        const foreign = { event: 'feedback_submit', at: 3, journeyId: 'foreign', bootId: 'boot-current', releaseSha: RELEASE, trafficType: 'canary' };
+        expect(bind([action('share_feedback')], [...events, foreign]).missingBindings).toEqual(['share_feedback']);
+        const moved = { ...events[1], at: 3, toRoute: '/session' };
+        expect(bind([action('share_feedback')], [...events, moved]).missingBindings).toEqual(['share_feedback']);
+    });
+
+    it('will not capture a query-only route, lookalike prefix or extra segment', () => {
+        for (const pathname of [`/session?next=${route}`, `${route}ive`, `${route}/s-1/extra`]) {
+            const tap = new AnalyticsTap();
+            tap.events.push(...events);
+            expect(tap.captureActionBinding('share_feedback', RELEASE, RUN_ID, RUN_ATTEMPT, `${ORIGIN}${pathname}`)).toBeNull();
+            expect(tap.actionBindings).toEqual([]);
+        }
+    });
+});

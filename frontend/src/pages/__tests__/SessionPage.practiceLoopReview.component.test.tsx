@@ -1,5 +1,5 @@
 /** F-07 casualty: the real completed-session parent must expose the saved-session 1+1 review. */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, act } from '../../../tests/support/test-utils';
@@ -9,6 +9,11 @@ import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import * as RecoveryHook from '@/hooks/useUnresolvedRecovery';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import { webcrypto } from 'node:crypto';
+import { authEpoch, setCurrentLogin } from '@/services/loginSessionLog';
+import { clearOpenAttempt, getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
+import { progressOutcomeAllowsNextRecording, wireProgressEvaluationOnSave } from '@/services/progress/recordProgress';
+import { validateDisplayedTarget } from '@/services/progress/repeatPracticeTarget';
 
 /** #1538 Codex P1 r4118176188: every coaching request declares the closed capability. */
 const ACCEPTED_COACHING_VERSIONS = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
@@ -26,6 +31,9 @@ const coachingRequest = (sessionId: string, product: 'open_mic' | 'focus_points'
         diagnostic_attempt_id: expect.stringMatching(UUID_V4),
         client_attempt: clientAttempt,
     },
+    // #1593 (PO route-exit requirement): the invoke carries an abort signal so leaving the review cancels the wait.
+    // A transport option, not body content: the body above is still exactly the saved session id and capability.
+    signal: expect.any(AbortSignal),
 });
 type CoachingBody = { sessionId: string; diagnostic_request_id: string; diagnostic_attempt_id: string; client_attempt: number };
 
@@ -123,6 +131,7 @@ const publishCompletedSession = (wordCount: number, sessionId = 'session-complet
 
 beforeEach(() => {
     vi.clearAllMocks();
+    clearOpenAttempt(); setCurrentLogin('owner-1', 100);
     useSessionStore.getState().resetSession();
     mockLifecycle.mockReturnValue(lifecycle() as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
     mockRecovery.mockReturnValue({
@@ -131,6 +140,81 @@ beforeEach(() => {
     vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke } } as unknown as ReturnType<typeof getSupabaseClient>);
     // Default: the server retained the transcript, so the review is genuinely ready.
     getSessionById.mockResolvedValue(savedRow('available'));
+});
+
+describe('#1548 accepted instruction reaches the actual Session parent', () => {
+    it.each(['delayed', 'failed'] as const)('save B through the normal progress caller then start C with %s advancement: no inherited A advice', async advancement => {
+        localStorage.clear();
+        Object.defineProperty(globalThis.crypto, 'subtle', { configurable: true, value: webcrypto.subtle });
+        let releaseAdvance!: (value: { data: null; error: { code: string } }) => void;
+        const advancing = new Promise(resolve => { releaseAdvance = resolve; });
+        const rpc = vi.fn(async (name: string) => {
+            if (name === 'record_progress_evaluation') return { data: 'evaluation-B', error: null };
+            if (name === 'advance_recommendation_attempt') return advancing;
+            return { data: null, error: { code: 'downstream-unavailable' } };
+        });
+        vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke }, rpc, from: (table: string) => ({ select: () => {
+            const query = { eq: () => query, maybeSingle: async () => ({ data: table === 'sessions' ? { product: 'open_mic', ai_suggestions: {
+                version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.',
+            } } : null, error: null }) }; return query;
+        } }) } as unknown as ReturnType<typeof getSupabaseClient>);
+        const reference = await validateDisplayedTarget({ ownerId: 'owner-1', epoch: authEpoch(), sessionId: 'source-A',
+            product: 'open_mic', instruction: 'Name the price first.', focus: null, isCurrent: () => true });
+        setOpenAttempt({ userId: 'owner-1', attemptId: 'repeat-B', sourceSessionId: 'source-A',
+            acceptedAtIso: '2026-10-19T10:00:00.000Z', repeatTarget: reference });
+        const start = vi.fn();
+        mockLifecycle.mockReturnValue({ ...lifecycle(), showAnalyticsPrompt: false, handleStartStop: start } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'owner-1' });
+        const page = render(<SessionPage />);
+        try {
+            expect(await screen.findByText('Name the price first.')).toBeInTheDocument();
+            let outcome: Awaited<ReturnType<typeof wireProgressEvaluationOnSave>> | undefined;
+            await act(async () => { outcome = await wireProgressEvaluationOnSave({ sessionId: 'saved-repeat-B', status: 'completed',
+                attributionStatus: 'verified', metricsPersisted: true, userId: 'owner-1', takeStartedAtIso: '2026-10-19T10:01:00.000Z' }); });
+            expect(outcome).toEqual({ kind: 'recorded' });
+            expect(progressOutcomeAllowsNextRecording(outcome!)).toBe(true);
+            expect(getOpenAttemptForUser('owner-1')).toMatchObject({ attemptId: 'repeat-B', resolutionSessionId: 'saved-repeat-B' });
+            await waitFor(() => expect(rpc).toHaveBeenCalledWith('advance_recommendation_attempt', expect.objectContaining({ p_practice_session_id: 'saved-repeat-B' })));
+            if (advancement === 'failed') await act(async () => { releaseAdvance({ data: null, error: { code: 'offline' } }); });
+            // Evaluation is durable and the existing save caller has unlocked the next recording; advancement is not its gate.
+            expect(screen.getByTestId('mic-start')).toBeEnabled();
+            screen.getByTestId('mic-start').click();
+            expect(start).toHaveBeenCalledOnce();
+            mockLifecycle.mockReturnValue({ ...lifecycle(), isListening: true, showAnalyticsPrompt: false,
+                handleStartStop: start, sttStatus: { type: 'recording', message: 'Recording active' } } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+            act(() => { useSessionStore.getState().setCaptureLive(true); page.rerender(<SessionPage />); });
+            expect(screen.getByTestId('coaching-card')).toHaveAttribute('data-coaching-state', 'during');
+            expect(screen.queryByText('Name the price first.')).not.toBeInTheDocument();
+            expect(getOpenAttemptForUser('owner-1')?.resolutionSessionId).toBe('saved-repeat-B');
+        } finally {
+            await act(async () => { releaseAdvance({ data: null, error: { code: 'offline' } }); for (let i = 0; i < 25; i++) await Promise.resolve(); });
+            clearOpenAttempt();
+        }
+    });
+    it('renders the same instruction before/during, then immediately removes it after account invalidation', async () => {
+        Object.defineProperty(globalThis.crypto, 'subtle', { configurable: true, value: webcrypto.subtle });
+        const sourceRead = vi.fn().mockResolvedValue({ data: { product: 'open_mic', ai_suggestions: {
+            version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.',
+        } }, error: null });
+        vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke }, from: () => ({ select: () => {
+            const query = { eq: () => query, maybeSingle: sourceRead }; return query;
+        } }) } as unknown as ReturnType<typeof getSupabaseClient>);
+        const reference = await validateDisplayedTarget({ ownerId: 'owner-1', epoch: authEpoch(), sessionId: 'source-1',
+            product: 'open_mic', instruction: 'Name the price first.', focus: null, isCurrent: () => true });
+        setOpenAttempt({ userId: 'owner-1', attemptId: 'repeat-1', sourceSessionId: 'source-1', repeatTarget: reference });
+        mockLifecycle.mockReturnValue({ ...lifecycle(), showAnalyticsPrompt: false } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        const page = render(<SessionPage />);
+        expect(await screen.findByText('Name the price first.')).toBeInTheDocument();
+        expect(screen.getByTestId('coaching-card')).toHaveAttribute('data-coaching-state', 'before');
+        mockLifecycle.mockReturnValue({ ...lifecycle(), isListening: true, showAnalyticsPrompt: false,
+            sttStatus: { type: 'recording', message: 'Recording active' } } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        act(() => { useSessionStore.getState().setCaptureLive(true); page.rerender(<SessionPage />); });
+        expect(screen.getByTestId('coaching-card')).toHaveAttribute('data-coaching-state', 'during');
+        expect(screen.getByTestId('repeat-practice-target')).toHaveTextContent('Name the price first.');
+        act(() => { setCurrentLogin('owner-2', 200); page.rerender(<SessionPage />); });
+        expect(screen.queryByText('Name the price first.')).not.toBeInTheDocument();
+        clearOpenAttempt();
+    });
 });
 
 describe('F-07 completed-session Practice Loop review', () => {
@@ -818,5 +902,69 @@ describe('F-07 completed-session Practice Loop review', () => {
         invoke.mockResolvedValue(PAIR);
         render(<SessionPage />);
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
+    });
+});
+
+describe('#1258 PR A — next-take prewarm and page visibility (Codex r4291244687)', () => {
+    const setVisibility = (state: 'visible' | 'hidden') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    };
+    // Only THIS block's own spies are restored — a global restore would also undo the setup's observer mocks.
+    const spies: Array<{ mockRestore: () => void }> = [];
+    const spy = <T extends { mockRestore: () => void }>(s: T): T => { spies.push(s); return s; };
+    afterEach(() => { setVisibility('visible'); spies.splice(0).forEach((s) => s.mockRestore()); });
+
+    it('a review that became eligible while HIDDEN prewarms when the tab becomes visible again', async () => {
+        const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
+        const prepare = spy(vi.spyOn(speechRuntimeController, 'prepareNextTake').mockResolvedValue(undefined));
+        invoke.mockResolvedValue({ data: null, error: null });
+        setVisibility('hidden');
+        act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+        publishCompletedSession(4);
+        render(<SessionPage />);
+        await settleMicrotasks();
+        expect(prepare, 'nothing is prepared while the page is hidden').not.toHaveBeenCalled();
+
+        setVisibility('visible');
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        await waitFor(() => expect(prepare).toHaveBeenCalledWith('private'));
+    });
+
+    it('a review that is NO LONGER eligible when the tab returns (an unresolved save appeared) is not prepared — visibility is not permission', async () => {
+        const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
+        const prepare = spy(vi.spyOn(speechRuntimeController, 'prepareNextTake').mockResolvedValue(undefined));
+        invoke.mockResolvedValue({ data: null, error: null });
+        setVisibility('hidden');
+        act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+        publishCompletedSession(4);
+        render(<SessionPage />);
+        await settleMicrotasks();
+        act(() => { useSessionStore.getState().setEngineSelectionLock(true, 'full_save'); });
+        setVisibility('visible');
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        await settleMicrotasks();
+        expect(prepare).not.toHaveBeenCalled();
+    });
+
+    it('the visibility listener is removed on unmount: a later tab return prepares nothing', async () => {
+        const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
+        const prepare = spy(vi.spyOn(speechRuntimeController, 'prepareNextTake').mockResolvedValue(undefined));
+        const added = spy(vi.spyOn(document, 'addEventListener'));
+        const removed = spy(vi.spyOn(document, 'removeEventListener'));
+        invoke.mockResolvedValue({ data: null, error: null });
+        setVisibility('hidden');
+        act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+        publishCompletedSession(4);
+        const { unmount } = render(<SessionPage />);
+        await settleMicrotasks();
+        const handlers = added.mock.calls.filter(([type]) => type === 'visibilitychange').map(([, h]) => h);
+        expect(handlers.length, 'the page listens for tab return').toBeGreaterThan(0);
+        unmount();
+        const removedHandlers = removed.mock.calls.filter(([type]) => type === 'visibilitychange').map(([, h]) => h);
+        expect(handlers.every((h) => removedHandlers.includes(h)), 'every visibility listener the page added is removed').toBe(true);
+        setVisibility('visible');
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        await settleMicrotasks();
+        expect(prepare).not.toHaveBeenCalled();
     });
 });

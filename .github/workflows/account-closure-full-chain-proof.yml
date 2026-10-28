@@ -1,0 +1,116 @@
+name: Account closure full Supabase chain (disposable)
+
+on:
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/**'
+      - 'tests/db/account-closure-full-chain*'
+      - 'tests/db/retention-edited-take-full-chain.mjs'
+      - 'tests/db/retention-edited-take-full-chain.test.mjs'
+      - 'tests/db/t2-native-catalog-proof.mjs'
+      - 'tests/db/t2-native-catalog-proof.test.mjs'
+      - 'tests/db/t2-native-catalog-expanded.test.mjs'
+      # The attested catalog query and pins: a pin/query change must receive native verification before production
+      # postflight consumes it; the offline tests echo the pins back and cannot catch a wrong one (Codex P2 4363567722).
+      - 'scripts/lib/t2MigrationPostflight.mjs'
+      - 'scripts/t2-migration-postflight.mjs'
+      - 'scripts/lib/exactMigrationGate.mjs'
+      - 'tests/db/account-closure-concurrency-realpg.mjs'
+      - 'tests/db/account-closure-attestation-realpg.mjs'
+      - 'tests/db/account-closure-tokens.integration.test.ts'
+      - 'tests/db/account-closure-enforcement-full-chain.sql'
+      - 'tests/db/account-closure-denial-control.sql'
+      - 'tests/db/checkout-rejection-recovery.sql'
+      - 'tests/db/checkoutRejectionRecovery.integration.test.ts'
+      - 'tests/db/analytics-observed-rate-full-chain.sql'
+      - 'tests/db/analytics-observed-rate-full-chain.integration.test.ts'
+      - 'tests/db/account-closure-pending-invariants.sql'
+      - 'tests/db/account-recording-admission-invariants.sql'
+      - 'tests/db/account-coaching-admission-invariants.sql'
+      - 'tests/db/account-completion-full-chain-invariants.sql'
+      - 'tests/db/account-completion-billing-full-chain-invariants.sql'
+      # #1643 UNKNOWN-coaching fence: its native and PGlite proofs and every source they consume, so a test-only or
+      # fixture-only change cannot skip the proof.
+      - 'tests/db/account-coaching-fence.realpg.mjs'
+      - 'tests/db/account-coaching-fence.integration.test.ts'
+      - 'tests/db/account-completion-fixture.mjs'
+      - 'tests/db/account-closure-pending-fixture.mjs'
+      - 'backend/supabase/functions/get-ai-suggestions/contract.json'
+      - 'backend/supabase/functions/_shared/accountClosureCompletionStatus.ts'
+      - 'backend/supabase/functions/_shared/accountClosureCompletionAdapter.ts'
+      - 'scripts/lib/accountClosure*'
+      - 'scripts/lib/checkoutRejectionGate.mjs'
+      - 'scripts/checkout-rejection-gate.mjs'
+      - 'scripts/account-closure-*-gate.mjs'
+      - '.github/workflows/account-closure-full-chain-proof.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: account-closure-full-chain-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: Supabase 17.6.1.155 immutable full-chain proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      SUPABASE_ACCESS_TOKEN: ''
+      SUPABASE_DB_PASSWORD: ''
+      PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # Original106 FAIL and fixed155 PASS retained in run38972853890.
+      # Driver pins/verifies immutable image content, not merely this tag.
+      PROOF_POSTGRES_VERSION: '17.6.1.155'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Prove explicit main, Analytics, U1 and account replay plans offline
+        run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs tests/db/t2-native-catalog-proof.test.mjs tests/db/t2-native-catalog-expanded.test.mjs tests/db/retention-edited-take-full-chain.test.mjs
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+      - name: Install native PostgreSQL 17 host binaries (bounded)
+        run: |
+          set -euo pipefail
+          timeout 180 sudo apt-get update -qq
+          timeout 180 sudo apt-get install -y -qq postgresql-common
+          timeout 240 sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          timeout 300 sudo apt-get install -y -qq postgresql-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/initdb --version
+          /usr/lib/postgresql/17/bin/pg_ctl --version
+          /usr/lib/postgresql/17/bin/psql --version
+      - name: Prove native closure concurrency on the exact requested head
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse HEAD)"
+          [ "$actual_head" = "$PROOF_HEAD_SHA" ] || { echo '::error::native proof source differs from requested head'; exit 1; }
+          echo "Native concurrency tested head: $actual_head"
+          node tests/db/account-closure-concurrency-realpg.mjs
+          node tests/db/account-closure-attestation-realpg.mjs
+          node tests/db/account-coaching-fence.realpg.mjs
+      - name: Replay actual baseline and closure migration; prove invariants
+        run: node tests/db/account-closure-full-chain.mjs --profile=main-completion-billing-129
+      - name: Recover owned disposable resources after interruption
+        if: always()
+        run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-completion-billing-129
+      - name: Retain bounded proof manifest
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: account-closure-full-chain-17.6.1.155-${{ github.event.pull_request.head.sha }}
+          path: |
+            artifacts/account-closure-full-chain/*.json
+            artifacts/account-coaching-fence/*.json
+          if-no-files-found: error
+          retention-days: 1

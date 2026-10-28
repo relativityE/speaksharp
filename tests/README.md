@@ -13,7 +13,7 @@ Tests should surface failures immediately. If a selector isn't visible or a sign
 - **❌ BAD:** `await page.waitForTimeout(5000)` (Hard to tune, slow if too long, flaky if too short)
 - **✅ GOOD:** `await page.waitForFunction(() => (window as unknown as { __e2eProfileLoaded__: boolean }).__e2eProfileLoaded__ === true)`
 
-By injecting signals into the app (e.g., `__e2eProfileLoaded`, `__e2eBridgeReady`), we ensure that tests proceed the exact millisecond the application is ready, regardless of CI environment speed or network latency.
+By injecting signals into the app (e.g., `__e2eProfileLoaded`, `__e2eBridgeReady`), we ensure that tests can wait for the observed contract instead of a fixed delay. A signal proves only its documented boundary: selectors are not readiness, sent events are not received proof, and missing/lost observations cannot be inferred.
 
 ### 3. Print Negatives, Assert Positives
 - **Logging:** Only log diagnostic information (errors, warnings, state changes) using helpers like `attachLiveTranscript` or `debugLog`.

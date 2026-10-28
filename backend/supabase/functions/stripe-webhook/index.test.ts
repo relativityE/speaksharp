@@ -33,13 +33,63 @@ const mkSupabase = (rpcResult: any = { data: { success: true, entitlement: "pro"
   let capturedArgs: any = null;
   return {
     calls: () => capturedArgs,
-    supabase: { rpc: (_fn: string, args: any) => { capturedArgs = args; return Promise.resolve(rpcResult); } },
+    supabase: { rpc: (_fn: string, args: any) => { if (_fn === "apply_stripe_subscription_snapshot") capturedArgs = args; return Promise.resolve(rpcResult); } },
   };
 };
 
 const req = (event: any) => new Request("http://localhost", { method: "POST", headers: { "Stripe-Signature": "mock" }, body: JSON.stringify(event) });
 
 Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
+  await t.step('reserved checkout completion atomically applies snapshot and settlement; failed duplicate stays retryable',async()=>{
+    const names:string[]=[];
+    const database={rpc:async(name:string,args:Record<string,unknown>)=>{names.push(name);
+      if(name==='apply_account_checkout_snapshot') {
+        assertEquals(args.p_operation_id,'operation');
+        assertEquals(args.p_session_id,'cs');
+        assertEquals(args.p_user_id,'user_1');
+        return {data:null,error:{message:'fenced'}};
+      }
+      return {data:{success:true,skipped:true},error:null};
+    }};
+    const res=await handler(req({id:'duplicate',type:'checkout.session.completed',data:{object:{id:'cs',
+      client_reference_id:'user_1',metadata:{userId:'user_1',billingOperationId:'operation'},subscription:'sub_1',customer:'cus_1'}}}),
+      mkStripe(),database,'secret',env);
+    assertEquals(res.status,500);
+    assertEquals(names,['apply_account_checkout_snapshot']);
+  });
+  await t.step('reserved checkout duplicate succeeds through one atomic canonical wrapper',async()=>{
+    const names:string[]=[];
+    const database={rpc:async(name:string,args:Record<string,unknown>)=>{
+      names.push(name); assertEquals(args.p_customer_id,'cus_1'); assertEquals(args.p_subscription_id,'sub_1');
+      return {data:{success:true,skipped:true},error:null};
+    }};
+    const res=await handler(req({id:'duplicate',type:'checkout.session.completed',data:{object:{id:'cs',
+      client_reference_id:'user_1',metadata:{userId:'user_1',billingOperationId:'operation'},subscription:'sub_1',customer:'cus_1'}}}),
+      mkStripe(),database,'secret',env);
+    assertEquals(res.status,200); assertEquals(names,['apply_account_checkout_snapshot']);
+  });
+  await t.step('Edge deployed before successor schema preserves reserved checkout through the legacy RPCs',async()=>{
+    const names:string[]=[];
+    const database={rpc:async(name:string,args:Record<string,unknown>)=>{
+      names.push(name);
+      if(name==='apply_account_checkout_snapshot') return {data:null,error:{code:'PGRST202',message:'function absent from schema cache'}};
+      if(name==='settle_account_checkout') assertEquals(args.p_operation_id,'operation');
+      return {data:{success:true},error:null};
+    }};
+    const res=await handler(req({id:'pre_schema',type:'checkout.session.completed',data:{object:{id:'cs',
+      client_reference_id:'user_1',metadata:{userId:'user_1',billingOperationId:'operation'},subscription:'sub_1',customer:'cus_1'}}}),
+      mkStripe(),database,'secret',env);
+    assertEquals(res.status,200);
+    assertEquals(names,['apply_account_checkout_snapshot','apply_stripe_subscription_snapshot','settle_account_checkout']);
+  });
+  await t.step('ambiguous atomic RPC failure never retries through legacy mutations',async()=>{
+    const names:string[]=[];
+    const database={rpc:async(name:string)=>{names.push(name);return {data:null,error:{code:'08006',message:'reply lost'}};}};
+    const res=await handler(req({id:'lost_reply',type:'checkout.session.completed',data:{object:{id:'cs',
+      client_reference_id:'user_1',metadata:{userId:'user_1',billingOperationId:'operation'},subscription:'sub_1',customer:'cus_1'}}}),
+      mkStripe(),database,'secret',env);
+    assertEquals(res.status,500); assertEquals(names,['apply_account_checkout_snapshot']);
+  });
   await t.step("checkout.session.completed with an active, correctly-priced sub → snapshot with user binding", async () => {
     const sb = mkSupabase();
     const res = await handler(req({ id: "e1", type: "checkout.session.completed", created: 1000,
@@ -104,6 +154,16 @@ Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
     assertEquals(sb.calls().p_status, "active");
     assertEquals(sb.calls().p_user_id, null);           // later events use stored identity
     assertEquals(sb.calls().p_has_approved_price, true);
+  });
+
+  await t.step("un-cancel forwards the cleared flag", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e_resumed", type: "customer.subscription.updated", created: 2400,
+      data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: sub({ status: "active", cancel_at_period_end: false }) }), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls().p_status, "active");
+    assertEquals(sb.calls().p_cancel_at_period_end, false);
   });
 
   await t.step("active sub with the WRONG price → snapshot revokes/refuses Pro, then non-2xx", async () => {

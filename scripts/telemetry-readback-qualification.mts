@@ -58,6 +58,7 @@ const CONTROLLED_EVIDENCE_TRAFFIC: readonly (typeof TRAFFIC_TYPES[number])[] = [
 import { GOVERNED_EVENTS } from '../frontend/src/services/telemetryAllowlist';
 import { createHash } from 'node:crypto';
 import { evaluateCoachingDiagnosticReceipt, validExpectation } from '../frontend/src/services/telemetry/coachingDiagnosticReceipt';
+import { ACQUISITION_COLUMNS, COACHING_COLUMNS, IDENTITY_COLUMNS, READBACK_COLUMNS, USER_STAGE_COLUMNS, decodeByColumns, readbackRowsFromNamed, selectAliases } from '../frontend/src/services/telemetry/readbackColumns';
 
 /** #1258 (#1563): the exit code for an OBSERVED received failure, distinct from HOLD (1). rc-gates.yml records it as FAIL. */
 const READBACK_FAIL_EXIT = 3;
@@ -116,6 +117,10 @@ const journeyId = arg('--journey-id') ?? process.env.TELEMETRY_QUALIFICATION_JOU
  */
 const trafficType = arg('--traffic-type') ?? process.env.TELEMETRY_QUALIFICATION_TRAFFIC_TYPE ?? null;
 const windowHours = Number(arg('--window-hours') ?? 24);
+// One deadline covers both headers and body; partial response progress must not extend it.
+// The bounded CLI override supports controlled diagnostics without changing any production credentials.
+const queryTimeoutArgument = process.argv.indexOf('--query-timeout-ms');
+const queryTimeoutMs = queryTimeoutArgument < 0 ? 30_000 : Number(process.argv[queryTimeoutArgument + 1]);
 
 /** Every refusal lands here, so a missing precondition cannot become a pass by another route. */
 function hold(reason: string, observed: string[] = []): never {
@@ -169,6 +174,9 @@ async function main(): Promise<void> {
         hold(`--traffic-type ${trafficType} is not a controlled evidence class; only ${CONTROLLED_EVIDENCE_TRAFFIC.join(' or ')} may qualify a release`);
     }
     if (!Number.isFinite(windowHours) || windowHours <= 0) hold(`--window-hours ${windowHours} is not a positive number`);
+    if (!Number.isInteger(queryTimeoutMs) || queryTimeoutMs < 1 || queryTimeoutMs > 120_000) {
+        hold('--query-timeout-ms must be an integer between 1 and 120000');
+    }
 
     const projectId = process.env.POSTHOG_PROJECT_ID;
     const personalApiKey = process.env.POSTHOG_PERSONAL_API_KEY;
@@ -184,26 +192,41 @@ async function main(): Promise<void> {
      * EITHER must HOLD. Duplicating the fetch would have meant duplicating five refusal paths, and the
      * second copy is where one of them goes missing.
      */
-    async function runQuery(hogql: string, label: string): Promise<unknown[]> {
-        let response: Response;
-        try {
-            response = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId!)}/query/`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${personalApiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: { kind: 'HogQLQuery', query: hogql } }),
-            });
-        } catch (err) {
-            hold(`${label} request failed: ${(err as Error).name}`);
+    async function runQuery(hogql: string, label: string, expected: readonly string[]): Promise<Record<string, unknown>[]> {
+        // The SELECT and response metadata are independently checked. A changed query must not
+        // silently redefine the decoder's contract; a response reorder can still map safely by name.
+        const selected = selectAliases(hogql);
+        if (selected.length !== expected.length || selected.some(name => !expected.includes(name)) || new Set(selected).size !== selected.length) {
+            hold(`${label} query selects [${selected.join(',')}], not the decoder's declared columns`);
         }
-        if (!response.ok) hold(`${label} returned HTTP ${response.status}`);
-
+        const controller = new AbortController();
+        const deadline = setTimeout(() => controller.abort(), queryTimeoutMs);
         let payload: unknown;
         try {
-            payload = await response.json();
-        } catch {
-            hold(`${label} response was not JSON`);
+            let response: Response;
+            try {
+                response = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId!)}/query/`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${personalApiKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: { kind: 'HogQLQuery', query: hogql } }),
+                    signal: controller.signal,
+                });
+            } catch (err) {
+                if (controller.signal.aborted) hold(`${label} exceeded its ${queryTimeoutMs} ms query deadline`);
+                hold(`${label} request failed: ${(err as Error).name}`);
+            }
+            if (!response.ok) hold(`${label} returned HTTP ${response.status}`);
+            try {
+                payload = await response.json();
+            } catch {
+                if (controller.signal.aborted) hold(`${label} exceeded its ${queryTimeoutMs} ms query deadline`);
+                hold(`${label} response was not JSON`);
+            }
+        } finally {
+            clearTimeout(deadline);
         }
 
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) hold(`${label} response was not an object`);
         const rows = (payload as { results?: unknown }).results;
         // Not an array means the API shape changed under us. Treating an unreadable answer as an empty
         // one would report "nothing was emitted" for what is really "we cannot read the answer".
@@ -211,7 +234,9 @@ async function main(): Promise<void> {
         // #1258 (RWT run 37514078995, F1): the query API marks a result it cut short. A truncated answer is not an
         // absence — reading it as one reported whole journeys as "never observed" while PostHog held them.
         if ((payload as { hasMore?: unknown }).hasMore === true) hold(`${label} was truncated by the query API (hasMore) — an incomplete answer cannot prove absence`);
-        return rows;
+        const decoded = decodeByColumns(expected, (payload as { columns?: unknown }).columns, rows);
+        if (!decoded.ok) hold(`${label}: ${decoded.reason}`);
+        return decoded.rows;
     }
 
     // Governed vocabulary only, bound to this release. `event` is the family name; no property is
@@ -232,11 +257,10 @@ async function main(): Promise<void> {
               AND properties.journey_id = ${sql(journeyId)}
               AND event IN (${GOVERNED_EVENTS.map(sql).join(', ')})
             GROUP BY event
-        `, 'the user-stage receipt');
+        `, 'the user-stage receipt', USER_STAGE_COLUMNS);
         const received: Record<string, number> = {};
         for (const row of rows) {
-            const c = Array.isArray(row) ? row : [];
-            if (typeof c[0] === 'string' && typeof c[1] === 'number') received[c[0]] = c[1];
+            if (typeof row.event === 'string' && typeof row.received === 'number') received[row.event] = row.received;
         }
         const state = Object.keys(received).length > 0 ? 'RECEIVED' : 'NOT_RECEIVED';
         console.log(`USER_STAGE_RECEIPT ${JSON.stringify({ release_sha: releaseSha, journey_id: journeyId, traffic_type: 'user', state, received, qualifies: false })}`);
@@ -265,14 +289,15 @@ async function main(): Promise<void> {
      * readback holds rather than falling back to an unbound match.
      */
     const identityQuery = `
-        SELECT DISTINCT distinct_id
+        SELECT DISTINCT distinct_id AS distinct_id
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${sql(releaseSha)}
           AND properties.traffic_type = ${sql(trafficType)}
           AND properties.journey_id = ${sql(journeyId)}
     `;
-    const identityRows = await runQuery(identityQuery, 'the qualifying identity lookup');
+    const identityResult = await runQuery(identityQuery, 'the qualifying identity lookup', IDENTITY_COLUMNS);
+    const identityRows = identityResult.map(row => [row.distinct_id]);
 
     // #1421 P2 — the reading lives in a checked, testable module; the policy stays here. A malformed
     // row is a HOLD, not something to filter away before counting what is left.
@@ -293,9 +318,12 @@ async function main(): Promise<void> {
         try { expected = JSON.parse(process.env.COACHING_DIAGNOSTIC_EXPECTATION ?? 'null'); } catch { expected = null; }
         if (!validExpectation(expected)) hold('COACHING_DIAGNOSTIC_EXPECTATION is missing or malformed — the receipt named no sent request to bind');
         const coachingRows = await runQuery(`
-            SELECT event, properties.diagnostic_request_id, properties.diagnostic_attempt_id, properties.outcome, properties.product,
-                   properties.configured_model, properties.observed_model, properties.status, properties.provider_status,
-                   properties.client_release_id, properties.coaching_diagnostic_id, properties.source, properties.provider_attempts
+            SELECT event, properties.diagnostic_request_id AS diagnostic_request_id, properties.diagnostic_attempt_id AS diagnostic_attempt_id,
+                   properties.outcome AS outcome, properties.product AS product,
+                   properties.configured_model AS configured_model, properties.observed_model AS observed_model,
+                   properties.status AS status, properties.provider_status AS provider_status,
+                   properties.client_release_id AS client_release_id, properties.coaching_diagnostic_id AS coaching_diagnostic_id,
+                   properties.source AS source, properties.provider_attempts AS provider_attempts, uuid, properties.client_attempt AS client_attempt
             FROM events
             WHERE event IN ('ai_coaching_diagnostic', 'feedback_submit')
               AND timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
@@ -304,14 +332,17 @@ async function main(): Promise<void> {
               AND distinct_id = ${sql(qualifyingIdentity)}
             ORDER BY timestamp ASC
             LIMIT 500
-        `, 'the coaching diagnostic receipt');
+        `, 'the coaching diagnostic receipt', COACHING_COLUMNS);
         if (coachingRows.length >= 500) hold('the coaching diagnostic receipt reached its row limit — absence cannot be proven');
         const received = coachingRows.map((row) => {
-            const c = Array.isArray(row) ? row : [];
             return {
-                event: c[0], requestId: c[1], attemptId: c[2], outcome: c[3], product: c[4], configuredModel: c[5],
-                observedModel: c[6], status: c[7], providerStatus: c[8], clientReleaseId: c[9], coachingDiagnosticId: c[10],
-                source: c[11], providerAttempts: c[12],
+                event: row.event, requestId: row.diagnostic_request_id, attemptId: row.diagnostic_attempt_id,
+                outcome: row.outcome, product: row.product, configuredModel: row.configured_model,
+                observedModel: row.observed_model, status: row.status, providerStatus: row.provider_status,
+                clientReleaseId: row.client_release_id, coachingDiagnosticId: row.coaching_diagnostic_id,
+                source: row.source, providerAttempts: row.provider_attempts,
+                // Smoke item 3: identity diagnostics only — reported as counts/closed values, never as raw ids.
+                uuid: row.uuid, clientAttempt: row.client_attempt,
             };
         });
         const sha256 = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -338,56 +369,13 @@ async function main(): Promise<void> {
         quote: sql,
     });
 
-    const rows = await runQuery(query, 'the readback');
+    // #1539 F1: the SELECT actually sent must name the declared current 45-column contract.
+    const rows = await runQuery(query, 'the readback', READBACK_COLUMNS);
     if (readbackTruncated(rows.length)) hold(`the readback reached its explicit row limit (${READBACK_ROW_LIMIT}) — the result may be truncated, so absence cannot be proven`);
 
     // Deliberately unsanitised: the evaluator's own contract is that it receives whatever the readback
     // saw, junk included, because a decoder that tidies its input cannot report that the input was wrong.
-    const readback = rows.map((row) => {
-        const cells = Array.isArray(row) ? row : [row];
-        return {
-            event: cells[0] as string,
-            timestamp: cells[1] as string,
-            journeyId: (cells[2] ?? null) as string | null,
-            bootId: (cells[3] ?? null) as string | null,
-            properties: {
-                outcome: cells[4] ?? null,
-                to_state: cells[5] ?? null,
-                acquired_candidate_id: cells[6] ?? null,
-                expected_candidate_id: cells[7] ?? null,
-                candidate_id: cells[8] ?? null,
-                engine: cells[9] ?? null,
-                runtime_version: cells[10] ?? null,
-                attempt_id: cells[11] ?? null,
-                attempt_seq: cells[12] ?? null,
-                subject_boot_id: cells[13] ?? null,
-                subject_journey_id: cells[14] ?? null,
-                subject_attempt_id: cells[15] ?? null,
-                subject_attempt_seq: cells[16] ?? null,
-                attribution_status: cells[17] ?? null,
-                stage: cells[18] ?? null,
-                transcript_visibly_present: cells[19] ?? null,
-                digests_match: cells[20] ?? null,
-                transport_initialized: cells[21] ?? null,
-                flush_outcome: cells[22] ?? null,
-                dropped_count: cells[23] ?? null,
-                comparison_evidence_document_id: cells[24] ?? null,
-                review_surface: cells[25] ?? null,
-                phase: cells[26] ?? null,
-                suggestions_present: cells[27] ?? null,
-                // #1258 (#1563): outcome-correlation fields, appended in query order.
-                action: cells[28] ?? null,
-                action_seq: cells[29] ?? null,
-                intended_route: cells[30] ?? null,
-                route_class: cells[31] ?? null,
-                link_state: cells[32] ?? null,
-                submit_seq: cells[33] ?? null,
-                error_category: cells[34] ?? null,
-                // Codex r4197007868: the producer time (`$ts`) that orders outcome correlation.
-                producer_ts: cells[35] ?? null,
-            },
-        };
-    });
+    const readback = readbackRowsFromNamed(rows);
 
     const boot = resolveBootAuthority(readback, journeyId);
     if (!boot.ok) hold(`journey ${journeyId}: ${boot.reason}`);
@@ -416,6 +404,9 @@ async function main(): Promise<void> {
     if (declared.length === 0) {
         hold('QUALIFICATION_STAGES is not set: a run must declare which UI stages it exercised');
     }
+    // #1532 Codex P1 r4124290575: the recording attempts the run named for this binding (the saved take). #1593 (Sam
+    // 16:44:51): the same declaration binds the interrupted repeat take's stage to THE declared take, never a guessed one.
+    const expectedAttempts = (process.env.QUALIFICATION_ATTEMPT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const stageReasons: string[] = [];
     for (const name of declared) {
         const stage = QUALIFICATION_STAGES.find((candidate) => candidate.stage === name);
@@ -427,7 +418,7 @@ async function main(): Promise<void> {
         // family check uses, never the whole readback — plus any attribution receipt whose SUBJECT is this
         // journey, wherever it was emitted (#1421 P1 `3984043475`).
         const scoped = stageEvidenceRows(readback, journeyId, PRE_JOURNEY_EVENT_FAMILIES);
-        stageReasons.push(...evaluateQualificationStage(stage, scoped));
+        stageReasons.push(...evaluateQualificationStage(stage, scoped, { expectedAttemptIds: expectedAttempts }));
     }
 
     // #1532 Codex P1 r4120338743: the base families follow the declared stages (a feedback-only journey never records).
@@ -448,7 +439,6 @@ async function main(): Promise<void> {
     // #1532 Codex P1 r4120724715: the singleton set follows the declared stages (a feedback-only journey never records).
     // #1532 Codex P1 r4124290575: the recording singletons are judged per EXPECTED attempt the run named (the saved take),
     // so the unsaved repeat and next-Start takes in the same journey neither count against it nor hide its absence.
-    const expectedAttempts = (process.env.QUALIFICATION_ATTEMPT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const delivery = evaluateAttemptScopedDelivery(deliveryRows, exactlyOnceFamiliesForStages(declared), expectedAttempts);
     // #1258 (#1563, Codex r4197007854): an OBSERVED failure is FAIL (exit 3, never retried into HOLD); missing is HOLD.
     const verdict: ReadbackVerdict = readbackVerdict(stageReasons, result.verdict, delivery.verdict);
@@ -493,10 +483,11 @@ async function main(): Promise<void> {
     }
     if (acquisitionRequired) {
         const acquisitionRows = await runQuery(`
-            SELECT properties.model_identity, properties.acquired_candidate_id, properties.cache_result,
-                   properties.measurement_completeness, properties.measurement_reason_code, properties.network_used,
-                   properties.download_ms, properties.init_ms, properties.total_ms, properties.network_bytes,
-                   properties.partial_download_ms
+            SELECT properties.model_identity AS model_identity, properties.acquired_candidate_id AS acquired_candidate_id,
+                   properties.cache_result AS cache_result, properties.measurement_completeness AS measurement_completeness,
+                   properties.measurement_reason_code AS measurement_reason_code, properties.network_used AS network_used,
+                   properties.download_ms AS download_ms, properties.init_ms AS init_ms, properties.total_ms AS total_ms,
+                   properties.network_bytes AS network_bytes, properties.partial_download_ms AS partial_download_ms
             FROM events
             WHERE event = 'private_model_acquisition_success'
               AND timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
@@ -505,17 +496,16 @@ async function main(): Promise<void> {
               AND properties.journey_id = ${sql(journeyId)}
               AND distinct_id = ${sql(qualifyingIdentity)}
             ORDER BY timestamp ASC
-        `, 'the acquisition receipt');
+        `, 'the acquisition receipt', ACQUISITION_COLUMNS);
         const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
         const str = (v: unknown) => (typeof v === 'string' ? v : null);
         const receipts = acquisitionRows.map((row) => {
-            const c = Array.isArray(row) ? row : [];
             return {
-                model_identity: str(c[0]), acquired_candidate_id: str(c[1]), cache_result: str(c[2]),
-                measurement_completeness: str(c[3]), measurement_reason_code: str(c[4]),
-                network_used: typeof c[5] === 'boolean' ? c[5] : null,
-                download_ms: num(c[6]), init_ms: num(c[7]), total_ms: num(c[8]), network_bytes: num(c[9]),
-                partial_download_ms: num(c[10]),
+                model_identity: str(row.model_identity), acquired_candidate_id: str(row.acquired_candidate_id), cache_result: str(row.cache_result),
+                measurement_completeness: str(row.measurement_completeness), measurement_reason_code: str(row.measurement_reason_code),
+                network_used: typeof row.network_used === 'boolean' ? row.network_used : null,
+                download_ms: num(row.download_ms), init_ms: num(row.init_ms), total_ms: num(row.total_ms), network_bytes: num(row.network_bytes),
+                partial_download_ms: num(row.partial_download_ms),
             };
         });
         const first = receipts[0];

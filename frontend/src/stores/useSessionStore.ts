@@ -68,6 +68,19 @@ export interface SessionState {
     pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | null;
     isLockHeldByOther: boolean;
     isListening: boolean;
+    /**
+     * #1258 C10 — when the person pressed Start (or `Practice again?`) for the start now in progress; null when no
+     * start is pending. Set at the accepted press, cleared on refusal/failure or once capture is live on real
+     * microphone frames. The honest-wait UI (`Starting…`, `Getting your mic ready…`, the 10 s notice) reads it.
+     */
+    startupWaitStartedAt: number | null;
+    /**
+     * #1258 C10 — ONE definition of "recording begins": capture is live on real microphone frames (silence counts).
+     * Private sets it from the engine's real-frame readiness (`PrivateWhisper` stable frames → `recording`), never
+     * from the FSM entering RECORDING; other modes capture from the RECORDING transition itself. Every live
+     * indicator (`Speak now`, the timer, `● RECORDING`, the waveform, `Recording active`) reads this.
+     */
+    captureLive: boolean;
     isInitiating: boolean;
     isReady: boolean;
     transcript: TranscriptState;
@@ -117,6 +130,13 @@ export interface SessionState {
      * optional extra failing can no longer take the user's transcript away.
      */
     completedSessionId: string | null;
+    /**
+     * #1258 RWT round 2 C — the session a Retry Save has just RECOVERED, published only by the controller's
+     * owner-fenced full-save settlement. It is the page's one licence to enter the saved-take review after a
+     * failed Stop: a successful Stop enters it directly, but a recovered save arrives later, outside the Stop
+     * handler. A no-op or superseded retry never sets it. Retired with the take's other after-state identity.
+     */
+    recoveredSaveSessionId: string | null;
     /**
      * #1046 slice 3b-ii: the Focus Points brief the CURRENT recording is being made against, or null for
      * a freeform (Open Mic) recording. Set at objective-session entry (slice 5); read at the stop seam
@@ -191,6 +211,8 @@ export interface SessionState {
 
 interface SessionActions {
     setRuntimeState: (state: RuntimeState) => void;
+    setStartupWaitStartedAt: (startedAt: number | null) => void;
+    setCaptureLive: (captureLive: boolean) => void;
     setEngineSelectionLock: (locked: boolean, pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | null) => void;
     startSession: () => void;
     stopSession: () => void;
@@ -239,6 +261,7 @@ interface SessionActions {
     setNativeFormatting: (formatting: NativeFormattingUiState) => void;
     setFinalizedAnalysis: (analysis: FinalizedAnalysisState | null) => void;
     setCompletedSessionId: (sessionId: string | null) => void;
+    setRecoveredSaveSessionId: (sessionId: string | null) => void;
     setFinalizedWordCount: (wordCount: number | null) => void;
     setFinalizedFillerData: (data: FillerCounts | null) => void;
     setFinalizedFillerCount: (count: number | null) => void;
@@ -271,6 +294,8 @@ const initialState: SessionState = {
     pendingResolutionKind: null,
     isLockHeldByOther: false,
     isListening: false,
+    startupWaitStartedAt: null,
+    captureLive: false,
     isInitiating: false,
     isReady: false,
     transcript: {
@@ -292,6 +317,7 @@ const initialState: SessionState = {
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
     completedSessionId: null,
+    recoveredSaveSessionId: null,
     activeObjectiveBrief: null,
     practiceFocus: readPracticeFocus(),
     completedObjectiveBrief: null,
@@ -353,6 +379,13 @@ export const useSessionStore = create<SessionStore>((set, get) => {
                 : { ...state, engineSelectionLocked, pendingResolutionKind }
         ));
     },
+    setStartupWaitStartedAt: (startupWaitStartedAt) => set({ startupWaitStartedAt }),
+    // #1258 C10 (Codex r4290831299): the session clock starts at the ONE live moment, not at FSM RECORDING. When a listening
+    // take's capture goes live (false → true), the clock is re-based, so the timer, pace and the ten-minute cap never
+    // include the time the page said recording had not begun. `isListening` (Stop, persistence, ownership) is untouched.
+    setCaptureLive: (captureLive) => set((state) => (captureLive && !state.captureLive && state.isListening
+        ? { captureLive, startTime: Date.now(), elapsedTime: 0 }
+        : { captureLive })),
     setRuntimeState: (runtimeState) => {
         logger.debug({ runtimeState }, '[useSessionStore] setRuntimeState');
         set((state) => {
@@ -561,6 +594,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
             captureLimitReached: null,
             completedSessionDurationSeconds: null,
             completedSessionId: null,
+            recoveredSaveSessionId: null,
             sessionSaved: false,
             pauseMetrics: initialState.pauseMetrics,
             finalizedAnalysis: null,
@@ -616,6 +650,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
 
     setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
     setCompletedSessionId: (completedSessionId) => set({ completedSessionId }),
+    setRecoveredSaveSessionId: (recoveredSaveSessionId) => set({ recoveredSaveSessionId }),
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
     setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
     setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),

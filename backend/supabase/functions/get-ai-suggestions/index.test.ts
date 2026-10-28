@@ -13,7 +13,9 @@ import {
   buildFocusCoachingText,
   parseSuggestions,
   COACHING_WORD_TARGET_MIN,
+  providerRetryHooks,
 } from './index.ts';
+import { MAX_PROVIDER_ATTEMPTS, PROVIDER_BUDGET_MS } from './providerRetry.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
@@ -48,7 +50,14 @@ interface MockOptions {
   sessionSelectErrors?: unknown[];
   quota?: Record<string, unknown>;
   quotaError?: unknown;
+  admission?: Record<string, unknown>;
+  admissionError?: unknown;
+  settlementError?: unknown;
   updateError?: unknown;
+  /** The persistence RPC's returned `data` (default: null with an error, else the readback). */
+  persistData?: unknown;
+  /** The persistence RPC rejects (throws) instead of returning a result. */
+  persistThrows?: unknown;
   legacyUpdateError?: unknown;
   readback?: unknown;
   authorityError?: unknown;
@@ -96,11 +105,16 @@ let adaptiveGemini = false;
 /** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
 let geminiModelVersion: string | null = 'gemini-3.8-flash';
 let fetchThrows = false;
+let fetchFailuresRemaining = 0;
+let abortAfterBody: AbortController | null = null;
 /** #1258: what a non-OK provider answer's body says, and what a transport error's message says. */
 let providerErrorBody = 'upstream unavailable';
 let fetchErrorMessage = 'network unreachable';
+/** #1258 (PO 2026-10-12): extra top-level fields on a 200 answer (finishReason / usageMetadata cases). */
+let geminiExtra: Record<string, unknown> = {};
 let lastPrompt = '';
 let lastRequestBody: Record<string, unknown> = {};
+const capturedProviderRequests: Array<{ url: string; body: Record<string, unknown> }> = [];
 let lastRequestUrl = '';
 /**
  * #1424 correction 1 — EVERY outbound request is recorded BEFORE it is classified.
@@ -111,6 +125,32 @@ let lastRequestUrl = '';
  * well-formed.
  */
 const outboundRequests: string[] = [];
+/**
+ * #1258 option A — the retry policy runs on an injected clock, random source and sleep, so no test spends real time.
+ * `providerCallMs` is how long each provider call "takes" on that clock; `sleeps` records every wait the handler asked for.
+ */
+const retryClock = { mono: 0, wall: Date.parse('2026-10-13T12:00:00Z'), random: 0.5, providerCallMs: 0, sleepOvershootMs: 0 };
+let sleeps: number[] = [];
+let providerRetryAfter: string | null = null;
+/** Abort the caller's request while the provider call is in flight / while the handler is waiting between attempts. */
+let abortDuringFetch: AbortController | null = null;
+let abortDuringSleep: AbortController | null = null;
+/** Each attempt's own timeout, as a controllable signal (no real timers): the latest one can be fired by a test. */
+let lastAttemptTimeout: AbortController | null = null;
+providerRetryHooks.runtime = {
+  timeout: () => { lastAttemptTimeout = new AbortController(); return lastAttemptTimeout.signal; },
+  now: () => retryClock.mono,
+  wallNow: () => retryClock.wall,
+  random: () => retryClock.random,
+  sleep: (ms, signal) => {
+    sleeps.push(ms);
+    if (abortDuringSleep) { abortDuringSleep.abort(); abortDuringSleep = null; }
+    if (signal.aborted) return Promise.resolve(false);
+    // PM 6205858358-style late wake: a timer can fire later than asked; `sleepOvershootMs` models that.
+    retryClock.mono += ms + retryClock.sleepOvershootMs;
+    return Promise.resolve(true);
+  },
+};
 const APPROVED_GEMINI_ORIGIN = 'https://generativelanguage.googleapis.com';
 const sessionBindingDigest = async (userId: string, sessionId: string): Promise<string> =>
   [...new Uint8Array(await crypto.subtle.digest(
@@ -126,22 +166,42 @@ globalThis.fetch = async (url, init) => {
   }
   fetchCount++;
   lastRequestUrl = requested;
-  if (fetchThrows) throw new TypeError(fetchErrorMessage);
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
+  capturedProviderRequests.push({ url: requested, body: body as Record<string, unknown> });
+  retryClock.mono += retryClock.providerCallMs;
+  if (abortDuringFetch) {
+    abortDuringFetch.abort();
+    abortDuringFetch = null;
+    throw new DOMException('The signal has been aborted', 'AbortError');
+  }
+  if (fetchThrows || fetchFailuresRemaining-- > 0) throw new TypeError(fetchErrorMessage);
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
   const thisStatus = fetchStatusQueue.length > 0 ? Number(fetchStatusQueue.shift()) : fetchStatus;
-  if (thisStatus !== 200) return new Response(providerErrorBody, { status: thisStatus });
+  if (thisStatus !== 200) {
+    return new Response(providerErrorBody, {
+      status: thisStatus,
+      headers: providerRetryAfter === null ? {} : { 'Retry-After': providerRetryAfter },
+    });
+  }
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
     : geminiText;
-  return new Response(JSON.stringify({
+  const response = new Response(JSON.stringify({
     ...(geminiModelVersion === null ? {} : { modelVersion: geminiModelVersion }),
     candidates: [{ content: { parts: [{ text }] } }],
+    ...geminiExtra,
   }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
+  if (abortAfterBody) {
+    const caller = abortAfterBody;
+    abortAfterBody = null;
+    const read = response.json.bind(response);
+    response.json = async () => { const value = await read(); caller.abort(); return value; };
+  }
+  return response;
 };
 
 function mockSupabase(options: MockOptions = {}) {
@@ -157,6 +217,9 @@ function mockSupabase(options: MockOptions = {}) {
     // #1486 — counted on its own. `rpcCount` also counts other rpc traffic, so it cannot answer
     // "how many slots did this one generation action spend?".
     quotaCount: 0,
+    admissionArgs: null as Record<string, unknown> | null,
+    settlementArgs: null as Record<string, unknown> | null,
+    legacyUpdateCount: 0,
     sessionColumns: [] as string[],
   };
   const sessionSelectErrors = [...(options.sessionSelectErrors ?? [])];
@@ -171,6 +234,14 @@ function mockSupabase(options: MockOptions = {}) {
         : { data: { user: null }, error: { message: 'Unauthorized' } }),
     },
     rpc: (name: string, args?: Record<string, unknown>) => {
+      if (name === 'begin_account_coaching_v1') {
+        state.admissionArgs = args ?? null;
+        return Promise.resolve({ data: options.admission ?? { admitted: true, operationId: args?.p_operation_id }, error: options.admissionError ?? null });
+      }
+      if (name === 'finish_account_coaching_failure_v1') {
+        state.settlementArgs = args ?? null;
+        return Promise.resolve({ data: !options.settlementError, error: options.settlementError ?? null });
+      }
       if (name === 'check_usage_limit') {
         return Promise.resolve({
           data: options.entitlement ?? (profile === 'free'
@@ -191,15 +262,17 @@ function mockSupabase(options: MockOptions = {}) {
         state.authorityReadCount++;
         return Promise.resolve({ data: options.authorityReadback ?? [], error: null });
       }
-      if (name === 'persist_ai_suggestion_with_authority_v1') {
+      if (name === 'persist_ai_suggestion_with_authority_v1' || name === 'persist_account_coaching_v1') {
         state.authorityRpcCount++;
         state.authorityArgs = args ?? null;
+        if (options.persistThrows !== undefined) return Promise.reject(options.persistThrows);
         if (!options.updateError) {
           state.updated = { ai_suggestions: args?.p_suggestions };
           state.filters.push(['id', args?.p_session_id], ['user_id', args?.p_user_id]);
         }
         return Promise.resolve({
-          data: options.updateError ? null : (options.readback ?? args?.p_suggestions),
+          data: 'persistData' in options ? options.persistData
+            : options.updateError ? null : (options.readback ?? args?.p_suggestions),
           error: options.updateError ?? null,
         });
       }
@@ -250,6 +323,7 @@ function mockSupabase(options: MockOptions = {}) {
         return query;
       },
       update: (value: unknown) => {
+        state.legacyUpdateCount++;
         state.updated = value;
         const query = {
           eq: (column: string, value: unknown) => {
@@ -271,11 +345,12 @@ function mockSupabase(options: MockOptions = {}) {
   return { create: () => client as any, state };
 }
 
-function request(body: Record<string, unknown> = { sessionId: 'session-a' }) {
+function request(body: Record<string, unknown> = { sessionId: 'session-a' }, signal?: AbortSignal) {
   return new Request('http://localhost/get-ai-suggestions', {
     method: 'POST',
     headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
@@ -283,20 +358,165 @@ function resetProvider() {
   fetchCount = 0;
   fetchStatus = 200;
   fetchStatusQueue = [];
+  capturedProviderRequests.length = 0;
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
   geminiModelVersion = 'gemini-3.8-flash';
   fetchThrows = false;
+  fetchFailuresRemaining = 0;
+  abortAfterBody = null;
   providerErrorBody = 'upstream unavailable';
   fetchErrorMessage = 'network unreachable';
+  geminiExtra = {};
   lastPrompt = '';
   lastRequestUrl = '';
   outboundRequests.length = 0;
+  retryClock.mono = 0;
+  retryClock.sleepOvershootMs = 0;
+  retryClock.random = 0.5;
+  retryClock.providerCallMs = 0;
+  sleeps = [];
+  providerRetryAfter = null;
+  abortDuringFetch = null;
+  abortDuringSleep = null;
+  lastAttemptTimeout = null;
   Deno.env.set('GEMINI_API_KEY', 'test-key');
 }
 
 Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   resetProvider();
+
+  await t.step('#1643 pending accounts refuse fresh work before quota or provider', async () => {
+    resetProvider();
+    const mock = mockSupabase({ admission: { admitted: false, reason: 'account_closure_pending' } });
+    const response = await handler(request(), mock.create);
+    assertEquals(response.status, 423);
+    assertEquals((await response.json()).diagnostics.reason, 'access_denied');
+    assertEquals(mock.state.quotaCount, 0);
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.authorityRpcCount, 0);
+    assertEquals(mock.state.settlementArgs, null);
+  });
+
+  await t.step('#1643 missing or mismatched admission fails closed with no provider work', async () => {
+    for (const options of [
+      { admissionError: { code: 'PGRST202' } },
+      { admission: { admitted: true, operationId: 'wrong-operation' } },
+      { admission: { admitted: false, reason: 'operation_already_recorded' } },
+    ]) {
+      resetProvider();
+      const mock = mockSupabase(options);
+      const response = await handler(request(), mock.create);
+      assertEquals(response.status, 503);
+      assertEquals((await response.json()).diagnostics.reason, 'authority_unverified');
+      assertEquals(mock.state.quotaCount, 0);
+      assertEquals(fetchCount, 0);
+    }
+  });
+
+  await t.step('#1643 cached reads remain available without new admission schema', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), admissionError: { code: 'PGRST202' } });
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(mock.state.admissionArgs, null);
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1643 admitted quota refusal settles only the exact server-generated operation', async () => {
+    resetProvider();
+    const mock = mockSupabase({ quota: { allowed: false } });
+    assertEquals((await handler(request({ sessionId: 'session-a', operationId: 'caller-forged' }), mock.create)).status, 429);
+    assertEquals(mock.state.settlementArgs, { ...mock.state.admissionArgs, p_outcome: 'refused' });
+    assertNotEquals(mock.state.admissionArgs?.p_operation_id, 'caller-forged');
+    assertEquals(typeof mock.state.admissionArgs?.p_operation_id, 'string');
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1643 provider transport uncertainty stays fenced through failure', async () => {
+    resetProvider();
+    fetchThrows = true;
+    const mock = mockSupabase();
+    assertEquals((await handler(request(), mock.create)).status, 502);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.legacyUpdateCount, 0);
+  });
+
+  await t.step('#1643 persistence failure never falls back around the operation ledger', async () => {
+    resetProvider();
+    const mock = mockSupabase({ updateError: { code: 'PGRST202' } });
+    assertEquals((await handler(request(), mock.create)).status, 503);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.legacyUpdateCount, 0);
+  });
+
+  await t.step('#1643 successful authority persistence atomically binds the admitted operation', async () => {
+    resetProvider();
+    const mock = mockSupabase();
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(mock.state.authorityArgs?.p_operation_id, mock.state.admissionArgs?.p_operation_id);
+    assertEquals(typeof mock.state.authorityArgs?.p_operation_id, 'string');
+    assertEquals(mock.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(mock.state.settlementArgs, null);
+    assertEquals(mock.state.legacyUpdateCount, 0);
+  });
+
+  await t.step('#1643 a recovered provider retry cannot erase the first attempt uncertainty', async () => {
+    resetProvider();
+    fetchFailuresRemaining = 1;
+    const mock = mockSupabase();
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(fetchCount, 2);
+    assertEquals(mock.state.authorityArgs?.p_provider_settled, false);
+    assertEquals(mock.state.settlementArgs, null, 'the atomic persistence RPC retains unknown');
+  });
+
+  await t.step('#1643 an admitted valid answer completes after caller navigation', async () => {
+    resetProvider();
+    const caller = new AbortController();
+    abortAfterBody = caller;
+    const mock = mockSupabase();
+    assertEquals((await handler(request({ sessionId: 'session-a' }, caller.signal), mock.create)).status, 200);
+    assertEquals(caller.signal.aborted, true);
+    assertEquals(mock.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(mock.state.updated, { ai_suggestions: suggestionA });
+  });
+
+  await t.step('#1643 cancellation during a provider call never claims definitive settlement', async () => {
+    resetProvider();
+    const caller = new AbortController();
+    abortDuringFetch = caller;
+    const mock = mockSupabase();
+    assertEquals((await handler(request({ sessionId: 'session-a' }, caller.signal), mock.create)).status, 499);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.updated, null);
+    assertEquals(fetchCount, 1);
+  });
+
+  await t.step('#1643 settlement transport failure never overrides the refusal or reopens admission', async () => {
+    resetProvider();
+    const mock = mockSupabase({ quota: { allowed: false }, settlementError: { message: 'reply lost' } });
+    assertEquals((await handler(request(), mock.create)).status, 429);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(mock.state.updated, null);
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1643 the service client owns admission, persistence and settlement, never the caller client', async () => {
+    resetProvider();
+    const caller = mockSupabase({ admissionError: { code: '42501' }, updateError: { code: '42501' } });
+    const service = mockSupabase();
+    assertEquals((await handler(request(), caller.create, service.create)).status, 200);
+    assertEquals(caller.state.admissionArgs, null);
+    assertEquals(caller.state.authorityRpcCount, 0);
+    assertEquals(service.state.authorityArgs?.p_operation_id, service.state.admissionArgs?.p_operation_id);
+    assertEquals(caller.state.quotaCount, 1);
+    resetProvider();
+    const refused = mockSupabase({ quota: { allowed: false } });
+    const settlement = mockSupabase();
+    assertEquals((await handler(request(), refused.create, settlement.create)).status, 429);
+    assertEquals(refused.state.settlementArgs, null);
+    assertEquals(settlement.state.settlementArgs?.p_outcome, 'refused');
+  });
 
   await t.step('rejects unauthenticated users', async () => {
     const mock = mockSupabase({ profile: 'unauthenticated', userId: null });
@@ -653,6 +873,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((saved.state.updated as { ai_suggestions: unknown }).ai_suggestions, suggestionA);
     assertEquals(saved.state.filters, [['id', 'session-a'], ['user_id', 'pro-user']]);
     assertEquals(saved.state.authorityArgs, {
+      p_operation_id: saved.state.admissionArgs?.p_operation_id,
+      p_provider_settled: true,
       p_session_id: 'session-a',
       p_user_id: 'pro-user',
       p_suggestions: suggestionA,
@@ -665,19 +887,73 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     });
   });
 
-  await t.step('keeps product saves working while Edge precedes the receipt migration', async () => {
+  await t.step('fails closed when the admitted persistence RPC is unavailable, without a legacy write', async () => {
     resetProvider();
     const skewed = mockSupabase({ updateError: { code: 'PGRST202', message: 'function not in schema cache' } });
     const res = await handler(request(), skewed.create);
-    assertEquals(res.status, 200);
-    assertEquals((await res.json()).suggestions, suggestionA);
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).code, 'persist_failed');
     assertEquals(skewed.state.authorityRpcCount, 1);
-    assertEquals(skewed.state.filters, [['id', 'session-a'], ['user_id', 'pro-user']]);
+    assertEquals(skewed.state.filters, []);
+    assertEquals(skewed.state.legacyUpdateCount, 0);
+    assertEquals(skewed.state.settlementArgs?.p_outcome, 'unknown');
 
     resetProvider();
     const realFailure = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
     assertEquals((await handler(request(), realFailure.create)).status, 503);
     assertEquals(realFailure.state.filters, []);
+  });
+
+  // #1684 Codex P1 r4354653671: only the persistence RPC's own definitive rejection (a returned SQLSTATE 23514 with no
+  // data, e.g. the quota-ledger check) settles `refused`, and only when the provider attempt was itself certain. An
+  // `unknown` admission can never settle again, so classifying a definitive rejection as unknown blocked deletion forever.
+  await t.step('#1643 a returned 23514 persistence rejection settles refused only after a certain provider attempt', async () => {
+    resetProvider();
+    const rejected = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), rejected.create)).status, 503);
+    assertEquals(rejected.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(rejected.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(rejected.state.updated, null);
+
+    resetProvider();
+    fetchFailuresRemaining = 1;
+    const recovered = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), recovered.create)).status, 503);
+    assertEquals(fetchCount, 2);
+    assertEquals(recovered.state.authorityArgs?.p_provider_settled, false);
+    assertEquals(recovered.state.settlementArgs?.p_outcome, 'unknown', 'earlier provider uncertainty survives the rejection');
+  });
+
+  await t.step('#1643 every other persistence failure stays unknown and never succeeds', async () => {
+    const unknownCases: Array<[string, MockOptions]> = [
+      ['schema-cache PGRST202', { updateError: { code: 'PGRST202', message: 'function not in schema cache' } }],
+      ['connection 08006', { updateError: { code: '08006', message: 'connection failure' } }],
+      ['connection 08007', { updateError: { code: '08007', message: 'transaction resolution unknown' } }],
+      ['arbitrary 23505', { updateError: { code: '23505', message: 'duplicate key' } }],
+      ['code-less error', { updateError: { message: 'write failed' } }],
+      ['23514 with returned data', { updateError: { code: '23514', message: 'receipt rejected' }, persistData: suggestionA }],
+      ['thrown 23514', { persistThrows: { code: '23514', message: 'receipt rejected' } }],
+      ['mismatched saved value', { readback: suggestionB }],
+      ['malformed saved value', { readback: { unexpected: true } }],
+    ];
+    for (const [label, options] of unknownCases) {
+      resetProvider();
+      const mock = mockSupabase(options);
+      const status = (await handler(request(), mock.create)).status;
+      assertEquals(status >= 500, true, `${label}: never reported as success`);
+      assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown', label);
+    }
+
+    resetProvider();
+    const saved = mockSupabase();
+    assertEquals((await handler(request(), saved.create)).status, 200);
+    assertEquals(saved.state.settlementArgs, null, 'a verified save records no failure settlement');
+
+    resetProvider();
+    const unsettled = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' }, settlementError: { message: 'reply lost' } });
+    assertEquals((await handler(request(), unsettled.create)).status, 503, 'a failed settlement keeps the 503');
+    assertEquals(unsettled.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(unsettled.state.updated, null);
   });
 
   await t.step('materially different saved sessions produce different grounded coaching', async () => {
@@ -750,17 +1026,40 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.quotaCount, 1, 'but the user was charged once');
   });
 
-  await t.step('CASUALTY: a provider 5xx that fails twice is one 502 and one charge, never a rate-limit', async () => {
+  await t.step('CASUALTY: a provider 5xx that fails every attempt is one 502 and one charge, never a rate-limit', async () => {
     resetProvider();
-    fetchStatusQueue = [502, 500];
+    fetchStatusQueue = [502, 500, 503];
     const mock = mockSupabase({ session: savedSession() });
     const response = await handler(request(), mock.create);
 
     assertEquals(response.status, 502, 'a provider outage is reported AS a provider outage');
     assertNotEquals(response.status, 429, 'never a limit the user did not reach');
-    assertEquals(fetchCount, 2, 'bounded: two attempts, not a loop');
+    assertEquals(fetchCount, 3, 'bounded: three attempts (#1258 option A), not a loop');
     assertEquals(mock.state.quotaCount, 1, 'exhausting the retry still costs exactly one slot');
   });
+
+  for (const statuses of [[200], [503, 200], [503, 503, 200], [503, 500, 502]]) {
+    await t.step(`explicit low thinking is sent on every actual mocked attempt: ${statuses.join('/')}`, async () => {
+      resetProvider();
+      fetchStatusQueue = [...statuses];
+      const mock = mockSupabase({ session: savedSession() });
+      const response = await handler(request(), mock.create);
+      assertEquals(response.status, statuses.at(-1) === 200 ? 200 : 502);
+      assertEquals(capturedProviderRequests.length, statuses.length, 'every initial/retry request was captured');
+      assertEquals(mock.state.quotaCount, 1, 'one coaching action still consumes one slot');
+      for (const sent of capturedProviderRequests) {
+        const url = new URL(sent.url);
+        assertEquals(url.origin, APPROVED_GEMINI_ORIGIN);
+        assertEquals(url.pathname, '/v1beta/models/gemini-3.8-flash:generateContent');
+        const config = sent.body.generationConfig as Record<string, unknown>;
+        // Literal wire expectation: changing the contract and sender together cannot hide a regression.
+        assertEquals(config.thinkingConfig, { thinkingLevel: 'low' });
+        assertEquals('maxOutputTokens' in config, false, 'the existing output-token default remains unchanged');
+        assertEquals(config.responseMimeType, 'application/json');
+        assertEquals(config.responseSchema, coachingContract.generationConfig.responseSchema);
+      }
+    });
+  }
 
   await t.step('CONTROL: a provider 4xx is not retried — a second identical ask cannot change it', async () => {
     resetProvider();
@@ -786,6 +1085,449 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   /*
+   * #1258 option A (PM 6156942445) — BOUNDED BACKOFF INSIDE THE ONE QUOTA CHARGE.
+   *
+   * Retry set: provider 408, 429, 5xx, transport, timeout. One 45 s budget from attempt 1 covers every attempt and wait;
+   * full jitter (1 s after attempt 1, 2 s after attempt 2); a valid Retry-After replaces the jitter only when it fits.
+   * Every case runs on the injected clock, so the waits below are what the handler ASKED for — no real time passes.
+   */
+  const coach = async (signal?: AbortSignal) => {
+    const mock = mockSupabase({ session: savedSession() });
+    const response = await handler(request({ sessionId: 'session-a' }, signal), mock.create);
+    return { response, mock, body: await response.json() as Record<string, unknown> & { diagnostics: Record<string, unknown> } };
+  };
+
+  for (const status of [408, 429, 503]) {
+    await t.step(`option A: a provider ${status} then a success is ONE jittered wait inside its 1 s cap, one charge`, async () => {
+      resetProvider();
+      fetchStatusQueue = [status, 200];
+      retryClock.random = 0.5;
+      const { response, mock, body } = await coach();
+      assertEquals(response.status, 200);
+      assertEquals(fetchCount, 2);
+      assertEquals(sleeps, [500], 'full jitter: random 0.5 of the 1 s cap');
+      assertEquals(mock.state.quotaCount, 1, 'retries stay behind the single app-quota consumption');
+      assertEquals(body.diagnostics.provider_wait_ms_total, 500);
+    });
+  }
+
+  await t.step('option A: 503, 503, then success — three attempts, waits within the 1 s and 2 s caps', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 503, 200];
+    retryClock.random = 0.999;
+    const { response, mock, body } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(fetchCount, 3);
+    assertEquals(sleeps, [999, 1998]);
+    assertEquals(mock.state.quotaCount, 1);
+    assertEquals([body.diagnostics.attempt_3_reason, body.diagnostics.attempt_3_status], ['none', 200]);
+  });
+
+  await t.step('option A: 429 with a valid Retry-After waits exactly that long, then succeeds', async () => {
+    resetProvider();
+    fetchStatusQueue = [429, 200];
+    providerRetryAfter = '2';
+    const { response, body } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(sleeps, [2000], 'the provider\'s own delay replaces the jitter');
+    assertEquals([body.diagnostics.retry_after_present, body.diagnostics.retry_after_malformed, body.diagnostics.retry_after_s], [true, false, 2]);
+  });
+
+  await t.step('option A: an HTTP-date Retry-After in the future is honoured', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerRetryAfter = new Date(retryClock.wall + 3000).toUTCString();
+    const { response } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(sleeps, [3000]);
+  });
+
+  for (const [label, value] of [['negative', '-5'], ['fractional', '1.5'], ['garbage', 'soon'], ['past-date', new Date(Date.parse('2026-10-13T11:00:00Z')).toUTCString()]] as const) {
+    await t.step(`option A: a ${label} Retry-After is malformed and falls back to the jitter`, async () => {
+      resetProvider();
+      fetchStatusQueue = [503, 200];
+      providerRetryAfter = value;
+      const { response, body } = await coach();
+      assertEquals(response.status, 200);
+      assertEquals(sleeps, [500]);
+      assertEquals([body.diagnostics.retry_after_present, body.diagnostics.retry_after_malformed, body.diagnostics.retry_after_s], [true, true, null]);
+    });
+  }
+
+  await t.step('option A: a valid Retry-After that does not fit the budget stops at once, without sleeping', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerRetryAfter = '40';
+    const { response, mock, body } = await coach();
+    assertEquals(response.status, 502);
+    assertEquals(fetchCount, 1, 'no further attempt');
+    assertEquals(sleeps, [], 'and no wait spent on an attempt that cannot fit');
+    assertEquals(body.reason, 'provider_http_5xx', 'the last failure is kept');
+    assertEquals(body.diagnostics.stopped_over_budget, true);
+    assertEquals(body.diagnostics.retry_after_s, 40);
+    assertEquals(mock.state.quotaCount, 1);
+  });
+
+  await t.step('option A: 429 on every attempt is exhausted at the attempt cap, inside the budget', async () => {
+    resetProvider();
+    fetchStatus = 429;
+    const { response, body } = await coach();
+    assertEquals(response.status, 502);
+    assertEquals(fetchCount, 3);
+    assertEquals(sleeps.length, 2);
+    assertEquals(body.diagnostics.stopped_over_budget, false, 'the cap, not the budget, ended it');
+  });
+
+  await t.step('option A: two 20 s timeouts leave no room for a third attempt — the budget, not the count, decides', async () => {
+    resetProvider();
+    retryClock.providerCallMs = 20_000;
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        retryClock.mono += retryClock.providerCallMs;
+        throw new DOMException('Signal timed out.', 'TimeoutError');
+      }
+      return original(url, init);
+    };
+    try {
+      const { response, body } = await coach();
+      assertEquals(response.status, 502);
+      assertEquals(fetchCount, 2);
+      assertEquals(body.reason, 'provider_timeout');
+      assertEquals(body.diagnostics.stopped_over_budget, true);
+      assertEquals(retryClock.mono <= PROVIDER_BUDGET_MS, true, 'no overshoot past the declared budget');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  await t.step('option A: a caller abort DURING the provider call stops everything and persists nothing', async () => {
+    resetProvider();
+    const caller = new AbortController();
+    abortDuringFetch = caller;
+    const { response, mock, body } = await coach(caller.signal);
+    assertEquals(fetchCount, 1, 'no retry for a caller who is gone');
+    assertEquals(body.reason, 'request_cancelled', 'told apart from a provider timeout');
+    assertEquals(response.status, 499);
+    assertEquals(mock.state.authorityRpcCount, 0, 'no coaching pair is persisted');
+    assertEquals(mock.state.quotaCount, 1);
+  });
+
+  /**
+   * PM 6206983551 item 1 — a caller abort while the RECEIVED answer's body is being read is the caller leaving, not a
+   * malformed provider answer: no further attempt, nothing persisted, and the received 200 kept in the attempt evidence.
+   */
+  const bodyAbortingFetch = (caller: AbortController, onAttempt: number) => {
+    const original = globalThis.fetch;
+    let attempts = 0;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin !== APPROVED_GEMINI_ORIGIN) return original(url, init);
+      fetchCount++;
+      attempts += 1;
+      if (attempts < onAttempt) return new Response('upstream unavailable', { status: 503 });
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          caller.abort();
+          controller.error(new DOMException('The signal has been aborted', 'AbortError'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    return () => { globalThis.fetch = original; };
+  };
+  for (const onAttempt of [1, 3]) {
+    await t.step(`option A: a caller abort while reading attempt ${onAttempt}'s RECEIVED body is a cancellation, never a retry`, async () => {
+      resetProvider();
+      const caller = new AbortController();
+      const restore = bodyAbortingFetch(caller, onAttempt);
+      try {
+        const { response, mock, body } = await coach(caller.signal);
+        assertEquals(response.status, 499);
+        assertEquals(body.reason, 'request_cancelled', 'not provider_malformed_response');
+        assertEquals(fetchCount, onAttempt, 'no attempt after the caller left');
+        assertEquals(mock.state.authorityRpcCount, 0, 'zero persistence');
+        assertEquals(body.diagnostics[`attempt_${onAttempt}_status`], 200, 'the received 200 is kept in the attempt evidence');
+        assertEquals(body.diagnostics[`attempt_${onAttempt}_reason`], 'request_cancelled');
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  await t.step('Codex P2 r4290479629: headers then a STALLED body past the attempt timeout is provider_timeout, not malformed', async () => {
+    resetProvider();
+    const original = globalThis.fetch;
+    let attempts = 0;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin !== APPROVED_GEMINI_ORIGIN) return original(url, init);
+      fetchCount++;
+      attempts += 1;
+      if (attempts > 1) return original(url, init); // the retry is answered normally
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          lastAttemptTimeout?.abort(new DOMException('Signal timed out.', 'TimeoutError'));
+          controller.error(new DOMException('Signal timed out.', 'TimeoutError'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    try {
+      const { response, body } = await coach();
+      assertEquals(body.diagnostics.attempt_1_reason, 'provider_timeout', 'a stalled body is a timeout, not a malformed answer');
+      assertEquals(body.diagnostics.attempt_1_status, 200, 'the received status is kept');
+      assertEquals(attempts, 2, 'retryable: the next attempt is made');
+      assertEquals(response.status, 200);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  /**
+   * PM 6206983551 item 2 — RE-ADMISSION AFTER THE WAIT. The wait was admitted against the budget before sleeping, but a
+   * timer can wake late. Immediately before the next attempt the fresh remaining time is checked again: under the
+   * minimum attempt window (or past the 45 s ceiling) nothing is fetched, the prior failure stands, and the stop is
+   * recorded as over budget.
+   */
+  for (const [label, overshootMs] of [['with under 10 s left', 20_000], ['past the 45 s ceiling', 30_000]] as const) {
+    await t.step(`option A: a wait that wakes late ${label} starts no further attempt`, async () => {
+      resetProvider();
+      fetchStatusQueue = [503, 200];
+      retryClock.providerCallMs = 20_000;
+      retryClock.sleepOvershootMs = overshootMs;
+      const { response, mock, body } = await coach();
+      assertEquals(fetchCount, 1, 'no fetch after a late wake that left no room for an attempt');
+      assertEquals(response.status, 502);
+      assertEquals(body.reason, 'provider_http_5xx', 'the prior failure stands');
+      assertEquals(body.diagnostics.stopped_over_budget, true);
+      assertEquals(mock.state.authorityRpcCount, 0);
+      // Codex P2 r4290479635: the wait reported is the wait actually spent, the late wake included.
+      assertEquals(body.diagnostics.provider_wait_ms_total, sleeps[0] + overshootMs);
+    });
+  }
+
+  await t.step('option A: a caller abort DURING the wait stops before the next attempt', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    const caller = new AbortController();
+    abortDuringSleep = caller;
+    const { response, mock, body } = await coach(caller.signal);
+    assertEquals(fetchCount, 1);
+    assertEquals(body.reason, 'request_cancelled');
+    assertEquals(response.status, 499);
+    assertEquals(mock.state.authorityRpcCount, 0);
+  });
+
+  for (const [label, arrange] of [
+    ['an ordinary 4xx (400)', () => { fetchStatus = 400; }],
+    ['a 404', () => { fetchStatus = 404; }],
+    ['a contract-invalid 200', () => { geminiText = 'not json at all'; }],
+    ['a 200 with no model version', () => { geminiModelVersion = null; }],
+  ] as const) {
+    await t.step(`option A CONTROL: ${label} is answered once, with no wait`, async () => {
+      resetProvider();
+      arrange();
+      const { response } = await coach();
+      assertEquals(response.status, 502);
+      assertEquals(fetchCount, 1);
+      assertEquals(sleeps, []);
+    });
+  }
+
+  await t.step('option A: the Retry-After value never appears in a log line or the response', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerRetryAfter = 'SENTINEL-retry-after-9c1e';
+    const logged: string[] = [];
+    const original = { error: console.error, info: console.info };
+    console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    console.info = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    let text = '';
+    try {
+      const mock = mockSupabase({ session: savedSession() });
+      text = await (await handler(request(), mock.create)).text();
+    } finally {
+      console.error = original.error;
+      console.info = original.info;
+    }
+    assertEquals(text.includes('SENTINEL-retry-after'), false);
+    assertEquals(logged.some((line) => line.includes('SENTINEL-retry-after')), false);
+  });
+
+  /*
+   * #1258 (PO 2026-10-12) — DECODE THE PROVIDER'S CODES. Alpha runs recorded only `provider_timeout` or a bare status;
+   * Gemini's own closed codes say WHY. They are decoded into the diagnostic, and the provider's free text never leaves.
+   */
+  await t.step('a Gemini 429 on every attempt decodes to RESOURCE_EXHAUSTED / RATE_LIMIT_EXCEEDED, with no provider text anywhere', async () => {
+    resetProvider();
+    const echo = 'provider echoed secret words';
+    fetchStatus = 429;
+    providerErrorBody = JSON.stringify({ error: {
+      code: 429, message: echo, status: 'RESOURCE_EXHAUSTED',
+      details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'RATE_LIMIT_EXCEEDED' }],
+    } });
+    const logged: string[] = [];
+    const original = { error: console.error, info: console.info };
+    console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    console.info = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    let text = '';
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      text = await response.text();
+      assertEquals(response.status, 502);
+    } finally {
+      console.error = original.error;
+      console.info = original.info;
+    }
+    const diagnostics = JSON.parse(text).diagnostics;
+    assertEquals(diagnostics.reason, 'provider_http_4xx');
+    assertEquals(diagnostics.provider_status, 429);
+    assertEquals(diagnostics.provider_error_status, 'RESOURCE_EXHAUSTED');
+    assertEquals(diagnostics.provider_error_reason, 'RATE_LIMIT_EXCEEDED');
+    assertEquals(JSON.parse(text).code, 'provider_http_4xx');
+    assertEquals(JSON.parse(text).error, 'The service rate limit was exceeded.');
+    assertEquals(diagnostics.error_descriptor, { origin: 'provider', http_status: 429,
+      canonical_status: 'RESOURCE_EXHAUSTED', local_code: null });
+    // #1258 option A (PM 6156942445): a provider 429 is transient and retried inside the one app-quota charge.
+    assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status, diagnostics.attempt_3_status],
+      ['provider_http_4xx', 429, 429]);
+    assertEquals(fetchCount, 3, 'a provider 429 is retried, within the attempt cap');
+    assertEquals(text.includes(echo), false, 'the response never carries provider text');
+    assertEquals(logged.some((line) => line.includes(echo)), false, 'no log line carries provider text');
+    assertEquals(logged.some((line) => line.includes('RESOURCE_EXHAUSTED')), true, 'the decoded code IS logged');
+  });
+
+  await t.step('#1742 received provider failures preserve origin, canonical meaning and safe text end to end', async () => {
+    for (const [http, canonical, expected, origin] of [
+      [402, 'RESOURCE_EXHAUSTED', 'The service credit balance is depleted.', 'provider'],
+      [500, 'UNKNOWN', 'Unknown error.', 'provider'],
+      [503, 'UNAVAILABLE', 'The service is temporarily unavailable.', 'provider'],
+      [503, 'SECRET_TRANSCRIPT_WORDS', 'Unknown error.', 'local_normalization'],
+    ] as const) {
+      resetProvider();
+      fetchStatus = http;
+      providerErrorBody = JSON.stringify({ error: { status: canonical, message: 'SECRET_TRANSCRIPT_WORDS' } });
+      const mock = mockSupabase({ session: savedSession() });
+      const response = await handler(request(), mock.create);
+      const body = await response.json();
+      assertEquals(response.status, 502, 'outer failure policy stays unchanged');
+      assertEquals(body.code, http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx');
+      assertEquals(body.error, expected);
+      assertEquals(body.diagnostics.error_descriptor, { origin, http_status: http,
+        canonical_status: origin === 'provider' ? canonical : 'UNKNOWN',
+        local_code: origin === 'provider' ? null : 'provider_http_5xx' });
+      assertEquals(JSON.stringify(body).includes('SECRET_TRANSCRIPT_WORDS'), false);
+      assertEquals(mock.state.rpcCount, 1, 'all internal retries share one quota charge');
+      assertEquals(mock.state.authorityRpcCount, 0, 'no failed answer is persisted');
+    }
+  });
+
+  await t.step('each attempt is recorded: a 503 then a success names both, with the answer\'s token counts', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerErrorBody = JSON.stringify({ error: { status: 'UNAVAILABLE', message: 'overloaded' } });
+    geminiExtra = {
+      usageMetadata: { promptTokenCount: 812, candidatesTokenCount: 46, thoughtsTokenCount: 1903, totalTokenCount: 2761 },
+    };
+    geminiText = JSON.stringify(suggestionA);
+    const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+    assertEquals(response.status, 200);
+    const diagnostics = (await response.json()).diagnostics;
+    assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_http_5xx', 503]);
+    assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['none', 200]);
+    assertEquals(diagnostics.provider_error_status, null, 'the codes describe the LAST attempt, which succeeded');
+    assertEquals('error_descriptor' in diagnostics, false, 'success wire format stays unchanged');
+    assertEquals([diagnostics.provider_prompt_tokens, diagnostics.provider_output_tokens, diagnostics.provider_thinking_tokens,
+      diagnostics.provider_total_tokens], [812, 46, 1903, 2761]);
+  });
+
+  await t.step('a timed-out attempt is recorded as provider_timeout with no status', async () => {
+    resetProvider();
+    fetchThrows = true;
+    fetchErrorMessage = 'signal timed out';
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        throw new DOMException('Signal timed out.', 'TimeoutError');
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 502);
+      const diagnostics = (await response.json()).diagnostics;
+      assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_timeout', null]);
+      assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['provider_timeout', null]);
+      assertEquals(diagnostics.provider_error_status, null, 'a timeout has no provider code to decode');
+      assertEquals(diagnostics.error_descriptor, { origin: 'local_timeout', http_status: null,
+        canonical_status: null, local_code: 'provider_timeout' });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  // #1258 (Codex P2 r4289041570, PM 6204153627): decoding a 5xx's error body is diagnostic and bounded by one deadline, so
+  // a body that stalls cannot hold the retry; the attempt still reports its received 503 and the second attempt answers.
+  await t.step('a 503 whose error body stalls still reaches its retry promptly, with the 503 recorded', async () => {
+    resetProvider();
+    geminiText = JSON.stringify(suggestionA);
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN && fetchCount === 0) {
+        fetchCount++; // the stalled first attempt; the retry is counted by the shared provider fake
+        {
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) { controller.enqueue(new TextEncoder().encode('{"error":{"status":"UNAVAIL')); },
+          }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 200, 'the retry answered instead of the stalled body holding the request');
+      const diagnostics = (await response.json()).diagnostics;
+      assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_http_5xx', 503]);
+      assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['none', 200]);
+      assertEquals(fetchCount, 2, 'the retry ceiling is unchanged');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  // #1258 (Codex P2 r4288823216, PM 6203482045): a RECEIVED answer keeps its HTTP status even when its body cannot be
+  // parsed. The status is captured as soon as fetch resolves, before either body is read. (Its reason/retry
+  // classification is unchanged here: a known limitation carried to the option-A checkpoint.)
+  await t.step('a received 200 with a malformed body keeps its 200 status in the attempt diagnostic', async () => {
+    resetProvider();
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        return new Response('{"candidates":[{"content":', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 502);
+      const text = await response.text();
+      const diagnostics = JSON.parse(text).diagnostics;
+      assertEquals(diagnostics.attempt_1_status, 200, 'the answer was received, so its status is known');
+      // #1258 (PM 6203482045): named for what it is — an answer that arrived malformed, not a transport failure.
+      assertEquals(diagnostics.attempt_1_reason, 'provider_malformed_response');
+      assertEquals(diagnostics.attempt_2_status, 200);
+      assertEquals(diagnostics.provider_status, 200);
+      // Retryable like any transient provider failure, up to option A's bounded ceiling — never beyond it.
+      assertEquals(fetchCount, MAX_PROVIDER_ATTEMPTS, 'the retry ceiling is the bounded option-A ceiling');
+      assertEquals(text.includes('"content":'), false, 'the malformed body is never echoed');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  /*
    * #1258 (run 36955422629, PM 5945472679) — EVERY 502 NAMES ITS CAUSE, CONTENT-FREE.
    *
    * Every branch below used to end in the same generic line, so the Edge log could not say why coaching failed.
@@ -795,7 +1537,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   const OVER_CEILING = 'word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w';
   const failureCases: Array<[string, () => void, string]> = [
     ['provider 4xx', () => { fetchStatus = 400; }, 'provider_http_4xx'],
-    ['provider 5xx twice', () => { fetchStatusQueue = [503, 500]; }, 'provider_http_5xx'],
+    ['provider 5xx on every attempt', () => { fetchStatusQueue = [503, 500, 502]; }, 'provider_http_5xx'],
     ['transport failure', () => { fetchThrows = true; }, 'provider_transport'],
     ['200 with no text', () => { geminiText = ''; }, 'missing_text'],
     ['200 with the wrong JSON shape', () => { geminiText = '{"advice":"speak slower"}'; }, 'invalid_shape'],
@@ -839,7 +1581,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   const SENTINEL = 'SENTINEL-7f3c-provider-said-this';
   const leakCases: Array<[string, () => void, string]> = [
     ['a provider 4xx whose body echoes text', () => { fetchStatus = 400; providerErrorBody = `{"error":{"message":"${SENTINEL} in your prompt"}}`; }, 'provider_http_4xx'],
-    ['a provider 5xx whose body echoes text', () => { fetchStatusQueue = [503, 500]; providerErrorBody = `${SENTINEL} upstream detail`; }, 'provider_http_5xx'],
+    ['a provider 5xx whose body echoes text', () => { fetchStatusQueue = [503, 500, 502]; providerErrorBody = `${SENTINEL} upstream detail`; }, 'provider_http_5xx'],
     ['a transport error whose message carries the URL and key', () => { fetchThrows = true; fetchErrorMessage = `error sending request for url (https://generativelanguage.googleapis.com/x?key=${SENTINEL})`; }, 'provider_transport'],
     ['unparseable model text', () => { geminiText = `${SENTINEL} not json`; }, 'invalid_shape'],
   ];
@@ -868,11 +1610,11 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       assertEquals(logged.length > 0, true, 'the failure is still logged — by reason and status');
     });
   }
-  await t.step('#1258: the retry rule is unchanged — a provider 5xx is asked twice, a 4xx once', async () => {
+  await t.step('#1258: the retry rule — a provider 5xx is asked up to three times (option A), a 4xx once', async () => {
     resetProvider();
-    fetchStatusQueue = [503, 500];
+    fetchStatusQueue = [503, 500, 502];
     await handler(request(), mockSupabase({ session: savedSession() }).create);
-    assertEquals(fetchCount, 2);
+    assertEquals(fetchCount, 3);
     resetProvider();
     fetchStatus = 400;
     await handler(request(), mockSupabase({ session: savedSession() }).create);

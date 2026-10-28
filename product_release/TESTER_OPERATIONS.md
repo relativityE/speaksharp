@@ -19,15 +19,18 @@
 >   with a positive AND a negative control; an accepted request only shows something was sent.
 > - **Record requested identity and observed identity separately**, and bracket the user's intent
 >   through review and reopen. Where they diverge is the finding.
-> - **Exercise every registered runtime candidate through controlled configuration**, across Open Mic
->   and Focus Points, rather than whichever one happens to be resolved.
+> - **Exercise the selected current customer configuration**, with complete useful Open Mic, full Focus
+>   and partial Focus Points journeys. Exercising comparison candidates belongs to the separately
+>   separately authorized model evaluation phase; it is not a current MVP prerequisite.
 > - **Never ask the Product Owner to choose Preview, local, or internal testing.** The customer
 >   surface is the only one their judgment is being asked about.
 
 <!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. A qualifying matrix must run **v4 (provisional primary) and v2 (fallback)** with requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Moonshine is deferred until after RWT or MVP and is not a required row in the current matrix. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
+> **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. Current-model qualification requires requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Moonshine activation remains deferred pending qualification and is not a required row in the current matrix. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
 <!-- /pm-currentization:2026-09-15 -->
+
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. Model evaluation and fallback work require a separate current selection and acknowledged file ownership. Preserved #1567/#1568 source and unresolved model obligations remain provenance, not an active writer assignment or a prerequisite for v2 MVP acceptance. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 # SpeakSharp Tester Operations
 
@@ -139,7 +142,8 @@ Private v4 is OFF. Operators must not target, expose, or activate it for custome
 
 ### 6.1 Authorized two-candidate Production comparison
 
-This procedure is available only during a Product Owner-authorized comparison window. It exercises the
+This retained procedure is for the separately authorized model evaluation phase under the accepted #1565 plan and is available
+only during a separately Product Owner-authorized comparison window. It exercises the
 canonical Production deployment; a pull-request Preview, local build, URL flag, browser-storage value, or
 visible customer control is not qualifying evidence.
 
@@ -160,7 +164,7 @@ Preparation is separate from execution:
    exactly one `https://speaksharp-public.vercel.app` tab and sign in manually through the normal product path.
    Never expose the debugging endpoint off-device.
 
-For each of the **two authorised candidates** — v4 (provisional primary) and v2 (fallback) — perform one Open Mic take and one Focus Points take. Moonshine is deferred until after RWT or MVP: it is not dispatchable and must not be attempted, because `rc-gates.yml` no longer offers its cells. The
+For each of the **two authorised candidates** in that future comparison — v4 (provisional primary) and v2 (fallback) — perform one Open Mic take and one Focus Points take. Moonshine remains deferred: it is not dispatchable under this two-candidate procedure and must not be attempted, because `rc-gates.yml` no longer offers its cells. The
 Focus Points count is user-selected within the MVP's 1–7 range; the comparison does not prescribe four or
 any other count. Every point the user enters and substantively speaks must remain present, in order, and be
 evaluated. Generate one lowercase UUIDv4 as the evidence-document id and reuse that id for exactly these
@@ -255,3 +259,15 @@ qualifies no four-cell evidence, and it never replaces a Product Owner spoken ce
 Stop immediately on an unapproved mutation, unexpected account binding, content leak, wrong deployed SHA, ambiguous commercial state, alternate customer engine, entitlement bypass, or failure to clean up a disposable account.
 
 Report the exact contradiction, what remained read-only, the safe remaining work, and the required Product Owner decision. Do not improvise authority or soften a failed gate.
+
+<!-- clause-closeout:2026-10-28 -->
+## Consolidated predecessor controls and interpretation
+
+### Known-speech filler diagnostics
+
+Optional known-speech diagnostics compare canonical live/persisted counts, diagnostic transcript recount and an acoustically verified reference; a discrepancy does not authorize changing the count source. Retain three original controls: the static script has um×3, so×2, like×2, uh×1 and basically×1 (nine all-key occurrences); the honestly custom-word script has three occurrences; the no-filler script has zero. Nine all-key occurrences is not nine coachable um/uh/ah fillers. Raw custom words must be represented by custom_N identifiers in artifacts. Preserve completeness: missing or malformed observations are not measured zero. Historical clarity/score diagnostic fields do not revive the retired universal score. The original verbatim public fixture text is preserved in the clause receipt; use only the selected Private customer path and separately authorized operator execution, not the historical Cloud/Native mode matrix.
+
+### Journey execution and cleanup boundaries
+
+Before an authorized run, bind the selected served frontend, backend and schema evidence to the frozen execution manifest. Repository main may advance through tooling-only merges; do not require main to equal the served product without inspecting component scope. Keep run-owned accounts separate from maintained accounts. Record received, sent-only, unobservable and missing telemetry separately, including settled action binding for feedback. Cleanup needs a post-delete residue check; policy-retained feedback must have its user link cleared. Stop on identity drift, unplanned provider failure, interruption or uncertain cleanup. Historical runbook instructions to start now, repair credentials or retry do not authorize a new window, account mutation or fault injection.
+<!-- /clause-closeout:2026-10-28 -->

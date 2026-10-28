@@ -3,6 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SavedSessionReview } from '@/services/review/savedSessionReview';
+import type { SessionProgressResult } from '@/services/progress/loadSessionProgress';
+import { webcrypto } from 'node:crypto';
+import { authEpoch, setCurrentLogin } from '@/services/loginSessionLog';
+import { getOpenAttemptForUser, setOpenAttempt as writeHandoff, subscribeOpenAttempt } from '@/services/progress/openAttempt';
+import { validateDisplayedTarget } from '@/services/progress/repeatPracticeTarget';
+import { CoachingCard } from '@/components/session/CoachingCard';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 /**
  * #1258 (PM RETURN, #1535 cycle 1, P1) — "Practice this again" must never skip a valid linked Progress repeat.
@@ -24,9 +31,19 @@ const deferred = <T,>(): Deferred<T> => {
 };
 
 const loadReview = vi.fn<(id: string) => Promise<SavedSessionReview>>();
-vi.mock('@/services/review/savedSessionReview', () => ({ loadSavedSessionReview: (id: string) => loadReview(id) }));
+let displayedSource: SavedSessionReview | null = null;
+const sourceRead = vi.fn();
+vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ from: () => ({ select: () => {
+    const query = { eq: () => query, maybeSingle: () => sourceRead() }; return query;
+} }) }) }));
+vi.mock('@/services/objective/savedFocusPointsCoverage', () => ({ loadSavedFocusPointsCoverage: async () => ({
+    kind: 'coverage', brief: FOCUS.focusBrief, points: FOCUS.focusPoints.map(label => ({ label })),
+}) }));
+vi.mock('@/services/review/savedSessionReview', () => ({ loadSavedSessionReview: async (id: string) => {
+    const value = await loadReview(id); displayedSource = value; return value;
+} }));
 const navigate = vi.fn();
-vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
+vi.mock('react-router-dom', async (orig) => ({ ...await orig<typeof import('react-router-dom')>(), useNavigate: () => navigate }));
 // #1258 (Codex r4191751371): every practice navigation carries its press's action_seq in router state.
 const PRACTICE_NAV = { state: { practiceActionSeq: expect.any(Number) } };
 vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ user: { id: 'user-1' } }) }));
@@ -41,7 +58,10 @@ vi.mock('@/services/progress/recordProgress', () => ({
     abandonRecommendationAttempt: (id: string) => abandon(id),
 }));
 const setOpenAttempt = vi.fn((_attempt: unknown) => true);
-vi.mock('@/services/progress/openAttempt', () => ({ setOpenAttempt: (a: unknown) => setOpenAttempt(a) }));
+vi.mock('@/services/progress/openAttempt', async (orig) => {
+    const actual = await orig<typeof import('@/services/progress/openAttempt')>();
+    return { ...actual, setOpenAttempt: (a: Parameters<typeof actual.setOpenAttempt>[0]) => setOpenAttempt(a) ? actual.setOpenAttempt(a) : false };
+});
 const practiceSelected = vi.fn();
 const practiceAction = vi.fn();
 const practiceState = vi.fn();
@@ -57,6 +77,7 @@ const setActiveObjectiveBrief = vi.fn();
 vi.mock('@/stores/useSessionStore', () => ({ useSessionStore: { getState: () => ({ setActiveObjectiveBrief }) } }));
 
 const { SavedPracticeLoopReview } = await import('../SavedPracticeLoopReview');
+const { ProgressPanel } = await import('../../progress/ProgressPanel');
 
 const FOCUS: SavedSessionReview = {
     coaching: { kind: 'review', review: { whatWorked: 'Clear opening.', whatToTryNext: 'Name the price first.' } },
@@ -65,20 +86,327 @@ const FOCUS: SavedSessionReview = {
 const ELIGIBLE = { status: 'eligible', sessionId: 's1', recommendationId: 'rec-1' };
 
 let client: QueryClient;
-const renderReview = () => {
+const renderReview = (withProgress = false) => {
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return render(<QueryClientProvider client={client}><SavedPracticeLoopReview sessionId="s1" /></QueryClientProvider>);
+    return render(<QueryClientProvider client={client}>
+        <SavedPracticeLoopReview sessionId="s1" />
+        {withProgress && <ProgressPanel session={{ id: 's1' }} nextActionOwnedByReview />}
+    </QueryClientProvider>);
 };
 const action = () => screen.getByTestId('saved-review-practice') as HTMLButtonElement;
 /** A click that still reaches the handler even if the control rendered disabled a frame earlier. */
 const staleClick = (el: HTMLButtonElement) => { el.disabled = false; fireEvent.click(el); };
 
+describe('#1548 displayed instruction opt-in at the actual saved-review caller', () => {
+    it('Focus reload recovery follows the offered route: close pending in Progress, then explicitly start a NEW linked repeat', async () => {
+        const target = await validateDisplayedTarget({ ownerId: 'user-1', epoch: authEpoch(), sessionId: 's1', product: 'focus_points',
+            instruction: 'Name the price first.', focus: { ...FOCUS.focusBrief!, points: [...FOCUS.focusPoints] }, isCurrent: () => true });
+        writeHandoff({ userId: 'user-1', attemptId: 'pending-old', sourceSessionId: 's1', repeatTarget: target });
+        const progress = { ...ELIGIBLE, direction: { text: 'A measured baseline.' }, baselineContext: 'Baseline',
+            takeaways: { whatWorked: 'A measured observation.', practiceThisNext: 'Measured filler target.',
+                target: { metric: 'filler_rate', direction: 'decrease', targetValue: 7, units: 'percent' } } };
+        loadProgress.mockResolvedValueOnce({ ...progress, latestAttempt: { id: 'pending-old', lifecycle: 'pending' } })
+            .mockResolvedValue({ ...progress, latestAttempt: null });
+        abandon.mockResolvedValue(true); recordAttempt.mockResolvedValue('new-repeat');
+        client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/session']}><Routes>
+            <Route path="/session" element={<CoachingCard sessionState="before" practiceTarget={{ kind: 'unavailable', retry: vi.fn(), sourceSessionId: 's1' }} />} />
+            <Route path="/progress/:sessionId" element={<><SavedPracticeLoopReview sessionId="s1" /><ProgressPanel session={{ id: 's1' }} nextActionOwnedByReview /></>} />
+        </Routes></MemoryRouter></QueryClientProvider>);
+        const recoveryCopy = screen.getByTestId('repeat-practice-target').textContent;
+        fireEvent.click(screen.getByRole('link', { name: 'Reopen saved review' }));
+        await screen.findByTestId('saved-review-pending-attempt');
+        expect(action()).toBeDisabled();
+        expect(getOpenAttemptForUser('user-1')?.attemptId).toBe('pending-old');
+        expect(recordAttempt).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Close pending repeat' }));
+        await waitFor(() => expect(action()).toBeEnabled());
+        expect(abandon).toHaveBeenCalledExactlyOnceWith('pending-old');
+        expect(getOpenAttemptForUser('user-1')).toBeNull();
+        fireEvent.click(action());
+        await waitFor(() => expect(getOpenAttemptForUser('user-1')?.attemptId).toBe('new-repeat'));
+        expect(recordAttempt).toHaveBeenCalledExactlyOnceWith('rec-1');
+        expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
+        expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV);
+        expect(recoveryCopy).toContain('close the pending repeat in Progress');
+        expect(recoveryCopy).toContain('start a new repeat');
+    });
+    it('CASUALTY (Codex P2 r4342118259): a Focus review with no saved point set keeps the linked repeat and opens Focus setup', async () => {
+        // A marked Focus take whose results were not saved has coaching but nothing to restore; there is no exact set to
+        // validate against, so the press keeps the prior linked-then-setup flow instead of failing target verification.
+        loadReview.mockResolvedValue({ ...FOCUS, focusBrief: null, focusPoints: [] });
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        fireEvent.click(action());
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/practice?product=focus-points', PRACTICE_NAV));
+        expect(recordAttempt).toHaveBeenCalledExactlyOnceWith('rec-1');
+        expect(screen.queryByTestId('saved-review-practice-error')).toBeNull();
+    });
+    it('does not accept or navigate when advice changes after display and before press', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        expect(screen.getByTestId('saved-review')).toHaveTextContent('Name the price first.');
+        sourceRead.mockResolvedValue({ data: { product: 'focus_points', ai_suggestions: {
+            version: 'gemini_coaching_focus_v1', what_worked: 'Clear opening.', what_to_try_next: 'Hidden new advice.',
+        } }, error: null });
+        fireEvent.click(action());
+        await waitFor(() => expect(linkedAttempt).toHaveBeenCalled());
+        expect(navigate).not.toHaveBeenCalled();
+        await screen.findByTestId('saved-review-practice-error');
+        expect(recordAttempt).not.toHaveBeenCalled(); expect(readPending).not.toHaveBeenCalled();
+        expect(setOpenAttempt).not.toHaveBeenCalled(); expect(navigate).not.toHaveBeenCalled();
+        expect(screen.getByTestId('saved-review')).not.toHaveTextContent('Hidden new advice.');
+    });
+    it.each(['source', 'pending', 'create'] as const)('ABA during awaited %s work cannot publish a handoff, navigate or abandon under another login', async stage => {
+        const pending = deferred<unknown>();
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        if (stage === 'source') sourceRead.mockReturnValue(pending.promise);
+        if (stage === 'pending') readPending.mockReturnValue(pending.promise);
+        if (stage === 'create') recordAttempt.mockReturnValue(pending.promise);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        fireEvent.click(action());
+        await waitFor(() => expect(stage === 'source' ? sourceRead : stage === 'pending' ? readPending : recordAttempt).toHaveBeenCalled());
+        const earlierEpoch = authEpoch();
+        setCurrentLogin('other-owner', 200); setCurrentLogin('user-1', 100);
+        expect(authEpoch()).not.toBe(earlierEpoch);
+        await act(async () => pending.resolve(stage === 'source' ? { data: { product: 'focus_points', ai_suggestions: {
+            version: 'gemini_coaching_focus_v1', what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.',
+        } }, error: null } : stage === 'pending' ? { status: 'none' } : 'committed-attempt'));
+        expect(setOpenAttempt).not.toHaveBeenCalled(); expect(navigate).not.toHaveBeenCalled(); expect(abandon).not.toHaveBeenCalled();
+    });
+    it('navigation during create preserves the committed pending attempt without a late handoff', async () => {
+        const pending = deferred<string>(); recordAttempt.mockReturnValue(pending.promise);
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        const page = renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        fireEvent.click(action()); await waitFor(() => expect(recordAttempt).toHaveBeenCalledOnce());
+        page.unmount(); await act(async () => pending.resolve('committed-attempt'));
+        expect(setOpenAttempt).not.toHaveBeenCalled(); expect(navigate).not.toHaveBeenCalled(); expect(abandon).not.toHaveBeenCalled();
+    });
+    it('a source change during create retains the committed pending attempt but does not publish newer advice', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        recordAttempt.mockImplementation(async () => {
+            sourceRead.mockResolvedValue({ data: { product: 'focus_points', ai_suggestions: {
+                version: 'gemini_coaching_focus_v1', what_worked: 'Clear opening.', what_to_try_next: 'Changed during create.',
+            } }, error: null });
+            return 'committed-attempt';
+        });
+        renderReview(); await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        fireEvent.click(action()); await screen.findByTestId('saved-review-practice-error');
+        expect(recordAttempt).toHaveBeenCalledOnce(); expect(setOpenAttempt).not.toHaveBeenCalled();
+        expect(navigate).not.toHaveBeenCalled(); expect(abandon).not.toHaveBeenCalled();
+    });
+    it('a synchronous same-tab replacement after storage write prevents navigation and preserves the newer binding', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        const unsubscribe = subscribeOpenAttempt(() => {
+            unsubscribe(); writeHandoff({ userId: 'user-1', attemptId: 'newer-attempt', sourceSessionId: 's2' });
+        });
+        try {
+            renderReview(); await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+            fireEvent.click(action());
+            await waitFor(() => expect(getOpenAttemptForUser('user-1')?.attemptId).toBe('newer-attempt'));
+            expect(navigate).not.toHaveBeenCalled(); expect(abandon).not.toHaveBeenCalled();
+        } finally { unsubscribe(); }
+    });
+});
+
 beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    setCurrentLogin('user-1', 100);
+    Object.defineProperty(globalThis.crypto, 'subtle', { configurable: true, value: webcrypto.subtle });
+    displayedSource = null;
+    sourceRead.mockImplementation(async () => {
+        const displayed = displayedSource ?? FOCUS;
+        return { data: { product: displayed.product, ai_suggestions: {
+            version: displayed.product === 'focus_points' ? 'gemini_coaching_focus_v1' : 'gemini_coaching_v1',
+            what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.',
+        } }, error: null };
+    });
     loadReview.mockResolvedValue(FOCUS);
     setOpenAttempt.mockReturnValue(true);
     readPending.mockResolvedValue({ status: 'none' });
     recordAttempt.mockResolvedValue('attempt-1');
+});
+
+describe('#1548 — the saved review names the target actually measured by its linked repeat', () => {
+    const persistedProgress: Extract<SessionProgressResult, { status: 'eligible' }> = {
+        status: 'eligible', sessionId: 's1', recommendationId: 'rec-1', comparison: 'baseline',
+        direction: { direction: 'baseline', deltaPoints: null, deltaPercent: null, reason: null, text: 'Baseline established.' },
+        baselineContext: 'This is your first comparable session.', disclosure: null,
+        takeaways: {
+            whatWorked: 'A completed session', practiceThisNext: 'Cut filler words toward 7%',
+            target: { metric: 'filler_rate', direction: 'decrease', targetValue: 7, units: 'percent of words' },
+        },
+        latestAttempt: null,
+    };
+
+    it('bare Progress acceptance stays metric-only and never reads or persists coaching intent', async () => {
+        loadProgress.mockResolvedValue(persistedProgress);
+        client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        render(<QueryClientProvider client={client}><ProgressPanel session={{ id: 's1' }} /></QueryClientProvider>);
+        fireEvent.click(await screen.findByTestId('progress-accept'));
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session'));
+        expect(sourceRead).not.toHaveBeenCalled();
+        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.any(String) });
+    });
+
+    it.each([
+        // #1548 A2: the review owns the action, so the stored filler-rate result is separate delivery evidence; the
+        // server's decrease derivation is strictly lower than the original session.
+        ['completed', 'moved', 'Filler rate was lower on the repeat than in the original session.'],
+        ['completed', 'did_not_move', 'Filler rate was not lower on the repeat than in the original session.'],
+        ['not_comparable', 'not_comparable', 'Filler rate could not be compared for this repeat.'],
+    ] as const)('accepts the saved target, then qualifies the reloaded %s/%s result without crediting unrelated AI advice', async (lifecycle, outcome, resultText) => {
+        // The AI suggestion is deliberately unrelated to the persisted filler-rate target, whose 7% value
+        // also differs from today's computed 3% default. Neither AI prose nor a new calculation is authority.
+        loadProgress.mockResolvedValue(persistedProgress);
+        const initial = renderReview(true);
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        expect(screen.getByTestId('saved-review')).toHaveTextContent('Name the price first.');
+        expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
+        fireEvent.click(action());
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
+        expect(recordAttempt).toHaveBeenCalledExactlyOnceWith('rec-1');
+        expect(setOpenAttempt).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.any(String),
+            repeatTarget: expect.objectContaining({ version: 1, product: 'focus_points', instructionHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        }));
+        expect(JSON.stringify([practiceAction.mock.calls, practiceState.mock.calls, linkedAttempt.mock.calls])).not.toMatch(/Name the price|Pitch|\["One","Two"\]/);
+
+        initial.unmount(); client.clear();
+        loadProgress.mockResolvedValue({ ...persistedProgress, latestAttempt: { id: 'attempt-1', lifecycle, outcome } });
+        renderReview(true);
+        const result = await screen.findByTestId('progress-attempt-outcome');
+        expect(result).toHaveTextContent(resultText);
+        const measuredTarget = screen.getByTestId('progress-attempt-target');
+        // The stored 7% (not today's computed 3% default) renders, labelled as a saved target.
+        expect(measuredTarget).toHaveTextContent('Separate delivery comparison: Filler rate (saved target: decrease toward 7 percent of words).');
+        expect(result.parentElement).toContainElement(measuredTarget);
+        expect(measuredTarget).not.toHaveTextContent(/price|3 percent/);
+        expect(screen.getByTestId('saved-review')).toHaveTextContent('Name the price first.');
+        expect(screen.getAllByRole('button')).toHaveLength(1); // review still owns the only practice action
+        expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
+        expect(recordAttempt).toHaveBeenCalledTimes(1); // reloading the outcome never accepts another attempt
+        // Moved vs non-moved stays discriminated, now by the stored metric result itself, never by "practiced direction".
+        expect(result.textContent?.includes('Filler rate was lower')).toBe(outcome === 'moved');
+        expect(result).not.toHaveTextContent(/practiced direction|price|improv/i);
+        expect(screen.getByTestId('progress-attempt-scope'))
+            .toHaveTextContent('This comparison measures delivery, not whether the coaching tip was followed.');
+    });
+
+    it('#1548: the reopened review shows the persisted same-target values once, from the one Progress readmodel', async () => {
+        loadProgress.mockResolvedValue({
+            ...persistedProgress,
+            latestAttempt: { id: 'attempt-1', lifecycle: 'completed', outcome: 'moved' },
+            repeatResult: { status: 'available', metric: 'filler_rate', direction: 'decrease', units: 'percent of words', before: 9.2, after: 6.4 },
+        });
+        renderReview(true);
+        const values = await screen.findByTestId('progress-attempt-values');
+        expect(values).toHaveTextContent('Filler rate: 9.2 → 6.4 percent of words (original session → linked repeat).');
+        expect(screen.getAllByTestId('progress-attempt-values')).toHaveLength(1);
+        expect(values).not.toHaveTextContent(/reached|met the|improv|price/i);
+        expect(screen.getByTestId('progress-attempt-scope'))
+            .toHaveTextContent('This comparison measures delivery, not whether the coaching tip was followed.');
+        expect(screen.getAllByRole('button')).toHaveLength(1); // still no second next action
+        expect(loadProgress).toHaveBeenCalledWith('s1');
+        expect(new Set(loadProgress.mock.calls.map(([id]) => id))).toEqual(new Set(['s1']));
+    });
+
+    it('#1548: expired coaching text does not erase the retained numeric values, and nothing reconstructs the text', async () => {
+        loadReview.mockResolvedValue({ ...FOCUS, coaching: { kind: 'expired' } });
+        loadProgress.mockResolvedValue({
+            ...persistedProgress,
+            latestAttempt: { id: 'attempt-1', lifecycle: 'completed', outcome: 'did_not_move' },
+            repeatResult: { status: 'available', metric: 'filler_rate', direction: 'decrease', units: 'percent of words', before: 4.1, after: 4.4 },
+        });
+        renderReview(true);
+        expect(await screen.findByTestId('progress-attempt-values'))
+            .toHaveTextContent('Filler rate: 4.1 → 4.4 percent of words (original session → linked repeat).');
+        expect(screen.getByTestId('progress-attempt-outcome'))
+            .toHaveTextContent('Filler rate was not lower on the repeat than in the original session.');
+        expect(document.body).not.toHaveTextContent('Name the price first.');
+    });
+});
+
+describe('#1258 Codex P1 r4273670998 — acceptance time is the PRESS, not the end of the network calls', () => {
+    it('a slow pending-attempt readback and attempt create do not move acceptedAtIso past the press', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        const pressedAt = new Date('2026-10-14T12:00:00.000Z');
+        // Both server calls take time: by the time the handoff is stored, the wall clock is 40 s later.
+        readPending.mockImplementation(async () => { vi.setSystemTime(new Date('2026-10-14T12:00:20.000Z')); return { status: 'none' }; });
+        recordAttempt.mockImplementation(async () => { vi.setSystemTime(new Date('2026-10-14T12:00:40.000Z')); return 'attempt-1'; });
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(pressedAt);
+            fireEvent.click(action());
+            await waitFor(() => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-1', acceptedAtIso: pressedAt.toISOString() }));
+    });
+});
+
+describe('#1258 Codex P2 r4275718056 (PM 6178959404) — a reused attempt of unproved identity is accepted at THIS press', () => {
+    /** Press the action at `at` (client clock) and wait until `settled`. */
+    const pressAt = async (at: string, settled: () => void) => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(new Date(at));
+            staleClick(action());
+            await waitFor(settled);
+        } finally {
+            vi.useRealTimers();
+        }
+    };
+    /** A local create at 11:00:00 that fails, then a retry press at 11:01:00 that finds a pending attempt. */
+    const failedLocalThenReuse = async (pending: Record<string, unknown>) => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        recordAttempt.mockResolvedValueOnce(null);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        await pressAt('2026-10-14T11:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
+        expect(setOpenAttempt).not.toHaveBeenCalled();
+        readPending.mockResolvedValue({ status: 'one', ...pending });
+        await pressAt('2026-10-14T11:01:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        expect(recordAttempt).toHaveBeenCalledTimes(1);
+        return setOpenAttempt.mock.calls[0][0] as { attemptId: string; acceptedAtIso: string };
+    };
+    it.each([
+        // Another device accepted the same recommendation 30 s after the failed local press — inside any proximity window.
+        ['another device, 30 s after the failed press', { attemptId: 'attempt-other-device', acceptedAtIso: '2026-10-14T11:00:30.000Z' }],
+        // Clock skew either way: a server time just BEFORE the failed press, or well after it.
+        ['a server clock behind the browser', { attemptId: 'attempt-x', acceptedAtIso: '2026-10-14T10:59:10.000Z' }],
+        ['a server clock ahead of the browser', { attemptId: 'attempt-x', acceptedAtIso: '2026-10-14T11:00:55.000Z' }],
+        ['an unknown server time', { attemptId: 'attempt-x', acceptedAtIso: null }],
+        ['a malformed server time', { attemptId: 'attempt-x', acceptedAtIso: 'not-a-time' }],
+        ['no server time at all', { attemptId: 'attempt-x' }],
+    ])('%s → acceptance is the retry press, never the failed press nor the server time', async (_label, pending) => {
+        const stored = await failedLocalThenReuse(pending);
+        expect(stored).toMatchObject({ attemptId: pending.attemptId, acceptedAtIso: '2026-10-14T11:01:00.000Z' });
+    });
+    it('exact association — the create answered with its id — keeps that create\'s own press', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        await pressAt('2026-10-14T11:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-1', acceptedAtIso: '2026-10-14T11:00:00.000Z' }));
+    });
+    it('nothing is written on this device for a create whose answer has not arrived (no marker to borrow later)', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        recordAttempt.mockResolvedValueOnce(null);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        const before = Object.keys(localStorage).length;
+        await pressAt('2026-10-14T11:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
+        expect(Object.keys(localStorage).length).toBe(before);
+    });
 });
 
 describe('#1258 P1 — the saved review never skips a valid linked repeat', () => {
@@ -105,7 +433,8 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(readPending).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledWith('rec-1');
-        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1' });
+        // #1258 RH-13: the handoff also records WHEN it was accepted, so a reconcile round can bind it to the right take.
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), repeatTarget: expect.objectContaining({ product: 'focus_points' }) }));
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(practiceSelected).toHaveBeenCalledWith('focus_points', true);

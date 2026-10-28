@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { evaluateReviewQualification, formatReviewQualification } from './review-qualification.mjs';
+import { evaluateReviewQualification, formatReviewQualification, DOCUMENTATION_EVIDENCE_ADMISSION } from './review-qualification.mjs';
 
 const CODEX_LOGINS = new Set(['chatgpt-codex-connector', 'chatgpt-codex-connector[bot]']);
 /**
@@ -278,6 +278,10 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     + p2DispositionFindingIds.length;
 
   const evaluated = evaluateReviewQualification({
+    repository: pullRequest?.baseRepository?.nameWithOwner,
+    pullRequestNumber: pullRequest?.number,
+    baseSha: pullRequest?.baseRefOid,
+    documentationEvidence: pullRequest?.documentationEvidence,
     currentSha: head,
     // #1430 P1 — stamped so a merge decision can require a receipt produced immediately beforehand.
     // A thread reopened after this moment makes this receipt stale, which is how the reopen gap is
@@ -506,7 +510,7 @@ function normaliseRef(ref) {
  * refused every legitimately clean PR at merge. Two copies of an evidence query can disagree about what
  * the evidence is; one exported copy cannot.
  */
-export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{databaseId author{login} authorAssociation body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
+export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage endCursor}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{databaseId author{login} authorAssociation body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
 
 /**
  * The conversation surface is load-bearing and long-lived PRs routinely exceed one GraphQL page.
@@ -515,11 +519,94 @@ export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$nu
  */
 export const ISSUE_COMMENT_PAGE_CAP = 10;
 
+/**
+ * #1671 — THE CHANGED-FILE SURFACE IS PAGINATED TOO. It decides the review scope (`changedFiles`), and a combined release
+ * candidate routinely exceeds one page of 100 paths, so `files(first:100)` alone made every such PR permanently
+ * `changed_files_incomplete`. Ten pages is a bounded 1,000-path read. Anything this read cannot prove complete — the cap,
+ * a failed or malformed page, a missing or repeating cursor, a duplicate or empty path, or the pull request's head, base
+ * or repositories changing between pages — leaves `hasNextPage` true, so the receipt still fails closed.
+ */
+export const CHANGED_FILE_PAGE_CAP = 10;
+
+export const PULL_REQUEST_FILES_PAGE_QUERY = `query($owner:String!,$name:String!,$number:Int!,$filesAfter:String!){repository(owner:$owner,name:$name){pullRequest(number:$number){headRefOid baseRefOid headRepository{nameWithOwner} baseRepository{nameWithOwner} files(first:100,after:$filesAfter){nodes{path} pageInfo{hasNextPage endCursor}}}}}`;
+
+const pageIdentity = (pr) => JSON.stringify([pr?.headRefOid ?? null, pr?.baseRefOid ?? null,
+  pr?.headRepository?.nameWithOwner ?? null, pr?.baseRepository?.nameWithOwner ?? null]);
+
+async function readAllChangedFiles({ pullRequest, request, pageCap }) {
+  const incomplete = (nodes) => ({ nodes, pageInfo: { hasNextPage: true } });
+  const first = pullRequest.files;
+  if (!first || !Array.isArray(first.nodes)) return incomplete([]);
+  const nodes = [];
+  const seenPaths = new Set();
+  const take = (pageNodes) => {
+    for (const node of pageNodes) {
+      const path = node?.path;
+      if (typeof path !== 'string' || path === '' || seenPaths.has(path)) return false;
+      seenPaths.add(path);
+      nodes.push({ path });
+    }
+    return true;
+  };
+  if (!take(first.nodes)) return incomplete(nodes);
+  const identity = pageIdentity(pullRequest);
+  const seenCursors = new Set();
+  let pageInfo = first.pageInfo ?? { hasNextPage: true };
+  let pagesRead = 1;
+  while (pageInfo.hasNextPage === true) {
+    const cursor = pageInfo.endCursor;
+    if (pagesRead >= pageCap || typeof cursor !== 'string' || cursor === '' || seenCursors.has(cursor)) return incomplete(nodes);
+    seenCursors.add(cursor);
+    let payload;
+    try { payload = await request(cursor); } catch { return incomplete(nodes); }
+    const next = payload?.data?.repository?.pullRequest;
+    if (payload?.errors?.length || !next || pageIdentity(next) !== identity) return incomplete(nodes);
+    if (!next.files || !Array.isArray(next.files.nodes) || !take(next.files.nodes)) return incomplete(nodes);
+    pageInfo = next.files.pageInfo ?? { hasNextPage: true };
+    pagesRead += 1;
+  }
+  return pageInfo.hasNextPage === false ? { nodes, pageInfo: { hasNextPage: false } } : incomplete(nodes);
+}
+
 function commentIdentity(comment) {
   return String(comment?.id ?? `${comment?.createdAt ?? ''}\u0000${comment?.author?.login ?? ''}\u0000${comment?.body ?? ''}`);
 }
 
-export async function readPullRequest({ repository, number, token, pageCap = ISSUE_COMMENT_PAGE_CAP }) {
+// Immutable Git metadata only: no document bodies, candidate manifests or executable evidence.
+const DOCUMENTATION_POSTIMAGE_IDENTITY_QUERY = `query documentationPostimageIdentity($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefOid baseRefName headRepository{nameWithOwner} baseRepository{nameWithOwner}}}}`;
+
+async function readDocumentationPostimages({ repository, number, pullRequest, token }) {
+  const admission = DOCUMENTATION_EVIDENCE_ADMISSION;
+  const head = pullRequest.headRefOid, base = pullRequest.baseRefOid;
+  if (repository !== admission.repository || number !== admission.number || pullRequest.number !== number
+      || pullRequest.baseRepository?.nameWithOwner !== repository || pullRequest.headRepository?.nameWithOwner !== repository
+      || pullRequest.baseRefName !== 'main' || !/^[0-9a-f]{40}$/.test(head ?? '') || !/^[0-9a-f]{40}$/.test(base ?? '')
+      || pullRequest.files?.pageInfo?.hasNextPage !== false) return null;
+  const paths = pullRequest.files.nodes.map(row => row.path);
+  const expected = new Set(admission.files.map(row => row.path));
+  if (paths.length !== expected.size || new Set(paths).size !== paths.length || !paths.every(path => expected.has(path))) return null;
+  const commit = await githubRequest(`/repos/${repository}/git/commits/${head}`, token);
+  if (commit?.sha !== head || !/^[0-9a-f]{40}$/.test(commit?.tree?.sha ?? '')) return null;
+  const tree = await githubRequest(`/repos/${repository}/git/trees/${commit.tree.sha}?recursive=1`, token);
+  if (tree?.sha !== commit.tree.sha || tree.truncated !== false || !Array.isArray(tree.tree)) return null;
+  const seen = new Set();
+  const entries = [];
+  for (const row of tree.tree) {
+    if (typeof row?.path !== 'string' || row.path === '' || seen.has(row.path)) return null;
+    seen.add(row.path);
+    if (expected.has(row.path)) entries.push({ path: row.path, oid: row.sha, mode: row.mode, size: row.size, type: row.type });
+  }
+  const [owner, name] = repository.split('/');
+  const final = await githubRequest('/graphql', token, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: DOCUMENTATION_POSTIMAGE_IDENTITY_QUERY, variables: { owner, name, number } }) });
+  const finalPr = final?.data?.repository?.pullRequest;
+  if (final?.errors?.length || !finalPr || pageIdentity(finalPr) !== pageIdentity(pullRequest)
+      || finalPr.number !== number || finalPr.baseRefName !== 'main') return null;
+  return { repository, number, headRepository: repository, baseRef: 'main', headSha: head, baseSha: base,
+    treeSha: tree.sha, complete: true, entries };
+}
+
+export async function readPullRequest({ repository, number, token, pageCap = ISSUE_COMMENT_PAGE_CAP, filesPageCap = CHANGED_FILE_PAGE_CAP }) {
   const [owner, name] = repository.split('/');
   const query = PULL_REQUEST_REVIEW_QUERY;
   const requestPage = (commentsBefore = null) => githubRequest('/graphql', token, {
@@ -564,8 +651,24 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
         || commentIdentity(a).localeCompare(commentIdentity(b))),
     pageInfo,
   };
+  pullRequest.files = await readAllChangedFiles({
+    pullRequest,
+    pageCap: filesPageCap,
+    request: (filesAfter) => githubRequest('/graphql', token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: PULL_REQUEST_FILES_PAGE_QUERY, variables: { owner, name, number, filesAfter } }),
+    }),
+  });
   // #1438 PM RETURN `5639978861` — the branch moves the Ready-trigger binding is checked against.
   pullRequest.headRefHistory = await readHeadRefHistory({ pullRequest, token });
+  if (repository === DOCUMENTATION_EVIDENCE_ADMISSION.repository && number === DOCUMENTATION_EVIDENCE_ADMISSION.number) {
+    // All consumers (including the live merge guard) use this exported reader.
+    // Never retain an API-supplied/candidate field as evidence if acquisition fails.
+    pullRequest.documentationEvidence = null;
+    try { pullRequest.documentationEvidence = await readDocumentationPostimages({ repository, number, pullRequest, token }); }
+    catch { /* Unreadable metadata keeps the named carrier unqualified. */ }
+  }
   return pullRequest;
 }
 

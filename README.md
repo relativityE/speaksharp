@@ -44,9 +44,10 @@ speaksharp/
 │   ├── public/       # Static assets
 │   └── *.config.*    # Frontend build configs (Vite, Vitest, etc.)
 ├── backend/           # Supabase backend services
-│   ├── functions/    # Edge functions
-│   ├── migrations/   # Database migrations
-│   └── config.toml
+│   └── supabase/
+│       ├── functions/    # Edge functions
+│       ├── migrations/   # Database migrations
+│       └── config.toml
 ├── scripts/           # Build, test, and maintenance scripts
 │   ├── test-audit.sh
 │   ├── run-metrics.sh
@@ -68,12 +69,10 @@ speaksharp/
 | **E2E Tests** | `tests/e2e/` | `*.e2e.spec.ts` |
 | **Soak/Canary Tests** | `tests/soak/`, `tests/e2e/` | `*.spec.ts` |
 
-> **Note:** Unit tests are co-located with source files (not in a separate `tests/unit/` directory) following the pattern recommended by Vitest for better maintainability.
+> **Note:** Frontend tests are commonly co-located with source. Repository tooling and contract tests also live in `tests/unit/`, `tests/config/`, `tests/release/` and other configured suites. Read the current runner configuration and package scripts for the relevant gate.
 
-**Why `__tests__/`?**
-- Jest/Vitest automatically discover `*.test.ts` files in `__tests__/` directories
-- Double underscores = "this is special/internal" (convention borrowed from Python's `__init__.py`)
-- Bundlers (Vite/Webpack) exclude these directories from production builds
+Test discovery and production inclusion follow the configured runner patterns and build
+entrypoints; a directory name alone does not establish either behavior.
 
 ## Getting Started (How to Run)
 
@@ -162,18 +161,10 @@ This project uses a hybrid approach for managing image assets:
 
 This project uses a strict `pnpm-lock.yaml` file to guarantee that every developer and every CI run uses the exact same dependency versions. If you encounter unexpected build, type-check, or linting errors in a fresh environment, it is likely due to dependency drift.
 
-**To fix this, you must enforce the lockfile:**
-
-1.  **Delete the `node_modules` directory:**
-    ```bash
-    rm -rf node_modules
-    ```
-2.  **Re-install using the canonical setup script:**
-    ```bash
-    pnpm setup
-    ```
-
-The `pnpm setup` command executes `pnpm install --frozen-lockfile`, which is the **only** correct way to install dependencies in this project. It forces pnpm to install the exact versions specified in the lockfile, ensuring a reproducible environment. Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm reset:clean`.
+Use the pinned pnpm version and the repository's canonical setup procedure in `AGENTS.md`,
+preserving the lockfile. Diagnose the actual install failure before changing the environment.
+A denied download or proxy failure is not evidence of dependency drift and is not repaired
+by deleting a working dependency tree or caches.
 
 ## Troubleshooting: The "Dead Environment" Trap
  
@@ -183,19 +174,14 @@ If you find yourself in a state where `node_modules` is missing and `pnpm instal
  
 ### Recovery Steps:
  
-1.  **Run the Nuclear Clean**:
-    ```bash
-    pnpm reset:clean
-    ```
-    This kills stale processes and wipes all caches without touching your source code.
- 
-2.  **The "Rebase then Setup" Rule**:
-    Never run `pnpm install` immediately after a large rebase if dependencies have changed significantly.
-    - `git pull --rebase`
-    - `./scripts/git-pull-fix.sh` (This script automates the cleanup and re-install, or use `pnpm reset:git`)
- 
-3.  **Check TIA Impact**:
-    If your tests are not running, verify that your changes are captured in `test-impact-map.json`. If you added a new file, you **must** update this map or the `test:agent` command will skip it.
+1. Record the attempted command, exit code and sanitized error. Keep network/permission
+   failures distinct from dependency or test failures; do not bypass the failing control.
+2. Preserve existing dependencies, caches and other agents' processes. Follow `AGENTS.md`
+   for isolated setup and host ownership; do not run broad reset/kill commands as a remedy
+   for unavailable network access.
+3. Inspect test-impact selection and the actual `test:agent` output. A selected subset is
+   not full CI qualification. If dependencies cannot be installed, complete independent
+   source/document checks and report the affected tests as not run.
  
 ---
  

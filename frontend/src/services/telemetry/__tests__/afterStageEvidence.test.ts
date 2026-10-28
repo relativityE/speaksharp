@@ -10,8 +10,6 @@
  * Each casualty changes one thing in an otherwise qualifying journey and asserts the stage HOLDs for it.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import {
     FOCUS_POINTS_POST_STOP_CHAIN,
     OPEN_MIC_POST_STOP_CHAIN,
@@ -20,6 +18,7 @@ import {
     type DecodedTelemetryRow,
 } from '../completenessGate';
 import { buildReadbackQuery } from '../bootScopedReceipts';
+import { readbackRowsByName } from '../readbackColumns';
 
 const stage = (name: string) => QUALIFICATION_STAGES.find((s) => s.stage === name)!;
 const OPEN_MIC = stage('session_after_open_mic');
@@ -32,7 +31,10 @@ const chainRows = (chain: readonly string[], start = 1_000, attemptId: string | 
         { stage: name, duration_ms: 10, ...(attemptId === null ? {} : { attempt_id: attemptId }) },
         { timestamp: start + i }));
 const reviewReceipt = (over: Record<string, unknown> = {}) =>
-    row('transcript_authority', { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true, ...over });
+    row('transcript_authority', { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true, attempt_id: 'attempt-1', ...over });
+/** #1258 — a take's own save outcome, as `transcript_authority { stage: 'save' }` carries it. */
+const saveReceipt = (attemptId: string, persisted: boolean | string) =>
+    row('transcript_authority', { stage: 'save', persisted, attempt_id: attemptId });
 
 const COACHING_RENDERED = { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true, attempt_id: 'attempt-1' };
 const RAIL_ONLY = {
@@ -43,6 +45,7 @@ const RAIL_ONLY = {
 /** Everything an After stage needs besides the two families under test. */
 const base = (s: typeof OPEN_MIC): DecodedTelemetryRow[] => [
     row('session_saved', { attempt_id: 'attempt-1', attempt_seq: 1 }, { journeyId: 'journey-1', bootId: 'boot-1' }),
+    saveReceipt('attempt-1', true),
     row('model_attribution_receipt', {
         subject_boot_id: 'boot-1', subject_journey_id: 'journey-1', subject_attempt_id: 'attempt-1',
         subject_attempt_seq: 1, attribution_status: 'verified',
@@ -88,6 +91,51 @@ describe('#1421 P1 `3984043479` — the After stages require a successful review
     it('CASUALTY: one successful receipt does not excuse another that was wrong on screen', () => {
         const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), reviewReceipt({ transcript_visibly_present: false })]);
         expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).toMatch(/did not show the saved transcript/);
+    });
+
+    // #1258 (run 38790238983, PM 6200367845) — judged per take, with the PM's negative controls.
+    it('CONTROL: an UNSAVED take\'s honest empty review does not fail the saved take\'s good one', () => {
+        const unsaved = [saveReceipt('attempt-2', false), reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false })];
+        const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), ...unsaved]);
+        expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).not.toMatch(/review_rendered|saved transcript/);
+    });
+
+    it('CASUALTY (proved failure): a SAVED take that rendered blank still HOLDs', () => {
+        const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt({ transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).toMatch(/did not show the saved transcript/);
+    });
+
+    it('CASUALTY (missing outcome): a review whose take has no save outcome is unverified, never exempt', () => {
+        const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), reviewReceipt({ attempt_id: 'attempt-3', transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).toMatch(/no save outcome for its own take/);
+    });
+
+    it('CASUALTY (PM 6205858358 P1): an UNKNOWN save outcome is unverified, never an unsaved exemption', () => {
+        // One good saved review, beside a finalize-only take whose outcome is null, missing or unreadable, reviewed blank.
+        for (const persisted of [null, undefined, '', 'yes', 0]) {
+            const unknown = [
+                row('transcript_authority', { stage: 'finalize', attempt_id: 'attempt-2', ...(persisted === undefined ? {} : { persisted }) }),
+                reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false }),
+            ];
+            const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), ...unknown]);
+            expect({ persisted, held: evaluateQualificationStage(OPEN_MIC, rows).join(' | ') })
+                .toEqual({ persisted, held: expect.stringMatching(/no readable save outcome/) });
+        }
+    });
+
+    it('CONTROL (retry): a failed save then a successful Retry Save is a SAVED take — its blank review HOLDs, its good one qualifies', () => {
+        const retried = [saveReceipt('attempt-2', false), saveReceipt('attempt-2', true)];
+        const blank = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), ...retried, reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, blank).join(' | ')).toMatch(/did not show the saved transcript/);
+        const good = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), ...retried, reviewReceipt({ attempt_id: 'attempt-2' })]);
+        expect(evaluateQualificationStage(OPEN_MIC, good).join(' | ')).not.toMatch(/review_rendered|saved transcript|save outcome/);
+    });
+
+    it('CASUALTY (wrong take): another take\'s saved flag cannot excuse this take; a receipt with no take identity HOLDs', () => {
+        const wrong = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [saveReceipt('attempt-2', false), reviewReceipt({ attempt_id: 'attempt-2' }), reviewReceipt({ transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, wrong).join(' | ')).toMatch(/did not show the saved transcript/);
+        const anonymous = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt({ attempt_id: undefined })]);
+        expect(evaluateQualificationStage(OPEN_MIC, anonymous).join(' | ')).toMatch(/names no take/);
     });
 });
 
@@ -172,10 +220,22 @@ describe('#1421 — the readback selects and decodes what these invariants read'
     });
 
     it('the decoder maps those columns to the properties the invariants read', () => {
-        const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
-        expect(script).toContain('stage: cells[18] ?? null');
-        expect(script).toContain('transcript_visibly_present: cells[19] ?? null');
-        expect(script).toContain('digests_match: cells[20] ?? null');
+        const query = buildReadbackQuery({
+            windowHours: 24, releaseSha: 'sha', trafficType: 'internal_test', qualifyingIdentity: 'id',
+            governedEvents: ['transcript_authority'], quote: (v: string) => `'${v}'`,
+        } as never);
+        const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
+        const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
+        const sent: Record<string, unknown> = {
+            event: 'transcript_authority', stage: 'review_rendered', transcript_visibly_present: true, digests_match: false,
+        };
+        for (const field of ['stage', 'transcript_visibly_present', 'digests_match']) expect(columns).toContain(field);
+        const decoded = readbackRowsByName(columns, [columns.map((name) => sent[name] ?? null)]);
+        expect(decoded.ok).toBe(true);
+        if (!decoded.ok) throw new Error(decoded.reason);
+        expect(decoded.rows[0].properties).toMatchObject({
+            stage: 'review_rendered', transcript_visibly_present: true, digests_match: false,
+        });
     });
 });
 
@@ -220,10 +280,9 @@ describe('#1258 — a Focus Points review must include its AI coaching (runbook 
      * The casualties above hand the gate decoded objects that already carry `review_surface`, `phase` and
      * `suggestions_present`. The trusted readback selected none of the three, so a genuine Focus Points journey
      * reached the gate without them and held as "rendered no AI coaching" although the receipt was delivered.
-     * This round-trips the qualifying journey through the REAL wire shape: each row becomes the positional cells
-     * the actual `buildReadbackQuery` select list produces, and is decoded with the actual `name: cells[i]`
-     * mapping read from `telemetry-readback-qualification.mts` — so a column the query drops, or a cell the
-     * decoder never reads, is dropped here too.
+     * This round-trips the qualifying journey through the REAL wire shape and production named decoder.
+     * Independently required field names and coaching values prevent a jointly missing query/decoder field
+     * from validating itself. Reversed response order also proves decoding follows metadata, not position.
      */
     it('CASUALTY: a qualifying Focus Points journey still qualifies after the trusted readback round trip', () => {
         const query = buildReadbackQuery({
@@ -232,25 +291,57 @@ describe('#1258 — a Focus Points review must include its AI coaching (runbook 
         } as never);
         const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
         const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
-        const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
-        const decoderCells = [...script.matchAll(/(\w+): \(?cells\[(\d+)\]/g)].map((m) => [m[1], Number(m[2])] as const);
+        for (const field of ['event', 'timestamp', 'journey_id', 'boot_id', 'attempt_id', 'review_surface', 'phase', 'suggestions_present']) {
+            expect(columns, `the readback selects ${field}`).toContain(field);
+        }
+        const responseColumns = [...columns].reverse();
         const TOP_LEVEL: Record<string, keyof DecodedTelemetryRow> = { event: 'event', timestamp: 'timestamp', journey_id: 'journeyId', boot_id: 'bootId' };
 
-        const toCells = (r: DecodedTelemetryRow) => columns.map((c) => (c in TOP_LEVEL
+        const toCells = (r: DecodedTelemetryRow) => responseColumns.map((c) => (c in TOP_LEVEL
             ? (r as unknown as Record<string, unknown>)[TOP_LEVEL[c]] ?? null
             : (r.properties as Record<string, unknown> | undefined)?.[c] ?? null));
-        const decode = (cells: unknown[]): DecodedTelemetryRow => {
-            const decoded: Record<string, unknown> = { properties: {} };
-            for (const [name, index] of decoderCells) {
-                if (['event', 'timestamp', 'journeyId', 'bootId'].includes(name)) decoded[name] = cells[index] ?? null;
-                else (decoded.properties as Record<string, unknown>)[name] = cells[index] ?? null;
-            }
-            return decoded as unknown as DecodedTelemetryRow;
-        };
 
         const sent = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', COACHING_RENDERED)]);
         expect(evaluateQualificationStage(FOCUS_POINTS, sent), 'control: the sent journey qualifies').toEqual([]);
-        expect(evaluateQualificationStage(FOCUS_POINTS, sent.map((r) => decode(toCells(r)))), 'the received journey qualifies').toEqual([]);
+        const received = readbackRowsByName(responseColumns, sent.map(toCells));
+        expect(received.ok).toBe(true);
+        if (!received.ok) throw new Error(received.reason);
+        expect(received.rows.find((r) => r.event === 'practice_loop' && r.properties.review_surface === 'coaching_verdict')?.properties)
+            .toMatchObject({ phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true, attempt_id: 'attempt-1' });
+        expect(evaluateQualificationStage(FOCUS_POINTS, received.rows), 'the received journey qualifies').toEqual([]);
+    });
+
+    it('CASUALTY (PM 6205858358 P1): the per-take save outcome survives the trusted readback round trip — explicit false exempts, unknown HOLDs', () => {
+        const query = buildReadbackQuery({
+            windowHours: 24, releaseSha: 'sha', trafficType: 'internal_test', qualifyingIdentity: 'id',
+            governedEvents: ['transcript_authority'], quote: (v: string) => `'${v}'`,
+        } as never);
+        const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
+        const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
+        expect(columns, 'the readback selects the save outcome').toContain('persisted');
+        for (const field of ['event', 'stage', 'attempt_id', 'persisted', 'transcript_visibly_present']) expect(columns).toContain(field);
+        const TOP_LEVEL: Record<string, keyof DecodedTelemetryRow> = { event: 'event', timestamp: 'timestamp', journey_id: 'journeyId', boot_id: 'bootId' };
+        const toCells = (r: DecodedTelemetryRow) => columns.map((c) => (c in TOP_LEVEL
+            ? (r as unknown as Record<string, unknown>)[TOP_LEVEL[c]] ?? null
+            : (r.properties as Record<string, unknown> | undefined)?.[c] ?? null));
+        const received = (rows: DecodedTelemetryRow[]) => {
+            const decoded = readbackRowsByName(columns, rows.map(toCells));
+            expect(decoded.ok).toBe(true);
+            if (!decoded.ok) throw new Error(decoded.reason);
+            return decoded.rows;
+        };
+        expect(received([saveReceipt('attempt-2', false)])[0].properties)
+            .toMatchObject({ stage: 'save', attempt_id: 'attempt-2', persisted: false });
+        expect(received([row('transcript_authority', { stage: 'finalize', attempt_id: 'attempt-2' })])[0].properties)
+            .toMatchObject({ stage: 'finalize', attempt_id: 'attempt-2', persisted: null });
+
+        const unsaved = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN,
+            [reviewReceipt(), saveReceipt('attempt-2', false), reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, received(unsaved)).join(' | '), 'explicit false survives the trip').not.toMatch(/review_rendered|save outcome/);
+        const unknown = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(),
+            row('transcript_authority', { stage: 'finalize', attempt_id: 'attempt-2' }),
+            reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, received(unknown)).join(' | '), 'a missing outcome arrives as null and HOLDs').toMatch(/no readable save outcome/);
     });
 
     it('the readback selects the three coaching-receipt fields, appended after every existing column, and never the whole property bag', () => {

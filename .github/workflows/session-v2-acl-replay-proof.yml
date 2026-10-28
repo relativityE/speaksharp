@@ -1,0 +1,47 @@
+name: Session v2 ACL replay (disposable PostgreSQL)
+on:
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260819120000_complete_session_v2_atomic_retention_1314.sql'
+      - 'backend/supabase/migrations/20260829120000_retire_complete_session_v1_1306.sql'
+      - 'tests/db/transcript-retention-converge-bootstrap.sql'
+      - 'backend/supabase/migrations/20260801000000_sessions_transcript_state.sql'
+      - 'backend/supabase/migrations/20260803000000_transcript_retention_newest_two.sql'
+      - 'backend/supabase/migrations/20260804000000_transcript_retention_converge_on_save.sql'
+      - 'backend/supabase/migrations/20260816223606_metrics_only_additive_1306.sql'
+      - 'tests/db/stage-b-retire-complete-session-v1.integration.test.ts'
+      - 'tests/db/session-v2-acl-replay-realpg.mjs'
+      - '.github/workflows/session-v2-acl-replay-proof.yml'
+permissions:
+  contents: read
+jobs:
+  acl:
+    name: ACL (PostgreSQL ${{ matrix.pg }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+    env:
+      PROOF_PG_MAJOR: ${{ matrix.pg }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install and select the declared PostgreSQL version
+        env:
+          PG_MAJOR: ${{ matrix.pg }}
+        run: |
+          curl -fsS https://www.postgresql.org/media/keys/ACCC4CF8.asc -o "$RUNNER_TEMP/postgresql.asc"
+          sudo install -m 0644 "$RUNNER_TEMP/postgresql.asc" /usr/share/keyrings/postgresql.asc
+          echo 'deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/postgresql.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "postgresql-$PG_MAJOR"
+          echo "/usr/lib/postgresql/$PG_MAJOR/bin" >> "$GITHUB_PATH"
+      - name: Prove controlled grant replay and unchanged retirement refusals
+        run: node tests/db/session-v2-acl-replay-realpg.mjs

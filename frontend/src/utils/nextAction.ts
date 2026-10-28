@@ -44,7 +44,12 @@ export interface FinalMetricsInput {
   durationSeconds: number;
   wordCount: number;
   wpm: number | null | undefined;
-  fillerCounts: Record<string, number>;
+  /**
+   * #1593 UX-1 — the COUNTED filler total the headline shows (fillerTiers.countedFillerTotal: true fillers + user
+   * words + custom words, discourse markers only when opted in). Never the per-key map's sum, which keeps every
+   * tracked word for analytics and would rate fillers the user was never shown.
+   */
+  countedFillerTotal: number;
   clarityScore?: number | null;
 }
 
@@ -71,7 +76,7 @@ export function deriveNextActionSignal(m: FinalMetricsInput): NextActionSignal {
     return build({ reasonCode: 'ESTABLISH_BASELINE', actionCode: 'RECORD_BASELINE', metric: 'none', value: 0, comparator: 'no_baseline', templateVersion: tv });
   }
 
-  const totalFillers = Object.values(m.fillerCounts).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
+  const totalFillers = Number.isFinite(m.countedFillerTotal) && m.countedFillerTotal > 0 ? m.countedFillerTotal : 0;
   const minutes = m.durationSeconds > 0 ? m.durationSeconds / 60 : 0;
   const fillerRate = minutes > 0 ? totalFillers / minutes : 0;
   if (fillerRate >= FILLER_RATE_PER_MIN_TARGET) {

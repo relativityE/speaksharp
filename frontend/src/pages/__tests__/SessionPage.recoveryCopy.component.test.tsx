@@ -134,11 +134,13 @@ describe('an INTERRUPTED session promises nothing it cannot deliver', () => {
 });
 
 describe('a FINALIZED PENDING-SAVE session states what actually survived', () => {
-    it('says the measurements were kept and no transcript was stored', () => {
+    it('says the measurements were kept and that the save could not be confirmed — never a definite loss (#1474)', () => {
         renderWith(draft('finalized_pending_save', 210));
         const message = screen.getByTestId('session-recovery-message').textContent ?? '';
         expect(message).toMatch(/measurements were kept/i);
-        expect(message).toMatch(/no transcript was stored/i);
+        // A finalized take's answer may have been lost after the server committed it (live RWT 39076238188).
+        expect(message).toMatch(/couldn’t confirm it was saved/i);
+        expect(message).not.toMatch(/no transcript was stored|was not saved|not saved\./i);
     });
 
     it('is distinguishable from the interrupted state in the rendered output', () => {

@@ -123,6 +123,23 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
             expect(as({ outcome: 'timeout', serverReason: 'provider_timeout', statusClass: 'none', providerStatusClass: 'none' },
                 { outcome: 'timeout', serverReason: 'provider_timeout' }).reasons, 'endpoint status must not be fabricated as none').toContain('request_field_invalid');
         });
+        it('Codex r4290615981: a BODY timeout keeps its received 2xx; any other provider class on a timeout is rejected', () => {
+            const t = { outcome: 'timeout', serverReason: 'provider_timeout' } as const;
+            expect(as({ ...t, statusClass: '5xx', providerStatusClass: '2xx', providerMs: 3900 }, t).verdict).toBe('PASS');
+            for (const cls of ['4xx', '5xx']) {
+                expect({ cls, reasons: as({ ...t, statusClass: '5xx', providerStatusClass: cls, providerMs: 3900 }, t).reasons })
+                    .toEqual({ cls, reasons: expect.arrayContaining([expect.any(String)]) });
+            }
+        });
+        it('#1625: a received-2xx timeout without a positive provider leg is self-contradictory and rejected', () => {
+            const t = { outcome: 'timeout', serverReason: 'provider_timeout' } as const;
+            for (const providerMs of [null, 0]) {
+                expect({ providerMs, reasons: as({ ...t, statusClass: '5xx', providerStatusClass: '2xx', providerMs }, t).reasons })
+                    .toEqual({ providerMs, reasons: expect.arrayContaining(['request_field_invalid']) });
+            }
+            // A timeout before any headers legitimately has no provider leg.
+            expect(as({ ...t, statusClass: '5xx', providerStatusClass: 'none', providerMs: null }, t).verdict).toBe('PASS');
+        });
         it('a client network loss genuinely has no endpoint status, no server reason, unknown source', () => {
             expect(as({ outcome: 'client_network', failureCategory: 'network', serverReason: null, statusClass: 'none', providerStatusClass: 'none', providerMs: null, source: 'unknown' },
                 { outcome: 'client_network', failureCategory: 'network', serverReason: null }).verdict).toBe('PASS');

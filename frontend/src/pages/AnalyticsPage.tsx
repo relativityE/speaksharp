@@ -109,7 +109,7 @@ const APP_DOCUMENT_TITLE = 'SpeakSharp - Private Practice. Public Impact!';
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const queryClient = useQueryClient();
-    const { sessionHistory, overallStats, firstSessionAt, loading, error } = useAnalytics();
+    const { sessionHistory, allTime, firstSessionAt, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const { data: usageLimit } = useUsageLimit();
     const [upgradeLoading, setUpgradeLoading] = useState(false);
@@ -202,17 +202,21 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E
     const isLoading = loading || isProfileLoading;
 
-    // Show error state if either query failed
-    if (error || profileError) {
+    // Show error state if either query failed.
+    // #1472 (Code P2 r4372161385): the overview keeps a complete all-time aggregate through a recent-history failure — the
+    // dashboard receives the history error and shows the totals with its "recent sessions can't load" warning. A profile
+    // failure, a session-detail failure and an unavailable or loading aggregate still fail as the whole page.
+    const historyErrorKeepsTotals = !!error && !sessionId && allTime.status === 'complete';
+    if (profileError || (error && !historyErrorKeepsTotals)) {
         logger.error({ err: error || profileError }, '[AnalyticsPage] Failed to load analytics');
         return (
             <div className="text-center py-24">
-                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
+                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Progress</h2>
                 <p className="mb-6 font-medium text-foreground/70">
                     We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.
                 </p>
                 <Button onClick={handleRetryAnalytics}>
-                    Retry Analytics
+                    Retry Progress
                 </Button>
             </div>
         );
@@ -226,7 +230,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                 <h2 className="text-2xl font-semibold mb-4" data-testid="session-not-found-heading">Session Not Found</h2>
                 <p className="mb-6 font-medium text-foreground/70">We couldn't find the session you're looking for.</p>
                 <Button asChild>
-                    <NavLink to="/analytics"><BarChart className="mr-2 h-4 w-4" /> View Dashboard</NavLink>
+                    <NavLink to="/progress"><BarChart className="mr-2 h-4 w-4" /> View Dashboard</NavLink>
                 </Button>
             </div>
         );
@@ -244,7 +248,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                     profile={profile || null}
                     isProUser={isProUser}
                     sessionHistory={sessionHistory || []}
-                    overallStats={overallStats}
+                    allTime={allTime}
                     firstSessionAt={firstSessionAt}
                     loading={isLoading}
                     error={error || null}

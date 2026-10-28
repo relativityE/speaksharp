@@ -38,8 +38,8 @@ const ActualFillBar: React.FC<{ actual: number; goal: number; max: number }> = (
 };
 
 export const GoalsSection: React.FC = () => {
-    const { weeklySessionsCount, overallStats, loading, error } = useAnalytics();
-    const { goals, setGoals } = useGoals();
+    const { weekly, allTime, loading, error } = useAnalytics();
+    const { goals, setGoals, syncError, ownerId } = useGoals();
 
     if (loading) {
         return (
@@ -53,7 +53,8 @@ export const GoalsSection: React.FC = () => {
         );
     }
 
-    if (error) {
+    // #1472: a failed recent-history read must not hide goals that the (complete) aggregates can still answer.
+    if (error && weekly.status !== 'complete' && allTime.status !== 'complete') {
         return (
             <Card>
                 <CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-signature-text" />Current Goals</CardTitle></CardHeader>
@@ -64,19 +65,24 @@ export const GoalsSection: React.FC = () => {
         );
     }
 
-    // Use pre-computed weekly session count from useAnalytics
-    const weeklySessions = weeklySessionsCount || 0;
+    // #1472: this week's count and the all-time clarity average only when they are actually known (never a partial
+    // page or a failed summary presented as the real number).
+    const weeklySessions = weekly.status === 'complete' ? weekly.count : null;
 
     // Use customizable goals from localStorage
     const { weeklyGoal, clarityGoal } = goals;
 
-    // Calculate average clarity score from recent sessions
-    const avgClarityScore = typeof overallStats?.avgClarity === 'string'
-        ? parseFloat(overallStats.avgClarity)
-        : (overallStats?.avgClarity ?? 0);
+    const overallStats = allTime.status === 'complete' ? allTime.stats : null;
+    // An unknown average (no contributing evidence) stays unknown — never 0%.
+    const rawClarity = overallStats === null ? null
+        : typeof overallStats.avgClarity === 'string' ? parseFloat(overallStats.avgClarity) : overallStats.avgClarity;
+    const avgClarityScore = typeof rawClarity === 'number' && Number.isFinite(rawClarity) ? rawClarity : null;
 
     // Determine encouragement message
     const getEncouragementMessage = () => {
+        if (weeklySessions === null || avgClarityScore === null) {
+            return "Your goal progress can't load right now.";
+        }
         if (weeklySessions >= weeklyGoal && avgClarityScore >= clarityGoal) {
             return "Excellent work — you've cleared both goals this week.";
         }
@@ -104,8 +110,14 @@ export const GoalsSection: React.FC = () => {
                     </div>
                     <CardTitle className="text-lg font-semibold text-foreground">Current Goals</CardTitle>
                 </div>
-                <EditGoalsDialog goals={goals} onSave={async (g) => { await setGoals(g); }} />
+                <EditGoalsDialog key={ownerId ?? 'anonymous'} goals={goals} onSave={setGoals} />
             </div>
+
+            {Boolean(syncError) && (
+                <p role="status" className="mb-4 text-sm text-muted-foreground">
+                    Account goal sync is unavailable. Showing local goals or defaults.
+                </p>
+            )}
 
             <div className="space-y-6">
                 <div className="space-y-3">
@@ -114,9 +126,9 @@ export const GoalsSection: React.FC = () => {
                             <Calendar className="h-4 w-4 text-muted-foreground" />
                             Weekly Sessions
                         </span>
-                        <span className="font-bold text-foreground" data-testid="weekly-sessions-value">{weeklySessions} <span className="text-muted-foreground font-normal">/ {weeklyGoal}</span></span>
+                        <span className="font-bold text-foreground" data-testid="weekly-sessions-value">{weeklySessions ?? '—'} <span className="text-muted-foreground font-normal">/ {weeklyGoal}</span></span>
                     </div>
-                    <ActualFillBar actual={weeklySessions} goal={weeklyGoal} max={Math.max(weeklyGoal * 1.5, weeklySessions, 1)} />
+                    {weeklySessions !== null && <ActualFillBar actual={weeklySessions} goal={weeklyGoal} max={Math.max(weeklyGoal * 1.5, weeklySessions, 1)} />}
                 </div>
 
                 <div className="space-y-3">
@@ -125,13 +137,13 @@ export const GoalsSection: React.FC = () => {
                             <Trophy className="h-4 w-4 text-muted-foreground" />
                             Clear Delivery Avg
                         </span>
-                        <span className="font-bold text-foreground" data-testid="clarity-avg-value">{avgClarityScore.toFixed(0)}% <span className="text-muted-foreground font-normal">/ {clarityGoal}%</span></span>
+                        <span className="font-bold text-foreground" data-testid="clarity-avg-value">{avgClarityScore === null ? '—' : `${avgClarityScore.toFixed(0)}%`} <span className="text-muted-foreground font-normal">/ {clarityGoal}%</span></span>
                     </div>
-                    <ActualFillBar actual={avgClarityScore} goal={clarityGoal} max={100} />
+                    {avgClarityScore !== null && <ActualFillBar actual={avgClarityScore} goal={clarityGoal} max={100} />}
                 </div>
 
                 <div className="pt-4 mt-2 border-t border-border/50">
-                    <p className={`text-sm text-center font-medium ${weeklySessions >= weeklyGoal ? 'text-success' : 'text-muted-foreground'}`}>
+                    <p className={`text-sm text-center font-medium ${weeklySessions !== null && weeklySessions >= weeklyGoal ? 'text-success' : 'text-muted-foreground'}`}>
                         {getEncouragementMessage()}
                     </p>
                 </div>

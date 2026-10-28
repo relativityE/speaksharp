@@ -12,12 +12,14 @@
  * Public output is one receipt row of closed codes, the per-take prompt-binding verdicts and the artifact SHA-256.
  * Transcript, prompt, coaching text, identifiers and the response-only session-binding hash never leave the artifact.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, type Page } from '@playwright/test';
-import type { CoachingExchange, CoachingSuggestionPair } from './coachingGenerationTap';
-import { coachingContract, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from './rwtCoachingEvidence';
+import type { CoachingExchange, CoachingSentRequest, CoachingSuggestionPair } from './coachingGenerationTap';
+import { EDGE_MAX_PROVIDER_ATTEMPTS, buildRwtCoachingEvidenceArtifact, coachingContract, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from './rwtCoachingEvidence';
+import { takesDifferVerdict } from './rwtCoachingConsistency';
 
 type Verdict = 'PASS' | 'FAIL' | 'HOLD';
 type Product = 'open_mic' | 'focus_points';
@@ -189,33 +191,53 @@ export interface AdminClient {
 
 const PROMPT_METRIC_KEYS = ['wpm', 'filler_counts', 'filler_words', 'next_action_signal'] as const;
 
+export type SavedPromptObservation =
+    | { state: 'available'; saved: SavedPromptInputs; totalWords: number | null }
+    | { state: 'query_error' | 'missing' | 'expired' | 'malformed' | 'identity_mismatch' };
+
 /** The saved inputs the Edge function builds its prompt from, scoped to the run-owned account and session. */
 export async function readSavedPromptInputs(admin: AdminClient, userId: string, sessionId: string, product: Product): Promise<SavedPromptInputs | null> {
-    const { data: row, error } = await admin.from('sessions').select(`transcript, transcript_state, ${PROMPT_METRIC_KEYS.join(', ')}`)
+    const observed = await readSavedPromptObservation(admin, userId, sessionId, product);
+    return observed.state === 'available' ? observed.saved : null;
+}
+
+/** Expiry is an explicit state, never evidence that inputs or coaching were previously saved. */
+export async function readSavedPromptObservation(admin: AdminClient, userId: string, sessionId: string, product: Product, isActive = () => true): Promise<SavedPromptObservation> {
+    const { data: row, error } = await admin.from('sessions').select(`id, user_id, product, transcript, transcript_state, total_words, ${PROMPT_METRIC_KEYS.join(', ')}`)
         .eq('id', sessionId).eq('user_id', userId).maybeSingle();
-    if (error || !row || typeof row.transcript !== 'string') return null;
+    if (!isActive()) return { state: 'query_error' };
+    if (error) return { state: 'query_error' };
+    if (!row) return { state: 'missing' };
+    if (row.id !== sessionId || row.user_id !== userId || row.product !== product) return { state: 'identity_mismatch' };
+    if (row.transcript_state === 'expired' && row.transcript === null) return { state: 'expired' };
+    if (row.transcript_state !== 'available' || typeof row.transcript !== 'string' || !row.transcript.trim()) return { state: 'malformed' };
     const transcript = row.transcript;
     const metrics = Object.fromEntries(PROMPT_METRIC_KEYS.map((k) => [k, (row[k] ?? null) as Json])) as Record<string, Json>;
-    const transcriptState = typeof row.transcript_state === 'string' ? row.transcript_state : 'unknown';
-    if (product === 'open_mic') return { transcript, metrics, promptContext: { transcriptState, focusContext: { kind: 'none' } } };
+    const transcriptState = row.transcript_state;
+    // Evidence for the two-take consistency check only. total_words is NOT a provider prompt input.
+    const totalWords = Number.isSafeInteger(row.total_words) && Number(row.total_words) >= 0 ? Number(row.total_words) : null;
+    if (product === 'open_mic') return { state: 'available', totalWords, saved: { transcript, metrics, promptContext: { transcriptState, focusContext: { kind: 'none' } } } };
     // Mirrors the Edge function's loadFocusContext over the same tables, keyed by the run-owned session.
     const { data: objective, error: oErr } = await admin.from('objective_session').select('id, brief_id')
-        .eq('source_session_id', sessionId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-    if (oErr || !objective) return null;
+        .eq('source_session_id', sessionId).eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (!isActive()) return { state: 'query_error' };
+    if (oErr) return { state: 'query_error' };
+    if (!objective) return { state: 'missing' };
     const [brief, points, evidence] = await Promise.all([
-        admin.from('objective_brief').select('event_goal').eq('id', objective.brief_id).maybeSingle(),
-        admin.from('objective_brief_point').select('id, label, sort_order').eq('brief_id', objective.brief_id).order('sort_order', { ascending: true }),
-        admin.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds').eq('session_id', objective.id),
+        admin.from('objective_brief').select('event_goal').eq('id', objective.brief_id).eq('user_id', userId).maybeSingle(),
+        admin.from('objective_brief_point').select('id, label, sort_order').eq('brief_id', objective.brief_id).eq('user_id', userId).order('sort_order', { ascending: true }),
+        admin.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds').eq('session_id', objective.id).eq('user_id', userId),
     ] as const);
-    if (brief.error || points.error || evidence.error) return null;
+    if (brief.error || points.error || evidence.error) return { state: 'query_error' };
     const pointRows = (points.data ?? []) as Array<{ id: string; label: string }>;
     const evidenceRows = (evidence.data ?? []) as Array<{ brief_point_id: string; verdict: string; detected_at_seconds: number | null }>;
-    if (pointRows.length === 0 || evidenceRows.length === 0) return null;
+    if (!brief.data || pointRows.length === 0 || evidenceRows.length !== pointRows.length) return { state: 'malformed' };
     const byPoint = new Map(evidenceRows.map((r) => [r.brief_point_id, r]));
     const verdicts = new Set(['detected', 'not_detected', 'unavailable']);
+    if (byPoint.size !== pointRows.length || pointRows.some((p) => typeof p.label !== 'string' || !verdicts.has(byPoint.get(p.id)?.verdict ?? ''))) return { state: 'malformed' };
     const goal = brief.data?.event_goal;
     const topic = typeof goal === 'string' ? goal : null;
-    return {
+    return { state: 'available', totalWords, saved: {
         transcript, metrics,
         promptContext: {
             transcriptState,
@@ -228,7 +250,7 @@ export async function readSavedPromptInputs(admin: AdminClient, userId: string, 
                 }),
             },
         },
-    };
+    } };
 }
 
 /** The trusted authority readback (service role), restricted to the run-owned account's row. */
@@ -237,6 +259,180 @@ export async function readAuthority(admin: AdminClient, userId: string, sessionI
     if (error || !Array.isArray(data)) return null;
     const row = (data as AuthorityReadback[]).find((r) => r.session_id === sessionId && r.user_id === userId);
     return row ?? null;
+}
+
+export type CapturedCoachingTake =
+    | { take: RwtCoachingTakeEvidence; totalWords: number | null }
+    | { hold: string }
+    | { fail: 'saved_identity_mismatch' | 'saved_evidence_changed' };
+
+/** Own every nested value: later tap/DB/DOM mutation must not rewrite an earlier observation. */
+function immutableCopy<T>(value: T): T {
+    const copy = structuredClone(value);
+    const freeze = (item: unknown): void => {
+        if (!item || typeof item !== 'object' || Object.isFrozen(item)) return;
+        Object.values(item).forEach(freeze);
+        Object.freeze(item);
+    };
+    freeze(copy);
+    return copy;
+}
+
+/** A positive witness requires an independently read SAVED pair, not the HTTP answer or the fact of expiry. */
+export function captureCoachingTake(input: {
+    identity: TakeIdentity;
+    exchanges: readonly CoachingExchange[];
+    observed: SavedPromptObservation;
+    authority: AuthorityReadback | null;
+    rendered: CoachingSuggestionPair | null;
+}): CapturedCoachingTake {
+    if (input.observed.state === 'identity_mismatch') return { fail: 'saved_identity_mismatch' };
+    if (input.observed.state !== 'available') return { hold: `saved_inputs_${input.observed.state}` };
+    const assembled = assembleTake({ ...input, saved: input.observed.saved });
+    return immutableCopy('take' in assembled ? { ...assembled, totalWords: input.observed.totalWords } : assembled);
+}
+
+/** Use the existing artifact validators for BOTH witnesses before a saved-word-count comparison can PASS. */
+export function capturedTakesDifferVerdict(first: CapturedCoachingTake, second: CapturedCoachingTake, releaseSha: string): ReturnType<typeof takesDifferVerdict> {
+    if ('fail' in first || 'fail' in second) return { status: 'FAIL', detail: 'a saved take changed or does not match its run-owned identity' };
+    if (!('take' in first) || !('take' in second)) return takesDifferVerdict(null, null, null);
+    try {
+        const artifact = buildRwtCoachingEvidenceArtifact({ releaseSha, firstTake: first.take, repeatTake: second.take });
+        const bindings = [artifact.firstTake.promptBinding.verdict, artifact.repeatTake.promptBinding.verdict];
+        if (bindings.includes('FAIL')) return { status: 'FAIL', detail: 'a captured take failed its saved-input generation binding' };
+        if (bindings.includes('HOLD')) return { status: 'HOLD', detail: 'a captured take lacks proven saved-input generation binding' };
+    } catch {
+        return { status: 'FAIL', detail: 'captured coaching failed the saved-pair or take-identity contract' };
+    }
+    const pair = (take: RwtCoachingTakeEvidence) => ({ well: take.authorityReceipt.ai_suggestions.what_worked, next: take.authorityReceipt.ai_suggestions.what_to_try_next });
+    return takesDifferVerdict(pair(first.take), pair(second.take),
+        first.totalWords === null || second.totalWords === null ? null : first.totalWords !== second.totalWords);
+}
+
+/** Read identity and visible content in ONE browser turn. A B/C transition cannot splice two different DOM states. */
+export async function readLiveCoachingPair(page: Pick<Page, 'evaluate'>, product: Product): Promise<{ sessionId: string; pair: CoachingSuggestionPair } | null> {
+    return page.evaluate((kind) => {
+        const root = document.documentElement;
+        const sessionId = root.getAttribute('data-session-persisted-id');
+        const card = document.querySelector('[data-testid="ai-suggestions-card"][data-review-state="ready"]');
+        const block = card?.querySelector('[data-testid="ai-suggestions-pair"]');
+        if (!sessionId || root.getAttribute('data-session-persisted') !== 'true' || !block || block.getClientRects().length === 0) return null;
+        const text = (id: string) => {
+            const el = block.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+            return el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' ? el.innerText.trim() : '';
+        };
+        const well = text('review-what-went-well');
+        const next = text('review-try-next');
+        return well && next ? { sessionId, pair: { version: kind === 'focus_points' ? 'gemini_coaching_focus_v1' as const : 'gemini_coaching_v1' as const, what_worked: well, what_to_try_next: next } } : null;
+    }, product);
+}
+
+/**
+ * Transient synthetic witnesses, keyed by exact session ID, not take order. Start alongside Practice again, never await
+ * a coaching result before its rapid Repeat press. An interrupted B with no positive saved/rendered witness stays HOLD;
+ * C can never stand in for B. No navigation, provider call, retry or durable write is performed by this observer.
+ */
+export const COACHING_CAPTURE_READ_TIMEOUT_MS = 5_000;
+
+export function createCoachingTakeCapture(input: {
+    page: Page;
+    admin: AdminClient;
+    tap: { exchanges: readonly CoachingExchange[]; inFlight(): { sent: CoachingSentRequest }[] };
+    fixture: { key: string; kind: string; sha256?: string };
+    suiteId: string;
+    product: Product;
+    userId: string;
+    /** Injectable only for offline tests; production reads the page atomically above. */
+    readRendered?: () => Promise<{ sessionId: string; pair: CoachingSuggestionPair } | null>;
+}) {
+    const captures = new Map<string, CapturedCoachingTake>();
+    const witnesses = new Map<string, Extract<CapturedCoachingTake, { take: RwtCoachingTakeEvidence }>>();
+    // A timed-out transport may still be pending. Do not stack more reads behind it or accept its late answer.
+    const reading = new Set<string>();
+    const activeReads = new Set<Promise<void>>();
+    const cancellations = new Set<() => void>();
+    const runId = `${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`;
+    const synthetic = input.fixture.kind === 'synthetic' && Boolean(input.fixture.sha256);
+    let stopped = false;
+    let disposed = false;
+    let started = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pending: Promise<void> = Promise.resolve();
+    const get = (id: string | null): CapturedCoachingTake => disposed ? { hold: 'capture_disposed' }
+        : !synthetic ? { hold: 'collector_synthetic_only' }
+            : id ? captures.get(id) ?? { hold: 'saved_take_not_witnessed' } : { hold: 'saved_take_identity_unavailable' };
+    const sample = async (sessionId: string, rendered?: CoachingSuggestionPair | null): Promise<void> => {
+        if (disposed || !synthetic || reading.has(sessionId) || ('fail' in get(sessionId))) return;
+        reading.add(sessionId);
+        let active = true;
+        let deadline: ReturnType<typeof setTimeout>;
+        let cancel: () => void;
+        const timeout = new Promise<CapturedCoachingTake>((resolve) => {
+            cancel = () => { active = false; clearTimeout(deadline); resolve({ hold: 'capture_disposed' }); };
+            deadline = setTimeout(() => { active = false; resolve({ hold: 'saved_evidence_read_timeout' }); }, COACHING_CAPTURE_READ_TIMEOUT_MS);
+            cancellations.add(cancel);
+        });
+        const read = (async (): Promise<CapturedCoachingTake> => {
+          try {
+            const observed = await readSavedPromptObservation(input.admin, input.userId, sessionId, input.product, () => active && !disposed);
+            if (!active || disposed) return { hold: 'saved_evidence_read_timeout' };
+            const authority = observed.state === 'available' ? await readAuthority(input.admin, input.userId, sessionId) : null;
+            if (!active || disposed) return { hold: 'saved_evidence_read_timeout' };
+            const previous = witnesses.get(sessionId);
+            if (previous && observed.state === 'expired') {
+                return previous; // Explicit, identity-checked expiry preserves only a prior positive witness.
+            } else if (previous && observed.state === 'malformed') {
+                return { fail: 'saved_evidence_changed' };
+            } else if (previous && observed.state === 'available') {
+                const savedBefore = previous.take.savedInputReadback;
+                const unchangedInputs = savedBefore.transcript === observed.saved.transcript && previous.totalWords === observed.totalWords
+                    && JSON.stringify(savedBefore.metrics) === JSON.stringify(observed.saved.metrics)
+                    && JSON.stringify(savedBefore.promptContext) === JSON.stringify(observed.saved.promptContext);
+                const before = previous.take.authorityReceipt;
+                const unchangedPair = authority && ['session_id', 'user_id', 'provider', 'model', 'provider_request_made', 'receipt_suggestion_sha256', 'current_suggestion_sha256', 'ai_suggestions']
+                    .every((key) => JSON.stringify(before[key as keyof typeof before]) === JSON.stringify(authority[key as keyof AuthorityReadback]));
+                return !unchangedInputs ? { fail: 'saved_evidence_changed' }
+                    : !authority?.ai_suggestions ? { hold: 'server_authority_readback_unavailable' }
+                        : unchangedPair ? previous : { fail: 'saved_evidence_changed' };
+            } else {
+                const shown = rendered === undefined ? await (input.readRendered?.() ?? readLiveCoachingPair(input.page, input.product)) : null;
+                if (!active || disposed) return { hold: 'saved_evidence_read_timeout' };
+                return captureCoachingTake({
+                identity: { runId, suiteId: input.suiteId, product: input.product, fixtureName: input.fixture.key,
+                    fixtureSha256: input.fixture.sha256!, sessionId, userId: input.userId },
+                exchanges: input.tap.exchanges, observed, authority,
+                rendered: rendered === undefined ? (shown?.sessionId === sessionId ? shown.pair : null) : rendered,
+                });
+            }
+          } catch { return { hold: 'saved_evidence_query_error' }; }
+          finally { reading.delete(sessionId); }
+        })();
+        const bounded = Promise.race([read, timeout]).then((captured) => {
+            if (!disposed) {
+                captures.set(sessionId, captured);
+                if ('take' in captured && !witnesses.has(sessionId)) witnesses.set(sessionId, captured);
+            }
+        }).finally(() => { active = false; clearTimeout(deadline); cancellations.delete(cancel); });
+        activeReads.add(bounded);
+        try { await bounded; } finally { activeReads.delete(bounded); }
+    };
+    const poll = (): void => {
+        if (stopped || disposed || !synthetic) return;
+        pending = (async () => {
+            const ids = new Set([...input.tap.exchanges.map((e) => e.sent.sessionId), ...input.tap.inFlight().map((e) => e.sent.sessionId)]);
+            for (const id of ids) if (id && !stopped && !disposed) await sample(id);
+        })().finally(() => { if (!stopped && !disposed) timer = setTimeout(poll, 250); });
+    };
+    return {
+        sample, get,
+        start: () => { if (!started && !stopped && !disposed) { started = true; poll(); } },
+        stop: async () => { stopped = true; clearTimeout(timer); await Promise.all([pending, ...activeReads]); },
+        dispose: async () => {
+            disposed = true; stopped = true; clearTimeout(timer); captures.clear(); witnesses.clear();
+            for (const cancel of cancellations) cancel();
+            await Promise.all([pending, ...activeReads]);
+        },
+    };
 }
 
 export interface CoachingEvidenceOutcome {
@@ -325,6 +521,8 @@ export async function coachingPromptBindingRow(input: {
     firstRendered: CoachingSuggestionPair | null;
     releaseSha: string;
     outputDirs: readonly string[];
+    /** Prior positive witnesses; when supplied, NEVER fall back to late DB reads or another session. */
+    captured?: { get(sessionId: string | null): CapturedCoachingTake };
 }): Promise<void> {
     const { receipt, page, admin, product, userId } = input;
     if (input.fixture.kind !== 'synthetic' || !input.fixture.sha256) {
@@ -333,6 +531,20 @@ export async function coachingPromptBindingRow(input: {
     }
     const version: CoachingSuggestionPair['version'] = product === 'focus_points' ? 'gemini_coaching_focus_v1' : 'gemini_coaching_v1';
     const destination = resolvePrivateEvidenceDir(process.env.RWT_PRIVATE_EVIDENCE_DIR, forbiddenEvidenceRoots(input.outputDirs));
+    if (input.captured) {
+        const firstTake = input.captured.get(input.firstSessionId);
+        const repeatTake = input.captured.get(input.repeatSessionId);
+        if ('fail' in firstTake || 'fail' in repeatTake) {
+            receipt.row('coaching prompt binding', 'FAIL', 'a saved take changed or does not match its run-owned identity',
+                { reason: 'fail' in firstTake ? firstTake.fail : 'fail' in repeatTake ? repeatTake.fail : 'saved_identity_mismatch' });
+            return;
+        }
+        // totalWords is comparison-only evidence; it must never enter the strict artifact or provider-prompt shape.
+        const evidence = (captured: Exclude<CapturedCoachingTake, { fail: string }>) => 'take' in captured ? { take: captured.take } : captured;
+        const outcome = coachingEvidenceOutcome({ releaseSha: input.releaseSha, destination, firstTake: evidence(firstTake), repeatTake: evidence(repeatTake) });
+        receipt.row('coaching prompt binding', outcome.verdict, outcome.detail, outcome.evidence);
+        return;
+    }
     const runId = `${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`;
     const renderedFromAnalytics = async (sessionId: string) => {
         const tab = await page.context().newPage();
@@ -366,11 +578,40 @@ export async function coachingPromptBindingRow(input: {
  * exceeds `maximum` or any listed take received more than one request; HOLD when a sent request has no readable Edge
  * diagnostics (provider invocations unprovable). PASS only when every sent request was answered with readable
  * diagnostics within budget. No retry is executed or hidden here; a retry the page made is simply counted.
+ *
+ * #1258 RWT round 2 (run 38876644751, PM 6216341052) — ONE REQUEST MAY COST UP TO `EDGE_MAX_PROVIDER_ATTEMPTS` PROVIDER
+ * ATTEMPTS. Merge 2's shipped Edge retry (#1624) spends up to that many attempts inside one request's 45 s budget, so the
+ * old rule — provider attempts bounded by the same `maximum` as browser requests — refused the shipped contract (2
+ * requests that each retried read as a breach). The browser-request cap and one-request-per-take are unchanged. Provider
+ * attempts are now bounded TWICE: in aggregate by `maximum × EDGE_MAX_PROVIDER_ATTEMPTS`, AND per request by
+ * `EDGE_MAX_PROVIDER_ATTEMPTS`, so a request over the server cap can never hide behind another request's underspend.
  */
+const sha = (v: string | null): string => (v ? createHash('sha256').update(v, 'utf8').digest('hex') : '-');
+const n = (v: number | null | undefined): string => (Number.isFinite(v) ? String(v) : '-');
+/**
+ * #1593 — one record per exchange, in arrival order: `outcome|status|sentAt|recordedAt|clientMs|requestSha256|attemptSha256|clientAttempt`
+ * (epoch ms; `-` when absent). Content-free: hashed ids and numbers only.
+ */
+export function exchangeTimeline(exchanges: readonly CoachingExchange[]): string {
+    return exchanges.map((e) => [e.outcome ?? '-', n(e.status), n(e.sentAt), n(e.at), n(e.clientMs), sha(e.sent.requestId),
+        sha(e.sent.attemptId), n(e.sent.clientAttempt)].join('|')).join(';');
+}
+
+/**
+ * #1593 (Sam, #1656 review) — the requests STILL OPEN when the row is written, one record each:
+ * `in_flight|statusSeen|sentAt|ageMs|requestSha256|attemptSha256|clientAttempt`. Nonterminal and separate from
+ * `exchangeTimeline`, so an in-flight request is correlatable (its hashes are captured at the request event) without
+ * being counted as answered or unanswered.
+ */
+export function inFlightTimeline(open: readonly { sent: CoachingExchange['sent']; sentAt: number | null; ageMs: number | null; status: number | null }[]): string {
+    return open.map((o) => ['in_flight', n(o.status), n(o.sentAt), n(o.ageMs), sha(o.sent.requestId), sha(o.sent.attemptId),
+        n(o.sent.clientAttempt)].join('|')).join(';');
+}
+
 export function coachingRequestBudgetRow(
     receipt: ReceiptLike,
-    tap: { sentCount: number; exchanges: readonly CoachingExchange[] },
-    budget: { maximum: number; oneRequestPerSession?: readonly string[] },
+    tap: { sentCount: number; exchanges: readonly CoachingExchange[]; inFlight?: () => { sent: CoachingExchange['sent']; sentAt: number | null; ageMs: number | null; status: number | null }[] },
+    budget: { maximum: number; oneRequestPerSession?: readonly string[]; sessionIdsVerified?: boolean },
 ): void {
     const answered = tap.exchanges.filter((e) => e.status !== null);
     // PM RETURN 6121020210: only a nonnegative SAFE integer is a provider-attempt count. A malformed value (negative,
@@ -381,16 +622,47 @@ export function coachingRequestBudgetRow(
     const malformed = answered.length - readable.length;
     const providerAttemptsReported = readable.reduce((sum, e) => sum + Number(e.diagnostics!.provider_attempts), 0);
     const perSession = (budget.oneRequestPerSession ?? []).map((id) => tap.exchanges.filter((e) => e.sent.sessionId === id).length);
-    const exceeded = tap.sentCount > budget.maximum || providerAttemptsReported > budget.maximum || perSession.some((n) => n > 1);
-    const unprovable = !exceeded && (malformed > 0 || readable.length !== tap.sentCount || answered.length !== tap.sentCount);
+    const providerAttemptAllowance = budget.maximum * EDGE_MAX_PROVIDER_ATTEMPTS;
+    const maxProviderAttemptsForOneRequest = readable.reduce((m, e) => Math.max(m, Number(e.diagnostics!.provider_attempts)), 0);
+    const exceeded = tap.sentCount > budget.maximum || providerAttemptsReported > providerAttemptAllowance
+        || maxProviderAttemptsForOneRequest > EDGE_MAX_PROVIDER_ATTEMPTS || perSession.some((n) => n > 1);
+    const unprovable = !exceeded && (budget.sessionIdsVerified === false
+        || malformed > 0 || readable.length !== tap.sentCount || answered.length !== tap.sentCount);
     const verdict: Verdict = exceeded ? 'FAIL' : unprovable ? 'HOLD' : 'PASS';
+    // #1474 (Sam 6242612760): how each unproven exchange ended, as observed after settling every sent request.
+    const outcomeCount = (o: CoachingExchange['outcome']) => tap.exchanges.filter((e) => e.outcome === o).length;
+    const unansweredAtBound = outcomeCount('unanswered');
+    const bodyPendingAtBound = outcomeCount('body_pending');
+    const failedInBrowser = outcomeCount('failed');
+    // #1593 (Sam case-1 diagnosis): a request still inside its own allowance when the scenario ended is left OPEN by
+    // settle() — not closed as unanswered — so it is counted here, and it keeps the budget unprovable (HOLD), never PASS.
+    const inFlightAtEnd = Math.max(0, tap.sentCount - tap.exchanges.length);
+    const holdReason = budget.sessionIdsVerified === false
+        ? 'final saved-take identities could not be verified, so the per-take coaching budget is unproven'
+        : inFlightAtEnd > 0
+        ? 'a sent coaching request was still inside its allowance when the scenario ended, so provider invocations are unproven'
+        : unansweredAtBound > 0
+        ? 'a sent coaching request was still unanswered when the bounded wait ended, so provider invocations are unproven'
+        : bodyPendingAtBound > 0
+            ? 'a coaching response body was still unread when the bounded wait ended, so provider invocations are unproven'
+            : failedInBrowser > 0
+                ? 'a sent coaching request failed in the browser before an answer, so provider invocations are unproven'
+                : 'a sent coaching request has no readable Edge diagnostics, so provider invocations are unproven';
     receipt.row('coaching request budget', verdict,
-        verdict === 'PASS' ? `the whole scenario sent at most ${budget.maximum} coaching request(s) and the Edge reported at most ${budget.maximum} provider attempt(s)`
-            : verdict === 'FAIL' ? 'the scenario exceeded its coaching request or Edge-reported provider-attempt budget, or a take was requested twice'
-                : 'a sent coaching request has no readable Edge diagnostics, so provider invocations are unproven',
+        verdict === 'PASS' ? `the whole scenario sent at most ${budget.maximum} coaching request(s); the Edge reported at most ${providerAttemptAllowance} provider attempt(s) in all and at most ${EDGE_MAX_PROVIDER_ATTEMPTS} for any one request`
+            : verdict === 'FAIL' ? 'the scenario exceeded its coaching request budget, its provider-attempt allowance or the per-request provider-attempt cap, or a take was requested twice'
+                : holdReason,
         {
             maximum: budget.maximum, browserRequests: tap.sentCount, answered: answered.length,
             withDiagnostics: readable.length, malformedProviderAttempts: malformed, providerAttemptsReported,
+            providerAttemptAllowance, perRequestProviderAttemptCap: EDGE_MAX_PROVIDER_ATTEMPTS, maxProviderAttemptsForOneRequest,
             maxRequestsForOneTake: perSession.length > 0 ? Math.max(...perSession) : 0,
+            unansweredAtBound, bodyPendingAtBound, failedInBrowser, inFlightAtEnd,
+            // #1593 (Sam case-1 diagnosis): per-exchange, content-free correlation and timing, so each browser exchange can be
+            // bound to the Edge's own diagnostic (which records the same SHA-256 of the request and attempt ids) instead of
+            // inferred from order. Ids are hashed; no session id, text or token is published. Receipt evidence is scalar,
+            // so the exchanges are one ';'-separated string (see exchangeTimeline).
+            exchangeTimeline: exchangeTimeline(tap.exchanges),
+            inFlightTimeline: inFlightTimeline(tap.inFlight?.() ?? []),
         });
 }

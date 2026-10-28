@@ -152,7 +152,7 @@ describe('the suites follow the v12 order and bind each inventory event to the j
         // The PDF is reached the way the person reaches it after the reload: the detail's own Back to Dashboard control.
         const pdf = om.slice(at(om, 'const downloadPdf = async'));
         expect(at(pdf, "getByRole('link', { name: 'Back to Dashboard' })")).toBeLessThan(at(pdf, 'download-pdf-btn-${persistedId}'));
-        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\], repeatRecording: \['session_during', 'session_after_open_mic'\],[\s\S]{0,400}feedback: true, pdfExport: true,/);
+        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\],[\s\S]{0,300}repeatRecording: \['session_during', 'session_interrupted_repeat'\],[\s\S]{0,400}feedback: true, pdfExport: true,/);
     });
 
     it('analyticsThroughActions runs afterReload only after the detail opened and its reload was checked', () => {
@@ -298,13 +298,16 @@ describe('Focus partial: cleanup is verified before the receipt is written, and 
 
     it('order and idempotency: cleanup runs before write() in the partial branch; only a verified deletion clears the owner; afterEach remains the fallback', () => {
         const focus = readFileSync(path.resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
-        const branch = focus.slice(focus.indexOf("} else if (fixtureKey === 'focus_points_partial_tts') {"));
+        // #1593 (Sam, #1662 RETURN on f527a033 item 1): the partial run's own cleanup verdict deletes through the journey's ONE
+        // owned deletion (never a second), before the receipt is written; only a settled deletion clears the owner.
+        const branch = focus.slice(focus.indexOf("fixtureKey === 'focus_points_partial_tts'"));
         expect(branch.indexOf('recordRunOwnedCleanup(')).toBeGreaterThan(-1);
         expect(branch.indexOf('recordRunOwnedCleanup(')).toBeLessThan(branch.indexOf('receipt.write(testInfo,'));
-        expect(branch).toMatch(/if \(cleaned\) \{ owner\.uid = ''; owner\.email = ''; \}/);
+        expect(branch).toContain('() => cleanup.run())');
+        expect(branch).toMatch(/if \(await finalizeOwnedCleanup\(steps, receipt, cleanup, proof\) === 'deleted'\) \{ owner\.uid = ''; owner\.email = ''; \}/);
+        expect(branch.indexOf('finalizeOwnedCleanup(')).toBeLessThan(branch.indexOf('receipt.write(testInfo,'));
         const spec = readFileSync(path.resolve(__dirname, '../live/rwt-focus-points-partial.live.spec.ts'), 'utf8');
-        // afterEach cleans whatever the owner still names: nothing after a verified in-body deletion ('cleanup_not_required').
-        expect(spec).toMatch(/test\.afterEach\([\s\S]{0,120}cleanupRunOwnedAccount\(\{ admin: admin as never, capturedUid: owner\.uid, createdEmail: owner\.email/);
+        expect(spec).toMatch(/test\.afterEach\([\s\S]{0,300}await finalizer\.drain\(\);/);
     });
 });
 

@@ -209,6 +209,43 @@ describe('AISuggestions Integration', () => {
     });
 
     describe('#1473 — closed service_configuration code and failure-aware retry', () => {
+        it.each([
+            [402, 'RESOURCE_EXHAUSTED', /service credit balance is depleted/i],
+            [429, 'RESOURCE_EXHAUSTED', /service rate limit was exceeded/i],
+            [503, 'UNAVAILABLE', /service is temporarily unavailable/i],
+            [500, 'UNKNOWN', /unknown error/i],
+        ])('#1742 displays the closed upstream %i verdict without retrying or echoing provider prose', async (http, canonical, expected) => {
+            const code = http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
+            const body = { code, error: 'secret transcript echoed by provider', diagnostics: {
+                status: 502, reason: code, provider_status: http, provider_error_status: canonical,
+                error_descriptor: { origin: 'provider', http_status: http, canonical_status: canonical, local_code: null },
+            } };
+            const error = Object.assign(new Error('raw provider prose'), { name: 'FunctionsHttpError',
+                context: new Response(JSON.stringify(body), { status: 502 }) });
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error });
+            render(<AISuggestions transcript="Hello world" canReview sessionId={`s-catalog-${http}`} retryBackoffMs={10} />);
+            await waitFor(() => expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(expected));
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(`${canonical}:`);
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent('Your session is saved.');
+            expect(screen.queryByText(/secret transcript|raw provider prose/i)).toBeNull();
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable');
+        });
+
+        it('#1742 rejects a forged descriptor without changing the status-based account verdict', async () => {
+            const error = Object.assign(new Error('raw provider prose'), { name: 'FunctionsHttpError',
+                context: new Response(JSON.stringify({ code: 'provider_http_5xx', diagnostics: {
+                    status: 502, reason: 'provider_http_5xx', provider_status: 503, provider_error_status: 'UNAVAILABLE',
+                    error_descriptor: { origin: 'provider', http_status: 503, canonical_status: 'UNAVAILABLE', local_code: null },
+                } }), { status: 403 }) });
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-catalog-forged" />);
+            expect(await screen.findByText(/your account cannot request a new review/i)).toBeInTheDocument();
+            expect(screen.queryByText(/service is temporarily unavailable/i)).toBeNull();
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('access_denied');
+        });
+
         const okResponse = {
             data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'State the ask first.' } },
             error: null,
@@ -353,6 +390,31 @@ describe('AISuggestions Integration', () => {
             expect(trackPracticeLoopReviewFailed).not.toHaveBeenCalledWith('rate_limited');
             expect(screen.queryByText(/temporarily limited/i), 'never a limit the user did not reach').toBeNull();
             expect(await screen.findByText(/the review didn't load/i)).toBeInTheDocument();
+        });
+
+        it('#1258 (PM 6171519534): after a provider 5xx outage the unavailable message and an enabled Try again are shown, and one press sends ONE new request', async () => {
+            // The live receipt only OBSERVES Try again (pressing it there would be another provider request); this proves
+            // the control is wired: the outage is terminal for the automatic lifecycle, the press starts exactly one more.
+            const user = userEvent.setup();
+            mockSupabaseClient.functions.invoke.mockReset();
+            mockSupabaseClient.functions.invoke
+                .mockResolvedValueOnce(httpErrorWithBody(502, async () => ({
+                    error: 'AI coaching could not be generated. Please try again.', reason: 'provider_http_5xx',
+                    diagnostics: { provider_status: 503 },
+                })))
+                .mockResolvedValueOnce(okResponse);
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-provider-outage" retryBackoffMs={10} />);
+
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent("The review didn't load. Your session is saved.");
+            const retry = screen.getByTestId('ai-suggestions-retry');
+            expect(retry).toHaveTextContent('Try again');
+            await waitFor(() => expect(retry).toBeEnabled());
+            expect(mockSupabaseClient.functions.invoke, 'the outage itself sends no second request').toHaveBeenCalledTimes(1);
+
+            await user.click(retry);
+            expect(await screen.findByText('Clear opening.')).toBeInTheDocument();
+            expect(mockSupabaseClient.functions.invoke, 'one press, one new request').toHaveBeenCalledTimes(2);
         });
 
         /**
@@ -566,16 +628,16 @@ describe('AISuggestions Integration', () => {
             expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
         });
 
-        it('the Gemini disclosure is present in the AUTOMATIC path, not only beside the button', async () => {
+        it('the AI service provider disclosure is present in the AUTOMATIC path, not only beside the button', async () => {
             // With a press, copy beside the button was read at the moment of the decision. With an
-            // automatic send, a user must not learn their transcript went to Google from text
+            // automatic send, a user must not learn their saved inputs went to the provider from text
             // attached to a control they never touched.
             mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-disclosure" />);
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             const disclosure = screen.getByTestId('ai-suggestions-disclosure');
-            expect(disclosure).toHaveTextContent(/Google Gemini/i);
+            expect(disclosure).toHaveTextContent(/AI service provider/i);
             expect(disclosure).toHaveTextContent(/Audio is never sent/i);
         });
     });
@@ -620,6 +682,7 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => {
                 expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+                    signal: expect.any(AbortSignal), // #1593: route exit aborts the wait; not body content
                     // #1538 Codex P1 r4118176188: the closed capability declaring this client reads Focus provenance.
                     body: expect.objectContaining({
                         sessionId: 'session-test', accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'],
@@ -640,6 +703,7 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => expect(screen.getByText('Named the price first.')).toBeInTheDocument());
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+                signal: expect.any(AbortSignal), // #1593: route exit aborts the wait; not body content
                 body: expect.objectContaining({
                     sessionId: 'session-focus', product: 'focus_points',
                     accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'],
@@ -885,18 +949,17 @@ describe('AISuggestions Integration', () => {
         });
     });
 
-    describe('Gemini disclosure persistence', () => {
-        // Count-neutral by design: the edge function currently asks Gemini for four
-        // suggestions, so the disclosure must not promise a specific number.
-        const DISCLOSURE = /sends this session's transcript to google gemini to create ai coaching\. audio is never sent\./i;
+    describe('AI service provider disclosure persistence', () => {
+        // Disclose saved provider inputs without promising a coaching outcome or count.
+        const DISCLOSURE = "Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider to create AI coaching. Audio is never sent.";
 
-        it('shows the Gemini disclosure in the empty state', () => {
+        it('shows the provider/input disclosure in the empty state', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
 
-        it('keeps the Gemini disclosure visible when suggestions are prefilled', () => {
+        it('keeps the provider/input disclosure visible when suggestions are prefilled', () => {
             const initialSuggestions = {
                 version: 'gemini_coaching_v1' as const,
                 what_worked: 'Initial session-specific strength.',
@@ -908,7 +971,7 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
 
-        it('keeps the Gemini disclosure visible after suggestions are generated', async () => {
+        it('keeps the provider/input disclosure visible after suggestions are generated', async () => {
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: {
@@ -930,18 +993,17 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
 
-        // #1538 (PO-approved wording, P1 r4117696897): a Focus Points take also sends its topic and points to Gemini,
-        // so its disclosure says so. Open Mic keeps the transcript-only line — it sends nothing else.
-        const FOCUS_DISCLOSURE = "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
-        const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.";
+        // PO6175213749: reflect the authoritative server prompt's saved evidence.
+        const FOCUS_DISCLOSURE = "Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.";
+        const OPEN_MIC_DISCLOSURE = DISCLOSURE;
 
-        it('#1538 — a Focus Points take discloses its topic and points, exactly', () => {
+        it('#1538 — a Focus Points take discloses saved topic, points/results and relevant measurements, exactly', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" product="focus_points" />);
 
             expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(FOCUS_DISCLOSURE);
         });
 
-        it('#1538 — an Open Mic take keeps the transcript-only disclosure, exactly', () => {
+        it('#1538 — an Open Mic take discloses transcript, filler counts and pace, exactly', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" product="open_mic" />);
 
             expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(OPEN_MIC_DISCLOSURE);
@@ -960,7 +1022,7 @@ describe('AISuggestions Integration', () => {
         it('#1416 P2-4 — generation no longer waits for a click, and the disclosure is still shown', async () => {
             // This asserted the click-first contract directly. The PO ruling withdrew it: `LegalPage`
             // conditions provider processing on a coaching feature being USED, not on a press, and
-            // the Gemini line is a disclosure rather than a consent gate. Inverted rather than
+            // the provider line is a disclosure rather than a consent gate. Inverted rather than
             // deleted, because the disclosure half of what it protected still matters — MORE so now
             // that nobody presses anything.
             mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: null }, error: null });
@@ -968,7 +1030,7 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             const disclosure = screen.getByTestId('ai-suggestions-disclosure');
-            expect(disclosure).toHaveTextContent(/Google Gemini/i);
+            expect(disclosure).toHaveTextContent(/AI service provider/i);
             expect(disclosure).toHaveTextContent(/Audio is never sent/i);
         });
     });
@@ -1400,7 +1462,7 @@ describe('#1258 punch list D3 — manual Try again policy by failure reason (PM 
         render(<AISuggestions transcript="Hello world" canReview sessionId={`s-no-${_reason}`} product="open_mic" />);
         await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'terminal'));
         expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
-        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/Google Gemini/);
+        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/AI service provider/);
     });
 
     it.each([
@@ -1416,7 +1478,7 @@ describe('#1258 punch list D3 — manual Try again policy by failure reason (PM 
         mockSupabaseClient.functions.invoke.mockResolvedValue(httpErrorStatus(503, { code: 'service_configuration' }));
         render(<AISuggestions transcript="Hello world" canReview sessionId="s-fp" product="focus_points" />);
         await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'terminal'));
-        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/Focus Points topic and points/);
+        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/saved Focus Points topic, points and results, and relevant speaking measurements/);
     });
 
     it("a session change never shows the previous session's failure", async () => {

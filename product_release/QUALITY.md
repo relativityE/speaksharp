@@ -11,8 +11,10 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. Release evidence must compare **v2 and v4** under one corpus/identity/word-count/filler-completeness/WER contract, validating v4 as provisional primary against v2 as fallback. **Moonshine is deferred until after RWT or MVP and is not required for current release evidence.** Its repeated long-form span, abrupt-stop tail loss, and live rewrite are the reason for that deferral and remain failures to investigate at the model-driving boundary whenever it is picked up; output cleanup is never evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
+> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. **Moonshine activation remains deferred pending qualification and is not required for current release evidence.** Its repeated long-form span, abrupt-stop tail loss, and live rewrite are the reason for that deferral and remain failures to investigate at the model-driving boundary whenever it is picked up; output cleanup is never evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
 <!-- /pm-currentization:2026-09-15 -->
+
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. Model evaluation and fallback work require a separate current selection and acknowledged file ownership. Preserved #1567/#1568 source and unresolved model obligations remain provenance, not an active writer assignment or a prerequisite for v2 MVP acceptance. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 # SpeakSharp Quality (v1)
 
@@ -123,7 +125,14 @@ Exact current measured values live in the latest CI `software-quality.latest.jso
 | Stress test | Increases concurrency/load to find bottlenecks, failure limits, p95 latency, and locking/contention. |
 | Soak / endurance test | Runs a realistic scenario for a sustained period to catch memory leaks, stale sessions, resource exhaustion, long-tail bugs. |
 
-### Soft-release targets
+### Historical soft-release planning targets — not admitted thresholds
+
+The [accepted #1383 receiving contract](https://github.com/relativityE/speaksharp/pull/1674#issuecomment-6459908560)
+keeps setup, capture-start, finalization, persistence and whole-loop baselines
+**UNVERIFIED** and numeric thresholds **UNSET** until admissible population evidence
+and owner decisions exist. The table and comparison prose below preserve earlier
+planning context; they are not current numeric acceptance gates or measured service
+levels. Required population, exclusion, failure and recovery controls remain open.
 
 | Claim | Target | Classification | Current evidence | Gap / next evidence |
 |---|---:|---|---|---|
@@ -241,6 +250,7 @@ Each RC gate should report: **Gate ID** (1–5); **Definition of green** (binary
 ## 7. Interpretation & closure rules
 
 - **Raw artifacts win when summaries disagree.** Coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, stress/endurance JSON, and browser traces are the source of truth until the aggregator is fixed and rerun on the same commit.
+- **Diagnosis does not waive required qualification.** Green shard jobs or manually interpreted raw artifacts do not establish a required aggregate/report PASS. Correct the aggregation, count or collector defect and obtain the required exact-head qualification result. Preserve each failed/cancelled attempt separately; neither a later rerun nor a high quality score rewrites the earlier evidence.
 - **Quality score cannot override red release gates.** A high quality/coverage number does not prove STT quality, billing safety, quota enforcement, or privacy behavior.
 - **Advisory metrics become blocking only when explicitly promoted** for a release in `RELEASE_PROCESS.md` gate definitions or `RELEASE_STATUS.md`.
 - **Local generated output helps debugging; GitHub-generated artifacts close release evidence.**
@@ -289,3 +299,31 @@ CI does not validate real microphone hardware; this protocol is run on real devi
 - **Bluetooth / external mic:** built-in/external start, disconnect during recording, and recoverable error behavior.
 - **Stress / degraded:** rapid start/stop ×10, backgrounded active tab, model/network setup interruption, hardware mute, and representative long recording within the 10-minute cap.
 - **On any failure:** capture content-safe screen/trace/log evidence and exact hardware. Fake-audio CI is readiness and code-correctness evidence, not real-microphone qualification.
+
+<!-- clause-closeout:2026-10-28 -->
+## Consolidated predecessor controls and interpretation
+
+### Open Mic and returning-user acceptance controls
+
+Retain separate assertions for real signup/admission and authoritative account/plan binding; Products navigation with no microphone activation; truthful acquisition versus initialization timing and observed runtime; navigating away before Start completes without a later microphone start; live and saved filler agreement; exactly-once automatic save at Stop; two distinct speech-relevant coaching suggestions and one next action; review without reload; exact-session History/detail, reload and PDF equality; revisit without coaching regeneration; feedback acknowledgement, stored row and independently received telemetry; next Start without false finalizing debt; ended microphone tracks and exactly one Progress evaluation. The inherited next-Start ≤15-second control must remain identifiable until the receiver explicitly reconciles its bound, not silently disappear. Returning-user proof uses existing credentials and preserves plan, history and account state; navigation must write nothing and must not delete a maintained account. Prior mocked/CI successes do not close these deployed or human assertions.
+
+### Focus Points acceptance controls
+
+Preserve separate full and partial Focus journeys: topic and four points visible beside the transcript while pending, no microphone before Start, correct product/runtime identity, ordered speech-bound marker judgments, timing relative to the actual spoken point, no premature negative verdict before Stop, honest paraphrase handling and an unspoken point remaining missing. Preserve the inherited ≤5-second marker control separately from human timing perception until its bound is explicitly reconciled. Final coverage, per-point verdicts, average time per point, not-detected explanation and coaching must agree with the saved record and exact-session Analytics after reload. A partial fixture's 3/4 is not the full fixture's 4/4. The next-point selector chooses the first uncovered point; an unchanged index while that point remains pending is not by itself a failure or a PASS. A repeat take and a fresh Open Mic take must not inherit the wrong session or Focus state.
+
+### Feedback storage and request-binding controls
+
+Keep separate controls for successful coaching followed by feedback; unavailable/provider error; transport failure or timeout; delayed answer with total/provider latency; storage transport failure; explicit server rejection; stored row with lost reply; feedback about an older take; feedback with no session; and feedback from a repeat take. Acknowledgement follows confirmed storage. A failed/rejected write keeps the draft and reports the failure; retries must create one stored row, including when the first reply was lost. Older-take feedback must not acquire the current attempt; no-session feedback has no invented association; repeat feedback binds the repeat. Missing evidence is HOLD and contradictory evidence is FAIL, never an inferred successful diagnostic chain.
+
+### Independent coaching diagnostic binding
+
+Bind diagnostic_request_id and diagnostic_attempt_id at the outgoing invocation boundary to the verified saved session, and independently match the received diagnostic record. The stored report reference is metadata.coaching_diagnostic_ref; the feedback event carries coaching_diagnostic_id. UI tap order or the report alone does not bind a request. Keep endpoint HTTP class, provider HTTP class, product failureCategory and closed serverReason distinct; unknown source is acceptable only for a validated pre-provider failure. Independently recompute the server prompt digest from the actual outgoing inputs before calling prompt binding qualified; a recorded digest alone is not proof. Missing original request receipts or an authorized failure-injection mechanism remain explicit evidence gaps. Scoped support lookup, fault injection and account cleanup require their own authority; this control grants none.
+
+### Human evidence and coaching-copy boundaries
+
+Real microphone permission/copy, visible mobile Stop confirmation, acoustically realized uh, relevance of Open Mic coaching and whether Focus coaching addresses the spoken points require human observations. Synthetic speech, pre-granted permission, viewport emulation and a rendered coaching pair do not replace them. Keep the about 8–10-word coaching target soft; the retired six-word cap must not return and longer valid phrases are not rejected solely for length. Preserve the source distinction between the old What to improve heading and later Try this next run / What to try next wording; current product-copy acceptance, not a label alias in a test, decides equivalence. Receipt rows, requirements, journeys and human observations keep separate denominators.
+
+### Boundary debugging and test execution reference
+
+Prefer real implementations, then governed E2E configuration, then the test registry, with local mocks last; use real stores with explicit reset where practical. Reproduce the responsible boundary and confirm the original counterexample with meaningful positive and negative controls. Use actual service payloads, observable readiness and document/attempt identity; a selector or sent event proves only its own boundary. Report trace source, observation window, loss and settlement. Registered development commands include pnpm quality, pnpm test:unit, pnpm test:full, pnpm test:infra, pnpm test:e2e and pnpm ci:local; inspect current package scripts and host interlocks before execution. A focused pass is not full quality/CI, and rc:gates includes live work. Mocked paths do not prove hosted RLS, providers, hardware or customer acceptance. Preserve exact source/config, commands, named assertions, failures, unavailable observations and limits; do not dump private speech, coaching or credentials.
+<!-- /clause-closeout:2026-10-28 -->

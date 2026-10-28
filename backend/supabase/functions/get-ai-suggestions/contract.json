@@ -7,6 +7,9 @@
     "what_to_try_next": 10
   },
   "generationConfig": {
+    "thinkingConfig": {
+      "thinkingLevel": "low"
+    },
     "responseMimeType": "application/json",
     "responseSchema": {
       "type": "OBJECT",

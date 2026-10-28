@@ -9,13 +9,19 @@ export type PendingResolutionKind = 'initial_save' | 'full_save' | 'attribution'
  * TWO of them, because the destructive action removes different things in different states and a
  * confirmation that names the wrong one is asking for consent the user did not give. The transcript
  * wording may be used ONLY when transcript TEXT is actually present.
+ *
+ * #1474 (Sam 1792277879): the save outcome is UNCONFIRMED here — after a lost response the server may already hold a
+ * completed take, and Discard then removes nothing (the server refuses to re-complete a completed row and the
+ * controller keeps the recovery copy). So the confirmation states only Discard's verified effect, conditionally: it
+ * removes this device's recovery copy of a take that was not saved, and a take that was saved stays saved. It never
+ * asserts the take is unsaved, that nothing reached the server, or that server data will be deleted.
  */
 export const DISCARD_CONFIRMATION_COPY =
-    'Permanently discard this unsaved recording? Its recoverable transcript will be removed. This cannot be undone.';
+    'Discard this recording? If it wasn’t saved, its transcript on this device is removed and can’t be recovered. If it was already saved, it stays saved.';
 
 /** #1360 — metrics-only: there is no transcript to remove, so the confirmation must not claim one. */
 export const DISCARD_CONFIRMATION_COPY_METRICS_ONLY =
-    'Permanently discard this unsaved recording? Its saved measurements will be removed. No transcript was stored. This cannot be undone.';
+    'Discard this recording? If it wasn’t saved, its measurements on this device are removed and can’t be recovered. If it was already saved, it stays saved.';
 
 export interface UnresolvedRecoveryBannerProps {
     /** Authoritative resolution state published by the controller. `null` renders nothing. */
@@ -85,8 +91,12 @@ export const UnresolvedRecoveryBanner: React.FC<UnresolvedRecoveryBannerProps> =
             ? error
             : isAttributionOnly
                 ? 'Your transcript was saved. We could not verify which transcription method produced it.'
+                // #1474 (Sam 6242612760): a full-save failure is an UNCONFIRMED outcome, not a known loss. A lost
+                // response after the server committed (RWT response-lost proved it) reads exactly like a lost request
+                // here, so the banner may only say what the client knows: it could not confirm the save. Retry Save is
+                // an idempotent replay either way.
                 : pendingResolutionKind === 'full_save'
-                    ? `Your last recording was not fully saved.${recoverableSuffix}`
+                    ? `We couldn’t confirm that your last recording was fully saved.${recoverableSuffix}`
                     : `Your last recording has not been saved yet.${recoverableSuffix}`;
 
     const run = (op: 'retry' | 'discard') => {

@@ -58,7 +58,7 @@ const EXTRA = `
 `;
 
 /** The schema as deployed BEFORE Stage B — v1 overloads present. */
-async function preStageB(): Promise<PGlite> {
+async function preStageB(atomic = ATOMIC, beforeAtomic = ''): Promise<PGlite> {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(M1131);
@@ -66,7 +66,8 @@ async function preStageB(): Promise<PGlite> {
     await db.exec(R2);
     await db.exec(EXTRA);
     await db.exec(STAGE_A);
-    await db.exec(ATOMIC);
+    if (beforeAtomic) await db.exec(beforeAtomic);
+    await db.exec(atomic);
     await db.query('INSERT INTO auth.users (id) VALUES ($1) ON CONFLICT DO NOTHING', [U]);
     await db.query("INSERT INTO public.user_profiles (id, subscription_status) VALUES ($1,'pro') ON CONFLICT DO NOTHING", [U]);
     return db;
@@ -366,6 +367,32 @@ describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself', () => {
         await expect(db.exec(STAGE_B)).resolves.toBeDefined();
         await db.close();
     });
+});
+
+describe('#1619 replay ACL — controlled grants, not a deployed Supabase catalog observation', () => {
+    const identity = 'public.complete_session_v2(uuid,text,integer,text,jsonb,integer,double precision,double precision,jsonb,jsonb,text)';
+    const oldAtomic = ATOMIC.replace('FROM PUBLIC, anon;', 'FROM PUBLIC;');
+    for (const shape of ['default', 'direct'] as const) {
+        it(`${shape} anon grant: original replay is RED, corrected exact ACL is GREEN`, async () => {
+            expect(oldAtomic).not.toBe(ATOMIC);
+            const db = await preStageB(oldAtomic, shape === 'default'
+                ? 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;' : '');
+            try {
+                if (shape === 'direct') await db.exec(`GRANT EXECUTE ON FUNCTION ${identity} TO anon;`);
+                expect((await db.query<{ ok: boolean }>(`SELECT has_function_privilege('anon','${identity}','EXECUTE') AS ok`)).rows[0].ok).toBe(true);
+                await expect(db.exec(STAGE_B)).rejects.toThrow(/executable by anon/i);
+                await db.exec('ROLLBACK');
+                const before = await db.query(`SELECT prosrc,proowner,prosecdef,proconfig FROM pg_proc WHERE oid='${identity}'::regprocedure`);
+                await db.exec(ATOMIC);
+                expect((await db.query(`SELECT prosrc,proowner,prosecdef,proconfig FROM pg_proc WHERE oid='${identity}'::regprocedure`)).rows).toEqual(before.rows);
+                for (const [role, expected] of [['anon', false], ['authenticated', true], ['service_role', true]] as const) {
+                    expect((await db.query<{ ok: boolean }>(`SELECT has_function_privilege($1,'${identity}','EXECUTE') AS ok`, [role])).rows[0].ok).toBe(expected);
+                }
+                expect((await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM pg_proc p, LATERAL aclexplode(p.proacl) a WHERE p.oid='${identity}'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE'`)).rows[0].n).toBe(0);
+                await expect(db.exec(STAGE_B)).resolves.toBeDefined();
+            } finally { await db.close(); }
+        });
+    }
 });
 
 describe('#1306 M4 — the handwritten-substitute population cannot grow', () => {

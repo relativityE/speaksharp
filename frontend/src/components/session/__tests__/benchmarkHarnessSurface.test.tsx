@@ -14,9 +14,14 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { render, screen, cleanup } from '../../../../tests/support/test-utils';
 import { SessionDuringState } from '../SessionDuringState';
 import { SessionOverhaulView } from '../SessionOverhaulView';
+
+// #1258 C10 — these cases model a LIVE take ("listening"), which under the one-live definition also means capture is live on
+// real microphone frames. The C10 suite covers the RECORDING-without-frames start state separately.
+beforeEach(() => { useSessionStore.setState({ captureLive: true }); });
 import {
     DURING_STATE_LANDMARKS, RETIRED_TRANSCRIPT_IDS, LIVE_TRANSCRIPT, TRANSCRIPT_HEADER_META,
     parseHeaderMetaWords, RETIRED_COMBINED_CONTROL,

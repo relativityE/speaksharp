@@ -20,11 +20,9 @@ export const PracticeLoopReviewPair: React.FC<{
     testId?: string;
 }> = ({ whatWorked, whatToTryNext, evidence = [], action, testId }) => (
     <div className="flex flex-col gap-3" data-testid={testId}>
-        <div className="rounded-xl bg-ink-raised px-[15px] py-3">
-            <h4 className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-ink-muted">What went well</h4>
-            <p className="mt-1.5 text-[15px] font-semibold leading-snug text-ink-text" data-testid="review-what-went-well">{whatWorked}</p>
-        </div>
-        {/* The next action, in the signature block — the one imperative sentence, and the prominent one. */}
+        {/* #1474 (Sam 6242062148): the next action FIRST, in DOM order (reading and focus order match what is seen), with
+            its evidence and its one action. On a phone it is the only way the full prescription reaches eye level on every
+            font; "What went well" follows it. The signature block stays the one imperative sentence, and the prominent one. */}
         <div className="rounded-xl bg-signature px-5 py-[18px]">
             <h4 className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-signature-text">Try this next run</h4>
             <p className="mt-1.5 text-[16px] font-extrabold leading-[1.48] text-ink" data-testid="review-try-next">{whatToTryNext}</p>
@@ -37,6 +35,10 @@ export const PracticeLoopReviewPair: React.FC<{
                 </div>
             )}
             {action && <div className="mt-4">{action}</div>}
+        </div>
+        <div className="rounded-xl bg-ink-raised px-[15px] py-3">
+            <h4 className="text-[11px] font-extrabold uppercase tracking-[0.1em] text-ink-muted">What went well</h4>
+            <p className="mt-1.5 text-[15px] font-semibold leading-snug text-ink-text" data-testid="review-what-went-well">{whatWorked}</p>
         </div>
     </div>
 );

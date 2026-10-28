@@ -104,3 +104,29 @@ describe('#1258 F3 — every missing readback binding says why (closed, content-
         expect(JSON.stringify(result.bindingReasons)).not.toMatch(/journey-|boot-|s-1|38104864048|@|\/analytics/);
     });
 });
+
+describe.each(['/progress', '/analytics'])('paired readback refusal reasons: %s', (route) => {
+    const events = [control, { ...backToList, toRoute: route }];
+    it('binds the current boot under either alias and keeps all identity mismatch reasons', () => {
+        const tap = new AnalyticsTap();
+        tap.noteDocument(`${ORIGIN}${route}/s-1`, 5);
+        tap.events.push(...events);
+        tap.captureActionBinding('share_feedback', RELEASE, RUN_ID, RUN_ATTEMPT, `${ORIGIN}${route}`);
+        expect(plan(tap.events, { pdfExport: false, actionBindings: tap.actionBindings, actionCaptures: tap.actionCaptures }).missingBindings).toEqual([]);
+        for (const changed of [{ runId: 'wrong' }, { runAttempt: '99' }, { releaseSha: 'b'.repeat(40) }, { trafficType: 'user' }]) {
+            expect(plan(events, { pdfExport: false, actionBindings: [action('share_feedback', changed)] }).bindingReasons)
+                .toEqual({ share_feedback: 'identity_mismatch' });
+        }
+        const newer = { ...control, at: 8, bootId: 'boot-3', journeyId: 'other' };
+        expect(plan([...events, newer], { pdfExport: false, actionBindings: [action('share_feedback')] }).bindingReasons)
+            .toEqual({ share_feedback: 'boot_not_latest' });
+    });
+    it('reports route_not_latest for a lookalike normalized route without exposing it', () => {
+        const result = plan([control, { ...backToList, toRoute: `${route}ive` }], {
+            pdfExport: false, actionBindings: [action('share_feedback')],
+        });
+        expect(result.journeys).toEqual([]);
+        expect(result.bindingReasons).toEqual({ share_feedback: 'route_not_latest' });
+        expect(JSON.stringify(result.bindingReasons)).not.toMatch(/progress|analytics|journey-|boot-|38104864048/);
+    });
+});

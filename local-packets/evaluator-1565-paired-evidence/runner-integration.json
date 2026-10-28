@@ -1,0 +1,39 @@
+{
+  "issue": 1565,
+  "branch": "cli-dev/1565-paired-evidence-20261019",
+  "current_main": "ba1a9f5ad31778460a4ea9e383a08be14b3222f6",
+  "accepted_validator": "0e1be5a5354aa634adff3e06ce8b4cbfb9421419",
+  "retained_runner_source": "6846c01e27499d1e27d09d105434e9bddb3958fe",
+  "increment": "Integrate accepted paired-population validation into the sole retained evaluator runner on current main",
+  "implemented": [
+    "Restore retained local evaluator page, adapters, WAV/asset-transfer modules, comparator, fixtures and reviewed-path worker controls without reverting current main package pins",
+    "Shared engine/test files were byte-identical to retained historical base before restoring that same evaluator seam; current HF4.3.0 main dependency pin preserved",
+    "Declare trials in the corpus manifest; freeze corpus times trials with raw-reference SHA256, Track-A reference word counts and speaker clusters before adapter execution",
+    "Attach declared identity at dispatch, call accepted validator before comparison, refuse a shared whole-clip or final-trial omission, reference mutation and missing/duplicate/mismatched row identity",
+    "Retain complete failed-trial rows, actual adapter observed identities, source manifest hashes and disposal rejections in the immutable report",
+    "Preserve raw-final filler counting before WER normalization, with explicit coachable totals versus all-key discourse-marker controls"
+  ],
+  "checks": {
+    "focused": "50/50 across six files PASS: retained comparison/asset/worker checks, accepted validator, paired-run integration and whole CLI command controls",
+    "final_test_style_correction": "11/11 paired-run/whole-command controls PASS after fixing two lint-only assertion call signatures",
+    "scoped_lint": "PASS on runner/adapters/comparator/tests/local page/shared engine seam",
+    "evidence_types": "PASS",
+    "full_default_pnpm_quality": "PASS exit 0",
+    "diff_check": "PASS",
+    "whole_command_scope": "Actual retained CLI with deterministic offline adapters and generated non-speech WAV; no real model/browser/provider execution"
+  },
+  "research_dependency": {
+    "latest_requested": "6bab65f, complete portable delta/API.md/READINESS.md/base/tree/hash and 69-test receipts",
+    "latest_repository_lookup": "HTTP422: No commit found for SHA6bab65f, 2026-10-19 around06:02 UTC",
+    "latest_integrated": false,
+    "older_repository_provenance": "Library v3 254b8af5419201e1ee405489771ee1baf586f9b9/53 tests and historical04cc204ca3d3d886417c0a710c8e079b3e1f91d6/31 tests are recorded but do not substitute for the requested latest export"
+  },
+  "remaining": [
+    "Full model qualification remains HOLD; PM ed919f52 numeric/statistical proposal is not approved or fully integrated",
+    "Legacy comparator expected-silence/filler-only/failure-denominator, required-slice and speaker-block/familywise statistics still require follow-on integration; new completeness tests do not certify them",
+    "Real full-corpus WAV/PCM bytes, natural annotated required slices, licensing/admission, baseline calibration/adequacy, model runtime/asset provenance and supported-device/product/human evidence remain open",
+    "Audible um/uh must be verified on the exact hash-bound synthetic recording before assigning raw-final omissions to decoding; known-string tests do not establish acoustic realization",
+    "No new model/download/provider campaign or candidate promotion/activation was run"
+  ],
+  "single_pr_route": "This same branch is the sole current-main successor of preserved closed1567 source under1565. Publish this coherent source for Sam/PM review; preserve the existing serial implementation-PR boundary while App owns1658 landing, then reconcile the selected current main and open one evaluator PR from this branch. Do not create a competing runner, reopen another active evaluator writer or call the parent complete."
+}

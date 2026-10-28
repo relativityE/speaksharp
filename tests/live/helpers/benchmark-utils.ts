@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { expect, Page, TestInfo } from '@playwright/test';
+import { activeHumanReflexMs } from './rwtHumanReflex';
 import {
     MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, MISSING_CONTROL_TIMEOUT_MS, micControlFor,
     SESSION_SHELL, SESSION_STATE_ATTR, TRANSCRIPT_CARD, TRANSCRIPT_LIVE_INDICATOR,
@@ -744,10 +745,13 @@ export async function expectBenchmarkRecordingStarted(page: Page, label: string)
  * resolve at all. Resolving the control from `MIC_CONTROL_BY_STATUS` keeps the harness and the product
  * on one definition rather than a hand-copied id.
  *
- * A control that is absent is a harness/product MISMATCH, not slow work, so it fails in seconds
- * instead of consuming the model budget.
+ * A known loading state gets its own bounded readiness wait. Once actionable, an absent control is
+ * a harness/product mismatch and uses the separate short control budget.
  */
-export async function startBenchmarkRecording(page: Page, label: string): Promise<void> {
+export async function startBenchmarkRecording(page: Page, label: string, modelReadinessTimeoutMs = 30_000): Promise<void> {
+    if (!Number.isFinite(modelReadinessTimeoutMs) || modelReadinessTimeoutMs <= 0) {
+        throw new Error('INVALID_SETUP model readiness budget must be finite and positive');
+    }
     // #1416 — THE TAKE MAY ALREADY BE RUNNING, BECAUSE SETUP STARTED IT.
     //
     // `preparePrivateModelIfPrompted` presses the cold control, and since #1415/#1416 that single
@@ -762,16 +766,109 @@ export async function startBenchmarkRecording(page: Page, label: string): Promis
         await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_FROM_SETUP`);
         return;
     }
-    const status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+    let status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+    if (status === 'loading') {
+        // #1593 case2: loading deliberately disables Start. A product switch may still be warming the model, so one
+        // snapshot cannot prove a missing control. Bound this wait; never press Retry/Download to hide its terminal.
+        const budget = Math.min(modelReadinessTimeoutMs, 30_000);
+        await logBenchmarkPhase(page, `${label.toUpperCase()}_MODEL_READINESS_WAIT_START`);
+        try {
+            await page.waitForFunction((stopId) => document.querySelector(`[data-testid="${stopId}"]`) !== null
+                || document.documentElement.getAttribute('data-model-status') !== 'loading', RECORDER_STOP, { timeout: budget });
+        } catch (error) {
+            const timeout = error !== null && typeof error === 'object' && 'name' in error && error.name === 'TimeoutError';
+            const reason = timeout ? 'MODEL_READINESS_TIMEOUT' : 'MODEL_READINESS_OBSERVATION_FAILED';
+            const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-${reason.toLowerCase()}`);
+            throw new Error(`Benchmark start precondition failed for ${label}: ${reason} after at most ${budget}ms\n${JSON.stringify(snapshot, null, 2)}`);
+        }
+        if ((await page.getByTestId(RECORDER_STOP).count()) > 0) {
+            await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_DURING_MODEL_WAIT`);
+            return;
+        }
+        status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+        if (status !== 'ready') {
+            const reason = status === null ? 'MODEL_READINESS_OBSERVATION_FAILED' : 'MODEL_READINESS_FAILED';
+            const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-model-not-ready`);
+            throw new Error(`Benchmark start precondition failed for ${label}: ${reason} terminal status '${String(status)}'\n${JSON.stringify(snapshot, null, 2)}`);
+        }
+        await logBenchmarkPhase(page, `${label.toUpperCase()}_MODEL_READINESS_READY`);
+    }
     const control = micControlFor(status);
     if (control === null) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-no-actionable-control`);
         throw new Error(`Benchmark start precondition failed for ${label}: model status '${String(status)}' has no actionable control\n${JSON.stringify(snapshot, null, 2)}`);
     }
     try {
-        const start = page.getByTestId(control);
-        await expect(start, `${label}: start control (${control})`).toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
-        await start.click();
+        // Readiness can expose a briefly disabled Start while an earlier held intent resumes. Wait for EITHER the
+        // actual enabled button or its running take. Return the button from that same observation: a later locator
+        // lookup can wait for, and accidentally acquire, a replacement belonging to a different take.
+        const controlDeadline = Date.now() + MISSING_CONTROL_TIMEOUT_MS;
+        const observed = await page.waitForFunction(({ controlId, stopId }) => {
+            if (document.querySelector(`[data-testid="${stopId}"]`)) return true;
+            const buttons = document.querySelectorAll<HTMLButtonElement>(`[data-testid="${controlId}"]`);
+            if (buttons.length > 1) throw new Error(`START_CONTROL_NOT_UNIQUE count=${buttons.length}`);
+            const button = buttons.item(0);
+            return button !== null && button.disabled === false ? button : false;
+        }, { controlId: control, stopId: RECORDER_STOP }, { timeout: MISSING_CONTROL_TIMEOUT_MS });
+        try {
+            const target = observed.asElement();
+            if (!target) {
+                await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_BEFORE_START`);
+                return;
+            }
+            // RWT's wrapper delays Locator/Keyboard actions, not ElementHandle actions. Preserve the exact configured
+            // reflex explicitly while retaining this node's identity through that delay; never re-resolve a locator.
+            const reflexMs = activeHumanReflexMs();
+            if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
+            if ((await page.getByTestId(RECORDER_STOP).count()) > 0) return;
+            const identity = await target.evaluate((element) => ({ connected: element.isConnected,
+                control: element.getAttribute('data-testid') }));
+            if (!identity.connected) throw new Error('the original start control was detached');
+            if (identity.control !== control) throw new Error('the observed start control changed identity before activation');
+            // Native click may wait for actionability. Keep an event-time guard so that this same DOM button cannot
+            // become Retry/Download during that wait and receive the old Start intent. Invalid attempts are blocked
+            // before product click handlers and reported as failures; the guard never substitutes a synthetic click.
+            const activation = await target.evaluateHandle((element, expected) => {
+                if (!(element instanceof HTMLButtonElement)) throw new Error('the observed mic control is not a button');
+                const state = { accepted: false, rejected: false, cleanup: (): void => undefined };
+                const changed = (records: MutationRecord[]) => {
+                    if (records.some((record) => record.attributeName === 'disabled'
+                        ? record.oldValue !== null || element.disabled
+                        : record.oldValue !== expected || element.getAttribute('data-testid') !== expected)) state.rejected = true;
+                };
+                const observer = new MutationObserver(changed);
+                const guard = (event: Event) => {
+                    changed(observer.takeRecords());
+                    if (state.rejected || !element.isConnected || element.disabled
+                        || element.getAttribute('data-testid') !== expected
+                        || document.querySelectorAll(`[data-testid="${expected}"]`).length !== 1
+                        || !(event.target instanceof Node) || !element.contains(event.target)) {
+                        state.rejected = true;
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        return;
+                    }
+                    state.accepted = true;
+                    state.cleanup();
+                };
+                state.cleanup = () => { observer.disconnect(); document.removeEventListener('click', guard, true); };
+                observer.observe(element, { attributes: true, attributeOldValue: true, attributeFilter: ['data-testid', 'disabled'] });
+                document.addEventListener('click', guard, true);
+                return state;
+            }, control);
+            try {
+                const remaining = controlDeadline - Date.now();
+                if (remaining <= 0) throw new Error('the Start control budget expired before activation');
+                await target.click({ timeout: remaining });
+                const result = await activation.evaluate((state) => ({ accepted: state.accepted, rejected: state.rejected }));
+                if (!result.accepted || result.rejected) throw new Error('the Start identity changed or was lost during activation');
+            } finally {
+                await activation.evaluate((state) => state.cleanup()).catch(() => undefined);
+                await activation.dispose().catch(() => undefined);
+            }
+        } finally {
+            await observed.dispose().catch(() => undefined);
+        }
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-started`);
         throw new Error(`Benchmark start precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
@@ -812,11 +909,17 @@ export async function readBenchmarkTranscript(page: Page): Promise<BenchmarkTran
         : { ok: false, invalidReason: 'transcript_surface_absent' };
 }
 
-export async function stopBenchmarkRecording(page: Page, label: string, timeout = 120_000) {
+/**
+ * `onClicked` (#1258, Codex P2 r4278702635 / PM 6192426838): called synchronously the moment the Stop CLICK resolves, before
+ * the recorder-bar and phase-log postconditions — so a caller can tell a failed click from a failure after it. Optional;
+ * every existing caller is unchanged, and postcondition or logging failures still throw exactly as before.
+ */
+export async function stopBenchmarkRecording(page: Page, label: string, timeout = 120_000, onClicked?: () => void) {
     const stop = page.getByTestId(RECORDER_STOP);
     try {
         await expect(stop, `${label}: stop control`).toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
         await stop.click();
+        onClicked?.();
         await expect(page.getByTestId(RECORDER_BAR), `${label}: the recorder bar must disappear on stop`)
             .toHaveCount(0, { timeout });
         await logBenchmarkPhase(page, `PROOF_RUNTIME_RECORDING_STOPPED_${label.toUpperCase()}`);

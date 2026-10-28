@@ -88,11 +88,23 @@ export type DiagnosticReason =
     | 'report_mismatch' | 'association_mismatch' | 'session_mismatch' | 'request_mismatch' | 'attempt_mismatch'
     | 'failure_category_mismatch' | 'server_reason_mismatch' | 'configured_model_mismatch' | 'request_session_mismatch' | 'outcome_mismatch'
     | 'current_attempt_attached_to_other_session' | 'invented_link' | 'storage_not_exactly_once' | 'acknowledgement_not_visible'
-    | 'report_field_invalid' | 'request_field_invalid' | 'unexpected_field';
+    | 'report_field_invalid' | 'request_field_invalid' | 'unexpected_field' | 'failure_category_not_observed'
+    | 'failure_category_ambiguous';
+
+/**
+ * #1258 R11 (PM RETURN 6144366004) — the page-reported category of a failed request, as the adapter could bind it:
+ * `null` = no report bound (unobserved, HOLD); AMBIGUOUS = more than one report bound to the request (HOLD); OBSERVED_INVALID
+ * = a report bound to it carried a reason outside the vocabulary (stays invalid → FAIL). The raw reason never travels.
+ */
+export const FAILURE_CATEGORY_AMBIGUOUS = 'category:ambiguous';
+export const FAILURE_CATEGORY_OBSERVED_INVALID = 'category:observed_invalid';
 
 export interface DiagnosticVerdict { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: DiagnosticReason[] }
 
-const HOLD_REASONS = new Set<DiagnosticReason>(['report_not_found', 'request_link_missing', 'request_not_found', 'telemetry_not_received', 'observed_model_missing']);
+// #1258 R11 (PM 6143804613-review): a failed request whose page-reported category was not CAPTURED is unproven (HOLD) —
+// never guessed, and never a field contradiction. A captured category outside FAILURE_CATEGORIES still FAILs.
+const HOLD_REASONS = new Set<DiagnosticReason>(['report_not_found', 'request_link_missing', 'request_not_found', 'telemetry_not_received', 'observed_model_missing',
+    'failure_category_not_observed', 'failure_category_ambiguous']);
 const OUTCOMES: readonly string[] = ['success', 'provider_error', 'timeout', 'transport_error', 'invalid_response', 'rate_limited',
     'server_error', 'client_network'];
 const ASSOCIATIONS: readonly string[] = ['current_take', 'selected_older_session', 'no_session'];
@@ -105,9 +117,11 @@ const OUTCOME_SHAPE: Record<string, { status: readonly string[]; provider: reado
     // A cache hit makes no provider call (provider `none`); a fresh success must carry the provider's 2xx (see shapeHolds).
     success: { status: ['2xx'], provider: ['2xx', 'none'], reasons: ['none'] },
     provider_error: { status: ['5xx'], provider: ['4xx', '5xx'], reasons: ['provider_http_4xx', 'provider_http_5xx'] },
-    timeout: { status: ['5xx'], provider: ['none'], reasons: ['provider_timeout'] },
+    // Codex r4290615981 (PM 6207410484): a timeout before any headers has no provider status; a BODY timeout keeps the
+    // received 2xx (the Edge function records the status as soon as headers arrive). Nothing else.
+    timeout: { status: ['5xx'], provider: ['none', '2xx'], reasons: ['provider_timeout'] },
     transport_error: { status: ['5xx'], provider: ['none'], reasons: ['provider_transport'] },
-    invalid_response: { status: ['5xx'], provider: ['2xx'], reasons: ['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version'] },
+    invalid_response: { status: ['5xx'], provider: ['2xx'], reasons: ['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'provider_malformed_response'] },
     rate_limited: { status: ['4xx'], provider: ['none'], reasons: ['quota_exceeded'] },
     server_error: {
         status: ['4xx', '5xx'], provider: ['none', '2xx'],
@@ -179,11 +193,15 @@ function shapeHolds(q: AiRequestDiagnostic): boolean {
 
 function requestValid(q: AiRequestDiagnostic): boolean {
     return nonEmpty(q.requestId) && nonEmpty(q.attemptId) && nonEmpty(q.sessionId) && OUTCOMES.includes(q.outcome)
-        && (q.outcome === 'success' ? q.failureCategory === null : FAILURE_CATEGORIES.includes(q.failureCategory ?? ''))
+        && (q.outcome === 'success' ? q.failureCategory === null
+            : q.failureCategory === null || q.failureCategory === FAILURE_CATEGORY_AMBIGUOUS || FAILURE_CATEGORIES.includes(q.failureCategory))
         && shapeHolds(q)
         && count(q.retryCount) && duration(q.totalMs)
         // The provider leg is part of the request, so it can never exceed the total (PM RETURN 6111565683).
         && (q.providerMs === null || (duration(q.providerMs) && q.providerMs <= q.totalMs))
+        // #1625 (Codex r4290777310): a received-2xx timeout is a BODY timeout, which needs a provider attempt — so its
+        // provider leg must be present and positive (the adapter sets providerMs only when provider_attempts > 0).
+        && !(q.outcome === 'timeout' && q.providerStatusClass === '2xx' && !(q.providerMs !== null && q.providerMs > 0))
         && nonEmpty(q.configuredModel) && (q.observedModel === null || nonEmpty(q.observedModel))
         && ['fresh', 'cache', 'unknown'].includes(q.source);
 }
@@ -222,6 +240,8 @@ export function validateFeedbackDiagnostics(lookup: FeedbackDiagnosticLookup | n
             else {
                 const q = linked[0];
                 if (!requestValid(q)) reasons.add('request_field_invalid');
+                if (q.outcome !== 'success' && q.failureCategory === null) reasons.add('failure_category_not_observed');
+                if (q.outcome !== 'success' && q.failureCategory === FAILURE_CATEGORY_AMBIGUOUS) reasons.add('failure_category_ambiguous');
                 if (q.sessionId !== report.sessionId) reasons.add('request_session_mismatch');
                 if (expected.outcome !== null && q.outcome !== expected.outcome) reasons.add('outcome_mismatch');
                 if (expected.attemptId !== null && q.attemptId !== expected.attemptId) reasons.add('attempt_mismatch');
@@ -238,6 +258,10 @@ export function validateFeedbackDiagnostics(lookup: FeedbackDiagnosticLookup | n
         if (linked.length === 0) reasons.add('request_not_found');
         else if (linked.length > 1 || !requestValid(linked[0])) reasons.add('request_field_invalid');
         else if (linked[0].sessionId !== report.sessionId) reasons.add('request_session_mismatch');
+        if (linked.length === 1 && linked[0].outcome !== 'success') {
+            if (linked[0].failureCategory === null) reasons.add('failure_category_not_observed');
+            if (linked[0].failureCategory === FAILURE_CATEGORY_AMBIGUOUS) reasons.add('failure_category_ambiguous');
+        }
     }
 
     const list = [...reasons];

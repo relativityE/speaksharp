@@ -15,14 +15,16 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict, type SwitchSourceSnapshot } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
-import { coachingPromptBindingRow } from './rwtCoachingCollector';
+import { coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './rwtCoachingCollector';
 import { coachingContract } from './rwtCoachingEvidence';
+import { coachingTelemetryVerdict, failureTelemetryBinding, takeExchangeEvidence } from './coachingExternal';
 import {
     AnalyticsTap,
     RwtReceipt,
@@ -73,7 +75,14 @@ import {
     sentDetail,
     readbackSettlement,
     exactCountVerdict,
+    stopIfPageTornDown,
 } from './rwtJourney';
+import { openProductsItem, resolveProductsTrigger } from './productsMenu';
+import { PACE_GUIDE_DEFAULT_SECONDS, parsePaceGuideSeconds } from './rwtPaceGuide';
+import {
+    LIVE_MARKER_MAX_AFTER_SECONDS, armMarkerObserver, bindTakeAcquisition, classifyMarkerTiming, disposeMarkerObserver, freezeMarkerObserver,
+    markerTimingStatus, type MarkerObserverSnapshot,
+} from './rwtMarkerObserver';
 
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
@@ -82,13 +91,11 @@ const GUIDE_SECONDS = 60;
 /** Tolerance on elapsed ÷ detected: the take's wall clock vs the product's own duration, in seconds. */
 const AVERAGE_TOLERANCE_SECONDS = 4;
 /**
- * The live-marker timing oracle (PM 2026-09-25). Audio time zero is the take's own microphone acquisition (Chromium
- * starts the fake file when the capture opens), so each marker change is placed on the audio's clock against the
- * point's waveform-pinned window: it must land while the point is spoken or at most 5 s after it ends, AND before the
- * next point begins. The alignment slack only absorbs capture-start jitter; observed latency is always recorded.
+ * The live-marker timing oracle (PM 2026-09-25): each marker change is placed against the point's waveform-pinned window —
+ * while the point is spoken or at most 5 s after it ends, AND before the next point begins; a 1 s early allowance absorbs
+ * capture-start jitter. #1593 case 3: the change time is the take-bound in-page observer's PAGE-SIDE OBSERVATION time, and
+ * time zero is the take's one fresh granted getUserMedia INVOCATION (not proven sample onset) — see rwtMarkerObserver.ts.
  */
-const MARKER_ALIGNMENT_SLACK_SECONDS = 1;
-const LIVE_MARKER_MAX_AFTER_SECONDS = 5;
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -119,7 +126,11 @@ const parseClock = (text: string): number | null => {
 const SETUP_FIELD_READ_FAILED = '(setup field read failed)';
 const meetsExpectation = (expected: string, got: RailStatus | null): boolean => focusPointMeetsExpectation(expected, got);
 
-export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }) {
+/**
+ * @param coachingMaximum #1593 (Sam 1792317800 §6): the selected whole-scenario browser coaching-request maximum for THIS
+ *   suite — 7 for the full PO-corpus journey, 4 for the partial fixture. It bounds the `coaching request budget` row.
+ */
+export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }, coachingMaximum: number, finalizer: JourneyFinalizer) {
     const preconditions = rwtPreconditionFailures();
     if (preconditions.length > 0) throw new Error(`HOLD preconditions: ${preconditions.join('; ')}`);
     const run: RunTarget = await resolveRunTarget(JOURNEY);
@@ -141,6 +152,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
     const tap = new AnalyticsTap();
     tap.attach(page);
+    // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
     const entitlement = new EntitlementTap();
     entitlement.attach(page);
     // #1258 (PM 6114590729): every coaching exchange at the request boundary, in memory only (diagnostic chain + artifact).
@@ -151,7 +164,12 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     await suppressPageSnapshot(testInfo);
     // #1258: the coaching request as sent (its product marker only) and every coaching request of the journey —
     // Analytics must never request coaching again.
-    const coaching: { product: string | null; status: number | null; requests: number; acceptedVersions: unknown; reason: string | null; reasonRead: Promise<void> | null } = { product: null, status: null, requests: 0, acceptedVersions: null, reason: null, reasonRead: null };
+    // #1258 (PM 6173420642 §3): external proof comes only from the request-boundary tap's per-take exchange.
+    const coaching: {
+        product: string | null; status: number | null; requests: number; acceptedVersions: unknown; reason: string | null; reasonRead: Promise<void> | null;
+        generations: CoachingGenerationTap;
+        openPoints?: { labels: readonly string[]; statuses: readonly (string | null)[] };
+    } = { product: null, status: null, requests: 0, acceptedVersions: null, reason: null, reasonRead: null, generations };
     page.on('request', (request) => {
         if (!request.url().includes('/functions/v1/get-ai-suggestions') || request.method() !== 'POST') return;
         coaching.requests += 1;
@@ -165,6 +183,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
             coaching.status = response.status();
             // #1258: a failed generation names its closed, content-free reason in the receipt.
+            // #1258: a failed generation names its closed, content-free reason (the exchange log keeps the per-take tuple).
             if (response.status() >= 400) coaching.reasonRead = readCoachingFailureReason(response).then((r) => { coaching.reason = r; });
         }
     });
@@ -183,12 +202,132 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let repeatWindow: [number, number] | null = null;
     // The Practice-again pass's saved take: the coaching evidence's repeat take.
     let repeatSessionId: string | null = null;
+    let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
     let claimed = false;
     // Codex r4199883470: step markers the finally-block "sent" rows read — a blind beacon sent before a step cannot carry
     // that step's events. Declared here because the rows run in `finally`, outside the steps' scope.
     let rowsStoppedAt = 0;
     let focusInventoryFrom = 0;
     let rowsGenerationsAt = 0;
+    // #1593 case 3: the take-bound marker observer, disposed (bounded, idempotent) by the one finalization.
+    let markerToken: string | null = null;
+    const finish = finalizer.once(async () => {
+        // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
+        const steps = new FinalizationSteps();
+        await steps.step('coaching capture disposed', () => coachingCapture?.dispose());
+        // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
+        const observed = await steps.step('telemetry observed', () => tap.awaitObserved(page, { coverage_evaluation: 1 }));
+        receipt.meta.finalTelemetryObserved = observed?.observed ?? false;
+        // Codex P2 r4316425029: an event-specific wait returns at once when its events were decoded after the FIRST take,
+        // so a lifecycle failure from the LAST take may still be queued — settle every attached page's own flush first.
+        await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+        await steps.step('watchdog', () => watch.record(receipt));
+        await steps.step('marker observer dispose', () => disposeMarkerObserver(page, markerToken));
+        // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count, from the same request-boundary tap after a
+        // bounded settle of every sent exchange, so the campaign's budget admission reads an actual count. An unanswered or
+        // unreadable exchange stays HOLD (never a zero or the planned maximum).
+        await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: coachingMaximum }));
+        let userJourneys: string[] = [];
+        await steps.step('telemetry rows', () => {
+            ({ userJourneys } = telemetryClassRows(receipt, tap, claimed));
+            const coverageSeen = tap.sent('coverage_evaluation').length > 0;
+            const coverageReceivedBy = ['session_after_focus_points'] as const;
+            receipt.row('coverage_evaluation sent', sentVerdict(coverageSeen, tap, rowsStoppedAt),
+                sentDetail('the coverage evaluation left the page (sent, not yet received)', coverageSeen, tap, rowsStoppedAt, coverageReceivedBy),
+                { sent: tap.sent('coverage_evaluation').length, blindBeacons: tap.blindBeacons, ...readbackSettlement(coverageReceivedBy, tap, rowsStoppedAt) });
+            // The Focus review's coaching receipts (the readback's Focus stage now requires the coaching card's rendered
+            // receipt, not only the rail's) and the PM's inventory events. SENT here; RECEIVED = the PostHog readback.
+            const focusTelemetry = {
+                reviewRequested: tap.sent('practice_loop_review_requested').length,
+                reviewRendered: tap.sent('practice_loop_review_rendered').length,
+                productsMenuOpened: tap.sent('products_menu_opened').length,
+                savedReviewRevisited: tap.sent('saved_review_revisited').length,
+            };
+            const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
+            // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path must have left the page instead.
+            const focusExternal = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
+            // PM 6173420642 §2: bound to THIS take's request id — never whole-run counts a later take could satisfy.
+            const focusBoundFailure = failureTelemetryBinding(tap.events,
+                persistedId ? takeExchangeEvidence(generations.forSession(persistedId)).diagnosticRequestId : null);
+            // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
+            const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
+            const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
+            const focusCoachingTelemetry = coachingTelemetryVerdict(
+                { verdict: focusExternal ? 'EXTERNAL' : 'PASS', detail: '', external: focusExternal ? 'provider_5xx' : null },
+                focusBoundFailure,
+                sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
+                sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt),
+                // Codex P1 r4277621594: the FIRST take's request proof, from the same first-take window as the generation row.
+                generationVerdict);
+            receipt.row('Focus coaching telemetry sent', focusCoachingTelemetry.verdict, focusCoachingTelemetry.detail,
+                { ...focusTelemetry, boundFailureOutcome: focusBoundFailure, blindBeacons: tap.blindBeacons,
+                    firstTakeRequestCount: generationsForFirstTake, firstTakeRequestProof: generationVerdict });
+            receipt.row('revisit is not a generation', generationVerdict,
+                generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD' : 'the generation count is not exactly one for this take',
+                { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
+            const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
+            const focusInventoryReceivedBy = ['analytics_inventory'] as const;
+            receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap, focusInventoryFrom),
+                sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap, focusInventoryFrom, focusInventoryReceivedBy),
+                { ...focusTelemetry, blindBeacons: tap.blindBeacons, ...readbackSettlement(focusInventoryReceivedBy, tap, focusInventoryFrom) });
+            // #1258 (#1563, Codex r4197420116): Focus presses Practice again too, so it proves the same correlation Open Mic does —
+            // each press reached its intended route (same boot + action_seq) — and, in the full run that shares feedback, each
+            // attempt resolved (same boot + submit_seq). Sent here; received is the `practice_again` / `share_feedback` readback.
+            // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
+            // correlation on RECEIVED events then settles the row at finalization.
+            const practiceArrival = practiceArrivalVerdict(tap.events);
+            const practiceArrivalReceivedBy = ['practice_again'] as const;
+            receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
+                { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, rowsStoppedAt) });
+            if (fixtureKey === 'focus_points_tts') {
+                const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
+                const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
+                receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
+                    { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, rowsStoppedAt) });
+            }
+            // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
+            acquisitionTimingRow(receipt, tap, tap.journeyIds());
+        });
+        // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. The full run's retention proof and the partial run's own
+        // cleanup verdict (#1532 Codex P1 r4126745141) both delete through it; the deletion's own settlement then decides —
+        // a stalled readback never deletes again, and a body that ended early still has its account deleted, here only.
+        if (owner.uid || owner.email) {
+            const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+            const report = feedbackReportId;
+            const proof = fixtureKey === 'focus_points_tts' && report
+                ? (alive: () => boolean) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
+                : fixtureKey === 'focus_points_partial_tts'
+                    ? (alive: () => boolean) => recordRunOwnedCleanup((step, verdict, detail, evidence) => { if (alive()) receipt.row(step, verdict, detail, evidence); }, () => cleanup.run())
+                    : undefined;
+            if (await finalizeOwnedCleanup(steps, receipt, cleanup, proof) === 'deleted') { owner.uid = ''; owner.email = ''; }
+        }
+        // Last, so it covers every row above, including cleanup.
+        await steps.step('receipt content check', () => {
+            // Point text and topic are the person's content: they must never reach the receipt.
+            const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));
+            receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no point text, topic or credential in the receipt' : 'the receipt carried a forbidden value');
+        });
+        steps.report(receipt);
+        receipt.write(testInfo,
+            bindReadbackJourneys(tap.events, {
+                recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'],
+                // #1593 (Sam 15:51, same contract as Open Mic): the Focus repeat take is interrupted by the next take on purpose.
+                repeatRecording: ['session_during', 'session_interrupted_repeat'],
+                takes: {
+                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
+                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
+                },
+                feedback: fixtureKey === 'focus_points_tts',
+                // #1258 (#1563, Codex r4197420116): the received press→arrival is required of Focus as of Open Mic.
+                practiceAgain: true,
+                actionBindings: tap.actionBindings,
+                actionCaptures: tap.actionCaptures,
+                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
+                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            }),
+            tap.trafficTypes(), userJourneys);
+    });
     try {
         await test.step('account — sign up, canary claim (if authorized), sign back in', async () => {
             await page.goto('/auth/signup');
@@ -213,12 +352,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const switched = await performCandidateSwitch(page, run, JOURNEY);
             receipt.meta.switchOutcome = switched;
             if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
-            const desktop = page.getByTestId('nav-products-button');
-            if (await desktop.isVisible().catch(() => false)) {
-                await desktop.click();
+            const { trigger, isDesktop } = await resolveProductsTrigger(page);
+            await trigger.click();
+            if (isDesktop) {
                 await page.getByTestId('nav-products-focus-points').click();
             } else {
-                await page.getByTestId('nav-mobile-products-button').click();
                 await page.getByTestId('nav-mobile-products-focus-points').or(page.getByTestId('nav-mobile-focus-points-link')).first().click();
             }
             const opened = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
@@ -236,8 +374,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 if ((await page.getByTestId(`objective-point-label-${i}`).count()) === 0) await page.getByTestId('objective-add-point').click();
                 await page.getByTestId(`objective-point-label-${i}`).fill(points[i]);
             }
-            const pace = parseClock(await page.getByTestId('objective-pace-value').innerText());
-            receipt.row('pace guide', pace === GUIDE_SECONDS ? 'PASS' : 'FAIL', pace === GUIDE_SECONDS ? 'the default guide is 1:00 per point' : 'the guide is not 1:00', { paceSeconds: pace });
+            // #1258 R5: the guide is minutes per point ("1 min"), compared as seconds; a missing guide is read, not awaited.
+            const paceValue = page.getByTestId('objective-pace-value');
+            const paceShown = (await paceValue.count()) > 0;
+            const pace = paceShown ? parsePaceGuideSeconds(await paceValue.innerText({ timeout: 5_000 }).catch(() => null)) : null;
+            receipt.row('pace guide', pace === PACE_GUIDE_DEFAULT_SECONDS ? 'PASS' : 'FAIL',
+                pace === PACE_GUIDE_DEFAULT_SECONDS ? 'the default guide is 1 min per point'
+                    : paceShown ? 'the guide is not 1 min per point' : 'no pace guide was shown',
+                { paceSeconds: pace, paceShown });
             await page.getByTestId('objective-setup-submit').click();
             const arrived = await page.waitForURL(/\/session/, { timeout: 45_000 }).then(() => true).catch(() => false);
             const mic = (await micAcquisitions(page)).length;
@@ -267,6 +411,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             receipt.row('rail before speaking', neutral ? 'PASS' : 'FAIL', neutral ? 'every point starts pending' : 'a point was marked before any speech',
                 { rows: before.statuses.length });
             await railStateRows(page, receipt, points.length, 'before');
+            // #1593 case 3: arm BEFORE preparePrivateModelIfPrompted, which can itself start the take.
+            const armed = await armMarkerObserver(page, points.length);
+            markerToken = armed.token;
 
             const acquisitionStarted = Date.now();
             await selectBenchmarkMode(page, 'private');
@@ -287,6 +434,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 if (now.next !== null && nextSequence[nextSequence.length - 1] !== now.next) nextSequence.push(now.next);
                 await page.waitForTimeout(500);
             }
+            // #1593 case 3: drain and freeze the live window before any verdict or Stop; later callbacks cannot change it.
+            const sealed: MarkerObserverSnapshot | null = armed.ok ? await freezeMarkerObserver(page, armed.token) : null;
             // #1532 r4127572206: every point expected covered OR partial must change live (per point, not by count).
             const expectedLive = expectedFinal.filter(expectsLiveChange).length;
             const liveChanged = firstChange.filter(Boolean).length;
@@ -298,34 +447,36 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             receipt.row('next point marked', nextSequence.length > 1 ? 'PASS' : 'FAIL',
                 nextSequence.length > 1 ? 'the "Still to cover" marker advanced as points were detected' : 'the next point was not visibly advanced',
                 { nextSequence: nextSequence.join('>') });
-            // Time-anchored oracle: each marker change placed on the audio clock against the manifest's spoken window.
+            // Time-anchored oracle (#1593 case 3): each point's first non-pending PAGE-SIDE OBSERVATION from the take-bound
+            // observer, measured from the take's one fresh granted getUserMedia INVOCATION. Nothing is backdated; any binding
+            // gap is a HOLD, never a PASS. The polled first-seen times are kept beside it to separate observer from product.
             const windows = fixture.entry.pointAudioWindows;
-            const takeOpen = (await micAcquisitions(page)).filter((at) => at <= startedAt + 1_000).pop() ?? null;
-            if (!windows || takeOpen === null) {
-                receipt.row('marker timing vs audio', 'HOLD', windows ? 'the take\'s microphone acquisition was not observed' : 'this fixture has no point audio windows');
+            // Only the acquisition copy sealed in the same token-validated evaluation as the window; no separate later reads.
+            const binding = sealed ? bindTakeAcquisition(sealed.acquisitionLog, sealed.acquisitionMarks, sealed.acquisitionsAtArm) : null;
+            const polledFirstSec = firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(',');
+            if (!windows) {
+                receipt.row('marker timing vs audio', 'HOLD', 'this fixture has no point audio windows');
+            } else if (!armed.ok || !sealed) {
+                receipt.row('marker timing vs audio', 'HOLD', 'the take-bound marker observer was not armed or its sealed window could not be read',
+                    { observerArmed: armed.ok, observerReason: armed.reason ?? 'none', polledFirstSec });
+            } else if (!sealed.initialAllPending) {
+                receipt.row('marker timing vs audio', 'HOLD', 'a point was already marked when the observer armed, so the take has no clean baseline',
+                    { initialStatuses: sealed.initialStatuses.map(String).join(','), polledFirstSec });
+            } else if (!binding || !binding.ok) {
+                receipt.row('marker timing vs audio', 'HOLD', 'the take could not be bound to exactly one fresh granted microphone acquisition',
+                    { acquisition: binding && !binding.ok ? binding.reason : 'missing', acquisitionsAtArm: sealed.acquisitionsAtArm, polledFirstSec });
             } else {
-                const nextStart = (i: number): number | null => {
-                    for (let j = i + 1; j < windows.length; j += 1) { const w = windows[j]; if (w) return w[0]; }
-                    return null;
-                };
-                const verdicts = points.map((_, i) => {
-                    const window = windows[i] ?? null;
-                    const change = firstChange[i];
-                    // A point never spoken must never be marked, at any time.
-                    if (window === null) return change ? 'marked-though-never-spoken' : 'ok-unspoken';
-                    if (!change) return expectsLiveChange(expectedFinal[i]) ? 'no-live-change' : 'ok-no-change';
-                    const audioSec = (change.atMs - takeOpen) / 1000;
-                    const latency = (audioSec - window[1]).toFixed(1); // negative = during the point
-                    const next = nextStart(i);
-                    const deadline = Math.min(window[1] + LIVE_MARKER_MAX_AFTER_SECONDS, next ?? Number.POSITIVE_INFINITY);
-                    if (audioSec < window[0] - MARKER_ALIGNMENT_SLACK_SECONDS) return `early@${audioSec.toFixed(1)}`;
-                    if (audioSec > deadline) return `late@${audioSec.toFixed(1)}(+${latency}s)`;
-                    return `ok@${audioSec.toFixed(1)}(${latency}s)`;
-                });
-                const ok = verdicts.every((v) => v.startsWith('ok'));
-                receipt.row('marker timing vs audio', ok ? 'PASS' : 'FAIL',
-                    ok ? 'each marker changed while its point was spoken or within 5 s after, before the next point' : 'a marker changed before its point was spoken, more than 5 s after it or after the next point began, or for an unspoken point',
-                    { perPoint: verdicts.join(','), maxAfterPointSec: LIVE_MARKER_MAX_AFTER_SECONDS });
+                const verdicts = classifyMarkerTiming({ windows, observations: sealed.observations, invokedAtMs: binding.invokedAtMs,
+                    expectsLive: points.map((_, i) => expectsLiveChange(expectedFinal[i])) });
+                const status = markerTimingStatus(verdicts);
+                receipt.row('marker timing vs audio', status,
+                    status === 'PASS' ? 'each marker\'s whole change interval lies while its point was spoken or within 5 s after, before the next point'
+                        : status === 'HOLD' ? 'a marker\'s change interval crosses a timing boundary, so its timing is not established either way'
+                            : 'a marker changed before its point was spoken, more than 5 s after it or after the next point began, or for an unspoken point',
+                    { perPoint: verdicts.join(','), maxAfterPointSec: LIVE_MARKER_MAX_AFTER_SECONDS, clock: 'page-side observation after getUserMedia invocation',
+                        invokedAtMs: binding.invokedAtMs, armedAtMs: sealed.armedAtMs, frozenAtMs: sealed.frozenAtMs ?? 'none',
+                        boundsMs: sealed.observations.map((o) => `${o.point}:${o.status}:${o.afterMs - binding.invokedAtMs}..${o.observedAtMs - binding.invokedAtMs}`).join(','),
+                        observations: sealed.observations.length, railGenerations: sealed.railGenerations, rejected: sealed.rejected.length, polledFirstSec });
             }
             // Runbook v12: red "Not detected" is a FINAL, after-Stop verdict only — never during speech.
             const redDuring = await page.locator('[data-testid="focus-points-rail-list"] [data-marker="missed"]').count();
@@ -406,6 +557,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await test.step('row 11 — Focus Points coaching after Stop', async () => {
             if (!persistedId) { receipt.row('Focus coaching rendered', 'HOLD', 'no saved session'); return; }
             // focusCoachingRows settles the reason after its own terminal wait (Codex r4189408865).
+            // #1258 R4: the rail's final statuses, so the advice can be checked against a point that is still open.
+            coaching.openPoints = { labels: points, statuses: firstTakeRail };
             savedCoaching = await focusCoachingRows(page, receipt, admin as never, persistedId, owner.uid, coaching);
         });
 
@@ -463,9 +616,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const digest = sha256Hex(row?.transcript);
             // Through the on-screen Analytics action the person clicks after Stop, then the session's own control.
             const requestsBefore = coaching.requests;
-            if (!savedCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
+            // #1258 (PM 6175763509 §2): under a proved EXTERNAL outage `analyticsRows` writes every coaching-dependent row as
+            // not exercised; otherwise a missing saved pair is the existing HOLD.
+            const focusExternalCoaching = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
+            if (!savedCoaching && !focusExternalCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
             // Focus Points evidence is the saved point results ("Detected: point 1 at 0:21." / "Not detected: point 3.").
-            analyticsRows(receipt, await analyticsThroughActions(page, persistedId, digest, savedCoaching ?? undefined, /(Detected|Not detected): point \d/));
+            analyticsRows(receipt, await analyticsThroughActions(page, persistedId, digest, savedCoaching ?? undefined, /(Detected|Not detected): point \d/),
+                focusExternalCoaching);
             receipt.row('Analytics generates no coaching', coaching.requests === requestsBefore ? 'PASS' : 'FAIL',
                 coaching.requests === requestsBefore ? 'opening and reloading Analytics requested no new review' : 'Analytics requested coaching again (regeneration / quota)',
                 { coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests });
@@ -512,22 +669,50 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
                     receipt, admin: admin as never, userId: owner.uid, reportId: feedbackReportId, currentSessionId: persistedId,
-                    exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'focus_points',
+                    exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'focus_points',
                 });
             });
         }
 
         // ── Practice again through the rendered controls: Analytics → the same set → the review's Retry (#1533) ──
+        // #1407 / #1491 6180077610 (Codex P1 r4302807716): the first take is saved EXACTLY ONCE, and the one completed row is the
+        // take the page bound. Read here — after the take has settled (coaching, Analytics, Back/reload) and BEFORE the first later
+        // legitimate take (this Practice again, then any product switch) — so a duplicate or retry landing after the first save is
+        // counted, and no later take is.
+        await test.step('first take saved exactly once (settled, before the next take)', async () => {
+            const { data: completed, error: completedErr } = await admin!.from('sessions').select('id')
+                .eq('user_id', owner.uid).eq('status', 'completed');
+            const once = firstTakeSavedExactlyOnceVerdict({
+                persistedId,
+                completedIds: completedErr ? null : (completed ?? []).map((r: { id: string }) => r.id),
+            });
+            receipt.row('saved exactly once', once.verdict, once.detail,
+                { completedSessions: completedErr ? null : (completed ?? []).length, queryError: completedErr?.code ?? null });
+        });
+
         await test.step('Practice again — Analytics action, then the completed review\'s Retry this set', async () => {
             generationsForTake = tap.sent('practice_loop_review_requested').length;
             rowsGenerationsAt = Date.now();
             if (!persistedId) {
-                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null });
+                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null, saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null, enabledWhileHolding: null, stopToSaveMs: null, saveToGateClearMs: null, pressToWarmupDoneMs: null, pressToRecordingMs: null });
                 await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', []);
                 return;
             }
             const repeatFrom = tap.events.length;
             let saveTakeEnd = -1;
+            coachingCapture = createCoachingTakeCapture({
+                page, admin: admin as never, tap: generations,
+                fixture: { key: fixture.key, kind: fixture.entry.kind, sha256: fixture.entry.sha256 },
+                suiteId: suite, product: 'focus_points', userId: owner.uid,
+            });
+            // Read the actual rendered A review BEFORE B can expire its saved inputs. The main journey stays put.
+            const reviewTab = await page.context().newPage();
+            try {
+                const rendered = await readSavedReviewPair(reviewTab, persistedId, 'gemini_coaching_focus_v1');
+                await coachingCapture.sample(persistedId, rendered);
+            } finally { await reviewTab.close(); }
+            // Passive B observation never delays the completed review's rapid Retry press or next Start.
+            coachingCapture.start();
             const again = await practiceAgainEvidence(page, `${suite}-again`, persistedId, 'focus_points', points, () => { saveTakeEnd = tap.events.length; });
             // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
             repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
@@ -542,41 +727,41 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             nextStartRows(receipt, next);
         });
 
-        // ── Real coaching provenance: the restricted synthetic artifact (PM 6114451615 / 6114547673). Both takes' pairs
-        // are read from their Analytics detail in a separate tab (the Focus review reader returns the saved pair). ─────
+        // ── Real coaching provenance: prior positive saved/rendered witnesses, not late reads of expired inputs. ───
         await test.step('coaching prompt binding — restricted synthetic artifact', async () => {
             await generations.settle();
+            await coachingCapture?.stop();
+            if (repeatSessionId) await coachingCapture?.sample(repeatSessionId);
             await coachingPromptBindingRow({
                 receipt, page, admin: admin as never, exchanges: generations.exchanges,
                 fixture: { key: fixture.key, kind: fixture.entry.kind, sha256: fixture.entry.sha256 },
                 suiteId: suite, product: 'focus_points', userId: owner.uid, firstSessionId: persistedId, repeatSessionId,
                 firstRendered: null, releaseSha: expectedReleaseSha(), outputDirs: [testInfo.outputDir, testInfo.project.outputDir],
+                captured: coachingCapture ?? undefined,
             });
         });
 
         // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──
         if (fixtureKey === 'focus_points_tts') {
+            // Both steps drive the current page without navigating first: a page torn down by a failed Start stops here.
+            stopIfPageTornDown(receipt, page, 'next Start without a hold', 'Open Mic take, then a Focus take right after the product switch');
             // The switch step's saved Focus take is the completed review New Set / Edit starts from (Browser PM 6097978379).
             let switchFocusId: string | null = null;
             // ── #1258 (Browser PM 6089889070) — Open Mic → Focus Points: the take right after the switch hears only itself ──
             await test.step('Open Mic take, then a Focus take right after the product switch', async () => {
                 // The transcript stays in Node (marker support only); the receipt gets the product, a digest and booleans.
-                const sessionRow = async (id: string): Promise<{ product: string | null; digest: string | null; transcript: string }> => {
-                    const { data, error } = await admin!.from('sessions').select('product,transcript').eq('id', id).eq('user_id', owner.uid).maybeSingle();
-                    if (error) throw new Error(`session read failed (fail closed): ${error.code ?? 'unknown'}`);
-                    return { product: (data?.product as string | null) ?? null, digest: data ? sha256Hex(data.transcript) : null, transcript: typeof data?.transcript === 'string' ? data.transcript : '' };
+                const unavailable = (state: 'missing' | 'query_error'): SwitchSourceSnapshot & { transcript: string } => ({ product: null, digest: null, transcript: '', state });
+                const sessionRow = async (id: string): Promise<SwitchSourceSnapshot & { transcript: string }> => {
+                    const { data, error } = await admin!.from('sessions').select('id,user_id,product,transcript,transcript_state').eq('id', id).eq('user_id', owner.uid).maybeSingle();
+                    if (error) return unavailable('query_error'); // fail closed: an unreadable row is never expiry.
+                    if (!data) return unavailable('missing');
+                    const available = data.transcript_state === 'available' && typeof data.transcript === 'string' && data.transcript.trim() !== '';
+                    const state = available ? 'available' : data.transcript_state === 'expired' && data.transcript === null ? 'expired' : 'malformed';
+                    return { product: (data.product as string | null) ?? null, digest: available ? sha256Hex(data.transcript) : null,
+                        transcript: available ? data.transcript as string : '', state, sessionId: data.id as string, userId: data.user_id as string };
                 };
                 const lastSaved = () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
-                const openProduct = async (item: 'open-mic' | 'focus-points') => {
-                    const desktop = page.getByTestId('nav-products-button');
-                    if (await desktop.isVisible().catch(() => false)) {
-                        await desktop.click();
-                        await page.getByTestId(`nav-products-${item}`).click();
-                    } else {
-                        await page.getByTestId('nav-mobile-products-button').click();
-                        await page.getByTestId(`nav-mobile-products-${item}`).click();
-                    }
-                };
+                const openProduct = (item: 'open-mic' | 'focus-points') => openProductsItem(page, item);
                 // 1. A full Open Mic take: the replayed Focus fixture speaks all four points into it.
                 const before = await lastSaved();
                 await openProduct('open-mic');
@@ -586,7 +771,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await stopBenchmarkRecording(page, `${suite}-switch-openmic`, 180_000);
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-openmic`, 180_000);
                 const openMicId = await waitForNewPersistedSession(page, before);
-                const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : { product: null, digest: null, transcript: '' };
+                const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
                 // A point is a carry-over marker only if the Open Mic take actually recognised it (6090552875).
                 const markerSupport = points.slice(1).map((label) => labelHeardIn(label, openMicBefore.transcript));
 
@@ -617,17 +802,19 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                     .toBe(true).catch(() => undefined);
                 const finalStatuses = (await readRail(page, points.length)).statuses;
-                const savedProduct = focusId && focusId !== openMicId ? (await sessionRow(focusId)).product : null;
-                const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : { product: null, digest: null, transcript: '' };
+                const savedFocus = focusId && focusId !== openMicId ? await sessionRow(focusId) : unavailable('missing');
+                const savedProduct = savedFocus.state === 'available' && savedFocus.sessionId === focusId && savedFocus.userId === owner.uid ? savedFocus.product : null;
+                const openMicAfter = openMicId && openMicId !== before ? await sessionRow(openMicId) : unavailable('missing');
                 const iso = switchIsolationVerdict({
                     railPendingBefore, openMicId: openMicId !== before ? openMicId : null, focusId: focusId !== openMicId ? focusId : null,
                     savedProduct, finalStatuses, staleCoachingBeforeStart, markerSupport,
-                    openMicBefore: { product: openMicBefore.product, digest: openMicBefore.digest },
-                    openMicAfter: { product: openMicAfter.product, digest: openMicAfter.digest },
+                    openMicBefore, openMicAfter, ownerId: owner.uid,
                 });
                 receipt.row('take after switching products is clean', iso.verdict, iso.detail, {
                     railPendingBefore, shortTakeSeconds, final: finalStatuses.join(','), staleCoachingBeforeStart, markerSupport: markerSupport.join(','),
                     openMicSaved: Boolean(openMicId && openMicId !== before), openMicUnchanged: openMicBefore.digest !== null && openMicBefore.digest === openMicAfter.digest,
+                    openMicRetentionState: openMicAfter.state ?? 'unknown',
+                    openMicExpiredAfterWitness: iso.verdict === 'PASS' && openMicAfter.state === 'expired',
                 });
             });
 
@@ -746,83 +933,6 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             });
         }
     } finally {
-        const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
-        const coverageSeen = tap.sent('coverage_evaluation').length > 0;
-        const coverageReceivedBy = ['session_after_focus_points'] as const;
-        receipt.row('coverage_evaluation sent', sentVerdict(coverageSeen, tap, rowsStoppedAt),
-            sentDetail('the coverage evaluation left the page (sent, not yet received)', coverageSeen, tap, rowsStoppedAt, coverageReceivedBy),
-            { sent: tap.sent('coverage_evaluation').length, blindBeacons: tap.blindBeacons, ...readbackSettlement(coverageReceivedBy, tap, rowsStoppedAt) });
-        // The Focus review's coaching receipts (the readback's Focus stage now requires the coaching card's rendered
-        // receipt, not only the rail's) and the PM's inventory events. SENT here; RECEIVED = the PostHog readback.
-        const focusTelemetry = {
-            reviewRequested: tap.sent('practice_loop_review_requested').length,
-            reviewRendered: tap.sent('practice_loop_review_rendered').length,
-            productsMenuOpened: tap.sent('products_menu_opened').length,
-            savedReviewRevisited: tap.sent('saved_review_revisited').length,
-        };
-        const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
-        receipt.row('Focus coaching telemetry sent', sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
-            sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
-        // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
-        const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
-        const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
-        receipt.row('revisit is not a generation', generationVerdict,
-            generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD' : 'the generation count is not exactly one for this take',
-            { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
-        const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
-        const focusInventoryReceivedBy = ['analytics_inventory'] as const;
-        receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap, focusInventoryFrom),
-            sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap, focusInventoryFrom, focusInventoryReceivedBy),
-            { ...focusTelemetry, blindBeacons: tap.blindBeacons, ...readbackSettlement(focusInventoryReceivedBy, tap, focusInventoryFrom) });
-        // #1258 (#1563, Codex r4197420116): Focus presses Practice again too, so it proves the same correlation Open Mic does —
-        // each press reached its intended route (same boot + action_seq) — and, in the full run that shares feedback, each
-        // attempt resolved (same boot + submit_seq). Sent here; received is the `practice_again` / `share_feedback` readback.
-        // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
-        // correlation on RECEIVED events then settles the row at finalization.
-        const practiceArrival = practiceArrivalVerdict(tap.events);
-        const practiceArrivalReceivedBy = ['practice_again'] as const;
-        receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
-            { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, rowsStoppedAt) });
-        if (fixtureKey === 'focus_points_tts') {
-            const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
-            const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
-            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
-                { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, rowsStoppedAt) });
-        }
-        // Point text and topic are the person's content: they must never reach the receipt.
-        const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));
-        receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no point text, topic or credential in the receipt' : 'the receipt carried a forbidden value');
-        // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
-        acquisitionTimingRow(receipt, tap, tap.journeyIds());
-        if (fixtureKey === 'focus_points_tts') {
-            // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
-            // On success the owner is cleared so the spec's afterEach does not repeat the deletion.
-            const deleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            if (deleted) { owner.uid = ''; owner.email = ''; }
-        } else if (fixtureKey === 'focus_points_partial_tts') {
-            // #1532 Codex P1 r4126745141: the partial run's receipt carries its own cleanup verdict. Cleanup runs HERE,
-            // before write(); a failure is a FAIL row (the test still ends failed) and never skips the receipt. Only a
-            // verified deletion clears the owner, so the spec's afterEach stays an idempotent fallback.
-            const cleaned = await recordRunOwnedCleanup((step, verdict, detail, evidence) => receipt.row(step, verdict, detail, evidence),
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            if (cleaned) { owner.uid = ''; owner.email = ''; }
-        }
-        receipt.write(testInfo,
-            bindReadbackJourneys(tap.events, {
-                recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'], repeatRecording: ['session_during', 'session_after_focus_points'],
-                takes: {
-                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
-                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
-                },
-                feedback: fixtureKey === 'focus_points_tts',
-                // #1258 (#1563, Codex r4197420116): the received press→arrival is required of Focus as of Open Mic.
-                practiceAgain: true,
-                actionBindings: tap.actionBindings,
-                actionCaptures: tap.actionCaptures,
-                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
-                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
-            }),
-            tap.trafficTypes(), userJourneys);
+        await finish();
     }
 }

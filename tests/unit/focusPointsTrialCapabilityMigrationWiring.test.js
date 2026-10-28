@@ -28,6 +28,19 @@ const VERSION = '20260928120000';
 const FILE = `${VERSION}_focus_points_trial_capability.sql`;
 const TARGET = FILE.replace(/\.sql$/, '');
 const PREVIOUS = '20260926190000'; // #1258 product marker
+/** #1258 P0 retention-expiry fix, allowlisted after the trial capability: one more later, pending entry here. */
+const EXPIRY_FIX = '20261013120000';
+/** #1258 P0 typed-expiry follow-up, allowlisted after the retention-expiry fix: one more later, pending entry here. */
+const TYPED_FIX = '20261013140000';
+const CLOSURE = '20261013180000'; // later disabled deletion schema; never apply it with this target
+const DRAIN = '20261016090000'; // later drain prerequisite; excluded from this target
+const ENFORCEMENT = '20261016180000'; // later guarded-runtime prerequisite; also excluded
+const REJECTION_RECOVERY = '20261017200000'; // later checkout-rejection recovery; excluded from this target
+/** The six reviewed T2 targets, allowlisted after checkout-rejection recovery in their reviewed order: Analytics, pending
+ *  checkout, U1 heartbeat, recording admission, coaching admission, completion journal. All later; excluded from this target. */
+const T2_TARGETS = ['20261018090000', '20261018170000', '20261019010000', '20261019055102', '20261019202856', '20261020230653'];
+// C1 follows the T2 queue; these later targets must remain pending and isolated.
+const C1_TARGETS = ['20261024083000', '20261025021046'];
 const GATE = `postflight_${VERSION}`;
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
@@ -45,6 +58,11 @@ const step = (marker) => {
 describe('trial-capability migration is wired into the exact allowlisted apply path, after #1258', () => {
     const entry = EXACT_MIGRATION_ALLOWLIST.find((item) => item.version === VERSION);
 
+    it.each(C1_TARGETS)('refuses an earlier-target ledger missing later C1 migration %s', (version) => {
+        const incomplete = ledger([PREVIOUS]).split('\n').filter((line) => !line.includes(version)).join('\n');
+        expect(() => assertBeforeApply(incomplete, config)).toThrow(`later allowlisted migration ${version} is absent`);
+    });
+
     it('is allowlisted as staged, directly after #1258, before the held commercial-activation entry', () => {
         expect(entry).toMatchObject({ file: FILE, classification: 'staged' });
         const order = EXACT_MIGRATION_ALLOWLIST.map((e) => e.version);
@@ -61,7 +79,7 @@ describe('trial-capability migration is wired into the exact allowlisted apply p
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'c'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS, ...C1_TARGETS, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -81,26 +99,42 @@ describe('trial-capability migration is wired into the exact allowlisted apply p
         ` 20260924150000 | 20260924150000 | x`,
         applied.includes(PREVIOUS) ? ` ${PREVIOUS} | ${PREVIOUS} | x` : ` ${PREVIOUS} |                | x`,
         ` ${VERSION} |                | x`,
+        ` ${EXPIRY_FIX} |                | x`,
+        ` ${TYPED_FIX} |                | x`,
+        ` ${CLOSURE} |                | x`,
+        ` ${DRAIN} |                | x`,
+        ` ${ENFORCEMENT} |                | x`,
+        ` ${REJECTION_RECOVERY} |                | x`,
+        ...T2_TARGETS.map((v) => ` ${v} |                | x`),
+        ...C1_TARGETS.map((v) => ` ${v} |                | x`),
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while #1258 is still pending — named, not hidden', () => {
         expect(() => assertBeforeApply(ledger(), config)).toThrow(new RegExp(PREVIOUS));
     });
 
-    it('EXECUTABLE once #1258 is applied: admitted; target-only; the applied activation file stays; nothing pending after', () => {
+    it('EXECUTABLE once #1258 is applied: target-only; applied activation stays and all later targets remain pending', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION], excludedVersions: [] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS, ...C1_TARGETS], excludedVersions: [EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS, ...C1_TARGETS] });
         const root = mkdtempSync(join(tmpdir(), 'exact-trial-capability-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
             const isolated = readdirSync(join(root, 'exact-backend', 'supabase', 'migrations'));
             expect(isolated).toContain(FILE);
             expect(isolated).toContain(ACTIVATION.file);
+            expect(isolated.some((f) => f.startsWith(EXPIRY_FIX)), 'the later retention-expiry fix is NOT applied with this target').toBe(false);
+            expect(isolated.some((f) => f.startsWith(TYPED_FIX)), 'nor the later typed-expiry follow-up').toBe(false);
+            expect(isolated.some((f) => f.startsWith(CLOSURE)), 'nor the later disabled deletion schema').toBe(false);
+            expect(isolated.some((f) => f.startsWith(DRAIN)), 'nor the later drain prerequisite').toBe(false);
+            expect(isolated.some((f) => f.startsWith(ENFORCEMENT)), 'the later enforcement prerequisite is excluded').toBe(false);
+            expect(isolated.some((f) => f.startsWith(REJECTION_RECOVERY)), 'the later checkout-rejection recovery is excluded').toBe(false);
+            for (const v of T2_TARGETS) expect(isolated.some((f) => f.startsWith(v)), `the later T2 target ${v} is excluded`).toBe(false);
+            for (const v of C1_TARGETS) expect(isolated.some((f) => f.startsWith(v)), `the later C1 target ${v} is excluded`).toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS, ...C1_TARGETS]);
     });
 });
 

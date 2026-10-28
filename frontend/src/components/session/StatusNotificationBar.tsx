@@ -39,6 +39,11 @@ interface StatusNotificationBarProps {
         cueKey?: string | number;
         onSelect?: () => void;
     };
+    /**
+     * #1258 C10 — the long-wait `Try again` in the bar's right-hand slot (spec row 3). Present only after 10 s of a
+     * start that has not reached live capture. `pending` disables it while a confirmed-release retry is in flight.
+     */
+    startupRetry?: { pending: boolean; onRetry: () => void };
 }
 
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string; iconClass: string }> = {
@@ -128,7 +133,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
  * Displays above the Live Recording card to inform users of initialization,
  * fallback, and error states.
  */
-export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction }) => {
+export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction, startupRetry }) => {
     // Primary Status Configuration
     const config = statusConfig[status.type];
     const Icon = config.icon;
@@ -240,16 +245,22 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             : status.detail || ''
     );
     const emoji = status.message?.match(/^(?:⛔|⚠️|🚫)/u)?.[0];
+    // #1474: the post-save bar's only action is the short Progress link, so on mobile it sits on the message's row
+    // instead of a second row (~34px). That height is what kept the full "Try this next run" prescription under
+    // the fixed mobile bar at 375px. Detail text, the startup retry or the full-width model progress keep the stacked layout.
+    const inlinePostSave = Boolean(analyticsAction) && !startupRetry && !displayDetail && !hasSecondary;
 
     return (
         <div
             // Spacing is the CALLER's business: `className` is concatenated, not twMerge'd, so a margin
             // baked in here could not be overridden and silently inserted 26px before whatever the page
             // renders next (the unresolved-recovery banner, in SessionPage's case).
-            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full border transition-all duration-300 ${
+            // #1474: colours only — the bar's padding and the caller's margin are breakpoint-dependent, and animating
+            // them for 300ms on a resize moved everything below the bar mid-measurement (layout must change at once).
+            className={`flex ${inlinePostSave ? 'flex-row items-center' : 'flex-col'} gap-3 sm:flex-row sm:items-center sm:gap-4 w-full border transition-colors duration-300 ${
                 isQuiet
                     ? 'rounded-[10px] px-[18px] py-[12px] bg-state-success-ground border-state-success-border'
-                    : `rounded-xl px-4 ${isProminent ? 'py-4' : 'py-3'} ${config.bgClass}`
+                    : `rounded-xl px-4 ${isProminent ? 'py-4' : inlinePostSave ? 'py-2 sm:py-3' : 'py-3'} ${config.bgClass}`
             } ${className}`}
             role="status"
             aria-live="polite"
@@ -296,11 +307,11 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
             <div className="hidden sm:block flex-1" />
 
-            {/* Post-save actions. Mobile: ONE compact row below the message — Private CTA left, Analytics
-                pushed right (rightmost). Desktop: inline on the right. Analytics always rightmost + carries
+            {/* Post-save actions. Mobile: on the message's own row, pushed right (`inlinePostSave`); a row below
+                the message only when detail text or the startup retry is present. Desktop: inline on the right. Analytics always rightmost + carries
                 the cue. Tap targets ≥ min-h-9; visible keyboard focus rings. */}
             {analyticsAction && (
-                <div className="flex w-full items-center gap-3 sm:w-auto">
+                <div className={`flex items-center gap-3 sm:w-auto ${inlinePostSave ? 'ml-auto shrink-0' : 'w-full'}`}>
 
                     {/* Existing /analytics destination; bounded then PERSISTENT signature cue; no new button.
                         - pulsing (motion only): bounded ~6.5s pulse over the signature emphasis.
@@ -309,7 +320,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         - reduced-motion: skips the pulse and shows the persistent static emphasis at once. */}
                     {analyticsAction && (
                         <Link
-                            to="/analytics"
+                            to="/progress"
                             onClick={() => { clearCue(); analyticsAction.onSelect?.(); }}
                             // Middle-click (open-in-new-tab) does not fire onClick; clear the cue here too so
                             // no click variant leaves a live timer that could reactivate it. (Cmd/Ctrl-click
@@ -333,6 +344,19 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         </Link>
                     )}
                 </div>
+            )}
+
+            {startupRetry && (
+                <button
+                    type="button"
+                    onClick={startupRetry.onRetry}
+                    disabled={startupRetry.pending}
+                    aria-disabled={startupRetry.pending}
+                    data-testid="startup-try-again"
+                    className="ml-auto inline-flex min-h-9 shrink-0 items-center rounded-md border border-neutral-border-strong bg-card px-3 py-1.5 text-[13px] font-bold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                    Try again
+                </button>
             )}
 
             {/* Secondary Status Indicator (Background Task) - Far Right */}

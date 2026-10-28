@@ -1,8 +1,7 @@
 name: Production Canary Smoke Test
 
 on:
-  push:
-    branches: [main]
+  # Ordinary main merges do not start live product runs against an unserved candidate.
   # workflow_dispatch stays ONLY as an active-trial diagnostic. It has NO billing input and can NEVER select
   # or count as the paid billing qualification — that runs strictly on the weekly schedule (no manual route).
   workflow_dispatch: {}
@@ -20,7 +19,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-binding:
+    name: verify last released production identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      release_sha: ${{ steps.served.outputs.release_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - id: served
+        name: Require the separately controlled last-served SHA to match production
+        env:
+          EXPECTED_RELEASE_SHA: ${{ vars.PRODUCTION_RELEASE_SHA }}
+        run: node scripts/production-release-policy.mjs served
+
   migration-readiness:
+    needs: release-binding
     name: read-only runtime migration readiness
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -34,6 +53,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-binding.outputs.release_sha }}
+          persist-credentials: false
+
+      - name: Require existing database password before preflight CLI setup
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || { echo '::error::Preflight requires an existing database password; refusing preflight CLI setup'; exit 1; }
+          echo 'Preflight existing database password injection present'
 
       - uses: supabase/setup-cli@v2
         env:
@@ -86,7 +114,7 @@ jobs:
 
   canary-check:
     name: canary-check (${{ matrix.lane }})
-    needs: migration-readiness
+    needs: [release-binding, migration-readiness]
     if: ${{ needs.migration-readiness.outputs.ready == 'true' }}
     strategy:
       fail-fast: false
@@ -109,6 +137,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-binding.outputs.release_sha }}
+          persist-credentials: false
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -154,9 +185,8 @@ jobs:
           CANARY_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
           CANARY_EXPECTED_ACCESS: active-trial
           BASE_URL: https://speaksharp-public.vercel.app/
-          # #1106 deploy-race gate: the commit this run was triggered from. The canary must confirm the
-          # deployed build (window.__APP_RELEASE__) equals this SHA BEFORE it asserts product behavior.
-          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+          # A later main merge is not a deployment. Test the verified served release, not github.sha.
+          EXPECTED_RELEASE_SHA: ${{ needs.release-binding.outputs.release_sha }}
         run: pnpm test:deploy:prod
 
       # ── Automated WEEKLY Stripe test-mode/test-clock billing lifecycle qualification. NO live charge, NO real
@@ -222,11 +252,12 @@ jobs:
   canary-result:
     name: canary-result
     if: always()
-    needs: [migration-readiness, canary-check]
+    needs: [release-binding, migration-readiness, canary-check]
     runs-on: ubuntu-latest
     steps:
       - name: Require truthful terminal state
         env:
+          BINDING_RESULT: ${{ needs.release-binding.result }}
           READINESS_RESULT: ${{ needs.migration-readiness.result }}
           MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
           PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
@@ -236,6 +267,11 @@ jobs:
           BILLING_QUALIFICATION_RAN: ${{ github.event.schedule == '0 6 * * 1' }}
         run: |
           set -euo pipefail
+          if [ "$BINDING_RESULT" != 'success' ]; then
+            echo '## HOLD — last-served release binding missing, stale or unverified; NO product qualification ran' >> "$GITHUB_STEP_SUMMARY"
+            echo '::error::CANARY HELD — reconcile PRODUCTION_RELEASE_SHA with the verified served release.'
+            exit 1
+          fi
           if [ "$READINESS_RESULT" != 'success' ]; then
             echo '::error::Canary migration readiness could not be established.'
             exit 1

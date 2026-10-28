@@ -18,6 +18,15 @@
 
 # SpeakSharp Documentation Portal
 
+**Reconciliation boundary.** September census figures below describe that dated
+review. The current nonarchive inventory must be regenerated from the selected
+source tree; old 82/92-file packets are not a current census. The
+[protected-set and disposition contract](https://github.com/relativityE/speaksharp/pull/1674#issuecomment-6429303961)
+retains exactly the 14 authorities below. Historical records remain evidence, not
+new writer assignments. Retaining an index link alone does not complete the required
+content/consumer review. Proposed removals and unresolved ownership decisions stay
+approval-dependent; archives remain unchanged.
+
 This is the entry point and authority map for SpeakSharp documentation. It defines the **precedence model** used to resolve conflicts and the **14 canonical documents**, which are the only active Markdown documents at the root of `product_release/`.
 
 It replaces the archived [`content_list.md`](./archive/superseded-docs-2026-08-29/content_list.md) as the index and **absorbs archived [`PRECEDENCE.md`](./archive/superseded-docs-2026-08-29/PRECEDENCE.md)** (its conflict-resolution rules live in §1 below). The completed source-by-source migration record is retained at [`archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md`](./archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md).
@@ -101,7 +110,7 @@ Ownership is per-document by accountable role (Product Owner remains final appro
 **Retained by classification, NOT canonical (indexed by `EVIDENCE_INDEX.md` or kept in `archive/`):**
 - **Evidence** (dated proof; cite for rationale): `evidence/**`, including permanent STT model/benchmark history under `evidence/stt/` and retained launch/security proof under `evidence/retained/`.
 - **Superseded / historical**: `archive/**`, including the completed migration sources and pinned legacy docs.
-- **Exploratory** (not release-path): `v4_work/**` — reference for the deferred Private v4 disposition.
+- **Exploratory** (not release-path): `v4_work/**` — preserved historical source for the separately selected current model-evaluation queue; not shipped behavior or an automatic release gate.
 
 `archive/**` is disposable after its remaining migration dependencies are removed. No STT model evaluation, benchmark protocol, raw result, or down-selection record may rely on it; those belong permanently under `evidence/stt/`.
 
@@ -188,6 +197,7 @@ Each canonical document carries this header:
 
 - [`archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md`](./archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md) — completed historical source→target inventory; never current product authority.
 - [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) — current posture (SSOT).
+- [`PRODUCT_REQUIREMENTS.md` §5 — C10 Honest Start and repeat-take readiness](./PRODUCT_REQUIREMENTS.md#c10--honest-start-and-repeat-take-readiness) — the start-up states for `Practice again?` and `Start recording`.
 
 *This portal is navigational and structural. It records no changing release status; that lives only in `RELEASE_STATUS.md`.*
 
@@ -197,8 +207,7 @@ Each canonical document carries this header:
 
 The dated [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) records the complete pre-consolidation Markdown audit — authority, class, staleness
 exposure, correction status and canonical routing — and carries the claim-by-claim product-evaluation audit
-against current code. Completeness is enforced by `tests/config/documentationLedger.test.ts`: a new Markdown file
-that is not classified there fails the suite.
+against current code. The existing tests/config/documentationLedger.test.ts validates retained historical audit claims; it does not enumerate the present repository or reject every newly unclassified Markdown file. Current source completeness must be established by the exact-tree receiving inventory and consumer review, not inferred from that historical test passing.
 
 It is a **procedure record, not a canonical document** — the canonical set above is unchanged. Its historical
 GAP-1 is resolved: canonical #3 `ROADMAP.md` now exists. **All 14 canonical documents are present.**

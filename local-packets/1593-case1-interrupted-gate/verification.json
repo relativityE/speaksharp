@@ -1,0 +1,45 @@
+{
+  "scope": "1593 case1 interrupted-repeat required-family gate",
+  "base": "83029ebb67216b2690eeff59e4ec1730d5f6ffe8",
+  "branch": "cli-dev/1593-interrupted-repeat-gate-20261019",
+  "ownership": {
+    "decision": "Sam option1 at 13:28:55, old App branch 0b664af2 frozen/preserved",
+    "appAck": "1792416805.701439",
+    "cliAck": "1792416912.287329",
+    "paths": ["frontend/src/services/telemetry/completenessGate.ts", "frontend/src/services/telemetry/__tests__/stageAwareRequiredFamilies1532.test.ts"]
+  },
+  "baseline": {
+    "failed": 4,
+    "passed": 24,
+    "report": "baseline-red.json",
+    "finding": "received interrupted-repeat fixture has valid lifecycle and delivery, but global family completeness HOLDs solely on practice_loop"
+  },
+  "focused": {
+    "failed": 0,
+    "passed": 122,
+    "report": "focused-green.json",
+    "suites": ["stageAwareRequiredFamilies1532", "interruptedRepeatTake1593", "qualificationStages", "attributionReceiptBinding", "completenessGate"],
+    "controls": ["valid received supersession", "known mixed interrupted declarations", "full after-review stays strict", "unknown/empty/default stay strict", "missing identity/lifecycle/attribution HOLD", "absent or foreign terminal HOLD", "duplicate/wrong-attempt singleton HOLD", "stale application into successor FAIL"]
+  },
+  "quality": {
+    "command": "pnpm quality",
+    "exitCode": 0,
+    "completedUtc": "2026-10-19T13:40:58Z",
+    "checks": ["product contract", "full lint", "frontend TypeScript", "live TypeScript", "evidence TypeScript", "eslint-disable guard"]
+  },
+  "diffCheckExitCode": 0,
+  "returnedJ2Contract": {
+    "finding": "https://github.com/relativityE/speaksharp/pull/1666#discussion_r4314564418",
+    "baseline": { "failed": 1, "passed": 32, "report": "j2-contract-red.json" },
+    "corrected": { "passed": 160, "failed": 0, "report": "j2-contract-green.json" },
+    "expandedLease": "tests/unit/rwtReadbackBinding1532.test.ts cleared by App, approved by Sam, personally ACKed by CLI",
+    "historicalThreeStageIntegratedRegression": true,
+    "changedTestLintExitCode": 0,
+    "allTrackedEvidencePathGuardPassed": 3,
+    "sourceGateLogicChanged": false,
+    "fullQualityRerunAfterTestOnlyCorrection": false,
+    "freshExactHeadCiRequired": true
+  },
+  "evidenceNormalization": { "manifest": "normalization.json", "rawOriginals": "retained privately outside Git", "countsTimingsAssertionsPreserved": true },
+  "limits": ["offline synthetic received rows, not a fresh live qualification", "historical missing-row expiry/persistence cause remains unknown", "two-pair oracle unchanged", "stage invariants and singleton delivery unchanged", "no human/device observations executed", "fresh exact-head CI and independent review remain required"]
+}

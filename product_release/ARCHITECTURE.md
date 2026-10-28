@@ -1,3 +1,9 @@
+## Account-exit policy boundary
+
+Routine deletion is account-scoped, as confirmed in [#1643 policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298). Page navigation or email issuance is not destructive confirmation. Verified explicit confirmation records durable pending intent for that account, prevents new admission, and allows already accepted saves, coaching and billing work to finish and reconcile. Unknown outcomes remain pending: neither elapsed timeout nor an accepted request establishes settlement or deletion. Only verified DB/storage/Auth final state supports a deleted result. Other users continue normally; routine deletion requires no global shutdown.
+
+Cancellation is distinct: preserve account/login/history and verified remaining access while stopping renewal under the actual provider outcome. Cancellation alone schedules no deletion. Existing runtime generation/configuration and operational guards remain implementation prerequisites until a reviewed replacement is integrated; this policy does not remove them or invent global worker termination. The bounded legacy direct-checkout cutover still needs its own reconciliation. Backend staging or202 pending is not a completed customer journey, and source preparation authorizes no account/provider operation.
+
 **Status:** Authoritative (SSOT for system structure, boundaries, persistence & retention, and authority ADRs)
 **Owner:** Engineering (relativityE)
 **Last Reviewed:** 2026-09-15
@@ -11,8 +17,10 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Currentized 15 Sep 2026.** The architecture remains one canonical Production surface and one engine per take. #1416, #1463, and #1466 shipped bounded navigation/feedback, progress-debt, and Practice Loop placement foundations. The remaining owners are #1471/#1476 for durable progress/reconciliation, #1473 for automatic review and structured failure handling, #1472 for filler-evidence completeness, #1304/#1390 for comparable **v2/v4** authority, with #1263 Moonshine deferred until after RWT or MVP, and #1474 for the full G10 presentation. Newest-one retention remains the approved target, not a claim of Production activation; #1452 must close before activation. Historical newest-two migrations remain immutable provenance.
+> The architecture remains one canonical Production surface and one engine per take. #1416, #1463, and #1466 shipped bounded navigation/feedback, progress-debt, and Practice Loop placement foundations. Closed #1471/#1476 retain durable-progress implementation provenance; closed #1473 retains automatic-review consolidation provenance. Remaining deployed journey acceptance belongs to #1258/#1593, filler-evidence completeness to #1472, full G10 presentation to #1474, and existing copy/comparison acceptance to #1254. Newest-one retention is the approved policy. Closed #1452 records its dated correction/activation disposition; it is not an outstanding activation prerequisite or proof that all retention journeys passed. Read current runtime/application evidence in `RELEASE_STATUS.md`. Historical newest-two migrations remain immutable provenance.
 <!-- /pm-currentization:2026-09-15 -->
+
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. Model evaluation and fallback work require a separate current selection and acknowledged file ownership. Preserved #1567/#1568 source and unresolved model obligations remain provenance, not an active writer assignment or a prerequisite for v2 MVP acceptance. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 # SpeakSharp Architecture (v1)
 
@@ -156,7 +164,7 @@ Requirements and triggers are owned by `PRODUCT_REQUIREMENTS.md` §10 (Product b
 ## 15. Current limitations & open ADRs
 
 - **Commercial integration in progress** — the canonical trial, paid, expiry, checkout, webhook, and activation seam is implemented and qualified through #1282 after its required database prerequisite. This document does not duplicate that implementation; `ENTITLEMENTS_AND_BILLING.md` owns the durable contract.
-- **Retention and deletion — correction required.** The approved policy retains only the newest transcript. The deployed `newest_two_v1` behavior is noncompliant and must be replaced by `newest_one_v1`; every older transcript expires while session history, metrics, and the structured next action remain. User-facing deletion behavior, account-erasure SLA/ownership, cleanup of unfinished delivery rows, and retention of non-transcript records remain unresolved. The current schema also leaves a deletion-order dependency (`session_delivery_measurements.user_id` does not cascade). Dev may author and qualify the corrective migration; Production application still requires separate Product Owner authorization.
+- **Retention and deletion are separate contracts.** The approved `newest_one_v1` policy expires every older eligible transcript while session history, metrics, and the structured next action remain. #1452's closed disposition records the dated retention correction; current deployed policy and applicable journey proof must be read from `RELEASE_STATUS.md`. Account-exit acceptance remains with #1643, including existing billing settlement, Auth uncertainty, storage/FK cleanup and verified residue. Historical schema casualties are provenance, not an instruction to recreate a migration or proof that the current schema still has the same defect. Production application and destructive customer proof require their separate exact authorization.
 - **Durable telemetry/alert outbox + provenance registry** — DRAFT design only (#1006), **NOT shipped / NOT activated**. The persistence-vs-observability invariants above stand unchanged; do not cite the outbox as current behavior.
 - **Private STT device verification** — every supported browser/device requires Private setup, record, finalize, save, and reopen proof before it is marketed as supported (→ `STT.md`).
 
@@ -178,3 +186,19 @@ boundary:
 
 "Private STT audio never leaves the browser" is correct. It does **not** imply the transcript stays local.
 See `PRODUCT_REQUIREMENTS.md` §7.1 and the dated [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §10.1.
+
+<!-- clause-closeout:2026-10-28 -->
+## Consolidated predecessor controls and interpretation
+
+### Completion and retention failure boundaries
+
+Preserve the distinction between a durable session/metrics write and successful transcript retention. A retention failure must not be presented as a lost session or a retained transcript; report the structured outcome and sanitized reason. Retention convergence, fresh completion, idempotent replay and conflicting replay need separate controls. Do not claim that in-memory retry content survives reload or that a content-free recovery draft can reconstruct a transcript. Progress must follow the authoritative successful metrics/session result rather than an obsolete secondary PATCH. Server-enforced character and UTF-8 byte bounds reject oversize input rather than silently truncating it. The historical #1314 values and two-transcript rotation are dated design evidence; the current newest-one contract governs acceptance.
+
+### Database proof and rollback interpretation
+
+A catalog readback that prints state and exits zero is diagnostic, not an enforcing gate. Prove grants, signatures, schema-cache resolution and the applicable retention coordinator with the actual target migrations; a single-connection simulation cannot establish concurrent lock contention. A full named-argument PostgREST probe distinguishes resolution from an invalid empty-call signature; PGRST202 alone does not establish which migration is absent. Preserve failure-injection evidence for partial application and PUBLIC EXECUTE exposure; do not assume CLI transaction wrapping. Rollback must restore all intended objects atomically, and a client already using a new RPC must be reverted before that RPC is removed. These are acceptance boundaries, not authority to apply the old packet or execute rollback.
+
+### Stale-bundle and account-exit receiving controls
+
+The P0 Private findings came from a stale pre-cutover browser and cannot qualify a later release. Preserve the pre-Start freshness mismatch/unknown negative, missing selector/terminal-state/recognized-text negatives, and the rule that a freshness prompt must not interrupt an active recording. Finalized filler total and chips use one coherent snapshot; empty measured filler data differs from unavailable data. Successful persistence clears Finalizing/candidate state, exact-session review and PDF agree while the transcript is retained, and each completion has one valid next action. Hosted account-exit proof must cover transcript/metrics/history removal, telemetry unlinking, immediate token denial, service-only tombstone/retry behavior and legacy-RPC bypass removal; PGlite alone cannot close hosted Auth. The predecessor three-session protocol used at least 35 seconds and 90 words per same-cohort session; retain this as an inherited qualification fixture, not a replacement for current Progress eligibility. Its newest-two eviction assertion is superseded by newest-one retention; the current receiving run must explicitly prove that policy while preserving the baseline/comparison and residual-metrics controls. Controlled WER artifacts are a distinct authorized evidence boundary, not permission to log speech in diagnostics.
+<!-- /clause-closeout:2026-10-28 -->

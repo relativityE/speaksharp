@@ -26,6 +26,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { countFillerWords } from '@/utils/fillerWordUtils';
 import { deriveFocusCoverage } from '@/utils/focusCoverage';
 import { flattenToFillerCounts, deriveNextActionSignal } from '@/utils/nextAction';
+import { countedFillerTotal } from '@/utils/fillerTiers';
 import { saveSession, completeSession } from '@/lib/storage';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import {
@@ -84,7 +85,7 @@ describe('guard — derivation from the live transcript is content-free', () => 
   it('flattenToFillerCounts + deriveNextActionSignal carry only numbers/enums, never spoken words', () => {
     const flat = flattenToFillerCounts(liveFillerData());
     const signal = deriveNextActionSignal({
-      durationSeconds: 60, wordCount: 14, wpm: 120, fillerCounts: flat, clarityScore: 80,
+      durationSeconds: 60, wordCount: 14, wpm: 120, countedFillerTotal: countedFillerTotal(flat) ?? 0, clarityScore: 80,
     });
 
     // Every filler key is an approved standard token — no prose key survives.
@@ -158,7 +159,7 @@ describe('guard — the transcript crosses exactly one persistence boundary, and
     await completeSession('s1', {
       status: 'completed',
       duration: 60,
-      nextActionSignal: deriveNextActionSignal({ durationSeconds: 60, wordCount: 14, wpm: 120, fillerCounts: flat, clarityScore: 80 }),
+      nextActionSignal: deriveNextActionSignal({ durationSeconds: 60, wordCount: 14, wpm: 120, countedFillerTotal: countedFillerTotal(flat) ?? 0, clarityScore: 80 }),
       metrics: { totalWords: 14, clarityScore: 80, wpm: 120, fillerCounts: flat, pauseMetrics: {} },
       finalTranscript: TRANSCRIPT,
     });
@@ -208,7 +209,7 @@ describe('guard — the transcript crosses exactly one persistence boundary, and
       mode: 'unknown',
       // A rogue caller tries to smuggle the transcript through an untyped field — it must be dropped.
       metrics: { totalWords: 14, fillerCounts: flat, transcript: CANARY } as unknown as { totalWords: number },
-      nextActionSignal: deriveNextActionSignal({ durationSeconds: 60, wordCount: 14, wpm: 120, fillerCounts: flat, clarityScore: 80 }),
+      nextActionSignal: deriveNextActionSignal({ durationSeconds: 60, wordCount: 14, wpm: 120, countedFillerTotal: countedFillerTotal(flat) ?? 0, clarityScore: 80 }),
     });
 
     const stored = window.localStorage.getItem(RECOVERY_DRAFT_KEY) ?? '';

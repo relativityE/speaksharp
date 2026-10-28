@@ -1,5 +1,6 @@
 import React from 'react';
 import { SessionBeforeState } from './SessionBeforeState';
+import type { RepeatPracticeTargetView } from '@/services/progress/repeatPracticeTarget';
 import { SessionDuringState } from './SessionDuringState';
 import { SessionAfterState } from './SessionAfterState';
 import { resolveSessionState } from '@/utils/sessionStateMachine';
@@ -40,6 +41,10 @@ import { emitMicObservability } from '@/services/telemetry/micObservation';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import type { TranscriptView } from '@/lib/storage';
 import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
+import { useOpenShareFeedback } from '@/contexts/feedbackOpener';
+
+/** #1258 — how long a settled review may wait for its saved transcript before reporting it as not shown. */
+const REVIEW_RECEIPT_UNBOUND_SETTLE_MS = 2_000;
 
 /** Source envelope resolution: finer than any track needs (a 1920px track holds 480 lines at the 4px pitch). */
 const WAVEFORM_SOURCE_LEVELS = 480;
@@ -63,6 +68,7 @@ const WAVEFORM_SOURCE_LEVELS = 480;
  * All values come from `useSessionLifecycle` (passed in by SessionPage) so this stays a pure view.
  */
 export interface SessionOverhaulViewProps {
+    practiceTarget?: RepeatPracticeTargetView;
     authUserId: string | null;
     isListening: boolean;
     sttStatus: SttStatus;
@@ -179,6 +185,7 @@ const gateBlocksStartFor = (
 ): boolean => resolvedFor !== (authUserId ?? '') || gate !== null;
 
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
+    practiceTarget,
     authUserId,
     isListening,
     sttStatus,
@@ -224,9 +231,24 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onNewSet,
     history,
 }) => {
-    const permissionError = sttStatus.type === 'error';
+    // #1474 — the owner-scoped opener for the Navigation-owned Share Feedback dialog ("Count look wrong?" in THIS RUN).
+    const openShareFeedback = useOpenShareFeedback(authUserId);
+    /*
+     * #1258 RWT round 2 C (Codex P1 r4300891532, Sam 6228507737) — an `error` is a failed START only when it can belong to
+     * one. While the page reviews a RECOVERED save, an error written afterwards (a queued engine-policy rejection applied when
+     * the recovery unlocked) belongs to no start and must not drop the saved take's review back to `before`; the error stays
+     * on screen in the status bar. The licence retires at the next admitted Start, so a newer failed start (a denied
+     * microphone) keeps its priority. Nothing else changes in `resolveSessionState`.
+     */
+    const recoveredSaveSessionId = useSessionStore((st) => st.recoveredSaveSessionId);
+    const reviewingRecoveredSave = showAnalyticsPrompt && recoveredSaveSessionId !== null;
+    const permissionError = sttStatus.type === 'error' && !reviewingRecoveredSave;
+    const captureLiveForState = useSessionStore((st) => st.captureLive);
     const sessionState = resolveSessionState({
-        firstAudioFrameReceived: isListening,
+        // #1258 C10 — ONE definition of "recording begins": the take is live only when capture is live on real microphone
+        // frames (`captureLive`), not merely when the runtime entered RECORDING. Until then the page stays in its start
+        // state (`Starting…`, `Getting your mic ready…`) and shows no live indicator.
+        firstAudioFrameReceived: isListening && captureLiveForState,
         // PO 2026-08-10: the post-Stop FINALIZING window (decode still running, save/analytics not yet
         // fired) must resolve to `after`, not `before`. Without `isFinalizing` here the transcript card
         // briefly reverted to the "Not sure what to say?" prompt offer during finalizing, and the
@@ -738,14 +760,22 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      */
     const renderedReviewTokens = isObjective && fpTokens ? fpTokens : tokens;
     const renderedReviewText = renderedReviewTokens.map((t) => t.text).join(' ');
+    // #1258 (run 38790238983, PM 6200367845) — a settled review whose saved transcript is not YET bound (`unavailable`, the
+    // default before the authority arrives) emitted a blank receipt one render before the real one. The three resolved
+    // states report at once; `unavailable` reports only if it is STILL unavailable after a bounded settle, so a persisted
+    // take whose transcript never arrives still produces its honest failing receipt — never hidden, never faked.
+    const reviewKind = effectiveReview.kind;
     React.useEffect(() => {
         if (!reviewSettled) return;
-        emitTranscriptAuthority({
+        const emit = () => emitTranscriptAuthority({
             stage: 'review_rendered',
             authoritative: reviewText === null ? null : tokensFromTranscript(reviewText).map((t) => t.text).join(' '),
             rendered: renderedReviewText,
         });
-    }, [reviewSettled, reviewText, renderedReviewText]);
+        if (reviewKind !== 'unavailable') { emit(); return; }
+        const timer = setTimeout(emit, REVIEW_RECEIPT_UNBOUND_SETTLE_MS);
+        return () => clearTimeout(timer);
+    }, [reviewSettled, reviewKind, reviewText, renderedReviewText]);
 
     // §2 nudge — the live coaching for Focus Points, computed here (hook called unconditionally) and rendered
     // INSIDE the Coverage & pace card. Silent unless the pace ratio breaks (or the no-guide coverage fallback).
@@ -808,12 +838,18 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // window is what removes the enabled frame. The button is a CUE, never the gate — `startRecording`
     // re-reads the durable queue on every attempt regardless of what is rendered.
     const progressGate = useSessionStore((st) => st.progressGate);
+    // #1258 C10 — a Start is in progress (accepted press → capture live on real frames).
+    const startupWaiting = useSessionStore((st) => st.startupWaitStartedAt !== null && !st.captureLive);
     const progressGateResolvedFor = useSessionStore((st) => st.progressGateResolvedFor);
     // Owner-scoped: an answer determined for a DIFFERENT account is not an answer for this one, so an
     // account transition reverts to "not determined" immediately rather than inheriting an enabled
     // Start from the previous owner.
     const gateResolvedForViewer = progressGateResolvedFor === (authUserId ?? '');
     const gateBlocksStart = gateBlocksStartFor(progressGate, progressGateResolvedFor, authUserId);
+    // #1258 R1 (runs 38298685079 / 38304068207): the review's repeat actions used only the Progress gate, so they were
+    // live while the take was still STOPPING / finalizing — when the mic beside them was already disabled — and a press
+    // 87–97 ms after Stop was taken as a second Stop. They now share the mic's own gate.
+    const repeatActionDisabled = Boolean(isButtonDisabled) || gateBlocksStart;
     const gateNotice = progressGateNotice(progressGate, gateResolvedForViewer);
 
     const reviewIsTerminal = effectiveReview.kind === 'expired' || effectiveReview.kind === 'not_captured';
@@ -845,7 +881,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         : undefined;
     const objectiveAfterSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={chooseRetryPoints} onNewSet={onNewSet ? chooseNewSet : undefined}
-            retryDisabled={gateBlocksStart} retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
+            retryDisabled={repeatActionDisabled} retryStarting={startupWaiting} retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
         : isObjective
             ? <FocusPointsRail
                 rows={pendingObjectiveRows}
@@ -856,7 +892,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 // results. While results are still saving, the rail keeps saying "Checking…".
                 checkUnavailable={coverageTerminallyUnavailable}
                 onRetry={chooseRetryPoints}
-                retryDisabled={gateBlocksStart}
+                retryDisabled={repeatActionDisabled}
+                retryStarting={startupWaiting}
                 retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined}
                 onNewSet={onNewSet ? chooseNewSet : undefined}
             />
@@ -879,6 +916,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             );
         return (
             <SessionBeforeState
+                practiceTarget={practiceTarget}
                 mic={{
                     onStart: onStartStop,
                     error: permissionError ? sttStatus.message : null,
@@ -887,6 +925,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     onDownloadModel,
                     disabled: isButtonDisabled || gateBlocksStart,
                     blockedReason: gateNotice,
+                    starting: startupWaiting,
                 }}
                 transcript={{
                     offerDismissed: offer.dismissed,
@@ -924,6 +963,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const showReopenChip = !isObjective && promptAutoHidden;
         return (
             <SessionDuringState
+                practiceTarget={practiceTarget}
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, onStop: onStartStop }}
                 transcript={{
                     tokens: isObjective ? fpDuringTokens : duringTokens,
@@ -986,7 +1026,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             {!isObjective && (
                 <div className={practiceLoopReview ? 'mt-4' : undefined}>
                     <SessionVerdict verdictLine={null} fix={null} onPracticeAgain={choosePracticeAgain} onSeeAllSessions={chooseSeeAllSessions}
-                        practiceAgainDisabled={gateBlocksStart} practiceAgainDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
+                        practiceAgainDisabled={repeatActionDisabled} practiceAgainDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined}
+                        practiceAgainStarting={startupWaiting} />
                 </div>
             )}
         </>
@@ -997,6 +1038,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <>{objectiveAfterSlotC}{objectiveAfterSlotD}</>
         : (
             <ThisRunCard
+                // #1474 — "Count look wrong?" opens the existing Share Feedback dialog for this signed-in user.
+                onCountLookWrong={openShareFeedback ?? undefined}
                 fillers={reviewFillerCount}
                 fillersPerMinute={reviewFillerCount !== null && effElapsed > 0
                     ? (reviewFillerCount / effElapsed) * 60

@@ -17,6 +17,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { guardedMerge, PRE_MERGE_HOLD } from '../../scripts/pre-merge-gate.mjs';
+import { DOCUMENTATION_EVIDENCE_ADMISSION } from '../../scripts/review-qualification.mjs';
 
 const HEAD = 'e'.repeat(40);
 /** The authorized base: `main` at the SHA the exact-head/base authorization named. */
@@ -63,6 +64,30 @@ const thread = (isResolved, body, sha = isResolved ? PRIOR_HEAD : HEAD) => ({
 });
 
 const RELEASE_FINDING_BODY = 'P1 Badge — a live release finding';
+
+describe('#1674 pinned documentation at the actual merge boundary', () => {
+  const makeLive = () => livePull([], { number: 1674, headRepository: { nameWithOwner: REPOSITORY },
+    files: { nodes: DOCUMENTATION_EVIDENCE_ADMISSION.files.map(({ path }) => ({ path })), pageInfo: { hasNextPage: false } },
+    documentationEvidence: { repository: REPOSITORY, number: 1674, headRepository: REPOSITORY, baseRef: 'main',
+      headSha: HEAD, baseSha: BASE, treeSha: 'c'.repeat(40), complete: true,
+      entries: DOCUMENTATION_EVIDENCE_ADMISSION.files.map(row => ({ ...row, type: 'blob' })) } });
+  it.each(['accepted', 'missing live metadata', 'changed content', 'extra runtime path', 'stale receipt', 'live P1', 'unenforced protection'])(
+    'retains guard requirements: %s', async scenario => {
+      const live = makeLive();
+      if (scenario === 'missing live metadata') delete live.documentationEvidence;
+      if (scenario === 'changed content') live.documentationEvidence.entries[0].oid = 'a'.repeat(40);
+      if (scenario === 'extra runtime path') live.files.nodes.push({ path: 'scripts/unreviewed.mjs' });
+      if (scenario === 'live P1') live.reviewThreads.nodes.push(thread(false, RELEASE_FINDING_BODY));
+      const mergeExecutor = vi.fn(async () => ({ sha: 'merged' }));
+      const outcome = await guardedMerge({ repository: REPOSITORY, prNumber: 1674,
+        expectedHeadSha: HEAD, expectedBaseSha: BASE, token: 'synthetic',
+        priorReceipt: receiptAgedMinutes(scenario === 'stale receipt' ? 90 : 1, { pullRequestNumber: 1674 }),
+        readPullRequest: async () => live,
+        readBaseProtection: async () => scenario === 'unenforced protection' ? 'not_enforced' : 'enforced', mergeExecutor });
+      expect(outcome.mergeInvoked).toBe(scenario === 'accepted');
+      expect(mergeExecutor).toHaveBeenCalledTimes(scenario === 'accepted' ? 1 : 0);
+    });
+});
 
 /**
  * The receipt the earlier green run produced. Age is the variable under test, so everything else is a

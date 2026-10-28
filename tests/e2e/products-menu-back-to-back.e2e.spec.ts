@@ -19,9 +19,19 @@ test.describe('Products menu used back to back (#1258 returning-user bridge)', (
 
         // Immediately after the previous choice, as the live suite does.
         await openProductsItem(page, 'focus-points', 8_000);
-        await expect(page.getByTestId('objective-setup-dialog')).toBeVisible({ timeout: 15_000 });
+        const setup = page.getByTestId('objective-setup-dialog');
+        await expect(setup).toBeVisible({ timeout: 15_000 });
 
+        // Visible is not ready for keys: an Escape sent 90 ms after mount, while the Products menu was still closing, was
+        // lost and the open dialog then intercepted the next Products click for its whole timeout (run 40209720880).
+        // Radix moves focus into the dialog once it owns the keyboard; wait for that, as a person would.
+        await expect.poll(
+            () => setup.evaluate((dialog) => dialog.contains(document.activeElement)),
+            { message: 'the Focus Points setup dialog has keyboard focus', timeout: 5_000 },
+        ).toBe(true);
         await page.keyboard.press('Escape');
+        await expect(setup, 'Escape closed the Focus Points setup dialog').toBeHidden({ timeout: 5_000 });
+        await expect(page, 'closing the dialog cleared the Focus Points intent').not.toHaveURL(/[?&]product=focus-points/);
         await openProductsItem(page, 'open-mic', 8_000);
         await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30_000 });
     });

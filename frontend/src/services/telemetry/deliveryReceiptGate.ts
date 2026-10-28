@@ -113,7 +113,8 @@ export function evaluateDeliveryReceipts(
     const health = rows.filter((row) => row?.event === 'telemetry_health');
     const controls = rows.filter(isBootPositiveControl);
 
-    const transportNotInitialized = controls.some((row) => row.properties?.transport_initialized === false);
+    const transportNotInitialized = controls.some((row) => row.properties?.transport_initialized === false
+        || row.properties?.transport_initialized === 'false');
     const deliveryFailures: DeliveryFailure[] = [];
     if (missingFamilies.length > 0) {
         if (transportNotInitialized) {

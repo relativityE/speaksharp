@@ -18,10 +18,16 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
-import { expect, type Page, type TestInfo } from '@playwright/test';
+import { expect, type Locator, type Page, type Request, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
+import { documentTrackerOf } from './rwtDocumentIdentity';
+import {
+    coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
+    UNAVAILABLE_HEADLINE,
+} from './coachingExternal';
+import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
     AUDIO_ARGS,
@@ -31,11 +37,15 @@ import {
 } from './benchmark-utils';
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
+import { isProgressRoutePathname } from '../../e2e/canaryLanding';
 import {
     acquisitionTimingVerdict, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, runJourneyIds, surfaceReadinessFailures,
     type AcquisitionTiming, type ReadbackPlan, isNewPersistedSession } from './rwtOracles';
 import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 import { readFeedbackUiState, readPracticeActionState, type PracticeActionState } from './rwtStepDiagnostics';
+import { activeHumanReflexMs } from './rwtHumanReflex';
+import { resolveProductsTrigger } from './productsMenu';
+import { WATCHED_FIELDS } from './rwtWatchdog';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -48,19 +58,9 @@ export const RWT_ACCOUNT_PREFIX = 'rwt-journey-';
 export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
-/**
- * #1258 — the closed failure reasons `get-ai-suggestions` returns in its 502 body. Read so a failed coaching row names its
- * cause in the receipt itself. Anything outside the closed set reads 'unrecognized', so no free text enters the receipt.
- */
-export const COACHING_FAILURE_REASONS = [
-    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
-    'over_character_ceiling', 'missing_model_version',
-] as const;
-export function coachingFailureReason(body: unknown): string | null {
-    const reason = body && typeof body === 'object' ? (body as { reason?: unknown }).reason : undefined;
-    if (reason === undefined || reason === null) return null;
-    return typeof reason === 'string' && (COACHING_FAILURE_REASONS as readonly string[]).includes(reason) ? reason : 'unrecognized';
-}
+// #1258 (PM 6174134686): the closed coaching failure vocabulary lives with the EXTERNAL classifier, which publishes it.
+export { COACHING_FAILURE_REASONS, coachingFailureReason } from './coachingExternal';
+import { characterCeilingVerdict, openPointReferenceVerdict } from './rwtCoachingConsistency';
 
 /**
  * #1258 (Codex r4188372882 / r4188372897) — read a failed coaching response's closed reason as a PROMISE the spec
@@ -79,10 +79,20 @@ export function bandSide(well: number, next: number, min: number, max: number): 
 }
 
 export async function readCoachingFailureReason(response: { json(): Promise<unknown> }): Promise<string | null> {
+    return (await readCoachingFailureEvidence(response)).reason;
+}
+
+/**
+ * #1258 (PM 6171519534) — the failed response read ONCE, keeping only allowlisted scalars: the closed reason and the
+ * provider's integer HTTP status from `diagnostics.provider_status`. Never throws; an unparseable body is `unrecognized`
+ * with no provider status, so it can never prove an external outage.
+ */
+export async function readCoachingFailureEvidence(response: { json(): Promise<unknown> }): Promise<{ reason: string | null; providerStatus: number | null }> {
     try {
-        return coachingFailureReason(await response.json());
+        const body = await response.json();
+        return { reason: coachingFailureReason(body), providerStatus: providerStatusFrom(body) };
     } catch {
-        return 'unrecognized';
+        return { reason: 'unrecognized', providerStatus: null };
     }
 }
 
@@ -199,6 +209,36 @@ export function newDisposableEmail(label: string): string {
     return `${RWT_ACCOUNT_PREFIX}${unique}@${process.env.LIVE_TEST_EMAIL_DOMAIN || 'example.com'}`;
 }
 
+/** The part of a Playwright locator the sign-out helper uses (so it can be exercised offline). */
+interface SignOutLocator {
+    or(other: SignOutLocator): SignOutLocator;
+    first(): SignOutLocator;
+    isVisible(): Promise<boolean>;
+    waitFor(options: { state: 'visible'; timeout: number }): Promise<void>;
+    click(options?: { timeout?: number }): Promise<void>;
+}
+
+/**
+ * #1601 compatibility (PM 6149152089, P1 r4252374522) — sign out through the product's OWN control on either header:
+ * the direct Sign Out button shipped today, or the account menu (#1601) that opens from the signed-in avatar. A visible
+ * direct button is used as-is; otherwise the avatar is REQUIRED, opened, and its `nav-sign-out-button` item REQUIRED
+ * and clicked. Throws when neither path is present, so a caller can report the failure instead of passing silently.
+ */
+export async function signOutThroughProduct(page: { getByTestId(id: string): SignOutLocator }, timeoutMs = 30_000): Promise<'direct' | 'menu'> {
+    const direct = page.getByTestId('sign-out-button').or(page.getByTestId('nav-sign-out-button')).first();
+    const avatar = page.getByTestId('nav-account-avatar');
+    await direct.or(avatar).first().waitFor({ state: 'visible', timeout: timeoutMs });
+    if (await direct.isVisible()) {
+        await direct.click({ timeout: 10_000 });
+        return 'direct';
+    }
+    await avatar.click({ timeout: 10_000 });
+    const item = page.getByTestId('nav-sign-out-button');
+    await item.waitFor({ state: 'visible', timeout: 10_000 });
+    await item.click({ timeout: 10_000 });
+    return 'menu';
+}
+
 /**
  * Fresh disposable signup through the real form. The generated password exists only inside the returned
  * `signInAgain` closure (trace, video and screenshots are off in both suites, so no artifact can hold it); the UID
@@ -209,6 +249,11 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
     signupMs: number;
     /** Sign out through the product's own control, then sign back in through the real sign-in form. */
     signOutAndSignIn: () => Promise<{ signinMs: number }>;
+    /**
+     * #1258 R2 (PM 6207105255): sign THIS account in on another page (an isolated browser context: another device) through
+     * the real sign-in form. The password never leaves this closure.
+     */
+    signInOn: (other: Page) => Promise<void>;
 }> {
     const password = `Rwt-${randomBytes(18).toString('base64url')}-9a!`;
     const startedAt = Date.now();
@@ -224,9 +269,7 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
     const uid = (await readUid()) ?? '';
     const signupMs = Date.now() - startedAt;
     const signOutAndSignIn = async () => {
-        const signOut = page.getByTestId('sign-out-button').or(page.getByTestId('nav-sign-out-button')).first();
-        await expect(signOut, 'the product offers sign-out').toBeVisible({ timeout: 30_000 });
-        await signOut.click();
+        await signOutThroughProduct(page as never);
         await expect.poll(readUid, { timeout: 30_000, message: 'sign-out must clear the session' }).toBeFalsy();
         const signinStarted = Date.now();
         await page.goto('/auth/signin');
@@ -237,7 +280,18 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
         await expect.poll(readUid, { timeout: 60_000, message: 'sign-in must produce a session' }).toBe(uid);
         return { signinMs: Date.now() - signinStarted };
     };
-    return { uid, signupMs, signOutAndSignIn };
+    const signInOn = async (other: Page) => {
+        const otherUid = async () => extractUidFromAuthStorage(await other.evaluate(
+            () => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })),
+        ));
+        await other.goto('/auth/signin');
+        await expect(other.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
+        await other.getByTestId('email-input').fill(email);
+        await other.getByTestId('password-input').fill(password);
+        await other.getByTestId('sign-in-submit').click();
+        await expect.poll(otherUid, { timeout: 60_000, message: 'the other device must sign in to the same account' }).toBe(uid);
+    };
+    return { uid, signupMs, signOutAndSignIn, signInOn };
 }
 
 /**
@@ -333,8 +387,22 @@ export async function runOwnedIdentityFailures(
  * fields only), the same server authority `three-session-retention-proof` reads. A new account must be allowed to
  * start and must have room for this journey's recordings; the decision reuses `evaluateThreeRecordingEntitlement`.
  */
+/**
+ * One `check-usage-limit` response as the page received it. #1593 Case 15 follow-up (Sam 1792503928): the HTTP status and
+ * whether the body was a JSON object are kept, because an error body, a non-JSON body or a missing field used to be read
+ * as `false` (`=== true`), which made an unavailable answer look like an account that cannot start.
+ */
+export interface EntitlementResponse {
+    http: number;
+    parsed: boolean;
+    can_start?: unknown;
+    is_pro?: unknown;
+    trial_active?: unknown;
+    trial_seconds_remaining?: unknown;
+}
+
 export class EntitlementTap {
-    readonly responses: Array<{ can_start?: unknown; is_pro?: unknown; trial_active?: unknown; trial_seconds_remaining?: unknown }> = [];
+    readonly responses: EntitlementResponse[] = [];
     private readonly pending: Array<Promise<void>> = [];
 
     attach(page: Page): void {
@@ -342,9 +410,16 @@ export class EntitlementTap {
             let fn = '';
             try { fn = new URL(res.url()).pathname.split('/').pop() ?? ''; } catch { fn = ''; }
             if (fn !== 'check-usage-limit') return;
-            this.pending.push(res.json().then((b) => {
-                const body = (b ?? {}) as Record<string, unknown>;
-                this.responses.push({
+            const http = res.status();
+            // The position is reserved when the page RECEIVES the response, so readers of responses[0] see the first
+            // response the page got, not whichever body finished parsing first. A body that fails to parse stays unusable.
+            const entry: EntitlementResponse = { http, parsed: false };
+            this.responses.push(entry);
+            this.pending.push(res.json().then((b: unknown) => {
+                const parsed = b !== null && typeof b === 'object' && !Array.isArray(b);
+                const body = (parsed ? b : {}) as Record<string, unknown>;
+                Object.assign(entry, {
+                    parsed,
                     can_start: body.can_start, is_pro: body.is_pro,
                     trial_active: body.trial_active, trial_seconds_remaining: body.trial_seconds_remaining,
                 });
@@ -353,6 +428,48 @@ export class EntitlementTap {
     }
 
     async settle(): Promise<void> { await Promise.all(this.pending); }
+}
+
+/**
+ * What one entitlement response PROVES. Only a 2xx JSON object with a boolean `can_start` is an observation; anything
+ * else is `unavailable` (with a content-free reason) and must never be reported as an explicit "cannot start".
+ */
+export type EntitlementObservation =
+    | { state: 'unobserved' }
+    | { state: 'unavailable'; reason: string }
+    | { state: 'observed'; canStart: boolean; trialActive: boolean | null; isPro: boolean | null };
+
+export function observeEntitlement(response: EntitlementResponse | undefined): EntitlementObservation {
+    if (!response) return { state: 'unobserved' };
+    if (!Number.isInteger(response.http) || response.http < 200 || response.http > 299) return { state: 'unavailable', reason: `http_${response.http}` };
+    if (!response.parsed) return { state: 'unavailable', reason: 'body_not_json_object' };
+    if (typeof response.can_start !== 'boolean') {
+        return { state: 'unavailable', reason: `can_start_${response.can_start === null ? 'null' : typeof response.can_start}` };
+    }
+    const flag = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
+    return { state: 'observed', canStart: response.can_start, trialActive: flag(response.trial_active), isPro: flag(response.is_pro) };
+}
+
+/** Receipt evidence for an observation: tri-state (`null` = not observed), never a coerced `false`. */
+export function entitlementEvidence(o: EntitlementObservation): Record<string, string | boolean | null> {
+    return o.state === 'observed'
+        ? { entitlement: 'observed', canStart: o.canStart, trialActive: o.trialActive, isPro: o.isPro }
+        : { entitlement: o.state, canStart: null, trialActive: null, isPro: null, ...(o.state === 'unavailable' ? { reason: o.reason } : {}) };
+}
+
+/**
+ * The returning user's access as the session page received it (Case 15). The journey records nothing, so every outcome
+ * other than an observed `can_start: true` is a HOLD — but an unusable answer says eligibility is UNVERIFIED, distinct
+ * from an observed account that cannot start.
+ */
+export async function returningAccessRow(receipt: { row: RwtReceipt['row'] }, tap: EntitlementTap): Promise<void> {
+    await tap.settle();
+    const o = observeEntitlement(tap.responses[0]);
+    const detail = o.state === 'unobserved' ? 'no check-usage-limit response was observed'
+        : o.state === 'unavailable' ? `eligibility unverified: the check-usage-limit response was unusable (${o.reason})`
+            : o.canStart ? 'the server lets this returning user start a recording'
+                : 'this account cannot start a recording (expired or unentitled); not used for a recording journey';
+    receipt.row('returning-user access', o.state === 'observed' && o.canStart ? 'PASS' : 'HOLD', detail, entitlementEvidence(o));
 }
 
 /**
@@ -410,16 +527,30 @@ export async function installMicAcquisitionCounter(page: Page): Promise<void> {
     await page.addInitScript(() => {
         const marks: number[] = [];
         const streams: MediaStream[] = [];
-        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[] };
+        // #1593 (Sam, #1662 RETURN): the acquisition boundary's own REJECTIONS, by closed DOMException name only — the
+        // product learns "blocked" from a NotAllowedError here, so a denial case must observe one, not a permission query.
+        // Sam, #1662 RETURN on f527a033 (item 5): each audio acquisition gets its ID at INVOCATION, and its own settlement
+        // is recorded against that ID — an older pending acquisition rejecting later can never be read as this press's.
+        const log: { id: number; outcome: string }[] = [];
+        const NAMES = ['NotAllowedError', 'NotFoundError', 'NotReadableError', 'AbortError', 'SecurityError', 'OverconstrainedError', 'TypeError'];
+        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[]; __rwtMicAcquisitionLog__?: { id: number; outcome: string }[] };
         w.__rwtMicAcquisitions__ = marks;
+        w.__rwtMicAcquisitionLog__ = log;
         w.__rwtMicStreams__ = streams; // references only, to read track readyState; never audio data
         const media = navigator.mediaDevices;
         if (!media?.getUserMedia) return;
         const original = media.getUserMedia.bind(media);
         media.getUserMedia = (constraints?: MediaStreamConstraints) => {
             const audio = Boolean(constraints && (constraints as { audio?: unknown }).audio);
-            if (audio) marks.push(Date.now());
-            return original(constraints).then((stream) => { if (audio) streams.push(stream); return stream; });
+            const entry = audio ? { id: log.length, outcome: 'pending' } : null;
+            if (entry) { marks.push(Date.now()); log.push(entry); }
+            return original(constraints).then((stream) => { if (entry) { streams.push(stream); entry.outcome = 'granted'; } return stream; }, (error: unknown) => {
+                if (entry) {
+                    const name = (error as { name?: unknown } | null)?.name;
+                    entry.outcome = typeof name === 'string' && NAMES.includes(name) ? name : 'other';
+                }
+                throw error;
+            });
         };
     });
 }
@@ -431,6 +562,12 @@ export async function liveMicTracks(page: Page): Promise<number> {
         .filter((track) => track.readyState === 'live').length);
 }
 
+/** Every audio acquisition the page started, by invocation ID, with its own closed outcome (`pending`, `granted` or a DOMException name). */
+export async function micAcquisitionLog(page: Page): Promise<{ id: number; outcome: string }[]> {
+    return page.evaluate(() => ((window as unknown as { __rwtMicAcquisitionLog__?: { id: number; outcome: string }[] }).__rwtMicAcquisitionLog__ ?? [])
+        .map((a) => ({ id: a.id, outcome: a.outcome }))).catch(() => []);
+}
+
 export async function micAcquisitions(page: Page): Promise<number[]> {
     return page.evaluate(() => ((window as unknown as { __rwtMicAcquisitions__?: number[] }).__rwtMicAcquisitions__ ?? []).slice());
 }
@@ -440,6 +577,29 @@ export const sha256Hex = (value: unknown): string => createHash('sha256').update
 export interface SentEvent {
     event: string;
     at: number;
+    /** #1258 R11: when the PAGE captured the event (PostHog `timestamp` / `$time`), so order survives flush reordering. */
+    capturedAt?: number;
+    /**
+     * #1258 R11 (Browser PM RETURN 6145711360): which decoded PostHog request carried the event, and its position in that
+     * payload. One payload is the page's FIFO queue at flush, so position within it IS capture order; arrival order across
+     * payloads is not. Memory only, like `journeyId`.
+     */
+    batch?: number;
+    batchIndex?: number;
+    /**
+     * #1258 R11 (PM RETURN 6144366004): `ai_coaching_diagnostic` only — the opaque request id and the closed outcome, so a
+     * later `practice_loop_review_failed` can be bound to ITS request. In memory like `journeyId`; never in OUTCOME_FIELDS,
+     * whose keys can reach receipt evidence.
+     */
+    diagnosticRequestId?: string;
+    diagnosticOutcome?: string;
+    /**
+     * #1258 (Codex P2 r4286195504, PM 6198278021): `model_attribution_receipt` only — the take it SETTLED (`subject_*`).
+     * A Retry Save can settle take A while take B is current, so the envelope names B; the subject names A
+     * (telemetryAllowlist contract, completenessGate binding). In memory like `journeyId`; never written to a receipt.
+     */
+    subjectJourneyId?: string;
+    subjectAttemptId?: string;
     journeyId?: string;
     attemptId?: string;
     bootId?: string;
@@ -455,6 +615,8 @@ export interface SentEvent {
     acquisition?: AcquisitionTiming;
     /** #1258: closed enum / integer fields of the outcome events (OUTCOME_FIELDS only) — never content. */
     fields?: Readonly<Record<string, string | number | boolean>>;
+    /** #1593 fail-early: the watched lifecycle events' closed enums (`WATCHED_FIELDS`). Memory only, never in a receipt. */
+    watch?: Readonly<Record<string, string>>;
 }
 
 /** #1258 (#1563): the ONLY properties kept from these events, so a press can be paired with its arrival and a feedback
@@ -473,6 +635,12 @@ function outcomeFields(event: string, props: Record<string, unknown>): SentEvent
         const v = props[key];
         if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') kept[key] = v;
     }
+    return kept;
+}
+
+function watchedFields(event: string, props: Record<string, unknown>): Record<string, string> {
+    const kept: Record<string, string> = {};
+    for (const key of WATCHED_FIELDS[event] ?? []) if (typeof props[key] === 'string') kept[key] = props[key] as string;
     return kept;
 }
 
@@ -524,22 +692,69 @@ export function exactCountVerdict(count: number, expected: number, tap: BlindTim
     return count === expected ? 'PASS' : 'FAIL';
 }
 
-/** An Analytics page path (`/analytics`, `/analytics/<id>`, or the app's normalized `/analytics/id`); anything else is not. */
+/** Canonical/legacy Progress paths, including normalized /id; internal Analytics identities stay unchanged. */
 export function analyticsRoute(path: string | null | undefined): boolean {
-    return typeof path === 'string' && /^\/analytics(\/[^/]+)?\/?$/.test(path);
+    return typeof path === 'string' && isProgressRoutePathname(path);
+}
+
+/**
+ * #1258 smoke item 2 (PM 6182446740) — the closed HTTP outcome of ONE PostHog request, taken from that same Playwright
+ * request object. A `2xx` is an HTTP acknowledgement, NOT proof of ingestion. `failed`/`aborted` only when the browser
+ * reported that request failed; `pending` while no outcome is known; `unobservable` when capture ended first.
+ */
+export type TransportOutcome = '2xx' | '3xx' | '4xx' | '5xx' | 'other_status' | 'failed' | 'aborted' | 'pending' | 'unobservable';
+/** One PostHog request the tap saw carry events (decoded) or an opaque body (blind), and its outcome. Names only. */
+export interface BatchTransport {
+    /** Every decoded batch number taken from this request (a repeated attach decodes the same request again). */
+    batches: number[]; names: string[]; blind: boolean; outcome: TransportOutcome;
+}
+export function statusClass(status: number | null | undefined): TransportOutcome {
+    if (typeof status !== 'number' || !Number.isInteger(status)) return 'other_status';
+    return status >= 200 && status < 300 ? '2xx' : status >= 300 && status < 400 ? '3xx'
+        : status >= 400 && status < 500 ? '4xx' : status >= 500 && status < 600 ? '5xx' : 'other_status';
+}
+/** A request failure reported by the browser: an abort only when its error text says so; anything else is a failure. */
+export function failureClass(errorText: string | null | undefined): TransportOutcome {
+    return typeof errorText === 'string' && /ERR_ABORTED|NS_BINDING_ABORTED|\babort/i.test(errorText) ? 'aborted' : 'failed';
+}
+
+/**
+ * The take a decoded event belongs to, for transport evidence. `model_attribution_receipt` is bound by its SUBJECT take
+ * (Codex P2 r4286195504) — and only by a complete subject identity: an absent or partial subject is unbound, never
+ * rescued by the envelope. Every other family is bound by its envelope journey/attempt.
+ */
+function transportIdentityOf(e: SentEvent): { journeyId: string; attemptId: string } | null {
+    const [journeyId, attemptId] = e.event === 'model_attribution_receipt' ? [e.subjectJourneyId, e.subjectAttemptId] : [e.journeyId, e.attemptId];
+    return journeyId && attemptId ? { journeyId, attemptId } : null;
 }
 
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
+// #1593 (Sam, #1662 RETURN on 2cab5b0c): document identity is proven by the browser — see rwtDocumentIdentity.ts.
+export { DocumentProvenance, trackDocuments, type DocumentRef } from './rwtDocumentIdentity';
+
 export class AnalyticsTap {
+    /** #1258 smoke item 2: every event-carrying PostHog request and its outcome, in send order (retries are new entries). */
+    readonly transports: BatchTransport[] = [];
+    private readonly transportByRequest = new Map<Request, BatchTransport>();
+    private listeners: Array<[string, (...args: never[]) => void]> = [];
+    private attachedTo: Page | null = null;
+    /** PM 6182647952 §2: transport capture is open only between `attach` and `detachTransport`; a callback started under one
+     * capture never writes after it closed (the generation it captured no longer matches). */
+    private transportOpen = false;
+    private transportGeneration = 0;
     readonly events: SentEvent[] = [];
     readonly actionBindings: ReadbackActionBinding[] = [];
     /** #1258 F3: every capture attempt's closed outcome, so a missing binding says WHY in the receipt (content-free). */
     readonly actionCaptures: ActionCaptureAttempt[] = [];
     undecodable = 0;
+    /** #1258 R11: sequence number of decoded event payloads, so each event keeps its batch (see `SentEvent.batch`). */
+    private batchSeq = 0;
     /** PostHog POSTs whose body the browser does not expose (a Blob `sendBeacon` on page-hide). See `sentVerdict`. */
     blindBeacons = 0;
     /** When each blind request was sent (ms), so uncertainty is scoped to the step that could have produced it. */
     readonly blindAt: number[] = [];
+    /** Codex P1 r4314310162: each blind beacon with the page that sent it (memory-only), so a watchdog can HOLD on its own pages' unknowns. */
+    readonly blindSent: { at: number; page: Page }[] = [];
     /** The latest main-frame document load (ms) and its path: every boot after it is the page the person is on now. */
     documentAt = 0;
     documentPath: string | null = null;
@@ -550,25 +765,70 @@ export class AnalyticsTap {
     }
 
     attach(page: Page): void {
+        // A repeated attach replaces the outcome listeners instead of stacking a second set.
+        this.removeTransportListeners();
+        this.attachedPages.add(page);
+        this.attachedTo = page;
+        this.transportOpen = true;
+        const generation = ++this.transportGeneration;
+        const live = () => this.transportOpen && this.transportGeneration === generation;
+        // #1593 (Sam, #1662 RETURNs on f527a033 / 76a0bf6e / 46ebed0f / 814d2e25 / 2cab5b0c / 65dd8b8f): which document of
+        // this page sent each event — a boot IS a document load — from the browser's own record of each request
+        // (`documentTrackerOf`, rwtDocumentIdentity.ts), for the PAGE's lifetime and independently of the transport-outcome
+        // listeners below: re-attaching the tap to another page must never stop tracking this one.
+        const documents = documentTrackerOf(page);
+        const mainNavigation = (request: Request): boolean => {
+            try { return request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { return false; }
+        };
+        // Smoke item 2: the outcome is read from the SAME request object the batch was decoded from.
+        const onFinished = (request: Request) => {
+            const transport = this.transportByRequest.get(request);
+            if (!transport || !live()) return;
+            // The response may resolve after capture closed: only a still-open capture may write it.
+            void request.response().then((response) => { if (live()) transport.outcome = response ? statusClass(response.status()) : 'unobservable'; })
+                .catch(() => { if (live()) transport.outcome = 'unobservable'; });
+        };
+        const onFailed = (request: Request) => {
+            const transport = this.transportByRequest.get(request);
+            if (!transport || !live()) return;
+            let text: string | null = null;
+            try { text = request.failure()?.errorText ?? null; } catch { text = null; }
+            transport.outcome = failureClass(text);
+        };
+        page.on('requestfinished', onFinished);
+        page.on('requestfailed', onFailed);
+        this.listeners.push(['requestfinished', onFinished as never], ['requestfailed', onFailed as never]);
         page.on('request', (request) => {
-            let mainDocument = false;
-            try { mainDocument = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { mainDocument = false; }
-            if (mainDocument) { this.noteDocument(request.url()); return; }
+            if (mainNavigation(request)) { this.noteDocument(request.url()); return; }
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
             const body = request.postDataBuffer();
             // A blind POST is an event beacon too, so it also marks a flush; non-event requests (flags, recorder) never do.
-            if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest(); return; }
+            if (request.method() === 'POST' && (!body || body.length === 0)) {
+                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.blindSent.push({ at: Date.now(), page }); this.notePosthogRequest(Date.now(), page);
+                this.track(request, { batches: [], names: [], blind: true, outcome: 'pending' });
+                return;
+            }
             const before = this.events.length;
+            const batch = ++this.batchSeq;
+            let batchIndex = 0;
             for (const entry of this.decode(body)) {
-                const record = entry as { event?: unknown; properties?: Record<string, unknown> };
+                const record = entry as { event?: unknown; properties?: Record<string, unknown>; timestamp?: unknown };
                 if (typeof record?.event !== 'string') continue;
                 const props = record.properties ?? {};
                 const text = (key: string) => (typeof props[key] === 'string' ? props[key] as string : undefined);
+                const capturedAt = typeof record.timestamp === 'string' && Number.isFinite(Date.parse(record.timestamp)) ? Date.parse(record.timestamp)
+                    : typeof props.$time === 'number' && Number.isFinite(props.$time) ? Math.round(props.$time * 1000) : undefined;
                 this.events.push({
                     event: record.event,
                     at: Date.now(),
+                    batch,
+                    batchIndex: batchIndex++,
+                    ...(capturedAt === undefined ? {} : { capturedAt }),
+                    ...(record.event === 'ai_coaching_diagnostic' ? { diagnosticRequestId: text('diagnostic_request_id'), diagnosticOutcome: text('outcome') } : {}),
+                    ...(record.event === 'model_attribution_receipt'
+                        ? { subjectJourneyId: text('subject_journey_id'), subjectAttemptId: text('subject_attempt_id') } : {}),
                     journeyId: text('journey_id'),
                     attemptId: text('attempt_id'),
                     bootId: text('boot_id'),
@@ -579,6 +839,7 @@ export class AnalyticsTap {
                     journeyStep: text('step'),
                     toRoute: text('to_route'),
                     ...(OUTCOME_FIELDS[record.event] ? { fields: outcomeFields(record.event, props) } : {}),
+                    ...(WATCHED_FIELDS[record.event] ? { watch: watchedFields(record.event, props) } : {}),
                     ...(record.event === 'private_model_acquisition_success' ? { acquisition: {
                         cacheResult: text('cache_result'), completeness: text('measurement_completeness'),
                         downloadMs: typeof props.download_ms === 'number' ? props.download_ms : null,
@@ -587,8 +848,89 @@ export class AnalyticsTap {
                     } } : {}),
                 });
             }
-            if (this.events.length > before) this.notePosthogRequest();
+            // #1593 (Sam, #1662 RETURN): which page SENT each event, so a watchdog can refuse evidence from pages it does not
+            // watch. Non-enumerable and memory-only: it never reaches a receipt, a log or JSON.
+            // Sam, #1662 RETURNs on b0dd763a / 65dd8b8f: the document is the loader the BROWSER says sent this request,
+            // read through a reference that settles when that record is joined (never the harness's clock or arrival order).
+            // Every bodied PostHog POST joins its record (flag and other non-event posts too, so none is left waiting).
+            const ref = body && body.length > 0 && request.method() === 'POST' ? documents.refFor(request.url(), body) : null;
+            for (let i = before; i < this.events.length; i += 1) {
+                Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
+                if (!ref) continue;
+                Object.defineProperty(this.events[i], 'sourceDocumentRef', { value: ref, enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocument', { get: () => (ref.resolved ? ref.generation : undefined), enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocumentAt', { get: () => (ref.resolved ? ref.committedAt : undefined), enumerable: false });
+            }
+            if (this.events.length > before) {
+                this.notePosthogRequest(Date.now(), page);
+                this.track(request, { batches: [batch], names: this.events.slice(before).map((e) => e.event), blind: false, outcome: 'pending' });
+            }
         });
+    }
+
+    private track(request: Request, transport: BatchTransport): void {
+        // After capture closed no new transport record is made; the sent-event capture itself is unchanged.
+        if (!this.transportOpen) return;
+        // The SAME request decoded again (a repeated attach) joins its existing record — one request, one outcome.
+        const existing = this.transportByRequest.get(request);
+        if (existing) { existing.batches.push(...transport.batches); return; }
+        this.transports.push(transport);
+        this.transportByRequest.set(request, transport);
+    }
+
+    private removeTransportListeners(): void {
+        if (this.attachedTo) for (const [name, fn] of this.listeners) this.attachedTo.off(name as 'requestfinished', fn as never);
+        this.listeners = [];
+    }
+
+    /**
+     * Smoke item 2: stop listening for outcomes; every request still `pending` becomes `unobservable` — capture ended before
+     * the browser reported it, which is never read as delivered or as lost.
+     */
+    detachTransport(): void {
+        this.transportOpen = false;
+        this.transportGeneration += 1;
+        this.removeTransportListeners();
+        this.attachedTo = null;
+        for (const t of this.transports) if (t.outcome === 'pending') t.outcome = 'unobservable';
+    }
+
+    /**
+     * Content-free transport evidence for named event families of ONE take: for each, the outcome of the request that
+     * carried each of that take's decoded events, as `outcome:count` sorted (`none` when none was decoded; `take_unknown`
+     * when the take's identity is unknown). Opaque (blind) requests are counted separately: they may have carried any
+     * family, so they can never prove one was or was not sent.
+     */
+    transportEvidence(take: { journeyId: string; attemptId: string } | null, names: readonly string[]): Record<string, string | number> {
+        // PM 6182647952 §1: ONLY the selected take's own decoded events — the exact journey AND attempt its `session_started`
+        // named (`takeStartedAfter`) — each mapped back through its batch to the request that carried it. Never inferred from
+        // the event name or the newest take; a mixed batch contributes its outcome for the selected events only.
+        const out: Record<string, string | number> = {};
+        const byBatch = new Map<number, BatchTransport>();
+        for (const t of this.transports) for (const b of t.batches) byBatch.set(b, t);
+        for (const name of names) {
+            if (!take) { out[`transport_${name}`] = 'take_unknown'; continue; }
+            // Counted per distinct REQUEST, so a decoded duplicate of one request never counts twice.
+            const requests = new Set<BatchTransport>();
+            let untracked = 0;
+            for (const e of this.events) {
+                const id = transportIdentityOf(e);
+                if (e.event !== name || !id || id.journeyId !== take.journeyId || id.attemptId !== take.attemptId || e.batch === undefined) continue;
+                const transport = byBatch.get(e.batch);
+                if (transport) requests.add(transport); else untracked += 1;
+            }
+            const counts = new Map<TransportOutcome, number>();
+            for (const r of requests) counts.set(r.outcome, (counts.get(r.outcome) ?? 0) + 1);
+            if (untracked > 0) counts.set('unobservable', (counts.get('unobservable') ?? 0) + untracked);
+            out[`transport_${name}`] = counts.size === 0 ? 'none' : [...counts].map(([o, n]) => `${o}:${n}`).sort().join(',');
+        }
+        // Same-family events that carry no journey/attempt identity cannot be attributed to any take: counted, never bound.
+        out.transport_unbound_events = this.events.filter((e) => names.includes(e.event) && !transportIdentityOf(e)).length;
+        const blind = this.transports.filter((t) => t.blind);
+        out.transport_blind_requests = blind.length;
+        out.transport_blind_outcomes = blind.length === 0 ? 'none'
+            : [...blind.reduce((m, t) => m.set(t.outcome, (m.get(t.outcome) ?? 0) + 1), new Map<TransportOutcome, number>())].map(([o, n]) => `${o}:${n}`).sort().join(',');
+        return out;
     }
 
     /** Same encodings as the practice-loop journey: JSON, form `data=` (base64, maybe gzip), gzip, deflate, base64. */
@@ -621,7 +963,14 @@ export class AnalyticsTap {
 
     /** #1258 F3: when the page last sent a PostHog request (decoded or blind), so `settleQueuedTelemetry` sees a flush. */
     lastPosthogRequestAt = 0;
-    notePosthogRequest(at = Date.now()): void { this.lastPosthogRequestAt = at; }
+    /** Sam, #1662 review of 845401a5: when EACH attached page last sent an event-carrying PostHog request. */
+    private readonly lastPosthogRequestAtByPage = new Map<object, number>();
+    /** Every page the tap was attached to (memory-only), so a settle can wait for each one's own flush. */
+    private readonly attachedPages = new Set<Pick<Page, 'isClosed'>>();
+    notePosthogRequest(at = Date.now(), page?: object): void {
+        this.lastPosthogRequestAt = at;
+        if (page) this.lastPosthogRequestAtByPage.set(page, at);
+    }
 
     /**
      * #1258 F3 (run 38104864048, PostHog readback 6108757201): PostHog batches events for ~3 s, so right after a reload
@@ -646,6 +995,51 @@ export class AnalyticsTap {
             await wait(pollMs);
         }
         return 'quiet';
+    }
+
+    /**
+     * Sam, #1662 review of 845401a5 (Codex P2 r4313846488 follow-up): the settle before a watchdog verdict waits for EVERY
+     * attached, still-open page's own flush — one page's benign batch must not end the wait while another page's fatal is
+     * still queued. Returns `flushed` once each such page sent a request after the settle began (plus a grace for sibling
+     * batches), else `quiet` at the bound. A closed page cannot flush any more and is not waited on. Never throws.
+     */
+    async settleEveryPage(
+        wait: (ms: number) => Promise<unknown>,
+        opts: { quietMs?: number; graceMs?: number; pollMs?: number; now?: () => number } = {},
+    ): Promise<'flushed' | 'quiet'> {
+        const { quietMs = 5_000, graceMs = 500, pollMs = 100, now = Date.now } = opts;
+        const started = now();
+        const closed = (p: Pick<Page, 'isClosed'>) => { try { return p.isClosed(); } catch { return true; } };
+        const pending = () => [...this.attachedPages].filter((p) => !closed(p) && (this.lastPosthogRequestAtByPage.get(p) ?? Number.NEGATIVE_INFINITY) <= started);
+        while (now() - started < quietMs) {
+            if (pending().length === 0) {
+                await wait(graceMs);
+                return 'flushed';
+            }
+            await wait(pollMs);
+        }
+        return pending().length === 0 ? 'flushed' : 'quiet';
+    }
+
+    /**
+     * #1258 R8/R9 (PM review): before a journey leaves the page or ends, wait — BOUNDED — until the tap has OBSERVED the
+     * events this step must have sent, and say whether it did. One elapsed batching interval is not delivery proof.
+     * PostHog batches for ~3 s; scenario 1 navigated 0.9 s after Share Feedback and scenario 4 ended under 7 s after
+     * sign-in, before their events were seen. An offline Chromium + posthog-js 1.298.1 run showed events captured < 3 s
+     * before a page or context close were never sent. Staying until the events are observed lets them leave on the
+     * ordinary flush this tap decodes. `observed` false is reported, never converted into PASS. Never throws.
+     */
+    async awaitObserved(
+        page: Pick<Page, 'waitForTimeout' | 'isClosed'>, expected: Readonly<Record<string, number>>, opts: { timeoutMs?: number; pollMs?: number } = {},
+    ): Promise<{ observed: boolean; missing: string[] }> {
+        const { timeoutMs = 8_000, pollMs = 100 } = opts;
+        const missing = () => Object.entries(expected).filter(([event, count]) => this.sent(event).length < count).map(([event]) => event);
+        const deadline = Date.now() + timeoutMs;
+        while (missing().length > 0 && Date.now() < deadline && !page.isClosed()) {
+            try { await page.waitForTimeout(pollMs); } catch { break; }
+        }
+        const left = missing();
+        return { observed: left.length === 0, missing: left };
     }
 
     /** `captureActionBinding` after `settleQueuedTelemetry` — what live call sites use before the feedback/PDF action. */
@@ -749,7 +1143,10 @@ export class RwtReceipt {
     /** Values this receipt must never publish (#1532 Codex P1 r4125567004); registered as soon as each exists. */
     private readonly forbidden = new Set<string>();
 
-    constructor(readonly suite: string) {}
+    constructor(readonly suite: string) {
+        // #1258 PO 2026-10-12: the think-time this journey pressed with, so a reader knows human vs machine timing.
+        this.meta.humanReflexMs = activeHumanReflexMs();
+    }
 
     forbid(...values: Array<string | null | undefined>): void {
         for (const value of values) if (typeof value === 'string' && value.length > 3) this.forbidden.add(value);
@@ -764,7 +1161,12 @@ export class RwtReceipt {
         this.haltedAt = step;
     }
 
+    /** #1593 (Sam, #1662 RETURN on f527a033 item 1): once written, the receipt is sealed — a late row can never change it. */
+    private sealed = false;
+
     row(step: string, verdict: Verdict, detail: string, evidence?: ReceiptRow['evidence']): void {
+        // A late FAIL still fails the test; it never edits the receipt already published.
+        if (this.sealed) { if (verdict === 'FAIL') expect.soft(verdict, `${step} (after the receipt was written): ${detail}`).toBe('PASS'); return; }
         const recorded = rowAfterHalt({ step, verdict, detail, evidence }, this.haltedAt);
         this.rows.push(recorded);
         if (recorded.verdict === 'FAIL') expect.soft(recorded.verdict, `${step}: ${recorded.detail}`).toBe('PASS');
@@ -780,6 +1182,14 @@ export class RwtReceipt {
             const reasons = plan.missingBindings.map((label) => `${label}=${plan.bindingReasons?.[label] ?? 'unknown'}`).join(',');
             this.row('readback journey binding', 'HOLD', `no journey emitted the anchor for: ${plan.missingBindings.join(', ')}`,
                 { missingBindings: plan.missingBindings.join(','), reasons, sequence: plan.bindingSequence ?? '' });
+        }
+        // #1593 (live run 2026-10-18, cases 4/8) — the finalizer requires `receipt content-free` on EVERY suite
+        // (`ALWAYS_AUTOMATED_ROWS`), documented as written here; only the suites with their own content scan wrote it, so every
+        // other suite's receipt failed finalization on a missing row whatever the journey did. For those, the leak guard below
+        // IS the content check: any registered value replaces this whole receipt with the redacted failure receipt (no rows),
+        // so this PASS can only ever be published when the guard found nothing. A suite's own row is never duplicated.
+        if (!this.rows.some((r) => r.step === 'receipt content-free')) {
+            this.row('receipt content-free', 'PASS', 'the leak guard found no registered value in the receipt, worksheet or log line');
         }
         const journeyIds = runJourneyIds(plan);
         const dir = path.resolve('test-results', 'rwt');
@@ -814,6 +1224,7 @@ export class RwtReceipt {
             forbidden: this.forbidden, testStatus: body.testStatus,
         });
         writeFileSync(path.join(dir, `${this.suite}.receipt.json`), out.receiptText);
+        this.sealed = true;
         const worksheetPath = path.join(dir, `${this.suite}.human-worksheet.md`);
         if (out.worksheetText === null) rmSync(worksheetPath, { force: true });
         else writeFileSync(worksheetPath, out.worksheetText);
@@ -931,13 +1342,14 @@ export async function performCandidateSwitch(page: Page, run: RunTarget, journey
  */
 export async function nextStartEvidence(page: Page, label: string): Promise<{
     holdSeen: boolean; nextStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
+    startFailure: StartFailureState | null;
 }> {
     const FINISHING_UP = /Finishing up your last session/;
     await page.goto('/session');
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
     } catch {
-        return { holdSeen: false, nextStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'the session page did not reach rest (mic-status)' };
+        return { holdSeen: false, nextStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'the session page did not reach rest (mic-status)', startFailure: null };
     }
     let holdSeen = (await page.getByText(FINISHING_UP).count()) > 0;
     const watch = setInterval(() => {
@@ -951,18 +1363,19 @@ export async function nextStartEvidence(page: Page, label: string): Promise<{
         nextStartMs = Date.now() - startedAt;
     } catch {
         clearInterval(watch);
+        const startFailure = await readStartFailureState(page);
         const tracks = await boundedTeardown(page, label);
-        return { holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording' };
+        return { holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording', startFailure };
     }
     clearInterval(watch);
     try {
         await stopBenchmarkRecording(page, label);
     } catch {
         const tracks = await boundedTeardown(page, label);
-        return { holdSeen, nextStartMs, stopped: false, liveTracksAfterStop: tracks, reason: 'the next take could not be stopped' };
+        return { holdSeen, nextStartMs, stopped: false, liveTracksAfterStop: tracks, reason: 'the next take could not be stopped', startFailure: null };
     }
     const live = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
-    return { holdSeen, nextStartMs, stopped: true, liveTracksAfterStop: live, reason: live === 0 ? null : 'the microphone stayed live after Stop' };
+    return { holdSeen, nextStartMs, stopped: true, liveTracksAfterStop: live, reason: live === 0 ? null : 'the microphone stayed live after Stop', startFailure: null };
 }
 
 /**
@@ -977,19 +1390,47 @@ async function boundedTeardown(page: Page, label: string): Promise<number | null
 }
 
 /**
+ * #1258 PM 6132878919 — FAIL FAST AFTER A FATAL START FAILURE. Alpha run 38304068207 hung for 32 minutes: the next
+ * Start failed, `boundedTeardown` left the page on about:blank, and the Focus-only product-switch step then waited
+ * forever for the Products menu on that blank page. A step that drives the CURRENT page (no fresh navigation of its own)
+ * first calls `stopIfPageTornDown`: on a torn-down page it records one FAIL row naming why and throws
+ * `RwtJourneyStopped`, so the spec's `finally` still writes the receipt and runs run-owned cleanup, and the test fails.
+ */
+export const JOURNEY_STOPPED_ROW = 'journey stopped after a fatal failure';
+export class RwtJourneyStopped extends Error {
+    constructor(readonly afterStep: string) {
+        super(`${JOURNEY_STOPPED_ROW}: the page was torn down after "${afterStep}"`);
+        this.name = 'RwtJourneyStopped';
+    }
+}
+export function stopIfPageTornDown(receipt: RwtReceipt, page: Page, afterStep: string, nextStep: string): void {
+    if (!page.isClosed() && page.url() !== 'about:blank') return;
+    receipt.row(JOURNEY_STOPPED_ROW, 'FAIL',
+        `the page was torn down after "${afterStep}", so "${nextStep}" and the steps after it did not run`,
+        { afterStep, nextStep });
+    throw new RwtJourneyStopped(afterStep);
+}
+
+/**
  * One entitlement row from the first `check-usage-limit` verdict the page received. `requiredSeconds` is the
  * recording time this journey needs; no observed verdict is a HOLD (the gate proves nothing), never a pass.
  */
 export async function entitlementRow(receipt: RwtReceipt, tap: EntitlementTap, requiredSeconds: number): Promise<void> {
     await tap.settle();
     const first = tap.responses[0];
-    if (!first) { receipt.row('new-account entitlement', 'HOLD', 'no check-usage-limit response was observed'); return; }
-    const verdict = evaluateThreeRecordingEntitlement(first, requiredSeconds);
-    const canStart = first.can_start === true;
+    const o = observeEntitlement(first);
+    if (o.state === 'unobserved') { receipt.row('new-account entitlement', 'HOLD', 'no check-usage-limit response was observed'); return; }
+    // #1593 (Sam 1792503928): an unusable answer proves nothing about the account, so it is a HOLD, never "not entitled".
+    if (o.state === 'unavailable') {
+        receipt.row('new-account entitlement', 'HOLD', `entitlement unverified: the check-usage-limit response was unusable (${o.reason})`, entitlementEvidence(o));
+        return;
+    }
+    const verdict = evaluateThreeRecordingEntitlement(first as EntitlementResponse, requiredSeconds);
+    const canStart = o.canStart;
     receipt.row('new-account entitlement', canStart && verdict.ok ? 'PASS' : 'FAIL',
         canStart && verdict.ok ? 'the server let the new account start, with room for this journey'
             : `the server did not entitle the new account (${verdict.ok ? 'can_start false' : verdict.reason})`,
-        { canStart, trialActive: first.trial_active === true, isPro: first.is_pro === true });
+        entitlementEvidence(o));
 }
 
 /**
@@ -1006,9 +1447,93 @@ export async function entitlementRow(receipt: RwtReceipt, tap: EntitlementTap, r
  * A step the page never reached is a HOLD with its reason — never a PASS. The detail is opened by URL; the list path
  * into it is proven by the reopen rows.
  */
+/**
+ * #1258 R6 (PM 6134474736) — the reopened Focus set is the SAME set, in the SAME order, every point pending again:
+ * exactly as many rows as points, each row's own label equal to its point, and every status `pending`.
+ */
+export function sameOrderedPendingSet(labels: readonly string[], statuses: readonly (string | null)[], points: readonly string[]): boolean {
+    return labels.length === points.length && statuses.length === points.length
+        && points.every((point, i) => labels[i].trim() === point.trim())
+        && statuses.every((status) => status === 'pending');
+}
+
 /** #1258 (PM 5944997435): one outer bound per diagnostic read, and a short per-call timeout inside it. */
 const STEP_DIAGNOSTIC_BOUND_MS = 10_000;
 const STEP_DIAGNOSTIC_READ_MS = 3_000;
+
+/**
+ * #1258 alpha run 38298685079: the review's repeat Start and a fresh next Start both failed to begin recording, and the
+ * helper's catch swallowed WHY. When a Start does not begin, the page's visible state is classified into a closed enum.
+ * The status text is read only to classify it and is never recorded. Product copy: `ENGINE_RETIRE_UNCONFIRMED_MESSAGE`
+ * (useSessionLifecycle.ts), the lease block (recordingLeasePolicy.ts) and the Progress hold.
+ */
+export type StartRefusalClass = 'engine_unconfirmed' | 'lease_blocked' | 'finishing_up' | 'prior_unsaved' | 'start_error' | 'none_visible';
+const START_REFUSAL_PATTERNS: ReadonlyArray<readonly [StartRefusalClass, RegExp]> = [
+    ['engine_unconfirmed', /could not confirm the last recording stopped/i],
+    ['lease_blocked', /A recording is active on .*press Start again to take over/i],
+    ['finishing_up', /Finishing up your last session/i],
+    // #1600 review (6133231405): the controller's refusal while a previous recording is unresolved — the likely next-Start
+    // refusal in runs 38298685079 / 38304068207. Before `start_error`, whose generic "save" wording it would otherwise hit.
+    ['prior_unsaved', /Finish saving your previous recording before starting a new one/i],
+    ['start_error', /(?:could ?n[o']t|unable to|failed to) (?:start|record|save)|microphone (?:access )?(?:is )?(?:blocked|denied)/i],
+];
+export function classifyStartRefusal(texts: readonly string[]): StartRefusalClass {
+    for (const [kind, pattern] of START_REFUSAL_PATTERNS) if (texts.some((t) => pattern.test(t))) return kind;
+    return 'none_visible';
+}
+
+/** Content-free page state when a Start did not begin recording: closed enums, booleans and the controller's own states. */
+export interface StartFailureState {
+    refusalClass: StartRefusalClass | null; runtimeState: string | null; sessionState: string | null;
+    persisted: boolean | null; modelStatus: string | null;
+    micStartPresent: boolean | null; micStartDisabled: boolean | null; recorderStopPresent: boolean | null;
+    repeatActionPresent: boolean | null; repeatActionDisabled: boolean | null;
+    controllerState: string | null; serviceState: string | null; readTimedOut: boolean;
+}
+const UNREAD_START_FAILURE: StartFailureState = {
+    refusalClass: null, runtimeState: null, sessionState: null, persisted: null, modelStatus: null,
+    micStartPresent: null, micStartDisabled: null, recorderStopPresent: null, repeatActionPresent: null, repeatActionDisabled: null,
+    controllerState: null, serviceState: null, readTimedOut: true,
+};
+export async function readStartFailureState(page: Page): Promise<StartFailureState> {
+    const read = page.evaluate(() => {
+        const root = document.documentElement;
+        const node = (tid: string) => document.querySelector(`[data-testid="${tid}"]`) as HTMLElement | null;
+        const control = (tid: string) => { const n = node(tid); return { present: !!n, disabled: n ? n.hasAttribute('disabled') : null }; };
+        const short = (v: unknown) => (typeof v === 'string' && /^[A-Za-z_-]{1,40}$/.test(v) ? v : null);
+        const debug = (window as unknown as { __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown> }).__SPEECH_RUNTIME_DEBUG__?.() ?? {};
+        const texts = Array.from(document.querySelectorAll('[role="alert"],[role="status"],[data-testid="mic-status"]'))
+            .map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').slice(0, 400));
+        const start = control('mic-start'); const repeat = control('verdict-practice-again');
+        return {
+            texts,
+            runtimeState: short(root.getAttribute('data-runtime-state')),
+            sessionState: short(document.querySelector('[data-testid="session-shell"]')?.getAttribute('data-session-state')),
+            persisted: root.hasAttribute('data-session-persisted') ? root.getAttribute('data-session-persisted') === 'true' : null,
+            modelStatus: short(document.querySelector('[data-model-status]')?.getAttribute('data-model-status')),
+            micStartPresent: start.present, micStartDisabled: start.disabled, recorderStopPresent: !!node('recorder-stop'),
+            repeatActionPresent: repeat.present, repeatActionDisabled: repeat.disabled,
+            controllerState: short(debug.controllerState), serviceState: short(debug.serviceState),
+        };
+    });
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), STEP_DIAGNOSTIC_READ_MS));
+    const raw = await Promise.race([read, timeout]).catch(() => null);
+    if (!raw) return UNREAD_START_FAILURE;
+    // The status texts are classified here and dropped: only the closed enum leaves this function.
+    const { texts, ...state } = raw;
+    return { ...state, refusalClass: classifyStartRefusal(texts), readTimedOut: false };
+}
+
+/** Flat receipt evidence for a Start that did not begin; every field null when the Start was not a failure. */
+export function startFailureEvidence(s: StartFailureState | null): Record<string, string | boolean | null> {
+    const v = s ?? { ...UNREAD_START_FAILURE, readTimedOut: false };
+    return {
+        refusalClass: v.refusalClass, runtimeState: v.runtimeState, sessionState: v.sessionState, persisted: v.persisted,
+        modelStatus: v.modelStatus, micStartPresent: v.micStartPresent, micStartDisabled: v.micStartDisabled,
+        recorderStopPresent: v.recorderStopPresent, repeatActionPresent: v.repeatActionPresent, repeatActionDisabled: v.repeatActionDisabled,
+        controllerState: v.controllerState, serviceState: v.serviceState, startFailureReadTimedOut: s ? s.readTimedOut : null,
+    };
+}
 
 export interface PracticeAgainEvidence {
     analyticsActionOpened: boolean | null; sameSetPending: boolean | null;
@@ -1018,7 +1543,41 @@ export interface PracticeAgainEvidence {
     afterStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
     /** #1258 (PM 5944997435): the practice action's content-free state before the click, and after a click that did not open /session. */
     actionBefore: PracticeActionState | null; actionAfter: PracticeActionState | null;
+    /** #1258 run 38298685079: did the short (save) take persist as a NEW session, read from the page's own attributes. */
+    saveTakePersisted: boolean | null; saveTakeNewSession: boolean | null;
+    /**
+     * #1258 (PM 6200778538) — the gate assertions that replace "no Finishing up copy at all": was the repeat action ever
+     * ENABLED while the honest "Finishing up" wait was still shown (a fence violation), and the four separately recorded
+     * timings. Null where not observed; `pressToWarmupDoneMs` is null when the product's native trace is unavailable.
+     */
+    enabledWhileHolding: boolean | null;
+    stopToSaveMs: number | null; saveToGateClearMs: number | null; pressToWarmupDoneMs: number | null; pressToRecordingMs: number | null;
+    /** Content-free page state when the review's repeat Start did not begin recording; null when it began or was not tried. */
+    startFailure: StartFailureState | null;
+    /**
+     * #1258 smoke run 38654466793 (PM 6181247850): the closed sub-step at which the SAVE take stopped progressing — the step
+     * being attempted when it failed. Null when the review was reached or the save take was never tried.
+     */
+    saveTakeFailedStep: PracticeSaveTakeStep | null;
+    /** Whether the save take's Start and Stop presses were actually completed (never inferred from teardown). */
+    saveTakeStartPressed: boolean; saveTakeStopPressed: boolean;
+    /** Content-free page state read BEFORE teardown when the save take did not reach the review (bounded; may be unread). */
+    saveTakeFailure: StartFailureState | null;
 }
+/** The save take's sub-steps, in order: mic ready → Start pressed → recording confirmed → Stop pressed → review shown. */
+export type PracticeSaveTakeStep = 'mic_ready' | 'start' | 'recording_started' | 'stop' | 'review';
+/**
+ * #1593 — the saved take's identity as the page reports it NOW (`data-session-persisted-id` / `data-session-persisted`).
+ * Read after the persistence wait; `saveTakeNewSession` is null while no id is reported.
+ */
+export async function savedTakeIdentity(
+    page: Pick<Page, 'evaluate'>, previousSessionId: string | null,
+): Promise<{ savedSessionId: string | null; saveTakePersisted: boolean; saveTakeNewSession: boolean | null }> {
+    const savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+    const saveTakePersisted = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted') === 'true');
+    return { savedSessionId, saveTakePersisted, saveTakeNewSession: savedSessionId !== null ? savedSessionId !== previousSessionId : null };
+}
+
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
     /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
@@ -1028,7 +1587,8 @@ export async function practiceAgainEvidence(
     const ev: PracticeAgainEvidence = {
         analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null,
         holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: null, savedSessionId: null,
-        actionBefore: null, actionAfter: null,
+        actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, enabledWhileHolding: null, stopToSaveMs: null, saveToGateClearMs: null, pressToWarmupDoneMs: null, pressToRecordingMs: null, startFailure: null,
+        saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null,
     };
     await page.goto(`/analytics/${sessionId}`);
     const practice = page.getByTestId('saved-review-practice');
@@ -1050,46 +1610,96 @@ export async function practiceAgainEvidence(
         const rail = page.getByTestId('focus-points-rail');
         const shown = await rail.waitFor({ timeout: 30_000 }).then(async () => {
             const rows = await rail.getByTestId(/^focus-point-\d+$/).all();
-            const labels = await Promise.all(rows.map(async (r) => (await r.innerText()).trim()));
+            // #1258 R6: the row's text starts with its numbered marker ("1", "2", …), so the label is read from the row's
+            // own label paragraph, never the whole row (run 38304068207 failed the same pending set on that prefix).
+            const labels = await Promise.all(rows.map((r) => r.locator('p').first().innerText({ timeout: 5_000 }).catch(() => '')));
             const statuses = await Promise.all(rows.map((r) => r.getAttribute('data-status')));
-            return rows.length === pointLabels.length
-                && pointLabels.every((l, i) => labels[i]?.startsWith(l))
-                && statuses.every((st) => st === 'pending');
+            return sameOrderedPendingSet(labels, statuses, pointLabels);
         }).catch(() => false);
         ev.sameSetPending = shown;
     }
+    // PM 6181247850: one catch used to cover the whole save take and lose which boundary failed. Each sub-step is now
+    // named before it is attempted, and the presses that actually completed are recorded.
+    let step: PracticeSaveTakeStep = 'mic_ready';
+    let savedAtForGate: number | null = null;
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
+        step = 'start';
         await startBenchmarkRecording(page, `${label}-save`);
+        ev.saveTakeStartPressed = true;
+        step = 'recording_started';
         await expectBenchmarkRecordingStarted(page, `${label}-save`);
         await page.waitForTimeout(7_000); // past the 5 s no-persist guard, so this take saves
-        await stopBenchmarkRecording(page, `${label}-save`);
+        step = 'stop';
+        // Codex P2 r4278702635: the flag is set when the CLICK resolves, inside the helper — so `stop` with the flag true
+        // means the click happened and the post-Stop settle failed; false means the click itself failed.
+        let stopClickedAt: number | null = null;
+        await stopBenchmarkRecording(page, `${label}-save`, undefined, () => { ev.saveTakeStopPressed = true; stopClickedAt = Date.now(); });
         onSaveTakeStopped?.();
+        step = 'review';
         await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });
         ev.reviewReached = true;
         ev.savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+        ev.saveTakePersisted = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted') === 'true');
+        ev.saveTakeNewSession = ev.savedSessionId !== null ? ev.savedSessionId !== sessionId : null;
+        // Stop → save: when the take is actually persisted (bounded; null when it never was within the wait).
+        // A timing is evidence only: its read can never change the step's outcome.
+        const savedAt = await Promise.resolve()
+            .then(() => page.waitForFunction(() => document.documentElement.getAttribute('data-session-persisted') === 'true',
+                null, { timeout: 60_000 }))
+            .then(() => Date.now()).catch(() => null);
+        ev.stopToSaveMs = stopClickedAt !== null && savedAt !== null ? savedAt - stopClickedAt : null;
+        savedAtForGate = savedAt;
+        // #1593 (Sam case-1 diagnosis, run 39136771332): the identity read above is a snapshot taken when the review
+        // appeared — BEFORE persistence (`saveTakePersisted:false` there while the take saved 7.9 s later). Re-read it after
+        // the bounded persistence wait, so downstream readers (the two-take coaching read, product markers) bind the take
+        // that was actually saved, never a stale pre-save value.
+        Object.assign(ev, await savedTakeIdentity(page, sessionId));
     } catch {
         ev.reviewReached = false;
+        ev.saveTakeFailedStep = step;
+        // Read WHY before teardown navigates away; a timed-out read stays marked unread and the failure stands.
+        ev.saveTakeFailure = await readStartFailureState(page).catch(() => UNREAD_START_FAILURE);
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-save`);
-        ev.reason = 'the practice take did not reach the completed-session review';
+        ev.reason = `the practice take did not reach the completed-session review (stopped at: ${step})`;
         return ev;
     }
     // The completed review's own repeat action, pressed as soon as it is offered.
     const again = page.getByTestId(product === 'focus_points' ? 'focus-points-retry' : 'verdict-practice-again');
     ev.holdSeen = (await page.getByText(FINISHING_UP).count()) > 0;
+    ev.enabledWhileHolding = false;
+    // The FENCE, observed: the action must never be enabled while the honest "Finishing up" wait is still shown.
     const watch = setInterval(() => {
-        void page.getByText(FINISHING_UP).count().then((n) => { if (n > 0) ev.holdSeen = true; }).catch(() => undefined);
+        void Promise.all([page.getByText(FINISHING_UP).count(), again.isEnabled().catch(() => false)]).then(([n, enabled]) => {
+            if (n > 0) ev.holdSeen = true;
+            if (n > 0 && enabled) ev.enabledWhileHolding = true;
+        }).catch(() => undefined);
     }, 250);
     const offeredAt = Date.now();
     try {
         await expect(again).toBeEnabled({ timeout: 15_000 });
         ev.afterActionEnabledMs = Date.now() - offeredAt;
+        ev.saveToGateClearMs = savedAtForGate !== null ? Math.max(0, Date.now() - savedAtForGate) : null;
+        // The product's own controller trace, armed just before the press, times press → warm-up done.
+        const pressPerf = await Promise.resolve().then(() => page.evaluate(() => {
+            const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
+            w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
+            return performance.now();
+        })).catch(() => null);
         const pressedAt = Date.now();
         await again.click();
         await expectBenchmarkRecordingStarted(page, `${label}-again`);
         ev.afterStartMs = Date.now() - pressedAt;
+        ev.pressToRecordingMs = ev.afterStartMs;
+        ev.pressToWarmupDoneMs = pressPerf === null ? null : await Promise.resolve().then(() => page.evaluate((from) => {
+            const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<{ t: number; event: string }> }).__NATIVE_BROWSER_TRACE__ ?? [];
+            const done = trace.find((e) => e.event === 'controller_warmup_done' && e.t >= from);
+            return done ? Math.round(done.t - from) : null;
+        }, pressPerf)).catch(() => null);
     } catch {
         clearInterval(watch);
+        // Read WHY before teardown navigates away (#1258 run 38298685079: the reason was swallowed here).
+        if (ev.afterActionEnabledMs !== null) ev.startFailure = await readStartFailureState(page);
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
         ev.reason = ev.afterActionEnabledMs === null ? 'the review\'s repeat action was not enabled within 15 s' : 'the repeat action did not begin recording';
         return ev;
@@ -1149,6 +1759,33 @@ export function practiceActionEvidence(ev: Pick<PracticeAgainEvidence, 'actionBe
 }
 
 /** Rows from one Practice-again pass: the Analytics action, the review's repeat action, and the microphone off. */
+export const REPEAT_START_ROW = 'review Practice again starts after the gate clears';
+/** Ceiling for the gate to clear after the take saved, and for recording to begin after the press. */
+export const REPEAT_START_CEILING_MS = 15_000;
+
+/**
+ * #1258 (PM ruling): an honest "Finishing up your last session" wait is allowed. The repeat action must stay fenced while
+ * it shows, the gate must clear, and recording must begin after the press. FAIL when the action was enabled while the wait
+ * showed, when the gate never cleared within the ceiling, or when recording did not begin within the ceiling.
+ */
+export function repeatStartVerdict(ev: Pick<PracticeAgainEvidence,
+    'afterActionEnabledMs' | 'afterStartMs' | 'holdSeen' | 'enabledWhileHolding' | 'reason'>): { status: 'PASS' | 'FAIL'; detail: string } {
+    if (ev.enabledWhileHolding === true) {
+        return { status: 'FAIL', detail: 'the repeat action was enabled while "Finishing up your last session" was still shown' };
+    }
+    if (ev.afterActionEnabledMs === null || ev.afterActionEnabledMs >= REPEAT_START_CEILING_MS) {
+        return { status: 'FAIL', detail: 'the start gate did not clear: the repeat action was not enabled within 15 s of the review' };
+    }
+    if (ev.afterStartMs === null) return { status: 'FAIL', detail: ev.reason ?? 'recording did not begin' };
+    if (ev.afterStartMs >= REPEAT_START_CEILING_MS) return { status: 'FAIL', detail: 'recording did not begin within 15 s of the press' };
+    return {
+        status: 'PASS',
+        detail: ev.holdSeen
+            ? 'the honest "Finishing up" wait kept the action fenced, the gate cleared, and recording began'
+            : 'the repeat action was offered at once and recording began',
+    };
+}
+
 export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'focus_points', ev: PracticeAgainEvidence): void {
     if (ev.analyticsActionOpened === null) {
         receipt.row('Analytics Practice again opens the product', 'HOLD', ev.reason ?? 'not reached');
@@ -1160,17 +1797,24 @@ export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'fo
             { sameSetPending: ev.sameSetPending, ...practiceActionEvidence(ev) });
     }
     if (ev.reviewReached !== true) {
-        receipt.row('review Practice again starts, no hold', 'HOLD', ev.reason ?? 'the completed-session review was not reached');
-        receipt.row('repeated take stopped, microphone off', 'HOLD', ev.reason ?? 'not reached', { liveTracksAfterStop: ev.liveTracksAfterStop });
+        // The sub-step and page state EXPLAIN an incomplete save take; they never turn it into PASS. A zero live-track count
+        // after teardown does not prove the repeated take stopped, so that row stays HOLD as well.
+        const saveTake = {
+            saveTakeFailedStep: ev.saveTakeFailedStep, saveTakeStartPressed: ev.saveTakeStartPressed, saveTakeStopPressed: ev.saveTakeStopPressed,
+            ...startFailureEvidence(ev.saveTakeFailure),
+        };
+        receipt.row(REPEAT_START_ROW, 'HOLD', ev.reason ?? 'the completed-session review was not reached', saveTake);
+        receipt.row('repeated take stopped, microphone off', 'HOLD', ev.reason ?? 'not reached', { liveTracksAfterStop: ev.liveTracksAfterStop, ...saveTake });
         return;
     }
-    const startOk = ev.afterStartMs !== null && !ev.holdSeen && (ev.afterActionEnabledMs ?? Infinity) < 5_000 && ev.afterStartMs < 15_000;
-    receipt.row('review Practice again starts, no hold', startOk ? 'PASS' : 'FAIL',
-        startOk ? 'the completed review\'s repeat action was offered at once and recording began, with no "Finishing up"'
-            : ev.holdSeen ? '"Finishing up" was shown after the take saved'
-                : ev.afterStartMs === null ? (ev.reason ?? 'recording did not begin')
-                    : (ev.afterActionEnabledMs ?? Infinity) >= 5_000 ? 'the repeat action stayed disabled after the take saved' : 'recording exceeded the 15 s ceiling',
-        { afterActionEnabledMs: ev.afterActionEnabledMs, afterStartMs: ev.afterStartMs, holdSeen: ev.holdSeen });
+    const verdict = repeatStartVerdict(ev);
+    receipt.row(REPEAT_START_ROW, verdict.status, verdict.detail,
+        {
+            afterActionEnabledMs: ev.afterActionEnabledMs, afterStartMs: ev.afterStartMs, holdSeen: ev.holdSeen,
+            enabledWhileHolding: ev.enabledWhileHolding, stopToSaveMs: ev.stopToSaveMs, saveToGateClearMs: ev.saveToGateClearMs,
+            pressToWarmupDoneMs: ev.pressToWarmupDoneMs, pressToRecordingMs: ev.pressToRecordingMs,
+            saveTakePersisted: ev.saveTakePersisted, saveTakeNewSession: ev.saveTakeNewSession, ...startFailureEvidence(ev.startFailure),
+        });
     const offOk = ev.stopped && ev.liveTracksAfterStop === 0;
     receipt.row('repeated take stopped, microphone off', offOk ? 'PASS' : 'FAIL',
         offOk ? 'the take stopped and every microphone track ended' : (ev.reason ?? 'the take could not be stopped'),
@@ -1184,7 +1828,7 @@ export function nextStartRows(receipt: RwtReceipt, next: Awaited<ReturnType<type
     receipt.row('next Start', startOk ? 'PASS' : 'FAIL',
         startOk ? 'the next take started without "Finishing up"'
             : !started ? (next.reason ?? 'the next Start did not begin') : next.holdSeen ? '"Finishing up" was shown' : 'the next Start exceeded the 15 s ceiling',
-        { nextStartMs: next.nextStartMs, holdSeen: next.holdSeen });
+        { nextStartMs: next.nextStartMs, holdSeen: next.holdSeen, ...startFailureEvidence(next.startFailure) });
     const offOk = next.stopped && next.liveTracksAfterStop === 0;
     receipt.row('next take stopped, microphone off', offOk ? 'PASS' : 'FAIL',
         offOk ? 'the take stopped and every microphone track ended'
@@ -1262,12 +1906,18 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     const action = page.getByTestId('post-save-review-session-link').or(page.getByTestId('saved-session-return-see-all')).first();
     if (!(await action.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false))) return result;
     await action.click();
-    result.actionClicked = await page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }).then(() => true).catch(() => false);
+    result.actionClicked = await page.waitForURL(url => {
+        const pathname = url.pathname.replace(/\/$/, '');
+        return pathname === '/progress' || pathname === '/analytics';
+    }, { timeout: 30_000 }).then(() => true).catch(() => false);
     const open = page.getByTestId(`open-session-detail-${sessionId}`).or(page.getByTestId(`open-session-detail-mobile-${sessionId}`)).first();
     result.listed = await open.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     if (!result.listed) return result;
     await open.click();
-    result.detailOpened = await page.waitForURL(new RegExp(`/analytics/${sessionId}`), { timeout: 30_000 }).then(() => true).catch(() => false);
+    result.detailOpened = await page.waitForURL(url => {
+        const pathname = url.pathname.replace(/\/$/, '');
+        return pathname === `/progress/${sessionId}` || pathname === `/analytics/${sessionId}`;
+    }, { timeout: 30_000 }).then(() => true).catch(() => false);
     const detail = page.getByTestId('session-detail-transcript');
     const shown = await detail.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     result.detailMatches = shown && savedDigest !== '' && sha256Hex(await detail.innerText()) === savedDigest;
@@ -1308,7 +1958,10 @@ export async function backFromProgressRestoresSession(page: Page, sessionId: str
     const result = { left: false, restored: false, idleShown: false, liveTracks: null as number | null, review: 'missing' as 'saved' | 'try_again' | 'not_available' | 'missing' };
     const progress = page.getByTestId('nav-analytics-link').first();
     if (!(await progress.click({ timeout: 20_000 }).then(() => true).catch(() => false))) return result;
-    result.left = await page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }).then(() => true).catch(() => false);
+    result.left = await page.waitForURL(url => {
+        const pathname = url.pathname.replace(/\/$/, '');
+        return pathname === '/progress' || pathname === '/analytics';
+    }, { timeout: 30_000 }).then(() => true).catch(() => false);
     if (!result.left) return result;
     await page.getByTestId('dashboard-heading').waitFor({ state: 'visible', timeout: 45_000 }).catch(() => undefined);
     await page.waitForTimeout(2_000); // past the session page's exit transition, as the person stayed on Progress
@@ -1391,14 +2044,13 @@ export function backFromProgressRows(receipt: RwtReceipt, b: Awaited<ReturnType<
  * recording journey where the `analytics_inventory` stage proves it was received. Navigates nowhere.
  */
 export async function openProductsMenuInPlace(page: Page): Promise<boolean> {
-    const desktop = page.getByTestId('nav-products-button');
-    const trigger = (await desktop.isVisible().catch(() => false)) ? desktop : page.getByTestId('nav-mobile-products-button');
-    const opened = await trigger.click({ timeout: 20_000 }).then(() => true).catch(() => false);
+    const resolved = await resolveProductsTrigger(page).catch(() => null);
+    const opened = resolved ? await resolved.trigger.click({ timeout: 20_000 }).then(() => true).catch(() => false) : false;
     await page.keyboard.press('Escape').catch(() => undefined);
     return opened;
 }
 
-export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof analyticsThroughActions>>): void {
+export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof analyticsThroughActions>>, externalCoaching = false): void {
     receipt.row('Analytics action', a.actionClicked && a.listed ? 'PASS' : 'FAIL',
         a.actionClicked ? (a.listed ? 'the on-screen Analytics action opened Analytics and it lists this session' : 'Analytics opened but does not list this session')
             : 'the post-save Analytics action was not shown or did not open Analytics');
@@ -1427,6 +2079,10 @@ export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof 
             { evidenceShown: after.evidenceShown, evidenceMatches: after.evidenceMatches });
         receipt.row('one practice action', a.coachingBefore.oneAction && after.oneAction ? 'PASS' : 'FAIL',
             after.oneAction ? 'exactly one practice action, with no competing Progress sentence or button' : 'zero or several practice actions, or a competing Progress action');
+    } else if (externalCoaching) {
+        for (const step of COACHING_DEPENDENT_ANALYTICS_ROWS) {
+            receipt.row(step, 'EXTERNAL', 'not exercised: the take has no saved coaching because the provider was unavailable (external, non-blocking per PO)');
+        }
     }
 }
 
@@ -1460,6 +2116,7 @@ export async function shareFeedbackRows(
     tap?: AnalyticsTap,
 ): Promise<string | null> {
     const since = new Date(Date.now() - 1_000).toISOString();
+    const feedbackBefore = tap?.sent('feedback_submit').length ?? 0;
     await page.getByTestId('nav-report-issue-button').first().click();
     await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('feedback-type-praise').click();
@@ -1468,6 +2125,10 @@ export async function shareFeedbackRows(
     await page.getByTestId('issue-report-submit').click();
     const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
         .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+    // #1258 R8: before the next step navigates away, wait (bounded) until the tap has observed this submission's
+    // feedback_submit events — `attempted` plus its outcome — so they leave on an ordinary flush, not at unload.
+    const settled = tap ? await tap.awaitObserved(page, { feedback_submit: feedbackBefore + (acknowledged ? 2 : 1) }) : null;
+    if (settled) receipt.meta.feedbackTelemetryObserved = settled.observed;
     const { data, error } = await admin.from('user_issue_reports').select('id').eq('user_id', uid).gte('created_at', since);
     if (error) throw new Error(`feedback read failed (fail closed): ${error.code ?? 'unknown'}`);
     const storedOnce = data?.length === 1;
@@ -1553,13 +2214,84 @@ const OMISSION_CLAIM = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t 
  * request is marked focus_points, and neither phrase claims a point was missed or skipped. Relevance to the chosen
  * points stays a human judgement (HOLD). Text is compared in Node and returned only for the Analytics comparison.
  */
+/** #1258 R3b: one coaching phrase by its test id, inside the card, bounded; '' when it is not there. */
+export const COACHING_PHRASE_READ_MS = 5_000;
+export async function readCoachingPhrase(card: Locator, testId: 'review-what-went-well' | 'review-try-next'): Promise<string> {
+    const node = card.getByTestId(testId).first();
+    if ((await node.count().catch(() => 0)) === 0) return '';
+    return (await node.innerText({ timeout: COACHING_PHRASE_READ_MS }).catch(() => '')).trim();
+}
+
+/**
+ * #1258 (Codex P1 r4277621600, PM 6182054477) — a BOUNDED tri-state observation of one review phrase node (the shared
+ * `PracticeLoopReviewPair` test ids). `absent` only when the node count is a proved zero; `present` when the node exists
+ * and its text was read; `unreadable` when the count or the text read failed, timed out or the node detached. Unlike
+ * `readCoachingPhrase`, an error is never collapsed into '' — so it can never be taken for a confirmed absence. The text
+ * itself is not returned (nothing visible is written to a receipt).
+ */
+export type PhraseObservation = 'absent' | 'present' | 'unreadable';
+export async function observeCoachingPhrase(card: Locator, testId: 'review-what-went-well' | 'review-try-next'): Promise<PhraseObservation> {
+    const nodes = card.getByTestId(testId);
+    const count = await Promise.race([
+        nodes.count(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('phrase count timed out')), COACHING_PHRASE_READ_MS)),
+    ]).catch(() => null);
+    if (count === null) return 'unreadable';
+    if (count === 0) return 'absent';
+    return nodes.first().innerText({ timeout: COACHING_PHRASE_READ_MS }).then(() => 'present' as const).catch(() => 'unreadable' as const);
+}
+
+/** Confirmed VISIBLE absence of both phrases: true only when both are proved absent; false if either is shown; else unknown. */
+export function visibleCoachingAbsence(well: PhraseObservation, next: PhraseObservation): boolean | null {
+    if (well === 'present' || next === 'present') return false;
+    return well === 'absent' && next === 'absent' ? true : null;
+}
+
+/**
+ * #1258 (PM 6171519534) — the review card's own handling of a failed generation, read without pressing anything (a
+ * press would be another provider request). Bounded reads; a missing control reads as not shown / not enabled.
+ */
+export async function readCoachingFailureUi(card: Locator): Promise<{ unavailableShown: boolean; retryEnabled: boolean }> {
+    const headline = card.getByTestId('ai-suggestions-headline');
+    const shown = (await headline.innerText({ timeout: 5_000 }).catch(() => '')).trim();
+    const retry = card.getByTestId('ai-suggestions-retry');
+    const visible = await retry.isVisible().catch(() => false);
+    const enabled = visible && await retry.isEnabled({ timeout: 5_000 }).catch(() => false);
+    const label = visible ? (await retry.innerText({ timeout: 5_000 }).catch(() => '')).trim() : '';
+    return { unavailableShown: shown === UNAVAILABLE_HEADLINE, retryEnabled: enabled && label === 'Try again' };
+}
+
+/**
+ * #1258 (Codex P1 r4277023741, PM 6180080622) — the FIRST-TAKE save proof for the Focus suites. Their account is a fresh
+ * run-owned account and this checkpoint runs before Practice-again or any product switch, so the account must hold
+ * EXACTLY ONE completed session, and it must be this take's exact owner/session row. A count filtered by the session id
+ * could never see a duplicate saved under a second id. Any read error, null count, missing row or duplicate is NOT
+ * proven — it can never authorize EXTERNAL.
+ */
+export async function firstTakeSavedExactlyOnce(admin: SupabaseClient, uid: string, sessionId: string): Promise<{
+    proven: boolean; accountCompletedSessions: number | null; thisTakeCompleted: boolean | null;
+}> {
+    const account = await admin.from('sessions').select('id', { count: 'exact', head: true })
+        .eq('user_id', uid).eq('status', 'completed');
+    const accountCompletedSessions = account.error || typeof account.count !== 'number' ? null : account.count;
+    const own = await admin.from('sessions').select('id').eq('id', sessionId).eq('user_id', uid).eq('status', 'completed').maybeSingle();
+    const thisTakeCompleted = own.error ? null : (own.data as { id?: unknown } | null)?.id === sessionId;
+    return { proven: accountCompletedSessions === 1 && thisTakeCompleted === true, accountCompletedSessions, thisTakeCompleted };
+}
+
 export async function focusCoachingRows(
     page: Page,
     receipt: RwtReceipt,
     admin: SupabaseClient,
     sessionId: string,
     uid: string,
-    request: { product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null },
+    request: {
+        product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null;
+        /** #1258 (PM 6173420642 §3): the request-boundary authority — each exchange is its own request/response tuple. */
+        generations?: CoachingGenerationTap;
+        /** #1258 R4: the set's labels and the rail's final statuses, so the advice can be checked against an open point. */
+        openPoints?: { labels: readonly string[]; statuses: readonly (string | null)[] };
+    },
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
     const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
@@ -1568,24 +2300,58 @@ export async function focusCoachingRows(
     // The failure response arrives during the terminal wait above, so its reason is settled HERE, after that wait and
     // before any row is written (Codex r4189408865). A read still pending at the bound is UNKNOWN, never `null`.
     if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;
-    const phrase = async (headings: readonly string[]): Promise<string> => {
-        for (const heading of headings) {
-            const title = card.getByRole('heading', { name: heading, exact: true });
-            if ((await title.count()) === 0) continue;
-            return (await card.locator('div', { has: title }).last().locator('p').first().innerText().catch(() => '')).trim();
-        }
-        return '';
-    };
-    const well = await phrase(['What went well']);
-    const next = await phrase(['Try this next run', 'What to try next']);
+    // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body. An
+    // exchange still unread at the bound is simply absent, so nothing is proved from it.
+    // #1474 (Codex r4305107827, Sam 6243698211): read through the tap's own bounded settle; a 5 s cap read early.
+    const take = takeExchangeEvidence(request.generations ? await request.generations.settledForSession(sessionId) : []);
+    // #1258 R3b (run 38308997906 hung 24 min here): read each phrase from the review pair's own test id, bounded. The old
+    // heading → div → <p> walk waited without limit when its structure did not resolve. A phrase that is absent reads as
+    // '' and the row below FAILs; the rendered-vs-saved check is unchanged.
+    const phrase = (testId: 'review-what-went-well' | 'review-try-next') => readCoachingPhrase(card, testId);
+    const well = await phrase('review-what-went-well');
+    const next = await phrase('review-try-next');
     const two = terminal && state === 'ready' && well !== '' && next !== '';
-    receipt.row('Focus coaching rendered', two ? 'PASS' : 'FAIL',
-        two ? 'two coaching phrases rendered after Stop without any click' : `coaching did not render (state=${String(state)}, http=${String(request.status)})`,
-        { reviewState: state, httpStatus: request.status, failureReason: request.reason ?? null });
+    // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage that the app handled gracefully is EXTERNAL, never PASS.
+    // Codex P1 r4277023741: exactly one completed save on the fresh run-owned account, and it is this take's row.
+    const firstSave = two ? null : await firstTakeSavedExactlyOnce(admin, uid, sessionId);
+    const savedTakeProven = firstSave?.proven ?? false;
+    const ui = two ? { unavailableShown: false, retryEnabled: false } : await readCoachingFailureUi(card);
+    // External proof comes ONLY from this take's exchange tuple; without one, nothing is proved.
+    const parent = coachingParentVerdict({
+        rendered: two,
+        evidence: take.evidence,
+        graceful: { savedTakeProven, reviewState: state, ...ui, requestBoundToSession: take.unique },
+    });
+    receipt.row('Focus coaching rendered', parent.verdict,
+        two ? 'two coaching phrases rendered after Stop without any click' : parent.detail,
+        { reviewState: state, httpStatus: take.unique ? take.evidence.httpStatus : request.status, failureReason: take.unique ? take.evidence.reason : request.reason ?? null,
+            providerStatus: take.evidence.providerStatus, externalOutcome: parent.external, savedTakeProven: two ? null : savedTakeProven,
+            accountCompletedSessions: firstSave?.accountCompletedSessions ?? null, thisTakeCompleted: firstSave?.thisTakeCompleted ?? null,
+            unavailableShown: two ? null : ui.unavailableShown, retryEnabled: two ? null : ui.retryEnabled, takeExchangeUnique: take.unique });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
-    if (!two) return null;
+    // PM 6171519534 §4: request provenance is judged on its own, on every path — never waived by an external outcome.
+    const binding = request.generations
+        ? coachingRequestBindingRow(request.generations, sessionId)
+        : { verdict: 'HOLD' as const, detail: 'no coaching request record was attached', bound: null };
+    receipt.row('Focus coaching request bound to this take', binding.verdict, binding.detail, { requestBoundToSession: binding.bound });
+    if (!two) {
+        if (parent.verdict === 'EXTERNAL') {
+            // PM 6173420642 §1: the exact owner/session saved coaching is read BEFORE any row may be "not exercised" — an
+            // answer saved for a failed request is FAIL, an unreadable one is unproven. The human check stays unobserved.
+            const rows = await focusExternalDependentRows(parent, async () => {
+                const { data, error: savedErr } = await admin.from('sessions').select('ai_suggestions').eq('id', sessionId).eq('user_id', uid).single();
+                if (savedErr) return { ok: false as const };
+                return { ok: true as const, raw: (data as { ai_suggestions?: unknown } | null)?.ai_suggestions ?? null };
+            }, // Codex P1 r4277621600: a bounded tri-state read of the shared review-pair nodes — unreadable is never absence.
+            visibleCoachingAbsence(await observeCoachingPhrase(card, 'review-what-went-well'), await observeCoachingPhrase(card, 'review-try-next')));
+            for (const r of rows) receipt.row(r.step, r.verdict, r.detail, r.evidence);
+            humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
+                'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');
+        }
+        return null;
+    }
     const inTarget = (n: number) => n >= COACHING_PHRASE_TARGET_MIN_WORDS && n <= COACHING_PHRASE_TARGET_WORDS;
     const withinTarget = inTarget(countWords(well)) && inTarget(countWords(next));
     receipt.row('Focus coaching length', 'PASS',
@@ -1597,6 +2363,14 @@ export async function focusCoachingRows(
     const claims = OMISSION_CLAIM.test(well) || OMISSION_CLAIM.test(next);
     receipt.row('Focus coaching makes no omission claim', claims ? 'FAIL' : 'PASS',
         claims ? 'a phrase claims a point was missed or skipped (the matcher cannot know that)' : 'neither phrase claims a point was missed or skipped');
+    // #1258 R4: the provider schema's own ceiling, and an evident reference to a point that is still open (never a FAIL on
+    // wording: the human check decides when no open point is named).
+    const ceiling = characterCeilingVerdict(well, next);
+    receipt.row('Focus coaching within the character ceiling', ceiling.status, ceiling.detail, { wellChars: well.length, nextChars: next.length });
+    const openPoint = request.openPoints
+        ? openPointReferenceVerdict({ well, next, labels: request.openPoints.labels, statuses: request.openPoints.statuses })
+        : { status: 'HOLD' as const, detail: 'the rail\'s final statuses were not supplied' };
+    receipt.row('Focus coaching refers to an open point', openPoint.status, openPoint.detail);
     humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
         'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');
 

@@ -109,7 +109,7 @@ test.describe('Live page-aware Issue Report context (#1018, free account)', () =
     await page.getByTestId(TEST_IDS.EMAIL_INPUT).fill(FREE_EMAIL);
     await page.getByTestId(TEST_IDS.PASSWORD_INPUT).fill(FREE_PASSWORD);
     await page.getByTestId(TEST_IDS.SIGN_IN_SUBMIT).click();
-    await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 20000 });
   }
 
   // Open Report Issue on the current page and submit a marked, content-free report. Also verifies the
@@ -173,13 +173,14 @@ test.describe('Live page-aware Issue Report context (#1018, free account)', () =
 
     const analytics = by('analytics');
     expect(analytics.metadata.pageKey).toBe('analytics');
-    expect(analytics.metadata.canonicalRoute).toBe('/analytics');
+    // #1548: these pages are reached by the canonical /progress routes (ROUTES.ANALYTICS / analyticsWithSession).
+    expect(analytics.metadata.canonicalRoute).toBe('/progress');
     expect(analytics.session_id).toBeNull();
 
     const owned = by('owned');
     expect(owned.metadata.pageKey).toBe('analytics_session');
-    expect(owned.metadata.canonicalRoute).toBe('/analytics/:sessionId');
-    expect(owned.page_url).toBe('/analytics/:sessionId');
+    expect(owned.metadata.canonicalRoute).toBe('/progress/:sessionId');
+    expect(owned.page_url).toBe('/progress/:sessionId');
     // The concrete UUID lives ONLY in session_id — never in page_url or metadata.
     expect(owned.session_id).toBe(ownedSessionId);
     expect(owned.page_url).not.toContain(ownedSessionId);

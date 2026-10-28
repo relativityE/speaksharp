@@ -2,6 +2,14 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 import coachingContract from './contract.json' with { type: 'json' };
+import {
+  coachingErrorDescriptor, get_error_string, decodeProviderAnswer, decodeProviderError, readBoundedBody,
+  type ProviderAnswerCodes, type ProviderErrorCodes,
+} from './providerDecode.ts';
+import {
+  attemptTimeoutMs, canAdmitAttempt, isRetryableProviderStatus, MAX_PROVIDER_ATTEMPTS, parseRetryAfter, planNextAttempt,
+  realProviderRetryRuntime, type ProviderRetryRuntime, type RetryAfter,
+} from './providerRetry.ts';
 
 // #1416 — the original `gemini-3-flash-preview` endpoint was a PREVIEW channel and could disappear
 // inside a sprint. The selected stable model is pinned in contract.json; runtime URL construction uses
@@ -65,11 +73,15 @@ export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
  * their last slot the retry answers 429 — reporting a limit they never reached for what was a provider
  * outage. Retrying INSIDE the one consumption is the only place a second provider attempt costs nothing.
  *
- * Two attempts, and only for a failure another attempt could actually change: a transport error, or a 5xx
- * the provider itself served. A 4xx is our request and will be refused identically. A 200 whose body fails
- * `parseSuggestions` is a contract violation, not a blip, and is answered rather than re-asked.
+ * Only for a failure another attempt could actually change. #1258 option A (PM 6156942445): up to three attempts
+ * inside one 45 s budget, with jittered backoff and the provider's own `Retry-After` — the whole policy, and the retry
+ * set (408, 429, 5xx, transport, timeout), lives in `providerRetry.ts`. A 200 whose body fails `parseSuggestions` is a
+ * contract violation, not a blip, and is answered rather than re-asked.
  */
-export const AI_PROVIDER_ATTEMPTS = 2;
+export const AI_PROVIDER_ATTEMPTS = MAX_PROVIDER_ATTEMPTS;
+
+/** The retry policy's clock, randomness and sleep. Tests replace `runtime`; production uses the real one. */
+export const providerRetryHooks: { runtime: ProviderRetryRuntime } = { runtime: realProviderRetryRuntime };
 
 const MAX_TRANSCRIPT_CHARS = 8000;
 // #1424 A1. Lowered from 20 with #1422's P2-4 in view: the review now fires automatically at post-save
@@ -153,12 +165,6 @@ const SESSION_EVIDENCE_COLUMNS =
 const isMissingProductColumn = (error: { code?: string; message?: string } | null | undefined): boolean =>
   Boolean(error && (error.code === '42703' || error.code === 'PGRST204') && /product/.test(error.message ?? ''));
 
-/** Only deployment skew (Edge published before its migration) may use the legacy authenticated write. */
-function authorityRpcUnavailable(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const code = (error as { code?: unknown }).code;
-  return code === 'PGRST202' || code === '42883';
-}
 /**
  * `enforceCharacterCeiling` separates two jobs this parser does, which are not the same contract (Codex P1).
  *
@@ -213,19 +219,23 @@ export type CoachingFailureReason =
   | 'missing_text'
   | 'invalid_shape'
   | 'over_character_ceiling'
-  | 'missing_model_version';
+  | 'missing_model_version'
+  /** #1258 option A: the caller went away during an attempt or a wait. No further attempt, nothing persisted. */
+  | 'request_cancelled'
+  /** #1258 (PM 6203482045): an answer ARRIVED (its status is recorded) but its body could not be parsed. Retryable. */
+  | 'provider_malformed_response';
 
 const DIAGNOSTIC_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_MODEL_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const SHA256_HEX = /^[0-9a-f]{64}$/i;
 const CLIENT_RELEASE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
-const PROVIDER_TIMEOUT_MS = 20_000;
 const DIAGNOSTIC_REASONS = new Set([
   'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
   'focus_context_unavailable', 'focus_results_pending', 'transcript_unavailable', 'product_unknown', 'service_configuration',
   'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded', 'provider_http_4xx',
   'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
   'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed', 'internal_error',
+  'request_cancelled', 'provider_malformed_response',
 ]);
 
 type DiagnosticSource = 'fresh' | 'cache' | 'unknown';
@@ -473,12 +483,29 @@ export async function handler(
   let providerAttempts = 0;
   let providerDurationMs = 0;
   let providerStatus: number | null = null;
+  // #1258 (PO 2026-10-12): the provider's own closed codes for the last attempt, and every attempt's outcome.
+  let providerErrorCodes: ProviderErrorCodes | null = null;
+  let providerAnswerCodes: ProviderAnswerCodes | null = null;
+  const providerAttemptLog: Array<{ reason: string; status: number | null; ms: number }> = [];
+  // #1258 option A: content-free retry facts — never the header's raw value.
+  let providerWaitMs = 0;
+  let retryAfterPresent = false;
+  let retryAfterMalformed = false;
+  let retryAfterS: number | null = null;
+  let stoppedOverBudget = false;
   let promptSha256: string | null = null;
   // Response-only binding for the private evidence collector. Do not include this in the content-free
   // diagnostic log or any telemetry: it is a stable pseudonymous link to the selected authenticated row.
   let sessionBindingSha256: string | null = null;
+  // A durable account admission precedes quota/provider work. Unknown external or commit
+  // outcomes remain fenced; a disconnected browser is not proof that work settled.
+  let coachingAdmission: { p_user_id: string; p_session_id: string; p_operation_id: string } | null = null;
+  let coachingPersisted = false;
+  let coachingOutcomeUnknown = false;
   const finish = (payload: Record<string, unknown>, status: number): Response => {
     const rawReason = closedDiagnosticReason(payload, status, diagnosticPhase);
+    const errorDescriptor = status >= 200 && status < 300 ? null
+      : coachingErrorDescriptor(rawReason, providerStatus, providerErrorCodes);
     const diagnostic = {
       schema_version: 'coaching_diagnostic_v1',
       request_id: diagnosticRequestId,
@@ -501,13 +528,43 @@ export async function handler(
       product: diagnosticProduct,
       has_session: hasSession,
       client_release_id: clientReleaseId,
+      // #1258 (PO 2026-10-12): the provider's own closed codes (last attempt) and each attempt's outcome. Flat scalars,
+      // so the client's telemetry allowlist can carry every field (nested values are dropped there).
+      provider_error_status: providerErrorCodes?.error_status ?? null,
+      provider_error_reason: providerErrorCodes?.error_reason ?? null,
+      provider_finish_reason: providerAnswerCodes?.finish_reason ?? null,
+      provider_block_reason: providerAnswerCodes?.block_reason ?? null,
+      provider_prompt_tokens: providerAnswerCodes?.prompt_tokens ?? null,
+      provider_output_tokens: providerAnswerCodes?.output_tokens ?? null,
+      provider_thinking_tokens: providerAnswerCodes?.thinking_tokens ?? null,
+      provider_total_tokens: providerAnswerCodes?.total_tokens ?? null,
+      attempt_1_reason: providerAttemptLog[0]?.reason ?? null,
+      attempt_1_status: providerAttemptLog[0]?.status ?? null,
+      attempt_1_ms: providerAttemptLog[0]?.ms ?? null,
+      attempt_2_reason: providerAttemptLog[1]?.reason ?? null,
+      attempt_2_status: providerAttemptLog[1]?.status ?? null,
+      attempt_2_ms: providerAttemptLog[1]?.ms ?? null,
+      attempt_3_reason: providerAttemptLog[2]?.reason ?? null,
+      attempt_3_status: providerAttemptLog[2]?.status ?? null,
+      attempt_3_ms: providerAttemptLog[2]?.ms ?? null,
+      provider_wait_ms_total: Math.min(600_000, Math.max(0, Math.round(providerWaitMs))),
+      retry_after_present: retryAfterPresent,
+      retry_after_malformed: retryAfterMalformed,
+      retry_after_s: retryAfterS,
+      stopped_over_budget: stoppedOverBudget,
     };
     // Structured, content-free log line is the fallback diagnostic path when Sentry is absent.
     console.info('AI_COACHING_DIAGNOSTIC', JSON.stringify(diagnostic));
-    const responseDiagnostic = sessionBindingSha256
+    const boundDiagnostic = sessionBindingSha256
       ? { ...diagnostic, session_binding_sha256: sessionBindingSha256 }
       : diagnostic;
-    return new Response(JSON.stringify({ ...payload, diagnostics: responseDiagnostic }), {
+    const responseDiagnostic = errorDescriptor
+      ? { ...boundDiagnostic, error_descriptor: errorDescriptor } : boundDiagnostic;
+    // Preserve existing closed wire codes; the display string is always catalog-owned.
+    const responsePayload = errorDescriptor ? { ...payload,
+      code: typeof payload.code === 'string' ? payload.code : rawReason,
+      error: get_error_string(errorDescriptor) } : payload;
+    return new Response(JSON.stringify({ ...responsePayload, diagnostics: responseDiagnostic }), {
       headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status,
     });
@@ -729,6 +786,18 @@ export async function handler(
       return finish({ error: 'AI coaching is unavailable right now. Please try again.', code: 'service_configuration' }, 503);
     }
 
+    const operationIdentity = { p_user_id: userId, p_session_id: sessionId, p_operation_id: crypto.randomUUID() };
+    const { data: admission, error: admissionError } = await createServiceRoleSupabase().rpc(
+      'begin_account_coaching_v1', operationIdentity,
+    );
+    if (admissionError || admission?.admitted !== true || admission.operationId !== operationIdentity.p_operation_id) {
+      if (!admissionError && admission?.admitted === false && admission.reason === 'account_closure_pending') {
+        return finish({ error: 'Account closure is pending. New coaching is unavailable.', code: 'account_closure_pending', reason: 'access_denied' }, 423);
+      }
+      return finish({ error: 'Unable to verify account access for new coaching. Please try again.', code: 'account_admission_unverified', reason: 'authority_unverified' }, 503);
+    }
+    coachingAdmission = operationIdentity;
+
     diagnosticPhase = 'quota';
     const { data: quota, error: quotaError } = await supabaseClient.rpc('consume_ai_suggestion_quota', {
       p_limit: AI_SUGGESTION_DAILY_LIMIT,
@@ -760,62 +829,163 @@ export async function handler(
     let suggestions: AISuggestions | null = null;
     let failureReason: CoachingFailureReason | null = null;
 
+    // #1258 option A: ONE budget, started immediately before attempt 1, covering every attempt and every wait.
+    const retryRuntime = providerRetryHooks.runtime;
+    const budgetStartedAt = retryRuntime.now();
+    const callerSignal = req.signal;
+    let callerAborted = false;
+
     for (let providerAttempt = 1; providerAttempt <= AI_PROVIDER_ATTEMPTS; providerAttempt += 1) {
       providerAttempts = providerAttempt;
-      // Only a transport error or a provider 5xx earns the second attempt. Set where the failure is known.
+      // Only a failure in the retry set earns another attempt (`providerRetry.ts`). Set where the failure is known.
       let providerFailureIsRetryable = false;
+      let retryAfter: RetryAfter = { kind: 'absent' };
+      // This attempt's own timeout, kept so its abort can be told apart from the caller's and from a malformed body.
+      const attemptTimeout = retryRuntime.timeout(attemptTimeoutMs(retryRuntime.now() - budgetStartedAt));
       // Each attempt states its own outcome; the reason reported is the last attempt's.
       suggestions = null;
       failureReason = null;
       providerStatus = null;
+      providerErrorCodes = null;
+      providerAnswerCodes = null;
       const providerStartedAt = performance.now();
       try {
         const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+          // The caller's own abort and this attempt's timeout, composed — and told apart below by which one fired.
+          signal: AbortSignal.any([callerSignal, attemptTimeout]),
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: GEMINI_GENERATION_CONFIG,
           }),
         });
+        // #1258 (Codex P2 r4288823216): a received answer's status is known the moment fetch resolves, before either
+        // body is read, so a malformed or truncated body still reports the status that actually arrived.
+        providerStatus = geminiResponse.status;
 
         if (!geminiResponse.ok) {
-          // #1258 (PM 5953504835): the provider's error BODY is never read or logged — the closed reason and the
-          // numeric status classify the failure; the body can echo anything the provider chose to return.
-          await geminiResponse.body?.cancel().catch(() => undefined);
-          console.error('Gemini API request failed.', JSON.stringify({ status: geminiResponse.status, attempt: providerAttempt }));
-          providerFailureIsRetryable = geminiResponse.status >= 500;
-          providerStatus = geminiResponse.status;
+          // Header only, read for the wait decision and never logged or returned in raw form.
+          retryAfter = parseRetryAfter(geminiResponse.headers.get('retry-after'), retryRuntime.wallNow());
+          // #1258 (PM 5953504835): the provider's error body can echo anything, so it is never logged or returned.
+          // PO 2026-10-12: it is DECODED instead — only `error.status` and the ErrorInfo `reason`, each kept only when
+          // it belongs to its closed vocabulary (providerDecode.ts); the message and every other field are not read.
+          providerErrorCodes = decodeProviderError(await readBoundedBody(geminiResponse));
+          console.error('Gemini API request failed.', JSON.stringify({
+            status: geminiResponse.status, attempt: providerAttempt,
+            error_status: providerErrorCodes.error_status, error_reason: providerErrorCodes.error_reason,
+          }));
+          providerFailureIsRetryable = isRetryableProviderStatus(geminiResponse.status);
           failureReason = geminiResponse.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
         } else {
-          const responseData = await geminiResponse.json();
-          const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
-          observedProviderModel = typeof responseData?.modelVersion === 'string'
-            && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
-            ? responseData.modelVersion
-            : null;
-          providerStatus = geminiResponse.status;
-          // The model's FRESH answer — the one place the budget is enforced.
-          const classified = classifyGeneratedSuggestions(rawText);
-          if ('suggestions' in classified) suggestions = classified.suggestions;
-          else failureReason = classified.reason;
-          if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
+          // #1258 (PM 6203482045): a received answer whose body is malformed or truncated is NOT a transport failure — its
+          // status already arrived. Named for what it is; still retryable (a truncated body is typically transient).
+          let responseData: Awaited<ReturnType<Response['json']>> | null = null;
+          try {
+            responseData = await geminiResponse.json();
+          } catch {
+            coachingOutcomeUnknown = true;
+            if (callerSignal.aborted) {
+              // PM 6206983551: the CALLER left while the received answer was being read — a cancellation, never a
+              // retryable malformed answer. The received status stays in the attempt evidence.
+              callerAborted = true;
+              failureReason = 'request_cancelled';
+            } else if (attemptTimeout.aborted) {
+              // Codex P2 r4290479629: headers arrived, then the BODY stalled past this attempt's timeout — a provider
+              // timeout, not a malformed answer. Retryable; the received status stays in the attempt evidence.
+              providerFailureIsRetryable = true;
+              failureReason = 'provider_timeout';
+            } else {
+              providerFailureIsRetryable = true;
+              failureReason = 'provider_malformed_response';
+            }
+          }
+          if (responseData !== null) {
+            providerAnswerCodes = decodeProviderAnswer(responseData);
+            const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+            observedProviderModel = typeof responseData?.modelVersion === 'string'
+              && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
+              ? responseData.modelVersion
+              : null;
+            // The model's FRESH answer — the one place the budget is enforced.
+            const classified = classifyGeneratedSuggestions(rawText);
+            if ('suggestions' in classified) suggestions = classified.suggestions;
+            else failureReason = classified.reason;
+            if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
+          }
         }
       } catch (error) {
+        coachingOutcomeUnknown = true;
         // #1258: the error NAME only. A fetch error's message can carry the request URL, and this URL carries the API key.
         const errorName = error instanceof Error ? error.name : 'unknown';
-        const timedOut = errorName === 'TimeoutError' || errorName === 'AbortError';
         console.error('Gemini API request failed.', JSON.stringify({ error: errorName, attempt: providerAttempt }));
-        providerFailureIsRetryable = true;
-        failureReason = timedOut ? 'provider_timeout' : 'provider_transport';
+        if (callerSignal.aborted) {
+          // The CALLER went away — not a provider timeout, and not retryable: no one is waiting for the answer.
+          callerAborted = true;
+          failureReason = 'request_cancelled';
+        } else {
+          const timedOut = errorName === 'TimeoutError' || errorName === 'AbortError';
+          providerFailureIsRetryable = true;
+          failureReason = timedOut ? 'provider_timeout' : 'provider_transport';
+        }
       } finally {
-        providerDurationMs += Math.max(0, performance.now() - providerStartedAt);
+        const attemptMs = Math.max(0, performance.now() - providerStartedAt);
+        providerDurationMs += attemptMs;
+        providerAttemptLog.push({
+          reason: failureReason ?? (suggestions ? 'none' : 'invalid_shape'),
+          status: providerStatus,
+          ms: Math.min(600_000, Math.round(attemptMs)),
+        });
       }
 
       // A complete answer ends the loop. So does a failure a second ask cannot change.
       if (suggestions && observedProviderModel) break;
       if (!providerFailureIsRetryable) break;
+
+      if (retryAfter.kind !== 'absent') {
+        retryAfterPresent = true;
+        retryAfterMalformed = retryAfter.kind === 'malformed';
+        retryAfterS = retryAfter.kind === 'valid' ? Math.min(60, Math.round(retryAfter.ms / 1000)) : null;
+      }
+      const step = planNextAttempt({
+        attemptsDone: providerAttempt,
+        elapsedMs: retryRuntime.now() - budgetStartedAt,
+        retryAfter,
+        random: retryRuntime.random(),
+      });
+      // Out of attempts or budget: stop WITHOUT sleeping, keeping the last attempt's failure.
+      if (step.kind === 'stop') {
+        stoppedOverBudget = step.why !== 'attempt_cap';
+        break;
+      }
+      if (step.ms > 0) {
+        // Codex P2 r4290479635: the wait actually spent (a late wake included), not the wait requested.
+        const sleepStartedAt = retryRuntime.now();
+        const slept = await retryRuntime.sleep(step.ms, callerSignal);
+        providerWaitMs += Math.max(0, retryRuntime.now() - sleepStartedAt);
+        if (!slept) {
+          callerAborted = true;
+          failureReason = 'request_cancelled';
+          break;
+        }
+      }
+      // PM 6206983551: re-admit with the FRESH remaining time — a late wake can leave less than an attempt needs, or none.
+      // Stop without fetching, keeping the prior failure. A caller who left during the wait is checked here too.
+      if (callerSignal.aborted) {
+        callerAborted = true;
+        failureReason = 'request_cancelled';
+        break;
+      }
+      if (!canAdmitAttempt(retryRuntime.now() - budgetStartedAt)) {
+        stoppedOverBudget = true;
+        break;
+      }
+    }
+
+    // Do not start more provider work after cancellation. A fully received valid answer,
+    // however, completes its already-admitted save even if the browser has since left.
+    if ((callerAborted || callerSignal.aborted) && (!suggestions || !observedProviderModel)) {
+      return finish({ error: 'AI coaching request was cancelled.', reason: 'request_cancelled' }, 499);
     }
 
     // #1538: a pair generated from the saved Focus results carries that provenance in its version.
@@ -826,7 +996,12 @@ export async function handler(
     if (!suggestions || !observedProviderModel) {
       const reason: CoachingFailureReason = failureReason ?? (suggestions ? 'missing_model_version' : 'invalid_shape');
       // Content-free: the closed reason and the provider's numeric status only (#1258).
-      console.error('Gemini response did not contain valid suggestions JSON.', JSON.stringify({ reason, providerStatus }));
+      console.error('Gemini response did not contain valid suggestions JSON.', JSON.stringify({
+        reason, providerStatus,
+        error_status: providerErrorCodes?.error_status ?? null, error_reason: providerErrorCodes?.error_reason ?? null,
+        finish_reason: providerAnswerCodes?.finish_reason ?? null, block_reason: providerAnswerCodes?.block_reason ?? null,
+        attempts: providerAttemptLog.map((a) => `${a.reason}:${a.status ?? 'none'}:${a.ms}`).join(','),
+      }));
       return finish({ error: 'AI coaching could not be generated. Please try again.', reason }, 502);
     }
 
@@ -842,9 +1017,14 @@ export async function handler(
     diagnosticPhase = 'persist';
     // Persist the coaching value and its provider/quota authority in one service-role transaction.
     // The browser's authenticated client cannot execute this RPC or write the receipt table.
-    const { data: authoritySavedValue, error: authorityUpdateError } = await createServiceRoleSupabase().rpc(
-      'persist_ai_suggestion_with_authority_v1',
+    // A lost commit reply is unknown until the atomic database operation can be reconciled.
+    const providerSettled = !coachingOutcomeUnknown;
+    coachingOutcomeUnknown = true;
+    const { data: savedValue, error: updateError } = await createServiceRoleSupabase().rpc(
+      'persist_account_coaching_v1',
       {
+        p_operation_id: coachingAdmission.p_operation_id,
+        p_provider_settled: providerSettled,
         p_session_id: sessionId,
         p_user_id: userId,
         p_suggestions: suggestions,
@@ -857,24 +1037,11 @@ export async function handler(
       },
     );
 
-    // Merging this function deploys Edge code before the separately authorized database migration.
-    // During that bounded skew, preserve the existing product save through the authenticated/RLS path.
-    // The trusted evidence collector still HOLDs because this path creates no authority receipt. Once
-    // the migration is present its ACL removes this browser write and the atomic RPC is mandatory.
-    let savedValue = authoritySavedValue;
-    let updateError = authorityUpdateError;
-    if (authorityRpcUnavailable(authorityUpdateError)) {
-      const legacy = await supabaseClient
-        .from('sessions')
-        .update({ ai_suggestions: suggestions })
-        .eq('id', sessionId)
-        .eq('user_id', userId)
-        .select('ai_suggestions')
-        .single();
-      savedValue = legacy.data?.ai_suggestions ?? null;
-      updateError = legacy.error;
-    }
-
+    // #1684 Codex P1 r4354653671: a returned check violation (SQLSTATE 23514) with no data is the atomic RPC's own
+    // definitive rejection before any write (e.g. the quota-ledger check), so the admission's uncertainty reverts to the
+    // provider's: a certain provider attempt settles `refused`. Any other code, a thrown error or returned data stays
+    // unknown, because an `unknown` admission can never settle again.
+    if (updateError?.code === '23514' && savedValue === null) coachingOutcomeUnknown = !providerSettled;
     const savedSuggestions = !updateError && savedValue
       ? parseSuggestions(JSON.stringify(savedValue))
       : null;
@@ -882,6 +1049,7 @@ export async function handler(
       console.error('Failed to save and verify AI suggestions:', updateError);
       return finish({ error: 'AI coaching could not be saved. Please try again.', code: 'persist_failed' }, 503);
     }
+    coachingPersisted = true;
 
     // #1258 (PO 2026-10-02): every SERVED generation is measured, content-free — counts and flags, never phrases.
     // Emitted only here, after save verification (Codex r4189408877): a generation that ends in 503 was never served,
@@ -893,6 +1061,19 @@ export async function handler(
   } catch (error) {
     console.error('Error getting AI suggestions:', error);
     return finish({ error: 'Failed to get AI suggestions. Please try again.' }, 500);
+  } finally {
+    if (coachingAdmission && !coachingPersisted) {
+      try {
+        const { data, error } = await createServiceRoleSupabase().rpc('finish_account_coaching_failure_v1', {
+          ...coachingAdmission,
+          p_outcome: coachingOutcomeUnknown ? 'unknown' : 'refused',
+        });
+        if (error || data !== true) console.error('Account coaching settlement remains unverified.');
+      } catch {
+        // The durable admission remains unsettled. Never turn a failed settlement write into permission to delete.
+        console.error('Account coaching settlement remains unverified.');
+      }
+    }
   }
 }
 

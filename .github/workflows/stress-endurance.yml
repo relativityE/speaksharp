@@ -57,9 +57,7 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          DURATION=$(grep "const SOAK_MEMORY_DURATION_MS =" tests/constants.ts | grep -oE "[0-9]+;" | tr -d ";")
-          echo "Extracted browser endurance duration: $DURATION ms"
-          SOAK_MEMORY_DURATION_MS=$DURATION pnpm test:endurance:browser
+          pnpm test:endurance:browser
 
       - name: Upload test results
         if: always()

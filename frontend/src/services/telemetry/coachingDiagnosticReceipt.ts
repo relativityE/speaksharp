@@ -20,7 +20,8 @@ export interface CoachingDiagnosticExpectation {
     attemptSha256: string;
     product: 'open_mic' | 'focus_points';
     configuredModel: string;
-    outcome: 'success';
+    /** The page's raw terminal vocabulary; a failed chain can be received without coaching having succeeded. */
+    outcome: 'success' | 'failure';
 }
 
 /** One received row, as the readback query returns it (raw; validated here, never trusted). */
@@ -38,6 +39,54 @@ export interface ReceivedCoachingRow {
     providerAttempts: unknown;
     clientReleaseId: unknown;
     coachingDiagnosticId: unknown;
+    /** #1258 smoke item 3 (PM 6182446740): PostHog's event `uuid` and the page's `client_attempt` — identity diagnostics only. */
+    uuid?: unknown;
+    clientAttempt?: unknown;
+}
+
+/**
+ * #1258 smoke item 3 (PM 6182446740) — the IDENTITY of the bound request's terminal rows, content-free: counts and closed
+ * values only, never a raw id. It does not change the verdict or the exactly-once rule.
+ *  - `repeated_event_identity`: some terminal rows share one event uuid — a repeated record of the same event. Which layer
+ *    repeated it (SDK, transport, ingestion, or a duplicating query) is NOT established by this.
+ *  - `distinct_records_one_attempt`: distinct uuids, one attempt id — distinct records for one attempt; the layer that
+ *    created them is not established either.
+ *  - `distinct_attempts`: distinct uuids across more than one attempt id.
+ *  - `unknown`: a uuid or attempt id is missing or malformed on ANY terminal row (one row included), so identity cannot be
+ *    decided. Both ids must be the emitted UUID form (`crypto.randomUUID()`), case-normalized; whitespace is malformed.
+ *  - `single`: exactly one terminal row with valid identity; `none`: no terminal row.
+ */
+export type TerminalIdentityClass = 'none' | 'single' | 'repeated_event_identity' | 'distinct_records_one_attempt' | 'distinct_attempts' | 'unknown';
+export interface TerminalIdentity {
+    terminalRows: number;
+    distinctEventUuids: number; missingEventUuid: number;
+    distinctAttemptIds: number; missingAttemptId: number;
+    /** Each terminal row's closed outcome and client attempt (1–9, else `missing`), in received order. */
+    rows: Array<{ outcome: string; clientAttempt: number | 'missing' }>;
+    classification: TerminalIdentityClass;
+}
+const EVENT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function terminalIdentity(terminal: readonly ReceivedCoachingRow[]): TerminalIdentity {
+    const uuids = terminal.map((r) => (typeof r.uuid === 'string' && EVENT_UUID.test(r.uuid) ? r.uuid.toLowerCase() : null));
+    // PM 6182647952 §3: the attempt id is the page's `crypto.randomUUID()` — anything else is malformed, never an identity.
+    const attempts = terminal.map((r) => (typeof r.attemptId === 'string' && EVENT_UUID.test(r.attemptId) ? r.attemptId.toLowerCase() : null));
+    const missingEventUuid = uuids.filter((u) => u === null).length;
+    const missingAttemptId = attempts.filter((a) => a === null).length;
+    const distinctEventUuids = new Set(uuids.filter((u): u is string => u !== null)).size;
+    const distinctAttemptIds = new Set(attempts.filter((a): a is string => a !== null)).size;
+    const classification: TerminalIdentityClass = terminal.length === 0 ? 'none'
+        : missingEventUuid > 0 || missingAttemptId > 0 ? 'unknown'
+            : terminal.length === 1 ? 'single'
+            : distinctEventUuids < terminal.length ? 'repeated_event_identity'
+                : distinctAttemptIds === 1 ? 'distinct_records_one_attempt' : 'distinct_attempts';
+    return {
+        terminalRows: terminal.length, distinctEventUuids, missingEventUuid, distinctAttemptIds, missingAttemptId,
+        rows: terminal.map((r) => ({
+            outcome: String(r.outcome),
+            clientAttempt: Number.isInteger(r.clientAttempt) && Number(r.clientAttempt) >= 1 && Number(r.clientAttempt) <= 9 ? Number(r.clientAttempt) : 'missing',
+        })),
+        classification,
+    };
 }
 
 export type CoachingReceiptReason =
@@ -70,7 +119,7 @@ export function validExpectation(value: unknown): value is CoachingDiagnosticExp
         && typeof e.attemptSha256 === 'string' && SHA64.test(e.attemptSha256)
         && (e.product === 'open_mic' || e.product === 'focus_points')
         && typeof e.configuredModel === 'string' && e.configuredModel.length > 0
-        && e.outcome === 'success';
+        && (e.outcome === 'success' || e.outcome === 'failure');
 }
 
 export function evaluateCoachingDiagnosticReceipt(
@@ -80,6 +129,8 @@ export function evaluateCoachingDiagnosticReceipt(
     sha256: (value: string) => string,
 ): {
     verdict: CoachingReceiptVerdict; reasons: CoachingReceiptReason[]; diagnosticsForRequest: number; feedbackOutcomes: number;
+    /** Diagnostic only (smoke item 3): never part of the verdict. */
+    terminalIdentity: TerminalIdentity;
     /** The exact binding this verdict was computed for, so finalization can refuse a result about anything else. */
     release: string; expected: CoachingDiagnosticExpectation;
 } {
@@ -97,6 +148,8 @@ export function evaluateCoachingDiagnosticReceipt(
         if (t.product !== expected.product) reasons.add('product_mismatch');
         if (t.configuredModel !== expected.configuredModel) reasons.add('configured_model_mismatch');
         if (typeof t.clientReleaseId === 'string' && t.clientReleaseId !== releaseSha) reasons.add('release_mismatch');
+        // Failure settlement is new: require positive release binding, not merely absence of a conflicting string.
+        if (expected.outcome === 'failure' && t.clientReleaseId !== releaseSha) reasons.add('release_mismatch');
         // Endpoint and provider stay separate: a success is a 2xx ENDPOINT answer, and its provider provenance must be
         // coherent with its source — FRESH: at least one provider attempt and a 2xx provider response; CACHE: no provider
         // call and no provider status. A malformed status or an unknown source is never read as "no provider".
@@ -109,6 +162,20 @@ export function evaluateCoachingDiagnosticReceipt(
             const cache = t.source === 'cache' && attempts === 0 && provider === null;
             if (!fresh && !cache) reasons.add('provenance_incoherent');
         }
+        if (t.outcome === 'failure') {
+            const isError = (v: number | null | 'malformed') => typeof v === 'number' && v >= 400 && v < 600;
+            if (!isError(endpoint)) reasons.add('status_incoherent');
+            const attempts = Number.isInteger(t.providerAttempts) ? Number(t.providerAttempts) : null;
+            // A fresh failed provider leg may never answer, time out after 2xx headers, return an error, or produce an
+            // invalid 2xx body / fail persistence. A refusal before the provider has no provider status or attempts.
+            // This is the closed union of answered failure shapes; readback does not prove the exact server reason.
+            // Governed provider_attempts is 0–3 (practiceLoopTelemetry MAX_REPORTED_PROVIDER_ATTEMPTS and allowlist).
+            const fresh = t.source === 'fresh' && attempts !== null && attempts >= 1 && attempts <= 3
+                && typeof endpoint === 'number' && endpoint >= 500 && endpoint < 600
+                && (provider === null || is2xx(provider) || isError(provider));
+            const refusal = t.source === 'unknown' && attempts === 0 && provider === null;
+            if (!fresh && !refusal) reasons.add('provenance_incoherent');
+        }
         if (t.outcome === 'success' && !(typeof t.observedModel === 'string' && t.observedModel.length > 0)) reasons.add('observed_model_missing');
     }
 
@@ -120,7 +187,10 @@ export function evaluateCoachingDiagnosticReceipt(
 
     const list = [...reasons];
     const verdict: CoachingReceiptVerdict = list.length === 0 ? 'PASS' : list.some((r) => !HOLD_REASONS.has(r)) ? 'FAIL' : 'HOLD';
-    return { verdict, reasons: list, diagnosticsForRequest: forRequest.length, feedbackOutcomes: stored.length, release: releaseSha, expected: { ...expected } };
+    return {
+        verdict, reasons: list, diagnosticsForRequest: forRequest.length, feedbackOutcomes: stored.length, release: releaseSha, expected: { ...expected },
+        terminalIdentity: terminalIdentity(terminal),
+    };
 }
 
 /**

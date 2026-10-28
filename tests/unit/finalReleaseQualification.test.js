@@ -1368,3 +1368,102 @@ describe('#1430 P1 — paginate the load-bearing issue-comment surface', () => {
       .toContain('issue_comments_incomplete');
   });
 });
+
+describe('#1671 — paginate the changed-file surface (a 116-path PR could never qualify)', () => {
+  const head = 'd'.repeat(40);
+  const baseSha = 'e'.repeat(40);
+  const bot = { login: 'chatgpt-codex-connector' };
+  const clean = {
+    id: 'clean', author: bot, createdAt: '2026-10-19T23:20:00Z',
+    body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 {"headSha":"${head}","pullRequestNumber":1671,"repository":"relativityE/speaksharp","status":"completed"} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-10-19T23:15:00Z">2026-10-19T23:15:00Z</relative-time> | \`${head.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-10-19T23:16:00Z">2026-10-19T23:16:00Z</relative-time> | \`${head.slice(0, 7)}\` | Draft marked ready |`,
+  };
+  const identity = { headRefOid: head, baseRefOid: baseSha, headRepository: { nameWithOwner: 'relativityE/speaksharp' }, baseRepository: { nameWithOwner: 'relativityE/speaksharp' } };
+  const paths = (prefix, n) => Array.from({ length: n }, (_, i) => ({ path: `${prefix}/${String(i).padStart(3, '0')}.md` }));
+  const page = (nodes, endCursor, hasNextPage) => ({ nodes, pageInfo: { hasNextPage, endCursor } });
+  const pr = (files, extra = {}) => ({
+    number: 1671, headRefName: 'candidate/mvp-rc1-20261019', baseRefName: 'main', ...identity, files,
+    reviews: { nodes: [], pageInfo: { hasPreviousPage: false } },
+    reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    comments: { nodes: [clean], pageInfo: { hasPreviousPage: false, startCursor: 'c0' } },
+    timelineItems: { nodes: [{ createdAt: '2026-10-19T23:13:00Z' }] },
+    ...extra,
+  });
+  const filesQuery = (init) => JSON.parse(init?.body ?? '{}').query?.includes('$filesAfter');
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** first: the main read's PR; pages: cursor → files-only response (an Error → HTTP 502). */
+  function serve(first, pages = {}) {
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).includes('/activity?')) {
+        return { ok: true, status: 200, json: async () => ([{ activity_type: 'push', after: head, timestamp: '2026-10-19T23:12:00Z' }]) };
+      }
+      if (!filesQuery(init)) return { ok: true, status: 200, json: async () => ({ data: { repository: { pullRequest: first } } }) };
+      const after = JSON.parse(init.body).variables?.filesAfter;
+      const answer = pages[after];
+      if (answer === undefined || answer instanceof Error) return { ok: false, status: 502, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => answer };
+    }));
+  }
+  const filePage = (files, overrides = {}) => ({ data: { repository: { pullRequest: { ...identity, ...overrides, files } } } });
+  const read = (opts = {}) => readPullRequest({ repository: 'relativityE/speaksharp', number: 1671, token: 'token', ...opts });
+  const receiptOf = (pullRequest) => buildReviewReceipt({ pullRequest, expectedHeadSha: head });
+  const fileReads = () => globalThis.fetch.mock.calls.filter(([, init]) => filesQuery(init));
+
+  it.each([[101, [100, 1]], [116, [100, 16]], [250, [100, 100, 50]]])('%i changed paths across pages are read in full and do not report changed_files_incomplete', async (total, sizes) => {
+    const all = paths('docs/x', total);
+    const chunks = []; let at = 0; for (const n of sizes) { chunks.push(all.slice(at, at + n)); at += n; }
+    const pages = {};
+    chunks.slice(1).forEach((nodes, i) => { pages[`cur-${i + 1}`] = filePage(page(nodes, `cur-${i + 2}`, i + 2 < chunks.length)); });
+    serve(pr(page(chunks[0], 'cur-1', true)), pages);
+    const pullRequest = await read();
+    expect(pullRequest.files.nodes).toHaveLength(total);
+    expect(pullRequest.files.pageInfo.hasNextPage).toBe(false);
+    expect(receiptOf(pullRequest).reasons).not.toContain('changed_files_incomplete');
+    expect(fileReads()).toHaveLength(sizes.length - 1);
+  });
+
+  it('exactly 100 paths in one complete page needs no further file read', async () => {
+    serve(pr(page(paths('docs/x', 100), 'cur-1', false)));
+    const pullRequest = await read();
+    expect(pullRequest.files.nodes).toHaveLength(100);
+    expect(fileReads()).toHaveLength(0);
+    expect(receiptOf(pullRequest).reasons).not.toContain('changed_files_incomplete');
+  });
+
+  it('a scope-deciding implementation path arriving only on page 2 is seen', async () => {
+    serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': filePage(page([{ path: 'frontend/src/services/Example.ts' }], 'cur-2', false)) });
+    const receipt = receiptOf(await read());
+    expect(receipt.reasons).not.toContain('changed_files_incomplete');
+    expect(receipt.reasons, 'page 2 decided the review scope').not.toContain('no_substantive_implementation');
+  });
+
+  const failClosed = [
+    ['the page cap is reached', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': filePage(page(paths('docs/y', 100), 'cur-2', true)), 'cur-2': filePage(page(paths('docs/z', 100), 'cur-3', true)) }); return read({ filesPageCap: 2 }); }],
+    ['a file page errors', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': new Error('502') }); return read(); }],
+    ['hasNextPage has no endCursor', () => { serve(pr(page(paths('docs/x', 100), undefined, true))); return read(); }],
+    ['the cursor repeats (no progress)', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': filePage(page(paths('docs/y', 100), 'cur-1', true)) }); return read(); }],
+    ['a page is malformed (nodes not a list)', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': filePage({ nodes: null, pageInfo: { hasNextPage: false } }) }); return read(); }],
+    ['a page is truncated (files missing)', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': { data: { repository: { pullRequest: { ...identity } } } } }); return read(); }],
+    ['a path is not a non-empty string', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': filePage(page([{ path: '' }], 'cur-2', false)) }); return read(); }],
+    ['a path repeats across pages', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': filePage(page([{ path: 'docs/x/000.md' }], 'cur-2', false)) }); return read(); }],
+    ['the head moves between pages', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': filePage(page([{ path: 'docs/y.md' }], 'cur-2', false), { headRefOid: 'f'.repeat(40) }) }); return read(); }],
+    ['the base moves between pages', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': filePage(page([{ path: 'docs/y.md' }], 'cur-2', false), { baseRefOid: 'f'.repeat(40) }) }); return read(); }],
+    ['the head repository changes between pages', () => { serve(pr(page(paths('docs/x', 100), 'cur-1', true)), { 'cur-1': filePage(page([{ path: 'docs/y.md' }], 'cur-2', false), { headRepository: { nameWithOwner: 'fork/speaksharp' } }) }); return read(); }],
+  ];
+  it.each(failClosed)('FAILS CLOSED when %s: changed_files_incomplete', async (_name, run) => {
+    const pullRequest = await run();
+    expect(pullRequest.files.pageInfo.hasNextPage, 'incomplete is reported, never a partial list as complete').toBe(true);
+    expect(receiptOf(pullRequest).reasons).toContain('changed_files_incomplete');
+  });
+
+  it('complete files never mask independent comment or review-thread incompleteness', async () => {
+    serve(pr(page(paths('docs/x', 100), 'cur-1', true), {
+      comments: { nodes: [clean], pageInfo: { hasPreviousPage: true, startCursor: null } },
+      reviewThreads: { nodes: [], pageInfo: { hasNextPage: true } },
+    }), { 'cur-1': filePage(page([{ path: 'docs/y.md' }], 'cur-2', false)) });
+    const reasons = receiptOf(await read()).reasons;
+    expect(reasons).not.toContain('changed_files_incomplete');
+    expect(reasons).toEqual(expect.arrayContaining(['issue_comments_incomplete', 'review_threads_incomplete']));
+  });
+});

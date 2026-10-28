@@ -100,15 +100,70 @@ describe('rules 9 and 10 — aliases and unproven backends', () => {
 });
 
 /** Utterances where arm A makes `errA` errors and B makes `errB`, over `n` clips of 20 words. */
-const paired = (n: number, errA: number, errB: number): [PairedUtterance[], PairedUtterance[]] => [
-    Array.from({ length: n }, (_, i) => ({ utteranceId: `u${i}`, referenceWords: 20, errors: errA })),
-    Array.from({ length: n }, (_, i) => ({ utteranceId: `u${i}`, referenceWords: 20, errors: errB })),
-];
+const paired = (n: number, errA: number, errB: number): [PairedUtterance[], PairedUtterance[]] => {
+    const declared = population(n);
+    return [declared.map(identity => ({ ...identity, errors: errA })), declared.map(identity => ({ ...identity, errors: errB }))];
+};
+/** Declared independently of returned arm rows; synthetic identity, not model/corpus qualification. */
+const population = (n: number, words = 20) => Array.from({ length: n }, (_, i) => ({
+    utteranceId: `u${i}`, trialId: '0', clusterId: `speaker-${i}`, referenceSha256: 'a'.repeat(64), referenceWords: words,
+}));
+
+describe('#1565 returned selection/paired-interval integrity findings', () => {
+    it.each([NaN, undefined, -0.1, Infinity, -Infinity])('invalid p95 %s cannot qualify or become primary', (invalid) => {
+        const bad = perfect({ armId: 'bad', wer: 0.001, speed: { ...perfect().speed, realTimeFactorP95: invalid as number } });
+        expect(qualify(bad).qualified).toBe(false);
+        expect(select([bad], new Map([['bad', paired(600, 1, 1)[0]]]), () => ({ runtime: 'synthetic', family: 'synthetic' }), population(600)).primary).toBeNull();
+    });
+
+    it('retains a valid measured 0.3 p95', () => { expect(qualify(perfect()).qualified).toBe(true); });
+
+    it('zero-reference WER is undefined/HOLD, never zero/tied', () => {
+        const declared = population(2, 0);
+        const a = declared.map(identity => ({ ...identity, errors: 0 }));
+        const b = declared.map(identity => ({ ...identity, errors: 9 }));
+        expect(pairedBootstrapInterval(a, b, SELECTION_POLICY, declared)).toMatchObject({
+            status: 'HOLD', reason: 'zero_reference_words', observedDelta: null, lower: null, upper: null, tied: null,
+        });
+    });
+
+    it('retains zero-reference resamples as invalid and HOLDs the interval without redrawing', () => {
+        const declared = population(2); declared[0].referenceWords = 0;
+        const a = declared.map(identity => ({ ...identity, errors: 0 }));
+        const b = declared.map(identity => ({ ...identity, errors: 1 }));
+        const result = pairedBootstrapInterval(a, b, SELECTION_POLICY, declared);
+        expect(result).toMatchObject({ status: 'HOLD', reason: 'zero_reference_resample', tied: null });
+        expect(result.invalidResamples).toBeGreaterThan(0);
+    });
+
+    it.each(['missing-B', 'shared-omission', 'duplicate-A', 'reference-mismatch', 'wrong-hash', 'wrong-cluster'])('complete frozen population rejects %s', kind => {
+        const declared = population(3); const [a, b] = paired(3, 1, 1);
+        if (kind === 'missing-B') b.pop();
+        if (kind === 'shared-omission') { a.pop(); b.pop(); }
+        if (kind === 'duplicate-A') a.push({ ...a[0] });
+        if (kind === 'reference-mismatch') b[0].referenceWords += 1;
+        if (kind === 'wrong-hash') b[0].referenceSha256 = 'b'.repeat(64);
+        if (kind === 'wrong-cluster') b[0].clusterId = 'other';
+        expect(pairedBootstrapInterval(a, b, SELECTION_POLICY, declared)).toMatchObject({ status: 'HOLD', reason: 'paired_evidence_invalid', tied: null });
+    });
+
+    it('an undeclared population cannot be inferred from the observed intersection', () => {
+        const [a, b] = paired(3, 1, 1);
+        expect(pairedBootstrapInterval(a, b)).toMatchObject({ status: 'HOLD', reason: 'missing_frozen_population' });
+    });
+
+    it('selection propagates undefined paired evidence without choosing or activating a winner', () => {
+        const rows = [perfect({ armId: 'a' }), perfect({ armId: 'b' })];
+        const declared = population(600, 0);
+        const scores = new Map(rows.map(row => [row.armId, declared.map(identity => ({ ...identity, errors: 0 }))]));
+        expect(select(rows, scores, () => ({ runtime: 'synthetic', family: 'synthetic' }), declared)).toMatchObject({ status: 'HOLD', primary: null, fallback: null });
+    });
+});
 
 describe('rules 2 and 3 — paired bootstrap, and a tie is a tie', () => {
     it('identical arms are TIED, and the interval spans zero', () => {
         const [a, b] = paired(600, 1, 1);
-        const interval = pairedBootstrapInterval(a, b);
+        const interval = pairedBootstrapInterval(a, b, SELECTION_POLICY, population(600));
         expect(interval.observedDelta).toBe(0);
         expect(interval.tied).toBe(true);
         expect(interval.lower).toBeLessThanOrEqual(0);
@@ -117,7 +172,7 @@ describe('rules 2 and 3 — paired bootstrap, and a tie is a tie', () => {
 
     it('a LARGE consistent difference is not a tie', () => {
         const [a, b] = paired(600, 1, 5);
-        const interval = pairedBootstrapInterval(a, b);
+        const interval = pairedBootstrapInterval(a, b, SELECTION_POLICY, population(600));
         expect(interval.observedDelta).toBeLessThan(0); // A is better
         expect(interval.tied).toBe(false);
     });
@@ -127,8 +182,8 @@ describe('rules 2 and 3 — paired bootstrap, and a tie is a tie', () => {
         // except on three clips, where A does slightly better.
         const [a, b] = paired(600, 1, 1);
         for (let i = 0; i < 3; i++) b[i].errors = 2;
-        const interval = pairedBootstrapInterval(a, b);
-        expect(Math.abs(interval.observedDelta)).toBeLessThan(0.001);
+        const interval = pairedBootstrapInterval(a, b, SELECTION_POLICY, population(600));
+        expect(Math.abs(interval.observedDelta ?? NaN)).toBeLessThan(0.001);
         expect(interval.tied).toBe(true);
     });
 
@@ -136,21 +191,22 @@ describe('rules 2 and 3 — paired bootstrap, and a tie is a tie', () => {
         // The interval must be reproducible from committed per-utterance scores, on any machine,
         // without decoding 600 clips again.
         const [a, b] = paired(300, 1, 2);
-        const first = pairedBootstrapInterval(a, b);
-        const second = pairedBootstrapInterval(a, b);
+        const first = pairedBootstrapInterval(a, b, SELECTION_POLICY, population(300));
+        const second = pairedBootstrapInterval(a, b, SELECTION_POLICY, population(300));
         expect(second).toEqual(first);
     });
 
-    it('is PAIRED — it uses shared utterances, and refuses when there are none', () => {
+    it('is PAIRED — disjoint arms HOLD instead of selecting a shared subset', () => {
         const [a] = paired(10, 1, 1);
-        const disjoint: PairedUtterance[] = [{ utteranceId: 'other', referenceWords: 20, errors: 1 }];
-        expect(() => pairedBootstrapInterval(a, disjoint)).toThrow(/share utterances/);
+        const disjoint: PairedUtterance[] = [{ ...population(1)[0], utteranceId: 'other', errors: 1 }];
+        expect(pairedBootstrapInterval(a, disjoint, SELECTION_POLICY, population(10)))
+            .toMatchObject({ status: 'HOLD', reason: 'paired_evidence_invalid', tied: null });
     });
 
     it('the sign convention is A minus B: negative means A is better', () => {
         const [a, b] = paired(100, 1, 3);
-        expect(pairedBootstrapInterval(a, b).observedDelta).toBeLessThan(0);
-        expect(pairedBootstrapInterval(b, a).observedDelta).toBeGreaterThan(0);
+        expect(pairedBootstrapInterval(a, b, SELECTION_POLICY, population(100)).observedDelta).toBeLessThan(0);
+        expect(pairedBootstrapInterval(b, a, SELECTION_POLICY, population(100)).observedDelta).toBeGreaterThan(0);
     });
 });
 
@@ -172,13 +228,13 @@ describe('rules 6 and 7 — primary is best, fallback fails DIFFERENTLY', () => 
     ]);
 
     it('the primary is the best qualified model, with no integration adjustment', () => {
-        expect(select(rows, scores, (id) => exposure.get(id)!).primary).toBe('fast-a');
+        expect(select(rows, scores, (id) => exposure.get(id)!, population(600)).primary).toBe('fast-a');
     });
 
     it('the fallback is NOT second place when second place fails the same way', () => {
         // `fast-b` scores better than `other`, but shares the primary's runtime AND family — they fail
         // together, which is the one thing a fallback exists not to do.
-        const result = select(rows, scores, (id) => exposure.get(id)!);
+        const result = select(rows, scores, (id) => exposure.get(id)!, population(600));
         expect(result.fallback).toBe('other');
         expect(result.fallback).not.toBe('fast-b');
         expect(result.fallbackRationale).toMatch(/different failure exposure/);
@@ -186,20 +242,20 @@ describe('rules 6 and 7 — primary is best, fallback fails DIFFERENTLY', () => 
 
     it('says so plainly when no candidate has different exposure', () => {
         const sameOnly = rows.slice(0, 2);
-        const result = select(sameOnly, scores, (id) => exposure.get(id)!);
+        const result = select(sameOnly, scores, (id) => exposure.get(id)!, population(600));
         expect(result.fallback).toBeNull();
         expect(result.fallbackRationale).toMatch(/no qualified candidate/);
     });
 
     it('records who is statistically TIED with the primary', () => {
         // So a coin-flip between indistinguishable models is not read as a verdict.
-        const result = select(rows, scores, (id) => exposure.get(id)!);
+        const result = select(rows, scores, (id) => exposure.get(id)!, population(600));
         expect(result.tiedWithPrimary).toContain('fast-b');
     });
 
     it('a disqualified model cannot be primary however good its WER', () => {
         const withCheat = [perfect({ armId: 'cheat', wer: 0.001, reliability: { ...perfect().reliability, missing: 1 } }), ...rows];
-        const result = select(withCheat, scores, (id) => exposure.get(id) ?? { runtime: 'x', family: 'y' });
+        const result = select(withCheat, scores, (id) => exposure.get(id) ?? { runtime: 'x', family: 'y' }, population(600));
         expect(result.primary).toBe('fast-a');
         expect(result.disqualified.map((d) => d.armId)).toContain('cheat');
     });

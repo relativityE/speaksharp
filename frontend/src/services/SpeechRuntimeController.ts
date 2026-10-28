@@ -1,4 +1,5 @@
 import { LEASE_NOT_HELD_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from './recordingLeasePolicy';
+import { engineFailureCode, recordingFailureCode, withFailureCode } from './recordingFailureCode';
 import { currentLogin, recordSavedSessionFor, type LoginIdentity } from './loginSessionLog';
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
@@ -182,6 +183,12 @@ type ProgressCompletionContext =
     | { mode: 'unknown' };
 
 type RichMetricsPayload = Parameters<typeof updateSession>[1];
+/** The take identity a finalization latch is armed with; the only fields `releaseFinalizingIfOwner` compares. */
+type LatchOwner = Pick<StopAuthority, 'lifecycleVersion' | 'serviceGeneration' | 'service'>;
+/** What an engine retirement captured at detach: lifecycle version, service generation and accepted-Start count. */
+type RetirementOwnership = { version: number; generation: number; starts: number };
+/** Names the already-retired attempt to a retirement's TERMINATED, so it retires no successor's pending intent. */
+const RETIRED_ATTEMPT_INTENT = 'retired-engine-attempt';
 type ProgressMetricsState = {
     /** Exact immutable payload calculated for this recording, or null when recovery cannot prove it. */
     payload: RichMetricsPayload | null;
@@ -454,7 +461,7 @@ export class SpeechRuntimeController {
     private releaseFinalizingIfOwner(
         reason: string,
         capturedOwnerVersion: number | null = null,
-        capturedOwner: StopAuthority | null = null,
+        capturedOwner: LatchOwner | null = null,
     ): boolean {
         /**
          * THE COMPARISON IS AGAINST THE CAPTURED OWNER, NOT THE LIVE LIFECYCLE.
@@ -629,6 +636,13 @@ export class SpeechRuntimeController {
 
     // Cancellation tracking for startRecording
     private currentRecordingId: string | null = null;
+    /**
+     * #1258 R1 — the recording whose Stop was already accepted. A second Stop for the SAME recording is a no-op, however
+     * late its queued turn runs. Alpha runs 38298685079 / 38304068207: a Stop pressed while the take was STOPPING queued
+     * behind the first; when that save failed (FAILED_VISIBLE, Retry Save armed), the queued Stop ran on the failed take
+     * and moved it to READY — the failure vanished from the page while the unsaved take still refused the next Start.
+     */
+    private stopAcceptedForRecordingId: string | null = null;
     /** #1421 Option A: the attempt this take belongs to, snapshotted when the take enters RECORDING. */
     private currentRecordingSubject: RecordingSubject | null = null;
     /**
@@ -704,11 +718,36 @@ export class SpeechRuntimeController {
      */
     private serviceGeneration = 0;
     /**
+     * Codex P2 r4320680220 (Sam 1792462026): counts ACCEPTED Starts. A Start takes the engine-selection lock and mints its
+     * intent synchronously, before any queued work attaches a service. A retirement captures this at detach: once it has
+     * moved, the retired take has no lease authority left — even if that successor later settles or cancels.
+     */
+    private startAcceptanceGeneration = 0;
+    /**
+     * Codex P2 r4320680220: a retirement that detached its service and has not settled yet (its in-bound bound, or its late
+     * completion after a timed-out destroy). A Start accepted meanwhile waits on this — bounded — instead of being absorbed
+     * by the retired take's stale state, and nothing is launched before the old engine is affirmatively off.
+     */
+    private pendingRetirement: Promise<void> | null = null;
+    /** How long an accepted Start waits for a pending retirement before refusing truthfully (retryable). */
+    private retirementAdmissionWaitMs = 10_000;
+    /**
+     * Sam SOURCE RETURN 1792464541 on bfbb1ed2: a retirement that SETTLED without affirmative proof (a rejected destroy, or
+     * one that resolved while the retired service never confirmed termination). The runtime is left detached in the retired
+     * take's stale state; this debt is kept — across repeated unmount cleanups, whose lifecycle churn does not discharge it —
+     * until an explicit hard reset, so a Start meanwhile is refused truthfully rather than absorbed or given a replacement.
+     */
+    private unresolvedRetirement: { retired: TranscriptionService | null; retirement: RetirementOwnership } | null = null;
+    /**
      * #1258 — services that have been admitted to a take. A service runs ONE take: the next Start never
      * reuses one, whatever path left it attached (see `startRecording`). Weak, so a retired service is not
      * kept alive by being remembered.
      */
     private readonly servicesThatRecorded = new WeakSet<TranscriptionService>();
+    /** #1258 PR A — the in-flight preparation of the next take's fresh service; a Start joins it, never races it. */
+    private nextTakePreparation: Promise<void> | null = null;
+    /** #1258 C10 — the engine reported real microphone frames for the current start (reset at INITIATING). */
+    private engineReportedRealFrames = false;
     private policy: TranscriptionPolicy | null = null;
     private userWords: string[] = [];
 
@@ -862,6 +901,8 @@ export class SpeechRuntimeController {
         if (expected && current !== expected) return null;
         this.service = null;
         this.serviceGeneration += 1;
+        // #1258 C10 — a detached service's readiness can never vouch for its successor (ownership loss / replacement).
+        this.engineReportedRealFrames = false;
         // The accepted attempt named this service. With it detached the tuple can no longer be
         // satisfied, and leaving it in place would keep a dead attempt nominally able to publish.
         if (this.acceptedAttempt && (!expected || this.acceptedAttempt.service === expected)) {
@@ -906,6 +947,83 @@ export class SpeechRuntimeController {
             return false;
         }
         return true;
+    }
+
+    /**
+     * #1258 PR A — PREPARE THE NEXT TAKE WHILE THE REVIEW IS ON SCREEN.
+     *
+     * Every take after the first runs on a FRESH service (the cross-take contamination guard), and that service was only
+     * built inside the next Start — about 5.8 s of the user's wait in Production (run 38790238983). Once the take has
+     * reached its normal stop terminal, its save is confirmed and the Progress gate is clear, this retires the spent
+     * service and warms exactly one fresh service, so a later Start finds it ready.
+     *
+     * Invariants (PM 6201047197): destroy-before-create — the spent service is detached and its destruction AWAITED,
+     * and a service that is not proven destroyed stops here (nothing is created; the next Start's own guard refuses it).
+     * Never reuses the spent service, never opens the microphone or starts a recording, takes no lease, changes no model
+     * or mode. A Start, reset, owner or mode change during either await makes this stand down without publishing; a
+     * Start JOINS this promise instead of racing it. No Start intent or recording id is fabricated.
+     */
+    public prepareNextTake(mode: TranscriptionMode): Promise<void> {
+        if (this.nextTakePreparation) return this.nextTakePreparation;
+        // The normal stop terminal has usually detached and destroyed the take's service already (`this.service` null);
+        // a failed-save path can leave a SPENT one attached. Anything else — an unused, already-fresh service — is ready.
+        const spent = this.service && this.servicesThatRecorded.has(this.service) ? this.service : null;
+        // A pending Start owns the next engine: no preparation begins beside it (the Start joins one already running).
+        if (this.state !== 'READY' || (this.service && !spent) || pendingRecordingIntent()) return Promise.resolve();
+        const lifecycleAtStart = this.lifecycleVersion;
+        const ownerAtStart = this.capturedUserId ?? null;
+        const stillCurrent = () => this.lifecycleVersion === lifecycleAtStart && this.state === 'READY'
+            && (this.capturedUserId ?? null) === ownerAtStart && !pendingRecordingIntent();
+        const run = async () => {
+            pushNativeRuntimeTrace('controller_next_take_prepare_start', { mode });
+            if (spent) {
+                const detached = this.detachService(spent);
+                if (!detached) return; // a newer owner already replaced it
+                try {
+                    await detached.destroy();
+                } catch (destroyError: unknown) {
+                    logger.warn({ code: destroyError instanceof Error ? destroyError.name : 'unknown' },
+                        '[controller] next-take preparation: destroying the spent service failed');
+                }
+                if (!detached.isServiceDestroyed()) {
+                    pushNativeRuntimeTrace('controller_next_take_prepare_spent_not_destroyed');
+                    return; // fail closed: no replacement over a possibly-live engine
+                }
+            }
+            // Destroy-before-create also covers the normal path: the previous take's engine must be PROVEN off (not merely
+            // detached) before a fresh one is built. Unconfirmed → build nothing; the next Start keeps today's behaviour.
+            if (await this.confirmEngineShutdown(10_000) !== 'terminal') {
+                pushNativeRuntimeTrace('controller_next_take_prepare_engine_unconfirmed');
+                return;
+            }
+            if (!stillCurrent() || this.service) {
+                pushNativeRuntimeTrace('controller_next_take_prepare_superseded');
+                return;
+            }
+            pushNativeRuntimeTrace('controller_start_create_service');
+            this.service = getTranscriptionService(this.callbacksForNewService(this.subscriberCallbacks), this.lock);
+            // #1258 RWT round 2 finding A — this warm-up is the controller's, not the user's: it must not reach the page
+            // (it disabled Start as "Downloading…" for a cached model). The Start that claims the service publishes it.
+            this.service.setBackgroundPreparation?.(true);
+            await this.warmUp(mode);
+            pushNativeRuntimeTrace('controller_next_take_prepare_done', { mode });
+        };
+        this.nextTakePreparation = run().finally(() => { this.nextTakePreparation = null; });
+        return this.nextTakePreparation;
+    }
+
+    /**
+     * #1258 RWT round 2 finding A — end a background next-take preparation: the service publishes from now on, starting
+     * with its genuine current state. Returns true when that state is a FAILED preparation (PM 6216298226), so the claiming
+     * Start can answer with it instead of recording on a service its own failure is about to tear down.
+     */
+    private claimPreparedService(): boolean {
+        const service = this.service;
+        if (!service?.isBackgroundPreparation?.()) return false;
+        pushNativeRuntimeTrace('controller_next_take_prepared_service_claimed');
+        service.setBackgroundPreparation(false);
+        const state = service.getState?.();
+        return state === 'FAILED' || state === 'INIT_FAILED';
     }
 
     /** #1258 — a previous take's service would not terminate: refuse rather than run this take on it. */
@@ -1048,6 +1166,12 @@ export class SpeechRuntimeController {
         /** #1421 Option A: the take this verdict belongs to, never the attempt current when it settles. */
         subject?: RecordingSubject | null;
     } | null = null;
+    /**
+     * #1258 RWT round 2 C — the EXACT status object a failed Stop left on screen for the session whose full save
+     * it armed for Retry Save. A recovered save settles that status and nothing else: identity, not wording, so a
+     * later status (a microphone error, a new take's copy) is never cleared by an old recovery.
+     */
+    private recoverableSaveFailureStatus: { sessionId: string; status: SttStatus } | null = null;
 
     /** #1265: immutable practice-mode snapshot captured when this recording enters RECORDING. Retry paths
      *  must never infer mode from a later live store or default missing context to Open Mic. */
@@ -1118,6 +1242,21 @@ export class SpeechRuntimeController {
      *  which land in non-locked states (FAILED/FAILED_VISIBLE/TERMINATED/READY/IDLE). A PRE-recording failure
      *  never sets it, so it correctly unlocks. Preserves the transcript/recovery-draft window. */
     private recordingStartedUnresolved = false;
+    /**
+     * #1258 (Codex P1 r4273828969): when each take's RECORDING began, by its session id — the boundary a "Practice this
+     * next" acceptance is compared with at its Progress seam (which runs after the save, and on retries much later).
+     * Bounded to the most recent takes; a take with no entry falls back to its seam stamp.
+     */
+    private takeStartedAtBySession: Map<string, string> | undefined;
+    private rememberTakeStart(sessionId: string, startedAtIso: string): void {
+        const starts = (this.takeStartedAtBySession ??= new Map<string, string>());
+        starts.set(sessionId, startedAtIso);
+        while (starts.size > 16) {
+            const oldest = starts.keys().next().value;
+            if (oldest === undefined) break;
+            starts.delete(oldest);
+        }
+    }
     /** #1033: engine selection is locked while (a) Start intent, (b) the recording lifecycle, (c) a pending
      *  attribution retry, OR (d) a started recording has not yet durably resolved (post-start failure window).
      *  THE single authoritative predicate — consumed by the UI selector AND enforced in the controller. */
@@ -1366,6 +1505,20 @@ export class SpeechRuntimeController {
                         // publications are fenced, so a superseded retry still finishes its own work.
                         this.pendingFullSaveRetry = null;
                         if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
+                        // #1258 RWT round 2 C — the take is saved, so its finalized recovery draft is spent, exactly as a
+                        // first-pass save clears it. Left behind, it told the person "Your last session finished but was
+                        // not saved" over the very review of the take that had just been saved. Scoped to THIS session's
+                        // own draft — bookkeeping, like the slots above, so it is not behind the shared-publication fence.
+                        // BEST-EFFORT (Codex P2 r4301349174, Sam 6229616411): the save has already succeeded and the slot is
+                        // cleared, so storage that cannot be read (disabled by browser policy) must not turn this into a
+                        // reported failure with no review and no retry. Unreadable → nothing is deleted (the exact-session
+                        // comparison inside is kept; there is no unconditional fallback) and settlement continues.
+                        try {
+                            clearSessionRecoveryDraft(targetSessionId);
+                        } catch (cleanupError) {
+                            logger.warn({ sessionId: targetSessionId, errorName: (cleanupError as Error)?.name ?? 'unknown' },
+                                '[controller] recovered save: recovery draft could not be read for cleanup — kept, settlement continues (#1258)');
+                        }
                         this.publishIfStopOwner(retryAuthority, retryToken, 'retry_full_save_settlement', () => {
                         this.markRecordingResolved();
                         // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
@@ -1388,6 +1541,21 @@ export class SpeechRuntimeController {
                          * is stale and must not overwrite that newer take's.
                          */
                         useSessionStore.getState().setCompletedSessionId(targetSessionId);
+                        /**
+                         * #1258 RWT round 2 C — AND THE PAGE ENTERS THAT REVIEW. Only a successful Stop enters the
+                         * saved-take review, so a recovered save left the page on its failed Stop: no review, no
+                         * `Practice this again`. This owner-fenced publication is the page's licence to enter it; a
+                         * no-op, failed or superseded retry never reaches here. The failed Stop's own status is
+                         * settled — by identity, so any status written since (a microphone error) is left alone.
+                         */
+                        const failedStatus = this.recoverableSaveFailureStatus;
+                        if (failedStatus?.sessionId === targetSessionId) {
+                            this.recoverableSaveFailureStatus = null;
+                            if (useSessionStore.getState().sttStatus === failedStatus.status) {
+                                useSessionStore.getState().setSTTStatus({ type: 'info', message: '✓ Session saved.' });
+                            }
+                        }
+                        useSessionStore.getState().setRecoveredSaveSessionId(targetSessionId);
                         });
                     }
                 }
@@ -1502,6 +1670,18 @@ export class SpeechRuntimeController {
                 .map((chunk) => ({ text: chunk.transcript, startSec: chunk.timestamp })),
             durationSeconds: durationSeconds ?? store.completedSessionDurationSeconds ?? 0,
         };
+    }
+
+    /**
+     * #1258 RWT round 2 C — A RECOVERABLE SAVE IS NOT A FAILED TAKE.
+     *
+     * The server closes a leased take for good once it is `failed` (#1476: a failed take "cannot be revived"),
+     * so a `failed` marker written onto a session whose full save is still pending turns its Retry Save into a
+     * request the server will always refuse. Only a confirmed Discard closes such a take. Every automatic
+     * `failed` marker asks this first.
+     */
+    private holdsRecoverableSave(sessionId: string | null | undefined): boolean {
+        return !!sessionId && this.pendingFullSaveRetry?.sessionId === sessionId;
     }
 
     private markRecordingResolved(): void {
@@ -1997,6 +2177,7 @@ export class SpeechRuntimeController {
         if (!this.service) {
             await this.ensureReady({ skipIfDownloadPending: false });
         }
+        this.claimPreparedService(); // #1258 A — an explicit download is the user's: it is published
         // Setup telemetry is emitted from handleStatusChange (path-agnostic: covers warmUp /
         // auto-init / explicit download alike), not here — initiateModelDownload is only ONE of
         // the model-load entry points and is skipped when the model auto-loads on mode select.
@@ -2614,7 +2795,8 @@ export class SpeechRuntimeController {
                      * the correct outcome — recording did not cleanly terminate, so nothing is claimed.
                      */
                 }
-                emitRecordingState(previousState, newState, error?.name ?? null);
+                emitRecordingState(previousState, newState, error?.name ?? null,
+                    newState === 'FAILED' ? recordingFailureCode(error) : null);
             } catch {
                 /* telemetry must never affect the state machine */
             }
@@ -2804,6 +2986,20 @@ export class SpeechRuntimeController {
 
         if (newState === 'RECORDING') {
             store.setSTTStatus({ type: 'recording', message: 'Recording active' });
+            // #1258 C10 (PM 6205858358) — capture is live only on the CURRENT Private engine's own real-frame readiness, which
+            // can arrive before this transition (remembered in `engineReportedRealFrames`) or after it (`handleStatusChange`).
+            // An FSM state is not proof of capture: a missing, unknown or non-Private service stays NOT live.
+            store.setCaptureLive(this.service?.getMode() === 'private' && this.engineReportedRealFrames);
+        } else {
+            // Leaving RECORDING (or entering any start/stop phase) ends live capture for this take.
+            store.setCaptureLive(false);
+            // The latch survives ONLY across ENGINE_INITIALIZING, where a same-attempt real-frame signal may legitimately
+            // arrive before RECORDING. Every other state — a new Start (INITIATING), Stop, failure, reset, idle — clears it.
+            if (newState !== 'ENGINE_INITIALIZING') this.engineReportedRealFrames = false;
+            // A take that has stopped, failed or been torn down is no longer starting: the honest wait never outlives it.
+            if (newState === 'STOPPING' || newState === 'FAILED' || newState === 'FAILED_VISIBLE' || newState === 'TERMINATED') {
+                store.setStartupWaitStartedAt(null);
+            }
         }
 
         if (newState === 'RECORDING' || newState === 'ENGINE_INITIALIZING' || newState === 'INITIATING') {
@@ -2855,7 +3051,8 @@ export class SpeechRuntimeController {
                     : rawMessage;
                 store.setSTTStatus({ type: 'error', message: displayMessage });
             }
-            if (this.sessionId) {
+            // #1258: never close a take whose full save is still recoverable (see holdsRecoverableSave).
+            if (this.sessionId && !this.holdsRecoverableSave(this.sessionId)) {
                 // Ensure this is properly tracked or caught
                 completeSession(this.sessionId, {
                     status: 'failed',
@@ -3040,7 +3237,9 @@ export class SpeechRuntimeController {
         store.setSTTStatus({ type: 'error', message: displayMessage });
 
         void this.enqueue(async (token) => {
-            await this.transition('FAILED', new Error(displayMessage), token);
+            // #1258: an engine-reported message is not authored text, so the code is tagged here, at its source — from the
+            // engine's own error (its browser name, then a strict permission vocabulary), not the display heuristic above.
+            await this.transition('FAILED', withFailureCode(new Error(displayMessage), engineFailureCode(error)), token);
         });
     }
 
@@ -3286,6 +3485,16 @@ export class SpeechRuntimeController {
     }
 
     private handleStatusChange(status: SttStatus) {
+        // #1258 C10 — the Private engine's real-frame readiness, per #891: `warming` until stable microphone frames arrive,
+        // then `recording`. Published so every live indicator waits for real capture, not for the FSM state.
+        if (status.type === 'warming') {
+            this.engineReportedRealFrames = false;
+            useSessionStore.getState().setCaptureLive(false);
+        }
+        if (status.type === 'recording' && this.service?.getMode() === 'private') {
+            this.engineReportedRealFrames = true;
+            if (this.state === 'RECORDING') useSessionStore.getState().setCaptureLive(true);
+        }
         if (status.type === 'initializing') {
             this.setEngineReady(false);
         }
@@ -3888,6 +4097,16 @@ export class SpeechRuntimeController {
             throw refusal;
         }
 
+        /**
+         * #1258 RWT round 2 C (Codex P1 r4300891532, Sam 6228507737) — A NEWER START OUTRANKS A RECOVERED REVIEW.
+         *
+         * `recoveredSaveSessionId` lets the page keep a recovered take's review over a later, unrelated error. That licence
+         * belongs to the recovered take only until the person asks for another one: from this admitted Start on, a failure
+         * (a denied microphone before any audio) is the new take's, and must show its own failed start, not A's review.
+         * Retired here, after the entry fence above (a refused Start leaves no trace) and before any start step can fail.
+         */
+        useSessionStore.getState().setRecoveredSaveSessionId(null);
+
         // #1426 — THE SWITCH'S SUCCESS IS NOT THE TAKE'S AUTHORITY.
         //
         // A scored model-comparison take is admitted only after recomputing requested === observed ===
@@ -3973,6 +4192,7 @@ export class SpeechRuntimeController {
         // #1033: lock engine selection SYNCHRONOUSLY at Start intent — before any async enqueue reaches
         // INITIATING — so a rapid engine change right after Start cannot win the race. Released in transition().
         this.engineSelectionIntentLocked = true;
+        this.startAcceptanceGeneration++;
         // Publish in the same synchronous turn as the click. Navigation and the engine selector consume
         // this projection; waiting for the queued INITIATING transition leaves a same-turn window in which
         // the controller is locked but the UI still believes the take is settled.
@@ -4038,7 +4258,20 @@ export class SpeechRuntimeController {
             lifecycleVersion: this.lifecycleVersion,
         });
 
-        void this.enqueue(async (_token) => {
+        // #1258 PR A (PM 6205858358 P1) — JOIN THE NEXT-TAKE PREPARATION OUTSIDE THE COMMAND QUEUE. The preparation's
+        // warm-up ends by queueing its subscription sync; a Start that waited for it INSIDE its own queue slot held that
+        // sync behind itself, and neither could finish. The Start now takes its slot only once the preparation settled,
+        // and re-checks, first thing in the slot, that the lifecycle, the owner and its own intent are unchanged. With no
+        // preparation in flight it is enqueued exactly as before.
+        const joinedPreparation = this.nextTakePreparation;
+        const lifecycleAtIntent = this.lifecycleVersion;
+        const ownerAtIntent = this.capturedUserId ?? null;
+        const enqueueStart = (task: (token: LifecycleToken) => Promise<void>): Promise<void> => {
+            if (!joinedPreparation) return this.enqueue(task);
+            pushNativeRuntimeTrace('controller_start_join_next_take_preparation');
+            return joinedPreparation.catch(() => undefined).then(() => this.enqueue(task));
+        };
+        void enqueueStart(async (_token) => {
             pushNativeRuntimeTrace('controller_start_queue_enter', {
                 recordingId,
                 state: this.state,
@@ -4046,6 +4279,37 @@ export class SpeechRuntimeController {
                 lifecycleVersion: this.lifecycleVersion,
                 currentRecordingId: this.currentRecordingId,
             });
+            if (joinedPreparation && (this.lifecycleVersion !== lifecycleAtIntent || (this.capturedUserId ?? null) !== ownerAtIntent
+                || this.currentRecordingId !== recordingId || !isCurrentIntent(intent.token))) {
+                pushNativeRuntimeTrace('controller_start_superseded_while_joining');
+                retireRecordingIntent('superseded', intent.token);
+                this.releaseRefusedStartLock();
+                return;
+            }
+            // #1258 A — the Start claims a background-prepared service: from here it publishes, starting with its truthful
+            // current state (ready, or a genuine preparation failure).
+            if (this.claimPreparedService()) {
+                // PM 6216298226 — the preparation FAILED. That failure is now this Start's answer: it ends here, rejected with
+                // the genuine cause, and nothing records on the failed service (a recording begun here would be overridden by
+                // the failure the claim just delivered). The failed service is retired so the person's next Start builds a
+                // fresh engine.
+                pushNativeRuntimeTrace('controller_start_prepared_service_failed');
+                const failed = this.service;
+                if (failed) {
+                    // Sam 6216630105 — until it is TERMINATED the service factory still hands this instance back, so an
+                    // immediate retry could reattach the discarded, still-terminating service. Marking it spent puts it under
+                    // the existing guard: the next Start awaits its retirement and then asks for a fresh service.
+                    this.servicesThatRecorded.add(failed);
+                    this.detachService(failed);
+                    // A discarded service no longer owns the page: its teardown must not overwrite the genuine failure the
+                    // claim just published (reset()'s UI sync would write idle "Ready" over it).
+                    failed.setBackgroundPreparation(true);
+                    void failed.destroy().catch(() => undefined);
+                }
+                retireRecordingIntent('acquisition_failed', intent.token, new Error('PREPARED_SERVICE_FAILED'));
+                this.releaseRefusedStartLock();
+                return;
+            }
             if (this.currentRecordingId !== recordingId) {
                 pushNativeRuntimeTrace('controller_start_skip_superseded_recording', {
                     recordingId,
@@ -4053,6 +4317,46 @@ export class SpeechRuntimeController {
                 });
                 // #1415 — a superseded attempt still owes its caller an answer.
                 retireRecordingIntent('superseded', intent.token);
+                return;
+            }
+
+            // Codex P2 r4320680220 (Sam 1792462026) — AN ACCEPTED START IS NOT ABSORBED BY A RETIRED ENGINE'S STALE STATE.
+            // While a retirement that detached the service is still settling, the runtime can still show the retired take's
+            // preparation or active state with NO service. The no-op branch below exists for a double click during a LIVE
+            // take; here nothing is running, so absorbing would make an accepted click vanish. Wait for that retirement —
+            // bounded, and not through the command queue (the retirement transitions directly) — then either proceed from
+            // the truthful state it settled to, or refuse THIS intent truthfully and retryably. Nothing is launched before
+            // the old engine is affirmatively off. A live service, or no pending retirement, keeps the existing behaviour.
+            const retiring = this.pendingRetirement;
+            if (retiring && this.service === null && this.state !== 'READY' && this.state !== 'IDLE') {
+                pushNativeRuntimeTrace('controller_start_waits_for_retirement', { state: this.state });
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                const waited = await Promise.race([
+                    retiring.then(() => 'settled' as const),
+                    new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), this.retirementAdmissionWaitMs); }),
+                ]);
+                if (timer !== undefined) clearTimeout(timer);
+                if (this.currentRecordingId !== recordingId || !isCurrentIntent(intent.token)) {
+                    // Superseded while waiting (a newer Start, or a reset that already answered this intent): settle only this one.
+                    pushNativeRuntimeTrace('controller_start_superseded_while_waiting_for_retirement');
+                    retireRecordingIntent('superseded', intent.token);
+                    // Its own lock only: a newer Start (different recording id) keeps the lock it took.
+                    if (this.currentRecordingId === recordingId) this.releaseRefusedStartLock();
+                    return;
+                }
+                if (waited === 'timeout') {
+                    this.refuseStartOnSpentService(intent.token);
+                    return;
+                }
+            }
+            // Sam SOURCE RETURN 1792464541 — A RETIREMENT THAT SETTLED WITHOUT PROOF IS NOT A RETIRED ENGINE. It left the runtime
+            // detached in the retired take's stale state; the no-op branch below would absorb this accepted click, and a FAILED
+            // state would let it build a replacement beside an engine never proven off. Refuse truthfully and retryably. The
+            // in-tree service has no later-proof path once its termination failed (`destroy()` is memoized and nulls the
+            // strategy), so the recovery is the existing one: a hard reset (reload), which ends this retirement's ownership.
+            // Only an explicit hard reset discharges it (Sam 1792467541): lifecycle churn from another cleanup does not.
+            if (this.unresolvedRetirement && this.service === null && this.getState() !== 'READY' && this.getState() !== 'IDLE') {
+                this.refuseStartOnSpentService(intent.token);
                 return;
             }
 
@@ -4164,7 +4468,10 @@ export class SpeechRuntimeController {
                     type: 'error',
                     message: '⛔ Active session in another tab.'
                 });
-                await this.transition('FAILED', undefined, _token);
+                // #1258 (Codex P2 4261513195, PM 6150665406): the FAILED transition carries a closed `failure_code`
+                // (start_gate_closed) instead of none. A FAILED error's message becomes the status line, so the error
+                // keeps the exact display text above and the code travels as a tag; only the code leaves the device.
+                await this.transition('FAILED', withFailureCode(new Error('⛔ Active session in another tab.'), 'start_gate_closed'), _token);
                 return;
             }
 
@@ -4190,6 +4497,15 @@ export class SpeechRuntimeController {
             const mode = this.policy?.preferredMode || 'private';
             if (this.service) {
                 pushNativeRuntimeTrace('controller_warmup_start', { mode });
+                // #1258 C10 — TEST-ONLY engine-setup delay, so the honest-wait UI can be exercised without a real engine.
+                // `import.meta.env.MODE !== 'production'` folds to false in the production build, removing this block; it
+                // also requires an active E2E harness. It only delays: it never fakes real-frame readiness or capture.
+                if (import.meta.env.MODE !== 'production' && ENV.isE2E) {
+                    const delayMs = (window as unknown as { __SS_E2E_ENGINE_SETUP_DELAY_MS__?: unknown }).__SS_E2E_ENGINE_SETUP_DELAY_MS__;
+                    if (typeof delayMs === 'number' && delayMs > 0 && delayMs <= 60_000) {
+                        await new Promise((resolve) => setTimeout(resolve, delayMs));
+                    }
+                }
                 await this.service.warmUp(mode);
                 pushNativeRuntimeTrace('controller_warmup_done', { mode });
                 pushE2EEvent('SR_AFTER_WARMUP');
@@ -4431,6 +4747,8 @@ export class SpeechRuntimeController {
                     && acceptedHere.serviceGeneration === this.serviceGeneration) {
                     const store = useSessionStore.getState();
                     store.setCompletedSessionId(null);
+                    store.setRecoveredSaveSessionId(null);
+                    this.recoverableSaveFailureStatus = null;
                     store.setFinalizedAnalysis(null);
                     store.setObjectiveCoverageResult(null);
                 } else {
@@ -4488,6 +4806,11 @@ export class SpeechRuntimeController {
 
                     this.updateSessionPersisted(false);
                     pushNativeRuntimeTrace('controller_placeholder_save_start', { mode: negMode });
+                    // #1258 (Codex P1 r4273828969, r4275389946): the take began when the SERVICE confirmed recording — its own
+                    // stamp at ENGINE_STARTED, taken before the invariant check and this save, so an acceptance made in that gap
+                    // still sorts after this take. An unknown start is not remembered, so the binding fails closed.
+                    const serviceStartedAtMs = service.getStartTime();
+                    const takeStartedAtIso = serviceStartedAtMs ? new Date(serviceStartedAtMs).toISOString() : null;
                     const saveResult = await saveSession(
                         { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode, ...productMarkerFor(this.recordingProgressMode) },
                         { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
@@ -4514,6 +4837,7 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
+                        if (takeStartedAtIso) this.rememberTakeStart(dbSession.id, takeStartedAtIso);
                         this.applyPrivateTelemetryContext();
                         // #1161 (Option 2): ATOMICALLY bind the pre-session intent (registered before start) to the
                         // session this recording just produced. AWAITED; a bind failure/miss ⇒ the session resolves
@@ -4668,6 +4992,9 @@ export class SpeechRuntimeController {
         }
 
         logger.warn({ reason, state: this.state }, '[SpeechRuntimeController] HARD RESET triggered');
+        // Sam 1792467541: an explicit hard reset (reload, take-over, sign-out) is the recovery for an unproven retirement.
+        // Nothing else — not another unmount's lifecycle churn — may discharge that debt.
+        this.unresolvedRetirement = null;
 
         // 1. Monotonic Boundary Cut (FIRST)
         this.lifecycleVersion++;
@@ -4679,6 +5006,8 @@ export class SpeechRuntimeController {
         this.markRecordingResolved();
         this.pendingAttributionRetry = null;
         this.pendingFullSaveRetry = null;
+        // #1258 R1: a hard reset drops queued commands and starts a new lifecycle; no earlier Stop carries over.
+        this.stopAcceptedForRecordingId = null;
         this.recordingProgressMode = { mode: 'unknown' };
         this.recordingLogin = null;
 
@@ -4819,7 +5148,7 @@ export class SpeechRuntimeController {
      * flag: the durable Retry Save survives. Returns `terminal` only when no engine can still run here; `unconfirmed`
      * when destruction was rejected or did not complete in time — the caller must then keep the account's lease and say so.
      */
-    public async retireEngineForUnmount(boundMs: number = 10_000): Promise<'terminal' | 'unconfirmed'> {
+    public async retireEngineForUnmount(boundMs: number = 10_000, onLateTerminal?: () => void): Promise<'terminal' | 'unconfirmed'> {
         // PM pre-push RETURN 2: success, rejection and timeout are different answers. A rejected stop is survivable (the
         // engine is then destroyed); a rejected DESTROY is not confirmation the engine is off.
         const within = <T,>(p: Promise<T>): Promise<'ok' | 'rejected' | 'timeout'> => new Promise((resolve) => {
@@ -4832,6 +5161,25 @@ export class SpeechRuntimeController {
         if (this.state === 'RECORDING' || this.state === 'STOPPING' || this.state === 'FAILED' || this.state === 'FAILED_VISIBLE') {
             await within(this.stopRecording());
         }
+        // Sam 1792467541: an earlier retirement whose engine was never proven off is still outstanding. A repeated cleanup with
+        // nothing attached has nothing of its own to retire, so it must not churn the lifecycle (which would make that debt
+        // look superseded) or report 'terminal' — the caller keeps the lease and says so, as for the first cleanup.
+        // Sam 1792468869 — the IN-FLIGHT variant: an earlier retirement's destroy is still pending (its bounded return already
+        // said 'unconfirmed'; its late completion is armed). Nothing attached is not "nothing to do" — JOIN that obligation,
+        // within this call's own bound, rather than churn the lifecycle (which would void its owner-fenced completion). Still
+        // pending at the bound: a bounded 'unconfirmed', and the earlier retirement completes — once — when it can.
+        const inFlight = this.pendingRetirement;
+        if (inFlight && this.service === null) {
+            const joined = await within(inFlight);
+            if (joined !== 'ok' || this.pendingRetirement !== null) {
+                pushNativeRuntimeTrace('controller_unmount_retire_joined_pending', { state: this.state, joined });
+                return 'unconfirmed';
+            }
+        }
+        if (this.unresolvedRetirement && this.service === null) {
+            pushNativeRuntimeTrace('controller_unmount_retire_unresolved_outstanding', { state: this.state });
+            return 'unconfirmed';
+        }
         const atRest = (): boolean => this.state === 'IDLE' || this.state === 'READY' || this.state === 'TERMINATED' || this.state === 'DOWNLOAD_REQUIRED';
         const preparing = this.state === 'INITIATING' || this.state === 'ENGINE_INITIALIZING' || this.state === 'DOWNLOAD_REQUIRED';
         if (atRest() && !preparing && !hasEngineNotConfirmedStopped()) return 'terminal';
@@ -4842,20 +5190,132 @@ export class SpeechRuntimeController {
         this.activeTasks.clear();
         this.commandQueue = Promise.resolve();
         const svc = this.detachService();
-        if (svc) {
-            this.stopWatchdog();
-            this.stopHeartbeat();
-            const destroyed = await within(svc.destroy());
-            // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside).
-            if (destroyed !== 'ok' || hasEngineNotConfirmedStopped()) {
-                pushNativeRuntimeTrace('controller_unmount_retire_unconfirmed', { state: this.state, destroy: destroyed });
-                return 'unconfirmed';
+        // #1593 (Sam 1792445123): the destroy below is awaited for up to its bound, and a hard reset or a successor Start
+        // can take the runtime in that window. This retirement owns the runtime only while nothing replaced it since the
+        // detach; once superseded it publishes nothing, and its receipt speaks only for ITS OWN engine.
+        const retirement = { version: this.lifecycleVersion, generation: this.serviceGeneration, starts: this.startAcceptanceGeneration };
+        // The retired take's finalization latch, if its stop armed one: a cancelled stop never reaches its own release, so
+        // the retirement releases EXACTLY that latch when it completes — never one a newer take armed (strict identity).
+        const retiredLatch = this.finalizingOwner;
+        const superseded = (): boolean => !this.ownsRetirement(retirement);
+        const ownReceipt = (): 'terminal' | 'unconfirmed' => (svc
+            ? (svc.didConfirmTermination() ? 'terminal' : 'unconfirmed')
+            : (hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal'));
+        // Codex P2 r4320680220: published until this retirement settles, so a Start accepted meanwhile waits for it.
+        let settleRetirement!: () => void;
+        const settled = new Promise<void>((resolve) => { settleRetirement = resolve; });
+        this.pendingRetirement = settled;
+        // Settled WITHOUT reaching its own IDLE while it still owns the runtime: keep that as an unresolved retirement, so a
+        // later Start refuses truthfully (or recovers on later proof) instead of being absorbed by the stale state.
+        const finish = (completed: boolean): void => {
+            if (this.pendingRetirement === settled) this.pendingRetirement = null;
+            // The OLDEST outstanding debt is kept: a later retirement never replaces it.
+            if (!completed && this.ownsRetirement(retirement) && !this.unresolvedRetirement) this.unresolvedRetirement = { retired: svc, retirement };
+            settleRetirement();
+        };
+        let lateArmed = false;
+        let completed = false;
+        try {
+            if (svc) {
+                this.stopWatchdog();
+                this.stopHeartbeat();
+                const destroying = svc.destroy();
+                const destroyed = await within(destroying);
+                // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside), and a
+                // preparing engine is not in the live-engine registry: only the service's own affirmative result proves it off.
+                if (destroyed !== 'ok' || hasEngineNotConfirmedStopped() || !svc.didConfirmTermination()) {
+                    pushNativeRuntimeTrace('controller_unmount_retire_unconfirmed', { state: this.state, destroy: destroyed });
+                    // Only a TIMEOUT can still end well: finish this retirement if its destruction later succeeds. It stays
+                    // pending until then, so an accepted Start keeps waiting for it rather than for this bounded return.
+                    if (destroyed === 'timeout') {
+                        lateArmed = true;
+                        void destroying
+                            .then(() => this.completeLateRetirement(retirement, svc, onLateTerminal, retiredLatch), () => false)
+                            .then((done) => finish(done), () => finish(false));
+                    }
+                    return 'unconfirmed';
+                }
             }
+            if (superseded()) {
+                pushNativeRuntimeTrace('controller_unmount_retire_superseded', { state: this.state, phase: 'after_destroy' });
+                return ownReceipt();
+            }
+            this.setEngineReady(false);
+            // Codex P2 r4320680220: SCOPED to the retired attempt (its intent was retired at the top, `navigated`), so it can
+            // never retire an accepted successor's intent — the same rule as the late path.
+            await this.transition('TERMINATED', undefined, undefined, RETIRED_ATTEMPT_INTENT);
+            if (superseded()) {
+                pushNativeRuntimeTrace('controller_unmount_retire_superseded', { state: this.state, phase: 'after_terminated' });
+                return ownReceipt();
+            }
+            await this.transition('IDLE');
+            completed = true;
+            this.releaseRetiredLatch(retiredLatch);
+            return hasEngineNotConfirmedStopped() || this.unresolvedRetirement ? 'unconfirmed' : 'terminal';
+        } finally {
+            if (!lateArmed) finish(completed);
         }
+    }
+
+    /**
+     * #1593 case 4 (CLI 0ae7573b) — A RETIREMENT THAT TIMED OUT, THEN SUCCEEDED. The bounded wait returned `unconfirmed`
+     * before its TERMINATED/IDLE transitions, and nothing ever completed them: the runtime stayed ENGINE_INITIALIZING or
+     * DOWNLOAD_REQUIRED with no service, so Start stayed disabled after the engine was off. Completed here only for THIS
+     * retirement and only on proof: no hard reset or new lifecycle since (version), no service attached or replaced since
+     * (generation), the retiring service's OWN termination affirmatively confirmed (Sam RETURN on 77780845: a caught rejection
+     * and an empty registry are not proof), and the runtime still the preparation it retired. A rejected or still-hung
+     * termination completes nothing, and a successor's runtime, finalization or lease is never touched.
+     */
+    /** Resolves true only when THIS retirement reached its own IDLE; false when it published nothing or stood down. */
+    private async completeLateRetirement(retirement: RetirementOwnership, retired: TranscriptionService, onLateTerminal?: () => void, retiredLatch: LatchOwner | null = null): Promise<boolean> {
+        if (!this.ownsRetirement(retirement)) return false;
+        // Affirmative proof from the retiring service itself: its termination resolved (a caught rejection is not proof).
+        if (!retired.didConfirmTermination() || hasEngineNotConfirmedStopped()) return false;
+        // Codex P1 r4320483450: a retirement that began from RECORDING/STOPPING/FAILED is left there when its bounded stop
+        // also timed out (the lifecycle bump cancels that stop's continuation), so those states are completed too — exactly
+        // the states the in-bound path completes. The ownership tuple above, not the state, proves no successor took over.
+        const retiredStates: ReadonlyArray<string> = ['INITIATING', 'ENGINE_INITIALIZING', 'DOWNLOAD_REQUIRED', 'RECORDING', 'STOPPING', 'FAILED', 'FAILED_VISIBLE'];
+        if (!retiredStates.includes(this.state)) return false;
+        pushNativeRuntimeTrace('controller_unmount_retire_late_terminal', { state: this.state });
         this.setEngineReady(false);
-        await this.transition('TERMINATED');
+        // Codex P2 r4320680220 (Sam SOURCE RETURN 1792461197): a successor Start is ACCEPTED synchronously — selection lock
+        // and intent minted — before any queued work attaches a service, so the tuple above cannot see it. The retired
+        // take's own intent was already retired at detach (`navigated`), so this TERMINATED is SCOPED to that retired attempt
+        // and can never retire a successor's pending intent. The runtime still finalizes: the old engine is proven off and
+        // nothing is attached, so IDLE is the truthful state — and the one an accepted successor's queued Start proceeds from,
+        // instead of being absorbed by the retired take's stale preparation state.
+        await this.transition('TERMINATED', undefined, undefined, RETIRED_ATTEMPT_INTENT);
+        // Codex P2 r4317105661: transition() awaits, so a hard reset or a successor that attached a service in that window
+        // owns the runtime now — recheck this retirement's tuple before publishing anything else. (A Start accepted in that
+        // window resets TERMINATED → IDLE and attaches its service in the same synchronous run, so the generation check
+        // covers it.)
+        if (!this.ownsRetirement(retirement)) return false;
         await this.transition('IDLE');
-        return hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal';
+        if (this.ownsRetirement(retirement)) this.releaseRetiredLatch(retiredLatch);
+        // Codex P2 r4320680220 (Sam 1792462080): lease authority is COUNT-based, not pending-based. Once any Start has been
+        // accepted since the detach, the retired take never regains it — not even after that successor settles or cancels.
+        if (this.ownsRetirement(retirement) && this.startAcceptanceGeneration === retirement.starts
+            && this.getState() === 'IDLE' && !hasEngineNotConfirmedStopped()) onLateTerminal?.();
+        return true;
+    }
+
+    /**
+     * Found 2026-10-20 03:01 UTC, Sam 1792465458: a retirement that COMPLETED on affirmative proof (its own IDLE, ownership
+     * unchanged) releases the retired take's finalization latch. The retirement's lifecycle bump fenced that take's stop
+     * continuation, so only its hung-stop timeout would ever release it; until then every Start was refused as "finalization
+     * in progress" while the runtime already reported IDLE. Released only through the strict captured-owner identity, so a
+     * latch any other take armed is never touched; an UNPROVEN retirement releases nothing. Durable recovery state and the
+     * unsaved-recording guard are not touched.
+     */
+    private releaseRetiredLatch(retiredLatch: LatchOwner | null): void {
+        if (!retiredLatch || this.finalizingOwner !== retiredLatch) return;
+        this.releaseFinalizingIfOwner('engine_retirement_completed', retiredLatch.lifecycleVersion, retiredLatch);
+    }
+
+    /** The retirement still owns the runtime: no hard reset or new lifecycle (version), no service attached or replaced (generation, service). */
+    private ownsRetirement(retirement: RetirementOwnership): boolean {
+        return this.lifecycleVersion === retirement.version && this.serviceGeneration === retirement.generation
+            && this.service === null;
     }
 
     private resetEphemeralState(reason: string = 'unknown'): void {
@@ -4889,6 +5349,11 @@ export class SpeechRuntimeController {
             if (!canStop) {
                 return null;
             }
+            if (this.currentRecordingId !== null && this.stopAcceptedForRecordingId === this.currentRecordingId) {
+                pushNativeRuntimeTrace('controller_stop_duplicate_ignored', { state: this.state });
+                return null;
+            }
+            this.stopAcceptedForRecordingId = this.currentRecordingId;
             const stopSnapshotStore = useSessionStore.getState();
             const frozenAtStop = this.freezeTranscriptLifecycleAtStop();
             pushTranscriptLifecycleTrace('lifecycle:stop', {
@@ -5110,6 +5575,8 @@ export class SpeechRuntimeController {
                                 throw new Error(saveResult.reason === 'lease_not_held' ? LEASE_NOT_HELD_MESSAGE : 'Session save failed');
                             }
                             sessionId = saveResult.session.id;
+                            // #1258 (Codex P1 r4273828969): a take saved only at Stop still began at its recording start.
+                            if (startTime) this.rememberTakeStart(sessionId, new Date(startTime).toISOString());
                             // A's late session-create must not become B's controller session.
                             this.publishIfStopOwner(stopAuthority, token, 'late_session_id', () => {
                                 this.sessionId = sessionId;
@@ -5411,6 +5878,19 @@ export class SpeechRuntimeController {
                                     preview: finalTranscript.slice(0, 80),
                                 });
                             }
+                            /**
+                             * #1593 (live RWT cases 2/3; CLI packet f804f396) — THE TAKE'S FINAL TRANSCRIPT IS SETTLED HERE.
+                             *
+                             * The final decode has returned and this take's final text is selected and published to
+                             * the working store, BEFORE completion and the Focus evaluation. `final_transcript` was
+                             * marked only when the finalizing latch released (useSessionStore), which on the normal
+                             * Stop path happens after `completeProgressForRecording` had already marked
+                             * `evaluation_complete` — so every Focus take emitted the chain reversed. Marked here,
+                             * once per take (`markCompletionStage` ignores the latch's later mark), only while this
+                             * stop still owns the shared surfaces. The Start-blocking latch, the Progress gate and
+                             * the evaluation itself are not moved; a hung or failed decode never reaches this line.
+                             */
+                            if (this.stopStillOwnsSharedState(stopAuthority, token)) markCompletionStage('final_transcript');
 
                             const supabase = getSupabaseClient();
                             const { data: { session } } = await supabase.auth.getSession();
@@ -5460,7 +5940,7 @@ export class SpeechRuntimeController {
                                 durationSeconds: Math.round(duration),
                                 wordCount,
                                 wpm,
-                                fillerCounts: finalFillerCounts,
+                                countedFillerTotal: headlineFillerCount,
                                 clarityScore,
                             });
 
@@ -5989,7 +6469,7 @@ export class SpeechRuntimeController {
                         liveGeneration: this.serviceGeneration,
                         tokenCancelled: token.cancelled,
                     });
-                    if (stopAuthority.sessionId) {
+                    if (stopAuthority.sessionId && !this.holdsRecoverableSave(stopAuthority.sessionId)) {
                         completeSession(stopAuthority.sessionId, {
                             status: 'failed',
                             reason: `Stop recording failed: ${(err as Error).message}`,
@@ -6003,7 +6483,8 @@ export class SpeechRuntimeController {
                 }
 
                 const hasRecoveryDraftSignal = this.getStoreTranscriptLength() > 0;
-                if (this.sessionId) {
+                // #1258: a failed SAVE armed Retry Save for this session; marking it `failed` would close it for good.
+                if (this.sessionId && !this.holdsRecoverableSave(this.sessionId)) {
                     completeSession(this.sessionId, {
                         status: 'failed',
                         reason: `Stop recording failed: ${(err as Error).message}`
@@ -6046,6 +6527,10 @@ export class SpeechRuntimeController {
                 // (the content-free recovery draft, if any, was already written by persistActiveRecoveryDraft and
                 // the recovery-signal length was captured above). Purge the ephemeral transcript so no spoken
                 // text survives a failed finalization either.
+                // #1258 C: remember the exact status this failed save left, so its recovery settles only that.
+                if (this.sessionId && this.holdsRecoverableSave(this.sessionId)) {
+                    this.recoverableSaveFailureStatus = { sessionId: this.sessionId, status: useSessionStore.getState().sttStatus };
+                }
                 this.purgeTranscriptWorkingMemory();
                 throw err;
             }
@@ -6123,6 +6608,7 @@ export class SpeechRuntimeController {
                     attributionStatus,
                     metricsPersisted,
                     userId: this.capturedUserId,
+                    takeStartedAtIso: this.takeStartedAtBySession?.get(sessionId) ?? null,
                 });
             } catch (progressErr) {
                 // A throw is NOT durability. Fail closed rather than inferring success from silence.
@@ -6294,6 +6780,11 @@ export class SpeechRuntimeController {
                     useSessionStore.getState().setObjectiveCoverageResult(
                         objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
                     );
+                    // #1258 item 5 (PM 6216341052) — `evaluation_complete` is produced HERE: the take's successful, settled
+                    // Focus evaluation, still owned by this take (`canPublishShared`). Stop awaits this before it resolves,
+                    // and the hook marks `session_saved` only after Stop resolves, so the chain order holds without
+                    // waiting on React or backdating. A failed, unknown or stale finalization never marks it (HOLD).
+                    markCompletionStage('evaluation_complete');
                 } else {
                     pushNativeRuntimeTrace('controller_stop_publication_refused', { label: 'objective_coverage' });
                 }
@@ -6394,7 +6885,10 @@ export class SpeechRuntimeController {
                             pushE2EEvent('HEARTBEAT_FAILURE_THRESHOLD_REACHED', { sessionId, consecutiveFailures });
 
                             this.stopHeartbeat(); // Kill interval before transition
-                            await this.transition('FAILED', error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'));
+                            // #1258 (Codex P2 4265721146): the caught error is whatever the network threw — a `TypeError`
+                            // or `TimeoutError` names no heartbeat — so it is tagged here. Same object, same message.
+                            await this.transition('FAILED', withFailureCode(
+                                error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'), 'heartbeat_failure'));
                             return;
                         }
 
@@ -6574,7 +7068,7 @@ export class SpeechRuntimeController {
         void this.enqueue(async (token) => {
             this.stopWatchdog();
             this.stopHeartbeat();
-            if (this.sessionId) {
+            if (this.sessionId && !this.holdsRecoverableSave(this.sessionId)) {
                 completeSession(this.sessionId, { status: 'failed', reason: error.message }).catch((completeError) => {
                     logger.warn({
                         completeError,

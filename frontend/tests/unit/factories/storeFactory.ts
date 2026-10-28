@@ -4,6 +4,8 @@ import { vi } from 'vitest';
 
 const initialState: SessionState = {
     isListening: false,
+    startupWaitStartedAt: null,
+    captureLive: false,
     isReady: false,
     transcript: {
         transcript: '',
@@ -27,6 +29,7 @@ const initialState: SessionState = {
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
     completedSessionId: null,
+    recoveredSaveSessionId: null,
     activeObjectiveBrief: null,
     practiceFocus: null,
     completedObjectiveBrief: null,
@@ -146,6 +149,8 @@ export function createTestSessionStore(
             })),
 
         setEngineSelectionLock: vi.fn(),
+        setStartupWaitStartedAt: vi.fn((startupWaitStartedAt) => set({ startupWaitStartedAt })),
+        setCaptureLive: vi.fn((captureLive) => set({ captureLive })),
         setRuntimeState: vi.fn((state) =>
             set({
                 runtimeState: state,
@@ -221,6 +226,7 @@ export function createTestSessionStore(
         setCaptureLimitReached: vi.fn((captureLimitReached) => set({ captureLimitReached })),
         setCompletedSessionDuration: vi.fn((completedSessionDurationSeconds) => set({ completedSessionDurationSeconds })),
         setCompletedSessionId: vi.fn((completedSessionId) => set({ completedSessionId })),
+        setRecoveredSaveSessionId: vi.fn((recoveredSaveSessionId) => set({ recoveredSaveSessionId })),
         setActiveObjectiveBrief: vi.fn((activeObjectiveBrief) => set({ activeObjectiveBrief })),
         setPracticeFocus: vi.fn((practiceFocus) => set({ practiceFocus })),
         setCompletedObjectiveBrief: vi.fn((completedObjectiveBrief) => set({ completedObjectiveBrief })),
