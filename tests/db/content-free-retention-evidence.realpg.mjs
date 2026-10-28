@@ -322,15 +322,44 @@ export const mutants = [
 ];
 
 // No inherited PG URL/credentials, TCP listener, linked Supabase target or network download.
+// Enumerated independently of pg_proc: INVOKER or missing functions must remain
+// visible in the expected set rather than disappear behind a prosecdef filter.
+export const REQUIRED_RETENTION_FUNCTIONS = Object.freeze([
+  ['public._ss_retention_content_cohort(public.sessions)', false],
+  ['public.retention_content_free_compatible()', true],
+  ['public._ss_retention_content_statement_lock()', true],
+  ['public._ss_retention_content_row_guard()', true],
+  ['public._ss_retention_expired_derived_guard()', false],
+  ['public._ss_retention_recovery_write_guard()', true],
+  ['public.arm_transcript_retention_for_save(uuid,uuid)', true],
+  ['public.sessions_set_transcript_state()', false],
+  ['public.expire_transcripts_newest_one(uuid,integer)', true],
+  ['public.converge_transcript_retention(uuid)', true],
+  ['public.spe_converge_retention()', true],
+  ['public.complete_session_v2(uuid,text,integer,text,jsonb,integer,double precision,double precision,jsonb,jsonb,text)', true],
+  ['public.create_session_and_update_usage(jsonb,text,uuid,text,text,text)', true],
+  ['public.record_progress_evaluation(uuid)', true],
+].map(([identity, securityDefiner]) => Object.freeze({ identity, securityDefiner })));
+
+export function retentionOwnerCatalogSql() {
+  const values = REQUIRED_RETENTION_FUNCTIONS.map(row => `('${row.identity}')`).join(',');
+  return `WITH required(identity) AS (VALUES ${values})
+    SELECT required.identity,p.oid IS NOT NULL AS present,r.rolname AS owner,r.rolsuper AS superuser,p.prosecdef AS "securityDefiner"
+    FROM required LEFT JOIN pg_proc p ON p.oid=to_regprocedure(required.identity)
+    LEFT JOIN pg_roles r ON r.oid=p.proowner ORDER BY required.identity`;
+}
+
 export function assertRetentionOwners(rows) {
-  assert.ok(Array.isArray(rows) && rows.length > 0, 'security-definer catalog absent');
-  assert.ok(rows.some(row => row.identity === 'expire_transcripts_newest_one(uuid,integer)'), 'expiry owner absent');
-  assert.ok(rows.some(row => row.identity.startsWith('complete_session_v2(')), 'completion owner absent');
-  assert.ok(rows.some(row => row.identity.startsWith('record_progress_evaluation(')), 'evaluation owner absent');
-  for (const row of rows) {
+  assert.ok(Array.isArray(rows), 'retention catalog absent');
+  assert.equal(rows.length, REQUIRED_RETENTION_FUNCTIONS.length, 'required retention catalog incomplete');
+  for (const required of REQUIRED_RETENTION_FUNCTIONS) {
+    const matching = rows.filter(row => row.identity === required.identity);
+    assert.equal(matching.length, 1, 'required retention signature absent or duplicated');
+    const row = matching[0];
+    assert.equal(row.present, true, 'required retention function missing');
     assert.equal(row.owner, 'closure_owner', 'security-definer owner differs');
     assert.equal(row.superuser, false, 'security-definer owner must be NOSUPERUSER');
-    assert.equal(row.securityDefiner, true, 'catalog row is not security-definer');
+    assert.equal(row.securityDefiner, required.securityDefiner, 'retention execution security mode differs');
   }
   return rows;
 }
@@ -460,6 +489,7 @@ async function runOwnedEditedTakeRace({ db, exec, bin, socket, env }) {
 // Called after EVERY init/start outcome, including a pg_ctl timeout after a
 // postmaster was created. A successful body cannot outrun owned teardown.
 export function cleanupOwnedRetentionFixture(io) {
+  assert.equal(io.ownershipKnown(), true, 'startup ownership unknown; retain owned resources');
   const before = io.observe();
   if (before.dataPresent) {
     try { io.stop(); } catch { /* Observe independently; a missing server needs no stop. */ }
@@ -474,6 +504,23 @@ export function cleanupOwnedRetentionFixture(io) {
   assert.equal(final.processes.length, 0, 'owned PostgreSQL process reappeared');
   assert.equal(final.socketPresent || final.pidFilePresent, false, 'owned PostgreSQL endpoint reappeared');
   return { cleanupVerified: true, dataRemoved: true, processesRemaining: 0, socketRemoved: true };
+}
+
+// Even a failed pg_ctl can leave a live postmaster. Observe/seed identity before
+// any test body and preserve that original error if ownership is also unknown.
+export function startOwnedRetentionFixture(io) {
+  let primary;
+  try { io.start(); } catch (error) { primary = error; }
+  let observation;
+  try {
+    observation = io.observe();
+    const known = Number.isSafeInteger(observation.postmasterPid) && observation.postmasterPid > 1
+      && observation.processes.includes(observation.postmasterPid);
+    io.record(observation, known);
+    assert.equal(known, true, 'startup postmaster identity not observed');
+  } catch (error) { primary ??= error; }
+  if (primary) throw primary;
+  return observation;
 }
 
 export function ownedRetentionProcessIds(rows, { bin, data, postmasterPid, seen }) {
@@ -499,6 +546,7 @@ export async function nativeFixture(t, { bin = '/opt/homebrew/opt/postgresql@17/
   let statement = 0;
   const run = (name, args, timeout = 20_000) => execFileSync(join(bin, name), args, { env, encoding: 'utf8', timeout });
   let ownedPid;
+  let startupIdentityKnown = false;
   const seenOwnedPids = new Set();
   const observe = () => {
     const pidFilePresent = existsSync(join(data, 'postmaster.pid'));
@@ -513,13 +561,14 @@ export async function nativeFixture(t, { bin = '/opt/homebrew/opt/postgresql@17/
     const processes = execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8', timeout: 5_000 })
       .trim().split('\n').map(line => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)).filter(Boolean)
       .map(([, pid, parent, command]) => ({ pid: Number(pid), parent: Number(parent), command }));
-    return { dataPresent: existsSync(data), pidFilePresent,
+    return { dataPresent: existsSync(data), pidFilePresent, postmasterPid: ownedPid ?? null,
       socketPresent: existsSync(join(socket, '.s.PGSQL.55477')) || existsSync(join(socket, '.s.PGSQL.55477.lock')),
       processes: ownedRetentionProcessIds(processes, { bin, data, postmasterPid: ownedPid, seen: seenOwnedPids }) };
   };
   t.after(() => {
     try {
       Object.assign(receipt, cleanupOwnedRetentionFixture({ observe,
+        ownershipKnown: () => startupIdentityKnown,
         stop: () => run('pg_ctl', ['-D', data, '-w', '-t', '10', 'stop', '-m', 'immediate'], 15_000),
         removeData: () => rmSync(data, { recursive: true, force: true }) }));
     } finally {
@@ -532,9 +581,17 @@ export async function nativeFixture(t, { bin = '/opt/homebrew/opt/postgresql@17/
   });
   writeFileSync(join(root, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
   run('initdb', ['-D', data, '-U', 'retention_fixture_admin', '-A', 'trust', '--no-locale', '--encoding=UTF8']);
-  run('pg_ctl', ['-D', data, '-l', join(root, 'postgres.log'), '-w', '-t', '10', 'start', '-o', `-k ${socket} -p 55477 -c listen_addresses=''`]);
+  startOwnedRetentionFixture({
+    start: () => run('pg_ctl', ['-D', data, '-l', join(root, 'postgres.log'), '-w', '-t', '10', 'start', '-o', `-k ${socket} -p 55477 -c listen_addresses=''`]),
+    observe,
+    record: (observation, known) => {
+      startupIdentityKnown = known;
+      receipt.startup = { identityKnown: known, postmasterPid: observation.postmasterPid, processIds: observation.processes };
+      receipt.owner = { controllerPid: process.pid, postmasterPid: observation.postmasterPid, data, socket };
+      writeFileSync(join(root, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
+    },
+  });
   receipt.postgresBinaryVersion = run('postgres', ['--version']).trim();
-  receipt.owner = { controllerPid: process.pid, postmasterPid: Number(readFileSync(join(data, 'postmaster.pid'), 'utf8').split('\n')[0]), data, socket };
   const exec = async text => {
     const path = join(root, `statement-${++statement}.sql`); writeFileSync(path, text);
     try {
@@ -572,10 +629,7 @@ export async function nativeFixture(t, { bin = '/opt/homebrew/opt/postgresql@17/
   }
   await exec(bootstrapSql()); await exec(`SET ROLE closure_owner; ${candidate()}`);
   if (ownerMatrix) {
-    const owners = await db.query(`SELECT p.oid::regprocedure::text AS identity,r.rolname AS owner,
-      r.rolsuper AS superuser,p.prosecdef AS "securityDefiner"
-      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner
-      WHERE n.nspname='public' AND p.prosecdef ORDER BY p.oid::regprocedure::text`);
+    const owners = await db.query(retentionOwnerCatalogSql());
     receipt.securityDefinerOwners = assertRetentionOwners(owners.rows);
   }
   for (const [name, body] of Object.entries(cases)) {

@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { resolve, dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { load } from 'js-yaml';
-import { bootstrapSql, cases, candidate } from '../db/content-free-retention-evidence.realpg.mjs';
+import { PGlite } from '@electric-sql/pglite';
+import { bootstrapSql, cases, candidate, retentionOwnerCatalogSql, assertRetentionOwners,
+  REQUIRED_RETENTION_FUNCTIONS } from '../db/content-free-retention-evidence.realpg.mjs';
 
 const workflowPath = '.github/workflows/retention-current-contract-matrix.yml';
 const workflow = readFileSync(workflowPath, 'utf8');
@@ -11,7 +16,81 @@ const fixture = readFileSync('tests/db/content-free-retention-evidence.realpg.mj
 const pins = JSON.parse(readFileSync('tests/db/retention-owner-matrix-pins.json', 'utf8'));
 const matches = (path, pattern) => pattern.endsWith('/**') ? path.startsWith(pattern.slice(0, -2)) : path === pattern;
 
+it('retention pin fixture is consumed by the actual workflow resolver with failure controls', () => {
+  const fixtureFile = 'tests/db/retention-owner-matrix-pins.json';
+  const bytes = readFileSync(fixtureFile);
+  const script = parsed.jobs['native-owner'].steps.find(step => step.id === 'pin').run.match(/<<'NODE'\n([\s\S]*?)\nNODE\s*$/)?.[1];
+  expect(script, 'actual workflow resolver body missing').toBeTruthy();
+  const copy = mkdtempSync(join(tmpdir(), 'retention-pin-consumer-'));
+  const hash = value => createHash('sha256').update(value).digest('hex');
+  const observations = [];
+  let invocation = 0;
+  try {
+    mkdirSync(join(copy, 'tests/db'), { recursive: true });
+    writeFileSync(join(copy, fixtureFile), bytes);
+    const invoke = major => {
+      const output = join(copy, `output-${major}-${++invocation}`);
+      let status = 0;
+      try {
+        execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+          cwd: copy, env: { RETENTION_MATRIX_MAJOR: String(major), GITHUB_OUTPUT: output },
+          timeout: 5_000, maxBuffer: 64 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } catch (error) {
+        expect(error.signal).toBeNull();
+        expect(error.status).toBe(1);
+        expect(String(error.stderr)).toContain('pin absent');
+        expect(existsSync(output)).toBe(false);
+        status = 1;
+      }
+      return { major, status, output: status === 0 ? readFileSync(output, 'utf8') : null };
+    };
+    for (const p of pins.versions) {
+      const observation = invoke(p.major);
+      expect(observation).toEqual({ major: p.major, status: 0, output: `version=${p.version}\nsha256=${p.sha256}\n` });
+      observations.push(observation);
+    }
+    const unknown = invoke(99); expect(unknown.status).toBe(1);
+    const corrupt = structuredClone(pins); corrupt.versions[0].sha256 = 'invalid-source-sha';
+    writeFileSync(join(copy, fixtureFile), JSON.stringify(corrupt));
+    const malformed = invoke(15); expect(malformed.status).toBe(1);
+    const binding = JSON.parse(process.env.TEST_EFFICACY_BINDING || 'null');
+    if (binding?.fixture) {
+      expect(binding.fixture.fixtureFile).toBe(fixtureFile);
+      expect(binding.fixture.testFile).toBe('tests/unit/retentionCurrentContractMatrix.test.js');
+      expect(resolve(binding.fixture.witnessFile)).toBe(resolve(binding.cwd, `.fixture-${binding.phaseId}.json`));
+      writeFileSync(binding.fixture.witnessFile, JSON.stringify({ schemaVersion: 2, phaseId: binding.phaseId,
+        bindingSha256: hash(JSON.stringify(binding)), fixtureFile, fixtureSha256: hash(bytes),
+        assertion: 'retention pin fixture is consumed by the actual workflow resolver with failure controls',
+        workflowSha256: hash(workflow), resolverSha256: hash(script), observations, unknown, malformed }));
+    }
+  } finally { rmSync(copy, { recursive: true, force: true }); }
+});
+
 describe('#1610 current-contract owner matrix wiring', () => {
+  it('actual SQL retains missing/INVOKER functions in the independently enumerated catalog', async () => {
+    const db = new PGlite();
+    try {
+      await db.exec(bootstrapSql()); await db.exec(`SET ROLE closure_owner; ${candidate()} RESET ROLE;`);
+      const read = async () => (await db.query(retentionOwnerCatalogSql())).rows;
+      expect(assertRetentionOwners(await read())).toHaveLength(14);
+      // A new migration function must join this list even if its security mode changes.
+      const declarations = [...candidate().matchAll(/CREATE (?:OR REPLACE )?FUNCTION\s+(public\.[\w]+)\s*\(/gi)].map(match => match[1]).sort();
+      expect(REQUIRED_RETENTION_FUNCTIONS.map(row => row.identity.split('(')[0]).sort()).toEqual(declarations);
+      for (const required of REQUIRED_RETENTION_FUNCTIONS.filter(row => row.securityDefiner)) {
+        await db.exec(`ALTER FUNCTION ${required.identity} SECURITY INVOKER;`);
+        const changed = await read();
+        expect(changed.find(row => row.identity === required.identity).securityDefiner).toBe(false);
+        expect(() => assertRetentionOwners(changed)).toThrow('execution security mode differs');
+        await db.exec(`ALTER FUNCTION ${required.identity} SECURITY DEFINER;`);
+      }
+      await db.exec('DROP FUNCTION public._ss_retention_content_statement_lock() CASCADE;');
+      const missing = await read();
+      expect(missing).toHaveLength(14);
+      expect(missing.find(row => row.identity === 'public._ss_retention_content_statement_lock()').present).toBe(false);
+      expect(() => assertRetentionOwners(missing)).toThrow('function missing');
+    } finally { await db.close(); }
+  }, 20_000);
   it('retains the sixteen current cases plus all three original native lock cases', () => {
     expect(Object.keys(cases)).toHaveLength(16);
     for (const name of ['native-statement-nowait-refusal-and-retry', 'native-service-prelocked-session-nowait-and-retry',

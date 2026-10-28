@@ -5,22 +5,31 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { assertRetentionOwners, cleanupOwnedRetentionFixture, observeRetentionOwnerRace,
-  ownedRetentionProcessIds, createRetentionLocalPeer, nativeFixture } from './content-free-retention-evidence.realpg.mjs';
+  ownedRetentionProcessIds, createRetentionLocalPeer, nativeFixture, REQUIRED_RETENTION_FUNCTIONS,
+  startOwnedRetentionFixture } from './content-free-retention-evidence.realpg.mjs';
 
-const owners = () => ['expire_transcripts_newest_one(uuid,integer)', 'complete_session_v2(uuid)',
-  'record_progress_evaluation(uuid)'].map(identity => ({ identity, owner: 'closure_owner', superuser: false, securityDefiner: true }));
+const owners = () => REQUIRED_RETENTION_FUNCTIONS.map(row => ({ ...row, present: true, owner: 'closure_owner', superuser: false }));
 test('actual owner guard accepts explicit NOSUPERUSER catalog and rejects privilege/identity loss', () => {
-  assert.equal(assertRetentionOwners(owners()).length, 3);
+  assert.equal(assertRetentionOwners(owners()).length, 14);
   for (const mutate of [rows => { rows[0].superuser = true; }, rows => { rows[0].owner = 'postgres'; },
-    rows => { delete rows[0].superuser; }, rows => { rows[0].securityDefiner = false; }, rows => { rows.shift(); }]) {
+    rows => { delete rows[0].superuser; }, rows => { rows[1].securityDefiner = false; }, rows => { rows.shift(); }]) {
     const rows = owners(); mutate(rows); assert.throws(() => assertRetentionOwners(rows));
   }
   assert.throws(() => assertRetentionOwners([]));
 });
+for (const required of REQUIRED_RETENTION_FUNCTIONS) {
+  test(`catalog refuses absent required signature ${required.identity}`, () => {
+    assert.throws(() => assertRetentionOwners(owners().filter(row => row.identity !== required.identity)));
+  });
+  test(`catalog refuses execution-mode drift for ${required.identity}`, () => {
+    const rows = owners(); rows.find(row => row.identity === required.identity).securityDefiner = !required.securityDefiner;
+    assert.throws(() => assertRetentionOwners(rows));
+  });
+}
 
 test('timed-out startup still stops and verifies its postmaster before deleting owned data', () => {
   let stopped = false, removed = false;
-  const io = { observe: () => ({ dataPresent: !removed, processes: stopped ? [] : [412],
+  const io = { ownershipKnown: () => true, observe: () => ({ dataPresent: !removed, processes: stopped ? [] : [412],
     socketPresent: !stopped, pidFilePresent: !stopped }), stop: () => { stopped = true; },
   removeData: () => { assert.equal(stopped, true); removed = true; } };
   assert.equal(cleanupOwnedRetentionFixture(io).cleanupVerified, true);
@@ -31,25 +40,53 @@ for (const leftover of ['processes', 'socketPresent', 'pidFilePresent', 'dataPre
     let removed = false;
     const state = { dataPresent: true, processes: [], socketPresent: false, pidFilePresent: false };
     state[leftover] = leftover === 'processes' ? [412] : true;
-    const io = { observe: () => ({ ...state, dataPresent: leftover === 'dataPresent' || !removed }),
+    const io = { ownershipKnown: () => true, observe: () => ({ ...state, dataPresent: leftover === 'dataPresent' || !removed }),
       stop: () => {}, removeData: () => { removed = true; } };
     assert.throws(() => cleanupOwnedRetentionFixture(io));
     if (leftover !== 'dataPresent') assert.equal(removed, false);
   });
 }
-test('failed init without a postmaster still removes and verifies owned data', () => {
+test('unknown startup ownership refuses cleanup PASS and preserves owned data', () => {
   let present = true;
-  const io = { observe: () => ({ dataPresent: present, processes: [], socketPresent: false, pidFilePresent: false }),
+  const io = { ownershipKnown: () => false, observe: () => ({ dataPresent: present, processes: [], socketPresent: false, pidFilePresent: false }),
     stop: () => { throw Error('server never started'); }, removeData: () => { present = false; } };
-  assert.equal(cleanupOwnedRetentionFixture(io).cleanupVerified, true);
+  assert.throws(() => cleanupOwnedRetentionFixture(io), /ownership unknown/);
+  assert.equal(present, true);
 });
 test('cleanup refuses a process appearing after data removal and preserves observation errors', () => {
   let removed = false;
   assert.throws(() => cleanupOwnedRetentionFixture({
+    ownershipKnown: () => true,
     observe: () => ({ dataPresent: !removed, processes: removed ? [500] : [], socketPresent: false, pidFilePresent: false }),
     stop: () => {}, removeData: () => { removed = true; },
   }), /reappeared/);
-  assert.throws(() => cleanupOwnedRetentionFixture({ observe: () => { throw Error('identity unreadable'); } }), /identity unreadable/);
+  assert.throws(() => cleanupOwnedRetentionFixture({ ownershipKnown: () => true, observe: () => { throw Error('identity unreadable'); } }), /identity unreadable/);
+});
+test('startup seeds real observation before postmaster/pidfile disappear ahead of first teardown', () => {
+  const scope = { bin: '/owned/bin', data: '/owned/data', postmasterPid: 10, seen: new Set() };
+  let rows = [], known = false, removed = false, pidFilePresent = true;
+  const observe = () => ({ dataPresent: !removed, pidFilePresent, postmasterPid: scope.postmasterPid,
+    socketPresent: false, processes: ownedRetentionProcessIds(rows, scope) });
+  startOwnedRetentionFixture({ start: () => {
+    rows = [{ pid: 10, parent: 1, command: '/owned/bin/postgres -D /owned/data' },
+      { pid: 11, parent: 10, command: 'postgres child' }];
+  }, observe, record: (_, value) => { known = value; } });
+  assert.equal(known, true);
+  rows = [{ pid: 11, parent: 1, command: 'postgres orphan' }]; pidFilePresent = false;
+  assert.throws(() => cleanupOwnedRetentionFixture({ ownershipKnown: () => known, observe, stop: () => {},
+    removeData: () => { removed = true; } }), /processes remain/);
+  assert.equal(removed, false);
+});
+test('failed startup still records known children and preserves primary error when observation fails', () => {
+  const primary = Error('start failed'); let recorded = false;
+  assert.throws(() => startOwnedRetentionFixture({ start: () => { throw primary; },
+    observe: () => ({ postmasterPid: 10, processes: [10, 11] }), record: (_, known) => { recorded = known; } }),
+  error => error === primary);
+  assert.equal(recorded, true);
+  assert.throws(() => startOwnedRetentionFixture({ start: () => { throw primary; },
+    observe: () => { throw Error('ownership unreadable'); }, record: () => {} }), error => error === primary);
+  assert.throws(() => startOwnedRetentionFixture({ start: () => {},
+    observe: () => ({ postmasterPid: null, processes: [] }), record: (_, known) => { assert.equal(known, false); } }), /not observed/);
 });
 test('actual process ownership follows children after reparenting and excludes adjacent data roots', () => {
   const scope = { bin: '/owned/bin', data: '/owned/fixture/data', postmasterPid: 10, seen: new Set() };
@@ -124,6 +161,9 @@ for (const [name, override] of Object.entries({
 })) test(`actual race guard refuses ${name}`, async () => { await assert.rejects(observeRetentionOwnerRace(race(override))); });
 
 if (process.env.RETENTION_MATRIX_NATIVE === '1') {
+  // Advisory test deadline: synchronous child calls cannot be preempted by node:test.
+  // The runner's 35-minute job cap is the hard external boundary; forced termination
+  // cannot produce PASS without the owned teardown receipt.
   test('isolated source-pinned native owner/current-contract qualification', { timeout: 300_000 }, async t => {
     assert.equal(process.env.GITHUB_ACTIONS, 'true', 'native run requires explicit isolated CI selection');
     const pins = JSON.parse(readFileSync('tests/db/retention-owner-matrix-pins.json'));

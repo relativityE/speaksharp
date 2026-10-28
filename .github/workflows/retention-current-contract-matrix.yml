@@ -25,6 +25,9 @@ jobs:
   native-owner:
     name: Current retention contract / PG${{ matrix.major }} NOSUPERUSER
     runs-on: ubuntu-latest
+    # This is the hard external cap, including source build. node:test's 300s
+    # deadline is advisory around synchronous child commands, not a 5m wall cap.
+    # A killed/uncertain run has no valid owned-cleanup PASS receipt.
     timeout-minutes: 35
     strategy:
       fail-fast: false
