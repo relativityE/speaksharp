@@ -4,11 +4,57 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MAIN_MIGRATION_SNAPSHOT, buildMainU1ReplayPlan, parseMainProofArguments } from './account-closure-full-chain.mjs';
+import { MAIN_MIGRATION_SNAPSHOT, buildMainU1ReplayPlan, parseMainProofArguments,
+  observeC1ReleaseCatalog } from './account-closure-full-chain.mjs';
+import { T2_VERSIONS, t2ReleaseContract } from '../../scripts/lib/t2MigrationPostflight.mjs';
+import { c1CatalogQuery } from '../../scripts/lib/c1MigrationPostflight.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const read = path => readFileSync(join(root, path), 'utf8');
+
+// Protocol controls only. The workflow must separately produce actual native
+// post127/128 receipts; these fakes never count as database evidence.
+for (const stage of [127, 128]) test(`post${stage} observer requires real validator results and separate restored negative controls`, () => {
+  const ledger = [...T2_VERSIONS, '20261024083000', ...(stage === 128 ? ['20261025021046'] : [])];
+  const contract = t2ReleaseContract(root, ledger);
+  const rows = [JSON.stringify(ledger), JSON.stringify(contract.expected),
+    JSON.stringify({ billing_disabled: true, completion_disabled: true }), 'true',
+    JSON.stringify({ checks: c1CatalogQuery(contract.c1).names.map(name => ({ name, ok: true })),
+      activation: [{ policy_version: 'newest_one_v1', activated_at: null }] })];
+  const changed = { ...contract.expected,
+    'function:public.persist_ai_suggestion_with_authority_v1(uuid, uuid, jsonb, text, text, text, date, integer, integer)': '0'.repeat(32) };
+  const queries = [], receipts = [];
+  const sql = query => {
+    queries.push(query);
+    if (query.includes('ROLLBACK')) return JSON.stringify(changed);
+    if (!query.includes('objects AS')) return JSON.stringify(ledger);
+    if (!query.includes('checks AS')) return JSON.stringify(contract.expected);
+    return rows.join('\n');
+  };
+  const result = observeC1ReleaseCatalog({ sql, root, stage, retain: value => receipts.push(value) });
+  assert.equal(result.result.passed, true);
+  assert.equal(result.restored, true);
+  assert.equal(result.legacy126Rejected, true);
+  assert.deepEqual(result.negatives.map(row => row.name), ['restored-service-execute', 'changed-delete-guard-body']);
+  assert.equal(receipts.length, 1);
+  assert.equal(queries.filter(query => query.includes('ROLLBACK')).length, 2);
+  assert.equal(queries.filter(query => query.includes('checks AS')).length, 2);
+  const broken = [...rows]; broken[3] = 'false';
+  assert.throws(() => observeC1ReleaseCatalog({ root, stage, retain: () => assert.fail('no failed PASS receipt'),
+    sql: query => query.includes('objects AS') ? broken.join('\n') : JSON.stringify(ledger) }), /admission prerequisite/);
+});
+
+test('post-C1 native readbacks precede billing129 and do not relabel the historical seven-state observer', () => {
+  const driver = read('tests/db/account-closure-full-chain.mjs');
+  const historicalFinish = driver.indexOf('nativeT2Catalog.finish()');
+  const fence = driver.indexOf('stage: 127,');
+  const retention = driver.indexOf('stage: 128,');
+  const billing = driver.indexOf('const billing=MAIN_COMPLETION_BILLING_MIGRATION;');
+  assert.ok(historicalFinish < fence && fence < retention && retention < billing);
+  assert.ok(driver.includes("'t2-release-post127.json'"));
+  assert.ok(driver.includes("'t2-release-post128.json'"));
+});
 // Independent pins reviewed from99585/e772, not values read back from the planner.
 const U1 = Object.freeze({ name: '20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql',
   version: '20261019010000', sha256: 'df02b867f5a4f29ee207a8b4359a82bb3b27abefd9eabe2eb5cd9960b4f0fb45' });

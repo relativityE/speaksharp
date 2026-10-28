@@ -2,15 +2,20 @@
 // Bounded PostgreSQL-WASM catalog controls, not native126 or production proof.
 import { describe, it, expect } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { assertT2Sources, assertT2Catalog, t2CatalogQuery, T2_VERSIONS, T2_INVENTORY,
-  t2ExpectedCatalog, t2DisabledQuery, assertT2Disabled, t2AdmissionQuery, t2LedgerQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
+  t2ExpectedCatalog, t2DisabledQuery, assertT2Disabled, t2AdmissionQuery, t2LedgerQuery,
+  t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from '../../scripts/lib/t2MigrationPostflight.mjs';
 import { EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
 
 const read = name => readFileSync(name, 'utf8');
 const source = name => read('backend/supabase/migrations/' + name);
 const sources = Object.fromEntries(T2_VERSIONS.map(version => [version,
   source(EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version).file)]));
+const c1Versions = ['20261024083000', '20261025021046'];
 
 // BEGIN BOUNDED FIXTURE. Platform tables/usage are the existing declared fixture;
 // application table/function definitions below are executed from real source.
@@ -75,6 +80,18 @@ async function fixture({ historicalTableDefaults = true } = {}) {
     '20260816223606_metrics_only_additive_1306.sql',
     '20260817140000_repoint_analytics_summary_flat_1306.sql',
   ]) await db.exec(source(name));
+  // Real pre-C1 predecessors, needed by the separately observed release profiles.
+  // None replaces a historical T2 object or changes its seven expected states.
+  await db.exec(`ALTER TABLE public.sessions ADD COLUMN attribution_status text NOT NULL DEFAULT 'pending';
+    CREATE TABLE public.objective_source_recording(session_id uuid PRIMARY KEY,user_id uuid NOT NULL);`);
+  for (const name of [
+    '20260803010000_session_attribution_authority.sql',
+    '20260812030000_progress_cohort_mode_separation_1265.sql',
+    '20260924150000_progress_evaluation_filler_counts_authority_1471.sql',
+    '20260810120000_retention_purge_ai_suggestions.sql',
+    '20261013120000_retention_expiry_without_superuser_1258.sql',
+    '20261013140000_retention_expiry_typed_empty_array_1258.sql',
+  ]) await db.exec(source(name));
   // The historical ACL remediation precedes #1476. CREATE OR REPLACE preserves
   // its ACL but #1476 restates search_path=public. Apply that exact ACL slice.
   await db.exec(`REVOKE EXECUTE ON FUNCTION public.acquire_recording_lease(uuid,text,boolean) FROM PUBLIC,anon,authenticated,service_role;
@@ -85,6 +102,111 @@ async function fixture({ historicalTableDefaults = true } = {}) {
 // END BOUNDED FIXTURE.
 
 describe('T2 catalog gate rejects missing or changed evidence', () => {
+  it('selects only exact installed126/127/128 ledger prefixes; rejects unknown, mixed and partial states', () => {
+    const ledger = [...T2_VERSIONS, ...c1Versions];
+    for (const count of [6, 7, 8]) {
+      const contract = t2ReleaseContract(process.cwd(), ledger.slice(0, count));
+      expect(contract.profile).toBe(`post-${120 + count}`);
+      expect(contract.pins).toHaveLength(8);
+    }
+    for (const bad of [[], null, ledger.slice(1), [...ledger, '20261027231500'],
+      [...T2_VERSIONS, c1Versions[1]], [...T2_VERSIONS, c1Versions[0], c1Versions[0]],
+      [...ledger].reverse()]) expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
+    expect(t2ReleaseLedgerQuery()).toContain(`version >= '${T2_VERSIONS[0]}'`);
+  });
+
+  it('refuses changed or omitted C1 source bytes rather than blessing an observed catalog', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 't2-release-source-')));
+    try {
+      const directory = join(root, 'backend/supabase/migrations'); mkdirSync(directory, { recursive: true });
+      for (const version of [...T2_VERSIONS, ...c1Versions]) {
+        const pin = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version);
+        writeFileSync(join(directory, pin.file), source(pin.file));
+      }
+      const pin = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === c1Versions[0]);
+      writeFileSync(join(directory, pin.file), source(pin.file) + '\n');
+      expect(() => t2ReleaseContract(root, [...T2_VERSIONS, ...c1Versions])).toThrow('source mismatch');
+      rmSync(join(directory, pin.file));
+      expect(() => t2ReleaseContract(root, [...T2_VERSIONS, ...c1Versions])).toThrow();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('proves source-derived C1 release catalogs and refuses historical, ACL/body and mixed-snapshot evidence', async () => {
+    const db = await fixture();
+    const scalar = async query => Object.values((await db.query(query)).rows[0])[0];
+    const readSnapshot = async contract => {
+      const results = await db.exec(t2ReleaseSnapshotQuery(contract));
+      return results.filter(result => result.rows?.length).map(result => String(Object.values(result.rows[0])[0]));
+    };
+    try {
+      await db.exec('CREATE SCHEMA supabase_migrations; CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY)');
+      for (const version of T2_VERSIONS) {
+        await db.exec(`SET ROLE closure_owner; ${sources[version]} RESET ROLE;
+          INSERT INTO supabase_migrations.schema_migrations VALUES('${version}')`);
+      }
+      const old = t2ExpectedCatalog('verify', 'release');
+      for (const version of c1Versions) {
+        const prior = t2ReleaseContract(process.cwd(), JSON.parse(await scalar(t2ReleaseLedgerQuery())));
+        expect(assertT2ReleaseSnapshot(prior, await readSnapshot(prior)).passed).toBe(true);
+        await db.exec(`SET ROLE closure_owner; ${source(EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version).file)} RESET ROLE`);
+        // Applying without its ledger entry cannot pass as the prior state.
+        const partial = await readSnapshot(prior);
+        expect(() => assertT2ReleaseSnapshot(prior, partial)).toThrow();
+        const historical = JSON.parse(await scalar(t2CatalogQuery(T2_INVENTORY)));
+        expect(() => assertT2Catalog(historical, old)).toThrow('T2 catalog mismatch');
+        await db.exec(`INSERT INTO supabase_migrations.schema_migrations VALUES('${version}')`);
+        const contract = t2ReleaseContract(process.cwd(), JSON.parse(await scalar(t2ReleaseLedgerQuery())));
+        const rows = await readSnapshot(contract);
+        expect(assertT2ReleaseSnapshot(contract, rows).passed).toBe(true);
+        // Exercise the actual executable, not just its library. The fake psql
+        // replays THESE real PGlite readbacks; it is CLI transport proof only.
+          const dir = mkdtempSync(join(tmpdir(), 't2-release-cli-'));
+          try {
+            writeFileSync(join(dir, 'rows.json'), JSON.stringify(rows));
+            writeFileSync(join(dir, 'psql'), `#!/usr/bin/env node\nconst fs=require('node:fs');
+const rows=JSON.parse(fs.readFileSync(process.env.T2_TEST_ROWS,'utf8'));
+const query=process.argv.at(-1);fs.appendFileSync(process.env.T2_TEST_QUERIES,JSON.stringify({args:process.argv.slice(2),query,options:process.env.PGOPTIONS})+'\\n');
+console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);\n`);
+            chmodSync(join(dir, 'psql'), 0o700);
+            const invoke = () => spawnSync(process.execPath, ['scripts/t2-migration-postflight.mjs', 'verify', 'release'], {
+              encoding: 'utf8', timeout: 10_000,
+              env: { ...process.env, PATH: dir + ':' + process.env.PATH,
+                T2_TEST_ROWS: join(dir, 'rows.json'), T2_TEST_QUERIES: join(dir, 'queries.jsonl') },
+            });
+            const accepted = invoke();
+            expect({ status: accepted.status, error: accepted.stderr }).toEqual({ status: 0, error: '' });
+            expect(JSON.parse(accepted.stdout).profile).toBe(contract.profile);
+            const queries = readFileSync(join(dir, 'queries.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+            expect(queries).toHaveLength(2);
+            expect(queries.every(row => row.query.includes('READ ONLY') && row.options.includes('default_transaction_read_only=on'))).toBe(true);
+            const corrupt = [...rows]; corrupt[1] = JSON.stringify({});
+            writeFileSync(join(dir, 'rows.json'), JSON.stringify(corrupt));
+            expect(invoke().status).toBe(1);
+            const mixed = [...rows]; mixed[0] = JSON.stringify(T2_VERSIONS);
+            writeFileSync(join(dir, 'rows.json'), JSON.stringify(mixed));
+            expect(invoke().status).toBe(1);
+          } finally { rmSync(dir, { recursive: true, force: true }); }
+        const stale = [...rows]; stale[0] = JSON.stringify(T2_VERSIONS);
+        expect(() => assertT2ReleaseSnapshot(contract, stale)).toThrow('ledger changed');
+        for (const invalid of [[], rows.slice(1), [...rows, '{}'],
+          [...rows.slice(0, 4), JSON.stringify({ checks: [] })]]) {
+          expect(() => assertT2ReleaseSnapshot(contract, invalid)).toThrow();
+        }
+        for (const mutation of [
+          'GRANT EXECUTE ON FUNCTION public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer) TO service_role',
+          "CREATE OR REPLACE FUNCTION public.guard_unsettled_account_coaching_delete_v1() RETURNS trigger LANGUAGE plpgsql SET search_path='' AS $$ BEGIN RETURN OLD; END $$",
+          'ALTER FUNCTION public.read_account_completion_status_v1(uuid,text,text) SECURITY INVOKER',
+          'GRANT SELECT ON public.account_coaching_fences TO authenticated',
+        ]) {
+          await db.exec('BEGIN'); await db.exec(mutation);
+          const changedCatalog = await scalar(t2CatalogQuery(contract.inventory));
+          expect(() => assertT2Catalog(changedCatalog, contract.expected)).toThrow('catalog mismatch');
+          await db.exec('ROLLBACK');
+        }
+      }
+    } finally { await db.close(); }
+  }, 30_000);
+
   it('retains historical table defaults and rejects the omitted-grant receipt catalog', async () => {
     const target = 'table:public.ai_suggestion_authority_receipts';
     const expected = t2ExpectedCatalog('before', T2_VERSIONS[0]);

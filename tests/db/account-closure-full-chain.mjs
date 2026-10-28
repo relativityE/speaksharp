@@ -13,7 +13,43 @@ import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage
 
 import { pathToFileURL } from 'node:url';
 import { createNativeT2CatalogProof } from './t2-native-catalog-proof.mjs';
-import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
+import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery, t2ExpectedCatalog, assertT2Catalog,
+  t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from '../../scripts/lib/t2MigrationPostflight.mjs';
+
+// Separate post-C1 observations. The historical stage0..6 observer is unchanged.
+// This uses the SAME contract/query/validator as the operational executable.
+export function observeC1ReleaseCatalog({ sql, root, stage, retain }) {
+  assert.ok([127, 128].includes(stage), 'unreviewed C1 release observation');
+  const contract = t2ReleaseContract(root, sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`));
+  assert.equal(contract.profile, `post-${stage}`, 'native release stage/ledger differs');
+  const rows = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+  const verified = assertT2ReleaseSnapshot(contract, rows);
+  const legacy = JSON.parse(sql(`BEGIN READ ONLY; SET LOCAL search_path=public,pg_temp;
+    ${t2CatalogQuery(T2_INVENTORY)} COMMIT;`));
+  assert.throws(() => assertT2Catalog(legacy, t2ExpectedCatalog('verify', 'release')),
+    /T2 catalog mismatch: function:public.persist_ai_suggestion_with_authority_v1/,
+    'the old126 verifier must reject the real127 permission tightening');
+  const negatives = [];
+  for (const [name, mutation] of [
+    ['restored-service-execute', 'GRANT EXECUTE ON FUNCTION public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer) TO service_role'],
+    ['changed-delete-guard-body', "CREATE OR REPLACE FUNCTION public.guard_unsettled_account_coaching_delete_v1() RETURNS trigger LANGUAGE plpgsql SET search_path='' AS $$ BEGIN RETURN OLD; END $$"],
+  ]) {
+    // Mutation exists only inside this disposable rollback transaction. Retain
+    // its actual readback, and assert refusal after the database has rolled back.
+    const changed = JSON.parse(sql(`BEGIN; SET LOCAL search_path=public,pg_temp; ${mutation};
+      ${t2CatalogQuery(contract.inventory)} ROLLBACK;`));
+    assert.throws(() => assertT2Catalog(changed, contract.expected), /T2 catalog mismatch/);
+    negatives.push({ name, refused: true, catalog: changed, rollback: true });
+  }
+  const restored = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+  assertT2ReleaseSnapshot(contract, restored);
+  assert.deepEqual(restored, rows, 'disposable negative controls must restore the exact catalog/authority');
+  const receipt = { stage, profile: contract.profile, sourcePins: contract.pins, rows,
+    result: verified, legacy126Rejected: true, negatives, restored: true,
+    scope: 'separate disposable native post-C1 release verification; no Production/apply/activation proof' };
+  retain(receipt);
+  return receipt;
+}
 
 // P5 diagnostic: the same catalog query with its three per-object md5 wrappers removed, so a mismatched pin can be
 // compared field by field (names, types, constraints, policies, ACL roles; no rows). Diagnostic only — never a verdict.
@@ -1087,6 +1123,8 @@ export function runMainClosureProof() {
       assert.ok(completionAfterFence.includes('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED'),'completion proof after the fence');
       assert.equal(sql('SELECT enabled FROM public.account_completion_configuration;'),'f','completion proof must restore disabled configuration');
       assert.equal(sql('SELECT count(*) FROM public.account_coaching_fences;'),'0','the migration fences nothing');
+      observeC1ReleaseCatalog({ sql, root: process.cwd(), stage: 127,
+        retain: receipt => writeFileSync(join(evidence, 't2-release-post127.json'), JSON.stringify(receipt, null, 2)) });
       console.log('ACCOUNT COACHING UNKNOWN FENCE FULL-CHAIN INVARIANTS PASSED');
     }
     if(retentionT2) {
@@ -1117,6 +1155,8 @@ export function runMainClosureProof() {
       assert.equal(state.completionDisabled,true,'completion must remain disabled after retention');
       assert.deepEqual(state,{compatible:true,pinCount:8,evidenceRows:0,contextRows:0,privateRls:true,
         privatePrivileges:0,expiredGuardInvoker:true,expiredGuardEnabled:1,completionDisabled:true},'retention catalog/ACL');
+      observeC1ReleaseCatalog({ sql, root: process.cwd(), stage: 128,
+        retain: receipt => writeFileSync(join(evidence, 't2-release-post128.json'), JSON.stringify(receipt, null, 2)) });
       console.log('CONTENT-FREE RETENTION FULL-CHAIN CATALOG PASSED');
     }
     if(billingT2) {
