@@ -115,6 +115,55 @@ async function fixture({ historicalTableDefaults = true, platformFunctionDefault
 // END BOUNDED FIXTURE.
 
 describe('T2 catalog gate rejects missing or changed evidence', () => {
+  it('binds retained-Production ACLs to an explicit context and refuses native, mixed and unknown catalogs there', async () => {
+    const ledger = [...T2_VERSIONS, ...c1Versions];
+    const native = t2ReleaseContract(process.cwd(), ledger);
+    const production = t2ReleaseContract(process.cwd(), ledger, { catalogContext: 'retained-production' });
+    const snapshots = [];
+    for (const platformFunctionDefaults of [false, true]) {
+      const db = await fixture({ platformFunctionDefaults });
+      try {
+        await db.exec('CREATE SCHEMA supabase_migrations; CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY)');
+        for (const version of ledger) {
+          await db.exec(`SET ROLE closure_owner; ${source(EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version).file)} RESET ROLE;
+            INSERT INTO supabase_migrations.schema_migrations VALUES('${version}')`);
+        }
+        const result = await db.exec(t2ReleaseSnapshotQuery(production));
+        const rows = result.filter(value => value.rows?.length).map(value => String(Object.values(value.rows[0])[0]));
+        snapshots.push(rows);
+        // The original executable rejects the source-derived Production pair
+        // at record_progress_evaluation, just as the retained live read did.
+        const matching = platformFunctionDefaults ? native : production;
+        const opposite = platformFunctionDefaults ? production : native;
+        expect(assertT2ReleaseSnapshot(matching, rows).passed).toBe(true);
+        expect(() => assertT2ReleaseSnapshot(opposite, rows)).toThrow('T2 catalog mismatch');
+      } finally { await db.close(); }
+    }
+    const retained = JSON.parse(snapshots[0][1]), replay = JSON.parse(snapshots[1][1]);
+    for (const [index, replacement] of [
+      [0, JSON.stringify(T2_VERSIONS)],
+      [2, JSON.stringify({ billing_disabled: false, completion_disabled: true })],
+      [3, 'false'], [4, JSON.stringify({ checks: [], activation: [] })], [5, 'false'],
+    ]) {
+      const broken = [...snapshots[0]]; broken[index] = replacement;
+      expect(() => assertT2ReleaseSnapshot(production, broken)).toThrow();
+    }
+    const differences = Object.keys(replay).filter(key => retained[key] !== replay[key]).sort();
+    expect(differences).toEqual(['function:public.record_progress_evaluation(uuid)', 'function:public.sessions_set_transcript_state()']);
+    expect(Object.keys(retained)).toHaveLength(117);
+    for (const key of differences) {
+      const mixed = [...snapshots[0]];
+      mixed[1] = JSON.stringify({ ...retained, [key]: replay[key] });
+      expect(() => assertT2ReleaseSnapshot(production, mixed)).toThrow('T2 catalog mismatch');
+      expect(() => assertT2ReleaseSnapshot(native, mixed)).toThrow('T2 catalog mismatch');
+    }
+    for (const unknown of [null, {}, { ...retained, extra: '0'.repeat(32) },
+      { ...retained, [differences[0]]: '0'.repeat(32) }]) {
+      const rows = [...snapshots[0]]; rows[1] = JSON.stringify(unknown);
+      expect(() => assertT2ReleaseSnapshot(production, rows)).toThrow();
+    }
+  }, 30_000);
+
   it('derives the two inherited-ACL identities from platform setup and rejects the omitted-default fixture', async () => {
     const contract = t2ReleaseContract(process.cwd(), [...T2_VERSIONS, ...c1Versions]);
     const results = [];
@@ -149,6 +198,10 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
       [...T2_VERSIONS, c1Versions[1]], [...T2_VERSIONS, c1Versions[0], c1Versions[0]],
       [...ledger].reverse()]) expect(() => t2ReleaseContract(process.cwd(), bad)).toThrow('ledger');
     expect(t2ReleaseLedgerQuery()).toContain(`version >= '${T2_VERSIONS[0]}'`);
+    for (const options of [null, [], { catalogContext: null }, { catalogContext: 'automatic' },
+      { catalogContext: 'retained-production', allowUnknown: true }]) {
+      expect(() => t2ReleaseContract(process.cwd(), ledger, options)).toThrow('catalog context unknown');
+    }
   });
 
   it('refuses changed or omitted C1 source bytes rather than blessing an observed catalog', () => {
@@ -219,7 +272,25 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
           // qualification runner does. An external system tmp hides that case.
           const dir = mkdtempSync(join(process.cwd(), '.t2-release-cli-'));
           try {
-            writeFileSync(join(dir, 'rows.json'), JSON.stringify(rows));
+            // The operational executable is fixed to retained-Production,
+            // independently of the native observer's context. Reconstruct its
+            // exact ACLs only inside this disposable rollback transaction.
+            let executableRows = rows;
+            if (contract.stage === 2) {
+              await db.exec(`BEGIN;
+                REVOKE EXECUTE ON FUNCTION public.record_progress_evaluation(uuid) FROM service_role;
+                REVOKE EXECUTE ON FUNCTION public.sessions_set_transcript_state() FROM anon,authenticated,service_role;`);
+              try {
+                const production = t2ReleaseContract(process.cwd(), JSON.parse(rows[0]), { catalogContext: 'retained-production' });
+                const query = t2ReleaseSnapshotQuery(production)
+                  .replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+                const results = await db.exec(query);
+                executableRows = results.filter(result => result.rows?.length).map(result => String(Object.values(result.rows[0])[0]));
+              } finally { await db.exec('ROLLBACK'); }
+            }
+            const executableContract = t2ReleaseContract(process.cwd(), JSON.parse(rows[0]), { catalogContext: 'retained-production' });
+            expect(assertT2ReleaseSnapshot(executableContract, executableRows).passed).toBe(true);
+            writeFileSync(join(dir, 'rows.json'), JSON.stringify(executableRows));
             writeFileSync(join(dir, 'psql'), `#!/usr/bin/env node\nimport('node:fs').then(fs=>{
 const rows=JSON.parse(fs.readFileSync(process.env.T2_TEST_ROWS,'utf8'));
 const query=process.argv.at(-1);fs.appendFileSync(process.env.T2_TEST_QUERIES,JSON.stringify({args:process.argv.slice(2),query,options:process.env.PGOPTIONS})+'\\n');
@@ -233,13 +304,16 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
             const accepted = invoke();
             expect({ status: accepted.status, error: accepted.stderr }).toEqual({ status: 0, error: '' });
             expect(JSON.parse(accepted.stdout).profile).toBe(contract.profile);
+            expect(JSON.parse(accepted.stdout).catalogContext).toBe('retained-production');
             const queries = readFileSync(join(dir, 'queries.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
             expect(queries).toHaveLength(2);
             expect(queries.every(row => row.query.includes('READ ONLY') && row.options.includes('default_transaction_read_only=on'))).toBe(true);
-            const corrupt = [...rows]; corrupt[1] = JSON.stringify({});
+            writeFileSync(join(dir, 'rows.json'), JSON.stringify(rows));
+            expect(invoke().status).toBe(contract.stage === 2 ? 1 : 0); // No native-profile fallback in Production.
+            const corrupt = [...executableRows]; corrupt[1] = JSON.stringify({});
             writeFileSync(join(dir, 'rows.json'), JSON.stringify(corrupt));
             expect(invoke().status).toBe(1);
-            const mixed = [...rows]; mixed[0] = JSON.stringify(T2_VERSIONS);
+            const mixed = [...executableRows]; mixed[0] = JSON.stringify(T2_VERSIONS);
             writeFileSync(join(dir, 'rows.json'), JSON.stringify(mixed));
             expect(invoke().status).toBe(1);
           } finally { rmSync(dir, { recursive: true, force: true }); }

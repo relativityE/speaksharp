@@ -20,7 +20,8 @@ try {
   if (mode === 'verify' && version === 'release') {
     const candidate = read(`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`);
     if (candidate.length !== 1) throw new Error('incomplete T2 release ledger');
-    const contract = t2ReleaseContract(resolve(dirname(fileURLToPath(import.meta.url)), '..'), candidate[0]);
+    const contract = t2ReleaseContract(resolve(dirname(fileURLToPath(import.meta.url)), '..'), candidate[0],
+      { catalogContext: 'retained-production' });
     const evidence = assertT2ReleaseSnapshot(contract, read(t2ReleaseSnapshotQuery(contract)));
     console.log(JSON.stringify({ mode, version, ...evidence, sourcePins: contract.pins,
       scope: 'read-only installed release catalog; no activation or customer-flow proof' }));
