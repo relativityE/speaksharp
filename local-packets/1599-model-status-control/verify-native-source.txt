@@ -10,7 +10,7 @@ import process from 'node:process';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
-const dependencies = '/Users/fibonacci/.cache/codex-runtimes/codex-primary-runtime/dependencies';
+const dependencies = process.env.SPREADSHEET_RUNTIME;
 const python = `${dependencies}/python/bin/python3`;
 const office = `${dependencies}/bin/override/soffice`;
 const workbookPath = 'product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx';

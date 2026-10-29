@@ -25,10 +25,16 @@ check statuses cannot PASS; month/cap/trial negatives remain FAIL; $20/$40/Exclu
 outputs and the save/recalculate round-trip remain unchanged. Numerical comparison
 uses relative tolerance1e-8; nonnumeric results and statuses compare exactly.
 
-Example on this task host (dependencies supplied by the spreadsheet runtime):
+Historical example (dependencies supplied by the spreadsheet runtime):
+Portability correction: the archived host paths below are expressed using
+`SPREADSHEET_RUNTIME` and a repository-relative path. Original executed bytes are
+retained in commit `035eca75fe7c2df1417da770bf4b6fea4e7f3134`; the native receipts
+are unchanged. The verifier is now retained as inert `verify-native-source.txt`,
+not an executable test. This example is historical, not a command to run in CI.
+
 
 ```
-node scripts/host-interlock.mjs hold local -- /Users/fibonacci/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node --test /private/tmp/speaksharp-cli-1599-status/local-packets/1599-model-status-control/verify-native.test.mjs
+node scripts/host-interlock.mjs hold local -- "$SPREADSHEET_RUNTIME/node/bin/node" --test local-packets/1599-model-status-control/verify-native.test.mjs
 ```
 
 Before/after views were inspected. Artifact Tool's render-time recalculation of
