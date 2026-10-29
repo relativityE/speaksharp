@@ -1,0 +1,148 @@
+{
+  "sourceHead": "764890c3f475825e8b2b194331522be6840f5e5c",
+  "sourceSha256": "3c08c02b1820a4678eb894a358bf874fed69737e8f1ff7f5a7f323c1ab83f582",
+  "correctedSha256": "0be91eb36743ff3260b651fe03fff039b01c4cff140618ce5b9ad3ba89e17575",
+  "testedAt": "2026-10-18T17:01:25.430Z",
+  "receipts": [
+    {
+      "label": "source-default",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "fixed-default",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "source-text-recalc",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 38
+    },
+    {
+      "label": "fixed-text-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1517,
+      "errors": 38
+    },
+    {
+      "label": "blank-check-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1516,
+      "errors": 0
+    },
+    {
+      "label": "error-check-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1517,
+      "errors": 1
+    },
+    {
+      "label": "unrecognized-check-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1516,
+      "errors": 0
+    },
+    {
+      "label": "literal-fail-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1516,
+      "errors": 0
+    },
+    {
+      "label": "swapped-months-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "equal-sum-duplicate-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "blank-month-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "cap-below-paying-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "two-month-trial-recalc",
+      "status": "MODEL STATUS: FAIL",
+      "linkedStatus": "MODEL STATUS: FAIL",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "tools20-source-recalc",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "tools20-fixed-recalc",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "tools40-source-recalc",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "tools40-fixed-recalc",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "tools-excluded-source-recalc",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "tools-excluded-fixed-recalc",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 0
+    },
+    {
+      "label": "roundtrip-recalc",
+      "status": "MODEL STATUS: PASS",
+      "linkedStatus": "MODEL STATUS: PASS",
+      "formulaCount": 1517,
+      "errors": 0
+    }
+  ]
+}
