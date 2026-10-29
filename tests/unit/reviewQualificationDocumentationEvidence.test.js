@@ -315,9 +315,9 @@ const TREE = 'b578cef190889489e187aead500afed528e50fdd';
 const PINS = [
   {
     "path": "local-packets/1599-model-status-control/README.md",
-    "oid": "23e345dea0da592e1c6a9cd9765d8ab22a21e57b",
+    "oid": "82b446d7b17f64e243d1245ddf5967289dd42154",
     "mode": "100644",
-    "size": 2624
+    "size": 2927
   },
   {
     "path": "local-packets/1599-model-status-control/edit.mjs",
@@ -345,9 +345,9 @@ const PINS = [
   },
   {
     "path": "local-packets/1599-model-status-control/verify-native-source.txt",
-    "oid": "f0808c29474edb983b46358ea8931037e85800aa",
+    "oid": "aba182a343f8e4377f15577c2347a3c9520149bf",
     "mode": "100644",
-    "size": 6570
+    "size": 6526
   },
   {
     "path": "product_release/ROADMAP.md",
@@ -357,9 +357,9 @@ const PINS = [
   },
   {
     "path": "product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md",
-    "oid": "b14f1633eb5abdf72664e17d9990a0497e11e3a4",
+    "oid": "5c5153087db6619e24b848b46b9c879e9bee932d",
     "mode": "100644",
-    "size": 20725
+    "size": 21193
   },
   {
     "path": "product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx",
@@ -383,6 +383,24 @@ const pull = () => ({ number:1599, headRefOid:HEAD, baseRefOid:BASE, baseRefName
   reviewThreads:{nodes:[],pageInfo:{hasNextPage:false}},
   comments:{nodes:[],pageInfo:{hasPreviousPage:false}}, documentationEvidence:evidence() });
 describe('#1599 reviewed documentation/evidence scope', () => {
+  it('refuses the previous complete archive tuple containing personal-machine paths', () => {
+    const value = input();
+    for (const [path, oid, size] of [
+      ['local-packets/1599-model-status-control/README.md', '23e345dea0da592e1c6a9cd9765d8ab22a21e57b', 2624],
+      ['local-packets/1599-model-status-control/verify-native-source.txt', 'f0808c29474edb983b46358ea8931037e85800aa', 6570],
+      ['product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md', 'b14f1633eb5abdf72664e17d9990a0497e11e3a4', 20725],
+    ]) Object.assign(value.documentationEvidence.entries.find(row => row.path === path), { oid, size });
+    expect(evaluateReviewQualification(value).qualified).toBe(false);
+  });
+  it.each([
+    ['local-packets/1599-model-status-control/README.md', '23e345dea0da592e1c6a9cd9765d8ab22a21e57b', 2624],
+    ['local-packets/1599-model-status-control/verify-native-source.txt', 'f0808c29474edb983b46358ea8931037e85800aa', 6570],
+    ['product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md', 'b14f1633eb5abdf72664e17d9990a0497e11e3a4', 20725],
+  ])('refuses the superseded archive or unchanged-files claim at %s', (path, oid, size) => {
+    const value = input();
+    Object.assign(value.documentationEvidence.entries.find(row => row.path === path), { oid, size });
+    expect(evaluateReviewQualification(value).qualified).toBe(false);
+  });
   it('refuses the obsolete executable-name and pre-archive note postimages together', () => {
     const value = input();
     value.changedFiles = value.changedFiles.map(path => path.replace('verify-native-source.txt', 'verify-native.test.mjs'));
