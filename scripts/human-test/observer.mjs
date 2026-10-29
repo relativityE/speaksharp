@@ -714,7 +714,7 @@ export function receiptVerdict({
  */
 
 /** Payload kinds that mean captured audio is leaving the device. */
-const AUDIO_KINDS = new Set(['audio']);
+const AUDIO_KINDS = new Set(['audio', 'encoded_audio']);
 /** Kinds that are not audio on their face but cannot be shown to be text either. */
 const OPAQUE_KINDS = new Set(['binary', 'blob', 'unknown', 'opaque_stream']);
 
