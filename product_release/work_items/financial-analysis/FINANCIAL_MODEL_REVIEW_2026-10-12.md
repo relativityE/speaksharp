@@ -51,15 +51,21 @@ Keep the evidence populations distinct: the **18 October** retained package reco
 **20 LibreOffice recalculations / 16 controls**. The **21 October** section below is
 Consultant's separate **15/15 author report**; its original raw receipts are unavailable
 in the receiving packet. Neither count is a new recalculation by Jensen or Microsoft
-Excel execution. The workbook and all six original receipt/support files are preserved.
+Excel execution. The workbook and `native-receipts.json` remain unchanged. All six
+original receipt/support files remain preserved in Git history at
+`035eca75fe7c2df1417da770bf4b6fea4e7f3134`; the current README and archived source
+have the portability-only edits described below.
 
 **Archival execution boundary — 28 October 2026.** The historical verification
 source formerly named `local-packets/1599-model-status-control/verify-native.test.mjs`
-is retained byte-for-byte as
-`local-packets/1599-model-status-control/verify-native-source.txt`. The dated README
-and its old command remain unchanged as provenance; that command is historical, not
-a current CI entry point. The archived source is data for inspection, not an
-instruction to run its Mac-specific spreadsheet tools. This path correction does
+is now inert `local-packets/1599-model-status-control/verify-native-source.txt`.
+The current README replaces its personal-machine command paths with
+`SPREADSHEET_RUNTIME` and a repository-relative path; the archived source replaces
+its hardcoded dependency directory with `process.env.SPREADSHEET_RUNTIME`.
+These two files are no longer byte-identical to their retained originals at
+`035eca75fe7c2df1417da770bf4b6fea4e7f3134`. The historical command is not a current
+CI entry point, and the archived source is data for inspection, not an instruction
+to execute spreadsheet tools. These portability and documentation corrections do
 not rerun or recalculate the workbook, reproduce the historical counts, or establish
 new native spreadsheet evidence.
 
