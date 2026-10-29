@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * #1403 — the promise is that AUDIO never leaves the browser, not that nothing leaves.
  *
@@ -11,6 +12,8 @@
  * PAYLOAD.
  */
 import { describe, it, expect } from 'vitest';
+import vm from 'node:vm';
+import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE, createWorkerReadCollector } from '../../scripts/human-test/payloadTripwire.mjs';
 import {
   auditEgress, auditPayloads, receiptVerdict, BLOCKING_PAYLOAD_CATEGORIES,
 } from '../../scripts/human-test/observer.mjs';
@@ -20,6 +23,219 @@ const audit = (records) => auditPayloads(records, { appOrigin: APP });
 const blocking = (records) => audit(records).filter((f) => BLOCKING_PAYLOAD_CATEGORIES.includes(f.category));
 
 const rec = (over) => ({ transport: 'fetch', url: `${APP}/api/sessions`, method: 'POST', kind: 'json', mime: 'application/json', bytes: 120, runtimeState: 'READY', ...over });
+
+function injectedProducer() {
+    const forwarded = [];
+    class Xhr {
+        open(method, url) { this.method = method; this.url = url; this.headers = []; }
+        setRequestHeader(name, value) { this.headers.push([name, value]); }
+        send(body) { forwarded.push({ transport: 'xhr', body, method: this.method, url: this.url, headers: this.headers }); }
+    }
+    class Socket {
+        send(body) { forwarded.push({ transport: 'websocket', body }); }
+    }
+    const context = vm.createContext({
+        URL, URLSearchParams, FormData, Blob, Headers, Request, ReadableStream, TextEncoder,
+        ArrayBuffer, Float32Array, Uint8Array,
+        location: { href: `${APP}/session` },
+        document: { documentElement: { getAttribute: () => 'RECORDING' } },
+        fetch: (...args) => { forwarded.push({ transport: 'fetch', body: args[1]?.body, args }); return Promise.resolve('synthetic'); },
+        navigator: { sendBeacon: (_url, body) => { forwarded.push({ transport: 'beacon', body }); return true; } },
+        XMLHttpRequest: Xhr, WebSocket: Socket,
+    });
+    vm.runInContext(PAYLOAD_TRIPWIRE, context, { timeout: 1000 });
+    return { context, forwarded, run(code) {
+        vm.runInContext(code, context, { timeout: 1000 });
+        return JSON.parse(vm.runInContext(READ_TRIPWIRE, context, { timeout: 1000 }));
+    } };
+}
+
+describe('actual injected producer feeds actual payload observer (proposal, no browser)', () => {
+    for (const [label, body, mime] of [
+        ['URLSearchParams', "new URLSearchParams({entry:JSON.stringify('AQ==')})", 'application/x-www-form-urlencoded'],
+        ['FormData', "(()=>{const form=new FormData();form.append('entry',JSON.stringify('AQ=='));return form})()", 'multipart/form-data'],
+    ]) it(`actual form MIME promotion ${label} survives the worker collector`, async () => {
+        const rig = injectedProducer(); delete rig.context.document;
+        const sent = rig.run(`for(let i=0;i<64;i++)fetch('${APP}/api/upload',{method:'POST',body:${body}});`);
+        expect(rig.forwarded).toHaveLength(64);
+        expect(sent[63]).toMatchObject({ kind: 'encoded_audio', mime, bytes: -1 });
+        const collector = createWorkerReadCollector({ installedSessions: new Set(['owned-worker']),
+            client: { send: async () => ({ result: { value: vm.runInContext(READ_TRIPWIRE, rig.context) } }) },
+        });
+        const final = await collector.finish();
+        expect(final.instrumentation.finalReadFailures).toBe(0);
+        expect(final.payloads).toHaveLength(64);
+        expect(final.payloads[63]).toMatchObject({ kind: 'encoded_audio', mime, bytes: -1, context: 'worker' });
+        expect(blocking(final.payloads).length).toBeGreaterThan(0);
+        expect(final.instrumentation.terminalCompleteness).toBe('UNPROVEN');
+        expect(final.instrumentation.drained).toBe(0);
+    });
+    it('actual producer late send after early read cannot pass when final worker read fails', async () => {
+        const rig = injectedProducer();
+        delete rig.context.document;
+        let reads = 0;
+        const collector = createWorkerReadCollector({ installedSessions: new Set(['owned-worker']),
+            client: { send: async () => {
+                if (++reads === 1) return { result: { value: vm.runInContext(READ_TRIPWIRE, rig.context) } };
+                throw new Error('synthetic worker context destroyed after actual send');
+            } },
+        });
+        await collector.drain();
+        // This is an actual invocation of the injected transport wrapper, not a prebuilt stats row.
+        const sent = rig.run(`fetch('${APP}/api/upload',{method:'POST',body:'A'.repeat(512)})`);
+        expect(rig.forwarded).toHaveLength(1);
+        expect(blocking(sent)).toHaveLength(1);
+        const final = await collector.finish();
+        expect(final.payloads).toEqual([]); // The last read failed: the late finding was not retrieved.
+        const receipt = receiptVerdict({
+            probe: { release: 'synthetic-release', requestedCandidate: 'v2:base.en', observedCandidate: 'v2:base.en',
+                identityMatches: true, runtimeState: 'READY', modelStatus: 'ready' },
+            expectedCandidate: 'v2:base.en', expectedRelease: 'synthetic-release', appOrigin: APP,
+            payloads: final.payloads, sockets: [], egress: [],
+            phases: ['pre-record', 'recording', 'stop-save', 'terminal'],
+            workerInstrumentation: { attached: 1, installed: 1, installFailures: 0,
+                networkEnabled: 1, networkFailures: 0, setupPending: 0, mainTripwireInstalled: true,
+                ...final.instrumentation },
+        });
+        expect(receipt.verdict, 'an unread late audio send must not borrow an earlier empty read').toBe('HOLD');
+    });
+    const send = body => `fetch('${APP}/api/upload',{method:'POST',body:${body}})`;
+    for (const [label, body] of [
+        ['whole base64', "'A'.repeat(512)"],
+        ['data URI', "'data:audio/wav;base64,AAAA'"],
+        ['numeric JSON array', 'JSON.stringify(Array.from({length:32},(_,i)=>i/32))'],
+        ['numeric typed JSON object', 'JSON.stringify(new Float32Array(32))'],
+        ['nested JSON', "JSON.stringify({detail:JSON.stringify({audio_data:'AAAA'})})"],
+        ['chunked audio field', "JSON.stringify({audio_samples:Array(64).fill('AAAA')})"],
+        ['encoded property name', "JSON.stringify({['A'.repeat(256)]:''})"],
+        ['within-envelope fragments', "JSON.stringify(Object.fromEntries(Array.from({length:8},(_,i)=>['part_'+i,'A'.repeat(32)])))"],
+        ['URLSearchParams', "new URLSearchParams({payload:JSON.stringify({pcm_data:'AAAA'})})"],
+        ['PCM', 'new Float32Array(32)'],
+        ['binary', 'new Uint8Array(64)'],
+        ['audio Blob', "new Blob(['synthetic'],{type:'audio/webm'})"],
+        ['stream', 'new ReadableStream()'],
+    ]) it(`blocks ${label} from actual producer records`, () => {
+        const rig = injectedProducer(); const records = rig.run(send(body));
+        expect(records).toHaveLength(1); expect(rig.forwarded).toHaveLength(1);
+        expect(blocking(records)).toHaveLength(1);
+    });
+    it('blocks scalar JSON encoding and serialized URL-encoded audio using real Headers', () => {
+        for (const code of [
+            `fetch('${APP}/api/upload',{method:'POST',headers:new Headers({'content-type':'application/json'}),body:JSON.stringify('A'.repeat(512))})`,
+            `fetch('${APP}/api/upload',{method:'POST',headers:new Headers({'content-type':'application/x-www-form-urlencoded'}),body:'audio_bytes=AAAA'})`,
+        ]) expect(blocking(injectedProducer().run(code))).toHaveLength(1);
+    });
+    it('inspects multipart text fields and treats nonempty non-audio Blob parts as opaque', () => {
+        for (const value of ["'AAAA'", "new Blob(['synthetic opaque'],{type:'text/plain'})"]) {
+            const records = injectedProducer().run(`const form=new FormData();form.append('audio_data',${value});${send('form')}`);
+            expect(blocking(records)).toHaveLength(1);
+        }
+    });
+    it('keeps ordinary transcript, telemetry and non-audio forms eligible', () => {
+        for (const code of [
+            send("JSON.stringify({transcript:'Ordinary synthetic speech with a useful point.'})"),
+            "fetch('https://us.i.posthog.com/e/',{method:'POST',body:JSON.stringify({event:'session_saved',duration:5})})",
+            `const form=new FormData();form.append('transcript','Ordinary synthetic text with spaces.');${send('form')}`,
+        ]) expect(blocking(injectedProducer().run(code))).toEqual([]);
+    });
+    it('uses actual xhr, beacon and WebSocket producers without changing forwarding', () => {
+        for (const code of [
+            `const x=new XMLHttpRequest();x.open('POST','${APP}/api/upload');x.send('A'.repeat(512));`,
+            `navigator.sendBeacon('${APP}/api/upload','A'.repeat(512));`,
+            `const socket=new WebSocket('wss://synthetic.invalid');socket.send('A'.repeat(512));`,
+        ]) { const rig = injectedProducer(); expect(blocking(rig.run(code))).toHaveLength(1); expect(rig.forwarded).toHaveLength(1); }
+    });
+    it('treats Request body streams as opaque and never reads or consumes them', () => {
+        const rig = injectedProducer();
+        const records = rig.run(`const request=new Request('${APP}/api/upload',{method:'POST',body:'synthetic'});fetch(request);globalThis.used=request.bodyUsed;`);
+        expect(rig.context.used).toBe(false); expect(blocking(records)).toHaveLength(1);
+    });
+    it('arbitrary BodyInit coercion cannot borrow a clean JSON-object verdict', () => {
+        const records = injectedProducer().run(`const value={toString(){return 'A'.repeat(512)}};${send('value')}`);
+        expect(blocking(records)).toHaveLength(1);
+    });
+    it('aggregates bounded tiny frames without retaining their values', () => {
+        const rig = injectedProducer(); const records = rig.run(`const socket=new WebSocket('wss://synthetic.invalid');for(let i=0;i<64;i++)socket.send('AAAA');`);
+        expect(records).toHaveLength(64); expect(blocking(records).length).toBeGreaterThan(0);
+        expect(JSON.stringify(records)).not.toContain('AAAA');
+    });
+    for (const [label, code] of [
+        ['input', send("'x'.repeat(262145)")],
+        ['fields', send("JSON.stringify(Object.fromEntries(Array.from({length:129},(_,i)=>['field_'+i,'ordinary text'])))")],
+        ['nodes', send("JSON.stringify(Array(128).fill('ordinary text with spaces'))")],
+        ['depth', send("JSON.stringify(Array.from({length:8}).reduce(x=>({nested:x}),{}))")],
+        ['malformed JSON', send("'{invalid synthetic JSON'")],
+        ['throwing accessor', `const value={};Object.defineProperty(value,'secret',{enumerable:true,get(){throw Error('private sentinel')}});${send('value')}`],
+        ['state', "for(let i=0;i<65;i++)fetch('https://state'+i+'.invalid',{method:'POST',body:'AAAA'});"],
+        ['records', `for(let i=0;i<513;i++)${send("'ordinary text with spaces'")};`],
+    ]) it(`exhausted ${label} becomes blocking opaque evidence`, () => {
+        const records = injectedProducer().run(code);
+        expect(records.length).toBeLessThanOrEqual(512); expect(blocking(records).length).toBeGreaterThan(0);
+    });
+    it('retains neither payload text nor field names, MIME tricks, query values or raw exception text', () => {
+        const rig = injectedProducer(); const records = rig.run(`fetch('${APP}/api/upload?secret_query=PRIVATE_QUERY_SENTINEL',{method:'POST',body:JSON.stringify({PRIVATE_FIELD_SENTINEL:'PRIVATE_BODY_SENTINEL'})});`);
+        const evidence = JSON.stringify({ records, findings: audit(records) });
+        for (const text of ['PRIVATE_FIELD_SENTINEL','PRIVATE_BODY_SENTINEL','PRIVATE_QUERY_SENTINEL','secret_query']) expect(evidence).not.toContain(text);
+        expect(records[0].url).toBe(APP);
+        const mime = injectedProducer().run(`fetch('${APP}/api/upload',{method:'POST',body:new Blob(['synthetic'],{type:'audio/PRIVATE_MIME_SENTINEL'})})`);
+        expect(JSON.stringify({ records: mime, findings: audit(mime) }).toLowerCase()).not.toContain('private_mime_sentinel');
+        const failed = injectedProducer().run(`const form=new FormData();form.entries=function*(){throw Error('PRIVATE_ITERATOR_SENTINEL')};${send('form')}`);
+        expect(blocking(failed)).toHaveLength(1); expect(JSON.stringify(failed)).not.toContain('PRIVATE_ITERATOR_SENTINEL');
+    });
+});
+
+describe('MIME-independent actual producer transport forms', () => {
+    it('ordinary repeated session UUID metadata is not an audio-frame stream', () => {
+        const records = injectedProducer().run(`for(let i=0;i<16;i++)fetch('${APP}/rest/v1/rpc/heartbeat_session',{method:'POST',body:JSON.stringify({p_session_id:'d1000000-0000-4000-8000-000000000001',current_duration:i})});`);
+        expect(blocking(records)).toEqual([]);
+    });
+    it('ordinary repeated telemetry event identifiers are not an audio-frame stream', () => {
+        const records = injectedProducer().run("for(let i=0;i<16;i++)fetch('https://us.i.posthog.com/e/',{method:'POST',body:JSON.stringify({event:'session_saved',event_id:i.toString(16).padStart(32,'0')})});");
+        expect(blocking(records)).toEqual([]);
+    });
+    for (const token of ['AQ==', 'AQI=']) {
+        it(`preserves padded scalar ${token} before inferred form parsing`, () => {
+            const records = injectedProducer().run(`const socket=new WebSocket('wss://synthetic.invalid');for(let i=0;i<64;i++)socket.send('${token}');`);
+            expect(records).toHaveLength(64); expect(blocking(records).length).toBeGreaterThan(0);
+        });
+        it(`preserves root JSON scalar ${token} across repeated sends`, () => {
+            const records = injectedProducer().run(`for(let i=0;i<64;i++)fetch('${APP}/api/upload',{method:'POST',headers:new Headers({'content-type':'application/json'}),body:JSON.stringify('${token}')});`);
+            expect(records).toHaveLength(64); expect(blocking(records).length).toBeGreaterThan(0);
+        });
+        it(`explicit form MIME cannot make ambiguous scalar ${token} clean`, () => {
+            const records = injectedProducer().run(`fetch('${APP}/api/upload',{method:'POST',headers:new Headers({'content-type':'application/x-www-form-urlencoded'}),body:'${token}'});`);
+            expect(blocking(records)).toHaveLength(1);
+        });
+    }
+    it('keeps explicit ordinary empty and text form fields nonblocking', () => {
+        const records = injectedProducer().run(`fetch('${APP}/api/sessions',{method:'POST',headers:new Headers({'content-type':'application/x-www-form-urlencoded'}),body:'field=&topic=ordinary+synthetic+prose'});`);
+        expect(blocking(records)).toEqual([]);
+    });
+    for (const [label, headers] of [
+        ['tuple-array HeadersInit', "[['content-type','application/json']]"],
+        ['mixed-case object HeadersInit', "{'cOnTeNt-TyPe':'application/json'}"],
+    ]) it(`blocks quoted JSON via ${label} and forwards original Fetch arguments`, () => {
+        const rig = injectedProducer();
+        const records = rig.run(`globalThis.init={method:'POST',headers:${headers},body:JSON.stringify('A'.repeat(512))};fetch('${APP}/api/upload',init);`);
+        expect(blocking(records)).toHaveLength(1);
+        expect(rig.forwarded).toHaveLength(1);
+        expect(rig.forwarded[0].args[0]).toBe(`${APP}/api/upload`);
+        expect(rig.forwarded[0].args[1]).toBe(rig.context.init);
+        expect(rig.forwarded[0].args[1].headers).toBe(rig.context.init.headers);
+        expect(rig.forwarded[0].body).toBe(rig.context.init.body);
+    });
+    for (const [label, mime, body] of [
+        ['JSON scalar', 'application/json', "JSON.stringify('A'.repeat(512))"],
+        ['URL-encoded', 'application/x-www-form-urlencoded', "'audio_bytes=AAAA'"],
+    ]) it(`blocks XHR ${label} and forwards native header/body calls unchanged`, () => {
+        const rig = injectedProducer();
+        const records = rig.run(`const xhr=new XMLHttpRequest();globalThis.body=${body};xhr.open('POST','${APP}/api/upload');xhr.setRequestHeader('CoNtEnT-TyPe','${mime}');xhr.send(body);`);
+        expect(blocking(records)).toHaveLength(1); expect(rig.forwarded).toHaveLength(1);
+        expect(rig.forwarded[0].method).toBe('POST'); expect(rig.forwarded[0].url).toBe(`${APP}/api/upload`);
+        expect(rig.forwarded[0].headers).toEqual([['CoNtEnT-TyPe', mime]]);
+        expect(rig.forwarded[0].body).toBe(rig.context.body);
+    });
+});
 
 describe('audio leaving the device is the violation', () => {
     it('CASUALTY: an audio Blob posted anywhere is caught', () => {
@@ -61,6 +277,14 @@ describe('audio leaving the device is the violation', () => {
         const hits = blocking([rec({ url: 'https://o123.ingest.us.sentry.io/api/x', kind: 'audio', mime: 'audio/webm', bytes: 200_000 })]);
         expect(hits).toHaveLength(1);
         expect(hits[0].category).toBe('audio_egress');
+    });
+
+    it('CASUALTY: encoding audio as base64 or numeric JSON does not authorise it', () => {
+        const hits = blocking([
+            rec({ url: `${APP}/api/upload`, kind: 'encoded_audio', mime: null, bytes: 512 }),
+            rec({ url: 'https://us.i.posthog.com/e/', kind: 'encoded_audio', mime: 'application/json', bytes: 1_024 }),
+        ]);
+        expect(hits.map((hit) => hit.category)).toEqual(['same_origin_audio', 'audio_egress']);
     });
 });
 

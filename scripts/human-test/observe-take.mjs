@@ -17,12 +17,12 @@
  *   The GitHub CLI (or GH_BIN) must be authenticated to read the repository and its Actions artifacts.
  *     [--app https://speaksharp-public.vercel.app] [--out product_release/evidence/...] [--dry-run]
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { WebSocket } from 'ws';
 import { assertLoopbackOrigin, selectAppTarget, safeTargetForEvidence } from './cdpTarget.mjs';
 import { IDENTITY_PROBE, auditEgress, receiptVerdict } from './observer.mjs';
-import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE } from './payloadTripwire.mjs';
+import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE, createWorkerReadCollector } from './payloadTripwire.mjs';
 import { modelComparisonArmExpression, modelComparisonSwitchExpression } from './modelComparisonArm.mjs';
 import { execFileSync } from 'node:child_process';
 import { ghCliGetter, ghRunArtifactFetcher, verifyRunAuthorization } from './modelComparisonRunAuthority.mjs';
@@ -290,56 +290,9 @@ const main = async () => {
         throw new Error('model-comparison identity mismatch before the take');
     }
 
-    // DRAINED AS WE GO. A worker that ends before the final read would otherwise take its evidence with
-    // it — and a worker ending early is exactly what a short recording looks like. Records are
-    // accumulated per session so a terminated worker's findings survive it.
-    const workerRecords = new Map();
-    // THE LATEST READ WINS. This was a monotonic Set, so one early success permanently marked a worker
-    // as readable and a FINAL read failure -- the one that decides whether the retained evidence is
-    // complete -- was erased by it. A worker that stopped responding halfway through a take scored as
-    // fully observed.
-    const drainStatus = new Map();
-    /** Sessions whose read succeeded and which later became unreadable — normal teardown, not evidence loss. */
-    const postReadDrainFailures = new Set();
-    const drainWorkers = async () => {
-        for (const sessionId of installedSessions) {
-            try {
-                const evaluated = await client.send('Runtime.evaluate', {
-                    expression: READ_TRIPWIRE, returnByValue: true, awaitPromise: false,
-                }, sessionId);
-                // AN EXCEPTION INSIDE THE EXPRESSION RESOLVES THE CALL. CDP reports it as
-                // `exceptionDetails` rather than rejecting, so a throwing readback landed here with
-                // `result.value === undefined`, `JSON.parse('[]')` produced an empty list, and the
-                // session was recorded as a SUCCESSFUL read of nothing. A worker whose evidence could
-                // not be retrieved then scored identically to a worker that sent nothing — which is the
-                // claim the receipt goes on to make.
-                //
-                // The same trap was already fixed for install; this is the read half of it.
-                if (evaluated?.exceptionDetails) throw new Error('worker readback threw');
-                if (typeof evaluated?.result?.value !== 'string') throw new Error('worker readback returned no value');
-                const parsed = JSON.parse(evaluated.result.value);
-                if (parsed.length > 0) workerRecords.set(sessionId, parsed);
-                drainStatus.set(sessionId, true);
-            } catch {
-                // #1403s — A COMPLETED READ IS AUTHORITATIVE AND CANNOT BE UNDONE.
-                //
-                // This loop runs every second and again during teardown. A worker that WAS read
-                // successfully and is then destroyed as the take ends -- the normal, correct end of a
-                // Private STT session -- threw here and overwrote its `true` with `false`. The receipt
-                // then reported a drain failure and HELD a take whose evidence had already been
-                // collected in full: a false HOLD caused by the app behaving properly.
-                //
-                // Once a session has yielded an authoritative read, later failures are recorded as
-                // post-read teardown and never downgrade it. A session never read stays false, which is
-                // the case that must still hold the take.
-                if (drainStatus.get(sessionId) === true) {
-                    postReadDrainFailures.add(sessionId);
-                } else {
-                    drainStatus.set(sessionId, false);
-                }
-            }
-        }
-    };
+    // Preserve observed findings while the worker lives. These polls do not prove terminal
+    // completeness: later sends may be lost if the execution context disappears before the last read.
+    const workerReadCollector = createWorkerReadCollector({ client, installedSessions });
 
     const probeOnce = async () => {
         const { result } = await client.send('Runtime.evaluate', {
@@ -372,7 +325,7 @@ const main = async () => {
                 identityMatches: probe.identityMatches ?? null,
             });
         }
-        await drainWorkers();
+        await workerReadCollector.drain();
         if (probe?.runtimeState === 'RECORDING') {
             notePhase('recording');
             // The MOMENT recording began, so a payload can be placed before or after it. A single flag
@@ -444,18 +397,15 @@ const main = async () => {
     clearTimeout(settleTimer);
     workerStats.setupPending = stillPending ? 1 : 0;
 
-    await drainWorkers();
+    const workerReadback = await workerReadCollector.finish();
     // SEALED. Anything a worker reports from here cannot have informed the verdict, and folding it in
     // silently would make the receipt describe a moment that never existed.
     receiptSealed = true;
-    workerStats.drained = [...drainStatus.values()].filter(Boolean).length;
-    workerStats.drainFailures = installedSessions.size - workerStats.drained;
-    // Reported so the receipt can distinguish "we lost the evidence" from "the worker went away after we
-    // already had it". Only the first is a proof failure; the second is the app shutting down correctly.
-    workerStats.postReadTeardowns = postReadDrainFailures.size;
-    for (const records of workerRecords.values()) {
-        payloads.push(...records.map((p) => ({ ...p, context: 'worker' })));
-    }
+    Object.assign(workerStats, workerReadback.instrumentation);
+    // The collector explicitly reports UNPROVEN terminal completeness and zero completed drains.
+    // Neither READY nor a readable snapshot supplies finalN; this diagnostic stays HOLD until a
+    // separately reviewed closure channel establishes owned terminal/contiguous-ACK evidence.
+    payloads.push(...workerReadback.payloads);
 
     // THE REQUEST-LEVEL AUDIT WAS COLLECTED AND NEVER CONSULTED. `requests` was populated on every
     // `requestWillBeSent` and then dropped: `auditEgress` -- exact pinned-asset matching, unknown
