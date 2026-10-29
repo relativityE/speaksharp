@@ -491,9 +491,9 @@ describe('ci-engineering-evidence: only exact-head, complete, successful enginee
 const FINANCE_PINS = [
   {
     "path": "local-packets/1599-model-status-control/README.md",
-    "oid": "23e345dea0da592e1c6a9cd9765d8ab22a21e57b",
+    "oid": "82b446d7b17f64e243d1245ddf5967289dd42154",
     "mode": "100644",
-    "size": 2624
+    "size": 2927
   },
   {
     "path": "local-packets/1599-model-status-control/edit.mjs",
@@ -521,9 +521,9 @@ const FINANCE_PINS = [
   },
   {
     "path": "local-packets/1599-model-status-control/verify-native-source.txt",
-    "oid": "f0808c29474edb983b46358ea8931037e85800aa",
+    "oid": "aba182a343f8e4377f15577c2347a3c9520149bf",
     "mode": "100644",
-    "size": 6570
+    "size": 6526
   },
   {
     "path": "product_release/ROADMAP.md",

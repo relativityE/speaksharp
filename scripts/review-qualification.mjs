@@ -45,18 +45,18 @@ export const DOCUMENTATION_EVIDENCE_ADMISSION = Object.freeze({
   ]),
 });
 
-// Owner-selected #1599 receiver; approved archive correction frozen in 0124d8ed.
+// Exact #1599 postimages, including its archival path-portability correction.
 // Historical verification source is archived as data; exact postimages are Git metadata only.
 export const FINANCIAL_EVIDENCE_ADMISSION = Object.freeze({
   repository: 'relativityE/speaksharp', number: 1599,
   reviewedSource: '0124d8ed1c83f7cb37b3acb04e870166d10bef18',
   files: Object.freeze([
-    Object.freeze({"path":"local-packets/1599-model-status-control/README.md","oid":"23e345dea0da592e1c6a9cd9765d8ab22a21e57b","mode":"100644","size":2624}),
+    Object.freeze({"path":"local-packets/1599-model-status-control/README.md","oid":"82b446d7b17f64e243d1245ddf5967289dd42154","mode":"100644","size":2927}),
     Object.freeze({"path":"local-packets/1599-model-status-control/edit.mjs","oid":"9942d9759b6ed2e09183fea1dff432212f1bb523","mode":"100644","size":1459}),
     Object.freeze({"path":"local-packets/1599-model-status-control/inspect-native.py","oid":"e02ed0ca701232bdfa37eacbdebcd1f93b409363","mode":"100644","size":723}),
     Object.freeze({"path":"local-packets/1599-model-status-control/native-receipts.json","oid":"058fbb2cb968b85d0cf66aee9aff08977064dc93","mode":"100644","size":3906}),
     Object.freeze({"path":"local-packets/1599-model-status-control/preserve-package.py","oid":"ac271ead1d1c58d30a069a4b437cd6893eaf7acf","mode":"100644","size":2442}),
-    Object.freeze({"path":"local-packets/1599-model-status-control/verify-native-source.txt","oid":"f0808c29474edb983b46358ea8931037e85800aa","mode":"100644","size":6570}),
+    Object.freeze({"path":"local-packets/1599-model-status-control/verify-native-source.txt","oid":"aba182a343f8e4377f15577c2347a3c9520149bf","mode":"100644","size":6526}),
     Object.freeze({"path":"product_release/ROADMAP.md","oid":"1769c07635ead0df59990bcdb6fb949e182e0838","mode":"100644","size":23129}),
     Object.freeze({"path":"product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md","oid":"b14f1633eb5abdf72664e17d9990a0497e11e3a4","mode":"100644","size":20725}),
     Object.freeze({"path":"product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx","oid":"c78f60fa0383ae2461f209bdb96a0a50b2909f5e","mode":"100644","size":76656}),
