@@ -49,7 +49,7 @@ export const DOCUMENTATION_EVIDENCE_ADMISSION = Object.freeze({
 // Historical verification source is archived as data; exact postimages are Git metadata only.
 export const FINANCIAL_EVIDENCE_ADMISSION = Object.freeze({
   repository: 'relativityE/speaksharp', number: 1599,
-  reviewedSource: '0124d8ed1c83f7cb37b3acb04e870166d10bef18',
+  reviewedSource: '667adc54584d4dd69f5bda83c79df2adaa87c863',
   files: Object.freeze([
     Object.freeze({"path":"local-packets/1599-model-status-control/README.md","oid":"82b446d7b17f64e243d1245ddf5967289dd42154","mode":"100644","size":2927}),
     Object.freeze({"path":"local-packets/1599-model-status-control/edit.mjs","oid":"9942d9759b6ed2e09183fea1dff432212f1bb523","mode":"100644","size":1459}),
@@ -58,7 +58,7 @@ export const FINANCIAL_EVIDENCE_ADMISSION = Object.freeze({
     Object.freeze({"path":"local-packets/1599-model-status-control/preserve-package.py","oid":"ac271ead1d1c58d30a069a4b437cd6893eaf7acf","mode":"100644","size":2442}),
     Object.freeze({"path":"local-packets/1599-model-status-control/verify-native-source.txt","oid":"aba182a343f8e4377f15577c2347a3c9520149bf","mode":"100644","size":6526}),
     Object.freeze({"path":"product_release/ROADMAP.md","oid":"1769c07635ead0df59990bcdb6fb949e182e0838","mode":"100644","size":23129}),
-    Object.freeze({"path":"product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md","oid":"b14f1633eb5abdf72664e17d9990a0497e11e3a4","mode":"100644","size":20725}),
+    Object.freeze({"path":"product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md","oid":"5c5153087db6619e24b848b46b9c879e9bee932d","mode":"100644","size":21193}),
     Object.freeze({"path":"product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx","oid":"c78f60fa0383ae2461f209bdb96a0a50b2909f5e","mode":"100644","size":76656}),
   ]),
 });

@@ -533,9 +533,9 @@ const FINANCE_PINS = [
   },
   {
     "path": "product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md",
-    "oid": "b14f1633eb5abdf72664e17d9990a0497e11e3a4",
+    "oid": "5c5153087db6619e24b848b46b9c879e9bee932d",
     "mode": "100644",
-    "size": 20725
+    "size": 21193
   },
   {
     "path": "product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx",
