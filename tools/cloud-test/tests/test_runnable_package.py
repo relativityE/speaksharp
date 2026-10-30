@@ -13,7 +13,7 @@ import tempfile
 import unittest
 import zipfile
 
-from _fixtures import HISTORY_MODE, NO_HISTORY_REASON, NOW, REPO, REQUIRE, ROOT, TESTED, J, prerequisite, request_path, run_py, sample, wjson
+from _fixtures import NOW, REPO, REQUIRE, ROOT, TESTED, J, prerequisite, request_path, run_py, sample, wjson
 import verify_harness as VH
 
 CFG = os.path.join(ROOT, "config", "test-config.v1.json")
@@ -408,13 +408,14 @@ class SecretFreeCleanRoom(unittest.TestCase):
     """Item 4: the GitHub preflight is secret-free with no product traffic. Demonstrated here in a clean room: an empty environment and, where the kernel
     allows, a network namespace with no route at all. (The same steps run on GitHub in the workflow; a run there needs the owner's merge first.)"""
     def run_clean(self, wrapper):
-        if HISTORY_MODE == "none":  # pipeline.py reads the retained history
-            raise unittest.SkipTest(NO_HISTORY_REASON)
+        # The real pipeline over the SYNTHETIC sealed history (tests/_synthetic_history.py), so the clean-room proof needs no retained campaigns.
+        from _synthetic_history import shared as synthetic_history
+        h = synthetic_history()
         d = tempfile.mkdtemp(prefix="ct-cr-")
         oc = os.path.join(d, "oc.json"); wjson(oc, {"passed": True})
         out = os.path.join(d, "out")
-        cmd = wrapper + [sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", request_path(), "--out-dir", out,
-                         "--offline-checks", oc, "--repo", REPO, "--now", NOW, "--generated-at", NOW, "--require-secret-free"]
+        cmd = wrapper + [sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", h.request(request_path()), "--out-dir", out,
+                         "--offline-checks", oc, "--repo", REPO, "--now", NOW, "--generated-at", NOW, "--require-secret-free", *h.args()]
         r = subprocess.run(cmd, capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": d})
         return r, out
 

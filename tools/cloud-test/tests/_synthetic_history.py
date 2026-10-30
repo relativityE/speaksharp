@@ -1,8 +1,10 @@
 """A complete SYNTHETIC retained history for the current test suite: R4/R4B (ledgers only) and R4C/R5 (all 15 journeys), sealed through the
 real sealer, with the history index built by history_index.py itself, owner counters and a config copy that pins exactly this history.
 
-Every number comes from tests/fixtures/synthetic-history/inputs.v1.json. Nothing here is a real campaign, account, usage figure or approval; the
-historical-audit suite (tests/legacy_audit) is the only place the real retained campaigns are read."""
+Every number comes from tests/fixtures/synthetic-history/inputs.v1.json. Nothing here is a real campaign, account, usage figure or approval, and no
+retained private campaign history is read. It still depends on public, tracked inputs: the repository's Git history (servedSha values are public
+commits), config/history/catalogs and the tracked request and comparison fixtures. When the migration is complete, the historical-audit suite
+(tests/legacy_audit) is the only place the real retained campaigns are read."""
 import copy
 import datetime
 import json
@@ -137,7 +139,8 @@ def catalog_version(cfg):
 
 class SyntheticHistory:
     """root/receipts/<label>, root/index.json, root/owner-counters.json and root/test-config.json pin one synthetic history.
-    Pass these paths to the scripts (--config, --receipts-root, --history-index, --counters); nothing under config/history is used."""
+    Pass these paths to the scripts (--config, --receipts-root, --history-index, --counters, --reservations); no retained private campaign history
+    is used (the public config/history/catalogs snapshots still are)."""
 
     def __init__(self):
         spec = inputs()
