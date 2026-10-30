@@ -14,7 +14,7 @@ describe('#1565 candidate asset binding', () => {
     }) } });
     const initialize = vi.fn(async () => ({
       candidateId,
-      runtime: { modelId, backend },
+      runtime: { initSucceeded: true, fallbackOccurred: false, modelId, backend },
       workerAcquisition: null,
     }));
     window.__MODEL_EVALUATOR__ = { initialize, decodePcmBase64: vi.fn(), dispose: vi.fn() };
@@ -28,7 +28,7 @@ describe('#1565 candidate asset binding', () => {
     } as never);
     const adapter = createAdapter({
       baseUrl: 'http://unused.invalid', repositoryRoot: process.cwd(), headless: true, expectedGpuVendor: 'test-vendor',
-      options: { candidateId },
+      options: { candidateId, consentToDownload: true },
       expected: {
         engine: 'private-v4', modelId, revision: null,
         assetDigest: 'unused', runtime: '@huggingface/transformers@4.3.0', backend,
@@ -36,7 +36,8 @@ describe('#1565 candidate asset binding', () => {
     });
     try {
       expect((await adapter.initialize()).backend).toBe(backend);
-      expect(initialize).toHaveBeenCalledWith(candidateId, backend);
+      expect(initialize).toHaveBeenCalledWith(candidateId, backend, true);
+      expect(launch).toHaveBeenCalledWith({ headless: true, chromiumSandbox: true });
     } finally {
       await adapter.dispose();
       launch.mockRestore();

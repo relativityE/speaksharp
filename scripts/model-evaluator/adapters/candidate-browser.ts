@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { chromium, type Browser, type Page } from 'playwright';
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
