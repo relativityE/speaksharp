@@ -1,0 +1,35 @@
+{
+  "sourceSha": "70e194a4422dd7b6a13ed542134941d1eaa9ea87",
+  "modules": [
+    {
+      "name": "rwtAbandonTakeover",
+      "sourceSha256": "34644fa8791289209364a1f129f0c0be364868cdc1d41d58cb61da108ebfa52e",
+      "typescript": "5.9.3"
+    },
+    {
+      "name": "rwtMarkerObserver",
+      "sourceSha256": "8404094280c95e15601db502afb432eb0222013cb618c41d98158f418c1c0532",
+      "typescript": "5.9.3"
+    },
+    {
+      "name": "rwtSavedFocusIdentity",
+      "sourceSha256": "3d919e89686dde1b342902f46c242fad63dc756848300cefe5c83f0b72bd49ec",
+      "typescript": "5.9.3"
+    },
+    {
+      "name": "rwtRecoveryFence1593",
+      "sourceSha256": "dc1985fda61db8045e325a2c761e0f122751b2cd7ff3baada5d5716491595555",
+      "typescript": "5.9.3"
+    },
+    {
+      "name": "repeatMetricWording",
+      "sourceSha256": "2394294c113c9f86342a5b60ff05ebf23fc29295549eec6aee25917fbf3ce4bb",
+      "typescript": "5.9.3"
+    },
+    {
+      "name": "feedbackDiagnosticRef",
+      "sourceSha256": "fd0f3d491632d394ac30f426622989243ed7f6bf90960cf4c1e94751aca43547",
+      "typescript": "5.9.3"
+    }
+  ]
+}

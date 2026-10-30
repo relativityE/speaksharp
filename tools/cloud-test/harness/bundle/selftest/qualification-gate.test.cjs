@@ -1,0 +1,7 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict');
+const {validateLocalFixturePolicy,admitQualificationSupervisor}=require('../harness/qualification-gate.cjs');
+function p(){return {version:1,testOnly:true,sourceSha:'a'.repeat(40),hosts:{'a.test':{port:443,rules:[{id:'fixture',methods:['GET','POST'],path:'^/.*$',cap:'public',reviewedSourceSha:'a'.repeat(40)}]}},caps:{total:10,navigations:10,public:10},maxInFlight:2,queueWaitMs:100,requestTimeoutMs:100,deadlineAt:'2026-10-28T00:00:00Z',upstream:{mode:'override',override:{'a.test':'127.0.0.1:54321'}}};}
+test('qualification validates fixed local fixture policy only, not runtime GO',()=>assert.equal(validateLocalFixturePolicy(p()).productionTrafficAllowed,false));
+for(const [name,mutate] of [['production marker',x=>x.testOnly=false],['external host',x=>x.hosts['speaksharp-public.vercel.app']=x.hosts['a.test']],['external override',x=>x.upstream.override['a.test']='8.8.8.8:443'],['low port',x=>x.upstream.override['a.test']='127.0.0.1:443'],['direct mode',x=>x.upstream.mode='direct'],['unreviewed source',x=>x.hosts['a.test'].rules[0].reviewedSourceSha='b'.repeat(40)]])test('qualification rejects '+name,()=>{const x=p();mutate(x);assert.throws(()=>validateLocalFixturePolicy(x));});
+test('qualification still requires actual approval before action',()=>assert.throws(()=>admitQualificationSupervisor({'qualification-local-only':'true'},p()),/APPROVAL_REQUIRED/));

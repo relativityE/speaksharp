@@ -1,0 +1,4 @@
+# Generated interpreter/dependency caches, never source or execution evidence.
+__pycache__/
+*.pyc
+runner/node_modules/

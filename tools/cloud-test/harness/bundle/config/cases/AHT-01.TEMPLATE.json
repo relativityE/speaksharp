@@ -1,0 +1,87 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "caseId": "AHT-01",
+  "campaignId": null,
+  "sourceSha": null,
+  "servedSha": null,
+  "targetUrl": "https://speaksharp-public.vercel.app",
+  "requiredAssertions": [
+    "owner-bound",
+    "fresh-first-session",
+    "saved-once",
+    "grounded-coaching",
+    "review-reopen",
+    "pdf-owner-take",
+    "same-target-repeat",
+    "analytics-repeat-opens-product",
+    "rapid-repeat-gate",
+    "rapid-repeat-release",
+    "next-start",
+    "next-start-release",
+    "probe-save-isolation",
+    "same-target-numeric",
+    "open-mic-review-presentation",
+    "open-mic-coaching-length",
+    "open-mic-coaching-distinct",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+  ],
+  "credentialVars": {
+    "email": "THROWAWAY_TEST_EMAIL",
+    "password": "THROWAWAY_TEST_PASSWORD"
+  },
+  "account": {
+    "id": null,
+    "mode": "existing-disposable",
+    "preprovisionReceipt": null,
+    "analyticsExclusionReceipt": null,
+    "dispositionReceipt": null,
+    "effectiveFeatureAccessApproved": null
+  },
+  "readback": {
+    "origin": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+    "projectRef": "yxlapjuovrsvjswkwnrk",
+    "anonKey": null,
+    "schemaSha256": null,
+    "ownerReadApproved": null,
+    "rlsReadQualificationReceipt": null
+  },
+  "observerSourceReviewed": null,
+  "observerQualificationReceipt": null,
+  "takeCap": null,
+  "startPressCap": null,
+  "_minimumTakeCap": 4,
+  "_minimumStartPressCap": 4,
+  "oracleBindings": {
+    "coaching": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    },
+    "pdfOwnerTake": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    },
+    "sameTarget": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    }
+  },
+  "fixture": {
+    "name": null,
+    "sha256": null,
+    "launchSha256": null,
+    "speechDurationMs": null
+  },
+  "privateEvidenceProducers": {
+    "coaching-authority": null
+  },
+  "pdfParser": {
+    "package": "pdfjs-dist",
+    "version": "4.10.38",
+    "sha256": null
+  }
+}

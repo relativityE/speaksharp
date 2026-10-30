@@ -1,0 +1,32 @@
+{
+  "type": "read-only-receiving-source-binding",
+  "sourceSha": "66328703bf47e865b730e229005411e78481d34c",
+  "sourceTree": "cba25910ce2b0fbd5555f583abb2bb93c3d2e782",
+  "scope": "Only listed mirrors verified against actual Git; not full product proof or run authority. Historical source-receipt.json retained unchanged.",
+  "files": [
+    {
+      "path": "tests/live/helpers/coachingExternal.ts",
+      "snapshot": "source/coachingExternal.ts",
+      "sha256": "97c6963227a41edac9b84ad700819103611bb750f22792c3ca74c3c2dc5ef81b",
+      "bytes": 21275
+    },
+    {
+      "path": "tests/live/helpers/rwtPaceGuide.ts",
+      "snapshot": "source/rwtPaceGuide.ts",
+      "sha256": "88891647748c382ae3c08ce78b6e3aab6fcbb96dc4e0c609d38ac66568c2b8d9",
+      "bytes": 1038
+    },
+    {
+      "path": "tests/live/helpers/returningSignInAttempt.ts",
+      "snapshot": "source/returningSignInAttempt.ts",
+      "sha256": "9176bb71de8f877e9d919c4b0d60482ed8f26529089252063daada39026af44a",
+      "bytes": 24531
+    },
+    {
+      "path": "frontend/src/pages/SignInPage.tsx",
+      "snapshot": "source/SignInPage.tsx",
+      "sha256": "58aa8b93a2c24e409863febd8603e418a71ff7a954a321b176d518e15b4223ce",
+      "bytes": 13525
+    }
+  ]
+}

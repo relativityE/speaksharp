@@ -1,0 +1,186 @@
+{
+  "_status": "REV3 TEMPLATE: BLOCKED. Caps, deadlines, selected-source review, runtime and actual owner approvals remain unbound. No production dispatch.",
+  "_source": "Historical e14340c99610068abf46462221898bac4f5761fe baseline observation. Re-derive and bind exact selected source/tree/lock before a new run; do not automatically repin to main.",
+  "version": 1,
+  "logPaths": false,
+  "hosts": {
+    "speaksharp-public.vercel.app": {
+      "port": 443,
+      "rules": [
+        {
+          "id": "local-private-model",
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
+          "path": "^/(models/whisper-base\\.en|assets/transformers-v2-ort)(/[A-Za-z0-9._~-]+)*$",
+          "cap": "model",
+          "effect": "Read selected app-origin Private base.en model/runtime assets, not external CDN",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "web-read",
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
+          "path": "^/[A-Za-z0-9._~/@%+-]*$",
+          "cap": "public",
+          "effect": "read public app shell, routes and static assets",
+          "review": true,
+          "reviewedSourceSha": null
+        }
+      ]
+    },
+    "yxlapjuovrsvjswkwnrk.supabase.co": {
+      "port": 443,
+      "rules": [
+        {
+          "id": "preflight",
+          "methods": [
+            "OPTIONS"
+          ],
+          "path": "^/(rest/v1/.*|functions/v1/[a-z0-9-]+|auth/v1/.*)$",
+          "cap": "preflight",
+          "effect": "CORS preflight only",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "auth-token",
+          "methods": [
+            "POST"
+          ],
+          "path": "^/auth/v1/token$",
+          "cap": "auth",
+          "effect": "password sign-in / token refresh for the bound run identity",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "auth-user",
+          "methods": [
+            "GET",
+            "PUT"
+          ],
+          "path": "^/auth/v1/user$",
+          "cap": "auth",
+          "effect": "read/update own user (updateUser)",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "auth-logout",
+          "methods": [
+            "POST"
+          ],
+          "path": "^/auth/v1/logout$",
+          "cap": "auth",
+          "effect": "sign out",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "rest-read",
+          "methods": [
+            "GET",
+            "HEAD"
+          ],
+          "path": "^/rest/v1/(sessions|user_filler_words|session_progress_evaluations|progress_recommendations|progress_recommendation_attempts|user_profiles|user_goals|user_issue_reports|objective_session|objective_brief|objective_brief_point|objective_evidence|objective_source_recording)$",
+          "cap": "signed-in",
+          "effect": "read own rows (RLS)",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "rest-write",
+          "methods": [
+            "POST",
+            "PATCH",
+            "DELETE"
+          ],
+          "path": "^/rest/v1/(user_filler_words|user_goals|user_issue_reports|user_profiles)$",
+          "cap": "signed-in",
+          "effect": "own-row writes: filler words, goals, feedback, profile",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "rpc",
+          "methods": [
+            "POST"
+          ],
+          "path": "^/rest/v1/rpc/(advance_recommendation_attempt|record_recommendation_attempt|record_progress_recommendation|record_progress_evaluation|set_user_timezone|objective_start_session_v1|objective_finalize_evidence_v1|issue_objective_project_v1|issue_objective_brief_v1|heartbeat_session|get_practice_streak|get_analytics_summary|create_session_and_update_usage|complete_session_v2)$",
+          "cap": "signed-in",
+          "effect": "product RPCs incl. session create/complete",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "fn-coaching",
+          "methods": [
+            "POST"
+          ],
+          "path": "^/functions/v1/get-ai-suggestions$",
+          "cap": "coaching",
+          "effect": "one coaching invocation (provider attempts bounded server-side; verify deployed bound)",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "fn-product",
+          "methods": [
+            "POST",
+            "GET"
+          ],
+          "path": "^/functions/v1/(attest-session-engine|check-usage-limit|objective-register-source)$",
+          "cap": "signed-in",
+          "effect": "product edge functions",
+          "review": true,
+          "reviewedSourceSha": null
+        },
+        {
+          "id": "fn-account-closure",
+          "methods": [
+            "POST",
+            "GET"
+          ],
+          "path": "^/functions/v1/account-closure$",
+          "cap": "account-closure",
+          "effect": "DESTRUCTIVE: deletion entry/pending. Cap 0 unless separately approved.",
+          "review": true,
+          "reviewedSourceSha": null
+        }
+      ]
+    }
+  },
+  "_denied_by_omission": [
+    "stripe-checkout",
+    "stripe-billing-portal",
+    "cloud-STT token function",
+    "any PostHog/Sentry/Google/Vercel-insights host (analytics egress; record impact)",
+    "WebSocket/Realtime (always denied)",
+    "Hugging Face and external model CDN hosts (not selected baseline)"
+  ],
+  "caps": {
+    "total": null,
+    "navigations": null,
+    "public": null,
+    "preflight": null,
+    "auth": null,
+    "signed-in": null,
+    "coaching": null,
+    "account-closure": 0,
+    "model": null
+  },
+  "maxInFlight": 6,
+  "queueWaitMs": 15000,
+  "requestTimeoutMs": 30000,
+  "deadlineAt": null,
+  "upstream": {
+    "mode": "env-proxy"
+  },
+  "_model_hosts_note": "Selected v2 base.en path is local-only: /models/whisper-base.en and /assets/transformers-v2-ort on the app origin. No Hugging Face/CDN/network-allowlist expansion is needed for ordinary default. No live model download verified. Different selected source/configuration requires separate evidence/review.",
+  "sourceSha": null
+}

@@ -1,0 +1,15 @@
+{
+  "_status": "PLACEHOLDER facts for the offline plan-builder proof. NOT A RUN: none of these values is an owner approval or a probe receipt.",
+  "ownerApprovalReference": "PLACEHOLDER-NOT-A-RUN-owner-approval",
+  "approvedBy": "PLACEHOLDER-NOT-A-RUN",
+  "reviewer": "PLACEHOLDER-NOT-A-RUN reviewer",
+  "receipts": {
+    "pre": "PLACEHOLDER-NOT-A-RUN:starting-state-probe",
+    "rls": "PLACEHOLDER-NOT-A-RUN:own-token-read-probe",
+    "analytics": "NOT-ESTABLISHED:placeholder",
+    "disp": "PLACEHOLDER-NOT-A-RUN:account-reusable-no-delete-reset",
+    "fence": "NOT-ESTABLISHED:placeholder",
+    "review": "PLACEHOLDER-NOT-A-RUN:reviewed-packet"
+  },
+  "backend": {"manifestRef": "PLACEHOLDER-NOT-A-RUN-owner-deployment-manifest", "source": "owner-stated", "generation": 6, "completion": "OFF", "migration129": "absent"}
+}

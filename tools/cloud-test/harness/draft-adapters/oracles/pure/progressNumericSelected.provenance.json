@@ -1,0 +1,75 @@
+{
+  "sourceSha": "66328703bf47e865b730e229005411e78481d34c",
+  "entries": [
+    {
+      "source": "buildProgressEvaluation.ts",
+      "sha256": "f562c249f25daaf52fc1cc5aec2b740b985a8b4200298cbc906b5053db8ceaad",
+      "gitBlobSha1": "4e972ff375ac63881286a568a60ef662b558d4be",
+      "selectedDeclarations": [
+        {
+          "name": "PROGRESS_FORMULA_VERSION",
+          "startLine": 20,
+          "endLine": 20
+        },
+        {
+          "name": "hasCompleteEligibleProgressEvidence",
+          "startLine": 114,
+          "endLine": 123
+        }
+      ]
+    },
+    {
+      "source": "loadSessionProgress.ts",
+      "sha256": "f430efe3af8e23e069057b568cf7f4affdd979d81393a48710e0f785aaa7cbd4",
+      "gitBlobSha1": "e42c772dc88958649e6b7d99c5b60d6c590c2049",
+      "selectedDeclarations": [
+        {
+          "name": "metricValue",
+          "startLine": 110,
+          "endLine": 118
+        },
+        {
+          "name": "toEvaluation",
+          "startLine": 120,
+          "endLine": 129
+        },
+        {
+          "name": "EVAL_FIELDS",
+          "startLine": 131,
+          "endLine": 131
+        },
+        {
+          "name": "loadRepeatResult",
+          "startLine": 369,
+          "endLine": 402
+        }
+      ]
+    },
+    {
+      "source": "ProgressPanel.tsx",
+      "sha256": "1d89559000a161393666ed667b3b9dcce80e317291118202b0110c32cbecdb73",
+      "gitBlobSha1": "62460ac6f094ad58b7fa6075451d00301763cd92",
+      "selectedDeclarations": [
+        {
+          "name": "TARGET_METRIC_LABELS",
+          "startLine": 12,
+          "endLine": 14
+        },
+        {
+          "name": "MAX_REPEAT_VALUE_DIGITS",
+          "startLine": 45,
+          "endLine": 45
+        },
+        {
+          "name": "formatRepeatValues",
+          "startLine": 54,
+          "endLine": 60
+        }
+      ]
+    }
+  ],
+  "adaptation": "Exact selected pure declarations. Own-account GET adapter adds owner/formula/linkage checks; UI text is compared in memory and only booleans/closed reasons are written.",
+  "extractedFromSha": "d1003559242570023e0d9a8c335d05fe67c3d788",
+  "historicalRevalidation": "docs/source-revalidation-4c85b006.json",
+  "revalidatedIdentical": "source/receiving-numeric-source.json"
+}

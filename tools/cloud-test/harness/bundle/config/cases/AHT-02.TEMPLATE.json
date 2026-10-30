@@ -1,0 +1,104 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "caseId": "AHT-02",
+  "campaignId": null,
+  "sourceSha": null,
+  "servedSha": null,
+  "targetUrl": "https://speaksharp-public.vercel.app",
+  "requiredAssertions": [
+    "owner-bound",
+    "focus-final",
+    "focus-live-durable",
+    "saved-once",
+    "grounded-coaching",
+    "review-reopen",
+    "same-target-repeat",
+    "focus-edit-cancel-save",
+    "focus-new-set",
+    "open-mic-isolation",
+    "focus-back-reload",
+    "analytics-repeat-opens-product",
+    "rapid-repeat-gate",
+    "rapid-repeat-release",
+    "next-start",
+    "next-start-release",
+    "probe-save-isolation",
+    "same-target-numeric",
+    "focus-switch-isolation",
+    "focus-presentation-contract",
+    "focus-pace-guide",
+    "focus-rail-before",
+    "focus-rail-legend",
+    "focus-pending-labelled",
+    "focus-next-point-marked",
+    "focus-no-red-before-stop",
+    "focus-not-detected-explained",
+    "focus-coverage-count",
+    "focus-average-per-point",
+    "focus-final-rail-colours-words",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+  ],
+  "credentialVars": {
+    "email": "THROWAWAY_TEST_EMAIL",
+    "password": "THROWAWAY_TEST_PASSWORD"
+  },
+  "account": {
+    "id": null,
+    "mode": "existing-disposable",
+    "preprovisionReceipt": null,
+    "analyticsExclusionReceipt": null,
+    "dispositionReceipt": null,
+    "effectiveFeatureAccessApproved": null
+  },
+  "readback": {
+    "origin": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+    "projectRef": "yxlapjuovrsvjswkwnrk",
+    "anonKey": null,
+    "schemaSha256": null,
+    "ownerReadApproved": null,
+    "rlsReadQualificationReceipt": null
+  },
+  "observerSourceReviewed": null,
+  "observerQualificationReceipt": null,
+  "takeCap": null,
+  "startPressCap": null,
+  "_minimumTakeCap": 7,
+  "_minimumStartPressCap": 7,
+  "oracleBindings": {
+    "focusEvidence": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    },
+    "coaching": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    },
+    "sameTarget": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    }
+  },
+  "fixture": {
+    "name": null,
+    "sha256": null,
+    "launchSha256": null,
+    "speechDurationMs": null
+  },
+  "privateEvidenceProducers": {
+    "coaching-authority": null
+  },
+  "focus": {
+    "topic": null,
+    "points": [],
+    "expectedFinal": [],
+    "speechWindows": [],
+    "expectsLive": [],
+    "newPoints": [],
+    "editedPoints": []
+  }
+}

@@ -1,0 +1,341 @@
+{
+  "schema": "speaksharp.cloud-test.config.v1",
+  "configVersion": "1.4.0",
+  "workflowVersion": "1.5.0",
+  "target": {
+    "url": "https://speaksharp-public.vercel.app",
+    "environmentLabel": "SpeakSharp R4"
+  },
+  "limits": {
+    "minPurposeChars": 60,
+    "maxSelectedCases": 6,
+    "maxRunCapRequests": 800,
+    "maxIdentityReadsPerRun": 20,
+    "stimulusReceiptMaxAgeMinutes": 240,
+    "maxWindowMinutes": 150,
+    "requireProtectedReserve": true,
+    "note": "Raising any limit is a change to this file, a version bump and a Product Owner approval; a run request cannot override it. These limits are the PARTIAL (targeted) mode; the full-coverage mode has its own limits under modes.full.",
+    "maxPaidActionsUsd": 0
+  },
+  "allowedPriorities": [
+    "prove-deployed-fix",
+    "restore-missing-evidence",
+    "full-coverage",
+    "nightly-regression"
+  ],
+  "harness": {
+    "packetDir": "tools/cloud-test/harness",
+    "expectedCodeManifestSha256": "ebafd9ebce9b44c9acb60d77193b12beb1f3e0caf6543491b45c487f01216d4d",
+    "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
+    "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
+    "expectedPacketManifestSha256": "95d8ffd88e887fb99594c8bfe1c7498dc892212c6a5337fd311c21d23ec5f217"
+  },
+  "credentials": {
+    "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",
+    "runEnvironment": {
+      "names": [
+        "THROWAWAY_TEST_EMAIL",
+        "THROWAWAY_TEST_PASSWORD",
+        "VITE_SUPABASE_ANON_KEY"
+      ],
+      "stages": {
+        "install-tools": [],
+        "build-plan": [
+          "VITE_SUPABASE_ANON_KEY"
+        ],
+        "stimulus-preflight": [],
+        "gate-and-validate": [],
+        "run": [
+          "THROWAWAY_TEST_EMAIL",
+          "THROWAWAY_TEST_PASSWORD",
+          "VITE_SUPABASE_ANON_KEY"
+        ],
+        "collect": [],
+        "reserve": []
+      },
+      "why": {
+        "THROWAWAY_TEST_EMAIL": "case configs bind the throwaway account by variable NAME; the drivers sign in with it (run stage only)",
+        "THROWAWAY_TEST_PASSWORD": "drivers sign in with it (run stage only); never needed to build the plan",
+        "VITE_SUPABASE_ANON_KEY": "the publishable key the plan builder writes into the private case configs and the app uses; not a secret role key"
+      },
+      "alternatives": [
+        "FREE_TEST_EMAIL/FREE_TEST_PASSWORD",
+        "PRO_TEST_EMAIL/PRO_TEST_PASSWORD (shared fixtures; only with an explicit owner decision for a case that needs them)"
+      ]
+    },
+    "forbidden": [
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPABASE_SECRET_KEY",
+      "STRIPE_SECRET_KEY"
+    ],
+    "forbiddenWhy": "Harness admission A4 stops a run when any of these is present in the environment, so passing one to any step would block the run, and it grants far more access than a journey needs. The package earlier passed SUPABASE_SERVICE_ROLE_KEY to three steps; that was wrong and is removed.",
+    "workflowSecrets": [],
+    "workflowVariables": []
+  },
+  "artifacts": {
+    "evidenceRetentionDays": 14,
+    "reviewScreenshotRetentionDays": 1,
+    "alwaysUpload": [
+      "run-record.json",
+      "gate-status.json",
+      "spend.json",
+      "REPORT.html",
+      "comparison.json",
+      "MANIFEST.json"
+    ],
+    "neverUpload": [
+      "*.env",
+      "storage-state*",
+      "*password*",
+      "*.har"
+    ]
+  },
+  "history": {
+    "runs": [
+      {
+        "label": "R4",
+        "campaignId": "R4-2b48eabc-20261027",
+        "servedSha": "2b48eabc3f900e2481c35bfef63550b0c531faa6",
+        "ledgersOnly": true,
+        "receiptsDir": "config/history/receipts/R4",
+        "receiptsManifestSha256": "acdbce7285f7dce550ae9e61a6666c02035360f6f0af2eb53bd884b241677c53"
+      },
+      {
+        "label": "R4B",
+        "campaignId": "R4B-2b48eabc-20261027",
+        "servedSha": "2b48eabc3f900e2481c35bfef63550b0c531faa6",
+        "ledgersOnly": true,
+        "receiptsDir": "config/history/receipts/R4B",
+        "receiptsManifestSha256": "2d90b49a0bc21b85bf6fd9b0e0edf6383ac68045d0741eecdeef19553b39a809"
+      },
+      {
+        "label": "R4C",
+        "campaignId": "R4C-2b48eabc-20261027",
+        "servedSha": "2b48eabc3f900e2481c35bfef63550b0c531faa6",
+        "ledgersOnly": false,
+        "receiptsDir": "config/history/receipts/R4C",
+        "receiptsManifestSha256": "b25e8a2f9d67d592e6dd3951970ff4e7732746d158660ddb161cf0846df7b6b6"
+      },
+      {
+        "label": "R5",
+        "campaignId": "R5-4c85b006",
+        "servedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+        "ledgersOnly": false,
+        "receiptsDir": "config/history/receipts/R5",
+        "receiptsManifestSha256": "b322b2d3170b1be8e6de90c2082e5c95057add420bc1606a0cfeb9fec7cdecf6"
+      }
+    ],
+    "order": [
+      "R4",
+      "R4B",
+      "R4C",
+      "R5"
+    ],
+    "comparisonBaselines": [
+      "R4C",
+      "R5"
+    ],
+    "analysis": {
+      "R5-vs-R4C": {
+        "facts": "config/history/analysis/R5-vs-R4C.facts.json",
+        "factsSha256": "b6feeb3420100fe1e707fb47194f9883abdd969a32e9003025d6219ca1ef6a24",
+        "overlay": "config/history/analysis/R5-vs-R4C.overlay.json",
+        "overlaySha256": "5e50cce6bc8dc7bf82ebd9dc82dbe62094a7323006810379804552dd5fa4d379",
+        "note": "Analyst inputs with named sources (facts the receipts cannot verify; classifications of FAIL rows and declared observer changes). They never change a verdict. A pair without these files is compared mechanically."
+      }
+    },
+    "note": "Receipt sets are immutable: byte-for-byte copies of the original run files, pinned by the hash of RECEIPTS.sha256. Changing a receipt requires changing this pinned hash, which is visible in review.",
+    "index": {
+      "file": "config/history/index.json",
+      "headHash": "433bf0711dd9444db2cb6efc6e5c7f81418464dde952325bf61ec27fb810fa4d",
+      "note": "Append-only hash chain of the retained runs (history_index.py). Appending a run changes this pin, which is visible in review; an existing entry can never change."
+    }
+  },
+  "tools": {
+    "note": "Pins are verified, not trusted. The browser archive and the extracted chrome binary are both checked by sha256 and a mismatch is a hard failure (BLOCKED_SETUP). The binary hash is the one the harness admission recorded for R5 (A5.browser receipt), and the archive hash was computed from the public Chrome for Testing download on 2026-10-28 (Playwright 1.57.0 chromium-1200 resolves to this archive).",
+    "browser": {
+      "name": "Chrome for Testing",
+      "version": "143.0.7499.4",
+      "playwright": "1.57.0",
+      "playwrightRevision": "chromium-1200",
+      "archiveUrl": "https://storage.googleapis.com/chrome-for-testing-public/143.0.7499.4/linux64/chrome-linux64.zip",
+      "archiveBytes": 172695801,
+      "archiveSha256": "ab56b2a7955c2961f74348e2349f1e907489283da23dba37c730b624e4d670bb",
+      "archiveTopDir": "chrome-linux64",
+      "chromeBinary": "chrome-linux64/chrome",
+      "chromeBinarySha256": "2e61bc3fd990bd4d7b419ef6b6303c67aaed683e5b83b3b25e416f015f343209",
+      "crossCheck": "binary sha256 equals chromeSha256 in the R5 admission browser.json (A5.browser); archive downloaded and hashed independently of that receipt"
+    },
+    "node": "22",
+    "runnerDependencies": "tools/cloud-test/runner (package.json and package-lock.json: playwright 1.57.0, pdfjs-dist 4.10.38)",
+    "pdfjs": {
+      "package": "pdfjs-dist",
+      "version": "4.10.38",
+      "integrity": "sha512-/Y3fcFrXEAsMjJXeL9J8+ZG9U01LbuWaYypvDW2ycW1jL269L3js3DVBjDJ0Up9Np1uqDXsDrRihHANhZOlwdQ==",
+      "pdfMjsSha256": "081d3b6f426d38a8029766f8839f505e9cbf2c81a71d62c26eada142e6c21ae4",
+      "packageJsonSha256": "5e6d65964f1d770b4976dedff1f739d08879032bb61a70d3ff692a1fe379cb49",
+      "relativePdfMjs": "legacy/build/pdf.mjs",
+      "source": "runner/package-lock.json (npm ci verifies the integrity); the same integrity as the SpeakSharp repository's pnpm-lock.yaml entry for pdfjs-dist@4.10.38, and the same pdf.mjs bytes as the repository's installed copy",
+      "why": "AHT-01 parses the exported PDF with this exact parser; the harness resolves it from the checkout (require.resolve with paths [checkout]) and refuses any other version. The plan records the sha256 of legacy/build/pdf.mjs. install_pdfjs.py provides it to the checkout without a network install in the run environment."
+    }
+  },
+  "release": {
+    "identityMaxAgeHours": 48,
+    "productPathPatterns": [
+      "frontend/**",
+      "backend/supabase/functions/**",
+      "backend/supabase/migrations/**",
+      "backend/supabase/config.toml",
+      "backend/supabase/import_map.json",
+      "vercel.json",
+      "middleware.js"
+    ],
+    "testPathPatterns": [
+      "**/__tests__/**",
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/*.test",
+      "**/*.md",
+      "**/tests/**"
+    ],
+    "note": "A commit is customer-facing when it changes a product path that is not a test or documentation path. Classification is mechanical, from git; requests do not declare it. Product changes are never rejected for being product changes: they must be verified deployed fixes tied to a gap with expected-PASS criteria."
+  },
+  "githubActions": {
+    "maxRunnerMinutes": 30,
+    "note": "Sum of the job timeouts in cloud-test.yml (policy test checks it). GitHub Actions billing for this repository is not known to the package; usage is reported as observed runner minutes and billed cost as unknown."
+  },
+  "boundary": {
+    "statement": "The Cloud test (this package) and the model evaluation project are entirely separate. This package never reads, dispatches, gates on or shares limits, accounts, workflows or authorizations with model evaluation.",
+    "separateWorkflows": [
+      "private-model-smoke.yml",
+      "model-downselection-authority.yml",
+      "gemini-model-currency-proof.yml"
+    ]
+  },
+  "modes": {
+    "note": "A run is exactly one mode, named in the request (coverageMode) and passed to the plan builder; there is no default. PARTIAL runs a few cases with the minimal sample and never counts as a full live run. FULL runs all 15 journeys with every required assertion. Partial and carried-forward results are preserved and shown, but neither counts as a full live run.",
+    "partial": {
+      "label": "PARTIAL",
+      "sampleMode": "minimal",
+      "countsAsFullLiveRun": false,
+      "limits": {
+        "maxSelectedCases": 6,
+        "maxRunCapRequests": 800,
+        "maxIdentityReadsPerRun": 20,
+        "maxWindowMinutes": 150
+      }
+    },
+    "full": {
+      "label": "FULL COVERAGE",
+      "sampleMode": "full",
+      "countsAsFullLiveRun": true,
+      "requiresOwnerDecision": true,
+      "limits": {
+        "maxSelectedCases": 15,
+        "maxRunCapRequests": 6000,
+        "maxIdentityReadsPerRun": 32,
+        "maxWindowMinutes": 330,
+        "note": "Structural maximums of the package for a full run, derived from the harness (15 cases, 2k+2 identity reads, the sum of the per-case time limits). They are not approvals: the approved run cap, ceilings, Starts, takes, coaching cap and window come only from the owner's decision on the request."
+      },
+      "budgetModel": {
+        "basisRuns": [
+          "R4C",
+          "R5"
+        ],
+        "allowancePct": 125,
+        "cleanupReservePerCase": 10,
+        "pooledSlackPct": 15,
+        "variableUpliftCap": 3.0,
+        "coachingRetryAllowancePct": 25,
+        "sensitivityUpliftCaps": [
+          2.0,
+          3.0,
+          4.0
+        ],
+        "note": "allowancePct is the reviewed plan builder rule (per-case ceiling = estimate x 125%, rounded up to 10). The other parameters are this package's proposals and are visible in every calculation."
+      },
+      "window": {
+        "admissionExpectedMinutes": 2,
+        "admissionMaxMinutes": 20,
+        "interCaseAndReportMinutes": 10,
+        "cleanupReserveMinutes": 2
+      },
+      "caseMaxMs": {
+        "AHT-01": 1500000,
+        "AHT-02": 2400000,
+        "AHT-03": 1500000,
+        "AHT-04": 1200000,
+        "AHT-05": 900000,
+        "AHT-06": 900000,
+        "AHT-07": 1200000,
+        "AHT-08": 300000,
+        "AHT-09": 900000,
+        "AHT-10": 900000,
+        "AHT-11": 900000,
+        "AHT-12": 1500000,
+        "AHT-13": 900000,
+        "AHT-14": 900000,
+        "AHT-15": 420000
+      },
+      "assertionCatalog": {
+        "file": "config/assertion-catalog.json",
+        "sha256": "8332492b8d8c2bd99b19f94a5b6f5ded1993531aa54c5104c24e63b473bc6210",
+        "totalAssertions": 204,
+        "rule": "A full live run executes every catalog row (PASS or FAIL). A row left NOT RUN must be named in approvedOmissions with a reason and an approval reference, and a run with any omission is not a full live run.",
+        "version": 2,
+        "snapshots": "config/history/catalogs/v<N>.json (one frozen snapshot per version; each must contain every case and row of the one before)"
+      }
+    }
+  },
+  "costModel": {
+    "note": "Dollar costs are never typed into a run request. The package reports bounded counts, and a dollar figure only where the owner has supplied the unit cost in this section.",
+    "provider": {
+      "unitCostUsd": null,
+      "illustrativeUnitCostsUsd": [
+        0.01,
+        0.05,
+        0.25
+      ],
+      "note": "cost of one coaching request to the model provider; unknown to the package until the owner supplies it with its source"
+    },
+    "githubActions": {
+      "dispatches": 2,
+      "maxRunnerMinutesPerDispatch": 30,
+      "listPriceUsdPerMinute": 0.008,
+      "note": "list price is an assumption to be checked against the repository's plan; billed cost is unknown"
+    }
+  },
+  "nightly": {
+    "note": "Ordinary paid-user regression of the deployed product, independent of any known bug. A nightly request is a full-coverage request (priority nightly-regression) that runs under a STANDING owner approval (config/recurring-approval.json); nothing is scheduled by this package.",
+    "priority": "nightly-regression",
+    "approvalFile": "config/recurring-approval.json",
+    "maxHoursBetweenRuns": 36,
+    "comparisons": [
+      "previous-run",
+      "last-known-good"
+    ],
+    "alertsFailOn": "high",
+    "alertChannels": [],
+    "alertChannelsNote": "No delivery channel is approved. Alerts are written to alerts.json / alerts.md, the job summary and the job's exit code. A channel (GitHub issue, chat, e-mail) is an owner decision.",
+    "schedule": {
+      "proposedCron": "17 3 * * *",
+      "proposedFile": "proposals/nightly-control-plane.yml.proposed",
+      "installed": false,
+      "note": "Proposed only. Installing a schedule is a separate owner decision; the policy test refuses a schedule trigger in .github/workflows."
+    },
+    "isolation": {
+      "requires": "a dedicated nightly account and marked synthetic data; evidence contract in NIGHTLY-REGRESSION.md section 5",
+      "evidenceFile": "isolation.json",
+      "harnessProducesIt": false,
+      "note": "The vendored harness proves page cleanup (owned-pages-closed rows) but does not yet emit the clean-start and marked-orphan zero-query evidence. Producing it needs a reviewed harness change; until then the nightly acceptance (repeat run with clean isolation) cannot pass."
+    },
+    "reservationsFile": "config/history/reservations.json"
+  },
+  "features": {
+    "ledgerFile": "config/feature-ledger.json",
+    "note": "The reviewed-feature route of the release check (verify_release.py, derive_features.py). Routine feature releases are tested without inventing a bug."
+  },
+  "concerns": {
+    "file": "config/concerns.json"
+  }
+}
