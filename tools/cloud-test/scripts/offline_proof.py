@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Executed-offline-proof index. Maps each harness correction to the executed tests (from TAP files) and mutation controls that prove it.
-Usage: offline_proof.py --tap FILE [--tap FILE ...] --mutations neg-controls.json --plan-controls plan-controls.json --out proof.json"""
+Fail-closed (Sam 1793378783/1793379188): every input is required; the manifest must be the checkout's own verified harness; every
+correction needs its executed tests and each of its listed mutation controls; plan controls gate; any failed, skipped, duplicate or
+conflicting TAP title fails the proof. A PASS is only ever the absence of every refusal below.
+Usage: offline_proof.py --tap FILE [--tap FILE ...] --mutations neg-controls.json --plan-controls plan-controls.json
+                        --code-manifest-sha256 HEX [--config test-config.v1.json] --out proof.json"""
 import os as _o, sys as _s
-_s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__)))
-import _netguard  # noqa: F401  (offline control plane)
 import argparse,json,re,sys
+HERE=_o.path.dirname(_o.path.abspath(__file__))
 CORR=[
  ('diagnostic-codes','Strict diagnostic-code allowlist',[r'^D1 error codes come from a CLOSED allowlist'],['M01']),
  ('duplicate-markers','Duplicate-marker detection',[r'^F1 a duplicate marker',r'^F4 the live sampler counts markers per sample'],['M02','M03']),
@@ -16,30 +19,77 @@ CORR=[
  ('run-identity-binding','Run identity binding',[r'^I1 run identity',r'^I2 the report carries the run identity',r'^I3 the runner refuses a run whose loaded runner code differs'],['M09']),
  ('outcome-classes','Outcome classes and cleanup receipts',[r'^O1 outcome classes separate'],[]),
 ]
+TAP_LINE=re.compile(r'^(not )?ok \d+ - (.*?)(?:\s+#\s*(SKIP|TODO)\b.*)?$',re.I)
+SHA256=re.compile(r'^[0-9a-f]{64}$')
+
 def tap(files):
-    out={}
+    """Every occurrence is kept: a title passes only if each occurrence is a plain ok; SKIP/TODO is never a pass."""
+    seen={}
     for f in files:
-        for l in open(f):
-            m=re.match(r'^(not )?ok \d+ - (.*)$',l.rstrip('\n'))
-            if m: out[m.group(2).strip()]=('FAIL' if m.group(1) else 'PASS')
-    return out
-a=argparse.ArgumentParser();a.add_argument('--tap',action='append',required=True);a.add_argument('--mutations');a.add_argument('--plan-controls');a.add_argument('--code-manifest-sha256');a.add_argument('--out',required=True);x=a.parse_args()
-results=tap(x.tap);mut=json.load(open(x.mutations)) if x.mutations else {};pc=json.load(open(x.plan_controls)) if x.plan_controls else {}
-rows=[];ok=True
-for cid,title,pats,ms in CORR:
-    tests=[]
-    for p in pats:
-        hit=[(t,r) for t,r in results.items() if re.search(p,t)]
-        if not hit: tests.append({'pattern':p,'title':None,'result':'MISSING'})
-        for t,r in hit: tests.append({'title':t[:160],'result':r})
-    muts=[{'control':k,'caught':v['fail']>0,'failingTests':v['fail']} for k,v in mut.items() if any(k.startswith(m+'-') for m in ms)]
-    good=all(t['result']=='PASS' for t in tests) and all(m['caught'] for m in muts) and bool(tests)
-    ok&=good
-    rows.append({'id':cid,'correction':title,'tests':tests,'mutationControls':muts,'result':'PASS' if good else 'FAIL'})
-pos=[k for k in pc if k.startswith('positive')];neg=[k for k in pc if k.startswith('negative')]
-doc={'schema':'speaksharp.offline-proof.v1','corrections':rows,'tapFiles':x.tap,'distinctTestTitlesPassed':sum(1 for v in results.values() if v=='PASS'),'distinctTestTitlesFailed':sum(1 for v in results.values() if v=='FAIL'),
- 'planControls':{'positiveAccepted':sum(1 for k in pos if pc[k]=='ACCEPTED'),'positive':len(pos),'negativeRefused':sum(1 for k in neg if str(pc[k]).startswith('REFUSED')),'negative':len(neg)},'result':'PASS' if ok else 'FAIL'}
-doc['codeManifestSha256']=x.code_manifest_sha256
-json.dump(doc,open(x.out,'w'),indent=1)
-print(doc['result'],len(rows),'corrections;',doc['distinctTestTitlesPassed'],'distinct test titles passed,',doc['distinctTestTitlesFailed'],'failed;',doc['planControls'])
-sys.exit(0 if ok else 1)
+        with open(f) as fh:
+            for l in fh:
+                m=TAP_LINE.match(l.rstrip('\n'))
+                if m: seen.setdefault(m.group(2).strip(),[]).append('SKIP' if m.group(3) else 'FAIL' if m.group(1) else 'PASS')
+    results={t:('PASS' if set(v)=={'PASS'} else 'SKIP' if set(v)=={'SKIP'} else 'FAIL') for t,v in seen.items()}
+    conflicting=sorted(t for t,v in seen.items() if len(set(v))>1)
+    duplicated=sorted(t for t,v in seen.items() if len(v)>1)
+    return results,conflicting,duplicated
+
+def build(results,conflicting,duplicated,mut,pc,manifest):
+    rows=[];ok=True;refusals=[]
+    for cid,title,pats,ms in CORR:
+        tests=[]
+        for p in pats:
+            hit=[(t,r) for t,r in results.items() if re.search(p,t)]
+            if not hit: tests.append({'pattern':p,'title':None,'result':'MISSING'})
+            for t,r in hit: tests.append({'title':t[:160],'result':r})
+        muts=[{'control':k,'caught':isinstance(v,dict) and isinstance(v.get('fail'),int) and v['fail']>0,'failingTests':v.get('fail') if isinstance(v,dict) else None}
+              for k,v in mut.items() if any(k.startswith(m+'-') for m in ms)]
+        missing=[m for m in ms if not any(x['control'].startswith(m+'-') for x in muts)]
+        good=bool(tests) and all(t['result']=='PASS' for t in tests) and not missing and all(m['caught'] for m in muts)
+        ok&=good
+        rows.append({'id':cid,'correction':title,'tests':tests,'mutationControls':muts,'missingControls':missing,'result':'PASS' if good else 'FAIL'})
+    pos=[k for k in pc if k.startswith('positive')];neg=[k for k in pc if k.startswith('negative')]
+    plan={'positiveAccepted':sum(1 for k in pos if pc[k]=='ACCEPTED'),'positive':len(pos),'negativeRefused':sum(1 for k in neg if str(pc[k]).startswith('REFUSED')),'negative':len(neg)}
+    if not pos or not neg or plan['positiveAccepted']!=len(pos) or plan['negativeRefused']!=len(neg): refusals.append('plan controls incomplete or not as expected')
+    failed=sorted(t for t,r in results.items() if r!='PASS')
+    if failed: refusals.append('TAP titles not passed: %d' % len(failed))
+    if conflicting: refusals.append('conflicting TAP titles: %d' % len(conflicting))
+    if duplicated: refusals.append('duplicated TAP titles: %d' % len(duplicated))
+    if not isinstance(manifest,str) or not SHA256.match(manifest): refusals.append('code manifest is not a sha256')
+    ok=ok and not refusals
+    return {'schema':'speaksharp.offline-proof.v1','corrections':rows,'distinctTestTitlesPassed':sum(1 for v in results.values() if v=='PASS'),
+            'distinctTestTitlesFailed':sum(1 for v in results.values() if v=='FAIL'),'distinctTestTitlesSkipped':sum(1 for v in results.values() if v=='SKIP'),
+            'conflictingTitles':conflicting,'duplicatedTitles':duplicated,'planControls':plan,'refusals':refusals,'codeManifestSha256':manifest,'result':'PASS' if ok else 'FAIL'}
+
+def harness_provenance(manifest,config):
+    """The manifest must be the checkout's own harness, verified byte-identical against the approved config."""
+    _s.path.insert(0,HERE)
+    import verify_harness as VH
+    from _common import load
+    cfg=load(config)
+    errs,_=VH.check(cfg,_o.path.abspath(_o.path.join(HERE,'..','..','..')))
+    if errs: return 'harness does not verify against the config: %s' % errs[0]
+    if cfg['harness']['expectedCodeManifestSha256']!=manifest: return 'requested manifest is not the pinned, verified harness'
+    return None
+
+def main():
+    _s.path.insert(0,HERE)
+    import _netguard  # noqa: F401  (offline control plane; executable path only, so importing build() stays pure)
+    a=argparse.ArgumentParser();a.add_argument('--tap',action='append',required=True);a.add_argument('--mutations',required=True);a.add_argument('--plan-controls',required=True)
+    a.add_argument('--code-manifest-sha256',required=True);a.add_argument('--config',default=_o.path.join(HERE,'..','config','test-config.v1.json'));a.add_argument('--out',required=True);x=a.parse_args()
+    results,conflicting,duplicated=tap(x.tap)
+    with open(x.mutations) as fm, open(x.plan_controls) as fp:
+        mut,pc=json.load(fm),json.load(fp)
+    doc=build(results,conflicting,duplicated,mut,pc,x.code_manifest_sha256)
+    problem=harness_provenance(x.code_manifest_sha256,x.config) if SHA256.match(x.code_manifest_sha256) else None
+    if problem:
+        doc['refusals'].append(problem);doc['result']='FAIL'
+    doc['tapFiles']=x.tap
+    with open(x.out,'w') as fo:
+        json.dump(doc,fo,indent=1)
+    print(doc['result'],len(doc['corrections']),'corrections;',doc['distinctTestTitlesPassed'],'distinct test titles passed,',doc['distinctTestTitlesFailed'],'failed;',doc['planControls'],*doc['refusals'],sep=' ')
+    return 0 if doc['result']=='PASS' else 1
+
+if __name__=='__main__':
+    sys.exit(main())
