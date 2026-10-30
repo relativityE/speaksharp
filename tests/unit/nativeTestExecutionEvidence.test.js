@@ -82,8 +82,14 @@ test('typed fixture-audio helper credits all six harness callables from stripped
     f.contract.helpers=[helper.file];
     const phase=f.run();
     assert.deepEqual(validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),[helper.file]);
+    // Witness of the hosted runtime's executed bytes: the module range ends exactly after Node's sourceURL suffix.
+    const source=fs.readFileSync(path.join(f.dir,helper.file),'utf8'),url=pathToFileURL(path.join(phase.binding.cwd,helper.file)).href;
+    const modules=phase.coverage.flatMap(report=>report.result??[]).filter(script=>script.url===url)
+      .flatMap(script=>script.functions).filter(fn=>fn.functionName==='');
+    assert.deepEqual([...new Set(modules.map(fn=>fn.ranges[0].endOffset))],[`${source}\n\n//# sourceURL=${url}`.length]);
     for(const change of [
       rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName===names[5])for(const range of fn.ranges)range.count=0;},
+      rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName==='')fn.ranges[0].endOffset++;},
       rows=>{for(const report of rows)for(const script of report.result)script.url=script.url.replace('fixtureAudioStream.ts','fixtureAudioStream.js');},
       rows=>{for(const report of rows)for(const script of report.result)script.functions=script.functions.filter(fn=>fn.functionName==='');},
     ]) {

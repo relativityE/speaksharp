@@ -290,6 +290,9 @@ export function validateNativeCallables(raw,binding,root,helpers) {
   for(const file of helpers) {
     const contract=nativeHelper(file),source=fs.readFileSync(regular(root,file),'utf8');
     const url=pathToFileURL(path.join(binding.cwd,file)).href;
+    // Node 22 strip-only loading blanks types in place, then executes `${stripped}\n\n//# sourceURL=${url}`
+    // (lib/internal/modules/typescript.js processTypeScriptCode). Ranges are bounded by those exact bytes.
+    const executed=file.endsWith('.ts')?`${source}\n\n//# sourceURL=${url}`:source;
     const entries=raw.flatMap(report=>report.result??[]).filter(script=>script.url===url);
     if(!entries.length)fail('Missing actual native helper script coverage');
     for(const script of entries) {
@@ -298,8 +301,9 @@ export function validateNativeCallables(raw,binding,root,helpers) {
         if(typeof fn.functionName!=='string'||typeof fn.isBlockCoverage!=='boolean'||!Array.isArray(fn.ranges)||!fn.ranges.length
           ||fn.ranges.some(range=>!Number.isSafeInteger(range.count)||range.count<0
             ||!Number.isSafeInteger(range.startOffset)||!Number.isSafeInteger(range.endOffset)
-            ||range.startOffset<0||range.startOffset>=range.endOffset||range.endOffset>source.length
-            ||range.startOffset<fn.ranges[0].startOffset||range.endOffset>fn.ranges[0].endOffset))fail('Malformed raw native callable ranges/count');
+            ||range.startOffset<0||range.startOffset>=range.endOffset||range.endOffset>executed.length
+            ||range.startOffset<fn.ranges[0].startOffset||range.endOffset>fn.ranges[0].endOffset))
+          fail(`Malformed raw native callable ranges/count: ${file}:${fn.functionName||'<module>'} ${JSON.stringify(fn.ranges.map(range=>[range.startOffset,range.endOffset,range.count]))} executedLength=${executed.length} sourceLength=${source.length}`);
       }
     }
     for(const name of contract.callables) {
