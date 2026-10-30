@@ -4,6 +4,7 @@ Checks: package tests (including the integration proof on loopback when its prer
 Usage: run_offline_checks.py --out offline-checks.json   (run from the package root: tools/cloud-test)"""
 import argparse
 import os
+import re
 import subprocess
 import sys
 
@@ -72,10 +73,16 @@ def main():
         return cfg["workflowVersion"] == wf["version"], "config %s workflow %s" % (cfg["workflowVersion"], wf["version"])
 
     def proof_index():
-        proof = load(os.path.join(ROOT, "config", "proofs", "offline-proof-582e5e30.json"))
-        same = proof["codeManifestSha256"] == cfg["harness"]["expectedCodeManifestSha256"]
-        ok = proof["result"] == "PASS" and all(c["result"] == "PASS" for c in proof["corrections"]) and same
-        return ok, "%d corrections; hash %s" % (len(proof["corrections"]), "matches config" if same else "DIFFERS")
+        # The proof is selected by the harness the config pins (Sam 1793378783), never by a fixed or historical filename,
+        # and must bind that exact manifest; an older proof is never substituted or relabelled.
+        pinned = cfg["harness"]["expectedCodeManifestSha256"]
+        if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{64}", pinned):
+            return False, "the pinned harness manifest is not a sha256"
+        name = "offline-proof-%s.json" % pinned[:8]
+        proof = load(os.path.join(ROOT, "config", "proofs", name))
+        same = proof.get("codeManifestSha256") == pinned
+        ok = proof["result"] == "PASS" and bool(proof["corrections"]) and all(c["result"] == "PASS" for c in proof["corrections"]) and same
+        return ok, "%s: %d corrections; hash %s" % (name, len(proof["corrections"]), "matches config" if same else "DIFFERS")
 
     checks.append(input_check("config-matches-workflow", versions))
     checks.append(bound("offline-proof-index", lambda: input_check("offline-proof-index", proof_index)))

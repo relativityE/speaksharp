@@ -66,7 +66,7 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertEqual(len([c for c in report["checks"] if "returncode" in c]), 9)
 
     def test_malformed_proof_and_config_are_explicit_failures_in_written_report(self):
-        (self.root / "config" / "proofs" / "offline-proof-582e5e30.json").write_text("not json")
+        (self.root / "config" / "proofs" / "offline-proof-aaaaaaaa.json").write_text("not json")
         (self.root / "config" / "test-config.v1.json").write_text("[]")
         code, _, _ = self.invoke()
         self.assertNotEqual(code, 0)
@@ -102,7 +102,7 @@ class OfflineReportRetention(unittest.TestCase):
     def test_valid_proof_can_pass_and_does_not_erase_nonzero_child(self):
         proof = {"result": "PASS", "corrections": [{"result": "PASS"}],
                  "codeManifestSha256": "a" * 64}
-        (self.root / "config" / "proofs" / "offline-proof-582e5e30.json").write_text(json.dumps(proof))
+        (self.root / "config" / "proofs" / "offline-proof-aaaaaaaa.json").write_text(json.dumps(proof))
         code, _, _ = self.invoke()
         self.assertEqual(code, 0)
         self.assertTrue(json.loads(self.out.read_text())["passed"])
@@ -119,7 +119,7 @@ class OfflineReportRetention(unittest.TestCase):
         report = json.loads(self.out.read_text())
         selected = next(c for c in report["checks"] if c["id"] == "offline-proof-index")
         self.assertFalse(selected["passed"])
-        self.assertIn("offline-proof-582e5e30.json", selected["detail"])
+        self.assertIn("offline-proof-aaaaaaaa.json", selected["detail"])
 
     def test_no_history_marks_only_history_checks_not_applicable_and_never_passed(self):
         code, stdout, _ = self.invoke(history="none")
@@ -156,3 +156,38 @@ class OfflineReportRetention(unittest.TestCase):
             self.assertNotIn("error", out, history)
             self.assertTrue(out["resultValid"], history)
             self.assertIs(out["overallPassed"], overall, history)
+
+    def proof_check(self):
+        self.invoke()
+        return next(c for c in json.loads(self.out.read_text())["checks"] if c["id"] == "offline-proof-index")
+
+    def write_proof(self, name, manifest, corrections=({"result": "PASS"},), result="PASS"):
+        (self.root / "config" / "proofs" / name).write_text(json.dumps(
+            {"result": result, "corrections": list(corrections), "codeManifestSha256": manifest}))
+
+    def test_the_proof_is_selected_by_the_pinned_manifest_and_must_bind_it_exactly(self):
+        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 64)
+        self.assertTrue(self.proof_check()["passed"])
+        # Same 8-hex prefix, different full manifest: never accepted.
+        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 63 + "b")
+        check = self.proof_check()
+        self.assertFalse(check["passed"])
+        self.assertIn("DIFFERS", check["detail"])
+
+    def test_a_passing_proof_for_another_harness_is_never_substituted(self):
+        self.write_proof("offline-proof-582e5e30.json", "582e5e30" + "0" * 56)
+        check = self.proof_check()
+        self.assertFalse(check["passed"])
+        self.assertIn("offline-proof-aaaaaaaa.json", check["detail"])
+
+    def test_an_empty_or_failing_proof_and_a_malformed_pin_fail(self):
+        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 64, corrections=())
+        self.assertFalse(self.proof_check()["passed"])
+        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 64, corrections=({"result": "FAIL"},))
+        self.assertFalse(self.proof_check()["passed"])
+        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 64, result="FAIL")
+        self.assertFalse(self.proof_check()["passed"])
+        (self.root / "config" / "test-config.v1.json").write_text(json.dumps({"workflowVersion": "test", "harness": {"expectedCodeManifestSha256": "../escape"}}))
+        check = self.proof_check()
+        self.assertFalse(check["passed"])
+        self.assertIn("not a sha256", check["detail"])
