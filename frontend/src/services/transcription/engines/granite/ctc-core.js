@@ -490,6 +490,10 @@ class CtcEngine {
             graphOptimizationLevel: 'all',
         };
         const session = await ort.InferenceSession.create(modelBuffer, options);
+        // The live engine retains this module's loader closure. Session creation has consumed
+        // these buffers; keep preprocessing assets, but release the captured graph and weights.
+        delete files[modelFile];
+        delete files[dataName];
         const engine = new CtcEngine({ session, frontend, decoder, config: frontend.config, device });
         const warmupError = await engine.warmup();
         if (warmupError) {

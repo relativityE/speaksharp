@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createGraniteCtcModule } from '../engines/granite/ctc-core.js';
 import pins from '../engines/granite/assetPins.json' with { type: 'json' };
 
-function harness({ failRun = false } = {}) {
+function harness({ failRun = false, beforeRun = null } = {}) {
     const allocated = [];
     let creates = 0, releases = 0, options;
     class Tensor {
@@ -13,6 +13,7 @@ function harness({ failRun = false } = {}) {
     const ort = { Tensor, InferenceSession: { create: async (_model, opts) => {
         creates++; options = opts;
         return { release: async () => { releases++; }, run: async () => {
+            beforeRun?.(files);
             if (failRun) throw new Error('unsupported kernel');
             return { ids: new Tensor('int32', new Int32Array([1, 1, 0, 1]), [4]),
                 top_logprob: new Tensor('float32', new Float32Array([-.1, -.1, -.2, -.1]), [4]) };
@@ -24,7 +25,7 @@ function harness({ failRun = false } = {}) {
             num_special_tokens: 1, blank_id: 0 }),
         'vocab.json': enc(['▁hello']), 'mel_filters.bin': new Float32Array(4), 'stft_window.bin': new Float32Array(4) };
     const module = createGraniteCtcModule(ort, files);
-    return { ...module, allocated, load: device => module.CtcEngine.load({ modelFile: 'model.onnx', device }),
+    return { ...module, allocated, files, load: device => module.CtcEngine.load({ modelFile: 'model.onnx', device }),
         stats: () => ({ creates, releases, options }) };
 }
 
@@ -63,6 +64,22 @@ test('missing verified asset fails without any runtime session or network substi
     const h = harness();
     await assert.rejects(h.CtcEngine.load({ modelFile: 'absent.onnx', device: 'wasm' }), /Explicit pinned/);
     assert.equal(h.stats().creates, 0);
+});
+
+test('consumes graph and external weights before warmup while the retained engine still decodes', async () => {
+    const h = harness({ beforeRun(files) {
+        assert.equal(Object.hasOwn(files, 'model.onnx'), false, 'graph retained after session creation');
+        assert.equal(Object.hasOwn(files, 'model.onnx.data'), false, 'external weights retained after session creation');
+    } });
+    const engine = await h.load('webgpu');
+    assert.equal(engine.closed, false);
+    assert.ok(Object.hasOwn(h.files, 'mel_filters.bin'));
+    assert.ok(Object.hasOwn(h.files, 'vocab.json'));
+    engine.frontend.compute = () => ({ data: new Float32Array(32), frames: 16, dim: 2 });
+    assert.equal((await engine.transcribe(new Float32Array(16), { applyAgc: false })).text, 'hello hello');
+    await engine.close();
+    await assert.rejects(h.load('webgpu'), /Explicit pinned/);
+    assert.equal(h.stats().creates, 1);
 });
 
 test('decode and decoder failure both release inference inputs and outputs', async () => {
