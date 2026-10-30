@@ -35,6 +35,66 @@ class Anchors(unittest.TestCase):
         self.assertFalse([c for c in M.ADDITIONAL if not c.startswith("A-")])
 
 
+def tap_text(*tests, summary=True, extra=""):
+    """Synthetic node TAP: tests are (title, status, code) with status ok / fail / skip / todo."""
+    lines = ["TAP version 13"]
+    for i, (title, status, code) in enumerate(tests, 1):
+        directive = {"skip": " # SKIP", "todo": " # TODO"}.get(status, "")
+        lines.append(("not ok" if status in ("fail", "todo") else "ok") + " %d - %s%s" % (i, title, directive))
+        if status == "fail":
+            lines += ["  ---", "  failureType: 'testCodeFailure'", "  code: '%s'" % code, "  ..."]
+    lines.append("1..%d" % len(tests))
+    if summary:
+        lines += ["# tests %d" % len(tests), "# pass %d" % sum(t[1] == "ok" for t in tests), "# fail %d" % sum(t[1] == "fail" for t in tests)]
+    return "\n".join(lines) + extra + "\n"
+
+
+BASE = [("FO1 one", "ok", None), ("FO2 two", "ok", None)]
+
+
+class TapJudgement(unittest.TestCase):
+    def judged(self, *tests, rc=1, kills=("FO1 ",)):
+        baseline = M.parse_tap(tap_text(*BASE), 0)
+        return M.judge(baseline, M.parse_tap(tap_text(*tests), rc), kills)
+
+    def test_a_named_assertion_failure_with_the_same_inventory_is_a_kill(self):
+        self.assertEqual(self.judged(("FO1 one", "fail", "ERR_ASSERTION"), ("FO2 two", "ok", None))["fail"], 1)
+
+    def test_a_runtime_exception_inside_the_named_test_is_not_a_kill(self):
+        r = self.judged(("FO1 one", "fail", "ERR_INVALID_ARG_TYPE"), ("FO2 two", "ok", None))
+        self.assertEqual(r["fail"], 0)
+        self.assertIn("without an assertion", r["reason"])
+
+    def test_a_named_todo_or_skip_is_not_a_kill(self):
+        for status in ("todo", "skip"):
+            self.assertEqual(self.judged(("FO1 one", status, None), ("FO2 two", "ok", None), rc=0)["fail"], 0, status)
+
+    def test_a_failure_in_an_unnamed_test_is_not_a_kill(self):
+        self.assertEqual(self.judged(("FO1 one", "ok", None), ("FO2 two", "fail", "ERR_ASSERTION"))["fail"], 0)
+
+    def test_a_changed_inventory_or_load_error_is_not_a_kill(self):
+        r = self.judged(("tests/node/focus-oracle-controls.test.cjs", "fail", "ERR_TEST_FAILURE"))
+        self.assertEqual((r["fail"], r["reason"]), (0, "test inventory changed"))
+        r = self.judged(("FO1 one", "fail", "ERR_ASSERTION"), ("FO2 two", "ok", None), ("FO3 extra", "ok", None))
+        self.assertEqual(r["fail"], 0)
+
+    def test_untrustworthy_runs_are_refused_not_judged(self):
+        for text, rc, why in ((tap_text(*BASE, summary=False), 0, "missing"),
+                              (tap_text(*BASE) + "# tests 9\n", 0, "malformed"),
+                              (tap_text(*BASE, extra="\nBail out! crashed"), 1, "bail-out"),
+                              (tap_text(*BASE), 1, "process status"),
+                              (tap_text(("FO1 one", "ok", None), ("FO1 one", "ok", None)), 0, "duplicate"),
+                              ("", 1, "missing")):
+            with self.assertRaises(M.TapError, msg=why) as e:
+                M.parse_tap(text, rc)
+            self.assertIn(why, str(e.exception))
+
+    def test_an_unclean_baseline_is_refused(self):
+        dirty = M.parse_tap(tap_text(("FO1 one", "fail", "ERR_ASSERTION"), ("FO2 two", "ok", None)), 1)
+        with self.assertRaises(M.TapError):
+            M.judge(dirty, dirty, ("FO1 ",))
+
+
 @unittest.skipUnless(NODE, "node is required for the harness mutation controls")
 class AdditionalControls(unittest.TestCase):
     def test_every_additional_control_is_killed_by_its_named_test_and_the_harness_is_unchanged(self):

@@ -19,6 +19,24 @@ CORR=[
  ('run-identity-binding','Run identity binding',[r'^I1 run identity',r'^I2 the report carries the run identity',r'^I3 the runner refuses a run whose loaded runner code differs'],['M09']),
  ('outcome-classes','Outcome classes and cleanup receipts',[r'^O1 outcome classes separate'],[]),
 ]
+# The reviewed plan-control inventory (Sam 1793384532): exactly these 3 positive and 11 negative checks, each with its intended outcome,
+# as both reviewed harness versions produced it. A setup error, missing file or reworded refusal is never a passing negative.
+PLAN_CONTROLS={
+    "positive: run identity": "ACCEPTED",
+    "positive: stimulus preflight": "ACCEPTED",
+    "positive: every selected case preflight": "ACCEPTED",
+    "negative: AHT-12 ungranted request was not denied": "REFUSED: BLOCKED_SETUP: stimulus preflight not proven: AHT-12: an ungranted request was not denied with NotAllowedError",
+    "negative: AHT-04 capture device not acquired": "REFUSED: BLOCKED_SETUP: stimulus preflight not proven: AHT-04: capture device not acquired with the bound media",
+    "negative: AHT-13 media hash differs from the plan": "REFUSED: BLOCKED_SETUP: stimulus preflight not proven: AHT-13: no receipt entry for the bound media",
+    "negative: AHT-03 real fixture misaligned": "REFUSED: BLOCKED_SETUP: stimulus preflight not proven: AHT-03: the real fixture is not aligned with its reviewed point windows",
+    "negative: AHT-14 entry missing": "REFUSED: BLOCKED_SETUP: stimulus preflight not proven: AHT-14: no receipt entry for the bound media",
+    "negative: receipt older than 12 hours": "REFUSED: BLOCKED_SETUP: stimulus preflight not proven: stimulus receipt is stale or from the future",
+    "negative: receipt from a different runner code manifest": "REFUSED: BLOCKED_SETUP: stimulus preflight not proven: stimulus receipt was produced by a different runner code manifest",
+    "negative: receipt records product traffic": "REFUSED: BLOCKED_SETUP: stimulus preflight not proven: stimulus receipt must record zero product traffic",
+    "negative: tampered receipt bytes (sha mismatch)": "REFUSED: BLOCKED_SETUP: bound input bytes changed",
+    "negative: runner code manifest in the identity differs": "REFUSED: BLOCKED_SETUP: runIdentity.runner.codeManifestSha256 differs from the runner bundle CODE.sha256 actually loaded",
+    "negative: AHT-12 plan entry without media": "REFUSED: BLOCKED_SETUP: AHT-12 presses Start and requires a bound capture device (plan mediaFile/mediaSha256); media-less launch refused",
+}
 TAP_LINE=re.compile(r'^(not )?ok \d+ - (.*?)(?:\s+#\s*(SKIP|TODO)\b.*)?$',re.I)
 SHA256=re.compile(r'^[0-9a-f]{64}$')
 NOT_OK=re.compile(r'^\s*not ok\b')
@@ -63,9 +81,12 @@ def build(results,conflicting,duplicated,mut,pc,manifest,stream=None):
         good=bool(tests) and all(t['result']=='PASS' for t in tests) and not missing and all(m['caught'] for m in muts)
         ok&=good
         rows.append({'id':cid,'correction':title,'tests':tests,'mutationControls':muts,'missingControls':missing,'result':'PASS' if good else 'FAIL'})
+    pc=pc if isinstance(pc,dict) else {}
     pos=[k for k in pc if k.startswith('positive')];neg=[k for k in pc if k.startswith('negative')]
-    plan={'positiveAccepted':sum(1 for k in pos if pc[k]=='ACCEPTED'),'positive':len(pos),'negativeRefused':sum(1 for k in neg if str(pc[k]).startswith('REFUSED')),'negative':len(neg)}
-    if not pos or not neg or plan['positiveAccepted']!=len(pos) or plan['negativeRefused']!=len(neg): refusals.append('plan controls incomplete or not as expected')
+    mismatched=sorted(k for k in set(pc)|set(PLAN_CONTROLS) if pc.get(k)!=PLAN_CONTROLS.get(k))
+    plan={'positiveAccepted':sum(1 for k in pos if pc[k]=='ACCEPTED'),'positive':len(pos),'negativeRefused':sum(1 for k in neg if str(pc[k]).startswith('REFUSED')),'negative':len(neg),
+          'mismatched':mismatched}
+    if mismatched: refusals.append('plan controls differ from the reviewed inventory or intended outcomes: %d' % len(mismatched))
     failed=sorted(t for t,r in results.items() if r!='PASS')
     if failed: refusals.append('TAP titles not passed: %d' % len(failed))
     if conflicting: refusals.append('conflicting TAP titles: %d' % len(conflicting))

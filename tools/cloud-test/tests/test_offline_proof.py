@@ -24,7 +24,7 @@ def controls():
     return {m + "-x": {"fail": 2} for _, _, _, ms in P.CORR for m in ms}
 
 
-PLAN = {"positive-full": "ACCEPTED", "negative-unbound": "REFUSED: unbound plan"}
+PLAN = dict(P.PLAN_CONTROLS)
 
 
 def complete(**over):
@@ -60,10 +60,23 @@ class Build(unittest.TestCase):
                     mut = dict(controls(), **{m + "-x": bad})
                     self.assertFails(complete(mut=mut), "uncaught or malformed " + m)
 
-    def test_plan_controls_gate(self):
-        for pc in ({}, {"positive-full": "ACCEPTED"}, {"negative-unbound": "REFUSED: x"},
-                   {"positive-full": "REFUSED", "negative-unbound": "REFUSED: x"}, {"positive-full": "ACCEPTED", "negative-unbound": "ACCEPTED"}):
-            self.assertFails(complete(pc=pc), pc)
+    def test_plan_controls_must_be_the_exact_reviewed_inventory_with_intended_outcomes(self):
+        self.assertEqual((sum(k.startswith("positive") for k in PLAN), sum(k.startswith("negative") for k in PLAN)), (3, 11))
+        first_negative = next(k for k in PLAN if k.startswith("negative"))
+        cases = {
+            "empty": {},
+            "missing label": {k: v for k, v in PLAN.items() if k != first_negative},
+            "extra label": dict(PLAN, **{"negative: invented": "REFUSED: BLOCKED_SETUP: invented"}),
+            "positive refused": dict(PLAN, **{"positive: run identity": "REFUSED: BLOCKED_SETUP: x"}),
+            "negative accepted": dict(PLAN, **{first_negative: "ACCEPTED"}),
+            "setup error instead of the intended reason": dict(PLAN, **{first_negative: "REFUSED: ENOENT: no such file or directory"}),
+            "reworded reason": dict(PLAN, **{first_negative: PLAN[first_negative] + "."}),
+            "not a mapping": ["ACCEPTED"],
+        }
+        for label, pc in cases.items():
+            doc = complete(pc=pc)
+            self.assertFails(doc, label)
+            self.assertTrue(any("plan controls" in r for r in doc["refusals"]), label)
 
     def test_a_missing_or_unpassed_required_test_fails(self):
         for t in titles():

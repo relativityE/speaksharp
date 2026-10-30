@@ -58,18 +58,63 @@ ADDITIONAL = {
     "A-latency-fallback": (POLICY, [("respondedAt>=startedAt?Math.round(respondedAt-startedAt):null;",
                                      "respondedAt>=startedAt?Math.round(respondedAt-startedAt):(Number.isFinite(browserTimingMs)?Math.round(browserTimingMs):0);")], ("LT2 ",)),
 }
-TAP = re.compile(r"^(not )?ok \d+ - (.*?)(?:\s+#\s*(?:SKIP|TODO)\b.*)?$")
-SUMMARY = re.compile(r"^# (tests|fail) (\d+)$", re.M)
+TEST_LINE = re.compile(r"^(not )?ok \d+ - (.*?)(?:\s+#\s*(SKIP|TODO)\b.*)?$", re.I)
+SUMMARY_LINE = re.compile(r"^# (tests|pass|fail|cancelled|skipped|todo) (\d+)$")
+
+
+class TapError(Exception):
+    """The run produced no trustworthy TAP: a crash, a bail-out or a missing/malformed summary. Never a kill."""
+
+
+def parse_tap(stdout, returncode):
+    """Top-level TAP results with status and failure kind (Sam 1793384458): PASS, FAIL, SKIP or TODO per title, and whether a FAIL is an
+    assertion failure (code ERR_ASSERTION) rather than a runtime exception or load error. Raises TapError when the run cannot be judged."""
+    tests, summary, current = [], {}, None
+    for line in stdout.splitlines():
+        if line.startswith("Bail out!"):
+            raise TapError("bail-out")
+        m = TEST_LINE.match(line)
+        if m:
+            status = m.group(3).upper() if m.group(3) else ("FAIL" if m.group(1) else "PASS")
+            current = {"title": m.group(2), "status": status, "assertion": False}
+            tests.append(current)
+            continue
+        s = SUMMARY_LINE.match(line)
+        if s:
+            if s.group(1) in summary:
+                raise TapError("malformed summary: %s repeated" % s.group(1))
+            summary[s.group(1)] = int(s.group(2))
+            continue
+        if current is not None and line.startswith("  ") and re.match(r"^\s+code: 'ERR_ASSERTION'$", line):
+            current["assertion"] = True
+    if not {"tests", "pass", "fail"} <= set(summary):
+        raise TapError("missing or malformed summary")
+    if summary["tests"] != len(tests) or summary["fail"] != sum(t["status"] == "FAIL" for t in tests):
+        raise TapError("summary does not match the reported tests")
+    if (summary["fail"] > 0) != (returncode != 0):
+        raise TapError("process status %d disagrees with the TAP summary" % returncode)
+    titles = [t["title"] for t in tests]
+    if len(titles) != len(set(titles)):
+        raise TapError("duplicate test titles")
+    return tests
 
 
 def tap(args, env):
     r = subprocess.run(["node", "--test", "--test-concurrency=1", "--test-reporter=tap", *args], capture_output=True, text=True, cwd=ROOT,
                        env={"PATH": os.environ["PATH"], "HOME": tempfile.gettempdir(), **env})
-    counts = {k: int(v) for k, v in SUMMARY.findall(r.stdout)}
-    if "tests" not in counts or "fail" not in counts:
-        raise RuntimeError("no TAP summary from " + " ".join(args))
-    failed = [m.group(2) for m in map(TAP.match, r.stdout.splitlines()) if m and m.group(1)]
-    return counts["tests"], counts["fail"], failed
+    return parse_tap(r.stdout, r.returncode)
+
+
+def judge(baseline, mutated, kills):
+    """A kill is a NAMED test that fails with an assertion, in a run whose exact title inventory equals the clean baseline's."""
+    if not baseline or any(t["status"] != "PASS" for t in baseline):
+        raise TapError("baseline is not a clean pass")
+    if [t["title"] for t in mutated] != [t["title"] for t in baseline]:
+        return {"fail": 0, "failedTests": [], "tests": len(mutated), "reason": "test inventory changed"}
+    named = [t["title"] for t in mutated if t["title"].startswith(kills) and t["status"] == "FAIL" and t["assertion"]]
+    other = [t["title"] for t in mutated if t["title"].startswith(kills) and t["status"] != "PASS" and t["title"] not in named]
+    return {"fail": len(named), "failedTests": [x[:120] for x in named][:6], "tests": len(mutated),
+            **({"reason": "named tests failed without an assertion or were skipped/todo"} if other and not named else {})}
 
 
 def apply(root, rel, edits):
@@ -85,12 +130,6 @@ def apply(root, rel, edits):
     return None
 
 
-def judge(cid, baseline, mutated, kills):
-    tests, _, failed = mutated
-    named = [t for t in failed if t.startswith(kills)]
-    return {"fail": len(named) if tests == baseline[0] else 0, "failedTests": [t[:120] for t in named][:6], "tests": tests}
-
-
 def evaluate_packet(cases_dir, controls=PACKET, harness=HARNESS):
     out, refusals = {}, []
     with tempfile.TemporaryDirectory(prefix="ct-mutation-packet-") as d:
@@ -98,9 +137,10 @@ def evaluate_packet(cases_dir, controls=PACKET, harness=HARNESS):
         shutil.copytree(harness, base_copy, symlinks=True)
         run_args = lambda packet: ([os.path.join(ROOT, t) for t in PROOF_TESTS] + [os.path.join(packet, "draft-adapters", "tests", "presentation-controls.offline.test.cjs")],
                                    {"CT_PROOF_PACKET": packet, "CT_PROOF_CASES_DIR": cases_dir})
-        baseline = tap(*run_args(base_copy))
-        if not baseline[0] or baseline[1]:
-            refusals.append("baseline: %d of %d proof tests fail unmutated" % (baseline[1], baseline[0]))
+        try:
+            baseline = tap(*run_args(base_copy))
+        except TapError as e:
+            return {}, ["baseline: %s" % e]
         for cid, (edits, kills) in controls.items():
             copy = os.path.join(d, cid)
             shutil.copytree(harness, copy, symlinks=True)
@@ -108,7 +148,10 @@ def evaluate_packet(cases_dir, controls=PACKET, harness=HARNESS):
             if problems:
                 refusals.append("%s: %s" % (cid, problems[0]))
                 continue
-            out[cid] = judge(cid, baseline, tap(*run_args(copy)), kills)
+            try:
+                out[cid] = judge(baseline, tap(*run_args(copy)), kills)
+            except TapError as e:
+                refusals.append("%s: %s" % (cid, e))
             shutil.rmtree(copy)
     return out, refusals
 
@@ -121,15 +164,16 @@ def evaluate_additional(controls=ADDITIONAL, harness=HARNESS):
             copy = os.path.join(d, "draft-adapters")
             shutil.copytree(os.path.join(harness, "draft-adapters"), copy, symlinks=True)
             module = os.path.join(d, rel)
-            if target not in baselines:
-                baselines[target] = tap([os.path.join(ROOT, test_file)], {env_name: module})
-                if not baselines[target][0] or baselines[target][1]:
-                    refusals.append("baseline %s: %d of %d tests fail unmutated" % (test_file, baselines[target][1], baselines[target][0]))
-            problem = apply(d, rel, edits)
-            if problem:
-                refusals.append("%s: %s" % (cid, problem))
-                continue
-            out[cid] = judge(cid, baselines[target], tap([os.path.join(ROOT, test_file)], {env_name: module}), kills)
+            try:
+                if target not in baselines:
+                    baselines[target] = tap([os.path.join(ROOT, test_file)], {env_name: module})
+                problem = apply(d, rel, edits)
+                if problem:
+                    refusals.append("%s: %s" % (cid, problem))
+                    continue
+                out[cid] = judge(baselines[target], tap([os.path.join(ROOT, test_file)], {env_name: module}), kills)
+            except TapError as e:
+                refusals.append("%s: %s" % (cid, e))
     return out, refusals
 
 
