@@ -62,7 +62,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return directory, json.loads((directory / "cfg/campaign-plan.json").read_text())
 
-    def stage(self, request, stage, extra=None, capture=False):
+    def stage(self, request, stage, extra=None, capture=False, mislabel_reservation=False):
         temporary = tempfile.TemporaryDirectory(prefix="selected-stage-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name).resolve()
@@ -91,12 +91,37 @@ class SelectedFullCaseRoute(unittest.TestCase):
                             " os.execv(" + repr(real_node) + ",[" + repr(real_node) + "]+sys.argv[1:])\n"
                             "open(" + repr(str(record)) + ",'w').write(json.dumps({'args':sys.argv[1:],'names':sorted(os.environ)}))\n")
             shim.chmod(0o700)
+            python_shim = binary / "python3"
+            python_shim.write_text("#!" + sys.executable + "\nimport os,sys,json\n"
+                                  "kind='reservation' if any(a.endswith('/scripts/reservations.py') for a in sys.argv[1:]) else 'helper'\n"
+                                  "with open(" + repr(str(root / "python-env.jsonl")) + ",'a') as out:out.write(json.dumps({'kind':kind,'names':sorted(os.environ)})+'\\n')\n"
+                                  "if kind=='reservation':sys.exit(0)\n"
+                                  "os.execv(" + repr(sys.executable) + ",[" + repr(sys.executable) + "]+sys.argv[1:])\n")
+            python_shim.chmod(0o700)
             env["PATH"] = str(binary) + os.pathsep + env["PATH"]
             (output / "plan/cfg").mkdir(parents=True, mode=0o700)
             (output / "plan/cfg/campaign-plan.json").write_text("{}")
             (output / "plan/producer-scope.json").write_text("{}")
+            if request.get("priority") == "nightly-regression":
+                for name in ("CT_HISTORY_INDEX", "CT_COUNTERS", "CT_GAP_LEDGER", "CT_RECEIPTS_ROOT", "CT_RESERVATIONS", "CT_APPROVAL"):
+                    target = root / (name + ".json")
+                    target.write_text("{}")
+                    env[name] = str(target)
         env.update(extra or {})
-        result = subprocess.run(["bash", str(Path(ROOT) / "scripts/execute_run.sh"), stage], env=env, capture_output=True, text=True, timeout=30)
+        executable = Path(ROOT) / "scripts/execute_run.sh"
+        if mislabel_reservation:
+            # Deliberately recreate the caller mistake in an isolated script copy.
+            # The generic stage=run transport must STILL keep broker keys out.
+            body = executable.read_text()
+            needle = 'run_stage reserve python3 -I "$ROOT/scripts/reservations.py" require'
+            self.assertEqual(body.count(needle), 1)
+            body = body.replace(needle, needle.replace("run_stage reserve", "run_stage run"))
+            lines = body.splitlines(True)
+            self.assertEqual(sum(line.startswith("ROOT=") for line in lines), 1)
+            body = "".join("ROOT=" + shlex.quote(ROOT) + "\n" if line.startswith("ROOT=") else line for line in lines)
+            executable = root / "isolated-caller.sh"
+            executable.write_text(body)
+        result = subprocess.run(["bash", str(executable), stage], env=env, capture_output=True, text=True, timeout=30)
         return output / ("plan0" if stage == "build-plan" else "plan"), result, record
 
     def catalog(self, directory, selected=True):
@@ -185,3 +210,27 @@ class SelectedFullCaseRoute(unittest.TestCase):
                 identity_names = json.loads(record.with_name("identity-env.json").read_text())
                 for name in ("SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY", "THROWAWAY_TEST_PASSWORD", "UNKNOWN_SECRET"):
                     self.assertNotIn(name, identity_names)
+
+    def test_nightly_prelude_and_all_python_children_never_receive_broker_keys_even_if_mislabeled(self):
+        for mislabeled in (False, True):
+            with self.subTest(mislabeled=mislabeled):
+                _, request = self.request()
+                request["priority"] = "nightly-regression"
+                request["selection"] = [{"case": "AHT-07"}]
+                _, result, record = self.stage(request, "run", {
+                    "SUPABASE_URL": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+                    "SUPABASE_SERVICE_ROLE_KEY": "SYNTHETIC-ROLE", "POSTHOG_PERSONAL_API_KEY": "SYNTHETIC-TELEMETRY"},
+                    capture=True, mislabel_reservation=mislabeled)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                children = [json.loads(line) for line in record.with_name("python-env.jsonl").read_text().splitlines()]
+                reservations = [child for child in children if child["kind"] == "reservation"]
+                self.assertEqual(len(reservations), 1)
+                for child in children:
+                    self.assertNotIn("SUPABASE_SERVICE_ROLE_KEY", child["names"])
+                    self.assertNotIn("POSTHOG_PERSONAL_API_KEY", child["names"])
+                if not mislabeled:
+                    self.assertNotIn("THROWAWAY_TEST_PASSWORD", reservations[0]["names"])
+                parent = json.loads(record.read_text())
+                self.assertTrue(parent["args"][0].endswith("/with-authenticated-evidence.cjs"))
+                self.assertIn("SUPABASE_SERVICE_ROLE_KEY", parent["names"])
+                self.assertIn("POSTHOG_PERSONAL_API_KEY", parent["names"])

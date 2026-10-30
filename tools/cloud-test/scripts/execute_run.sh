@@ -72,7 +72,7 @@ run_stage() {
       e+=("$n=${!n}")
     done
   fi
-  if [ "$stage" = run ] && [ "$ROUTE" = github-producer ]; then
+  if [ "$stage" = run ] && [ "$ROUTE" = github-producer ] && [ "$#" -eq 10 ] && [ "$1" = node ] && [ "$2" = "$HP/bundle/harness/with-authenticated-evidence.cjs" ] && [ "$3" = --scope ] && [ "$4" = "$OUT/plan/producer-scope.json" ] && [ "$5" = --scope-sha256 ] && [ "$7" = --plan ] && [ "$8" = "$OUT/plan/cfg/campaign-plan.json" ] && [ "$9" = --plan-sha256 ]; then
     for n in SUPABASE_URL POSTHOG_PROJECT_ID POSTHOG_API_HOST; do
       [ -z "${!n:-}" ] || e+=("$n=${!n}")
     done
@@ -206,7 +206,7 @@ case "$STAGE" in
   run)
     if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
       require_runtime_inputs
-      run_stage run python3 -I "$ROOT/scripts/reservations.py" require --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --run-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)"
+      run_stage reserve python3 -I "$ROOT/scripts/reservations.py" require --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --run-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)"
     fi
     planfile="$OUT/plan/cfg/campaign-plan.json"
     psha="$(sha256sum "$planfile" | cut -d' ' -f1)"
