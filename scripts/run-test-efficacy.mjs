@@ -304,8 +304,14 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         Object.defineProperty(error,'diagnostics',{value:diagnostics});
         // Bounded diagnostic, not a qualifying receipt. Lets acceptance tests distinguish
         // the intended assertion/skip from an unrelated import/setup exception.
-        error.testOutcomes=diagnostics?.report?.testResults?.flatMap(file=>(file.assertionResults || [])
-          .map(test=>`${test.fullName} | ${test.status} | ${(test.failureMessages || []).join('; ').slice(0,1000)}`)).slice(0,20);
+        // Non-passing outcomes first, so a failure past the first twenty tests is still named.
+        const outcomes=diagnostics?.report?.testResults?.flatMap(file=>file.assertionResults || []) || [];
+        error.testOutcomes=[...outcomes.filter(test=>test.status!=='passed'),...outcomes.filter(test=>test.status==='passed')]
+          .map(test=>`${test.fullName} | ${test.status} | ${(test.failureMessages || []).join('; ').slice(0,1000)}`).slice(0,20);
+        error.processExit=diagnostics?{status:diagnostics.status,signal:diagnostics.signal,error:diagnostics.error,
+          outcomes:outcomes.length,stderrTail:(diagnostics.stderr || '').slice(-2000),
+          lifecycleErrors:[...(diagnostics.envelope?.finished?.errors || []),...(diagnostics.envelope?.ended?.errors || [])]
+            .slice(0,5).map(item=>String(item?.message ?? item).slice(0,500)),endReason:diagnostics.envelope?.ended?.reason ?? null}:null;
         error.phase = phase; error.completedPhases = [...completedPhases]; throw error;
       }
     };
