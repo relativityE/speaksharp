@@ -117,7 +117,11 @@ if phase == 'phase1':
         raise ValueError('BLOCKED_SETUP: unknown producer mode')
     same_job = producer_mode == 'same-github-job'
     assert not same_job or RUNTIME == 'GitHub Actions SpeakSharp', 'same-job producer requires explicit GitHub runtime'
-    assert RUNTIME != 'GitHub Actions SpeakSharp' or same_job, 'GitHub runtime requires actual same-job evidence selection'
+    # The execution platform is independent of whether these exact selected cases
+    # need a privileged evidence producer. AHT04/15 must not acquire service keys
+    # merely to run in GitHub. Evidence-dependent cases still refuse before build.
+    producer_cases_selected = set(SELECTED).intersection({1, 2, 3, 7, 8})
+    assert RUNTIME != 'GitHub Actions SpeakSharp' or same_job or not producer_cases_selected, 'GitHub selected cases require actual same-job evidence selection'
     receiver_rel = 'draft-adapters/receivers/' + ('github-job-evidence-reader.cjs' if same_job else 'unavailable-evidence-reader.cjs')
     receiver_path = f'{PACKET}/{receiver_rel}'
     receiver_sha = shaf(receiver_path)
