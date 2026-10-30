@@ -89,7 +89,10 @@ try {
         try {
             return await new Promise((resolve, reject) => {
                 const timer = setTimeout(() => reject(new Error('Native runtime smoke timed out')), 30000);
-                worker.onmessage = ({ data }) => { clearTimeout(timer); data.ok ? resolve(data.value) : reject(new Error(data.error)); };
+                worker.onmessage = ({ data }) => {
+                    clearTimeout(timer);
+                    if (data.ok) resolve(data.value); else reject(new Error(data.error));
+                };
                 worker.onerror = event => { clearTimeout(timer); reject(new Error(event.message)); };
             });
         } finally { worker.terminate(); URL.revokeObjectURL(workerUrl); }
