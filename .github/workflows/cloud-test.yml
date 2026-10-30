@@ -43,6 +43,11 @@ jobs:
     name: Offline checks, gates, comparison and report (no secrets, no product traffic)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # PO 2026-10-30: no retained evidence is supplied to GitHub. The package's no-history mode reports the evidence-bound
+      # checks and tests NOT APPLICABLE (never passed); every other check gates. The history-bound pipeline steps below are
+      # skipped in this mode. "required" restores them and needs the sealed history in the checkout.
+      CT_HISTORY: none
     steps:
       - uses: actions/checkout@v6
         with:
@@ -98,9 +103,6 @@ jobs:
           CT_REQUIRE_INTEGRATION: '1'
           # The policy tests otherwise read the package's preserved fixture; they must judge this workflow.
           CLOUD_TEST_YML: ${{ github.workspace }}/.github/workflows/cloud-test.yml
-          # PO 2026-10-30: no retained evidence is supplied to GitHub. Evidence-bound checks report NOT APPLICABLE
-          # through the package's no-history mode (interface name pending the package owner); every other check gates.
-          CT_HISTORY: none
         run: python3 -I scripts/run_offline_checks.py --out "$RUNNER_TEMP/offline-checks.json"
       # Minimal exposure (PO 2026-10-30): this repository is public, so only check names and pass/fail counts leave the
       # runner. The full results, including captured stdout/stderr, stay on the runner and are discarded with it.
@@ -108,19 +110,27 @@ jobs:
         if: always()
         run: |
           python3 -I - <<'PY'
-          import json, os
+          import json, os, re
           temp = os.environ["RUNNER_TEMP"]
           full = os.path.join(temp, "offline-checks.json")
-          checks = json.load(open(full))["checks"] if os.path.isfile(full) else []
-          rows = [{"id": c["id"], "passed": c["passed"] is True} for c in checks]
-          summary = {"schema": "speaksharp.cloud-test.offline-checks-summary.v1", "resultPresent": os.path.isfile(full),
-                     "checks": rows, "passed": sum(r["passed"] for r in rows), "failed": sum(not r["passed"] for r in rows)}
+          result = json.load(open(full)) if os.path.isfile(full) else {}
+          checks = result.get("checks") or []
+          status = lambda c: "N/A" if c.get("applicable", True) is False else "PASS" if c.get("passed") is True else "FAIL"
+          # unittest names only (from "ERROR: test_x (module.Class...)" / "FAIL: ..." lines); never messages or tracebacks.
+          failing = lambda c: sorted({m.group(1) for m in re.finditer(r"^(?:ERROR|FAIL): (test\w* \([\w.]+\))", c.get("stdout", "") + "\n" + c.get("stderr", ""), re.M)})
+          rows = [dict({"id": c["id"], "status": status(c)}, **({"failingTests": failing(c)} if status(c) == "FAIL" and failing(c) else {})) for c in checks]
+          count = lambda value: sum(r["status"] == value for r in rows)
+          summary = {"schema": "speaksharp.cloud-test.offline-checks-summary.v2", "resultPresent": bool(result), "historyMode": result.get("historyMode"),
+                     "overallPassed": result.get("passed") is True, "checks": rows, "passed": count("PASS"), "failed": count("FAIL"), "notApplicable": count("N/A")}
           json.dump(summary, open(os.path.join(temp, "offline-checks-summary.json"), "w"), indent=1)
-          print("offline checks: %d passed, %d failed" % (summary["passed"], summary["failed"]))
+          for r in rows:
+              print("%-4s %s" % (r["status"], r["id"]), *r.get("failingTests", []), sep="\n       ")
+          print("offline checks: %d passed, %d failed, %d not applicable; overall %s" % (summary["passed"], summary["failed"], summary["notApplicable"], "PASS" if summary["overallPassed"] else "FAIL"))
           PY
       - name: Record job end (usage account)
         run: python3 -I tools/cloud-test/scripts/record_timing.py end --job control-plane --dir "$RUNNER_TEMP/timings"
       - name: Control-plane pipeline (secret-free; stops if a credential-like variable is present)
+        if: env.CT_HISTORY != 'none'
         working-directory: tools/cloud-test
         env:
           RUN_REQUEST: ${{ inputs.run_request }}
@@ -132,6 +142,7 @@ jobs:
           if [ "$MODE" = "report" ]; then ARGS+=(--latest-label "$LATEST_LABEL"); fi
           python3 -I scripts/pipeline.py "${ARGS[@]}"
       - name: Assert the attestation (secret-free, no network attempts, no product host)
+        if: env.CT_HISTORY != 'none'
         run: |
           python3 -I - <<'PY'
           import json, os, sys
