@@ -334,10 +334,16 @@ test('each actual execution invocation runs one batch of at most eight; all batc
     const first=runVitestExecution({root:directory,base,provenance,batch:0});
     assert.deepEqual(first.tests.map(item=>item.testFile),files.slice(0,8));
     assert.equal(first.batch.selectionSha256,second.batch.selectionSha256);
-    assert.deepEqual([...validateVitestBatches([first,second],provenance,directory)].sort(),[...files].sort());
-    assert.throws(()=>validateVitestBatches([first],provenance,directory),/batch inventory/);
-    assert.throws(()=>validateVitestBatches([second,first],provenance,directory),/batch/);
-    assert.throws(()=>validateVitestBatches([first,first],provenance,directory),/batch|Inconsistent/);
+    const options={base,kind:'changed-evidence'};
+    assert.deepEqual([...validateVitestBatches([first,second],provenance,directory,options)].sort(),[...files].sort());
+    assert.throws(()=>validateVitestBatches([first],provenance,directory,options),/batch inventory/);
+    assert.throws(()=>validateVitestBatches([second,first],provenance,directory,options),/batch identity/);
+    assert.throws(()=>validateVitestBatches([first,first],provenance,directory,options),/batch identity/);
+    // The caller must name the comparison base and kind; a receipt cannot supply them.
+    assert.throws(()=>validateVitestBatches([first,second],provenance,directory),/Missing expected Vitest execution base\/kind/);
+    assert.throws(()=>validateVitestBatches([first,second],provenance,directory,{kind:'changed-evidence'}),/Missing expected Vitest execution base\/kind/);
+    assert.throws(()=>validateVitestBatches([first,second],provenance,directory,{base:'0'.repeat(40),kind:'changed-evidence'}),/comparison base\/kind/);
+    assert.throws(()=>validateVitestBatches([first,second],provenance,directory,{base,kind:'registered-helpers'}),/comparison base\/kind/);
     assert.equal(git(['rev-parse','HEAD']),base,'original Git metadata preserved');
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });
