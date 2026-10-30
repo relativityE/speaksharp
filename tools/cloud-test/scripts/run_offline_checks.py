@@ -17,6 +17,34 @@ from _common import ROOT, load, dump, now_utc  # noqa: E402
 # The assertion-catalog check cross-checks the harness contract against every compared run's sealed case results.
 HISTORY_BOUND = ("history-index-verified", "assertion-catalog-matches-harness", "sealed-receipts-verified", "case-costs-reconcile-to-sealed-ledgers", "offline-proof-index")
 NO_HISTORY_REASON = "NOT APPLICABLE: owner decision 2026-10-30, no retained history supplied (CT_HISTORY=none)"
+# The harness corrections an offline proof must cover, exactly (Sam 1793379188); held equal to offline_proof.py's CORR by test.
+PROOF_CORRECTIONS = ("diagnostic-codes", "duplicate-markers", "contradictory-observations", "request-latency", "failure-path-evidence",
+                     "effective-speech-stimulus", "selected-case-execution", "run-identity-binding", "outcome-classes")
+
+
+def proof_problem(proof, pinned):
+    """None when the proof binds the pinned harness and passes every expected correction exactly once; else the reason."""
+    if not isinstance(proof, dict) or proof.get("result") != "PASS":
+        return "proof result is not PASS"
+    if proof.get("codeManifestSha256") != pinned:
+        return "hash DIFFERS from the pinned harness"
+    rows = proof.get("corrections")
+    if not isinstance(rows, list) or not all(isinstance(r, dict) and isinstance(r.get("id"), str) for r in rows):
+        return "a correction row is anonymous or malformed"
+    ids = [r["id"] for r in rows]
+    if len(ids) != len(set(ids)):
+        return "duplicate correction ids: %s" % sorted({i for i in ids if ids.count(i) > 1})
+    if set(ids) != set(PROOF_CORRECTIONS):
+        return "correction ids differ: missing %s, unknown %s" % (sorted(set(PROOF_CORRECTIONS) - set(ids)), sorted(set(ids) - set(PROOF_CORRECTIONS)))
+    for r in rows:
+        tests, controls = r.get("tests"), r.get("mutationControls")
+        if r.get("result") != "PASS" or not isinstance(tests, list) or not tests or not isinstance(controls, list):
+            return "correction %s is not a complete PASS row" % r["id"]
+        if not all(isinstance(t, dict) and t.get("result") == "PASS" for t in tests):
+            return "correction %s has a test that did not pass" % r["id"]
+        if not all(isinstance(m, dict) and m.get("caught") is True for m in controls):
+            return "correction %s has a mutation control that was not caught" % r["id"]
+    return None
 
 
 def not_applicable(name):
@@ -79,10 +107,8 @@ def main():
         if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{64}", pinned):
             return False, "the pinned harness manifest is not a sha256"
         name = "offline-proof-%s.json" % pinned[:8]
-        proof = load(os.path.join(ROOT, "config", "proofs", name))
-        same = proof.get("codeManifestSha256") == pinned
-        ok = proof["result"] == "PASS" and bool(proof["corrections"]) and all(c["result"] == "PASS" for c in proof["corrections"]) and same
-        return ok, "%s: %d corrections; hash %s" % (name, len(proof["corrections"]), "matches config" if same else "DIFFERS")
+        problem = proof_problem(load(os.path.join(ROOT, "config", "proofs", name)), pinned)
+        return problem is None, "%s: %s" % (name, problem or "all %d corrections PASS; hash matches config" % len(PROOF_CORRECTIONS))
 
     checks.append(input_check("config-matches-workflow", versions))
     checks.append(bound("offline-proof-index", lambda: input_check("offline-proof-index", proof_index)))

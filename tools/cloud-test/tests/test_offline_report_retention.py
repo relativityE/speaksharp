@@ -14,6 +14,13 @@ import run_offline_checks as runner
 import summarize_offline_checks as summarizer
 
 
+def full_proof(manifest, **row_overrides):
+    """A proof row per expected correction, every test and control passing."""
+    rows = [dict({"id": i, "result": "PASS", "tests": [{"title": i, "result": "PASS"}], "mutationControls": [{"control": "M-" + i, "caught": True}]},
+                 **row_overrides.get(i, {})) for i in runner.PROOF_CORRECTIONS]
+    return {"result": "PASS", "corrections": rows, "codeManifestSha256": manifest}
+
+
 class OfflineReportRetention(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -100,9 +107,7 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertEqual(report["checks"][0]["stdout"], "retained stdout 1")
 
     def test_valid_proof_can_pass_and_does_not_erase_nonzero_child(self):
-        proof = {"result": "PASS", "corrections": [{"result": "PASS"}],
-                 "codeManifestSha256": "a" * 64}
-        (self.root / "config" / "proofs" / "offline-proof-aaaaaaaa.json").write_text(json.dumps(proof))
+        (self.root / "config" / "proofs" / "offline-proof-aaaaaaaa.json").write_text(json.dumps(full_proof("a" * 64)))
         code, _, _ = self.invoke()
         self.assertEqual(code, 0)
         self.assertTrue(json.loads(self.out.read_text())["passed"])
@@ -111,9 +116,7 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertFalse(json.loads(self.out.read_text())["passed"])
 
     def test_previous_historical_proof_cannot_substitute_for_selected_proof(self):
-        proof = {"result": "PASS", "corrections": [{"result": "PASS"}],
-                 "codeManifestSha256": "a" * 64}
-        (self.root / "config" / "proofs" / "offline-proof-7dae348f.json").write_text(json.dumps(proof))
+        (self.root / "config" / "proofs" / "offline-proof-7dae348f.json").write_text(json.dumps(full_proof("a" * 64)))
         code, _, _ = self.invoke()
         self.assertNotEqual(code, 0)
         report = json.loads(self.out.read_text())
@@ -161,33 +164,55 @@ class OfflineReportRetention(unittest.TestCase):
         self.invoke()
         return next(c for c in json.loads(self.out.read_text())["checks"] if c["id"] == "offline-proof-index")
 
-    def write_proof(self, name, manifest, corrections=({"result": "PASS"},), result="PASS"):
-        (self.root / "config" / "proofs" / name).write_text(json.dumps(
-            {"result": result, "corrections": list(corrections), "codeManifestSha256": manifest}))
+    def write_proof(self, name, doc):
+        (self.root / "config" / "proofs" / name).write_text(json.dumps(doc))
 
     def test_the_proof_is_selected_by_the_pinned_manifest_and_must_bind_it_exactly(self):
-        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 64)
+        self.write_proof("offline-proof-aaaaaaaa.json", full_proof("a" * 64))
         self.assertTrue(self.proof_check()["passed"])
         # Same 8-hex prefix, different full manifest: never accepted.
-        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 63 + "b")
+        self.write_proof("offline-proof-aaaaaaaa.json", full_proof("a" * 63 + "b"))
         check = self.proof_check()
         self.assertFalse(check["passed"])
         self.assertIn("DIFFERS", check["detail"])
 
     def test_a_passing_proof_for_another_harness_is_never_substituted(self):
-        self.write_proof("offline-proof-582e5e30.json", "582e5e30" + "0" * 56)
+        self.write_proof("offline-proof-582e5e30.json", full_proof("582e5e30" + "0" * 56))
         check = self.proof_check()
         self.assertFalse(check["passed"])
         self.assertIn("offline-proof-aaaaaaaa.json", check["detail"])
 
-    def test_an_empty_or_failing_proof_and_a_malformed_pin_fail(self):
-        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 64, corrections=())
-        self.assertFalse(self.proof_check()["passed"])
-        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 64, corrections=({"result": "FAIL"},))
-        self.assertFalse(self.proof_check()["passed"])
-        self.write_proof("offline-proof-aaaaaaaa.json", "a" * 64, result="FAIL")
-        self.assertFalse(self.proof_check()["passed"])
+    def test_every_expected_correction_exactly_once_or_the_proof_fails(self):
+        ids = list(runner.PROOF_CORRECTIONS)
+        cases = {
+            "missing one": lambda d: d["corrections"].pop(),
+            "duplicate id": lambda d: d["corrections"].append(dict(d["corrections"][0])),
+            "unknown id": lambda d: d["corrections"].append({"id": "invented", "result": "PASS", "tests": [{"result": "PASS"}], "mutationControls": []}),
+            "anonymous row": lambda d: d["corrections"].__setitem__(0, {"result": "PASS"}),
+            "the reviewed one-row counterexample": lambda d: d.__setitem__("corrections", [{"result": "PASS"}]),
+            "empty": lambda d: d.__setitem__("corrections", []),
+            "not a list": lambda d: d.__setitem__("corrections", {"diagnostic-codes": "PASS"}),
+            "a failing row": lambda d: d["corrections"][1].__setitem__("result", "FAIL"),
+            "a row with no tests": lambda d: d["corrections"][2].__setitem__("tests", []),
+            "a failing test": lambda d: d["corrections"][3]["tests"].append({"result": "FAIL"}),
+            "an uncaught mutation": lambda d: d["corrections"][4]["mutationControls"].append({"caught": False}),
+            "result FAIL": lambda d: d.__setitem__("result", "FAIL"),
+        }
+        for label, mutate in cases.items():
+            doc = full_proof("a" * 64)
+            mutate(doc)
+            self.write_proof("offline-proof-aaaaaaaa.json", doc)
+            self.assertFalse(self.proof_check()["passed"], label)
+        self.assertEqual(len(ids), 9)
+
+    def test_a_malformed_pin_fails_before_any_path_is_built(self):
         (self.root / "config" / "test-config.v1.json").write_text(json.dumps({"workflowVersion": "test", "harness": {"expectedCodeManifestSha256": "../escape"}}))
         check = self.proof_check()
         self.assertFalse(check["passed"])
         self.assertIn("not a sha256", check["detail"])
+
+    def test_the_expected_corrections_equal_the_generators_list(self):
+        import ast
+        tree = ast.parse((Path(runner.__file__).parent / "offline_proof.py").read_text())
+        corr = next(n.value for n in tree.body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "CORR")
+        self.assertEqual(tuple(ast.literal_eval(e.elts[0]) for e in corr.elts), runner.PROOF_CORRECTIONS)
