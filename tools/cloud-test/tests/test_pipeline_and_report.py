@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from _fixtures import HISTORY_MODE, NO_HISTORY_REASON, NOW, REPO, ROOT, TESTED, prerequisite, request_path, run_py, sample, wjson
+from _fixtures import HISTORY_MODE, NO_HISTORY_REASON, NOW, needs_history, REPO, ROOT, TESTED, prerequisite, request_path, run_py, sample, wjson
 import derive_summary as DS
 import workflow_report as W
 
@@ -15,10 +15,6 @@ REQ = request_path()
 
 
 def pipeline(extra=(), env=None, out=None):
-    # pipeline.py reads the retained receipts, history index and owner counters; with CT_HISTORY=none every caller
-    # (these classes and the report-refusal tests that reuse ReportRefusals) is skipped, never passed.
-    if HISTORY_MODE == "none":
-        raise unittest.SkipTest(NO_HISTORY_REASON)
     d = tempfile.mkdtemp(prefix="ct-pl-")
     oc = os.path.join(d, "oc.json"); wjson(oc, {"passed": True})
     out = out or os.path.join(d, "out")
@@ -30,13 +26,20 @@ class Pipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         prerequisite(os.system("git -C %s cat-file -e %s 2>/dev/null" % (REPO, TESTED)) == 0, "git history of the repository")
+        # A complete pipeline run reads the retained receipts, history index and owner counters. With CT_HISTORY=none only
+        # the tests that judge that run are skipped; the refusal and guard controls below need no history and still run.
+        if HISTORY_MODE == "none":
+            cls.r = cls.out = cls.rep = None
+            return
         cls.r, cls.out = pipeline(["--require-secret-free"])
         cls.rep = json.load(open(os.path.join(cls.out, "report", "report.json"))) if os.path.exists(os.path.join(cls.out, "report", "report.json")) else None
 
+    @needs_history
     def test_it_completes_and_the_report_validates(self):
         self.assertEqual(self.r.returncode, 0, self.r.stdout + self.r.stderr)
         self.assertTrue(json.load(open(os.path.join(self.out, "report", "validation.json")))["valid"])
 
+    @needs_history
     def test_the_summary_is_derived_leads_with_the_status_and_fits_250_words(self):
         ex = self.rep["executiveSummary"]
         self.assertTrue(ex["derived"])
@@ -45,15 +48,18 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(ex["fields"]["recommendation"], "HOLD")
         self.assertEqual(ex["fields"]["provenGapsClosed"], [])
 
+    @needs_history
     def test_the_report_has_seven_areas_fifteen_journeys_and_three_columns(self):
         self.assertEqual((len(self.rep["areas"]), len(self.rep["journeys"])), (7, 15))
         self.assertTrue(self.rep["latestPending"])
         self.assertTrue(all(j["latest"] is None for j in self.rep["journeys"]))
 
+    @needs_history
     def test_the_attestation_says_secret_free_and_no_network(self):
         a = json.load(open(os.path.join(self.out, "preflight-attestation.json")))
         self.assertEqual((a["secretFree"], a["networkAttempts"], a["productHostsContacted"], a["credentialLikeVariablesPresent"]), (True, 0, 0, []))
 
+    @needs_history
     def test_costs_are_unknown_in_the_report(self):
         c = self.rep["purposeAndCost"]["spend"]["costs"]
         self.assertTrue(all(v["status"] == "unknown" and v["usd"] is None for v in c.values()))
@@ -61,6 +67,7 @@ class Pipeline(unittest.TestCase):
         self.assertIn("unknown", html)
         self.assertNotIn("$0.00", html)
 
+    @needs_history
     def test_the_comparison_is_generated_not_supplied(self):
         self.assertTrue(os.path.isfile(os.path.join(self.out, "comparison-prior", "comparison.json")))
         self.assertEqual(self.rep["comparisonValidity"]["verdict"], "Not a controlled comparison.")
@@ -75,6 +82,7 @@ class Pipeline(unittest.TestCase):
         r, _ = pipeline(["--require-secret-free"], env={"SUPABASE_SERVICE_ROLE_KEY": "x"})
         self.assertEqual(r.returncode, 5)
 
+    @needs_history  # reaches gate evaluation, which reads the history index and reservations
     def test_enforce_go_stops_early_when_a_blocking_gate_is_open(self):
         r, out = pipeline(["--enforce-go"])
         self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
@@ -98,6 +106,9 @@ class Pipeline(unittest.TestCase):
 class ReportRefusals(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Needs a complete pipeline report (retained history); also reached from SummaryRules and the v14/v15 refusal tests.
+        if HISTORY_MODE == "none":
+            raise unittest.SkipTest(NO_HISTORY_REASON)
         prerequisite(os.system("git -C %s cat-file -e %s 2>/dev/null" % (REPO, TESTED)) == 0, "git history of the repository")
         r, out = pipeline()
         cls.rep = json.load(open(os.path.join(out, "report", "report.json")))

@@ -24,6 +24,14 @@ def by_id(doc, check_id):
 
 
 class Summary(unittest.TestCase):
+    def test_importing_the_summarizer_leaves_sockets_untouched(self):
+        code = ("import socket, sys; before = (socket.socket.connect, socket.create_connection, socket.getaddrinfo); "
+                "sys.path.insert(0, %r); import summarize_offline_checks; "
+                "print((socket.socket.connect, socket.create_connection, socket.getaddrinfo) == before)") % str(Path(s.__file__).parent)
+        import subprocess
+        r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "True", r.stderr)
+
     def test_a_complete_reduced_result_passes_with_explicit_scope(self):
         out = s.summarize(report(), "none")
         self.assertTrue(out["resultValid"] and out["overallPassed"])

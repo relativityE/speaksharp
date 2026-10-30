@@ -10,8 +10,6 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-from _common import dump  # noqa: E402  (loads the network guard, like every control-plane script)
 
 # The exact inventory of run_offline_checks.py (Sam 1793373703): every ID once, none missing or extra.
 HISTORY_BOUND = frozenset(("history-index-verified", "assertion-catalog-matches-harness", "sealed-receipts-verified",
@@ -111,6 +109,10 @@ def summarize(result, history):
 
 
 def main():
+    # The executable control-plane path loads the network guard, like every control-plane script (Sam 1793375168): only
+    # here, so importing summarize() for tests stays pure and never patches the importing process's sockets.
+    sys.path.insert(0, HERE)
+    import _netguard  # noqa: F401
     a = argparse.ArgumentParser()
     a.add_argument("--in", dest="src", required=True)
     a.add_argument("--out", required=True)
@@ -123,7 +125,8 @@ def main():
         except (OSError, ValueError):
             result = {}
     summary = summarize(result, os.environ.get("CT_HISTORY", "required"))
-    dump(summary, x.out)
+    with open(x.out, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=1)
     for r in summary.get("checks", []):
         print("%-4s %s" % (r["status"], r["id"]))
         if "tests" in r:
