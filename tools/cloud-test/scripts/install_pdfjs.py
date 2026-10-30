@@ -36,6 +36,9 @@ def main():
     if x.source_dir is not None and not x.check_only:
         print("BLOCKED_SETUP: --source-dir is verification-only and requires --check-only", file=sys.stderr)
         sys.exit(78)
+    if x.source_dir is not None and not os.path.isabs(x.source_dir):
+        print("BLOCKED_SETUP: --source-dir must be an absolute existing package path", file=sys.stderr)
+        sys.exit(78)
     pin = load(x.config)["tools"]["pdfjs"]
     src = x.source_dir if x.source_dir is not None else os.path.join(x.runner_dir, "node_modules", "pdfjs-dist")
     errs = verify_dir(src, pin)

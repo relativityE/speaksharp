@@ -40,10 +40,29 @@ run_stage() {
     [ -n "${!n:-}" ] || blocked "stage $stage needs $n and it is not set in the environment"
     e+=("$n=${!n}")
   done <<< "$names"
-  for n in CT_OUT CT_REQUEST CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_CHECKOUT CT_FACTS_FILE CT_ACCOUNT_ID_FILE CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
+  for n in CT_OUT CT_REQUEST CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_CHECKOUT CT_FACTS_FILE CT_ACCOUNT_ID_FILE CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
   env -i "${e[@]}" "$@"
+}
+
+playwright_identity() {
+  local selected="${CT_EXISTING_DEPENDENCY_ROOT:-${CT_CHECKOUT:-}}"
+  [ -n "$selected" ] || blocked "an explicit existing dependency root is required"
+  run_stage install-tools node -e '
+    const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
+    if (!path.isAbsolute(process.argv[1])) throw new Error("dependency root must be absolute");
+    const root = fs.realpathSync(process.argv[1]);
+    const manifest = fs.realpathSync(path.join(root, "node_modules/playwright/package.json"));
+    const actual = JSON.parse(fs.readFileSync(manifest, "utf8"));
+    const expected = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).tools.browser.playwright;
+    if (actual.version !== expected) throw new Error("existing Playwright version differs from the pin");
+    const entry = fs.realpathSync(require.resolve("playwright", {paths: [root]}));
+    if (!entry.startsWith(path.dirname(manifest) + path.sep)) throw new Error("resolved Playwright is outside the verified package");
+    const sha = file => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+    process.stdout.write(JSON.stringify({root, manifest, manifestSha256: sha(manifest), entry, entrySha256: sha(entry),
+      version: actual.version, sourceSha: process.argv[3], runId: process.argv[4]}));
+  ' "$selected" "$CFG" "${CT_SOURCE_SHA:-}" "${CT_EXECUTION_RUN_ID:-}"
 }
 
 require_runtime_inputs() {
@@ -85,15 +104,11 @@ case "$STAGE" in
         [ -n "${CT_CHECKOUT:-}" ] || blocked "CT_CHECKOUT is required for existing dependency checks"
         CHROME="$(run_stage install-tools python3 -I "$ROOT/scripts/install_browser.py" --config "$CFG" --existing "$CT_CHROME" \
           --source-sha "${CT_SOURCE_SHA:-}" --run-id "${CT_EXECUTION_RUN_ID:-}" --receipt "$OUT/browser-identity.json")" || blocked "existing browser verification failed"
-        run_stage install-tools node -e '
-          const fs = require("node:fs"), path = require("node:path");
-          const actual = JSON.parse(fs.readFileSync(path.join(process.argv[1], "node_modules/playwright/package.json"), "utf8"));
-          const expected = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).tools.browser.playwright;
-          if (actual.version !== expected) throw new Error("existing Playwright version differs from the pin");
-        ' "$CT_CHECKOUT" "$CFG" || blocked "existing pinned Playwright is unavailable; no dependency installation attempted"
+        PW_IDENTITY="$(playwright_identity)" || blocked "existing pinned Playwright is unavailable; no dependency installation attempted"
         run_stage install-tools python3 -I "$ROOT/scripts/install_pdfjs.py" --config "$CFG" --checkout "$CT_CHECKOUT" \
           --source-dir "${CT_EXISTING_PDFJS_DIR:-$CT_CHECKOUT/node_modules/pdfjs-dist}" --check-only >/dev/null || blocked "existing pinned PDF parser is unavailable; no copy or installation attempted"
         [ -x "$CHROME" ] || blocked "the verified existing browser is not executable"
+        printf '%s\n' "$PW_IDENTITY" > "$OUT/playwright-identity.json"
         printf '%s\n' "$CHROME" > "$OUT/chrome-path.txt"
         echo "existing pinned browser, Playwright and PDF parser verified; nothing installed" ;;
       acquire)
@@ -110,7 +125,16 @@ case "$STAGE" in
   build-plan) build "$OUT/plan0" ;;
   stimulus-preflight)
     CHROME="$(cat "$OUT/chrome-path.txt")"
-    run_stage stimulus-preflight python3 -I "$ROOT/scripts/stimulus_preflight_retry.py" --harness "$HP" --plan "$OUT/plan0/cfg/campaign-plan.json" --chrome "$CHROME" --cwd "$ROOT/runner" --out "$OUT/stimulus-preflight-receipt.json" ;;
+    case "${CT_SETUP_MODE:-existing-only}" in
+      existing-only)
+        [ -f "$OUT/playwright-identity.json" ] || blocked "verified Playwright identity is missing"
+        PW_IDENTITY="$(playwright_identity)" || blocked "existing Playwright identity cannot be revalidated"
+        [ "$PW_IDENTITY" = "$(cat "$OUT/playwright-identity.json")" ] || blocked "Playwright identity changed after setup"
+        PW_CWD="$(python3 -I "$ROOT/scripts/cfg_get.py" "$OUT/playwright-identity.json" root)" || blocked "verified Playwright root cannot be read" ;;
+      acquire) PW_CWD="$ROOT/runner" ;;
+      *) blocked "unknown setup mode" ;;
+    esac
+    run_stage stimulus-preflight python3 -I "$ROOT/scripts/stimulus_preflight_retry.py" --harness "$HP" --plan "$OUT/plan0/cfg/campaign-plan.json" --chrome "$CHROME" --cwd "$PW_CWD" --out "$OUT/stimulus-preflight-receipt.json" ;;
   build-plan-with-receipt) build "$OUT/plan" with-receipt ;;
   gate-and-validate)
     require_runtime_inputs

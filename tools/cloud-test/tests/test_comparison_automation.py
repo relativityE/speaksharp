@@ -250,7 +250,7 @@ class DerivedLedger(unittest.TestCase):
 def stub_comparison(d, cases, prev_label, comparison_valid, omit_journeys, label):
     """A faithful stand-in for compare_latest.py output between the synthetic latest run and a sealed run: one row per latest assertion with the sealed run's own verdict
     as `prev`, and one journey per case with the requested validity. (The real comparison is exercised separately.)"""
-    sealed = {c["caseId"]: {a["id"]: a["result"] for a in c["assertions"]} for c in json.load(open(os.path.join(RECEIPTS, prev_label, "case-results.json")))["cases"]}
+    sealed = {c["caseId"]: {a["id"]: a["result"] for a in c["assertions"]} for c in json.load(open(os.path.join(d, prev_label, "case-results.json")))["cases"]}
     rows = []
     for cid, asserts in cases.items():
         for aid, v in asserts.items():
@@ -266,9 +266,14 @@ def stub_comparison(d, cases, prev_label, comparison_valid, omit_journeys, label
 def synthetic_latest(cases, comparison_valid=None, with_evidence=True, label="R6T", omit_journeys=None):
     """A tiny sealed latest run: cases maps case id -> {assertion: verdict}. Returns (receipts root, comparison path): the legacy single comparison (against R5) is
     cmp.json; comparisons/<label>/comparison.json holds the comparison with each sealed run, and cfg.json lists the latest run in the history."""
-    d = tempfile.mkdtemp(prefix="ct-multi-")
-    for lab in ("R4C", "R5"):
-        shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
+    from _nightly import CATALOG, history
+    all_rows = [(cid, aid) for cid, spec in CATALOG["cases"].items() for aid in spec["requiredAssertions"]]
+    # Explicit synthetic comparison scenario: a failed baseline followed by
+    # an unexecuted baseline. This proves the most-recent-observed selection
+    # rule without copying or claiming any actual R4C/R5 campaign evidence.
+    d, cfg = history(("R4C", {"fails": all_rows, "sha": "b2" * 20}),
+                     ("R5", {"notrun": all_rows, "sha": "4c85b006ac05e180521fd6e7d807f736987cafe8"}))
+    unittest.addModuleCleanup(shutil.rmtree, d)
     base = os.path.join(d, label)
     os.makedirs(base)
     cr = {"campaignId": label, "servedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8", "cases": []}
@@ -287,7 +292,6 @@ def synthetic_latest(cases, comparison_valid=None, with_evidence=True, label="R6
     for lab in ("R4C", "R5"):
         os.makedirs(os.path.join(d, "comparisons", lab))
         wjson(os.path.join(d, "comparisons", lab, "comparison.json"), stub_comparison(d, cases, lab, comparison_valid, omit_journeys, label))
-    cfg = copy.deepcopy(sample()["cfg"])
     cfg["history"]["runs"].append({"label": label, "campaignId": label, "servedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8", "ledgersOnly": False})
     wjson(os.path.join(d, "cfg.json"), cfg)
     cp = os.path.join(d, "cmp.json"); wjson(cp, stub_comparison(d, cases, "R5", comparison_valid, omit_journeys, label))
@@ -298,11 +302,11 @@ def derive_gap(gap_id, root, cmp_path=None, baselines=True):
     """baselines=True: the pipeline's path (select_baselines, then a per-row comparison with the most recent run that has a verdict). baselines=False: the legacy single comparison."""
     rv = os.path.join(root, "rv.json"); wjson(rv, fake_rv())
     out = os.path.join(root, "ld.json")
-    args = ["--ledger", os.path.join(ROOT, "config/gap-ledger.json"), "--release-verification", rv, "--latest-label", "R6T", "--receipts-root", root, "--out", out]
+    args = ["--ledger", os.path.join(ROOT, "config/gap-ledger.json"), "--config", os.path.join(root, "cfg.json"), "--release-verification", rv, "--latest-label", "R6T", "--receipts-root", root, "--out", out]
     if cmp_path and baselines:
         r0 = run_py("scripts/select_baselines.py", "--ledger", os.path.join(ROOT, "config/gap-ledger.json"), "--config", os.path.join(root, "cfg.json"), "--receipts-root", root, "--latest-label", "R6T", "--out", os.path.join(root, "baselines.json"))
         assert r0.returncode == 0, r0.stdout + r0.stderr
-        args += ["--config", os.path.join(root, "cfg.json"), "--baselines", os.path.join(root, "baselines.json"), "--comparisons-dir", os.path.join(root, "comparisons")]
+        args += ["--baselines", os.path.join(root, "baselines.json"), "--comparisons-dir", os.path.join(root, "comparisons")]
     elif cmp_path:
         args += ["--latest-comparison", cmp_path]
     r = run_py("scripts/derive_ledger.py", *args)

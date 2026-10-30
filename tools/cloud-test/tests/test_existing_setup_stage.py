@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -45,6 +46,21 @@ class ExistingSetupCaller(unittest.TestCase):
         playwright.mkdir(parents=True)
         self.playwright_manifest = playwright / "package.json"
         self.playwright_manifest.write_text('{"name":"playwright","version":"1.57.0"}')
+        self.playwright_entry = playwright / "index.js"
+        self.playwright_entry.write_text("// inert resolver fixture; never imported\n")
+        self.stimulus_called = self.root / "stimulus-called.txt"
+        stub = self.root / "stimulus-stub.py"
+        stub.write_text("import json,os,sys\nfrom pathlib import Path\n"
+                        "Path(" + repr(str(self.stimulus_called)) + ").write_text(os.getcwd())\n"
+                        "out=sys.argv[sys.argv.index('--out')+1]\n"
+                        "Path(out).write_text(json.dumps({'synthetic':True,'productTraffic':0,'cases':{'AHT-12':{'ready':True}}}))\n")
+        real_node = shutil.which("node")
+        if not real_node:
+            raise AssertionError("already-installed Node is required for these offline controls")
+        node = self.bin / "node"
+        node.write_text("#!/bin/sh\ncase \"$1\" in\n *stimulus-preflight.cjs) exec " + shlex.quote(sys.executable) + " " + shlex.quote(str(stub)) + " \"$@\";;\n"
+                        "esac\nexec " + shlex.quote(real_node) + " \"$@\"\n")
+        node.chmod(0o700)
         pdf = self.checkout / "node_modules/pdfjs-dist"
         (pdf / "legacy/build").mkdir(parents=True)
         (pdf / "package.json").write_text('{"name":"pdfjs-dist","version":"4.10.38","synthetic":true}')
@@ -58,7 +74,7 @@ class ExistingSetupCaller(unittest.TestCase):
         self.config_path.write_text(json.dumps(self.config))
         self.out = self.root / "out"
 
-    def run_stage(self, omit=(), extra=None):
+    def run_stage(self, omit=(), extra=None, stage="install-tools"):
         env = {"PATH": str(self.bin) + os.pathsep + os.environ["PATH"], "HOME": str(self.root),
                "CT_CONFIG": str(self.config_path), "CT_OUT": str(self.out), "CT_REQUEST": "SYNTHETIC-NOT-A-RUN",
                "CT_CHROME": str(self.browser), "CT_CHECKOUT": str(self.checkout),
@@ -66,7 +82,7 @@ class ExistingSetupCaller(unittest.TestCase):
         for key in omit:
             env.pop(key)
         env.update(extra or {})
-        result = subprocess.run(["bash", STAGE_SCRIPT, "install-tools"],
+        result = subprocess.run(["bash", STAGE_SCRIPT, stage],
                                 env=env, capture_output=True, text=True)
         self.assertFalse(self.violation.exists(), "restricted caller attempted acquisition")
         return result
@@ -128,6 +144,43 @@ class ExistingSetupCaller(unittest.TestCase):
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
         self.assertEqual(receipt.read_text(), "retained bytes")
         self.assertFalse((self.out / "chrome-path.txt").exists())
+
+    def test_stimulus_consumer_uses_the_exact_verified_dependency_root(self):
+        setup = self.run_stage()
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        receipt = json.loads((self.out / "playwright-identity.json").read_text())
+        self.assertEqual(receipt["root"], str(self.checkout))
+        result = self.run_stage(stage="stimulus-preflight")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.stimulus_called.read_text(), receipt["root"])
+
+    def test_stimulus_refuses_changed_verified_module_before_consumer_runs(self):
+        setup = self.run_stage()
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        self.playwright_entry.write_text("// changed fixture entry\n")
+        result = self.run_stage(stage="stimulus-preflight")
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertFalse(self.stimulus_called.exists())
+
+    def test_stimulus_refuses_a_different_valid_dependency_root(self):
+        setup = self.run_stage()
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        other = self.root / "other-root"
+        package = other / "node_modules/playwright"
+        package.mkdir(parents=True)
+        (package / "package.json").write_bytes(self.playwright_manifest.read_bytes())
+        (package / "index.js").write_bytes(self.playwright_entry.read_bytes())
+        result = self.run_stage(stage="stimulus-preflight", extra={"CT_EXISTING_DEPENDENCY_ROOT": str(other)})
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertFalse(self.stimulus_called.exists())
+
+    def test_stimulus_refuses_missing_verification_receipt(self):
+        setup = self.run_stage()
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        (self.out / "playwright-identity.json").unlink()
+        result = self.run_stage(stage="stimulus-preflight")
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertFalse(self.stimulus_called.exists())
 
 
 if __name__ == "__main__":

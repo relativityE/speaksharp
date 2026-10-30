@@ -1,10 +1,12 @@
 'use strict';
 // Pure source-derived row oracle. No transport/client/token access. Main70e storage.ts completeSession
 // and final versioned 20261025021046 complete_session_v2: all 11 arguments, null means unchanged,
-// duration clamp, strict idempotent replay and transcript-retention transaction. Runtime still NOT RUN.
+// duration clamp, strict idempotent replay and transcript-retention transaction.
+// Complete storage/SQL bytes revalidated unchanged at 66328703; see source/receiving-save-source.json.
+// This source binding does not prove the deployed backend. Runtime still NOT RUN.
 const crypto = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
-const SOURCE_SHA = '4c85b006ac05e180521fd6e7d807f736987cafe8';
+const SOURCE_SHA = '66328703bf47e865b730e229005411e78481d34c';
 const HOST = 'yxlapjuovrsvjswkwnrk.supabase.co';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const columns = Object.freeze(['id','user_id','status','idempotency_key','lease_id','duration','status_reason','total_words','clarity_score','wpm','filler_counts','pause_metrics','next_action_signal','transcript','transcript_state']);

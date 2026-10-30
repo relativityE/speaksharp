@@ -209,6 +209,16 @@ def chrome_path():
 
 
 def playwright_cwd():
+    selected = os.environ.get("CT_EXISTING_DEPENDENCY_ROOT")
+    if selected is not None:
+        if not os.path.isabs(selected):
+            raise AssertionError("CT_EXISTING_DEPENDENCY_ROOT must be absolute")
+        manifest = os.path.join(selected, "node_modules", "playwright", "package.json")
+        if not os.path.isfile(manifest):
+            raise AssertionError("explicit existing Playwright manifest is missing")
+        if json.load(open(manifest))["version"] != J("config", "test-config.v1.json")["tools"]["browser"]["playwright"]:
+            raise AssertionError("explicit existing Playwright version differs from the pin")
+        return os.path.realpath(selected)
     for c in (os.path.join(ROOT, "runner"), REPO):
         if os.path.isdir(os.path.join(c, "node_modules", "playwright")):
             return c

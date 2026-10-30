@@ -41,7 +41,7 @@
     "browser-observers.cjs": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f",
     "browser-readback.cjs": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782",
     "contracts.json": "2b5724191d1448281c53f7c0792bf9af9de791e10ca9c863df0fd42165cb71a2",
-    "durable-save-oracle.cjs": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5",
+    "durable-save-oracle.cjs": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d",
     "feedback-retry-controls.cjs": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5",
     "finite-aht-denominator.json": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2",
     "focus-controls.cjs": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c",
@@ -115,11 +115,12 @@
     "tests/presentation-controls.offline.test.cjs": "932914082fc28256b3cd5cb346a83b7c45139511b43fd9ebb975c83a1ad6031e",
     "tests/progress-numeric.offline.test.cjs": "13329809f8e1765f544450ac3d9c06c4a3f5df6765348b069c66b19e54ba6b74",
     "tests/repeat-retention.offline.test.cjs": "0df2562b01cac484f93cc8dfee89a51e1374f3d9b513c6c2ef33c5bd3abb7963",
-    "tests/save-fault.offline.test.cjs": "e3a0370d4e2c737e7a970dc625124e3899c21032c153851bb5f35e1cf2005b4d",
+    "tests/save-fault.offline.test.cjs": "18e9e01171522adee08a6c8bcf1b41488006142fcf4a7ba15109b630b783d090",
     "receivers/unavailable-evidence-reader.cjs": "0fca9f58dfde2b7d1ed4e12b6b3f28c5dee7d08ffedc63c5ce51ef112545ef9b",
     "tests/evidence-reader-unavailable.offline.test.cjs": "ad6830c28138c0678e1e6fc1b1b5ec972fdd3b377454ec28f987f7edd07d98ad",
     "source/receiving-source.json": "587df1cda1454a406aefb754112d9397aba0b0c9d851e6d43962f607a5ea920c",
-    "source/receiving-numeric-source.json": "1797ac4eb62bc4b172c3bf5993e6d84f227f9c3715ecfb5b4ad9e6c5d366c77a"
+    "source/receiving-numeric-source.json": "1797ac4eb62bc4b172c3bf5993e6d84f227f9c3715ecfb5b4ad9e6c5d366c77a",
+    "source/receiving-save-source.json": "70daa898941122ad5bc30a5b47d9881e4f0fae0fbc5ee8c16f29a5558d99775d"
   },
   "historicalFrozenAt": "2026-10-27T15:27:35Z",
   "receivingPreparedUtc": "2026-10-30T09:24:09.275196+00:00",

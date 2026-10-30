@@ -52,7 +52,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -250,7 +250,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -448,7 +448,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -646,7 +646,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -844,7 +844,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1042,7 +1042,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1240,7 +1240,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1438,7 +1438,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1636,7 +1636,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1834,7 +1834,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2032,7 +2032,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2230,7 +2230,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2428,7 +2428,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2626,7 +2626,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2824,7 +2824,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5"
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -3080,7 +3080,7 @@
     },
     {
       "path": "draft-adapters/durable-save-oracle.cjs",
-      "sha256": "e2b322862086a0409fc23ef1bfe51f6995c7ac9f49fa48722a97211f698e0ea5",
+      "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d",
       "dependencies": []
     }
   ]

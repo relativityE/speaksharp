@@ -56,6 +56,12 @@ class ExistingPdfSource(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "absolute"):
             self.select("relative-path")
 
+    def test_actual_pdf_cli_refuses_relative_source_without_fallback(self):
+        result = run_py("scripts/install_pdfjs.py", "--config", str(self.config), "--source-dir", "relative-path",
+                        "--checkout", str(self.root), "--check-only")
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("absolute", result.stderr)
+
     def test_actual_pdf_cli_check_only_accepts_existing_pinned_checkout(self):
         result = run_py("scripts/install_pdfjs.py", "--config", str(self.config), "--source-dir", str(self.source),
                         "--checkout", str(self.root), "--check-only")
@@ -75,6 +81,22 @@ class ExistingPdfSource(unittest.TestCase):
                         "--checkout", str(destination), "--check-only")
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
         self.assertFalse(destination.exists())
+
+    def test_full_plan_uses_the_explicit_existing_playwright_root(self):
+        package = self.root / "node_modules/playwright"
+        package.mkdir()
+        (package / "package.json").write_text('{"version":"1.57.0"}')
+        with mock.patch.dict(os.environ, {"CT_EXISTING_DEPENDENCY_ROOT": str(self.root)}):
+            self.assertEqual(test_full_plan.playwright_cwd(), str(self.root.resolve()))
+
+    def test_full_plan_refuses_explicit_bad_playwright_root_without_fallback(self):
+        package = self.root / "node_modules/playwright"
+        package.mkdir()
+        (package / "package.json").write_text('{"version":"different"}')
+        for value in (str(self.root / "missing"), str(self.root), "relative-root"):
+            with self.subTest(root=value), mock.patch.dict(os.environ, {"CT_EXISTING_DEPENDENCY_ROOT": value}):
+                with self.assertRaises(AssertionError):
+                    test_full_plan.playwright_cwd()
 
 
 if __name__ == "__main__":
