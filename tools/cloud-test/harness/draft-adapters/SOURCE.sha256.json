@@ -74,7 +74,7 @@
     "oracles/pure/rwtRecoveryCapture.cjs": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f",
     "oracles/pure/rwtRecoveryFence1593.cjs": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc",
     "oracles/pure/rwtSavedFocusIdentity.cjs": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865",
-    "oracles/receipts.cjs": "59ed7c088dd5f7fcd37c5badc463be104b405fd1ba0b2b834ba4744fdbc7afba",
+    "oracles/receipts.cjs": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7",
     "oracles/repeat-target-retention.cjs": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3",
     "port-extended-pure.cjs": "63c83da75e693fbfce248b1acba3dd77a365f9f000f0d70c071d18d9a64534f9",
     "port-navigation-pure.cjs": "27278504db60a371887a24e518b3f88c49dc5e94abc6143fb65edf54f0e21e5b",

@@ -10,6 +10,17 @@ function receiptBinding(loaded,c,kind,startedAt){
  return {status:'PASS',value:loaded.content};
 }
 function receivedFeedbackVerdict(receipt,sent,c){
+ if(receipt?.schemaVersion==='speaksharp.cloud-runner-readback-projection.v1'){
+  const r=receipt.observations?.[0];
+  if(!sent||typeof sent.journeyId!=='string'||typeof sent.bootId!=='string'||receipt.artifactRole!=='feedback-received'||receipt.sourceReadRoute!=='telemetry-readback:share_feedback'||receipt.releaseSha!==c.sourceSha||receipt.campaignId!==c.campaignId||receipt.caseId!==c.caseId||!HASH.test(receipt.requestSha256||'')||receipt.observations.length!==1||!r)return{status:'HOLD',reason:'received_projection_binding_missing'};
+  if(r.journeySha256!==digest(sent.journeyId)||r.bootSha256!==digest(sent.bootId)||r.trafficType!==sent.trafficType||r.identityBound!==true)return{status:'FAIL',reason:'received_identity_mismatch'};
+  const counts=['stageReasonsCount','missingCount','reasonsCount','unrecognisedCount','duplicateFamiliesCount','deliveryFailuresCount'];
+  if(counts.some(k=>!Number.isSafeInteger(r[k])||r[k]<0))return{status:'HOLD',reason:'received_projection_counts_missing'};
+  const nonempty=n=>n===0?[]:['projected_nonempty'];
+  receipt={gate:'TELEMETRY-READBACK-COMPLETENESS',release_sha:receipt.releaseSha,journey_id:sent.journeyId,boot_id:sent.bootId,traffic_type:r.trafficType,identity_bound:r.identityBound,verdict:r.verdict,
+   stage_reasons:nonempty(r.stageReasonsCount),missing:nonempty(r.missingCount),reasons:nonempty(r.reasonsCount),unrecognised:nonempty(r.unrecognisedCount),duplicate_families:nonempty(r.duplicateFamiliesCount),delivery_failures:nonempty(r.deliveryFailuresCount),
+   stages_declared:r.stagesDeclared,observed_families:r.observedFamilies,required_families:r.requiredFamilies,received_counts:{telemetry_positive_control:r.positiveControlCount}};
+ }
  if(!receipt||!sent||receipt.gate!=='TELEMETRY-READBACK-COMPLETENESS')return {status:'HOLD',reason:'received_readback_missing'};
  if(receipt.release_sha!==c.sourceSha||receipt.journey_id!==sent.journeyId||receipt.boot_id!==sent.bootId||receipt.traffic_type!==sent.trafficType||receipt.identity_bound!==true)return {status:'FAIL',reason:'received_identity_mismatch'};
  if(receipt.verdict==='FAIL'||(receipt.duplicate_families||[]).length||(receipt.delivery_failures||[]).length)return {status:'FAIL',reason:'received_delivery_contradiction'};
