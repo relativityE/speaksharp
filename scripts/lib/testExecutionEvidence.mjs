@@ -437,14 +437,16 @@ export function validateVitestExecution(receipt, expected, root) {
 }
 
 // The consumer recomputes the selection itself; every batch must be present once with exactly its contracts.
-export function validateVitestBatches(receipts,expected,root) {
-  const list=Array.isArray(receipts)?receipts:[receipts],first=list[0];
-  const kind=first?.executionKind||'changed-evidence';
-  const contracts=selectExecutionContracts(root,executionRequiredFiles(root,first?.base,kind),{helpersOnly:kind==='registered-helpers'});
+// The caller supplies the comparison base and selection kind; a receipt never chooses its own inventory.
+export function validateVitestBatches(receipts,expected,root,{base,kind}={}) {
+  if(base===undefined||!['changed-evidence','registered-helpers'].includes(kind))throw new Error('Missing expected Vitest execution base/kind');
+  const list=Array.isArray(receipts)?receipts:[receipts];
+  if(list.some(receipt=>receipt?.base!==(base||null)||receipt?.executionKind!==kind))throw new Error('Wrong Vitest execution comparison base/kind');
+  const contracts=selectExecutionContracts(root,executionRequiredFiles(root,base||null,kind),{helpersOnly:kind==='registered-helpers'});
   reconcileExecutionBatches(list,contracts,'Vitest');
   const files=new Set(),runs=new Set();
   for(const receipt of list) {
-    if(receipt.base!==first.base||receipt.executionKind!==first.executionKind||!receipt.runId||runs.has(receipt.runId))
+    if(!receipt.runId||runs.has(receipt.runId))
       throw new Error('Inconsistent Vitest execution batches');
     runs.add(receipt.runId);
     if(receipt.status==='not-applicable' && !receipt.tests.length) continue;
@@ -462,7 +464,9 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
   let proven=null;
   if (pilot?.status==='executed') proven=validatePilotExecution(pilot,expected,root);
   const executions=Array.isArray(execution)?execution:execution?[execution]:[];
-  const executed=executions.some(item=>['executed','incomplete'].includes(item?.status))?validateVitestBatches(executions,expected,root):new Set();
+  if(executions.some(item=>item?.base!==(base||null)||item?.executionKind!=='changed-evidence'))throw new Error('Wrong Vitest execution comparison base/kind');
+  const executed=executions.some(item=>['executed','incomplete'].includes(item?.status))
+    ?validateVitestBatches(executions,expected,root,{base:base||null,kind:'changed-evidence'}):new Set();
   const ordinary=files.filter(file=>executionRoute(file,root)?.runner==='playwright');
   const browser=playwright ? validatePlaywrightExecution(playwright,{root,expected,requiredFiles:ordinary}):new Set();
   let nativeFiles=new Set();

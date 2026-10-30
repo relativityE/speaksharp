@@ -12,6 +12,7 @@ import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths,runVitestExecution,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {HELPER_CONTRACTS} from '../../scripts/lib/helperExecutionEvidence.mjs';
+import {executionBatchIdentity} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 const framework=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const {test:registerTest}=framework;
 const fixtureConsumer=registeredFixture('tests/fixtures/efficacy/service-level-evidence.adfeab34.yml');
@@ -527,8 +528,9 @@ test('deleted obsolete test does not break the actual quality writer or earn exe
     assert.doesNotMatch(result.stderr,/ENOENT/);
     const evidence=JSON.parse(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality.latest.json'),'utf8'));
     assert.equal(evidence.overallStatus,'QUALIFIED');
-    assert.equal(evidence.testExecution.status,'not-applicable');
-    assert.deepEqual(evidence.testExecution.tests,[]);assert.deepEqual(evidence.executionCoverage.rows,[]);
+    assert.equal(evidence.testExecution.length,1,'an empty selection still records its one reconciled batch');
+    assert.equal(evidence.testExecution[0].status,'not-applicable');assert.equal(evidence.testExecution[0].batch.count,0);
+    assert.deepEqual(evidence.testExecution[0].tests,[]);assert.deepEqual(evidence.executionCoverage.rows,[]);
     assert.deepEqual(evidence.executionCoverage.pilot,{required:false,status:'NOT APPLICABLE'});
     retainServiceControl('deleted-test-writer',{result},{quality:evidence});
     // Synthetic metric counts and a removed ordinary test claim no executed test or journey.
@@ -775,7 +777,8 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       assert.ok(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality-summary.latest.md'),'utf8')
         .includes('| Flaky (passed only on retry) | 0 | 0 |'));
       assert.deepEqual(evidence.executionCoverage.rows.map(row=>[row.file,row.status]),[[fixtureConsumer.fixtureFile,'EXECUTED']]);
-      const phase=evidence.testExecution.tests[0].phase;
+      assert.equal(evidence.testExecution.length,1);assert.equal(evidence.testExecution[0].batch.count,1);
+      const phase=evidence.testExecution[0].tests[0].phase;
       assert.equal(phase.report.numTotalTests,1);assert.equal(phase.report.numPendingTests,0);
       assert.ok(phase.envelope.finished.files.flatMap(file=>file.tasks).some(task=>task.type==='suite'
         && task.result?.hooks?.beforeAll==='pass' && task.result?.hooks?.afterAll==='pass'),
@@ -936,11 +939,18 @@ test('execution-only consumer binds actual source, runtime, command and controll
     const envelope={schemaVersion:2,binding,observed:{command:binding.command,cwd,runtime:binding.runtime},
       collectionCalls:1,finishedCalls:1,endCalls:1,timedOut:false,collected:[{file:binding.testFile,tests:[{id:'test',name:'synthetic unit control',mode:'run'}]}],
       finished:{files:[{file:binding.testFile,tasks}],errors:[]},ended:{errors:[],reason:'passed'}};
-    const receipt={...expected,provenance:expected,runId:binding.runId,status:'executed',tests:[{testFile:file,
+    const receipt={...expected,provenance:expected,runId:binding.runId,status:'executed',base,executionKind:'changed-evidence',
+      batch:executionBatchIdentity(selectExecutionContracts(dir,[file]),0),tests:[{testFile:file,
       testSha256:hash(fs.readFileSync(path.join(dir,file))),phase:{binding,envelope,report,inputSha256,execution:{status:0,signal:null,error:null}}}]};
     assert.deepEqual([...validateVitestExecution(receipt,expected,dir)],[file]);
     assert.equal(executionCoverage([file],{root:dir,base,expected,execution:receipt}).status,'COMPLETE');
     assert.equal(executionCoverage([file],{root:dir,base,expected}).status,'INCOMPLETE');
+    // The caller's comparison base and kind bind the batch inventory; a receipt cannot choose its own.
+    for(const change of [r=>{r.base='0'.repeat(40);},r=>{r.base=null;},r=>{r.executionKind='registered-helpers';},r=>{delete r.batch;}]) {
+      const candidate=structuredClone(receipt);change(candidate);
+      assert.throws(()=>executionCoverage([file],{root:dir,base,expected,execution:candidate}),/base\/kind|batch/);
+    }
+    assert.throws(()=>executionCoverage([file],{root:dir,base:'0'.repeat(40),expected,execution:receipt}),/base\/kind/);
     for(const [change,reason] of [
       [r=>{r.provenance={...expected,commit:'a'.repeat(40)};},/provenance/],
       [r=>{r.provenance={...expected,runAttempt:'2'};},/provenance/],
@@ -973,7 +983,8 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
       assert.deepEqual(changedEvidencePaths(dir,git(['rev-parse','HEAD'])),[file]);
       assert.equal(receipt.overallStatus,'QUALIFIED');assert.equal(receipt.testEfficacy.status,'not-applicable');
       assert.deepEqual(receipt.executionCoverage.rows.map(row=>[row.file,row.status,row.claim]),[[file,'EXECUTED','collection and execution only']]);
-      assert.equal(receipt.testExecution.tests[0].phase.report.numTotalTests,1);
+      assert.equal(receipt.testExecution.length,1);
+      assert.equal(receipt.testExecution[0].tests[0].phase.report.numTotalTests,1);
     };
     try {
       green();
@@ -1005,6 +1016,32 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
 }
 
 if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED Vitest: nine changed tests run as two actual batches through the writer and reconcile only when complete',()=>{
+    runtimeIdentity(root);
+    const {dir,write,git,file,passing}=executionFixture(true);
+    const evidenceFile=path.join(dir,'product_release/evidence/software-quality.latest.json');
+    const files=[file,...Array.from({length:8},(_,n)=>`tests/unit/changed-execution-${n}.test.js`)].sort();
+    files.forEach((name,n)=>write(name,passing.replace('changed non-pilot computes','changed non-pilot '+n+' computes')));
+    try {
+      const head=git(['rev-parse','HEAD']);
+      const result=spawnSync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{cwd:dir,encoding:'utf8',timeout:600000,
+        env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_SHA:head,GITHUB_RUN_ID:'901',GITHUB_RUN_ATTEMPT:'3',
+          TEST_EFFICACY_BASE:head,SOFTWARE_QUALITY_INVOCATION:randomUUID(),NODE_V8_COVERAGE:''}});
+      assert.equal(result.error,undefined);assert.equal(result.status,0,result.stderr);
+      const evidence=JSON.parse(fs.readFileSync(evidenceFile,'utf8'));
+      assert.deepEqual(evidence.testExecution.map(receipt=>[receipt.batch.index,receipt.batch.count,receipt.tests.length]),[[0,2,8],[1,2,1]]);
+      assert.deepEqual(evidence.testExecution.flatMap(receipt=>receipt.tests.map(item=>item.testFile)),files);
+      assert.equal(new Set(evidence.testExecution.map(receipt=>receipt.runId)).size,2);
+      assert.deepEqual(evidence.executionCoverage.rows.map(row=>[row.file,row.status]),files.map(name=>[name,'EXECUTED']));
+      assert.equal(readCurrentQuality(evidenceFile,evidence.provenance,dir,head).overallStatus,'QUALIFIED');
+      for(const [name,change] of [['missing batch',e=>{e.testExecution.pop();}],['duplicate batch',e=>{e.testExecution[1]=structuredClone(e.testExecution[0]);}],
+        ['reordered',e=>{e.testExecution.reverse();}],['moved contract',e=>{e.testExecution[1].tests.push(e.testExecution[0].tests.pop());}]]) {
+        const candidate=structuredClone(evidence);change(candidate);fs.writeFileSync(evidenceFile,JSON.stringify(candidate));
+        assert.throws(()=>readCurrentQuality(evidenceFile,evidence.provenance,dir,head),/batch|Inconsistent|Duplicate|contracts/,name);
+      }
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+  });
+
   test('INSTALLED Vitest: weakening a registered assertion fails the actual writer and thin report, then restores GREEN',()=>{
     const {dir,write,git}=executionFixture(true);
     const evidence=path.join(dir,'product_release/evidence/software-quality.latest.json');
