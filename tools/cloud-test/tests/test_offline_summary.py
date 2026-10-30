@@ -54,6 +54,27 @@ class Summary(unittest.TestCase):
         self.assertNotIn("SECRET-LIKE", json.dumps(out))
         self.assertNotIn("Traceback", json.dumps(out))
 
+    def test_failure_types_are_class_names_only_including_class_fixtures(self):
+        doc = report()
+        unit = by_id(doc, "package-unit-tests")
+        sep, dash = "=" * 70, "-" * 70
+        unit.update(passed=False, stderr="\n".join([
+            sep, "ERROR: setUpClass (test_full_plan.FullPlanProof)", dash, "Traceback (most recent call last):",
+            '  File "x.py", line 1, in setUpClass', "AssertionError: [b'SECRET-LIKE STDERR']", "",
+            sep, "FAIL: test_b (m.C.test_b)", dash, "Traceback (most recent call last):", "  File \"y.py\", line 2",
+            "subprocess.CalledProcessError: Command '['node', 'PRIVATE-PATH']' returned 3", "",
+            sep, "ERROR: test_c (m.C.test_c)", dash, "something unexpected without a type", "",
+            dash, "Ran 9 tests in 1s", "", "FAILED (failures=1, errors=2)"]))
+        doc["passed"] = False
+        row = by_id(s.summarize(doc, "none"), "package-unit-tests")
+        self.assertEqual(row["failingTests"], ["setUpClass (test_full_plan.FullPlanProof)", "test_b (m.C.test_b)", "test_c (m.C.test_c)"])
+        self.assertEqual(row["failureTypes"], {"setUpClass (test_full_plan.FullPlanProof)": "AssertionError",
+                                               "test_b (m.C.test_b)": "subprocess.CalledProcessError",
+                                               "test_c (m.C.test_c)": "UNPARSED"})
+        text = json.dumps(row)
+        for leaked in ("SECRET-LIKE", "PRIVATE-PATH", "returned 3", "unexpected"):
+            self.assertNotIn(leaked, text)
+
     def assertRefused(self, doc, error, history="none"):
         out = s.summarize(doc, history)
         self.assertEqual(out.get("error"), error)

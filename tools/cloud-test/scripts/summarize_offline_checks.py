@@ -18,7 +18,25 @@ HISTORY_BOUND = frozenset(("history-index-verified", "assertion-catalog-matches-
                            "case-costs-reconcile-to-sealed-ledgers", "offline-proof-index"))
 CURRENT_SOURCE = frozenset(("package-unit-tests", "report-builder-tests", "reservation-ledger-verified", "catalog-history-additive",
                             "harness-verified", "config-matches-workflow"))
-FAILING = re.compile(r"^(?:ERROR|FAIL): (test\w* \([\w.]+\))", re.M)
+# unittest's failure headers, including class-level fixtures such as "ERROR: setUpClass (module.Class)".
+FAILING = re.compile(r"^(?:ERROR|FAIL): (\w+ \([\w.]+\))", re.M)
+TYPE_NAME = re.compile(r"^[A-Za-z_][\w.]*$")
+
+
+def _failure_types(text):
+    """Exception class name per failing test (PO 2026-10-30): never the message or the traceback."""
+    types = {}
+    blocks = re.split(r"^={50,}$", text, flags=re.M)
+    for block in blocks:
+        head = FAILING.search(block)
+        if not head:
+            continue
+        body = re.split(r"^-{50,}$", block, flags=re.M)
+        lines = [ln for ln in "".join(body[1:2]).splitlines() if ln and not ln[0].isspace()
+                 and not ln.startswith(("Traceback", "During handling", "The above exception"))]
+        name = lines[-1].split(":", 1)[0].strip() if lines else ""
+        types[head.group(1)] = name if TYPE_NAME.match(name) else "UNPARSED"
+    return types
 
 
 def _text(c):
@@ -81,6 +99,7 @@ def summarize(result, history):
         names = sorted(set(FAILING.findall(_text(c))))
         if row["status"] == "FAIL" and names:
             row["failingTests"] = names
+            row["failureTypes"] = _failure_types(_text(c))
         rows.append(row)
     count = lambda value: sum(r["status"] == value for r in rows)
     summary.update(checks=rows, passed=count("PASS"), failed=count("FAIL"), notApplicable=count("N/A"))
@@ -110,7 +129,7 @@ def main():
         if "tests" in r:
             print("       tests %s" % json.dumps(r["tests"], sort_keys=True))
         for name in r.get("failingTests", []):
-            print("       " + name)
+            print("       %s  [%s]" % (name, r.get("failureTypes", {}).get(name, "UNPARSED")))
     if "error" in summary:
         print("offline checks: " + summary["error"])
     else:
