@@ -170,6 +170,13 @@ class DerivedBudget(unittest.TestCase):
         self.assertEqual((w["expectedMinutes"], w["worstCaseMinutes"], w["proposedWindowMinutes"]), tuple(EXPECTED["window"].values()))
         self.assertEqual({p["case"]: p["ceiling"] for p in self.b["perCase"]}, {c: (370 if e == 290 else 230) for c, e in EST.items()})  # 125% rule
 
+    def test_the_budget_carrying_request_is_still_an_unapproved_proposal(self):
+        # Sam 1793403415: full_request() changes only budget fields; it stays a proposal with no approval and no omission.
+        r = full_request()
+        self.assertTrue(r["proposal"])
+        self.assertTrue(all(v is None for v in r["approvedLimits"].values()))
+        self.assertEqual(r["approvedOmissions"], [])
+
     def test_it_is_a_proposal_and_never_an_approval(self):
         self.assertIn("NOT APPROVED", self.b["status"])
         self.assertIn("proposal", self.b["approvalNote"].lower())
