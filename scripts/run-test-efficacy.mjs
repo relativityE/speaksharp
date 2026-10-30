@@ -7,11 +7,12 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
-import { executionContext, testEnvironment, pilotAffectedByPaths, executionRoute,
-  executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
-import {HELPER_CONTRACTS,helperApplicability, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
-import {SOURCE_CONSUMER,sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
-import {selectNativeContracts,produceNativePhase,nativeChildTracker,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness} from './lib/nativeTestExecutionEvidence.mjs';
+import { executionContext, testEnvironment, pilotAffectedByPaths,
+  executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness, selectExecutionContracts } from './lib/testExecutionEvidence.mjs';
+import {HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
+import {sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
+import {selectNativeContracts,produceNativePhase,nativeChildTracker,sqlSourceBinding,validateSqlWitness,
+  NATIVE_BATCH_SIZE,executionBatchIdentity} from './lib/nativeTestExecutionEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
@@ -142,34 +143,10 @@ export function runNativeExecution(options = {}) {
   return runTestEfficacy({...options,executionOnly:true,nativeOnly:true});
 }
 
-export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}={}) {
-  const selected=(helpersOnly?[]:evidenceFiles
-    .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
-    .map(file=>executionRoute(file,root).runner==='vitest-fixture'
-      ? {testFile:executionRoute(file,root).consumer,fixtureFile:file}:{testFile:file}))
-    .concat(HELPER_CONTRACTS.filter(contract=>evidenceFiles.includes(contract.helperFile)
-      && helperApplicability(root,contract.helperFile).supported)
-      .map(contract=>({...contract,helper:true})));
-  const sqlFiles=helpersOnly?[]:evidenceFiles.filter(file=>SQL_INPUTS.includes(file));
-  if(sqlFiles.length) {
-    const ordinary=selected.find(item=>item.testFile===SQL_CONSUMER&&!item.helper);
-    if(ordinary)ordinary.sqlFiles=sqlFiles;
-    else selected.push({testFile:SQL_CONSUMER,sqlFiles});
-  }
-  const sourceFiles=helpersOnly?[]:evidenceFiles.filter(file=>{
-    const route=executionRoute(file,root);return route?.runner==='vitest-source-contract' && route.applicable;
-  });
-  if(sourceFiles.length) selected.push({testFile:SOURCE_CONSUMER,sourceFiles});
-  // Deduplicate actual consumer execution, never a helper's callable proof.
-  for(const contract of [...selected]) if(contract.helper || contract.sourceFiles) {
-    const ordinary=selected.findIndex(item=>item!==contract && item.testFile===contract.testFile && !item.helper && !item.fixtureFile && !item.sourceFiles);
-    if(ordinary>=0) {selected.splice(ordinary,1);contract.consumerExecution=true;}
-  }
-  if(selected.length>8) throw new Error('NOT RUN: changed Vitest execution budget exceeds 8 files');
-  return selected;
-}
+// Moved beside its independent validator; re-exported so existing callers keep one selection.
+export {selectExecutionContracts};
 
-export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false, nativeOnly = false } = {}) {
+export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false, nativeOnly = false, batch } = {}) {
   root = canonicalPath(root);
   const commit = git(root, ['rev-parse', 'HEAD']);
   const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
@@ -189,6 +166,14 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   if (!executionOnly && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
     throw new Error('Efficacy pilot budget: one contract, two mutants, one two-seam semantic control');
   }
+  // One invocation executes exactly one batch of at most eight contracts; the caller runs every batch.
+  const batchCount=executionOnly?Math.ceil(selected.length/NATIVE_BATCH_SIZE):0;
+  if(executionOnly) {
+    if(batch===undefined && batchCount>1) throw new Error('NOT RUN: batched execution requires an explicit batch index');
+    batch??=0;
+    if(!Number.isInteger(batch) || batch<0 || batch>=Math.max(batchCount,1)) throw new Error('NOT RUN: execution batch index outside the selection');
+  }
+  const running=executionOnly?selected.filter(contract=>contract.batch===batch):selected;
   const before = snapshot(root);
   provenance ??= executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
   if (provenance.commit!==commit || provenance.tree!==tree || provenance.snapshotSha256!==before.digest) {
@@ -197,9 +182,9 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   const receipt = { schemaVersion: 2, runId: randomUUID(), scope: nativeOnly?'changed Deno/Node execution; bounded planner/observer callable evidence only':executionOnly ? 'changed Vitest collection and execution only' : 'registered analytics-truth faults only',
     provenance,commit, tree, snapshotSha256: before.digest, base: base || null,
     selection: changed === null ? 'all-registered-no-base' : 'affected', changedPaths: changed,
-    status: unavailable.length?'incomplete':selected.length?'executed':'not-applicable', contracts: [], tests: [],
-    ...(executionOnly?{executionKind,unavailable}:{}) };
-  if (!selected.length) return receipt;
+    status: unavailable.length?'incomplete':running.length?'executed':'not-applicable', contracts: [], tests: [],
+    ...(executionOnly?{executionKind,unavailable,batch:executionBatchIdentity(selected,batch)}:{}) };
+  if (!running.length) return receipt;
   // /tmp is a symlink on macOS. Compare real paths on both sides of the reporter boundary.
   const temporary = canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(), 'speaksharp-efficacy-')));
   let primaryError;
@@ -319,12 +304,18 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         Object.defineProperty(error,'diagnostics',{value:diagnostics});
         // Bounded diagnostic, not a qualifying receipt. Lets acceptance tests distinguish
         // the intended assertion/skip from an unrelated import/setup exception.
-        error.testOutcomes=diagnostics?.report?.testResults?.flatMap(file=>(file.assertionResults || [])
-          .map(test=>`${test.fullName} | ${test.status} | ${(test.failureMessages || []).join('; ').slice(0,1000)}`)).slice(0,20);
+        // Non-passing outcomes first, so a failure past the first twenty tests is still named.
+        const outcomes=diagnostics?.report?.testResults?.flatMap(file=>file.assertionResults || []) || [];
+        error.testOutcomes=[...outcomes.filter(test=>test.status!=='passed'),...outcomes.filter(test=>test.status==='passed')]
+          .map(test=>`${test.fullName} | ${test.status} | ${(test.failureMessages || []).join('; ').slice(0,1000)}`).slice(0,20);
+        error.processExit=diagnostics?{status:diagnostics.status,signal:diagnostics.signal,error:diagnostics.error,
+          outcomes:outcomes.length,stderrTail:(diagnostics.stderr || '').slice(-2000),
+          lifecycleErrors:[...(diagnostics.envelope?.finished?.errors || []),...(diagnostics.envelope?.ended?.errors || [])]
+            .slice(0,5).map(item=>String(item?.message ?? item).slice(0,500)),endReason:diagnostics.envelope?.ended?.reason ?? null}:null;
         error.phase = phase; error.completedPhases = [...completedPhases]; throw error;
       }
     };
-    for (const contract of selected) {
+    for (const contract of running) {
       if(nativeOnly) {
         const inputHashes=before.entries.filter(([,digest])=>digest!=='deleted').map(([file])=>
           [file,hash(fs.readFileSync(path.join(temporary,file)))]);
