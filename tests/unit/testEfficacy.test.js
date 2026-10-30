@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase as qualifyRawPhase } from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import EfficacyReporter, { canonicalPath, runtimeIdentity } from '../../scripts/efficacy-reporter.mjs';
 import { mutateBytes, dependencyPaths, selectContracts, runTestEfficacy, runVitestExecution, cleanupOwnedCopy, drainOwnedPhase, initializeCopyRepository } from '../../scripts/run-test-efficacy.mjs';
-import {executionContext,validateVitestExecution} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {executionContext,validateVitestExecution,validateVitestBatches} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {randomUUID} from 'node:crypto';
 
 // The same dependency-free tests also participate in the existing Vitest unit lane.
@@ -313,6 +313,32 @@ test('synthetic execution-only orchestration binds copy identity and enforces bu
     assert.equal(git(['rev-parse','HEAD']),base,'original Git metadata preserved');
     for(let i=0;i<64;i++)write(`tests/unit/over-budget-${i}.test.js`,'// synthetic budget control\n');
     assert.throws(()=>runVitestExecution({root:directory,base}),/exceeds 8 batches of 8 files/);
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+test('each actual execution invocation runs one batch of at most eight; all batches reconcile exactly once',()=>{
+  const {directory,write,git}=fixture();
+  try {
+    const base=git(['rev-parse','HEAD']);
+    const files=Array.from({length:9},(_,n)=>`tests/unit/batch-${n}.test.js`);
+    for(const file of files)write(file,'// synthetic orchestration fixture; not a real Vitest test\n');
+    // The synthetic adapter reports the file it was actually handed, so each phase proves its own contract.
+    const runner=path.join(directory,'node_modules/vitest/vitest.mjs');
+    fs.writeFileSync(runner,fs.readFileSync(runner,'utf8').replaceAll(JSON.stringify(contract.testFile),'process.argv.at(-1)'));
+    const provenance=executionContext(directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    assert.throws(()=>runVitestExecution({root:directory,base,provenance}),/requires an explicit batch index/);
+    assert.throws(()=>runVitestExecution({root:directory,base,provenance,batch:2}),/batch index outside the selection/);
+    const second=runVitestExecution({root:directory,base,provenance,batch:1});
+    assert.deepEqual(second.batch.index,1);assert.equal(second.batch.count,2);assert.equal(second.batch.size,8);
+    assert.deepEqual(second.tests.map(item=>item.testFile),[files[8]]);
+    const first=runVitestExecution({root:directory,base,provenance,batch:0});
+    assert.deepEqual(first.tests.map(item=>item.testFile),files.slice(0,8));
+    assert.equal(first.batch.selectionSha256,second.batch.selectionSha256);
+    assert.deepEqual([...validateVitestBatches([first,second],provenance,directory)].sort(),[...files].sort());
+    assert.throws(()=>validateVitestBatches([first],provenance,directory),/batch inventory/);
+    assert.throws(()=>validateVitestBatches([second,first],provenance,directory),/batch/);
+    assert.throws(()=>validateVitestBatches([first,first],provenance,directory),/batch|Inconsistent/);
+    assert.equal(git(['rev-parse','HEAD']),base,'original Git metadata preserved');
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });
 
