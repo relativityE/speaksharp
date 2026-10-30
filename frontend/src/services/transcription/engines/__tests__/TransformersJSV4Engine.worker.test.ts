@@ -193,7 +193,8 @@ describe('TransformersJSV4Engine worker message contract', () => {
         vi.resetModules();
         await import('../../../../benchmark/model-evaluator-local');
         try {
-            await window.__MODEL_EVALUATOR__!.initialize(candidateId, backend);
+            // This positive backend-propagation scenario explicitly permits cold acquisition.
+            await window.__MODEL_EVALUATOR__!.initialize(candidateId, backend, true);
             expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
                 expect.objectContaining({ type: 'init', device: backend }), [],
             );
