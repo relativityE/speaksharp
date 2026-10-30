@@ -9,6 +9,7 @@ import type { ModelIdentity } from '../../../tests/evidence/modelEvaluator';
 import { AssetTransferRecorder } from '../asset-transfer';
 import { CANDIDATES, type CandidateId } from '../../../frontend/src/services/transcription/candidateRegistry';
 import type { PrivateRuntimeEvidence } from '../../../frontend/src/contracts/IPrivateSTTEngine';
+import { assertServedRelease, servedSourceFiles, sha256, viteRawSource } from '../source-binding';
 
 export async function configuredAssetDigest(root: string, candidateId: CandidateId, modelId: string): Promise<string> {
   const candidate = CANDIDATES[candidateId];
@@ -118,6 +119,8 @@ declare global {
 
 /** Model-only browser adapter using the product facade; the page is local and internal-only. */
 export function createAdapter(context: AdapterContext): ModelAdapter {
+  if (!context.source) throw new Error('candidate-browser requires source binding');
+  const source = context.source;
   const candidateId = context.options.candidateId as CandidateId | undefined;
   if (!candidateId || !Object.prototype.hasOwnProperty.call(CANDIDATES, candidateId)) {
     throw new Error('candidate-browser needs a registered candidateId adapter option');
@@ -127,6 +130,9 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
     throw new Error(`PREREQUISITE_CANDIDATE_UNAVAILABLE: ${candidate.browser.reason}`);
   }
   const backend = context.expected.backend;
+  if (candidate.engine === 'granite-ctc' && backend !== candidate.model.device) {
+    throw new Error('Granite product backend mismatch: use the registered WebGPU arm');
+  }
   if ((backend !== 'wasm' && backend !== 'webgpu') ||
       (candidate.model.device === 'wasm' && backend !== 'wasm')) {
     throw new Error('candidate-browser needs a supported declared backend');
@@ -137,9 +143,11 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
   let acquisition: unknown | null = null;
   let runtimeObservation: PrivateRuntimeEvidence | null = null;
   let browserVersion: string | null = null;
+  let servedRelease: unknown = null;
+  let verifiedSourceFiles = 0;
   const timings: Record<string, number | null> = {
     pinVerificationMs: null, browserLaunchMs: null, pageReadyMs: null,
-    facadeInitializeMs: null,
+    facadeInitializeMs: null, servedSourceVerificationMs: null,
   };
   let gpuAdapter: { vendor: string; architecture: string; device: string } | null = null;
   const transfer = new AssetTransferRecorder();
@@ -179,6 +187,23 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
         }));
       }
       await page.goto(new URL('/model-evaluator.local.html', context.baseUrl).toString());
+      servedRelease = await page.evaluate(() =>
+        (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null);
+      assertServedRelease(source, servedRelease);
+      const sourceStarted = performance.now();
+      const files = servedSourceFiles(source);
+      if (!files.length) throw new Error('served_source_inventory_empty');
+      for (let offset = 0; offset < files.length; offset += 16) {
+        await Promise.all(files.slice(offset, offset + 16).map(async file => {
+          const url = new URL(`/${file.path.slice('frontend/'.length)}?raw&import`, context.baseUrl);
+          const response = await page!.request.get(url.toString());
+          if (!response.ok() || sha256(viteRawSource(await response.text())) !== file.sha256) {
+            throw new Error(`served_source_mismatch:${file.path}`);
+          }
+          verifiedSourceFiles++;
+        }));
+      }
+      timings.servedSourceVerificationMs = performance.now() - sourceStarted;
       await page.waitForFunction(() => Boolean(window.__MODEL_EVALUATOR__));
       timings.pageReadyMs = performance.now() - pageStarted;
       if (context.expected.backend === 'webgpu') {
@@ -250,6 +275,8 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
     async executionEvidence() {
       return {
         browser: { channel: 'chrome', version: browserVersion, isolatedContext: true },
+        servingSource: { release: servedRelease, expected: source,
+          verifiedSourceFiles, method: 'Vite raw source SHA-256 plus release equality' },
         runtimeObservation,
         configuredIdentity: {
           candidateId, modelId: candidate.model.id, revision: candidate.model.revision,

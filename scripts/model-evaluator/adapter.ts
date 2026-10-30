@@ -1,5 +1,6 @@
 import type { ModelIdentity } from '../../tests/evidence/modelEvaluator';
 import type { AssetTransfer } from './asset-transfer';
+import type { SourceBinding } from './source-binding';
 
 /** A model-specific adapter. The runner owns clip loading and timing; adapters own only execution. */
 export interface ModelAdapter {
@@ -21,6 +22,7 @@ export interface AdapterContext {
   options: Record<string, unknown>;
   headless: boolean;
   expectedGpuVendor: string | null;
+  source?: SourceBinding;
 }
 
 export type AdapterFactory = (context: AdapterContext) => ModelAdapter;

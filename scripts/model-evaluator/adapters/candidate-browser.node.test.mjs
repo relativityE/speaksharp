@@ -23,6 +23,7 @@ test('self-hosted descriptor digest verifies exact file content, count and bytes
     playwright: { chromium: {} },
     'node:crypto': crypto, 'node:fs/promises': fs, 'node:path': path,
     '../asset-transfer': { AssetTransferRecorder: class {} },
+    '../source-binding': { assertServedRelease() {}, servedSourceFiles() {}, sha256() {}, viteRawSource() {} },
     '../../../frontend/src/services/transcription/candidateRegistry': { CANDIDATES: { fixture: candidate } },
   };
   const source = stripTypeScriptTypes(await fs.readFile(new URL('./candidate-browser.ts', import.meta.url), 'utf8'));

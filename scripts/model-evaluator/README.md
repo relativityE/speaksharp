@@ -27,7 +27,7 @@ at `v2:base.en` until the owner separately approves promotion.
 | --- | --- | --- |
 | `v2:base.en` | Xenova Transformers.js 2.17.2 | WASM |
 | `v4:base:q4` | Hugging Face Transformers.js 4.3.0 | Explicit WASM or WebGPU |
-| `granite:turboctc-q4f16` | Pinned IBM export / ORT Web 1.26.0 | Explicit WASM or WebGPU |
+| `granite:turboctc-q4f16` | Pinned IBM export / ORT Web 1.26.0 | WebGPU, matching the app descriptor |
 | `parakeet:tdt-v3:int8` | Published parakeet.js 1.4.4 / ORT Web 1.24.1 | WASM/int8 |
 
 For the account-free model-only page, start the existing test server with
@@ -71,7 +71,7 @@ journey and must use the approved Track A campaign and source/model binding.
 After setup, start the existing server with disposable mock values:
 
 ```sh
-VITE_INTERNAL_BUILD=true VITE_SUPABASE_URL=https://localhost.invalid \
+BUILD_ID="$(git rev-parse HEAD)" VITE_INTERNAL_BUILD=true VITE_SUPABASE_URL=https://localhost.invalid \
 VITE_SUPABASE_ANON_KEY=mock_eval VITE_AUTH_MODE=mock pnpm dev:test
 ```
 
@@ -82,7 +82,7 @@ pnpm model:evaluate \
   --baseline tests/evidence/fixtures/model-evaluator/baseline-shared-v2.json \
   --candidate tests/evidence/fixtures/model-evaluator/candidate-granite-turboctc.json \
   --corpus tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json \
-  --device tests/evidence/fixtures/model-evaluator/device-local-wasm.json \
+  --device tests/evidence/fixtures/model-evaluator/device-local-registered.json \
   --out /tmp/granite-shared-report.json
 ```
 
@@ -93,6 +93,50 @@ calls its shared `PrivateSTT` path; it is not a second decoder implementation.
 The same initialized page can be inspected directly at
 `/model-evaluator.local.html` with the call documented below. No authenticated
 product journey is implied by that model-only page.
+
+`device-local-registered.json` keeps each frozen arm's declared backend, so changing
+the candidate manifest is one argument: Whisper/Parakeet use WASM and Granite uses
+the app's registered WebGPU path. GPU runs require a headed installed Chrome and
+the actual expected hardware vendor; the checked-in device names Apple and refuses
+other hardware or software adapters. This is a declared device prerequisite, not
+an observed GPU claim. The shared Granite adapter rejects a WASM arm; historical
+WASM reports do not qualify the app's WebGPU configuration. Runtime/weight pins
+and the production selector are unchanged.
+
+Before acquisition, the adapter compares `window.__APP_RELEASE__` with the CLI's
+Git head and hashes Vite `?raw` frontend source against the same checkout's source
+inventory. An absent/stale release, fallback HTML or changed source refuses the
+run before model initialization. Reports bind Git head/tree, lock SHA-256 and
+the declared source inventory, and recheck that binding after disposal. Dirty
+and untracked scoped source files are included; ignored environment files and
+private/global stores are excluded. Source receipts describe the actual working
+tree, not a claim that `HEAD` alone describes uncommitted changes.
+
+For destructive audio controls, repeat the same command with
+`--corpus tests/evidence/fixtures/model-evaluator/corpus-synthetic-degraded.json`.
+The runner verifies the original WAV and source PCM, then applies the declared
+mute or 250 ms prefix operation and checks the resulting PCM hash before sending
+identical samples to both arms. Original written references remain explicit,
+synthetic and acoustically unverified. Inspect actual WER/empty outputs/failures
+against the clean report; these controls neither inject transcripts nor promise
+a particular decoder result. The offline unit adapter is a test double only.
+
+For actual SpeakSharp drop-in proof, `attachProductEvidence` from
+`scripts/model-evaluator/product-evidence.ts` attaches passively to one existing,
+separately authorized Track A take. Supply its source binding, candidate/backend,
+journey, fixture WAV hash and (for Focus) the approved per-point audio windows.
+Attach before Start; the existing journey owns Start/audio/Stop. Call
+`freezeTake()` after final save and before navigation, let that same journey
+reopen the saved session, call `observeReopened()`, then `finish()` and attach the
+returned JSON to its normal report. The collector observes partials before Stop,
+capture/session identity, requested runtime backend, successful completion RPC,
+persisted transcript/product and reopened content. Focus additionally requires
+live per-point timing and matching final statuses. Missing evidence holds and
+contradictions fail; only hashes/lengths/statuses leave the observer. It creates
+no account, navigation, microphone, provider call or parallel live campaign.
+The model-only CLI always reports product proof NOT_RUN; the collector's result
+is separate and cannot turn that into product acceptance by configuration.
+No existing Track A receipt is claimed reused without matching source/model binding.
 
 On a shared host, the server **and** evaluator must run within the existing
 host-wide interlock from the coordinator's absolute cwd. The child explicitly
@@ -155,7 +199,7 @@ the documented setup, consent and shared-host interlock prerequisites.
 
 Using the same shared baseline manifest in both arms proves adapter execution and baseline-vs-baseline mechanics, not candidate non-inferiority. The three synthetic WAVs are one speaker cluster, lack required noisy/accented/long-take/Focus slices, and have no approved numeric policy; a successful smoke therefore returns HOLD (exit code 2). FAIL exits 1. This first increment never emits an overall PASS: even if its model-only comparison passes, missing product-path and required metrics hold acceptance. A report's transcript content is from public synthetic fixtures only; do not publish private recordings or user transcripts.
 
-The requested first comparison is v2 BASE against explicitly pinned v4 BASE q4 on WASM. Retained manifests also cover distil and Moonshine; retaining them does not select those alternatives. WebGPU is a separate real-device run. A mixed-backend device manifest names each arm's backend and requires a headed browser plus a checked GPU vendor for WebGPU. Their local browser adapter uses `model-evaluator.local.html`, a dev-server-only page excluded from Vite's production build input; it requires `VITE_INTERNAL_BUILD=true`. Current main already pins `@huggingface/transformers@4.3.0` through merged #1592; the adapter still verifies the actual running package rather than treating the source pin as runtime evidence. The adapter recomputes v4's committed pin-set digest but does not yet verify each downloaded response body, so that proof remains outstanding. V4 activation remains separate. Moonshine's runtime does not introspect model ID or revision: those fields come from checked-in pins, while init/decode/backend are observed. Its pinned asset loader hashes downloaded files before giving them to the runtime.
+The current bounded slate is incumbent Whisper, Granite TurboCTC and Parakeet TDT. Retained v4, distil and Moonshine manifests belong to earlier comparisons; retaining them does not select those alternatives. WebGPU needs a real-device run with a headed browser and checked GPU vendor. The local browser adapter uses `model-evaluator.local.html`, a dev-server-only page excluded from Vite's production build input; it requires `VITE_INTERNAL_BUILD=true`. The unchanged lock retains `@huggingface/transformers@4.3.0`; configured package pins are not introspected weight identity. The adapter recomputes v4's committed pin-set digest but does not yet verify each downloaded response body, so that historical proof remains outstanding. V4 activation remains separate. Moonshine's model/revision also come from configured pins because its runtime does not introspect them; its pinned loader verifies downloaded bytes.
 
 Current scope: pooled and per-slice WER, paired cluster-bootstrap upper bounds, model/input identity, finalized decode latency, audio duration and real-time factor. Each completed transcript records the shipping coachable-filler regex count, the same count on its human reference, and detected keys. This is **final-transcript detection**, not a human-annotated contextual filler score or the product's interim/final counting path.
 

@@ -12,12 +12,14 @@ import type { AdapterFactory, ModelAdapter } from './adapter';
 import type { AssetTransfer } from './asset-transfer';
 import { countFillerWords } from '../../frontend/src/utils/fillerWordUtils';
 import { scoreCorpusUtterance } from '../../tests/evidence/benchmarkScore';
+import { readSourceBinding, assertSameSource, type SourceBinding } from './source-binding';
+import { prepareControlInput, type AudioControl } from './controls';
 
 type ArmManifest = {
   version: 1; identity: ModelIdentity; adapterModule: string;
   adapterOptions?: Record<string, unknown>;
 };
-type CorpusManifest = { version: 1; trials: number; clips: Array<CorpusClip & { path: string; wavSha256: string }> };
+type CorpusManifest = { version: 1; trials: number; clips: Array<CorpusClip & { path: string; wavSha256: string; control?: AudioControl }> };
 type DeviceManifest = {
   version: 1; baseUrl: string; label: string; backend?: string;
   baselineBackend?: string; candidateBackend?: string;
@@ -39,7 +41,7 @@ async function readManifest<T>(name: string): Promise<{ value: T; path: string; 
   return { value, path, sha256: sha(bytes) };
 }
 
-async function loadAdapter(manifest: ArmManifest, device: DeviceManifest): Promise<ModelAdapter> {
+async function loadAdapter(manifest: ArmManifest, device: DeviceManifest, source: SourceBinding): Promise<ModelAdapter> {
   if (!manifest.adapterModule.startsWith('./') && !manifest.adapterModule.startsWith('../')) {
     throw new Error('adapterModule must be a local relative path');
   }
@@ -52,10 +54,12 @@ async function loadAdapter(manifest: ArmManifest, device: DeviceManifest): Promi
     options: manifest.adapterOptions ?? {},
     headless: device.headless !== false,
     expectedGpuVendor: device.expectedGpuVendor ?? null,
+    source,
   });
 }
 
 async function main(): Promise<void> {
+  const source = readSourceBinding(root);
   const baselineManifest = await readManifest<ArmManifest>('baseline');
   const candidateManifest = await readManifest<ArmManifest>('candidate');
   const corpusManifest = await readManifest<CorpusManifest>('corpus');
@@ -64,11 +68,17 @@ async function main(): Promise<void> {
   const policyBytes = policyPath ? await readFile(policyPath) : null;
   const policy = policyBytes ? JSON.parse(policyBytes.toString('utf8')) as EvaluatorPolicy : null;
   const out = resolve(arg('out'));
-  if (baselineManifest.value.identity.backend !== (deviceManifest.value.baselineBackend ?? deviceManifest.value.backend) ||
-      candidateManifest.value.identity.backend !== (deviceManifest.value.candidateBackend ?? deviceManifest.value.backend)) {
+  const armBackends = {
+    baseline: deviceManifest.value.backend === 'registered' ? baselineManifest.value.identity.backend
+      : deviceManifest.value.baselineBackend ?? deviceManifest.value.backend,
+    candidate: deviceManifest.value.backend === 'registered' ? candidateManifest.value.identity.backend
+      : deviceManifest.value.candidateBackend ?? deviceManifest.value.backend,
+  };
+  if (baselineManifest.value.identity.backend !== armBackends.baseline ||
+      candidateManifest.value.identity.backend !== armBackends.candidate) {
     throw new Error('device backend differs from an arm manifest');
   }
-  if (candidateManifest.value.identity.backend === 'webgpu' &&
+  if ([baselineManifest.value, candidateManifest.value].some(arm => arm.identity.backend === 'webgpu') &&
       (deviceManifest.value.headless !== false || !deviceManifest.value.expectedGpuVendor)) {
     throw new Error('real WebGPU evaluation needs a headed browser and expected GPU vendor');
   }
@@ -81,17 +91,15 @@ async function main(): Promise<void> {
     if (!filePath.startsWith(`${root}/`)) throw new Error(`clip escapes repository root: ${clip.id}`);
     const bytes = await readFile(filePath);
     if (sha(bytes) !== clip.wavSha256) throw new Error(`WAV digest mismatch: ${clip.id}`);
-    const pcm = decodeWav16kMono(bytes);
-    const pcmHash = sha(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength));
-    if (pcmHash !== clip.sha256) throw new Error(`PCM digest mismatch: ${clip.id}`);
+    const pcm = prepareControlInput(decodeWav16kMono(bytes), clip.sha256, clip.control);
     return { ...clip, pcm };
   }));
 
   const baseline: ModelArm = { manifest: baselineManifest.value.identity, observed: null, results: [] };
   const candidate: ModelArm = { manifest: candidateManifest.value.identity, observed: null, results: [] };
   const adapters: [ModelAdapter, ModelAdapter] = [
-    await loadAdapter(baselineManifest.value, deviceManifest.value),
-    await loadAdapter(candidateManifest.value, deviceManifest.value),
+    await loadAdapter(baselineManifest.value, deviceManifest.value, source),
+    await loadAdapter(candidateManifest.value, deviceManifest.value, source),
   ];
   const arms = [baseline, candidate] as const;
   const failures: string[] = [];
@@ -172,6 +180,9 @@ async function main(): Promise<void> {
       if (result.status==='rejected') failures.push(`${index?'candidate':'baseline'}_dispose:${String(result.reason)}`);
     }
   }
+  let sourceAfter: SourceBinding | null = null;
+  try { sourceAfter = readSourceBinding(root); assertSameSource(source, sourceAfter); }
+  catch (error) { failures.push(`source_binding:${String(error)}`); }
   const {pairedEvidence,comparison}=evaluatePairedRun(pairedPlan,clips,baseline,candidate,policy);
   const runtimePrerequisiteMissing = failures.some((failure) =>
     failure.includes('PREREQUISITE_RUNTIME_VERSION_MISMATCH'));
@@ -194,9 +205,10 @@ async function main(): Promise<void> {
   const report = {
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
+    source, sourceAfter,
     lane: 'model_only_corpus',
     productPath: 'NOT_RUN',
-    device: deviceManifest.value,
+    device: { ...deviceManifest.value, resolvedArmBackends: armBackends },
     inputManifestSha256: {
       baseline: baselineManifest.sha256, candidate: candidateManifest.sha256,
       corpus: corpusManifest.sha256, device: deviceManifest.sha256,
