@@ -78,7 +78,7 @@ class Summary(unittest.TestCase):
         self.assertEqual(row["failingTests"], ["setUpClass (test_full_plan.FullPlanProof)", "test_b (m.C.test_b)", "test_c (m.C.test_c)"])
         self.assertEqual(row["failureTypes"], {"setUpClass (test_full_plan.FullPlanProof)": "AssertionError",
                                                "test_b (m.C.test_b)": "subprocess.CalledProcessError",
-                                               "test_c (m.C.test_c)": "UNPARSED"})
+                                               "test_c (m.C.test_c)": "OTHER"})
         text = json.dumps(row)
         for leaked in ("SECRET-LIKE", "PRIVATE-PATH", "returned 3", "unexpected"):
             self.assertNotIn(leaked, text)
@@ -95,9 +95,12 @@ class Summary(unittest.TestCase):
         # A multi-line message whose later lines are captured output: only the class is read.
         self.assertEqual(types("AssertionError: 5 != 0 : STOP: credential-like variables are present", "STOP: PRIVATE",
                                "SECRET-LIKE"), "AssertionError")
-        self.assertEqual(types("pkg.mod.CustomFailure"), "pkg.mod.CustomFailure")
-        for leaked in ("STOP: credential-like variables are present", "Hello: there", "secret", "PRIVATE-WORD"):
-            self.assertEqual(types(leaked), "UNPARSED", leaked)
+        self.assertEqual(types("subprocess.CalledProcessError: Command returned 3"), "subprocess.CalledProcessError")
+        for leaked in ("STOP: credential-like variables are present", "Hello: there", "secret", "PRIVATE-WORD",
+                       "pkg.mod.CustomFailure", "PrivateNoteError: x", "SecretTokenException"):
+            self.assertEqual(types(leaked), "OTHER", leaked)
+        # A message that imitates a further traceback frame cannot smuggle an invented class name out.
+        self.assertEqual(types("AssertionError: note", '  File "fake.py", line 1, in x', "CustomerNameError: spoofed"), "OTHER")
 
     def assertRefused(self, doc, error, history="none"):
         out = s.summarize(doc, history)

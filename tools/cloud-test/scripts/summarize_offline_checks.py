@@ -4,6 +4,7 @@ The repository is public, so no child output, detail or traceback leaves the run
 test names and the unittest counts are kept. A missing, malformed or inconsistent result is a failure, never an empty success.
 Usage: summarize_offline_checks.py --in offline-checks.json --out offline-checks-summary.json   (mode from CT_HISTORY)"""
 import argparse
+import builtins
 import json
 import os
 import re
@@ -18,8 +19,11 @@ CURRENT_SOURCE = frozenset(("package-unit-tests", "report-builder-tests", "reser
                             "harness-verified", "config-matches-workflow"))
 # unittest's failure headers, including class-level fixtures such as "ERROR: setUpClass (module.Class)".
 FAILING = re.compile(r"^(?:ERROR|FAIL): (\w+ \([\w.]+\))", re.M)
-# Only an exception-class shape is ever published (Sam 1793376723): a word from a message or from captured output never is.
-EXCEPTION_CLASS = re.compile(r"^(?:[A-Za-z_]\w*\.)*[A-Z]\w*(?:Error|Exception|Exit|Interrupt|Warning|Failure|SkipTest)$")
+# A closed allowlist is the public type boundary (Sam 1793377141): only Python's built-in exception classes and these named
+# stdlib ones are ever published, so text shaped like a traceback cannot put an arbitrary word in the summary. Else OTHER.
+PUBLIC_EXCEPTION_TYPES = frozenset(name for name, value in vars(builtins).items()
+                                   if isinstance(value, type) and issubclass(value, BaseException)) | frozenset(
+    ("unittest.case.SkipTest", "subprocess.CalledProcessError", "subprocess.TimeoutExpired", "json.decoder.JSONDecodeError"))
 
 
 def _failure_types(text):
@@ -38,7 +42,7 @@ def _failure_types(text):
         name = ""
         if frames:
             name = next((ln.split(":", 1)[0].strip() for ln in lines[frames[-1] + 1:] if ln and not ln[0].isspace()), "")
-        types[head.group(1)] = name if EXCEPTION_CLASS.match(name) else "UNPARSED"
+        types[head.group(1)] = name if name in PUBLIC_EXCEPTION_TYPES else "OTHER"
     return types
 
 
@@ -137,7 +141,7 @@ def main():
         if "tests" in r:
             print("       tests %s" % json.dumps(r["tests"], sort_keys=True))
         for name in r.get("failingTests", []):
-            print("       %s  [%s]" % (name, r.get("failureTypes", {}).get(name, "UNPARSED")))
+            print("       %s  [%s]" % (name, r.get("failureTypes", {}).get(name, "OTHER")))
     if "error" in summary:
         print("offline checks: " + summary["error"])
     else:
