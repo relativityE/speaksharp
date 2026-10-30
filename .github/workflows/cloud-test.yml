@@ -108,65 +108,9 @@ jobs:
       # runner. The full results, including captured stdout/stderr, stay on the runner and are discarded with it.
       - name: Reduce the offline results to check names and counts
         if: always()
-        run: |
-          python3 -I - <<'PY'
-          import json, os, re, sys
-          temp = os.environ["RUNNER_TEMP"]
-          full = os.path.join(temp, "offline-checks.json")
-          reduced = os.environ["CT_HISTORY"] == "none"
-          # Reduced scope (Sam 1793373376): the history-bound pipeline and its attestation do not run, so neither is claimed.
-          summary = {"schema": "speaksharp.cloud-test.offline-checks-summary.v2", "historyMode": os.environ["CT_HISTORY"],
-                     "reducedScope": reduced, "liveExecutionAuthorized": False,
-                     "steps": {"control-plane-pipeline": "NOT APPLICABLE" if reduced else "REQUIRED",
-                               "preflight-attestation": "NOT APPLICABLE" if reduced else "REQUIRED"},
-                     "resultValid": False, "overallPassed": False}
-
-          def finish(error=None):
-              if error:
-                  summary["error"] = error
-              json.dump(summary, open(os.path.join(temp, "offline-checks-summary.json"), "w"), indent=1)
-              print("offline checks: %s" % (error or "%(passed)d passed, %(failed)d failed, %(notApplicable)d not applicable; reduced scope %(reducedScope)s; overall %(overall)s"
-                                            % dict(summary, overall="PASS" if summary["overallPassed"] else "FAIL")))
-              sys.exit(1 if error or not summary["overallPassed"] else 0)
-
-          if not os.path.isfile(full):
-              finish("RESULT_MISSING")
-          try:
-              result = json.load(open(full))
-              checks = result["checks"]
-              assert isinstance(result, dict) and isinstance(checks, list) and checks
-              assert all(isinstance(c, dict) and isinstance(c.get("id"), str) for c in checks)
-          except Exception:
-              finish("RESULT_MALFORMED")
-          status = lambda c: "N/A" if c.get("applicable", True) is False and c.get("passed") is None else "PASS" if c.get("passed") is True else "FAIL"
-          # unittest names and counts only, from its own summary lines; never messages or tracebacks.
-          text = lambda c: str(c.get("stdout", "")) + "\n" + str(c.get("stderr", ""))
-          failing = lambda c: sorted({m.group(1) for m in re.finditer(r"^(?:ERROR|FAIL): (test\w* \([\w.]+\))", text(c), re.M)})
-          def counts(c):
-              ran = re.findall(r"^Ran (\d+) tests?", text(c), re.M)
-              if not ran:
-                  return {}
-              tail = text(c)[text(c).rindex("Ran " + ran[-1]):]
-              got = lambda key: int((re.search(key + r"=(\d+)", tail) or [0, 0])[1])
-              return {"ran": int(ran[-1]), "failures": got("failures"), "errors": got("errors"), "skipped": got("skipped")}
-          rows = []
-          for c in checks:
-              row = {"id": c["id"], "status": status(c)}
-              row.update({"tests": counts(c)} if counts(c) else {})
-              row.update({"failingTests": failing(c)} if row["status"] == "FAIL" and failing(c) else {})
-              rows.append(row)
-          count = lambda value: sum(r["status"] == value for r in rows)
-          summary.update(checks=rows, passed=count("PASS"), failed=count("FAIL"), notApplicable=count("N/A"))
-          for r in rows:
-              print("%-4s %s" % (r["status"], r["id"]), *(["tests %s" % json.dumps(r["tests"], sort_keys=True)] if "tests" in r else []) + r.get("failingTests", []), sep="\n       ")
-          applicable = [r for r in rows if r["status"] != "N/A"]
-          derived = bool(applicable) and all(r["status"] == "PASS" for r in applicable)
-          if result.get("historyMode", "required") != os.environ["CT_HISTORY"] or (result.get("passed") is True) != derived \
-                  or (summary["reducedScope"] is False and count("N/A")):
-              finish("RESULT_INCONSISTENT")
-          summary.update(resultValid=True, overallPassed=derived)
-          finish()
-          PY
+        # Exact inventory, legal applicability and fail-closed handling live in the package and are unit-tested there
+        # (tests/test_offline_summary.py); a missing, malformed or inconsistent result fails this step.
+        run: python3 -I tools/cloud-test/scripts/summarize_offline_checks.py --in "$RUNNER_TEMP/offline-checks.json" --out "$RUNNER_TEMP/offline-checks-summary.json"
       - name: Record job end (usage account)
         run: python3 -I tools/cloud-test/scripts/record_timing.py end --job control-plane --dir "$RUNNER_TEMP/timings"
       - name: Control-plane pipeline (secret-free; stops if a credential-like variable is present)
