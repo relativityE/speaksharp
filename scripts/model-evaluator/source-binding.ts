@@ -54,10 +54,12 @@ export function assertServedRelease(expected: SourceBinding, actual: unknown): v
 /** Parse Vite's string or escaped template export as syntax data; never execute response code. */
 export function viteRawSource(body: string): string {
   const module = createSourceFile('served-raw.mjs', body, ScriptTarget.Latest, false, ScriptKind.JS);
-  if (module.statements.length !== 1 || !isExportAssignment(module.statements[0])) {
+  // React Refresh may wrap a raw module. Read only its sole literal export; no wrapper code runs.
+  const exports = module.statements.filter(isExportAssignment);
+  if (exports.length !== 1) {
     throw new Error('served_raw_source_unavailable');
   }
-  const value = module.statements[0].expression;
+  const value = exports[0].expression;
   if (!isStringLiteral(value) && !isNoSubstitutionTemplateLiteral(value)) {
     throw new Error('served_raw_source_unavailable');
   }

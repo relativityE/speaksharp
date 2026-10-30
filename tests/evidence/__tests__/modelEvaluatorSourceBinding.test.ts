@@ -45,7 +45,8 @@ describe('model evaluator source and degraded-input binding', () => {
     expect(viteRawSource('export default `line one\\nline two`;')).toBe('line one\nline two');
     expect(viteRawSource('export default `literal \\${model}`;')).toBe('literal ${model}');
     expect(() => viteRawSource('export default `executed ${model}`;')).toThrow('served_raw_source');
-    expect(() => viteRawSource('export default "source"; run();')).toThrow('served_raw_source');
+    expect(viteRawSource('import "refresh"; export default "source"; throw new Error("never executed");')).toBe('source');
+    expect(() => viteRawSource('export default "one"; export default "two";')).toThrow('served_raw_source');
     expect(() => viteRawSource('<html>fallback</html>')).toThrow('served_raw_source');
     expect(() => viteRawSource('export default (() => "forged")();')).toThrow('served_raw_source');
   });
