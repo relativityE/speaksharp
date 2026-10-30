@@ -83,6 +83,14 @@ test('a second begin cannot replace or leak the first refusal observer',async t=
  const f=fixture(t);await f.arm();f.emit();await tick();await f.begin();await refuses(f.begin());
  assert.equal(f.b.listenerCount('request'),1);assert.equal(f.a.reads.length,1);
 });
+test('overlapping begins reserve before the row await and open only one window',async t=>{
+ const f=fixture(t);await f.arm();f.emit();await tick();
+ let resolve;const read=new Promise(r=>resolve=r);f.a.readOverride=()=>read;
+ const first=f.begin();await tick();const second=f.begin().then(()=>false,e=>{assert.equal(e.code,'NOT_RUN');return true;});
+ await tick();const reads=f.a.reads.length;resolve({data:[current],error:null});
+ assert.equal((await first).observed,true);const secondRefused=await second;
+ assert.deepEqual({reads,secondRefused,modelObservers:f.b.listenerCount('request')},{reads:1,secondRefused:true,modelObservers:1});
+});
 test('disposal while reading model status cannot open late observation windows',async t=>{
  const f=fixture(t);await f.arm();f.emit();await tick();
  f.b.locator=()=>({getAttribute:async()=>{f.oracles.dispose();return 'download-required';}});

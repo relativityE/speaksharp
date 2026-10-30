@@ -138,9 +138,12 @@ function createOracles({context,guard,caseConfig:c,writeEvidence,readPrivateEvid
   if(a.phase==='begin'){
    const capture=state.takeoverFirst;
    must(!state.closed&&capture&&capture.page===a.tabA&&capture.ownerId===c.account.id,'first recording observer not armed on this owner/page');
-   must(!state.takeover,'takeover observation already began');
+   must(!state.takeoverBeginStarted,'takeover observation already began');
    const binding=capture.creates.binding('A');
    must(binding.state==='observed','first recording request-bound creation unavailable');
+   // Consume synchronously before the first await. Failed/interrupted attempts
+   // remain consumed; a second caller must not open another observation window.
+   state.takeoverBeginStarted=true;
    const first=await one(a.tabA,'sessions','id,user_id,status,lease_id,recording_fenced_at,recording_fenced_reason',{id:binding.sessionId});
    must(first.id===binding.sessionId&&first.user_id===capture.ownerId&&first.lease_id===binding.leaseId&&first.status==='active'&&first.recording_fenced_at===null&&first.recording_fenced_reason===null,'first recording exact creation row inconsistent');
    must(!state.closed,'first recording observer disposed');
