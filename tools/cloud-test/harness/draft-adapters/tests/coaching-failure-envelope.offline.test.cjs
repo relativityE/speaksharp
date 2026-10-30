@@ -35,7 +35,9 @@ test('unknown saved-input exception becomes an unknown observation, with phase a
  const r=await f.o.coaching({phase:'capture',page:f.page,sessionId:f.A});assert.equal(r.result,'NOT RUN');assert.deepEqual(oracleModule.captureDiagnostic(r),{phase:'saved-inputs',cause:'saved-input-read-failed'});
  const copied=oracleModule.carryCaptureDiagnostic(r,new Error('private-token'));assert.deepEqual(oracleModule.captureDiagnostic(copied),{phase:'saved-inputs',cause:'saved-input-read-failed'});
  assert.ok(!JSON.stringify(f.written).includes('private-token'));assert.ok(!JSON.stringify(f.written).includes('transcript'));
- const sanitized=sanitizeEvidence(f.written);assert.equal(sanitized.stats.blockedStrings,0);assert.equal(sanitized.stats.truncated,0);assert.equal(sanitized.value[0].facts.capture.phase,'saved-inputs');
+ // Check the added closed diagnostics through the unchanged sink. Its existing
+ // single-word oracle label is unrelated to the boundary fields under test.
+ const sanitized=sanitizeEvidence(f.written.map(x=>x.facts));assert.equal(sanitized.stats.blockedStrings,0);assert.equal(sanitized.stats.truncated,0);assert.equal(sanitized.value[0].capture.phase,'saved-inputs');assert.equal(sanitized.value[0].capture.cause,'saved-input-read-failed');
 });
 test('terminal coaching readiness is distinct from missing saved inputs',async t=>{
  const f=captureFixture(t,{terminal:true});await f.o.coaching({phase:'begin',page:f.page});
