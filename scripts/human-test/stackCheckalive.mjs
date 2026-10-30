@@ -36,6 +36,8 @@ function observedOperation(component, producer, data, expectedBinding) {
     const checks = data?.checks?.filter((c) => c.name === name);
     if (checks?.length !== 1) return { reason: 'MISSING_COMPONENT_RECEIPT' };
     const row = checks[0];
+    // The API row's own check time is the operation time; an absent or malformed one never borrows the wrapper's.
+    if (!timestamp(row.checkedAt)) return { reason: 'INVALID_OPERATION_TIMESTAMP' };
     return {
       status: row.status === 'pass' ? 'PASS' : row.status === 'fail' ? 'FAIL' : 'BLOCKED',
       operation: 'API_HEALTH', observedUtc: row.checkedAt,
@@ -145,7 +147,8 @@ export async function collectStackStatus(profile, { root, now = new Date().toISO
         || receipt.producer === 'canary' && receipt.data.targetReleaseSha !== profile.releaseSha) {
         row.reason = 'BINDING_MISMATCH'; continue;
       }
-      const observedUtc = operation.observedUtc ?? receipt.observedUtc;
+      // Only producers without a per-operation time are dated by the bound wrapper.
+      const observedUtc = Object.hasOwn(operation, 'observedUtc') ? operation.observedUtc : receipt.observedUtc;
       const operationAge = Date.parse(now) - Date.parse(observedUtc);
       if (!timestamp(observedUtc) || operationAge < 0 || operationAge > item.maxAgeSeconds * 1000) {
         row.reason = 'STALE_RECEIPT'; continue;

@@ -140,6 +140,38 @@ describe('per-run stack status from retained evidence, without probes', () => {
     expect(await f.component('sentry-api')).toMatchObject({ reason: 'STALE_RECEIPT' });
   });
 
+  // F1: the wrapper is fresh in every case below; only the API row's own checkedAt may date the operation.
+  it.each([
+    ['omitted', (row) => { delete row.checkedAt; }],
+    ['null', (row) => { row.checkedAt = null; }],
+    ['empty', (row) => { row.checkedAt = ''; }],
+    ['numeric epoch', (row) => { row.checkedAt = Date.parse(NOW); }],
+    ['non-UTC offset', (row) => { row.checkedAt = '2026-10-29T23:00:00+00:00'; }],
+    ['impossible hour', (row) => { row.checkedAt = '2026-10-29T25:00:00Z'; }],
+    ['free text', (row) => { row.checkedAt = 'just now'; }],
+  ])('does not let a %s API checkedAt inherit wrapper freshness', async (_, change) => {
+    for (const component of ['sentry-api', 'posthog-api']) {
+      const f = await fixture();
+      const data = ops();
+      for (const row of data.checks) change(row);
+      await f.receipt(component, 'ops-health', data);
+      expect(await f.component(component)).toMatchObject({ status: 'BLOCKED', operation: 'NOT_MEASURED',
+        observedUtc: null, reason: 'INVALID_OPERATION_TIMESTAMP' });
+    }
+  });
+
+  it('keeps future and stale row controls distinct from a valid row', async () => {
+    for (const [checkedAt, expected] of [
+      ['2026-10-29T23:01:00Z', { status: 'BLOCKED', reason: 'STALE_RECEIPT' }],
+      ['2026-10-29T22:49:59Z', { status: 'BLOCKED', reason: 'STALE_RECEIPT' }],
+      ['2026-10-29T22:50:00Z', { status: 'PASS', reason: null, observedUtc: '2026-10-29T22:50:00Z' }],
+    ]) {
+      const f = await fixture();
+      await f.receipt('sentry-api', 'ops-health', ops('pass', checkedAt));
+      expect(await f.component('sentry-api')).toMatchObject(expected);
+    }
+  });
+
   it('rejects duplicate API rows rather than picking the green one', async () => {
     const f = await fixture();
     const data = ops(); data.checks.push({ name: 'Sentry API', status: 'fail', checkedAt: NOW });
