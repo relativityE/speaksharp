@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { CANDIDATES, candidateForRuntime } from '../candidateRegistry.ts';
+import { fileURLToPath, URL } from 'node:url';
+import { CANDIDATES, candidateForRuntime, UnknownCandidateError } from '../candidateRegistry.ts';
 
 const root = fileURLToPath(new URL('../../../../..', import.meta.url));
 
@@ -14,8 +14,15 @@ test('every descriptor has an unambiguous frozen execution identity', () => {
       decoderDtype: c.model.dtype?.decoder_model_merged }), c.id);
     assert(Object.isFrozen(c.execution));
   }
-  assert.throws(() => candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'base_q4', decoderDtype: 'int8' }));
   assert.throws(() => candidateForRuntime({ engineType: 'moonshine-streaming', variant: null }));
+});
+
+test('resolved precision overrides stay within the registered model/runtime family', () => {
+  assert.equal(candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'base_q4', decoderDtype: 'int8' }), 'v4:base:int8');
+  assert.equal(candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'base_int8', decoderDtype: 'q4' }), 'v4:base:q4');
+  assert.throws(() => candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'distil_q4', decoderDtype: 'int8' }), UnknownCandidateError);
+  assert.throws(() => candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'base_q4', decoderDtype: 'fp32' }), UnknownCandidateError);
+  assert.throws(() => candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'unknown', decoderDtype: 'int8' }), UnknownCandidateError);
 });
 
 test('all self-hosted descriptor inventories match actual local bytes, including Tiny', async () => {
