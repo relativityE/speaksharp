@@ -4,9 +4,10 @@ import { configuredAssetDigest, createAdapter } from '../../../scripts/model-eva
 
 describe('#1565 candidate asset binding', () => {
   it.each([
-    ['v4:base:q4', 'wasm'], ['v4:base:q4', 'webgpu'],
-    ['v4:distil:q4', 'wasm'], ['v4:distil:q4', 'webgpu'],
-  ] as const)('passes declared %s/%s through the browser callback', async (candidateId, backend) => {
+    ['v4:base:q4', 'wasm', true], ['v4:base:q4', 'webgpu', true],
+    ['v4:distil:q4', 'wasm', true], ['v4:distil:q4', 'webgpu', true],
+    ['v4:base:q4', 'wasm', false],
+  ] as const)('passes declared %s/%s and preserves introspection availability %s', async (candidateId, backend, introspected) => {
     const modelId = candidateId === 'v4:base:q4' ? 'onnx-community/whisper-base.en' : 'onnx-community/distil-small.en';
     // Hardware capability is present even for the WASM arms; no browser/model is launched.
     vi.stubGlobal('navigator', { gpu: { requestAdapter: async () => ({
@@ -14,7 +15,7 @@ describe('#1565 candidate asset binding', () => {
     }) } });
     const initialize = vi.fn(async () => ({
       candidateId,
-      runtime: { initSucceeded: true, fallbackOccurred: false, modelId, backend },
+      runtime: { initSucceeded: true, fallbackOccurred: false, modelId: introspected ? modelId : null, backend },
       workerAcquisition: null,
     }));
     window.__MODEL_EVALUATOR__ = { initialize, decodePcmBase64: vi.fn(), dispose: vi.fn() };
@@ -24,7 +25,7 @@ describe('#1565 candidate asset binding', () => {
       evaluate: async (fn: (argument: unknown) => unknown, argument: unknown) => fn(argument),
     };
     const launch = vi.spyOn(chromium, 'launch').mockResolvedValue({
-      newPage: async () => page, close: vi.fn(),
+      newPage: async () => page, close: vi.fn(), version: () => 'test-installed-chrome',
     } as never);
     const adapter = createAdapter({
       baseUrl: 'http://unused.invalid', repositoryRoot: process.cwd(), headless: true, expectedGpuVendor: 'test-vendor',
@@ -37,7 +38,11 @@ describe('#1565 candidate asset binding', () => {
     try {
       expect((await adapter.initialize()).backend).toBe(backend);
       expect(initialize).toHaveBeenCalledWith(candidateId, backend, true);
-      expect(launch).toHaveBeenCalledWith({ headless: true, chromiumSandbox: true });
+      expect(launch).toHaveBeenCalledWith({ channel: 'chrome', headless: true, chromiumSandbox: true });
+      expect(await adapter.executionEvidence?.()).toMatchObject({
+        browser: { channel: 'chrome', version: 'test-installed-chrome', isolatedContext: true },
+        runtimeObservation: { initSucceeded: true, fallbackOccurred: false, modelId: introspected ? modelId : null, backend },
+      });
     } finally {
       await adapter.dispose();
       launch.mockRestore();

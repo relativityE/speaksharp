@@ -9,6 +9,8 @@ export interface ModelAdapter {
   assetTransfer?(): Promise<AssetTransfer | null>;
   workerAcquisition?(): Promise<unknown | null>;
   deviceEvidence?(): Promise<unknown | null>;
+  /** Raw runtime observations and their provenance; configured identity is not weight introspection. */
+  executionEvidence?(): Promise<unknown | null>;
   dispose(): Promise<void>;
 }
 

@@ -3,6 +3,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import type { AdapterContext, ModelAdapter } from '../adapter';
 import type { ModelIdentity } from '../../../tests/evidence/modelEvaluator';
 import { AssetTransferRecorder } from '../asset-transfer';
@@ -134,6 +135,12 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
   let page: Page | null = null;
   let pending: { transcript: string; inputSha256: string } | null = null;
   let acquisition: unknown | null = null;
+  let runtimeObservation: PrivateRuntimeEvidence | null = null;
+  let browserVersion: string | null = null;
+  const timings: Record<string, number | null> = {
+    pinVerificationMs: null, browserLaunchMs: null, pageReadyMs: null,
+    facadeInitializeMs: null,
+  };
   let gpuAdapter: { vendor: string; architecture: string; device: string } | null = null;
   const transfer = new AssetTransferRecorder();
   return {
@@ -149,8 +156,15 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       if (runtime !== context.expected.runtime) {
         throw new Error(`PREREQUISITE_RUNTIME_VERSION_MISMATCH: expected ${context.expected.runtime}, installed ${runtime}`);
       }
+      const pinStarted = performance.now();
       const digest = await configuredAssetDigest(context.repositoryRoot, candidateId, context.expected.modelId);
-      browser = await chromium.launch({ headless: context.headless, chromiumSandbox: true });
+      timings.pinVerificationMs = performance.now() - pinStarted;
+      const browserStarted = performance.now();
+      // A fresh automation context uses installed Chrome, with no personal profile or browser download.
+      browser = await chromium.launch({ channel: 'chrome', headless: context.headless, chromiumSandbox: true });
+      timings.browserLaunchMs = performance.now() - browserStarted;
+      browserVersion = browser.version();
+      const pageStarted = performance.now();
       page = await browser.newPage();
       page.setDefaultTimeout(180_000);
       await transfer.attach(page);
@@ -166,6 +180,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
       }
       await page.goto(new URL('/model-evaluator.local.html', context.baseUrl).toString());
       await page.waitForFunction(() => Boolean(window.__MODEL_EVALUATOR__));
+      timings.pageReadyMs = performance.now() - pageStarted;
       if (context.expected.backend === 'webgpu') {
         gpuAdapter = await page.evaluate(async () => {
           const gpu = (navigator as Navigator & { gpu?: {
@@ -183,9 +198,12 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
           throw new Error('real WebGPU adapter unavailable or differs from device manifest');
         }
       }
+      const initializeStarted = performance.now();
       const state = await page.evaluate(({ id, backend, consentToDownload }) =>
         window.__MODEL_EVALUATOR__!.initialize(id, backend, consentToDownload),
         { id: candidateId, backend, consentToDownload: context.options.consentToDownload === true } as const) as BrowserRuntime;
+      timings.facadeInitializeMs = performance.now() - initializeStarted;
+      runtimeObservation = state.runtime;
       acquisition = state.workerAcquisition ?? null;
       if (acquisition &&
           (acquisition as { candidateId?: string }).candidateId !== candidateId) {
@@ -229,6 +247,23 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
     assetTransfer: () => transfer.snapshot(),
     async workerAcquisition() { return acquisition; },
     async deviceEvidence() { return gpuAdapter; },
+    async executionEvidence() {
+      return {
+        browser: { channel: 'chrome', version: browserVersion, isolatedContext: true },
+        runtimeObservation,
+        configuredIdentity: {
+          candidateId, modelId: candidate.model.id, revision: candidate.model.revision,
+          runtime: candidate.runtime,
+        },
+        identityLimitations: 'Model, revision, runtime version and inventory pins are configured provenance. '
+          + 'runtimeObservation retains exactly what the shared facade reported; null modelId is not replaced '
+          + 'with a claim of observed weights. Backend reflects successful requested-provider initialization, '
+          + 'not per-operator placement.',
+        timings: { ...timings },
+        timingLimitations: 'facadeInitializeMs includes availability, acquisition and warmup; it is not isolated model-load time. '
+          + 'Only completed stages have durations; total attempted initialization is retained by the runner.',
+      };
+    },
     async dispose() {
       try { await page?.evaluate(() => window.__MODEL_EVALUATOR__?.dispose()); }
       finally { await browser?.close(); browser = null; page = null; pending = null; }

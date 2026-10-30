@@ -11,6 +11,7 @@ import { decodeWav16kMono } from './wav';
 import type { AdapterFactory, ModelAdapter } from './adapter';
 import type { AssetTransfer } from './asset-transfer';
 import { countFillerWords } from '../../frontend/src/utils/fillerWordUtils';
+import { scoreCorpusUtterance } from '../../tests/evidence/benchmarkScore';
 
 type ArmManifest = {
   version: 1; identity: ModelIdentity; adapterModule: string;
@@ -100,6 +101,7 @@ async function main(): Promise<void> {
   const assetTransfers: [AssetTransfer | null, AssetTransfer | null] = [null, null];
   const workerAcquisitions: [unknown | null, unknown | null] = [null, null];
   const deviceEvidence: [unknown | null, unknown | null] = [null, null];
+  const executionEvidence: [unknown | null, unknown | null] = [null, null];
   try {
     for (let armIndex = 0; armIndex < 2; armIndex += 1) {
       const started = performance.now();
@@ -162,6 +164,8 @@ async function main(): Promise<void> {
       catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_worker_acquisition:${String(error)}`); }
       try { deviceEvidence[index] = await adapters[index].deviceEvidence?.() ?? null; }
       catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_device_evidence:${String(error)}`); }
+      try { executionEvidence[index] = await adapters[index].executionEvidence?.() ?? null; }
+      catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_execution_evidence:${String(error)}`); }
     }
     const disposal=await Promise.allSettled(adapters.map((adapter) => adapter.dispose()));
     for (const [index,result] of disposal.entries()) {
@@ -171,13 +175,22 @@ async function main(): Promise<void> {
   const {pairedEvidence,comparison}=evaluatePairedRun(pairedPlan,clips,baseline,candidate,policy);
   const runtimePrerequisiteMissing = failures.some((failure) =>
     failure.includes('PREREQUISITE_RUNTIME_VERSION_MISMATCH'));
+  const executionOrRetirementFailed = failures.some((failure) =>
+    !/^(baseline|candidate)_init:/.test(failure));
   const acceptance = comparison===null
     ? {verdict:'HOLD' as const,reasons:['paired_evidence_invalid','product_path_and_required_metrics_not_run']}
+    : executionOrRetirementFailed
+    ? { verdict: 'FAIL' as const, reasons: ['adapter_execution_or_retirement_failed', ...failures] }
     : runtimePrerequisiteMissing
     ? { verdict: 'HOLD' as const, reasons: ['runtime_prerequisite_unavailable', 'product_path_and_required_metrics_not_run'] }
     : comparison.verdict === 'FAIL'
     ? { verdict: 'FAIL' as const, reasons: comparison.reasons }
     : { verdict: 'HOLD' as const, reasons: [...comparison.reasons, 'product_path_and_required_metrics_not_run'] };
+  const scoredArm = (arm: ModelArm) => ({ ...arm, results: arm.results.map((row) => ({
+    ...row,
+    score: scoreCorpusUtterance(`${row.clipId}:${row.trial}`,
+      clips.find((clip) => clip.id === row.clipId)!.reference, row.transcript),
+  })) });
   const report = {
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
@@ -190,16 +203,26 @@ async function main(): Promise<void> {
       policy: policyBytes ? sha(policyBytes) : null,
     },
     inputFailures: failures,
+    corpus: { trials: pairedPlan.trials, clips },
     adapterInitializeMs,
     modelAssetTransfer: { baseline: assetTransfers[0], candidate: assetTransfers[1] },
     workerAcquisition: { baseline: workerAcquisitions[0], candidate: workerAcquisitions[1] },
     deviceEvidence: { baseline: deviceEvidence[0], candidate: deviceEvidence[1] },
-    baseline, candidate, comparison, pairedEvidence,
+    adapterExecutionEvidence: { baseline: executionEvidence[0], candidate: executionEvidence[1] },
+    baseline: scoredArm(baseline), candidate: scoredArm(candidate), comparison, pairedEvidence,
     declaredPopulation:pairedPlan,
     acceptance,
-    identityLimitations: [baseline, candidate].map((arm, index) => arm.manifest.engine === 'moonshine-streaming'
-      ? `${index ? 'candidate' : 'baseline'}: Moonshine model/revision come from verified configured pins; runtime exposes no introspected model identity. Init, decode and WASM backend are observed.`
-      : null).filter(Boolean),
+    identityLimitations: [
+      'Arm observed fields are resolved compatibility identities. Configured model/revision/runtime/pin values '
+        + 'are not proof of introspected loaded weights. Consult adapterExecutionEvidence for raw observations '
+        + 'and adapter-specific limitations; null means unavailable.',
+    ],
+    scoring: {
+      path: 'corpus', track: 'track_a',
+      normalizer: 'openai/whisper@5f86d1d86363843179951550570367b37c5d6f78 EnglishTextNormalizer',
+      wer: '(substitutions + deletions + insertions) / normalized reference words; pooled by word count',
+      fillerDetection: 'Shipping regex counts on raw final transcript and written reference; acoustic labels unverified',
+    },
     unsupportedMetrics: [
       'first_useful_partial', 'cold_model_load_isolated', 'persistent_cache_size',
       'browser_worker_memory', 'product_start_stop_next_take', 'focus_keyword_coverage',
@@ -210,6 +233,7 @@ async function main(): Promise<void> {
   await writeFile(out, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
   console.log(JSON.stringify({ out, verdict: acceptance.verdict, reasons: acceptance.reasons }));
   process.exitCode = acceptance.verdict === 'FAIL' ? 1 : 2;
+
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

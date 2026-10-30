@@ -10,6 +10,19 @@ Once an internal comparison build is configured with
 line in `frontend/src/config/private-stt.config.json`. The checked-in production
 default remains `v2:base.en` and unqualified candidates still fail production boot.
 
+The literal selection diff in that file is one line:
+
+```diff
+-  "candidate": "v2:base.en"
++  "candidate": "granite:turboctc-q4f16"
+```
+
+Or replace the same line with `"candidate": "parakeet:tdt-v3:int8"`.
+The internal-build acknowledgement is a prerequisite, not permission to promote
+a candidate. This change selects a **registered compatible** candidate; a new
+architecture can require a new typed adapter. Keep the production configuration
+at `v2:base.en` until the owner separately approves promotion.
+
 | Candidate | Configured runtime | Evaluation backend |
 | --- | --- | --- |
 | `v2:base.en` | Xenova Transformers.js 2.17.2 | WASM |
@@ -28,10 +41,82 @@ await window.__MODEL_EVALUATOR__.initialize('parakeet:tdt-v3:int8', 'wasm', true
 The final `true` explicitly consents to the descriptor's possible download.
 The evaluator calls the same `checkAvailability` and `grantModelConsent` facade
 methods as the product. In a `candidate-browser` adapter manifest set
-`options.candidateId` to the selected registry ID and `options.consentToDownload`
+`adapterOptions.candidateId` to the selected registry ID and `adapterOptions.consentToDownload`
 to `true` after approving that acquisition. Changing the candidate ID then uses
 the same path. Missing consent fails before acquisition when consent is required.
 Parakeet's full pinned inventory is 682,972,569 bytes; Granite's is 339,374,194 bytes.
+
+The checked-in `baseline-shared-v2.json`, `candidate-granite-turboctc.json` and
+`candidate-parakeet-tdt-v3.json` manifests all use this shared facade adapter.
+They keep `consentToDownload: false`: setting it to true requires specific prior
+approval of acquisition, including source, size, destination and cost. Consent
+is not an offline-network guarantee; only run with an already verified cache or
+an approved acquisition. Missing cached assets must not trigger an unannounced
+download. The adapter explicitly launches **installed Google Chrome** in a fresh
+automation context, with sandboxing enabled. It does not install Chrome, use a
+personal profile, or fall back to a bundled browser. Browser changes require
+separate approval.
+
+## Command-line and shared SpeakSharp modes
+
+Use the existing frozen dependency tree matching `pnpm-lock.yaml`, Node 22.12.0,
+pnpm 10.29.1 and installed Chrome. A clean checkout alone does not include ignored
+speech weights or dependencies. Obtain approval before installing dependencies
+(including offline linking) or downloading missing models/runtimes; verify each
+registered inventory's SHA-256 and bytes. Preserve the separate pinned runtimes
+in the table below. No account, credential, paid provider or UI login is needed
+for the model-only CLI/page. Product Start/Stop/save/Focus proof is a separate
+journey and must use the approved Track A campaign and source/model binding.
+
+After setup, start the existing server with disposable mock values:
+
+```sh
+VITE_INTERNAL_BUILD=true VITE_SUPABASE_URL=https://localhost.invalid \
+VITE_SUPABASE_ANON_KEY=mock_eval VITE_AUTH_MODE=mock pnpm dev:test
+```
+
+Invoke the existing command-line runner (fresh output paths are required):
+
+```sh
+pnpm model:evaluate \
+  --baseline tests/evidence/fixtures/model-evaluator/baseline-shared-v2.json \
+  --candidate tests/evidence/fixtures/model-evaluator/candidate-granite-turboctc.json \
+  --corpus tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json \
+  --device tests/evidence/fixtures/model-evaluator/device-local-wasm.json \
+  --out /tmp/granite-shared-report.json
+```
+
+Change only the candidate manifest argument to `candidate-parakeet-tdt-v3.json`
+for Parakeet or to `baseline-shared-v2.json` for baseline-versus-baseline, with a
+different `--out` each time. This CLI launches the internal SpeakSharp page and
+calls its shared `PrivateSTT` path; it is not a second decoder implementation.
+The same initialized page can be inspected directly at
+`/model-evaluator.local.html` with the call documented below. No authenticated
+product journey is implied by that model-only page.
+
+On a shared host, the server **and** evaluator must run within the existing
+host-wide interlock from the coordinator's absolute cwd. The child explicitly
+targets this checkout (for example, `pnpm --dir <checkout> model:evaluate ...`).
+Do not acquire a worktree-local lock and call it host-wide. Coordinate the slot
+with Track A; if the coordinator is inaccessible or occupied, hold execution.
+
+Each report retains the manifest and WAV/PCM hash bindings, complete trial rows,
+per-input corpus scores, raw runtime observations, observed Chrome version, and
+configured identity provenance. `observed` is a compatibility identity;
+`adapterExecutionEvidence.runtimeObservation` preserves the facade's actual
+observations, including an unknown model ID. Pinned metadata is not introspected
+weight identity. `adapterInitializeMs` covers the whole attempt;
+`adapterExecutionEvidence.timings` separates completed pin verification, browser
+launch, page readiness and facade initialization. Facade initialization includes
+acquisition and warmup, so it is not pure model loading. Decode/final latency is
+separate on each input. Unavailable measurements stay null/unavailable.
+
+WER uses the existing Track A normalizer and `(S + D + I) / N`, pooled by reference
+word count. Track A removes fillers; the separate raw-text filler counts do not
+prove acoustically annotated filler accuracy. Complete failure rows remain in
+the population; an adapter/retirement failure makes the run FAIL even after good
+decodes. Without approved policy and full product/metric proof, a successful
+synthetic smoke remains HOLD (exit 2), never model promotion. FAIL exits 1.
 
 The frozen package lock is unchanged. Parakeet's unchanged published MIT source
 and exact ORT browser inputs are retained under
@@ -58,7 +143,7 @@ The corpus manifest must explicitly declare integer `trials >= 2`. Before adapte
 For a local execution smoke using the current v2 browser worker, first start the mock test server with disposable mock config, then run:
 
 ```sh
-VITE_SUPABASE_URL=https://localhost.invalid VITE_SUPABASE_ANON_KEY=mock_eval VITE_AUTH_MODE=mock pnpm dev:test
+VITE_INTERNAL_BUILD=true VITE_SUPABASE_URL=https://localhost.invalid VITE_SUPABASE_ANON_KEY=mock_eval VITE_AUTH_MODE=mock pnpm dev:test
 node scripts/host-interlock.mjs hold local -- pnpm model:evaluate \
   --baseline tests/evidence/fixtures/model-evaluator/baseline-v2-smoke.json \
   --candidate tests/evidence/fixtures/model-evaluator/candidate-v2-smoke.json \

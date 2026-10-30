@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "identity": {
+    "engine": "granite-ctc",
+    "modelId": "ibm-granite/granite-speech-5.0-470m-turboctc",
+    "revision": null,
+    "assetDigest": "3d20c877a2764c504ed79c38598579f47cdb1f57b004af4b76ee0b4af3944d62",
+    "runtime": "onnxruntime-web@1.26.0",
+    "backend": "wasm"
+  },
+  "adapterModule": "./scripts/model-evaluator/adapters/candidate-browser.ts",
+  "adapterOptions": { "candidateId": "granite:turboctc-q4f16", "consentToDownload": false }
+}

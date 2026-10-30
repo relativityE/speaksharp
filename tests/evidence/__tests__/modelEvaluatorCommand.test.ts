@@ -43,7 +43,17 @@ it('retained CLI consumes independent declared pairs and writes raw rows/observe
   expect(report.declaredPopulation.trials).toBe(2);
   expect(report.baseline.results).toHaveLength(4);expect(report.candidate.results).toHaveLength(4);
   expect(report.candidate.observed.runtime).toBe('deterministic-test-double');
+  expect(report.candidate.results[0].score).toMatchObject({ok:true,path:'corpus',row:{wer:0}});
+  expect(report.adapterExecutionEvidence).toEqual({baseline:null,candidate:null});
   expect(report.acceptance.verdict).toBe('HOLD');expect(report.productPath).toBe('NOT_RUN');
+},25_000);
+it('retained CLI fails when successful decoding is followed by rejected shutdown',()=>{
+  const {status,report}=runControl({disposeFailure:true});
+  expect(report.candidate.results.every((row:{transcript:string|null})=>row.transcript==='hello world')).toBe(true);
+  expect(report.pairedEvidence.status).toBe('COMPLETE');
+  expect(report.acceptance).toMatchObject({verdict:'FAIL'});
+  expect(report.acceptance.reasons).toContain('adapter_execution_or_retirement_failed');
+  expect(status).toBe(1);
 },25_000);
 it('retained CLI keeps every decode failure and rejected disposal in the immutable report',()=>{
   const {report}=runControl({decodeFailure:true,disposeFailure:true});
