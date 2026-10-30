@@ -538,7 +538,7 @@ async function main() {
         // Stage 3: Testing
         if (!process.argv.includes('--skip-test')) {
             await runStage(3, "Test Execution", async (stage) => {
-                let unitFailed = false;
+                let unitFailure = null;
                 let e2eFailed = false;
                 try {
                     const { execSync } = await import('child_process');
@@ -551,6 +551,8 @@ async function main() {
                         } else if (impactOutput === 'ALL' || isFullMode) {
                             const s1 = Date.now();
                             fs.mkdirSync(path.join(rootDir, 'frontend', 'coverage'), { recursive: true });
+                            // Full local suite measured 2489.42s on the 8 GiB host; allow 44.6% headroom.
+                            // This bounds the aggregate only; individual test limits and other commands stay unchanged.
                             await runCommand('pnpm', [
                                 'exec',
                                 'vitest',
@@ -559,7 +561,7 @@ async function main() {
                                 '--coverage',
                                 '--coverage.reporter=json-summary',
                                 '--reporter=./scripts/vitest-ci-reporter.mjs'
-                            ], { label: 'UNIT' });
+                            ], { label: 'UNIT', timeout: 3600000 });
                             stage.addSubTask('unit-tests', Date.now() - s1);
                         } else if (impactOutput !== 'NONE') {
                             const s1 = Date.now();
@@ -582,7 +584,7 @@ async function main() {
                     } catch (err) {
                         if (!isInfraMode) {
                             console.error(`${ANSI.RED}[UNIT] Unit tests failed, but proceeding to E2E...${ANSI.RESET}`);
-                            unitFailed = true;
+                            unitFailure = err;
                         }
                     }
 
@@ -725,6 +727,10 @@ async function main() {
                             flakyTests: ciTelemetry.tests.playwright.flakyTests || []
                         };
                     }
+
+                    // Fresh all-pass task counts cannot override a rejected command or evidence check.
+                    // Preserve the original exit/timeout error for the stage failure and final audit.
+                    if (unitFailure) throw unitFailure;
 
                     if (e2eFailed) {
                       throw new Error('[CI] One or more E2E shards failed');
