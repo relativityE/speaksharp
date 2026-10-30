@@ -16,12 +16,16 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 FOCUS = ("harness/draft-adapters/focus-oracle.cjs", "FOCUS_ORACLE", "tests/node/focus-oracle-controls.test.cjs")
+POLICY = ("harness/draft-adapters/coaching-failure-policy.cjs", "COACHING_FAILURE_POLICY", "tests/node/coaching-failure-policy-controls.test.cjs")
 
 # control id -> (target, exact anchor, replacement). Ids keep the original M01-M11 numbering per correction.
 CONTROLS = {
+    "M01-allowlist-removed": (POLICY, "ERROR_CODE_ALLOWLIST.has(normalizeCode(rawCode))?", "true?"),
     "M02-sampler-no-marker-count": (FOCUS, "o.multiMarker.filter(m=>Array.isArray(m)&&Number.isInteger(m[1])&&m[1]>1)", "[]"),
     "M03-duplicates-ignored": (FOCUS, "else if(duplicates.length>0){result='FAIL';basis='duplicate-marker';}", ""),
     "M04-contradictions-ignored": (FOCUS, "else if(con.kinds.length>0){result='NOT RUN';basis='contradictory-state';}", ""),
+    "M05-latency-fallback": (POLICY, "respondedAt>=startedAt?Math.round(respondedAt-startedAt):null;",
+                             "respondedAt>=startedAt?Math.round(respondedAt-startedAt):(Number.isFinite(browserTimingMs)?Math.round(browserTimingMs):0);"),
 }
 SUMMARY = re.compile(r"^# (tests|fail) (\d+)$", re.M)
 
