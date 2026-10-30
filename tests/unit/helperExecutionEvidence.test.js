@@ -447,10 +447,15 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
         assert.deepEqual(receipt.unavailable.map(item=>item.file).sort(),unsupported.sort());
         assert.equal(receipt.tests.length,1);assert.equal(receipt.tests[0].helperFile,contract.helperFile);
         assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[contract.helperFile]);
-        const coverage=executionCoverage(changedEvidencePaths(f.directory,base),{root:f.directory,base,expected,execution:receipt});
-        assert.equal(coverage.rows.find(row=>row.file===contract.helperFile).status,'EXECUTED');
-        for(const file of [landing,source]) assert.equal(coverage.rows.find(row=>row.file===file).status,'NOT RUN');
-        assert.equal(coverage.status,'INCOMPLETE');
+        // Changed-test coverage binds the changed-evidence selection; a registered-helper receipt cannot stand in for it.
+        if(kind==='registered-helpers') {
+          assert.throws(()=>executionCoverage(changedEvidencePaths(f.directory,base),{root:f.directory,base,expected,execution:receipt}),/base\/kind/);
+        } else {
+          const coverage=executionCoverage(changedEvidencePaths(f.directory,base),{root:f.directory,base,expected,execution:receipt});
+          assert.equal(coverage.rows.find(row=>row.file===contract.helperFile).status,'EXECUTED');
+          for(const file of [landing,source]) assert.equal(coverage.rows.find(row=>row.file===file).status,'NOT RUN');
+          assert.equal(coverage.status,'INCOMPLETE');
+        }
         const forged=structuredClone(receipt);forged.unavailable=[];forged.status='executed';
         assert.throws(()=>validateVitestExecution(forged,expected,f.directory),/unsupported execution inventory/);
       }

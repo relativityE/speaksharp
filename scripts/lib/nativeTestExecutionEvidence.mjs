@@ -25,6 +25,10 @@ export const NATIVE_HELPERS=Object.freeze([
     callables:['assertRetentionOwners','cleanupOwnedRetentionFixture','observeRetentionOwnerRace',
       'ownedRetentionProcessIds','createRetentionLocalPeer','startOwnedRetentionFixture'],
     claim:'actual owner/cleanup/transport protocol guards only; native database NOT RUN'},
+  // Node's default type stripping blanks annotations in place, so V8 offsets index the .ts source itself.
+  {file:'tests/live/helpers/fixtureAudioStream.ts',consumer:'tests/live/helpers/fixtureAudioStream.node.test.mjs',
+    callables:['injectAlignedFixtureAudio','resetFixtureAudioToStart','getFixtureGetUserMediaCalls'],
+    claim:'actual harness state-machine callables with fake browser objects in node:vm; browser/audio/model NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {
@@ -40,7 +44,33 @@ export function nativeTestRoute(file,root) {
   if(SQL_INPUTS.includes(file))return {runner:'vitest-sql',consumer:SQL_CONSUMER,claim:'actual SQL consumed in PGlite fixture; native database NOT RUN'};
   if(/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file))return {runner:'deno',consumer:file};
   if(/\.test\.mjs$/.test(file)&&fs.existsSync(path.join(root,file))&&/\bfrom\s+['"]node:test['"]/.test(fs.readFileSync(regular(root,file),'utf8')))return {runner:'node-test',consumer:file};
+  // The reviewed cloud-test package only: its CommonJS controls run under node:test. A .cjs that never
+  // requires node:test has no runner and stays UNCOVERED rather than being credited by its filename.
+  if(/^tools\/cloud-test\/.*\.test\.cjs$/.test(file)&&fs.existsSync(path.join(root,file))
+    &&/\brequire\(\s*['"]node:test['"]\s*\)/.test(fs.readFileSync(regular(root,file),'utf8')))return {runner:'node-test',consumer:file};
   return null;
+}
+export const NATIVE_BATCH_SIZE=8,NATIVE_MAX_BATCHES=8;
+// One producer invocation executes one batch. The consumer recomputes the whole selection and requires
+// every batch exactly once, so a missing, extra, duplicated or moved contract cannot be credited.
+const contractKey=item=>[item.testFile,item.helperFile??null,item.fixtureFile??null,item.sourceFiles??null,
+  item.sqlFiles??null,item.consumerExecution??null];
+export function executionSelectionDigest(contracts) {
+  return hash(JSON.stringify(contracts.map(item=>[...contractKey(item),item.batch])));
+}
+export function executionBatchIdentity(contracts,index) {
+  return {index,count:Math.ceil(contracts.length/NATIVE_BATCH_SIZE),size:NATIVE_BATCH_SIZE,selectionSha256:executionSelectionDigest(contracts)};
+}
+export function reconcileExecutionBatches(receipts,contracts,lane) {
+  const count=Math.ceil(contracts.length/NATIVE_BATCH_SIZE);
+  if(!Array.isArray(receipts)||receipts.length!==Math.max(count,1))fail(`Wrong ${lane} execution batch inventory`);
+  receipts.forEach((receipt,index)=>{
+    if(JSON.stringify(receipt?.batch)!==JSON.stringify(executionBatchIdentity(contracts,index)))fail(`Wrong ${lane} execution batch identity`);
+    const expected=contracts.filter(item=>item.batch===index).map(contractKey);
+    const actual=(Array.isArray(receipt.tests)?receipt.tests:[]).map(contractKey);
+    if(expected.length>NATIVE_BATCH_SIZE||JSON.stringify(actual)!==JSON.stringify(expected))
+      fail(`Missing, extra or duplicate ${lane} contracts in batch ${index}`);
+  });
 }
 export function selectNativeContracts(root,files) {
   const tests=new Map();
@@ -52,8 +82,10 @@ export function selectNativeContracts(root,files) {
     tests.set(route.consumer,value);
   }
   const contracts=[...tests.values()].sort((a,b)=>a.testFile.localeCompare(b.testFile));
-  if(contracts.length>8)fail('NOT RUN: native execution budget exceeds 8 files');
-  return contracts;
+  // Each batch keeps the eight-file budget; the fixed ceiling refuses an unbounded selection rather than dropping files.
+  if(contracts.length>NATIVE_BATCH_SIZE*NATIVE_MAX_BATCHES)
+    fail(`NOT RUN: native execution exceeds ${NATIVE_MAX_BATCHES} batches of ${NATIVE_BATCH_SIZE} files`);
+  return contracts.map((contract,n)=>({...contract,batch:Math.floor(n/NATIVE_BATCH_SIZE)}));
 }
 function binary(name) {
   for(const directory of (process.env.PATH??'').split(path.delimiter)) {
@@ -239,9 +271,10 @@ export function nativeChildTracker(drain,{spawn=spawnSync}={}) {
     },
   };
 }
-function callableNodes(root,source,name) {
-  const require=createRequire(path.join(root,'package.json')),ts=require('typescript');
-  const parsed=ts.createSourceFile('evidence.mjs',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS),nodes=[];
+function callableNodes(root,source,name,file) {
+  const require=createRequire(path.join(root,'package.json')),ts=require('typescript'),typed=file.endsWith('.ts');
+  const parsed=ts.createSourceFile(typed?'evidence.ts':'evidence.mjs',source,ts.ScriptTarget.Latest,true,
+    typed?ts.ScriptKind.TS:ts.ScriptKind.JS),nodes=[];
   if(parsed.parseDiagnostics.length)fail('Invalid native helper syntax');
   const visit=node=>{
     if((ts.isFunctionDeclaration(node)||ts.isMethodDeclaration(node))&&node.name?.text===name&&node.body)nodes.push(node);
@@ -256,20 +289,32 @@ export function validateNativeCallables(raw,binding,root,helpers) {
   for(const file of helpers) {
     const contract=nativeHelper(file),source=fs.readFileSync(regular(root,file),'utf8');
     const url=pathToFileURL(path.join(binding.cwd,file)).href;
+    // Node 22 strip-only loading blanks types in place, then executes `${stripped}\n\n//# sourceURL=${url}`
+    // (lib/internal/modules/typescript.js processTypeScriptCode). Ranges are bounded by those exact bytes.
+    const executed=file.endsWith('.ts')?`${source}\n\n//# sourceURL=${url}`:source;
     const entries=raw.flatMap(report=>report.result??[]).filter(script=>script.url===url);
     if(!entries.length)fail('Missing actual native helper script coverage');
     for(const script of entries) {
       if(!Array.isArray(script.functions)||!script.functions.length)fail('Malformed raw native callable coverage');
       for(const fn of script.functions) {
-        if(typeof fn.functionName!=='string'||typeof fn.isBlockCoverage!=='boolean'||!Array.isArray(fn.ranges)||!fn.ranges.length
-          ||fn.ranges.some(range=>!Number.isSafeInteger(range.count)||range.count<0
-            ||!Number.isSafeInteger(range.startOffset)||!Number.isSafeInteger(range.endOffset)
-            ||range.startOffset<0||range.startOffset>=range.endOffset||range.endOffset>source.length
-            ||range.startOffset<fn.ranges[0].startOffset||range.endOffset>fn.ranges[0].endOffset))fail('Malformed raw native callable ranges/count');
+        // Same guard, named: the first failing predicate and its range are reported with bounded, content-free identity.
+        const shape=typeof fn.functionName!=='string'||typeof fn.isBlockCoverage!=='boolean'||!Array.isArray(fn.ranges)||!fn.ranges.length;
+        const predicate=range=>!Number.isSafeInteger(range.count)||range.count<0?'count'
+          :!Number.isSafeInteger(range.startOffset)||!Number.isSafeInteger(range.endOffset)||range.startOffset<0||range.startOffset>=range.endOffset?'offsets'
+          :range.endOffset>executed.length?'beyond-executed-length'
+          :range.startOffset<fn.ranges[0].startOffset||range.endOffset>fn.ranges[0].endOffset?'containment':null;
+        const bad=shape?null:fn.ranges.findIndex(range=>predicate(range));
+        if(shape||bad>=0) {
+          const range=shape?null:fn.ranges[bad];
+          fail(`Malformed raw native callable ranges/count: ${JSON.stringify({file,sourceSha256:hash(source),sourceLength:source.length,
+            executedLength:executed.length,node:binding.runtime?.version??null,function:typeof fn.functionName==='string'?fn.functionName||'<module>':null,
+            predicate:shape?'shape':predicate(range),rangeIndex:shape?null:bad,
+            range:range?[range.startOffset,range.endOffset,range.count]:null,outer:shape?null:[fn.ranges[0].startOffset,fn.ranges[0].endOffset]})}`);
+        }
       }
     }
     for(const name of contract.callables) {
-      const node=callableNodes(root,source,name);
+      const node=callableNodes(root,source,name,file);
       const matches=entries.flatMap(script=>script.functions??[]).filter(fn=>fn.functionName===name&&fn.ranges?.[0]?.count>0
         &&fn.ranges[0].startOffset>=node.getStart()&&fn.ranges[0].startOffset<=node.name.getStart()
         &&fn.ranges[0].endOffset===node.end);
@@ -290,7 +335,7 @@ export function validateSqlWitness(raw,binding,root) {
 }
 export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sourceCopyCommit,runId,environment,drain,children=nativeChildTracker(drain)}) {
   const runtime=nativeRuntime(root,contract.runner),coverageDirectory=fs.mkdtempSync(path.join(cwd,'.native-coverage-'));
-  const binding={phase:'native-execution',phaseId:randomUUID(),runId,provenance,cwd,testFile:contract.testFile,
+  const binding={phase:'native-execution',phaseId:randomUUID(),runId,provenance,cwd,testFile:contract.testFile,batch:contract.batch,
     inputSha256,sourceCopyCommit,runtime,coverageDirectory,repoLockSha256:hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))};
   if(contract.runner==='deno') {
     binding.syntheticSource=validateSyntheticSource(root,contract.testFile);
@@ -328,7 +373,7 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
 export function validateNativePhase(phase,{root,provenance,inputSha256,runId,contract}) {
   const b=phase?.binding;
   if(!b||b.phase!=='native-execution'||!b.phaseId||b.runId!==runId||!path.isAbsolute(b.cwd??'')
-    ||JSON.stringify(b.provenance)!==JSON.stringify(provenance)||b.testFile!==contract.testFile
+    ||JSON.stringify(b.provenance)!==JSON.stringify(provenance)||b.testFile!==contract.testFile||b.batch!==contract.batch
     ||b.inputSha256!==inputSha256||b.repoLockSha256!==hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))
     ||JSON.stringify(b.runtime)!==JSON.stringify(nativeRuntime(root,contract.runner))
     ||JSON.stringify(b.command)!==JSON.stringify(nativeCommand(b)))fail('Wrong native source/runtime/provenance/command binding');
@@ -351,13 +396,17 @@ export function validateWarmup(warmup,binding) {
     ||warmup.execution?.status!==0||warmup.execution.signal!==null||warmup.execution.error!==null
     ||warmup.execution.processCleanup?.status!=='drained')fail('Deno import warmup failed, stale, unowned or changed runtime/config/lock');
 }
-export function validateNativeReceipt(receipt,{root,provenance,inputSha256,files}) {
-  const selected=selectNativeContracts(root,files);
+export function validateNativeReceipt(receipts,{root,provenance,inputSha256,files}) {
+  const all=selectNativeContracts(root,files),list=Array.isArray(receipts)?receipts:[receipts];
+  reconcileExecutionBatches(list,all,'native');
+  const credited=new Set(),phases=new Set(),runs=new Set();
+  for(const receipt of list) {
+  const selected=all.filter(contract=>contract.batch===receipt.batch.index);
   if(receipt?.schemaVersion!==2||JSON.stringify(receipt.provenance)!==JSON.stringify(provenance)
     ||receipt.commit!==provenance.commit||receipt.tree!==provenance.tree||receipt.snapshotSha256!==provenance.snapshotSha256
-    ||!receipt.runId||!Array.isArray(receipt.tests)||receipt.tests.length!==selected.length
+    ||!receipt.runId||runs.has(receipt.runId)||!Array.isArray(receipt.tests)||receipt.tests.length!==selected.length
     ||receipt.status!==(selected.length?'executed':'not-applicable'))fail('Wrong native execution receipt inventory/provenance');
-  const credited=new Set(),phases=new Set();
+  runs.add(receipt.runId);
   for(let n=0;n<selected.length;n++) {
     const contract=selected[n],result=receipt.tests[n];
     if(result.testFile!==contract.testFile||result.testSha256!==hash(fs.readFileSync(regular(root,contract.testFile)))
@@ -366,6 +415,7 @@ export function validateNativeReceipt(receipt,{root,provenance,inputSha256,files
     if(files.includes(contract.testFile))credited.add(contract.testFile);
     for(const file of validated.helpers)credited.add(file);
     phases.add(result.phase.binding.phaseId);
+  }
   }
   return credited;
 }

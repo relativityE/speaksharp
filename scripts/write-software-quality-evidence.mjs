@@ -236,8 +236,14 @@ try {
   const provenance=executionContext(process.cwd());
   evidence.provenance=provenance;
   evidence.testEfficacy = runTestEfficacy({provenance});
-  evidence.testExecution = runVitestExecution({provenance});
-  evidence.nativeTestExecution=runNativeExecution({provenance});
+  // Each invocation executes one batch of at most eight; batch 0 reports how many batches the selection needs.
+  const everyBatch=run=>{
+    const receipts=[run({provenance,batch:0})];
+    for(let batch=1;batch<receipts[0].batch.count;batch++) receipts.push(run({provenance,batch}));
+    return receipts;
+  };
+  evidence.testExecution = everyBatch(runVitestExecution);
+  evidence.nativeTestExecution=everyBatch(runNativeExecution);
   const changed=changedEvidencePaths(process.cwd(),process.env.TEST_EFFICACY_BASE);
   evidence.playwrightExecution=collectPlaywrightExecution({root:process.cwd(),expected:provenance,
     requiredFiles:changed.filter(file=>/^tests\/e2e\/.+\.spec\.[jt]s$/.test(file))});
