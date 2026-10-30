@@ -97,6 +97,12 @@ jobs:
           echo "CT_CHROME=$CT_CHROME" >> "$GITHUB_ENV"
       - name: Verify the vendored reviewed harness against the approved hashes
         run: python3 -I tools/cloud-test/scripts/verify_harness.py --config tools/cloud-test/config/test-config.v1.json
+      # PO 2026-10-30 (option A): ubuntu-24.04 blocks unprivileged user namespaces through AppArmor, so the package's strict
+      # no-route clean-room proof (unshare -rn) cannot run. Re-enable them on this ephemeral runner only, then prove it works.
+      - name: Allow the clean-room network namespace on this ephemeral runner
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -rn true
       - name: Offline checks (package tests, report tests, workflow policy, integration proof on loopback)
         working-directory: tools/cloud-test
         env:
