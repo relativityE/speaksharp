@@ -121,6 +121,15 @@ class AssertionCatalog(unittest.TestCase):
         errs, _ = V.validate(r7(), bad, s["ledger"], s["wf"], fake_rv(), reconciliation(), None)
         self.assertTrue(any("could not be derived" in e for e in errs), errs)
 
+    def test_the_case_time_limits_in_the_config_equal_the_plan_builders(self):
+        # Current source invariant: never hidden by retained-history admission.
+        src = open(os.path.join(ROOT, "harness-adapter", "build_plan.py"), encoding="utf-8").read()
+        import re
+        m = re.search(r"MAXMS = \{([^}]*)\}", src, re.S)
+        builder = {int(k): int(v) for k, v in re.findall(r"(\d+):\s*(\d+)", m.group(1))}
+        cfg = sample()["cfg"]["modes"]["full"]["caseMaxMs"]
+        self.assertEqual({int(k.split("-")[1]): v for k, v in cfg.items()}, builder)
+
 
 @needs_history
 class DerivedBudget(unittest.TestCase):
@@ -176,14 +185,6 @@ class DerivedBudget(unittest.TestCase):
         caps = [s["runCap"] for s in self.b["sensitivity"]]
         self.assertEqual(caps, sorted(caps))
         self.assertEqual(len({s["upliftCap"] for s in self.b["sensitivity"]}), 3)
-
-    def test_the_case_time_limits_in_the_config_equal_the_plan_builders(self):
-        src = open(os.path.join(ROOT, "harness-adapter", "build_plan.py"), encoding="utf-8").read()
-        import re
-        m = re.search(r"MAXMS = \{([^}]*)\}", src, re.S)
-        builder = {int(k): int(v) for k, v in re.findall(r"(\d+):\s*(\d+)", m.group(1))}
-        cfg = sample()["cfg"]["modes"]["full"]["caseMaxMs"]
-        self.assertEqual({int(k.split("-")[1]): v for k, v in cfg.items()}, builder)
 
 
 class SeparateModeLimits(unittest.TestCase):
