@@ -17,6 +17,11 @@ HISTORY_BOUND = frozenset(("history-index-verified", "assertion-catalog-matches-
                            "case-costs-reconcile-to-sealed-ledgers", "offline-proof-index"))
 CURRENT_SOURCE = frozenset(("package-unit-tests", "report-builder-tests", "reservation-ledger-verified", "catalog-history-additive",
                             "harness-verified", "config-matches-workflow"))
+# The unittest suites whose own counts must prove a clean, non-empty run before the workflow counts as delivered.
+SUITES = ("package-unit-tests", "report-builder-tests")
+# unittest's closing status line after "Ran N tests": OK or FAILED, optionally with "key=value" counts in parentheses.
+STATUS = re.compile(r"^(OK|FAILED)(?: \(((?:[a-z ]+=\d+)(?:, [a-z ]+=\d+)*)\))?$")
+COUNT_KEYS = frozenset(("failures", "errors", "skipped", "expected failures", "unexpected successes"))
 # unittest's failure headers, including class-level fixtures such as "ERROR: setUpClass (module.Class)".
 FAILING = re.compile(r"^(?:ERROR|FAIL): (\w+ \([\w.]+\))", re.M)
 # A closed allowlist is the public type boundary (Sam 1793377141): only Python's built-in exception classes and these named
@@ -50,14 +55,48 @@ def _text(c):
     return str(c.get("stdout", "")) + "\n" + str(c.get("stderr", ""))
 
 
-def _counts(c):
+def _suite(c):
+    """The final unittest counts of a check, read strictly: {} when there is no "Ran N tests" line, or when the line after it is
+    not exactly unittest's OK/FAILED status with known counts (e.g. "NO TESTS RAN" or a truncated log)."""
     text = _text(c)
-    ran = re.findall(r"^Ran (\d+) tests?", text, re.M)
+    ran = list(re.finditer(r"^Ran (\d+) tests? in [\d.]+s$", text, re.M))
     if not ran:
         return {}
-    tail = text[text.rindex("Ran " + ran[-1]):]
-    got = lambda key: int((re.search(key + r"=(\d+)", tail) or [0, 0])[1])
-    return {"ran": int(ran[-1]), "failures": got("failures"), "errors": got("errors"), "skipped": got("skipped")}
+    rest = [ln for ln in text[ran[-1].end():].splitlines() if ln.strip()]
+    status = STATUS.match(rest[0]) if rest else None
+    if not status:
+        return {}
+    pairs = [p.split("=") for p in status.group(2).split(", ")] if status.group(2) else []
+    got = {k: int(v) for k, v in pairs}
+    unsuccessful = sum(got.get(k, 0) for k in ("failures", "errors", "unexpected successes"))
+    if len(got) != len(pairs) or not set(got) <= COUNT_KEYS or (status.group(1) == "OK") != (unsuccessful == 0):
+        return {}
+    return {"ran": int(ran[-1].group(1)), **{k: got.get(k, 0) for k in sorted(COUNT_KEYS)}}
+
+
+def _counts(c):
+    suite = _suite(c)
+    return {k: suite[k] for k in ("ran", "failures", "errors", "skipped")} if suite else {}
+
+
+def delivery_refusals(checks, rows, history):
+    """Every reason this result is not the delivered workflow (PO 2026-10-30 via Sam 1793398305: GitHub cloud-test passing with
+    NO skips). Empty means delivered. Reduced scope is truthfully reported elsewhere but is never delivery."""
+    if history != "required":
+        return ["REDUCED_SCOPE"]
+    refusals = ["NOT_APPLICABLE:" + r["id"] for r in rows if r["status"] == "N/A"]
+    refusals += ["FAILED:" + r["id"] for r in rows if r["status"] == "FAIL"]
+    for c in checks:
+        if c["id"] not in SUITES:
+            continue
+        suite = _suite(c)
+        if not suite:
+            refusals.append("COUNTS_MISSING:" + c["id"])
+        elif suite["ran"] == 0:
+            refusals.append("COUNTS_EMPTY:" + c["id"])
+        else:
+            refusals += ["%s:%s" % (k.upper().replace(" ", "_"), c["id"]) for k in sorted(COUNT_KEYS) if suite[k]]
+    return refusals
 
 
 def _status(c):
@@ -72,7 +111,7 @@ def summarize(result, history):
                "liveExecutionAuthorized": False,
                "steps": {"control-plane-pipeline": "NOT APPLICABLE" if reduced else "REQUIRED",
                          "preflight-attestation": "NOT APPLICABLE" if reduced else "REQUIRED"},
-               "resultValid": False, "overallPassed": False}
+               "resultValid": False, "delivered": False, "overallPassed": False}
 
     def fail(error):
         summary["error"] = error
@@ -117,7 +156,11 @@ def summarize(result, history):
     derived = all(r["status"] == "PASS" for r in rows if r["status"] != "N/A")
     if result.get("historyMode", "required") != history or (result.get("passed") is True) != derived:
         return fail("RESULT_INCONSISTENT")
-    summary.update(resultValid=True, overallPassed=derived)
+    # Required mode is the delivery: it passes only with no skip, error, failure, N/A or missing/empty suite count. Reduced mode
+    # keeps its truthful verdict and is never labelled delivered.
+    refusals = delivery_refusals(checks, rows, history)
+    summary.update(resultValid=True, delivered=not refusals, deliveryRefusals=refusals,
+                   overallPassed=derived and (reduced or not refusals))
     return summary
 
 
@@ -151,6 +194,8 @@ def main():
     else:
         print("offline checks: %d passed, %d failed, %d not applicable; reduced scope %s; overall %s"
               % (summary["passed"], summary["failed"], summary["notApplicable"], summary["reducedScope"], "PASS" if summary["overallPassed"] else "FAIL"))
+        print("delivery: " + ("DELIVERED (required mode, no skips)" if summary["delivered"]
+                              else "NOT DELIVERED: " + ", ".join(summary["deliveryRefusals"])))
     return 0 if summary["overallPassed"] else 1
 
 
