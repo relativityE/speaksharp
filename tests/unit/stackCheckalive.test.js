@@ -75,6 +75,19 @@ describe('per-run stack status from retained evidence, without probes', () => {
     expect(await f.component('sentry-api')).toMatchObject({ status: 'FAIL', operation: 'API_HEALTH' });
   });
 
+  it('holds an undated API failure as BLOCKED, while the same failure dated in-window surfaces as FAIL', async () => {
+    const undated = await fixture();
+    const data = ops('fail'); delete data.checks[0].checkedAt;
+    await undated.receipt('sentry-api', 'ops-health', data);
+    expect(await undated.component('sentry-api')).toMatchObject({ status: 'BLOCKED', reason: 'INVALID_OPERATION_TIMESTAMP' });
+    expect((await undated.collect()).status).toBe('BLOCKED');
+    const dated = await fixture();
+    await dated.receipt('sentry-api', 'ops-health', ops('fail', '2026-10-29T22:55:00Z'));
+    expect(await dated.component('sentry-api')).toMatchObject({ status: 'FAIL', operation: 'API_HEALTH',
+      observedUtc: '2026-10-29T22:55:00Z', reason: 'PRODUCER_NON_SUCCESS' });
+    expect((await dated.collect()).status).toBe('FAIL');
+  });
+
   it('accepts the existing bound readback shape without demanding counts for repeatable families', async () => {
     const f = await fixture();
     const row = await f.receipt('posthog-ingestion', 'telemetry-readback', readback());
