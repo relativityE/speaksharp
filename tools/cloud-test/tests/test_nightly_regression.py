@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-from _fixtures import ROOT, J, run_py, sample, wjson, needs_history
+from _fixtures import ROOT, J, run_py, sample, wjson
 from _nightly import CATALOG, SHA, history, make_run, request, utc
 import check_coverage as CC
 import check_gates as CG
@@ -140,7 +140,6 @@ class OtherAlertKinds(unittest.TestCase):
         self.assertEqual(a["kind"], "NEW-FAILURE")
         self.assertIsNone(a["lastKnownGood"])
 
-    @needs_history
     def test_the_sealed_history_gives_real_alerts_for_r5(self):
         out = DA.derive(J("config", "test-config.v1.json"), os.path.join(ROOT, "config", "history", "receipts"), "R5", {"fullLiveRun": False, "kind": "PARTIAL", "statement": "92 of 204 required rows executed", "reasons": ["partial"], "missing": []})
         kinds = sorted(a["kind"] for a in out["alerts"])
@@ -150,7 +149,6 @@ class OtherAlertKinds(unittest.TestCase):
 
 
 class RetainedHistory(unittest.TestCase):
-    @needs_history
     def test_the_shipped_index_verifies_and_is_pinned(self):
         cfg = J("config", "test-config.v1.json")
         idx = J("config", "history", "index.json")
@@ -229,7 +227,6 @@ class AdditiveCatalog(unittest.TestCase):
         c = copy.deepcopy(CATALOG); mutate(c)
         return c
 
-    @needs_history
     def test_the_shipped_history_is_additive_and_current(self):
         self.assertEqual(VC.verify(VC.load_snapshots(os.path.join(ROOT, "config", "history", "catalogs")), CATALOG, 1, J("config", "history", "index.json")), [])
 
@@ -253,7 +250,6 @@ class AdditiveCatalog(unittest.TestCase):
         errs = VC.verify(self.snaps(), c2, 1)
         self.assertTrue(any("freeze a new version" in e for e in errs), errs)
 
-    @needs_history
     def test_history_is_judged_against_the_catalog_of_its_own_time(self):
         """R5 stays 92 of 204 however large the catalog grows: its index entry was recorded against v1 and is never recomputed against v2."""
         idx = J("config", "history", "index.json")
@@ -266,7 +262,6 @@ class AdditiveCatalog(unittest.TestCase):
         self.assertEqual(newer["rowsRequired"], 205)
         self.assertEqual(idx["entries"][3]["summary"]["rowsTotal"], 204)
 
-    @needs_history
     def test_an_indexed_run_with_an_unknown_catalog_version_is_refused(self):
         idx = copy.deepcopy(J("config", "history", "index.json")); idx["entries"][3]["catalogVersion"] = 7
         self.assertTrue(VC.verify(self.snaps(), CATALOG, 1, idx))
@@ -325,7 +320,6 @@ class StandingApprovalOfRecurringCost(unittest.TestCase):
         old = {"entries": [{"summary": {"kind": "run", "requests": used, "identityReads": 5, "endedUtc": "2026-10-20T03:40:00Z"}}]}
         self.assertEqual(self.gate(index=old)["status"], "READY", "usage before the period start does not count")
 
-    @needs_history
     def test_the_nightly_request_is_valid_and_a_partial_nightly_is_not(self):
         s = self.s
         from _fixtures import fake_rv, reconciliation
@@ -345,7 +339,6 @@ class StandingApprovalOfRecurringCost(unittest.TestCase):
         self.assertEqual(st["G11"], "OWNER-INPUT-OPEN")
         self.assertEqual(out["decision"], "NO-GO")
 
-    @needs_history
     def test_the_proposal_is_derived_flagged_and_keeps_unknown_costs_unknown(self):
         from _fixtures import reconciliation
         budget = json.load(open(os.path.join(ROOT, "FULL-COVERAGE-BUDGET.json"))) if os.path.exists(os.path.join(ROOT, "FULL-COVERAGE-BUDGET.json")) else None

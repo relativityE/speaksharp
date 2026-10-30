@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import unittest
 
-from _fixtures import ROOT, fake_rv, run_py, sample, wjson, needs_history
+from _fixtures import ROOT, fake_rv, run_py, sample, wjson
 import derive_ledger as DL
 import verify_receipts as VRC
 
@@ -35,7 +35,6 @@ def writable(d):
             os.chmod(os.path.join(r, f), 0o644)
 
 
-@needs_history
 class SealedReceipts(unittest.TestCase):
     def setUp(self):
         self.cfg = sample()["cfg"]
@@ -134,7 +133,6 @@ class AutomaticComparison(unittest.TestCase):
     def test_no_journey_is_claimed_improved_or_regressed_for_r5_against_r4c(self):
         self.assertEqual(self.out["classes"]["journeys"], {"improved": 0, "regressed": 0, "unchanged": 5, "inconclusive": 10})
 
-    @needs_history
     def test_inconsistent_latest_receipts_are_flagged_and_never_close_a_gap(self):
         """A forged or inconsistent latest PASS (campaign report and case receipt disagree) is reported as a receipt problem and cannot close a gap."""
         d = tempfile.mkdtemp(prefix="ct-forge-")
@@ -193,7 +191,6 @@ class DerivedLedger(unittest.TestCase):
         self.assertEqual(g["priorFail"]["run"], "R4C")
         self.assertIn("denial-truthful-no-mic", g["priorFail"]["what"])
 
-    @needs_history
     def test_evidence_references_carry_the_sha256_of_the_sealed_file(self):
         g = self.gaps["GAP-03"]
         ev = [e for e in g["priorFail"]["evidence"] if e["file"].endswith(".json")]
