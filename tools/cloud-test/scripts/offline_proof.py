@@ -21,6 +21,19 @@ CORR=[
 ]
 TAP_LINE=re.compile(r'^(not )?ok \d+ - (.*?)(?:\s+#\s*(SKIP|TODO)\b.*)?$',re.I)
 SHA256=re.compile(r'^[0-9a-f]{64}$')
+NOT_OK=re.compile(r'^\s*not ok\b')
+BAIL_OUT=re.compile(r'^\s*Bail out!')
+
+def stream_failures(files):
+    """Failures and bail-outs counted from the raw stream, independently of title extraction (Sam 1793380213): an untitled,
+    nested or otherwise unparsed 'not ok', and any 'Bail out!', fail the proof."""
+    out={'notOk':0,'bailOuts':0}
+    for f in files:
+        with open(f) as fh:
+            for l in fh:
+                out['notOk']+=bool(NOT_OK.match(l))
+                out['bailOuts']+=bool(BAIL_OUT.match(l))
+    return out
 
 def tap(files):
     """Every occurrence is kept: a title passes only if each occurrence is a plain ok; SKIP/TODO is never a pass."""
@@ -35,7 +48,7 @@ def tap(files):
     duplicated=sorted(t for t,v in seen.items() if len(v)>1)
     return results,conflicting,duplicated
 
-def build(results,conflicting,duplicated,mut,pc,manifest):
+def build(results,conflicting,duplicated,mut,pc,manifest,stream=None):
     rows=[];ok=True;refusals=[]
     for cid,title,pats,ms in CORR:
         tests=[]
@@ -43,7 +56,8 @@ def build(results,conflicting,duplicated,mut,pc,manifest):
             hit=[(t,r) for t,r in results.items() if re.search(p,t)]
             if not hit: tests.append({'pattern':p,'title':None,'result':'MISSING'})
             for t,r in hit: tests.append({'title':t[:160],'result':r})
-        muts=[{'control':k,'caught':isinstance(v,dict) and isinstance(v.get('fail'),int) and v['fail']>0,'failingTests':v.get('fail') if isinstance(v,dict) else None}
+        # type() is int, not isinstance(): JSON true/false are bools, never a count of failing tests.
+        muts=[{'control':k,'caught':isinstance(v,dict) and type(v.get('fail')) is int and v['fail']>0,'failingTests':v.get('fail') if isinstance(v,dict) else None}
               for k,v in mut.items() if any(k.startswith(m+'-') for m in ms)]
         missing=[m for m in ms if not any(x['control'].startswith(m+'-') for x in muts)]
         good=bool(tests) and all(t['result']=='PASS' for t in tests) and not missing and all(m['caught'] for m in muts)
@@ -56,6 +70,10 @@ def build(results,conflicting,duplicated,mut,pc,manifest):
     if failed: refusals.append('TAP titles not passed: %d' % len(failed))
     if conflicting: refusals.append('conflicting TAP titles: %d' % len(conflicting))
     if duplicated: refusals.append('duplicated TAP titles: %d' % len(duplicated))
+    if stream is None: refusals.append('TAP stream not scanned for failures and bail-outs')
+    else:
+        if stream.get('notOk'): refusals.append('TAP not-ok lines: %d' % stream['notOk'])
+        if stream.get('bailOuts'): refusals.append('TAP bail-outs: %d' % stream['bailOuts'])
     if not isinstance(manifest,str) or not SHA256.match(manifest): refusals.append('code manifest is not a sha256')
     ok=ok and not refusals
     return {'schema':'speaksharp.offline-proof.v1','corrections':rows,'distinctTestTitlesPassed':sum(1 for v in results.values() if v=='PASS'),
@@ -81,7 +99,7 @@ def main():
     results,conflicting,duplicated=tap(x.tap)
     with open(x.mutations) as fm, open(x.plan_controls) as fp:
         mut,pc=json.load(fm),json.load(fp)
-    doc=build(results,conflicting,duplicated,mut,pc,x.code_manifest_sha256)
+    doc=build(results,conflicting,duplicated,mut,pc,x.code_manifest_sha256,stream=stream_failures(x.tap))
     problem=harness_provenance(x.code_manifest_sha256,x.config) if SHA256.match(x.code_manifest_sha256) else None
     if problem:
         doc['refusals'].append(problem);doc['result']='FAIL'

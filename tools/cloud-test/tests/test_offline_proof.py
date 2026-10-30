@@ -29,9 +29,9 @@ PLAN = {"positive-full": "ACCEPTED", "negative-unbound": "REFUSED: unbound plan"
 
 def complete(**over):
     results = {t: "PASS" for t in titles()}
-    args = dict(results=results, conflicting=[], duplicated=[], mut=controls(), pc=dict(PLAN), manifest="a" * 64)
+    args = dict(results=results, conflicting=[], duplicated=[], mut=controls(), pc=dict(PLAN), manifest="a" * 64, stream={"notOk": 0, "bailOuts": 0})
     args.update(over)
-    return P.build(args["results"], args["conflicting"], args["duplicated"], args["mut"], args["pc"], args["manifest"])
+    return P.build(args["results"], args["conflicting"], args["duplicated"], args["mut"], args["pc"], args["manifest"], stream=args["stream"])
 
 
 class Build(unittest.TestCase):
@@ -56,7 +56,7 @@ class Build(unittest.TestCase):
                 doc = complete(mut=mut)
                 self.assertFails(doc, "missing " + m)
                 self.assertIn(m, next(r for r in doc["corrections"] if r["id"] == cid)["missingControls"])
-                for bad in ({"fail": 0}, {"fail": "2"}, {}, "caught"):
+                for bad in ({"fail": True}, {"fail": False}, {"fail": 0}, {"fail": -1}, {"fail": 2.0}, {"fail": "2"}, {}, "caught"):
                     mut = dict(controls(), **{m + "-x": bad})
                     self.assertFails(complete(mut=mut), "uncaught or malformed " + m)
 
@@ -76,6 +76,11 @@ class Build(unittest.TestCase):
         for r in ("FAIL", "SKIP"):
             results = dict({k: "PASS" for k in titles()}, **{"Z9 an unrelated test": r})
             self.assertFails(complete(results=results), r)
+
+    def test_stream_failures_and_bail_outs_fail_and_an_unscanned_stream_never_passes(self):
+        self.assertFails(complete(stream={"notOk": 1, "bailOuts": 0}), "not ok")
+        self.assertFails(complete(stream={"notOk": 0, "bailOuts": 1}), "bail out")
+        self.assertFails(complete(stream=None), "unscanned")
 
     def test_duplicates_conflicts_and_a_bad_manifest_fail(self):
         self.assertFails(complete(conflicting=["D1 x"]), "conflict")
@@ -101,6 +106,14 @@ class Tap(unittest.TestCase):
             self.assertEqual(results["D1 alpha"], "FAIL", order)
             self.assertEqual((conflicting, duplicated), (["D1 alpha"], ["D1 alpha"]))
 
+    def test_untitled_nested_and_bail_out_lines_are_counted_from_the_stream(self):
+        d = tempfile.mkdtemp()
+        f = os.path.join(d, "t.tap")
+        Path(f).write_text("ok 1 - D1 alpha\nnot ok 99\n    not ok 2 - nested subtest\nnot ok\nBail out! harness crashed\n")
+        self.assertEqual(P.stream_failures([f]), {"notOk": 3, "bailOuts": 1})
+        results, _, _ = P.tap([f])
+        self.assertEqual(results, {"D1 alpha": "PASS"})  # the titled parser alone would have seen only a pass
+
     def test_a_repeated_title_is_reported(self):
         results, conflicting, duplicated = self.parse("ok 1 - D1 alpha", "ok 2 - D1 alpha")
         self.assertEqual((results["D1 alpha"], conflicting, duplicated), ("PASS", [], ["D1 alpha"]))
@@ -125,6 +138,15 @@ class Cli(unittest.TestCase):
             i = full.index(flag)
             r = self.run_cli(*(full[:i] + full[i + 2:]))
             self.assertEqual(r.returncode, 2, flag)
+
+    def test_otherwise_complete_evidence_fails_on_an_untitled_failure_or_a_bail_out(self):
+        common = ["--mutations", self.mut, "--plan-controls", self.pc, "--code-manifest-sha256", MANIFEST, "--out", self.out]
+        for extra in ("not ok 99\n", "Bail out! the harness stopped\n"):
+            bad = os.path.join(self.d, "bad.tap")
+            Path(bad).write_text(Path(self.tap).read_text() + extra)
+            r = self.run_cli("--tap", bad, *common)
+            self.assertEqual(r.returncode, 1, extra)
+            self.assertEqual(json.loads(Path(self.out).read_text())["result"], "FAIL", extra)
 
     def test_only_the_pinned_verified_harness_can_be_proven(self):
         common = ["--tap", self.tap, "--mutations", self.mut, "--plan-controls", self.pc, "--out", self.out]
