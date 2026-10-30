@@ -186,7 +186,7 @@ class FullPlanProof(unittest.TestCase):
         self.assertEqual(p["selection"]["ids"], ["AHT-%02d" % n for n in range(1, 16)])
         self.assertEqual([c["id"] for c in p["cases"]], ["AHT-%02d" % n for n in range(1, 16)])
         self.assertTrue(all(c["driverSha256"] and c["configSha256"] and c["maxMs"] > 0 for c in p["cases"]))
-        self.assertEqual(p["sourceSha"], TESTED)
+        self.assertEqual(p["sourceSha"], RECEIVING_SOURCE)
 
     def test_assertions_are_the_catalogs_204_and_no_case_is_a_minimal_sample(self):
         total = 0
