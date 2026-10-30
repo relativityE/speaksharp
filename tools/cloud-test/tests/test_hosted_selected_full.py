@@ -300,7 +300,7 @@ class HostedSelectedFull(unittest.TestCase):
         self.assertIn("NOT_INFERRED_FROM_EXIT", receipt)
         self.assertTrue((self.root / "pending-reconciliation.json").exists())
 
-    def test_uncertain_run_launch_still_attempts_collect_without_inventing_exit(self):
+    def test_uncertain_run_launch_suppresses_collect_without_inventing_exit(self):
         calls = []
 
         def child(stage, *_):
@@ -311,10 +311,12 @@ class HostedSelectedFull(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             self.execute(child)
-        self.assertEqual(calls[-2:], ["run", "collect"])
+        self.assertEqual(calls[-1], "run")
+        self.assertNotIn("collect", calls)
         out = self.root / ("attempt-" + self.request["runId"])
         receipt = json.loads((out / "entrypoint-receipt.json").read_text())
-        self.assertEqual(receipt["stages"][-2], {"stage": "run", "exit": None})
+        self.assertEqual(receipt["stages"][-1], {"stage": "run", "exit": None})
+        self.assertTrue(receipt["collectionSuppressedForUnprovenGroupCleanup"])
 
     def test_forbidden_credentials_refuse_and_missing_run_credential_stops(self):
         self.env["STRIPE_SECRET_KEY"] = "SYNTHETIC"
@@ -465,6 +467,44 @@ class HostedSelectedFull(unittest.TestCase):
         receipt = json.loads((self.root / ("attempt-" + self.request["runId"]) / "entrypoint-receipt.json").read_text())
         self.assertTrue(receipt["collectionSuppressedForUnprovenGroupCleanup"])
         self.assertTrue((self.root / "pending-reconciliation.json").exists())
+
+    def denied_signal_control(self, denied):
+        calls, observed_error = [], None
+        fake_child = mock.Mock(pid=123456)
+        fake_child.wait.return_value = 0
+        def delivery(_pgid, signum):
+            if signum == denied:
+                raise PermissionError("synthetic denied owned signal")
+        def stage(name, *_):
+            calls.append(name)
+            if name == "run":
+                h.stop_owned_group(fake_child, grace=0)
+            return 0
+        with mock.patch.object(h.os, "killpg", side_effect=delivery), \
+                mock.patch.object(h, "wait_group_gone", return_value=False):
+            try:
+                self.execute(stage)
+            except Exception as error:
+                observed_error = error
+        self.assertNotIn("collect", calls, "denied signal cannot leave cleanup_safe true")
+        self.assertIsInstance(observed_error, h.CleanupUnproven)
+        out = self.root / ("attempt-" + self.request["runId"])
+        receipt = json.loads((out / "entrypoint-receipt.json").read_text())
+        self.assertTrue(receipt["collectionSuppressedForUnprovenGroupCleanup"])
+        self.assertEqual(receipt["stages"][-1]["exit"], None)
+        self.assertTrue((self.root / "pending-reconciliation.json").exists())
+
+    def test_denied_term_never_collects_or_succeeds(self):
+        self.denied_signal_control(h.signal.SIGTERM)
+
+    def test_denied_kill_never_collects_or_succeeds(self):
+        self.denied_signal_control(h.signal.SIGKILL)
+
+    def test_reaping_oserror_is_cleanup_unproven(self):
+        fake_child = mock.Mock(pid=123456)
+        fake_child.wait.side_effect = OSError("synthetic denied reap")
+        with mock.patch.object(h.os, "killpg"), self.assertRaises(h.CleanupUnproven):
+            h.stop_owned_group(fake_child, grace=0)
 
 
 if __name__ == "__main__":

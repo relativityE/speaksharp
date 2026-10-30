@@ -254,24 +254,29 @@ def wait_group_gone(pgid, seconds):
     return True
 
 
-def stop_owned_group(child, grace=5):
-    # A Bash leader exiting does not mean its Node/browser descendants exited.
+def signal_owned_group(child, signum):
     try:
-        os.killpg(child.pid, signal.SIGTERM)
+        os.killpg(child.pid, signum)
     except ProcessLookupError:
         pass
+    except OSError:
+        raise CleanupUnproven("OWNED_SIGNAL_DELIVERY_UNPROVEN") from None
+
+
+def stop_owned_group(child, grace=5):
+    # A Bash leader exiting does not mean its Node/browser descendants exited.
+    signal_owned_group(child, signal.SIGTERM)
     try:
         child.wait(timeout=grace)
     except subprocess.TimeoutExpired:
         pass
+    except OSError:
+        raise CleanupUnproven("OWNED_LEADER_REAP_UNPROVEN") from None
     if not wait_group_gone(child.pid, grace):
-        try:
-            os.killpg(child.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        signal_owned_group(child, signal.SIGKILL)
     try:
         child.wait(timeout=2)
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, OSError):
         raise CleanupUnproven("OWNED_LEADER_REAP_UNPROVEN") from None
     if not wait_group_gone(child.pid, 2):
         raise CleanupUnproven("OWNED_GROUP_STILL_PRESENT_AFTER_KILL")
@@ -298,11 +303,11 @@ def invoke_stage(stage, env, out, timeout):
                 return 78  # forced descendant cleanup cannot turn a stage green
             return code
         except subprocess.TimeoutExpired:
+            signal_owned_group(child, signal.SIGKILL)
             try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            child.wait()
+                child.wait(timeout=2)
+            except (subprocess.TimeoutExpired, OSError):
+                raise CleanupUnproven("OWNED_LEADER_REAP_UNPROVEN") from None
             if not wait_group_gone(child.pid, 2):
                 raise CleanupUnproven("OWNED_GROUP_STILL_PRESENT_AFTER_KILL")
             return 124
@@ -354,8 +359,10 @@ def execute(root, manifest_sha, env=None, now=None, run_stage=None):
                 child_env = child_environment(stage, config, env, paths, out, request)
                 result = {"stage": stage, "exit": None}
                 results.append(result)
+                cleanup_safe = False  # every exceptional launch/exit is unsafe until proven
                 code = execute_child(stage, child_env, out, remaining)
                 result["exit"] = code
+                cleanup_safe = True  # invoke_stage returns only after owned-group proof
                 if code != 0:
                     break
         except CleanupUnproven:
