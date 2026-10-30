@@ -63,24 +63,23 @@ test('edited-take helper maps only to its exact protocol test and refuses source
   }finally{f.clean();}
 });
 
-test('typed fixture-audio helper credits all six harness callables from stripped-TS V8 offsets only',()=>{
+test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS V8 offsets',()=>{
   const helper=NATIVE_HELPERS.find(item=>item.file==='tests/live/helpers/fixtureAudioStream.ts');
   assert.equal(helper.consumer,'tests/live/helpers/fixtureAudioStream.node.test.mjs');
   assert.match(helper.claim,/fake browser objects in node:vm; browser\/audio\/model NOT RUN/);
   assert.equal(nativeTestRoute(helper.file,root).runner,'node-test-helper');
   assert.equal(nativeTestRoute('tests/live/helpers/otherAudioStream.ts',root),null);
   const names=helper.callables;
-  const f=fixture(`import test from 'node:test'; import assert from 'node:assert/strict';
-    import {${names.join(',')}} from '../live/helpers/fixtureAudioStream.ts';
-    test('all registered harness callables execute',async()=>{
-      assert.deepEqual(await Promise.all([${names.map(name=>`${name}({n:1})`).join(',')}]),[1,2,3,4,5,6]);
-    });`);
+  assert.deepEqual(names,['injectAlignedFixtureAudio','resetFixtureAudioToStart','getFixtureGetUserMediaCalls']);
+  const f=fixture();
   try {
     fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
-    f.write(helper.file,"import type {Page} from '@playwright/test';\ninterface State {n: number}\n"
-      +names.map((name,n)=>`export async function ${name}(page: State, timeoutMs: number = 1): Promise<number> {return page.n+${n}+timeoutMs-1;}\n`).join(''));
+    // Use the real repository bytes: synthetic exports/consumers hid the missing route in #1762.
+    for(const file of [helper.file,helper.consumer])f.write(file,fs.readFileSync(path.join(root,file)));
+    f.contract.testFile=helper.consumer;
     f.contract.helpers=[helper.file];
     const phase=f.run();
+    assert.ok(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract}).counts.assertions>0);
     assert.deepEqual(validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),[helper.file]);
     // Witness of the hosted runtime's executed bytes: the module range ends exactly after Node's sourceURL suffix.
     const source=fs.readFileSync(path.join(f.dir,helper.file),'utf8'),url=pathToFileURL(path.join(phase.binding.cwd,helper.file)).href;
@@ -88,7 +87,7 @@ test('typed fixture-audio helper credits all six harness callables from stripped
       .flatMap(script=>script.functions).filter(fn=>fn.functionName==='');
     assert.deepEqual([...new Set(modules.map(fn=>fn.ranges[0].endOffset))],[`${source}\n\n//# sourceURL=${url}`.length]);
     for(const change of [
-      rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName===names[5])for(const range of fn.ranges)range.count=0;},
+      rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName===names.at(-1))for(const range of fn.ranges)range.count=0;},
       rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName==='')fn.ranges[0].endOffset++;},
       rows=>{for(const report of rows)for(const script of report.result)script.url=script.url.replace('fixtureAudioStream.ts','fixtureAudioStream.js');},
       rows=>{for(const report of rows)for(const script of report.result)script.functions=script.functions.filter(fn=>fn.functionName==='');},

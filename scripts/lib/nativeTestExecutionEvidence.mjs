@@ -27,8 +27,7 @@ export const NATIVE_HELPERS=Object.freeze([
     claim:'actual owner/cleanup/transport protocol guards only; native database NOT RUN'},
   // Node's default type stripping blanks annotations in place, so V8 offsets index the .ts source itself.
   {file:'tests/live/helpers/fixtureAudioStream.ts',consumer:'tests/live/helpers/fixtureAudioStream.node.test.mjs',
-    callables:['injectAlignedFixtureAudio','playFixtureAudioOnce','readFixturePlaybackState','resetFixtureAudioToStart',
-      'disposeFixtureAudio','waitForFixtureAudioEnd'],
+    callables:['injectAlignedFixtureAudio','resetFixtureAudioToStart','getFixtureGetUserMediaCalls'],
     claim:'actual harness state-machine callables with fake browser objects in node:vm; browser/audio/model NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
