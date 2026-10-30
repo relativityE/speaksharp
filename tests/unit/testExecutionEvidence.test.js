@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {createHash,randomUUID} from 'node:crypto';
-import {execFileSync,spawnSync} from 'node:child_process';
+import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
   changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase,
@@ -1016,7 +1016,13 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
 }
 
 if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
-  test('INSTALLED Vitest: nine changed tests run as two actual batches through the writer and reconcile only when complete',()=>{
+  // Asynchronous spawn keeps the worker's event loop free: this file's synchronous writer runs approach Vitest's 60 s RPC limit.
+  const runAsync=(command,args,options)=>new Promise(resolve=>{
+    const child=spawn(command,args,options);let stdout='',stderr='',error;
+    child.stdout.setEncoding('utf8').on('data',chunk=>{stdout+=chunk;});child.stderr.setEncoding('utf8').on('data',chunk=>{stderr+=chunk;});
+    child.on('error',cause=>{error=cause;});child.on('close',(status,signal)=>resolve({error,status,signal,stdout,stderr}));
+  });
+  test('INSTALLED Vitest: nine changed tests run as two actual batches through the writer and reconcile only when complete',async()=>{
     runtimeIdentity(root);
     const {dir,write,git,file,passing}=executionFixture(true);
     const evidenceFile=path.join(dir,'product_release/evidence/software-quality.latest.json');
@@ -1024,10 +1030,10 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
     files.forEach((name,n)=>write(name,passing.replace('changed non-pilot computes','changed non-pilot '+n+' computes')));
     try {
       const head=git(['rev-parse','HEAD']);
-      const result=spawnSync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{cwd:dir,encoding:'utf8',timeout:600000,
+      const result=await runAsync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{cwd:dir,timeout:600000,
         env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_SHA:head,GITHUB_RUN_ID:'901',GITHUB_RUN_ATTEMPT:'3',
           TEST_EFFICACY_BASE:head,SOFTWARE_QUALITY_INVOCATION:randomUUID(),NODE_V8_COVERAGE:''}});
-      assert.equal(result.error,undefined);assert.equal(result.status,0,result.stderr);
+      assert.equal(result.error,undefined);assert.equal(result.signal,null);assert.equal(result.status,0,result.stderr);
       const evidence=JSON.parse(fs.readFileSync(evidenceFile,'utf8'));
       assert.deepEqual(evidence.testExecution.map(receipt=>[receipt.batch.index,receipt.batch.count,receipt.tests.length]),[[0,2,8],[1,2,1]]);
       assert.deepEqual(evidence.testExecution.flatMap(receipt=>receipt.tests.map(item=>item.testFile)),files);
@@ -1040,7 +1046,7 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
         assert.throws(()=>readCurrentQuality(evidenceFile,evidence.provenance,dir,head),/batch|Inconsistent|Duplicate|contracts/,name);
       }
     } finally {fs.rmSync(dir,{recursive:true,force:true});}
-  });
+  },600000);
 
   test('INSTALLED Vitest: weakening a registered assertion fails the actual writer and thin report, then restores GREEN',()=>{
     const {dir,write,git}=executionFixture(true);
