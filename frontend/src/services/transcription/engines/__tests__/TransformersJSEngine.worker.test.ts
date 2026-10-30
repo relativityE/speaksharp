@@ -204,14 +204,19 @@ describe('TransformersJSEngine worker message contract', () => {
         expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'transcribe',
-                decodeOptions: {
+                decodeOptions: expect.objectContaining({
+                    chunk_length_s: expect.any(Number),
+                    stride_length_s: expect.any(Number),
+                    return_timestamps: true,
                     condition_on_previous_text: false,
                     compression_ratio_threshold: 2.4,
-                },
+                }),
             }),
             expect.any(Array),
         );
 
+        const sent = fakeWorkerInstances[0]?.postMessage.mock.calls.find(([request]) => request.type === 'transcribe')?.[0];
+        expect(sent?.decodeOptions).not.toHaveProperty('unsafe_option');
         await engine.destroy();
     });
 

@@ -52,6 +52,7 @@ vi.mock('../../engines/PrivateSTT', () => {
         transcribe: mocks.transcribe,
         start: mocks.engineStart,
         stop: mocks.engineStop,
+        getMetadata: vi.fn().mockReturnValue({ candidateId: 'v2:base.en', engineVersion: 'private_v2', modelName: 'base.en', deviceType: 'browser' }),
         getEngineType: vi.fn().mockReturnValue('transformers-js')
     }));
     return {

@@ -193,6 +193,13 @@ function getConfiguredPrivateEngine(): PrivateEngineType {
  *  app-path proof's first-text window so the v2 re-transcribe still fits inside it. */
 const V4_AUTO_DECODE_TIMEOUT_MS = 40_000;
 
+interface EngineLifetime {
+    generation: number;
+    release?: Promise<Error | null>;
+    /** Undefined while release is unconfirmed; null only after successful termination. */
+    outcome?: Error | null;
+}
+
 export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscriptionEngine {
     public readonly type: EngineType = 'transformers-js'; // Primary type for this facade
 
@@ -204,7 +211,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     private selection: EffectiveSelection | null = null;
     /** Init owns these before adoption; teardown must reach their acquisition cancellation now. */
     private readonly acquiringEngines = new Set<IPrivateSTTEngine>();
-    private readonly engineReleases = new WeakMap<IPrivateSTTEngine, Promise<Error | null>>();
+    private readonly engineReleases = new WeakMap<IPrivateSTTEngine, EngineLifetime>();
     // True ONLY when the AUTO (flag) path successfully initialized v4. Gates the
     // decode-time fallback to v2-base; the strict explicit-override path never sets it.
 
@@ -415,26 +422,31 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // #1635: a destroy during this await nulls `this.engine` (and disposes it); keep our own reference.
             const injected = this.engine;
             validateEngine(injected);
-            const initResult = await injected.init(timeoutMs, isMock);
-            // #1635: the teardown that cancelled us owns this engine's release and reports its outcome; it may still
-            // be pending or fail, so this init never claims the engine was released.
-            if (this.acquisitionCancelled(generation)) return Result.err(this.cancelledInitError(false));
-            const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
-            if (!isOk) {
-                const error = (initResult ? (initResult as { error?: Error }).error : undefined)
-                    || new Error('Injected private engine failed to initialize');
-                logger.warn({ error }, '[PrivateSTT] Injected engine failed to initialize.');
-                // #1635: released through the recording path. An injected child is not assumed to carry its own sticky
-                // protection: a failed release is recorded on THIS facade, and the uncertain engine is never re-invoked.
-                const releaseFailure = await this.releaseEngine(injected);
-                if (releaseFailure) {
-                    if (this.engine === injected) this.engine = null;
-                    return Result.err(new Error(`${error.message}; releasing the injected engine FAILED (release uncertain): ${releaseFailure.message}`));
+            const lifetime = this.beginEngineAcquisition(injected, generation);
+            try {
+                const initResult = await injected.init(timeoutMs, isMock);
+                // #1635: the teardown that cancelled us owns this engine's release and reports its outcome; it may still
+                // be pending or fail, so this init never claims the engine was released.
+                if (this.acquisitionCancelled(generation)) return Result.err(this.cancelledInitError(false));
+                const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
+                if (!isOk) {
+                    const error = (initResult ? (initResult as { error?: Error }).error : undefined)
+                        || new Error('Injected private engine failed to initialize');
+                    logger.warn({ error }, '[PrivateSTT] Injected engine failed to initialize.');
+                    // #1635: released through the recording path. An injected child is not assumed to carry its own sticky
+                    // protection: a failed release is recorded on THIS facade, and the uncertain engine is never re-invoked.
+                    const releaseFailure = await this.releaseEngine(injected, lifetime);
+                    if (releaseFailure) {
+                        if (this.engine === injected) this.engine = null;
+                        return Result.err(new Error(`${error.message}; releasing the injected engine FAILED (release uncertain): ${releaseFailure.message}`));
+                    }
+                    return { isOk: false, error };
                 }
-                return { isOk: false, error };
+                this._engineType = injected.type;
+                return Result.ok(undefined);
+            } finally {
+                if (this.engineReleases.get(injected) === lifetime) this.acquiringEngines.delete(injected);
             }
-            this._engineType = injected.type;
-            return Result.ok(undefined);
         }
 
         // EXPLICIT OVERRIDE PATH (programmatic forceEngine only):
@@ -740,25 +752,40 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         this.selection = null;
     }
 
-    /**
-     * #1635: release an engine through its supported teardown contract; returns the failure, never swallows it.
-     * A failed release is also STICKY: whichever path it happened on, the facade refuses every later init.
-     */
-    private async releaseEngine(engine: IPrivateSTTEngine): Promise<Error | null> {
-        // An acquisition settling during teardown shares that exact release result, including failure.
-        const existing = this.engineReleases.get(engine);
-        if (existing) return existing;
+    /** Open a new ownership lifetime, including static registry objects returned after successful cleanup. */
+    private beginEngineAcquisition(engine: IPrivateSTTEngine, generation: number): EngineLifetime {
+        const previous = this.engineReleases.get(engine);
+        if (previous?.release && previous.outcome !== null) {
+            throw new Error('[PrivateSTT] previous child release is unconfirmed; refusing reinitialization');
+        }
+        // A static registry may return the same object for a NEW lifetime. Its previous successful
+        // release is not proof that the newly initialized worker is off. Old continuations retain
+        // their own lifetime below, so they cannot terminate or untrack this replacement.
+        const lifetime: EngineLifetime = { generation };
+        this.engineReleases.set(engine, lifetime);
+        this.acquiringEngines.add(engine);
+        return lifetime;
+    }
+
+    /** Share cleanup within this lifetime. Failed or pending cleanup never authorizes reacquisition. */
+    private async releaseEngine(engine: IPrivateSTTEngine,
+        lifetime: EngineLifetime = this.engineReleases.get(engine) ?? { generation: this.lifecycleGeneration },
+    ): Promise<Error | null> {
+        if (!this.engineReleases.has(engine)) this.engineReleases.set(engine, lifetime);
+        if (lifetime.release) return lifetime.release;
         const release = Promise.resolve().then(async () => {
             try {
                 await engine.terminate();
+                lifetime.outcome = null;
                 return null;
             } catch (error) {
                 const failure = error instanceof Error ? error : new Error(String(error));
+                lifetime.outcome = failure;
                 this.recordReleaseFailure(failure);
                 return failure;
             }
         });
-        this.engineReleases.set(engine, release);
+        lifetime.release = release;
         return release;
     }
 
@@ -779,10 +806,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * A different previous engine is retired first; ownership is rechecked after that await, and an engine
      * adopted meanwhile by a newer owner is never destroyed here.
      */
-    private async adoptEngine(engine: IPrivateSTTEngine, generation: number): Promise<Result<void, Error>> {
+    private async adoptEngine(engine: IPrivateSTTEngine, generation: number,
+        lifetime: EngineLifetime = this.engineReleases.get(engine) ?? { generation },
+    ): Promise<Result<void, Error>> {
         // A failed cleanup is never reported as a release: the error says the release is UNCERTAIN.
         const release = async (): Promise<Result<void, Error>> => {
-            const failure = await this.releaseEngine(engine);
+            const failure = await this.releaseEngine(engine, lifetime);
             return Result.err(failure
                 ? new Error(`[PrivateSTT] init cancelled, and releasing the acquired engine FAILED (release uncertain): ${failure.message}`)
                 : this.cancelledInitError(true));
@@ -792,7 +821,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // cleanup failed): refuse to adopt, and dispose only this init's own candidate.
         const retained = this.retainedReleaseFailure();
         if (retained) {
-            const candidateFailure = await this.releaseEngine(engine);
+            const candidateFailure = await this.releaseEngine(engine, lifetime);
             return Result.err(new Error(`[PrivateSTT] a previous engine release FAILED (release uncertain): ${retained.message}`
                 + (candidateFailure ? `; releasing the new engine also FAILED: ${candidateFailure.message}` : '; the new engine was released')));
         }
@@ -807,7 +836,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             if (retireFailure) {
                 // The replacement is refused: the facade cannot claim a clean hand-over from an engine whose
                 // release failed. The new candidate is released too, and both outcomes are reported.
-                const candidateFailure = await this.releaseEngine(engine);
+                const candidateFailure = await this.releaseEngine(engine, lifetime);
                 // Readiness was already cleared when the retirement began; only the init that still OWNS the facade
                 // could change it, and after these awaits a destroy and a newer, successful init may have taken over.
                 // Both failures are sticky (releaseEngine), so no later init can acquire an engine on this facade.
@@ -1181,6 +1210,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     private async initDescriptorEngine(kind: 'moonshine-streaming' | 'granite-ctc' | 'parakeet-tdt', timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
         const options = this.options as TranscriptionModeOptions;
         let engine: IPrivateSTTEngine | undefined;
+        let lifetime: EngineLifetime | undefined;
         try {
             const candidate = this.resolvedSelection().candidate;
             if (candidate.engine !== kind) {
@@ -1196,22 +1226,24 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // Registry lookup first, so tests drive the real facade without a 318 MB download.
             engine = await constructPrivateEngine(kind, candidate, options);
             if (this.acquisitionCancelled(generation)) {
+                const current = this.engineReleases.get(engine);
+                if (current && current.generation > generation) return { isOk: false, error: this.cancelledInitError(false) };
                 const failure = await this.releaseEngine(engine);
                 return { isOk: false, error: failure ?? this.cancelledInitError(true) };
             }
-            this.acquiringEngines.add(engine);
+            lifetime = this.beginEngineAcquisition(engine, generation);
 
             validateEngine(engine as unknown as IPrivateSTTEngine);
             assertEngineCanDecode(engine, kind);
             const result = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
             if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
-                const releaseFailure = await this.releaseEngine(engine);
+                const releaseFailure = await this.releaseEngine(engine, lifetime);
                 if (releaseFailure) return { isOk: false, error: new Error(
                     `${result.error.message}; releasing ${kind} failed (release uncertain): ${releaseFailure.message}`,
                 ) };
                 return { isOk: false, error: (result as { error: Error }).error };
             }
-            const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation);
+            const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation, lifetime);
             if (!adopted.isOk) return { isOk: false, error: adopted.error };
             // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
             if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
@@ -1223,12 +1255,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return { isOk: true, data: kind };
         } catch (error) {
             if (engine) {
-                const failure = await this.releaseEngine(engine);
+                const failure = await this.releaseEngine(engine, lifetime);
                 if (failure) return { isOk: false, error: new Error(`Descriptor init failed; release uncertain: ${failure.message}`) };
             }
             return { isOk: false, error: error instanceof Error ? error : new Error(String(error)) };
         } finally {
-            if (engine) this.acquiringEngines.delete(engine);
+            if (engine && this.engineReleases.get(engine) === lifetime) this.acquiringEngines.delete(engine);
         }
     }
 
@@ -1253,38 +1285,41 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 ? { v4Variant: this.runtimePath?.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT } : {}),
         };
         let engine: IPrivateSTTEngine | undefined;
+        let lifetime: EngineLifetime | undefined;
         try {
             engine = await constructPrivateEngine(kind, candidate, options);
             if (this.acquisitionCancelled(generation)) {
+                const current = this.engineReleases.get(engine);
+                if (current && current.generation > generation) return { isOk: false, error: this.cancelledInitError(false) };
                 const failure = await this.releaseEngine(engine);
                 return { isOk: false, error: failure
                     ? new Error(`Whisper init cancelled; release uncertain: ${failure.message}`)
                     : this.cancelledInitError(true) };
             }
             // Teardown must reach a child whose worker is still loading, before adoption.
-            this.acquiringEngines.add(engine);
+            lifetime = this.beginEngineAcquisition(engine, generation);
             const result = await engine.init(timeoutMs, isMock);
             if (result && result.isOk === false) {
-                const failure = await this.releaseEngine(engine);
+                const failure = await this.releaseEngine(engine, lifetime);
                 return { isOk: false, error: failure
                     ? new Error(`${result.error.message}; releasing ${kind} failed (release uncertain): ${failure.message}`)
                     : result.error };
             }
-            const adopted = await this.adoptEngine(engine, generation);
+            const adopted = await this.adoptEngine(engine, generation, lifetime);
             if (!adopted.isOk) return { isOk: false, error: adopted.error };
             if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
             this._engineType = kind;
             return { isOk: true, data: kind };
         } catch (error) {
             if (engine) {
-                const failure = await this.releaseEngine(engine);
+                const failure = await this.releaseEngine(engine, lifetime);
                 if (failure) return { isOk: false, error: new Error(
                     `Whisper init failed: ${error instanceof Error ? error.message : String(error)}; release uncertain: ${failure.message}`,
                 ) };
             }
             return { isOk: false, error: error instanceof Error ? error : new Error(String(error)) };
         } finally {
-            if (engine) this.acquiringEngines.delete(engine);
+            if (engine && this.engineReleases.get(engine) === lifetime) this.acquiringEngines.delete(engine);
         }
     }
 

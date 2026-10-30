@@ -479,13 +479,25 @@ export interface ResolvedRuntimeState {
  */
 export function candidateForRuntime(state: ResolvedRuntimeState): CandidateId {
     const { engineType, variant, decoderDtype } = state;
-    const matches = Object.values(CANDIDATES).filter((candidate) =>
-        candidate.engine === engineType
-        && candidate.execution.variant === (variant ?? null)
-        && (decoderDtype == null || candidate.model.dtype?.decoder_model_merged === decoderDtype));
+    const registered = Object.values(CANDIDATES);
+    const variantMatches = registered.filter((candidate) =>
+        candidate.engine === engineType && candidate.execution.variant === (variant ?? null));
+    // A resolved decoder override may select a sibling precision, but cannot change model,
+    // checkpoint or runtime family. An unknown variant never establishes that family.
+    const matches = decoderDtype == null ? variantMatches : registered.filter((candidate) =>
+        candidate.model.dtype?.decoder_model_merged === decoderDtype
+        && variantMatches.some((requested) =>
+            candidate.engine === requested.engine
+            && candidate.execution.family === requested.execution.family
+            && candidate.model.id === requested.model.id
+            && candidate.model.revision === requested.model.revision
+            && candidate.model.export?.repository === requested.model.export?.repository
+            && candidate.model.export?.revision === requested.model.export?.revision
+            && candidate.runtime.package === requested.runtime.package
+            && candidate.runtime.version === requested.runtime.version));
     if (matches.length === 1) return matches[0].id;
     throw new UnknownCandidateError(
-        `runtime identity has ${matches.length} registered matches for ${JSON.stringify(state)}; refusing to attribute by guess`,
+        `runtime identity has ${matches.length} registered matches for ${JSON.stringify(state)}; refusing to attribute the session to a default precision`,
     );
 }
 

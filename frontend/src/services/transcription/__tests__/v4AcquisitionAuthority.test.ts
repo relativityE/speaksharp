@@ -67,7 +67,7 @@ const V4_MODEL = { MODEL_ID: 'onnx-community/distil-small.en', DTYPE: {} };
 const deliver = (msg: unknown) => engine.handleWorkerMessage(msg, V4_MODEL);
 
 beforeEach(() => {
-    engine = new TransformersJSV4Engine({} as never) as unknown as V4Private;
+    engine = new TransformersJSV4Engine({ v4Variant: 'distil_q4' } as never) as unknown as V4Private;
     engine.activeLoadRequestId = 1;
     engine.pendingWorkerRequests = new Map([[1, {}]]);
     engine.acquisitionReceipt = null;
@@ -99,6 +99,7 @@ describe('#1259 the v4 worker REQUEST carries what the worker needs', () => {
         let sent: { assetPrefixes?: string[]; attempt?: { token: string; candidateId: string } } | null = null;
         engine.sendWorkerRequest = vi.fn(async (r) => {
             sent = r as typeof sent;
+            deliver({ id: 1, type: 'loaded', model: V4_MODEL.MODEL_ID, device: 'wasm', loadTimeMs: 5 });
             return { id: 1, type: 'ready' };
         });
         await engine.initWorker(true, V4_MODEL);

@@ -1,3 +1,4 @@
+import parakeetWorkerUrl from './parakeet/parakeet.worker.ts?worker&url';
 import type { IPrivateSTTEngine, PrivateRuntimeEvidence } from '@/contracts/IPrivateSTTEngine';
 import logger from '@/lib/logger';
 import type { Result, TranscriptionModeOptions } from '../modes/types';
@@ -94,7 +95,7 @@ export class ParakeetTdtEngine implements IPrivateSTTEngine {
             if (generation !== this.generation || abort.signal.aborted) throw new Error('Parakeet initialization cancelled');
             this.runtimeUrl = URL.createObjectURL(new Blob([files[this.options.profile.runtimeBundleFile] as BlobPart],
                 { type: 'text/javascript' }));
-            const worker = new Worker(new URL('./parakeet/parakeet.worker.ts', import.meta.url), { type: 'module' });
+            const worker = new Worker(parakeetWorkerUrl, { type: 'module' });
             this.worker = worker;
             worker.onmessage = ({ data }: MessageEvent<ParakeetWorkerReply>) => {
                 if (this.worker !== worker || generation !== this.generation) return;

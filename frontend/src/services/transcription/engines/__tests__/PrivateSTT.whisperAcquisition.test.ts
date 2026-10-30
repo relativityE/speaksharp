@@ -155,6 +155,53 @@ describe.each([
         expect(first.loading).toBe(false);
     });
 
+    it('a reused static child has fresh shutdown proof and waits for its current retirement', async () => {
+        const { facade, first, factory } = mount(kind, candidateId);
+        factory.mockImplementation(() => first);
+        first.load.resolve(Result.err(new Error('CACHE_MISS')));
+        expect((await initialize(facade)).isOk).toBe(false);
+        expect(first.onDestroy).toHaveBeenCalledOnce();
+        first.beginLoad.mockImplementationOnce(() => {
+            first.loading = true;
+            return Promise.resolve(Result.ok(undefined));
+        });
+        expect((await initialize(facade)).isOk).toBe(true);
+        const release = deferred<void>();
+        first.onDestroy.mockImplementationOnce(async () => { await release.promise; first.loading = false; });
+        let settled = false;
+        const retiring = facade.terminate().then(() => { settled = true; });
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        const settledBeforeCurrentRelease = settled;
+        const callsBeforeCurrentRelease = first.onDestroy.mock.calls.length;
+        release.resolve(undefined);
+        await retiring;
+        expect(settledBeforeCurrentRelease).toBe(false);
+        expect(callsBeforeCurrentRelease).toBe(2);
+        expect(first.loading).toBe(false);
+    });
+
+    it('an old continuation cannot release or untrack a new pending lifetime of the same object', async () => {
+        const { facade, first, factory } = mount(kind, candidateId);
+        factory.mockImplementation(() => first);
+        const old = initialize(facade);
+        await first.entered.promise;
+        await facade.terminate();
+        const newLoad = deferred<Result<void, Error>>();
+        first.beginLoad.mockImplementationOnce(() => { first.loading = true; return newLoad.promise; });
+        const fresh = initialize(facade);
+        await vi.waitFor(() => expect(first.beginLoad).toHaveBeenCalledTimes(2));
+        first.load.resolve(Result.ok(undefined));
+        expect((await old).isOk).toBe(false);
+        expect(first.onDestroy).toHaveBeenCalledOnce();
+        expect(first.loading).toBe(true);
+        await facade.terminate();
+        const releasedNewLifetime = first.onDestroy.mock.calls.length;
+        newLoad.resolve(Result.ok(undefined));
+        expect((await fresh).isOk).toBe(false);
+        expect(releasedNewLifetime).toBe(2);
+        expect(first.loading).toBe(false);
+    });
+
     it.each(['rejection', 'result failure'] as const)('retains and reports uncertain release after init %s', async (outcome) => {
         const { facade, first, second, factory } = mount(kind, candidateId);
         first.onDestroy.mockRejectedValueOnce(new Error('worker release stuck'));

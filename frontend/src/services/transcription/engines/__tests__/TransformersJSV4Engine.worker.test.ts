@@ -31,6 +31,7 @@ vi.mock('@huggingface/transformers', () => ({
         INFO: 'info',
     },
 }));
+vi.mock('../../capabilitySnapshot', () => ({ captureCapabilities: vi.fn(async () => Object.freeze({ webgpuAvailable: true, capturedAt: '2026-10-30T00:00:00Z', reason: 'detected' })) }));
 vi.mock('posthog-js', () => ({ default: { isFeatureEnabled: vi.fn() } }));
 
 type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-error';
@@ -38,13 +39,14 @@ type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-err
 let fakeWorkerMode: FakeWorkerMode = 'ready';
 // When set, the fake worker emits a 'loaded' message (carrying this resolved device) before 'ready',
 // exactly like the real worker — so we can assert the engine publishes window.__PRIVATE_V4_RUNTIME__.
-let fakeLoadedDevice: string | null = null;
+let fakeLoadedDevice: string | null = 'requested';
+let fakeLoadedModel: string | null = null;
 const fakeWorkerInstances: FakeWorker[] = [];
 
 class FakeWorker {
     onmessage: ((event: MessageEvent) => void) | null = null;
     onerror: ((event: ErrorEvent) => void) | null = null;
-    postMessage = vi.fn((message: { id: number; type: string }) => {
+    postMessage = vi.fn((message: { id: number; type: string; model?: string; device?: string; decodeOptions?: unknown }) => {
         if (fakeWorkerMode === 'silent') return;
 
         queueMicrotask(() => {
@@ -83,7 +85,7 @@ class FakeWorker {
 
             if (message.type === 'init' && fakeLoadedDevice) {
                 this.onmessage?.({
-                    data: { id: message.id, type: 'loaded', loadTimeMs: 5, model: 'onnx-community/whisper-base.en', device: fakeLoadedDevice },
+                    data: { id: message.id, type: 'loaded', loadTimeMs: 5, model: fakeLoadedModel ?? message.model, device: fakeLoadedDevice === 'requested' ? message.device ?? 'wasm-default' : fakeLoadedDevice },
                 } as MessageEvent);
             }
 
@@ -113,7 +115,8 @@ describe('TransformersJSV4Engine worker message contract', () => {
         mockPipeline.mockReset();
         window.localStorage.clear();
         fakeWorkerMode = 'ready';
-        fakeLoadedDevice = null;
+        fakeLoadedDevice = 'requested';
+        fakeLoadedModel = null;
         delete (window as typeof window & { __PRIVATE_V4_RUNTIME__?: unknown }).__PRIVATE_V4_RUNTIME__;
         fakeWorkerInstances.length = 0;
         vi.stubGlobal('Worker', FakeWorker);
@@ -341,14 +344,19 @@ describe('TransformersJSV4Engine worker message contract', () => {
         expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'transcribe',
-                decodeOptions: {
+                decodeOptions: expect.objectContaining({
+                    chunk_length_s: expect.any(Number),
+                    stride_length_s: expect.any(Number),
+                    return_timestamps: true,
                     condition_on_previous_text: false,
                     compression_ratio_threshold: 2.4,
-                },
+                }),
             }),
             expect.any(Array),
         );
 
+        const sent = fakeWorkerInstances[0]?.postMessage.mock.calls.find(([request]) => request.type === 'transcribe')?.[0];
+        expect(sent?.decodeOptions).not.toHaveProperty('unsafe_option');
         await engine.destroy();
     });
 
@@ -388,6 +396,18 @@ describe('TransformersJSV4Engine worker message contract', () => {
         expect(transcribeOptions).not.toHaveProperty('unsafe_option');
 
         await engine.destroy();
+    });
+
+    it.each(['missing', 'wrong-model', 'wrong-backend'] as const)('refuses ready with %s runtime evidence', async (mode) => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        if (mode === 'missing') fakeLoadedDevice = null;
+        if (mode === 'wrong-model') fakeLoadedModel = 'unrequested/model';
+        if (mode === 'wrong-backend') fakeLoadedDevice = 'webgpu';
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4', evaluatorBackend: 'wasm' } as never);
+        try {
+            expect((await engine.init()).isOk).toBe(false);
+        } finally { await engine.destroy(); }
     });
 
     it('publishes window.__PRIVATE_V4_RUNTIME__ with the resolved WASM device/backend on worker load', async () => {

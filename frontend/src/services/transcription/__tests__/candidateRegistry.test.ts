@@ -232,10 +232,16 @@ describe('a PROVIDER-ONLY identity check cannot separate the v4 candidates', () 
         expect(() => candidateForRuntime({ engineType: V4, variant: 'base_q9' })).toThrow(UnknownCandidateError);
     });
 
-    it('refuses conflicting variant and decoder precision rather than attributing another model', () => {
-        expect(() => candidateForRuntime({ engineType: V4, variant: 'base_q4', decoderDtype: 'int8' }))
-            .toThrow(UnknownCandidateError);
+    it('attributes a resolved precision override only within its registered model/runtime family', () => {
+        expect(candidateForRuntime({ engineType: V4, variant: 'base_q4', decoderDtype: 'int8' }))
+            .toBe('v4:base:int8');
+        expect(candidateForRuntime({ engineType: V4, variant: 'base_int8', decoderDtype: 'q4' }))
+            .toBe('v4:base:q4');
         expect(() => candidateForRuntime({ engineType: V4, variant: 'distil_q4', decoderDtype: 'int8' }))
+            .toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime({ engineType: V4, variant: 'base_q4', decoderDtype: 'fp32' }))
+            .toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime({ engineType: V4, variant: 'unknown', decoderDtype: 'int8' }))
             .toThrow(UnknownCandidateError);
     });
 
