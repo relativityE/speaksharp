@@ -4,7 +4,7 @@ const {Ledger,Guard,failConnection,startGuard,validatePolicy}=require('../harnes
 const {validateSecurityApproval}=require('../harness/approval-gate.cjs');
 const {operationDigest}=require('../harness/fault-contract.cjs');
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
-function temp(t){const d=fs.mkdtempSync(path.join(os.tmpdir(),'ss-rev3-unit-'));fs.chmodSync(d,0o700);t.after(()=>fs.rmSync(d,{recursive:true,force:true}));return d;}
+function temp(t){const d=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'ss-rev3-unit-')));fs.chmodSync(d,0o700);t.after(()=>fs.rmSync(d,{recursive:true,force:true}));return d;}
 test('ledger reserves cumulative caps before caller can send and never refunds',t=>{const f=path.join(temp(t),'ledger.json');let l=new Ledger(f,{total:2,coaching:1});assert.equal(l.tryReserve(['total','coaching','total']),null);assert.deepEqual(JSON.parse(fs.readFileSync(f)).used,{total:1,coaching:1});assert.equal(l.tryReserve(['total','coaching']),'coaching');assert.equal(l.state.used.total,1);l.release();l=new Ledger(f,{total:2,coaching:1});assert.equal(l.tryReserve(['total']),null);assert.equal(l.tryReserve(['total']),'total');l.release();assert.equal(fs.statSync(f).mode&0o777,0o600);});
 test('ledger lock denies concurrent and stale ambiguous owners',t=>{const f=path.join(temp(t),'l');const l=new Ledger(f,{total:1});assert.throws(()=>new Ledger(f,{total:1}),/locked/);l.release();fs.writeFileSync(f+'.lock','99999999');assert.throws(()=>new Ledger(f,{total:1}),/locked/);});
 test('ledger caps cannot silently change across runs',t=>{const f=path.join(temp(t),'l');const l=new Ledger(f,{total:1});l.tryReserve(['total']);l.release();assert.throws(()=>new Ledger(f,{total:2}),/mismatch/);assert.equal(fs.existsSync(f+'.lock'),false);});
@@ -26,6 +26,9 @@ const binding={id:'unit-fault',mode:'request-lost',host:'a.test',method:'POST',p
 test('integrated matcher does not consume a different operation',()=>{const f={...binding,selected:false,fired:false};const o={faults:[f],log(){},durableLog(){}};assert.equal(Guard.prototype.matchFault.call(o,'a.test','POST','/save',Buffer.from('{}')),undefined);assert.equal(f.selected,false);assert.equal(Guard.prototype.matchFault.call(o,'a.test','POST','/save',body),f);assert.equal(f.selected,true);assert.equal(f.fired,false);assert.equal(Guard.prototype.matchFault.call(o,'a.test','POST','/save',body),undefined);});
 test('response-lost arm refuses absent or wrong independent oracle',()=>{const o={opts:{},faults:[],log(){}};assert.throws(()=>Guard.prototype.armFault.call(o,{...binding,mode:'response-lost'}),/HARNESS_LIMITED/);o.opts.readbackOracle={sha256:'b'.repeat(64),sourceId:'unit-readback',readback(){}};assert.throws(()=>Guard.prototype.armFault.call(o,{...binding,mode:'response-lost'}),/HARNESS_LIMITED/);});
 function readbackHarness(t,transport,caps={total:4,read:4}) {
+ // These controls test transport/cap ownership, not host fsync performance.
+ // Keep real abort timers; move Date explicitly in the deadline control below.
+ t.mock.timers.enable({apis:['Date'],now:Date.now()});
  const file=path.join(temp(t),'ledger');const ledger=new Ledger(file,caps);t.after(()=>ledger.release());
  const logs=[];const o={policy:{testOnly:true,hosts:{'a.test':{rules:[{id:'read',methods:['GET'],path:'^/rows$',cap:'read'}]}},caps,maxInFlight:1,queueWaitMs:5,requestTimeoutMs:40},opts:{offlineOnly:true,offlineReadbackTransport:transport},ledger,active:0,waiters:[],inFlight:new Map(),deadline:Date.now()+1000,closing:false,c:{attempted:0,forwarded:0,completed:0,inFlightMax:0,outcomes:{}},log(e){logs.push(e);return logs.length;},pathRef(p){return sha(p);},slot:Guard.prototype.slot,releaseSlot:Guard.prototype.releaseSlot};return {o,ledger,logs};
 }
@@ -34,4 +37,12 @@ test('independent readback exhausted cap sends nothing',async t=>{let calls=0;co
 test('independent readback path/host policy denial sends nothing',async t=>{let calls=0;const h=readbackHarness(t,async()=>{calls++;});await assert.rejects(Guard.prototype.readbackRequest.call(h.o,{url:'https://b.test/rows',boundHost:'a.test'}),/target/);await assert.rejects(Guard.prototype.readbackRequest.call(h.o,{url:'https://a.test/not-rows',boundHost:'a.test'}),/policy/);assert.equal(calls,0);assert.equal(h.ledger.state.reservations,0);});
 test('independent readback abort retains reservation and releases ownership',async t=>{const h=readbackHarness(t,()=>new Promise(()=>{}));const controller=new AbortController();const p=Guard.prototype.readbackRequest.call(h.o,{url:'https://a.test/rows',boundHost:'a.test',signal:controller.signal});setTimeout(()=>controller.abort(),5);await assert.rejects(p,/unavailable/);assert.equal(h.ledger.state.reservations,1);assert.equal(h.o.active,0);assert.equal(h.o.inFlight.size,0);});
 test('independent readback never follows redirect response',async t=>{let calls=0;const h=readbackHarness(t,async()=>{calls++;return {status:302,complete:true,body:Buffer.from('')};});const r=await Guard.prototype.readbackRequest.call(h.o,{url:'https://a.test/rows',boundHost:'a.test'});assert.equal(calls,1);assert.equal(r.status,302);assert.equal(r.receipt.redirectsFollowed,0);});
+test('reservation crossing the request deadline stays spent and sends no readback',async t=>{
+ let calls=0;const h=readbackHarness(t,async()=>{calls++;return {status:200,complete:true,body:Buffer.from('[]')};});
+ const reserve=h.ledger.tryReserve.bind(h.ledger);
+ h.ledger.tryReserve=keys=>{const result=reserve(keys);t.mock.timers.tick(41);return result;};
+ await assert.rejects(Guard.prototype.readbackRequest.call(h.o,{url:'https://a.test/rows',boundHost:'a.test'}),/readback deadline/);
+ assert.equal(calls,0);assert.equal(h.ledger.state.reservations,1);
+ assert.equal(h.o.active,0);assert.equal(h.o.inFlight.size,0);assert.equal(h.o.c.forwarded,0);
+});
 test('offline transport cannot substitute into a live policy',async t=>{let calls=0;const h=readbackHarness(t,async()=>{calls++;});h.o.policy.testOnly=false;await assert.rejects(Guard.prototype.readbackRequest.call(h.o,{url:'https://a.test/rows',boundHost:'a.test'}),/unavailable/);assert.equal(calls,0);});
