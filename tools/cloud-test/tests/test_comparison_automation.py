@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import unittest
 
-from _fixtures import ROOT, fake_rv, run_py, sample, wjson
+from _fixtures import ROOT, fake_rv, run_py, sample, wjson, needs_history
 import derive_ledger as DL
 import verify_receipts as VRC
 
@@ -46,12 +46,14 @@ class SealedReceipts(unittest.TestCase):
         writable(d)
         return os.path.join(d, label)
 
+    @needs_history
     def test_the_four_sealed_sets_verify_against_their_pinned_hashes(self):
         for lab, pin in self.pin.items():
             errs, n = VRC.verify_set(os.path.join(RECEIPTS, lab), pin)
             self.assertEqual(errs, [], lab)
             self.assertGreater(n, 0)
 
+    @needs_history
     def test_a_changed_receipt_fails(self):
         b = self.copy_set("R5")
         with open(os.path.join(b, "AHT-12", "case-result.json"), "a") as f:
@@ -59,16 +61,19 @@ class SealedReceipts(unittest.TestCase):
         errs, _ = VRC.verify_set(b, self.pin["R5"])
         self.assertTrue(any("changed: AHT-12/case-result.json" in e for e in errs), errs)
 
+    @needs_history
     def test_an_added_receipt_fails(self):
         b = self.copy_set("R5")
         open(os.path.join(b, "AHT-12", "extra.json"), "w").write("{}")
         self.assertTrue(any("unlisted file" in e for e in VRC.verify_set(b, self.pin["R5"])[0]))
 
+    @needs_history
     def test_a_removed_receipt_fails(self):
         b = self.copy_set("R5")
         os.remove(os.path.join(b, "AHT-12", "case-result.json"))
         self.assertTrue(any("missing: AHT-12/case-result.json" in e for e in VRC.verify_set(b, self.pin["R5"])[0]))
 
+    @needs_history
     def test_a_regenerated_manifest_does_not_match_the_pinned_hash(self):
         b = self.copy_set("R5")
         with open(os.path.join(b, "case-results.json"), "a") as f:
@@ -76,9 +81,11 @@ class SealedReceipts(unittest.TestCase):
         manifest(b)  # an attacker re-seals the changed set; the pin in the config still differs
         self.assertTrue(any("pinned hash" in e for e in VRC.verify_set(b, self.pin["R5"])[0]))
 
+    @needs_history
     def test_an_unpinned_set_fails(self):
         self.assertTrue(any("no pinned" in e for e in VRC.verify_set(os.path.join(RECEIPTS, "R5"), None)[0]))
 
+    @needs_history
     def test_compare_refuses_a_tampered_set(self):
         d = tempfile.mkdtemp()
         for lab in ("R4C", "R5"):
@@ -103,6 +110,7 @@ class SealedReceipts(unittest.TestCase):
         r = run_py("scripts/seal_receipts.py", "--label", "X", "--out", os.path.join(d, "X"), "--ledgers-only", "--campaign-ledger", led, "--identity-ledger", idl, "--provenance", "t")
         self.assertNotEqual(r.returncode, 0)
 
+    @needs_history
     def test_sealed_sets_exclude_certificates_and_sandbox_files_and_contain_no_secret_patterns(self):
         for lab in ("R4C", "R5"):
             for r, ds, fs in os.walk(os.path.join(RECEIPTS, lab)):
@@ -115,6 +123,7 @@ class SealedReceipts(unittest.TestCase):
                 self.assertIsNone(pat.search(open(os.path.join(r, f), "rb").read()), os.path.join(r, f))
 
 
+@needs_history
 class AutomaticComparison(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -174,6 +183,8 @@ class AutomaticComparison(unittest.TestCase):
 class DerivedLedger(unittest.TestCase):
     def setUp(self):
         self.led = sample()["ledger"]
+        if self._testMethodName in ("test_the_ledger_definitions_carry_no_typed_results", "test_status_rules"):
+            return
         d = tempfile.mkdtemp(); self.out = os.path.join(d, "ld.json")
         wjson(os.path.join(d, "rv.json"), fake_rv())
         r = run_py("scripts/derive_ledger.py", "--ledger", os.path.join(ROOT, "config/gap-ledger.json"), "--release-verification", os.path.join(d, "rv.json"), "--out", self.out)
@@ -185,12 +196,14 @@ class DerivedLedger(unittest.TestCase):
             for k in ("priorRuns", "priorFail", "latest", "status", "deployedInclusion", "r5Evidence", "comparable"):
                 self.assertNotIn(k, g, "%s.%s must be derived, not typed" % (g["id"], k))
 
+    @needs_history
     def test_prior_verdicts_come_from_the_sealed_receipts(self):
         g = self.gaps["GAP-03"]
         self.assertEqual({k: v["rollup"] for k, v in g["history"].items()}, {"R4C": "FAIL", "R5": "NOT RUN"})
         self.assertEqual(g["priorFail"]["run"], "R4C")
         self.assertIn("denial-truthful-no-mic", g["priorFail"]["what"])
 
+    @needs_history
     def test_evidence_references_carry_the_sha256_of_the_sealed_file(self):
         g = self.gaps["GAP-03"]
         ev = [e for e in g["priorFail"]["evidence"] if e["file"].endswith(".json")]
@@ -199,12 +212,14 @@ class DerivedLedger(unittest.TestCase):
             path = os.path.join(RECEIPTS, *e["file"].split("/"))
             self.assertEqual(hashlib.sha256(open(path, "rb").read()).hexdigest(), e["sha256"], e["file"])
 
+    @needs_history
     def test_guard_signals_are_counted_from_the_guard_logs(self):
         coaching = [o for r, h in self.gaps["GAP-01"]["history"].items() for o in h["observations"] if "signal" in o]
         self.assertEqual([o["count"] for o in coaching], [4, 1])
         rest = [o for h in self.gaps["GAP-04"]["history"].values() for o in h["observations"] if "signal" in o]
         self.assertEqual([o["count"] for o in rest], [3, 1])
 
+    @needs_history
     def test_a_missing_assertion_is_not_run_never_pass(self):
         led = copy.deepcopy(self.led)
         led["gaps"][2]["observations"] = [{"case": "AHT-12", "assertion": "no-such-assertion"}]
@@ -213,6 +228,7 @@ class DerivedLedger(unittest.TestCase):
         g = next(x for x in json.load(open(os.path.join(d, "o.json")))["gaps"] if x["id"] == "GAP-03")
         self.assertEqual({k: v["rollup"] for k, v in g["history"].items()}, {"R4C": "NOT RUN", "R5": "NOT RUN"})
 
+    @needs_history
     def test_pending_until_a_latest_run_exists(self):
         for g in self.gaps.values():
             self.assertEqual(g["latest"]["result"], "PENDING")
@@ -238,10 +254,12 @@ class DerivedLedger(unittest.TestCase):
         g = {"kind": "evidence-restoration", "fix": {}, "latest": {"result": "PENDING"}}
         self.assertEqual(DL.ledger_status(g)[0], "OPEN")
 
+    @needs_history
     def test_the_candidate_fix_for_the_403_is_never_a_verified_fix(self):
         self.assertTrue(self.gaps["GAP-04"]["fix"]["candidate"])
         self.assertEqual(self.gaps["GAP-04"]["status"], "OPEN")
 
+    @needs_history
     def test_a_deployed_fix_that_was_tested_and_still_failed_is_failed_retest_not_open(self):
         g = copy.deepcopy(self.gaps["GAP-03"]); g["latest"] = {"result": "FAIL", "evidence": [{"file": "x", "sha256": "y"}]}
         self.assertEqual(DL.ledger_status(g)[0], "FAILED-RETEST")
@@ -263,7 +281,7 @@ def stub_comparison(d, cases, prev_label, comparison_valid, omit_journeys, label
     return comp
 
 
-def synthetic_latest(cases, comparison_valid=None, with_evidence=True, label="R6T", omit_journeys=None):
+def synthetic_latest(cases, comparison_valid=None, with_evidence=True, label="R6T", omit_journeys=None, baseline_specs=None):
     """A tiny sealed latest run: cases maps case id -> {assertion: verdict}. Returns (receipts root, comparison path): the legacy single comparison (against R5) is
     cmp.json; comparisons/<label>/comparison.json holds the comparison with each sealed run, and cfg.json lists the latest run in the history."""
     from _nightly import CATALOG, history
@@ -271,8 +289,10 @@ def synthetic_latest(cases, comparison_valid=None, with_evidence=True, label="R6
     # Explicit synthetic comparison scenario: a failed baseline followed by
     # an unexecuted baseline. This proves the most-recent-observed selection
     # rule without copying or claiming any actual R4C/R5 campaign evidence.
-    d, cfg = history(("R4C", {"fails": all_rows, "sha": "b2" * 20}),
-                     ("R5", {"notrun": all_rows, "sha": "4c85b006ac05e180521fd6e7d807f736987cafe8"}))
+    specs = baseline_specs if baseline_specs is not None else (
+        ("R4C", {"fails": all_rows, "sha": "b2" * 20}),
+        ("R5", {"notrun": all_rows, "sha": "4c85b006ac05e180521fd6e7d807f736987cafe8"}))
+    d, cfg = history(*specs)
     unittest.addModuleCleanup(shutil.rmtree, d)
     base = os.path.join(d, label)
     os.makedirs(base)

@@ -34,7 +34,7 @@ test('actual feedback readback projection reaches the existing journey oracle wi
  assert.equal(projected.observations[0].feedbackSubmitCount,undefined);
 });
 for(const [field,value]of [['release_sha','b'.repeat(40)],['journey_id','other'],['boot_id','other'],['identity_bound',false],['traffic_type','user']])test('received projection rejects actual readback '+field,()=>assert.throws(()=>p.projectFeedbackReceived({...telemetryReceipt(),[field]:value},telemetryRequest())));
-for(const [field,value,expected]of [['missing',['feedback_submit'],'HOLD'],['reasons',['private error token'],'HOLD'],['stage_reasons',['private failure text'],'HOLD'],['unrecognised',['other'],'HOLD'],['duplicate_families',['feedback_submit'],'FAIL'],['delivery_failures',['posthog'],'FAIL'],['verdict','FAIL','FAIL'],['verdict','HOLD','HOLD'],['stages_declared',[],'HOLD'],['required_families',[],'HOLD'],['observed_families',[],'HOLD'],['received_counts',{telemetry_positive_control:0},'HOLD']])test('received projection preserves non-success '+field,()=>{
+for(const [field,value,expected]of [['missing',['feedback_submit'],'HOLD'],['reasons',['private error token'],'HOLD'],['stage_reasons',['private failure text'],'HOLD'],['unrecognised',['other'],'HOLD'],['duplicate_families',['feedback_submit'],'FAIL'],['delivery_failures',[{category:'unaccounted_delivery_gap',affectedFamilies:['feedback_submit']}],'FAIL'],['verdict','FAIL','FAIL'],['verdict','HOLD','HOLD'],['stages_declared',[],'HOLD'],['required_families',[],'HOLD'],['observed_families',[],'HOLD'],['received_counts',{telemetry_positive_control:0},'HOLD']])test('received projection preserves non-success '+field,()=>{
  const raw={...telemetryReceipt(),[field]:value},projected=p.projectFeedbackReceived(raw,telemetryRequest());
  assert.equal(receivedVerdict(projected,sentTelemetry,telemetryConfig).status,expected);
  assert.equal(JSON.stringify(projected).includes('private error token'),false);
@@ -43,6 +43,17 @@ for(const [field,value,expected]of [['missing',['feedback_submit'],'HOLD'],['rea
 test('received counts alone cannot replace completeness fields',()=>{
  const raw=telemetryReceipt();delete raw.missing;
  assert.throws(()=>p.projectFeedbackReceived(raw,telemetryRequest()),/completeness/);
+});
+test('real producer-shaped delivery failure remains FAIL without retaining its raw fields',()=>{
+ const raw=telemetryReceipt();raw.delivery_failures=[{category:'unaccounted_delivery_gap',affectedFamilies:['feedback_submit']}];
+ const projected=p.projectFeedbackReceived(raw,telemetryRequest());
+ assert.equal(projected.observations[0].deliveryFailuresCount,1);
+ assert.equal(receivedVerdict(projected,sentTelemetry,telemetryConfig).status,'FAIL');
+ assert.equal(JSON.stringify(projected).includes('unaccounted_delivery_gap'),false);
+});
+for(const failure of ['posthog',null,{category:'private-vendor-error',affectedFamilies:['feedback_submit']},{category:'unaccounted_delivery_gap',affectedFamilies:'feedback_submit'},{category:'unaccounted_delivery_gap',affectedFamilies:[{}]},{category:'unaccounted_delivery_gap',affectedFamilies:['feedback_submit'],raw:'do not retain'}])test('malformed delivery failure objects refuse before projection '+JSON.stringify(failure),()=>{
+ const raw=telemetryReceipt();raw.delivery_failures=[failure];
+ assert.throws(()=>p.projectFeedbackReceived(raw,telemetryRequest()),/failure object shape/);
 });
 for(const [field,value]of [['journeySha256','0'.repeat(64)],['trafficType','user'],['missingCount',-1],['positiveControlCount',1.1],['unexpected','private string'],['observedFamilies',['feedback_submit','not-a-family']]])test('received projection validator refuses changed '+field,()=>{
  const q=telemetryRequest(),v=p.projectFeedbackReceived(telemetryReceipt(),q);v.observations[0][field]=value;

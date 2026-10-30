@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import unittest
 
-from _fixtures import ROOT, REPO, TESTED, J, fake_rv, prerequisite, request_path, run_py, sample, wjson
+from _fixtures import ROOT, REPO, TESTED, J, fake_rv, prerequisite, request_path, run_py, sample, wjson, needs_history
 import reconcile_cumulative as RC
 import select_baselines as SB
 import check_coverage as CC
@@ -17,6 +17,18 @@ from test_comparison_automation import derive_gap, synthetic_latest, writable, m
 
 RECEIPTS = os.path.join(ROOT, "config", "history", "receipts")
 GAP03_PASS = {"AHT-12": {"press-bound-denial": "PASS", "denial-truthful-no-mic": "PASS"}}
+
+
+def baseline_scenario(r4c_pass=(), r5_observed=(), never_observed=()):
+    """Explicit synthetic verdicts for the baseline-selection scenarios below.
+
+    No retained run is read or modified. Compatibility labels aren't evidence.
+    """
+    from _nightly import CATALOG
+    rows = {(cid, aid) for cid, spec in CATALOG["cases"].items() for aid in spec["requiredAssertions"]}
+    return (("R4C", {"fails": sorted(rows - set(r4c_pass) - set(never_observed)),
+                     "notrun": list(never_observed), "sha": "2b48eabc3f900e2481c35bfef63550b0c531faa6"}),
+            ("R5", {"notrun": sorted(rows - set(r5_observed))}))
 
 
 class BaselineIsTheMostRecentRunWithAVerdict(unittest.TestCase):
@@ -48,7 +60,8 @@ class BaselineIsTheMostRecentRunWithAVerdict(unittest.TestCase):
         self.assertEqual(g["status"], "INCONCLUSIVE")
 
     def test_a_row_that_r5_did_test_is_compared_with_r5(self):
-        d, cp = synthetic_latest({"AHT-12": {"owner-bound": "PASS", "press-bound-denial": "PASS"}})
+        observed = [("AHT-12", "owner-bound"), ("AHT-12", "start-press-budget")]
+        d, cp = synthetic_latest({"AHT-12": {"owner-bound": "PASS", "press-bound-denial": "PASS"}}, baseline_specs=baseline_scenario(r5_observed=observed))
         sel = json.load(open(os.path.join(d, "cfg.json")))
         out = SB.select({"gaps": [{"id": "G", "expectedPass": {"requirements": [{"case": "AHT-12", "assertions": ["owner-bound", "start-press-budget"]}]}}]}, sel, d, "R6T")
         self.assertEqual({k: v["baseline"] for k, v in out["gaps"]["G"]["rows"].items()}, {"AHT-12/owner-bound": "R5", "AHT-12/start-press-budget": "R5"})
@@ -67,7 +80,10 @@ class BaselineIsTheMostRecentRunWithAVerdict(unittest.TestCase):
         self.assertEqual(order, ["R4C", "R5", "R6T"])
 
     def test_journeys_name_their_previous_verdict_run_and_last_known_good(self):
-        d, _ = synthetic_latest(GAP03_PASS)
+        from _nightly import CATALOG
+        rows4 = [("AHT-04", a) for a in CATALOG["cases"]["AHT-04"]["requiredAssertions"]]
+        rows15 = [("AHT-15", a) for a in CATALOG["cases"]["AHT-15"]["requiredAssertions"]]
+        d, _ = synthetic_latest(GAP03_PASS, baseline_specs=baseline_scenario(r4c_pass=rows4, r5_observed=rows15))
         cfg = json.load(open(os.path.join(d, "cfg.json")))
         j = SB.select(sample()["ledger"], cfg, d, "R6T")["journeys"]
         self.assertEqual((j["AHT-04"]["previousVerdictRun"], j["AHT-04"]["lastKnownGood"]), ("R4C", "R4C"))   # PASS in R4C, NOT RUN in R5
@@ -77,7 +93,7 @@ class BaselineIsTheMostRecentRunWithAVerdict(unittest.TestCase):
         self.assertEqual(j["AHT-04"]["lastKnownGoodServedSha"], "2b48eabc3f900e2481c35bfef63550b0c531faa6")
 
     def test_a_row_nobody_tested_is_a_first_observation_not_a_blocker(self):
-        d, cp = synthetic_latest({"AHT-14": {"download-fault-exercised": "PASS"}})
+        d, cp = synthetic_latest({"AHT-14": {"download-fault-exercised": "PASS"}}, baseline_specs=baseline_scenario(never_observed=[("AHT-14", "download-fault-exercised")]))
         out = SB.select({"gaps": [{"id": "G", "expectedPass": {"requirements": [{"case": "AHT-14", "assertions": ["download-fault-exercised"]}]}}]}, json.load(open(os.path.join(d, "cfg.json"))), d, "R6T")
         self.assertIsNone(out["gaps"]["G"]["rows"]["AHT-14/download-fault-exercised"]["baseline"])
 
@@ -86,6 +102,7 @@ class BaselineIsTheMostRecentRunWithAVerdict(unittest.TestCase):
             SB.select(sample()["ledger"], sample()["cfg"], RECEIPTS, "R9")
 
 
+@needs_history
 class PipelineComparesWithTheRightRun(unittest.TestCase):
     def test_the_pipeline_compares_the_latest_run_with_every_baseline_it_needs(self):
         prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and __import__("subprocess").run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
@@ -144,6 +161,7 @@ def with_later_run(reads=4, requests=130, logs=True):
     return d, cfg
 
 
+@needs_history
 class UnexplainedUsageIsCarriedForward(unittest.TestCase):
     def test_the_current_snapshot_is_unchanged(self):
         rc = RC.reconcile(sample()["cfg"], counters_through(), RECEIPTS)
@@ -267,6 +285,7 @@ class ApprovedOmissionsAreIncompleteCoverage(unittest.TestCase):
         errs = W.validate(rep, sample()["wf"])
         self.assertTrue(any("approved omissions are incomplete coverage" in e for e in errs), errs)
 
+    @needs_history
     def test_the_validator_warns_that_an_omission_is_not_a_full_pass(self):
         import validate_run_request as V
         from _fixtures import reconciliation
@@ -311,6 +330,7 @@ class DeployedVersionBinding(unittest.TestCase):
         self.assertFalse(out["deployedVersionBinding"]["ok"])
         self.assertFalse(out["fullLiveRun"])
 
+    @needs_history
     def test_the_sealed_r5_identity_receipts_all_matched_the_tested_sha(self):
         r5 = J("config", "history", "receipts", "R5", "case-results.json")
         req = copy.deepcopy(self.req); req["release"]["testedSha"] = r5["sourceSha"]

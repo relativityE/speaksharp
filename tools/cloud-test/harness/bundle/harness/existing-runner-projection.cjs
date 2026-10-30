@@ -40,8 +40,11 @@ function validateFeedbackReceivedObservation(r,request){
 function projectFeedbackReceived(receipt,request){
  const q=feedbackReceivedQuery(request);
  need(receipt?.gate===q.gate&&receipt.release_sha===q.releaseSha&&receipt.journey_id===q.journeyId&&receipt.boot_id===q.bootId&&receipt.identity_bound===true&&q.allowedTrafficTypes.includes(receipt.traffic_type),'actual feedback readback scope/identity differs');
- const arrays=['stage_reasons','missing','reasons','unrecognised','duplicate_families','delivery_failures','stages_declared','observed_families','required_families'];
+ const arrays=['stage_reasons','missing','reasons','unrecognised','duplicate_families','stages_declared','observed_families','required_families'];
  need(arrays.every(k=>Array.isArray(receipt[k])&&receipt[k].every(v=>typeof v==='string')),'actual feedback readback completeness fields missing');
+ // deliveryReceiptGate.ts emits typed objects, not vendor-name strings. Retain only their count.
+ const categories=['transport_not_initialized','client_backpressure_observed','required_receipt_missing_after_clean_drain','unaccounted_delivery_gap'];
+ need(Array.isArray(receipt.delivery_failures)&&receipt.delivery_failures.every(v=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')==='affectedFamilies,category'&&categories.includes(v.category)&&Array.isArray(v.affectedFamilies)&&v.affectedFamilies.every(f=>typeof f==='string'&&f.length>0&&f.length<=200)),'actual delivery failure object shape invalid');
  // Only closed codes, digests and counts leave the authenticated producer; no raw IDs or reason text.
  const r={identityBound:true,journeySha256:sha(request.journeyId),bootSha256:sha(request.bootId),trafficType:receipt.traffic_type,verdict:receipt.verdict,
   stagesDeclared:receipt.stages_declared.includes('share_feedback')?['share_feedback']:[],observedFamilies:feedbackFamilies.filter(v=>receipt.observed_families.includes(v)),requiredFamilies:feedbackFamilies.filter(v=>receipt.required_families.includes(v)),
