@@ -76,14 +76,27 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertFalse(by_id["offline-proof-index"]["passed"])
         self.assertEqual(by_id["harness-verified"]["returncode"], 0)
 
-    def test_report_write_failure_is_nonzero_and_emits_complete_fallback_diagnostics(self):
+    def test_report_write_failure_is_nonzero_and_prints_no_child_diagnostics(self):
         code, stdout, stderr = self.invoke(write_failure=True)
         self.assertNotEqual(code, 0)
         self.assertFalse(self.out.exists())
-        self.assertIn("OFFLINE_CHECKS_REPORT_WRITE_FAILED", stderr)
-        self.assertIn("retained stdout 1", stdout)
-        self.assertIn("retained stderr 9", stdout)
-        self.assertIn('"passed": false', stdout)
+        self.assertIn("OFFLINE_CHECKS_REPORT_WRITE_FAILED: OSError", stderr)
+        self.assertNotIn("fixture report write denied", stderr)
+        for text in (stdout, stderr):
+            self.assertNotIn("retained stdout", text)
+            self.assertNotIn("retained stderr", text)
+            self.assertNotIn("{", text)
+        self.assertIn("PASS package-unit-tests", stdout)
+
+    def test_the_log_carries_names_and_statuses_only(self):
+        code, stdout, stderr = self.invoke(failure=True)
+        self.assertNotEqual(code, 0)
+        self.assertIn("FAIL package-unit-tests", stdout.splitlines())
+        for text in (stdout, stderr):
+            self.assertNotIn("retained", text)
+            self.assertNotIn("FileNotFoundError", text)
+        report = json.loads(self.out.read_text())
+        self.assertEqual(report["checks"][0]["stdout"], "retained stdout 1")
 
     def test_valid_proof_can_pass_and_does_not_erase_nonzero_child(self):
         proof = {"result": "PASS", "corrections": [{"result": "PASS"}],

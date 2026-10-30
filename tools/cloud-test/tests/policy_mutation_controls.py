@@ -23,7 +23,7 @@ M = {
     "variable-added": lambda s: s.replace("          CT_REQUIRE_INTEGRATION: '1'\n", "          CT_REQUIRE_INTEGRATION: '1'\n          E: ${{ vars.FREE_TEST_EMAIL }}\n", 1),
     "input-in-run": lambda s: s.replace('python3 -I scripts/pipeline.py "${ARGS[@]}"', 'echo "${{ inputs.run_request }}"; python3 -I scripts/pipeline.py "${ARGS[@]}"', 1),
     "upload-not-always": lambda s: s.replace("        if: always()\n        uses: actions/upload-artifact@v6", "        uses: actions/upload-artifact@v6", 1),
-    "upload-private-dir": lambda s: s.replace("            ${{ runner.temp }}/timings/**", "            ${{ runner.temp }}/timings/**\n            ${{ runner.temp }}/private/cfg/**", 1),
+    "upload-private-dir": lambda s: s.replace("          path: ${{ runner.temp }}/offline-checks-summary.json\n", "          path: |\n            ${{ runner.temp }}/offline-checks-summary.json\n            ${{ runner.temp }}/private/cfg/**\n", 1),
     "third-party-action": lambda s: s.replace("      - uses: actions/setup-node@v6", "      - uses: someone/else-action@v1\n      - uses: actions/setup-node@v6", 1),
     "unpinned-pip": lambda s: s.replace("pyyaml==6.0.2", "pyyaml", 1),
     "persist-credentials": lambda s: s.replace("persist-credentials: false", "persist-credentials: true", 1),

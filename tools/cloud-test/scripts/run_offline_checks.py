@@ -3,7 +3,6 @@
 Checks: package tests (including the integration proof on loopback when its prerequisites exist; the GitHub job requires them via CT_REQUIRE_INTEGRATION=1), report-builder tests, sealed receipts verified against their pinned hashes, the vendored harness verified against the approved hashes, the offline-proof index, config/workflow consistency.
 Usage: run_offline_checks.py --out offline-checks.json   (run from the package root: tools/cloud-test)"""
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -84,17 +83,17 @@ def main():
     out = {"schema": "speaksharp.cloud-test.offline-checks.v1", "ranUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "workflowVersion": wf.get("version") if isinstance(wf, dict) else None,
            "historyMode": history, "notApplicable": [c["id"] for c in checks if not c.get("applicable", True)],
            "checks": checks, "passed": bool(applicable) and all(c["passed"] is True for c in applicable)}
+    # The job log of this public repository shows only check names and statuses; child output and details stay in the
+    # written report on the runner. A report that cannot be written is a failure, and its diagnostics are not printed.
+    written = True
     try:
         dump(out, x.out)
     except (OSError, TypeError, ValueError) as error:
-        out["passed"] = False
-        out["reportWriteError"] = "%s: %s" % (type(error).__name__, error)
-        print("OFFLINE_CHECKS_REPORT_WRITE_FAILED: " + out["reportWriteError"], file=sys.stderr)
-        print(json.dumps(out))
-        return 1
+        out["passed"], written = False, False
+        print("OFFLINE_CHECKS_REPORT_WRITE_FAILED: " + type(error).__name__, file=sys.stderr)
     for c in checks:
-        print(("N/A  " if not c.get("applicable", True) else "PASS " if c["passed"] else "FAIL ") + c["id"], "-", c["detail"])
-    return 0 if out["passed"] else 1
+        print(("N/A  " if not c.get("applicable", True) else "PASS " if c["passed"] is True else "FAIL ") + c["id"])
+    return 0 if written and out["passed"] else 1
 
 
 if __name__ == "__main__":
