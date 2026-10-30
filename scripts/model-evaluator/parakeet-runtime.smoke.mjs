@@ -1,3 +1,4 @@
+/* global self, Worker */
 import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
