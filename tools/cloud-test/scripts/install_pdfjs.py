@@ -30,10 +30,14 @@ def main():
     a.add_argument("--config", default=os.path.join(ROOT, "config", "test-config.v1.json"))
     a.add_argument("--checkout", required=True)
     a.add_argument("--runner-dir", default=os.path.join(ROOT, "runner"))
+    a.add_argument("--source-dir", help="explicit already-installed PDF package; verification-only with --check-only")
     a.add_argument("--check-only", action="store_true")
     x = a.parse_args()
+    if x.source_dir is not None and not x.check_only:
+        print("BLOCKED_SETUP: --source-dir is verification-only and requires --check-only", file=sys.stderr)
+        sys.exit(78)
     pin = load(x.config)["tools"]["pdfjs"]
-    src = os.path.join(x.runner_dir, "node_modules", "pdfjs-dist")
+    src = x.source_dir if x.source_dir is not None else os.path.join(x.runner_dir, "node_modules", "pdfjs-dist")
     errs = verify_dir(src, pin)
     if errs:
         print("BLOCKED_SETUP: the runner copy of pdfjs-dist is not the pinned one: " + "; ".join(errs), file=sys.stderr)

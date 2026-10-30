@@ -13,7 +13,7 @@ CATALOG = J("config", "assertion-catalog.json")
 SHA = {"N1": "a1" * 20, "N2": "b2" * 20, "N3": "c3" * 20, "N4": "d4" * 20, "N5": "e5" * 20}
 
 
-def make_run(root, label, fails=(), notrun=(), sha=None, ended="2026-11-01T03:40:00Z", identity_bad=None, requests=3600, identity_reads=32, starts=39, takes=31, coaching=12, logs=True):
+def make_run(root, label, fails=(), notrun=(), sha=None, ended="2026-11-01T03:40:00Z", identity_bad=None, requests=3600, identity_reads=32, starts=40, takes=31, coaching=12, logs=True):
     """fails / notrun: iterables of (case, assertion). Returns the config history entry for the run."""
     sha = sha or SHA.get(label, "f0" * 20)
     base = os.path.join(root, label)

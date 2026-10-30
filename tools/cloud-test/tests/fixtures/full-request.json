@@ -194,7 +194,7 @@
       "runCap": 4310
     },
     "identityReads": 32,
-    "starts": 39,
+    "starts": 40,
     "takes": 31,
     "paidActionsAuthorizedUsd": 0,
     "providerBillableRequests": {
@@ -214,7 +214,7 @@
     "identityCap": 126,
     "identityIncreaseJustification": "2 reads per journey plus admission and final for 15 journeys = 32; 94 already used against a cap of 98.",
     "startsCap": 85,
-    "startsIncreaseJustification": "The harness contract requires at least 39 Start presses to reach every row; 46 already used against a cap of 81.",
+    "startsIncreaseJustification": "SYNTHETIC proposal only: the received full contract requires 40 Starts; this does not approve or increase any operational cap.",
     "takesCap": 55,
     "takesIncreaseJustification": "The harness contract requires at least 31 authorized takes to reach every row; 24 already used against a cap of 50.",
     "runCapRequests": 4310,
@@ -248,8 +248,8 @@
     }
   },
   "harness": {
-    "codeManifestSha256": "7dae348f5edd30aba633b0e68627cb4de3a164558602586f3883bfabda3e48d8",
-    "packetManifestSha256": "d636cc261a59832abfc5d81dce9c155867355542973b064086eccea45c9a8d6d",
+    "codeManifestSha256": "ebafd9ebce9b44c9acb60d77193b12beb1f3e0caf6543491b45c487f01216d4d",
+    "packetManifestSha256": "95d8ffd88e887fb99594c8bfe1c7498dc892212c6a5337fd311c21d23ec5f217",
     "ownerApprovalRef": null,
     "offlineProofFile": "config/proofs/offline-proof-7dae348f.json"
   },

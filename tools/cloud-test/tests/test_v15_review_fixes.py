@@ -55,7 +55,7 @@ class EveryRecurringCapIsEnforced(unittest.TestCase):
 
     def test_the_history_index_now_records_starts_takes_and_coaching(self):
         s = self.one_night()["entries"][0]["summary"]
-        self.assertEqual((s["starts"], s["takes"], s["coachingRequests"]), (39, 31, 12))
+        self.assertEqual((s["starts"], s["takes"], s["coachingRequests"]), (40, 31, 12))
 
     def test_starts_that_start_at_zero_were_the_defect_they_now_accumulate(self):
         req = nightly_request()

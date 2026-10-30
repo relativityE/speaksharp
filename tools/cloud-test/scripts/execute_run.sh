@@ -40,7 +40,7 @@ run_stage() {
     [ -n "${!n:-}" ] || blocked "stage $stage needs $n and it is not set in the environment"
     e+=("$n=${!n}")
   done <<< "$names"
-  for n in CT_OUT CT_REQUEST CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_CHECKOUT CT_FACTS_FILE CT_ACCOUNT_ID_FILE CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
+  for n in CT_OUT CT_REQUEST CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_CHECKOUT CT_FACTS_FILE CT_ACCOUNT_ID_FILE CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
   env -i "${e[@]}" "$@"
@@ -79,12 +79,34 @@ build() {
 
 case "$STAGE" in
   install-tools)
-    CHROME="$(run_stage install-tools python3 -I "$ROOT/scripts/install_browser.py" --config "$CFG")"
-    [ -x "$CHROME" ] || blocked "the verified browser is not executable"
-    printf '%s\n' "$CHROME" > "$OUT/chrome-path.txt"
-    run_stage install-tools npm --prefix "$ROOT/runner" ci --ignore-scripts --no-audit --no-fund
-    run_stage install-tools python3 -I "$ROOT/scripts/install_pdfjs.py" --config "$CFG" --checkout "${CT_CHECKOUT:?CT_CHECKOUT is required to provide the pinned PDF parser}" >/dev/null
-    echo "pinned browser verified; runner dependencies installed from the lockfile; pinned pdfjs-dist 4.10.38 verified in the checkout" ;;
+    case "${CT_SETUP_MODE:-existing-only}" in
+      existing-only)
+        [ -n "${CT_CHROME:-}" ] || blocked "CT_CHROME is required for existing-only setup; no browser will be acquired"
+        [ -n "${CT_CHECKOUT:-}" ] || blocked "CT_CHECKOUT is required for existing dependency checks"
+        CHROME="$(run_stage install-tools python3 -I "$ROOT/scripts/install_browser.py" --config "$CFG" --existing "$CT_CHROME" \
+          --source-sha "${CT_SOURCE_SHA:-}" --run-id "${CT_EXECUTION_RUN_ID:-}" --receipt "$OUT/browser-identity.json")" || blocked "existing browser verification failed"
+        run_stage install-tools node -e '
+          const fs = require("node:fs"), path = require("node:path");
+          const actual = JSON.parse(fs.readFileSync(path.join(process.argv[1], "node_modules/playwright/package.json"), "utf8"));
+          const expected = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).tools.browser.playwright;
+          if (actual.version !== expected) throw new Error("existing Playwright version differs from the pin");
+        ' "$CT_CHECKOUT" "$CFG" || blocked "existing pinned Playwright is unavailable; no dependency installation attempted"
+        run_stage install-tools python3 -I "$ROOT/scripts/install_pdfjs.py" --config "$CFG" --checkout "$CT_CHECKOUT" \
+          --source-dir "${CT_EXISTING_PDFJS_DIR:-$CT_CHECKOUT/node_modules/pdfjs-dist}" --check-only >/dev/null || blocked "existing pinned PDF parser is unavailable; no copy or installation attempted"
+        [ -x "$CHROME" ] || blocked "the verified existing browser is not executable"
+        printf '%s\n' "$CHROME" > "$OUT/chrome-path.txt"
+        echo "existing pinned browser, Playwright and PDF parser verified; nothing installed" ;;
+      acquire)
+        # Separate legacy acquisition route. Selecting this mode requires its own
+        # operational authorization; the restricted receiving task does not use it.
+        CHROME="$(run_stage install-tools python3 -I "$ROOT/scripts/install_browser.py" --config "$CFG")"
+        [ -x "$CHROME" ] || blocked "the verified browser is not executable"
+        printf '%s\n' "$CHROME" > "$OUT/chrome-path.txt"
+        run_stage install-tools npm --prefix "$ROOT/runner" ci --ignore-scripts --no-audit --no-fund
+        run_stage install-tools python3 -I "$ROOT/scripts/install_pdfjs.py" --config "$CFG" --checkout "${CT_CHECKOUT:?CT_CHECKOUT is required to provide the pinned PDF parser}" >/dev/null
+        echo "pinned browser verified; runner dependencies installed from the lockfile; pinned pdfjs-dist 4.10.38 verified in the checkout" ;;
+      *) blocked "CT_SETUP_MODE must be existing-only or separately authorized acquire" ;;
+    esac ;;
   build-plan) build "$OUT/plan0" ;;
   stimulus-preflight)
     CHROME="$(cat "$OUT/chrome-path.txt")"

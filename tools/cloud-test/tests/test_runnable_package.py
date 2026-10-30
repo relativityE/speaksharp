@@ -36,10 +36,13 @@ class VendoredHarness(unittest.TestCase):
         self.assertEqual(errs, [])
         self.assertGreater(n, 250)
 
-    def test_the_pinned_hashes_are_the_reviewed_r15_candidate(self):
-        h = J("config", "test-config.v1.json")["harness"]
+    def test_original_reviewed_r15_pins_are_preserved_and_not_claimed_as_receiving_bytes(self):
+        h = J("tests", "fixtures", "original-r15-pins.json")
         self.assertEqual(h["expectedCodeManifestSha256"], "7dae348f5edd30aba633b0e68627cb4de3a164558602586f3883bfabda3e48d8")
         self.assertEqual(h["expectedPacketManifestSha256"], "d636cc261a59832abfc5d81dce9c155867355542973b064086eccea45c9a8d6d")
+        current = J("config", "test-config.v1.json")["harness"]
+        self.assertNotEqual(current["expectedCodeManifestSha256"], h["expectedCodeManifestSha256"])
+        self.assertNotEqual(current["expectedPacketManifestSha256"], h["expectedPacketManifestSha256"])
 
     def test_a_changed_adapter_is_refused(self):
         d = self.tree()

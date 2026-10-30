@@ -92,7 +92,7 @@ class CaseCostsFromGuardLogs(unittest.TestCase):
 class AssertionCatalog(unittest.TestCase):
     def test_the_catalog_is_the_harness_contract_and_is_pinned(self):
         cat = catalog()
-        self.assertEqual((cat["totalAssertions"], cat["minimumStarts"], cat["minimumTakes"]), (204, 39, 31))
+        self.assertEqual((cat["totalAssertions"], cat["minimumStarts"], cat["minimumTakes"]), (204, 40, 31))
         self.assertEqual(sample()["cfg"]["modes"]["full"]["assertionCatalog"]["sha256"], sha256_file(os.path.join(ROOT, "config", "assertion-catalog.json")))
         out, errs = CAT.derive()
         self.assertEqual(errs, [])

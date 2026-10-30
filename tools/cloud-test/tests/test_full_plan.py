@@ -5,18 +5,40 @@ stimulus receipt, an under-funded budget or a wrong parser are refused. Offline:
 import copy
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import hashlib
 
 from _fixtures import REPO, ROOT, TESTED, J, prerequisite, wjson
 from test_runnable_package import chrome_path, node_ok, playwright_cwd
+import install_pdfjs
 
 PIN = J("config", "test-config.v1.json")["tools"]["pdfjs"]
 CATALOG = J("config", "assertion-catalog.json")
 RUNNER_PDF = os.path.join(ROOT, "runner", "node_modules", "pdfjs-dist")
+RECEIVING_SOURCE = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
+
+
+def selected_pdf_source():
+    """Pin-verify explicit existing CI bytes; never install, copy or fall back."""
+    explicit = os.environ.get("CT_EXISTING_PDFJS_DIR")
+    source = explicit if explicit is not None else RUNNER_PDF
+    if explicit is not None:
+        if not os.path.isabs(source):
+            raise AssertionError("CT_EXISTING_PDFJS_DIR must be an absolute existing package path")
+        errors = install_pdfjs.verify_dir(source, PIN)
+        if errors:
+            raise AssertionError("explicit existing PDF source does not match pins: " + "; ".join(errors))
+    else:
+        prerequisite(os.path.isdir(source), "existing pin-verified PDF source (CT_EXISTING_PDFJS_DIR)")
+        errors = install_pdfjs.verify_dir(source, PIN)
+        if errors:
+            raise AssertionError("existing PDF source does not match pins: " + "; ".join(errors))
+    return source
 
 
 def run_py(script, *args, env=None):
@@ -24,9 +46,27 @@ def run_py(script, *args, env=None):
 
 
 class PinnedPdfParser(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        prerequisite(os.path.isdir(RUNNER_PDF), "the runner dependencies installed from the lockfile (npm ci in runner)")
+    def setUp(self):
+        # Copy-specific legacy controls operate on inert fixture bytes, never on
+        # the real installed library used by the existing-only CI route.
+        self.temporary = tempfile.TemporaryDirectory(prefix="ct-pdf-inert-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.runner = self.root / "runner"
+        self.pdf = self.runner / "node_modules/pdfjs-dist"
+        (self.pdf / "legacy/build").mkdir(parents=True)
+        (self.pdf / "package.json").write_text('{"version":"4.10.38","synthetic":true}')
+        (self.pdf / "legacy/build/pdf.mjs").write_text("// inert test fixture\n")
+        self.pin = dict(PIN)
+        self.pin["packageJsonSha256"] = hashlib.sha256((self.pdf / "package.json").read_bytes()).hexdigest()
+        self.pin["pdfMjsSha256"] = hashlib.sha256((self.pdf / "legacy/build/pdf.mjs").read_bytes()).hexdigest()
+        cfg = J("config", "test-config.v1.json")
+        cfg["tools"]["pdfjs"] = self.pin
+        self.config = self.root / "synthetic-config.json"
+        wjson(str(self.config), cfg)
+
+    def call(self, *args):
+        return run_py("scripts/install_pdfjs.py", "--config", str(self.config), "--runner-dir", str(self.runner), *args)
 
     def test_the_pins_are_the_repositorys_own_parser_bytes(self):
         self.assertEqual(PIN["version"], "4.10.38")
@@ -36,30 +76,30 @@ class PinnedPdfParser(unittest.TestCase):
 
     def test_it_is_provided_to_a_checkout_that_lacks_it(self):
         with tempfile.TemporaryDirectory() as d:
-            r = run_py("scripts/install_pdfjs.py", "--checkout", d)
-            self.assertEqual((r.returncode, r.stdout.strip()), (0, PIN["pdfMjsSha256"]), r.stderr)
-            self.assertEqual(run_py("scripts/install_pdfjs.py", "--checkout", d, "--check-only").returncode, 0)
+            r = self.call("--checkout", d)
+            self.assertEqual((r.returncode, r.stdout.strip()), (0, self.pin["pdfMjsSha256"]), r.stderr)
+            self.assertEqual(self.call("--checkout", d, "--check-only").returncode, 0)
 
     def test_check_only_refuses_a_checkout_without_it(self):
         with tempfile.TemporaryDirectory() as d:
-            r = run_py("scripts/install_pdfjs.py", "--checkout", d, "--check-only")
+            r = self.call("--checkout", d, "--check-only")
             self.assertEqual(r.returncode, 78)
 
     def test_a_different_parser_in_the_checkout_is_refused_and_not_overwritten(self):
         with tempfile.TemporaryDirectory() as d:
-            run_py("scripts/install_pdfjs.py", "--checkout", d)
+            self.call("--checkout", d)
             pm = os.path.join(d, "node_modules", "pdfjs-dist", "legacy", "build", "pdf.mjs")
             open(pm, "a").write("\n//tampered\n")
-            r = run_py("scripts/install_pdfjs.py", "--checkout", d)
+            r = self.call("--checkout", d)
             self.assertEqual(r.returncode, 78)
             self.assertIn("not overwritten", r.stderr)
             self.assertIn("tampered", open(pm).read())
 
     def test_a_tampered_runner_copy_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
-            rd = os.path.join(d, "runner"); shutil.copytree(RUNNER_PDF, os.path.join(rd, "node_modules", "pdfjs-dist"))
+            rd = os.path.join(d, "runner"); shutil.copytree(str(self.pdf), os.path.join(rd, "node_modules", "pdfjs-dist"))
             open(os.path.join(rd, "node_modules", "pdfjs-dist", "package.json"), "a").write(" ")
-            r = run_py("scripts/install_pdfjs.py", "--checkout", os.path.join(d, "ck"), "--runner-dir", rd)
+            r = self.call("--checkout", os.path.join(d, "ck"), "--runner-dir", rd)
             self.assertEqual(r.returncode, 78)
             self.assertFalse(os.path.exists(os.path.join(d, "ck", "node_modules")))
 
@@ -67,7 +107,8 @@ class PinnedPdfParser(unittest.TestCase):
         sh = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
         self.assertIn("install_pdfjs.py", sh)
         self.assertIn("gate-and-validate", sh)
-        self.assertIn("assertion-catalog.json", sh)
+        self.assertIn("modes.full.assertionCatalog.file", sh)
+        self.assertEqual(J("config", "test-config.v1.json")["modes"]["full"]["assertionCatalog"]["file"], "config/assertion-catalog.json")
 
 
 class FullPlanProof(unittest.TestCase):
@@ -75,15 +116,16 @@ class FullPlanProof(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         prerequisite(node_ok(), "node")
-        prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and subprocess.run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
+        prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and subprocess.run(["git", "-C", REPO, "cat-file", "-e", RECEIVING_SOURCE + "^{commit}"], capture_output=True).returncode == 0, "git history with the actual receiving-source SHA")
         prerequisite(os.path.isfile(os.path.join(REPO, "tests", "fixtures", "rwt", "open_mic_tts.wav")), "the reviewed speech fixtures in the checkout")
-        prerequisite(os.path.isdir(RUNNER_PDF), "the pinned pdfjs-dist from the runner lockfile")
+        cls.pdf_source = selected_pdf_source()
         cls.chrome = chrome_path()
         prerequisite(cls.chrome, "the pinned browser installed and hash-verified (CT_CHROME)")
         cls.cwd = playwright_cwd()
         prerequisite(cls.cwd, "playwright installed from the lockfile")
         cls.work = tempfile.mkdtemp(prefix="ct-fullplan-")
         req = J("config", "runs", "R7-full-coverage-proposal.json")
+        req["release"]["testedSha"] = RECEIVING_SOURCE
         req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55, "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
         req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
         req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
@@ -112,7 +154,7 @@ class FullPlanProof(unittest.TestCase):
         env = {"PATH": os.environ["PATH"], "HOME": cls.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
                "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": cls.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(cls.work, "media"),
-               "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key", "BP_PDFJS_DIR": RUNNER_PDF}
+               "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key", "BP_PDFJS_DIR": cls.pdf_source}
         for k in drop:
             env.pop(k, None)
         out = []
