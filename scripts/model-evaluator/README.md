@@ -44,6 +44,8 @@ methods as the product. In a `candidate-browser` adapter manifest set
 `adapterOptions.candidateId` to the selected registry ID and `adapterOptions.consentToDownload`
 to `true` after approving that acquisition. Changing the candidate ID then uses
 the same path. Missing consent fails before acquisition when consent is required.
+An uncached Whisper `CACHE_MISS` also requires explicit consent before initialization;
+verified available cache hits can initialize without granting new consent.
 Parakeet's full pinned inventory is 682,972,569 bytes; Granite's is 339,374,194 bytes.
 
 The checked-in `baseline-shared-v2.json`, `candidate-granite-turboctc.json` and

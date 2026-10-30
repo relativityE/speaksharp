@@ -79,28 +79,41 @@ afterEach(() => {
 });
 
 describe('model evaluator operation ownership', () => {
-  it('requires explicit download consent through the shared facade before acquiring a candidate', async () => {
+  it.each(['CONSENT_REQUIRED', 'CACHE_MISS'] as const)('requires explicit download consent through the shared facade for %s', async (reason) => {
     const harness = await openHarness();
     const first = prepare(FIRST);
-    first.engine.checkAvailability.mockResolvedValue({ isAvailable: false, reason: 'CONSENT_REQUIRED' });
+    first.engine.checkAvailability.mockResolvedValue({ isAvailable: false, reason });
     await expect(harness.initialize(FIRST, 'wasm')).rejects.toThrow('CONSENT_REQUIRED');
     expect(first.engine.init).not.toHaveBeenCalled();
     expect(first.engine.grantModelConsent).not.toHaveBeenCalled();
     expect(first.engine.terminate).toHaveBeenCalledTimes(1);
   });
 
-  it('records explicit download consent using the same facade method as the product', async () => {
+  it('refuses the checked-in explicit false consent on an uncached Whisper arm', async () => {
     const harness = await openHarness();
     const first = prepare(FIRST);
-    first.engine.checkAvailability.mockResolvedValue({ isAvailable: false, reason: 'CONSENT_REQUIRED' });
+    first.engine.checkAvailability.mockResolvedValue({ isAvailable: false, reason: 'CACHE_MISS' });
+    await expect(harness.initialize(FIRST, 'wasm', false)).rejects.toThrow('CONSENT_REQUIRED');
+    expect(first.engine.init).not.toHaveBeenCalled();
+    expect(first.engine.grantModelConsent).not.toHaveBeenCalled();
+    expect(first.engine.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['CONSENT_REQUIRED', 'CACHE_MISS'] as const)('records explicit download consent before init for %s using the shared facade', async (reason) => {
+    const harness = await openHarness();
+    const first = prepare(FIRST);
+    first.engine.checkAvailability.mockResolvedValue({ isAvailable: false, reason });
     expect(await harness.initialize(FIRST, 'wasm', true)).toMatchObject({ candidateId: FIRST });
     expect(first.engine.grantModelConsent).toHaveBeenCalledTimes(1);
     expect(first.engine.init).toHaveBeenCalledTimes(1);
+    expect(first.engine.grantModelConsent.mock.invocationCallOrder[0])
+      .toBeLessThan(first.engine.init.mock.invocationCallOrder[0]);
   });
   it('initializes, decodes and retires the selected facade normally', async () => {
     const harness = await openHarness();
     const first = prepare(FIRST);
     expect(await harness.initialize(FIRST, 'wasm')).toMatchObject({ candidateId: FIRST, decodedCount: 0 });
+    expect(first.engine.grantModelConsent).not.toHaveBeenCalled();
     expect(await harness.decodePcmBase64(PCM)).toEqual({ transcript: FIRST, inputSha256: '0'.repeat(64) });
     expect(first.engine.transcribe).toHaveBeenCalledWith(new Float32Array([0.25]), { final: true });
     expect(harness.state).toMatchObject({ candidateId: FIRST, decodedCount: 1, lastTranscript: FIRST });

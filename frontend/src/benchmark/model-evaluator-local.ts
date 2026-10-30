@@ -83,10 +83,10 @@ async function initialize(candidateId: ArmId, backend: 'wasm' | 'webgpu', consen
   try {
     const availability = await selected.checkAvailability();
     assertCurrentEngine(selected, selectedGeneration);
-    if (availability.reason === 'CONSENT_REQUIRED') {
+    if (availability.reason === 'CONSENT_REQUIRED' || availability.reason === 'CACHE_MISS') {
       if (!consentToDownload) throw new Error('CONSENT_REQUIRED: explicitly approve this candidate download');
       selected.grantModelConsent();
-    } else if (!availability.isAvailable && availability.reason !== 'CACHE_MISS') {
+    } else if (!availability.isAvailable) {
       throw new Error(availability.message ?? 'Selected candidate is unavailable');
     }
     const result = await selected.init();
