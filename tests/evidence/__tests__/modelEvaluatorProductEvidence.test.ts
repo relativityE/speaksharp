@@ -12,6 +12,11 @@ const source = { head: 'a'.repeat(40), tree: 'b'.repeat(40), lockSha256: 'c'.rep
 const binding: ProductEvidenceBinding = { source, candidateId: 'v2:base.en', backend: 'wasm', journey: 'open_mic', fixtureWavSha256: 'e'.repeat(64) };
 const receipt = () => ({ sessionSha256: sha256(session), transcriptSha256: sha256(text) });
 const attribution = { attributionStatus: 'verified', engine: 'private', engineVersion: 'private_v2:whisper-base.en', modelName: 'whisper-base.en', deviceType: 'browser' };
+const identityFields = ['engine', 'engineVersion', 'modelName', 'deviceType'] as const;
+const missingIdentityCases = [
+  { label: 'all identity fields', fields: identityFields },
+  ...identityFields.map(field => ({ label: field, fields: [field] })),
+];
 function observations(): ProductEvidence {
   return { timeline: { release: source.head, startMs: 10, stopMs: 100, playbackStartMs: 20,
     partials: [{ atMs: 40, sha256: sha256('synthetic partial'), chars: 17 }],
@@ -23,6 +28,28 @@ function observations(): ProductEvidence {
 afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; document.documentElement.removeAttribute('data-runtime-state'); window.history.replaceState({}, '', '/'); });
 
 describe('passive product evidence', () => {
+  describe.each(['pending', 'unverified', 'legacy_unknown'])('explicit %s attribution', status => {
+    it.each(missingIdentityCases)('fails with $label absent', ({ fields }) => {
+      const evidence = observations();
+      evidence.persisted[0].attributionStatus = status;
+      for (const field of fields) delete evidence.persisted[0][field];
+      expect(evaluateProductEvidence(binding, evidence)).toMatchObject({
+        verdict: 'FAIL', reasons: ['persisted_attribution_unverified'],
+      });
+    });
+  });
+
+  describe.each(['absent', 'verified'])('%s attribution evidence', status => {
+    it.each(missingIdentityCases)('holds with $label absent', ({ fields }) => {
+      const evidence = observations();
+      if (status === 'absent') delete evidence.persisted[0].attributionStatus;
+      for (const field of fields) delete evidence.persisted[0][field];
+      expect(evaluateProductEvidence(binding, evidence)).toMatchObject({
+        verdict: 'HOLD', reasons: ['persisted_attribution_unavailable'],
+      });
+    });
+  });
+
   it.each([
     ['granite:turboctc-q4f16', 'webgpu', 'private_granite', 'ibm-granite/granite-speech-5.0-470m-turboctc'],
     ['parakeet:tdt-v3:int8', 'wasm', 'private_parakeet', 'nvidia/parakeet-tdt-0.6b-v3'],

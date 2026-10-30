@@ -90,8 +90,9 @@ export function evaluateProductEvidence(binding: ProductEvidenceBinding, evidenc
     ? `${variants[candidate.engine]}:${modelName}` : null;
   if (!candidate || !engineVersion) failures.push('persisted_candidate_identity_unsupported');
   for (const row of evidence.persisted) {
-    if (!row.attributionStatus || !row.engine || !row.engineVersion || !row.modelName || !row.deviceType) holds.push('persisted_attribution_unavailable');
+    if (!row.attributionStatus) holds.push('persisted_attribution_unavailable');
     else if (row.attributionStatus !== 'verified') failures.push('persisted_attribution_unverified');
+    else if (!row.engine || !row.engineVersion || !row.modelName || !row.deviceType) holds.push('persisted_attribution_unavailable');
     else if (row.engine !== 'private' || row.engineVersion !== engineVersion || row.modelName !== modelName || row.deviceType !== 'browser') failures.push('persisted_candidate_identity_mismatch');
   }
   return { verdict: failures.length ? 'FAIL' as const : holds.length ? 'HOLD' as const : 'PASS' as const,
