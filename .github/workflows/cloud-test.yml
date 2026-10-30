@@ -113,8 +113,13 @@ jobs:
           import json, os, re, sys
           temp = os.environ["RUNNER_TEMP"]
           full = os.path.join(temp, "offline-checks.json")
+          reduced = os.environ["CT_HISTORY"] == "none"
+          # Reduced scope (Sam 1793373376): the history-bound pipeline and its attestation do not run, so neither is claimed.
           summary = {"schema": "speaksharp.cloud-test.offline-checks-summary.v2", "historyMode": os.environ["CT_HISTORY"],
-                     "reducedScope": os.environ["CT_HISTORY"] == "none", "resultValid": False, "overallPassed": False}
+                     "reducedScope": reduced, "liveExecutionAuthorized": False,
+                     "steps": {"control-plane-pipeline": "NOT APPLICABLE" if reduced else "REQUIRED",
+                               "preflight-attestation": "NOT APPLICABLE" if reduced else "REQUIRED"},
+                     "resultValid": False, "overallPassed": False}
 
           def finish(error=None):
               if error:
