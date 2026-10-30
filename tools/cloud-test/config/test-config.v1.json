@@ -213,10 +213,11 @@
     ]
   },
   "modes": {
-    "note": "A run is exactly one mode, named in the request (coverageMode) and passed to the plan builder; there is no default. PARTIAL runs a few cases with the minimal sample and never counts as a full live run. FULL runs all 15 journeys with every required assertion. Partial and carried-forward results are preserved and shown, but neither counts as a full live run.",
+    "note": "Coverage scope and case depth are explicit. PARTIAL selects at most six cases, with either minimal or full case assertions; it never counts as a full all15 live run. FULL runs all 15 journeys with every required assertion. Partial and carried-forward results never count as a full live run.",
     "partial": {
       "label": "PARTIAL",
       "sampleMode": "minimal",
+      "allowedSampleModes": ["minimal", "full"],
       "countsAsFullLiveRun": false,
       "limits": {
         "maxSelectedCases": 6,

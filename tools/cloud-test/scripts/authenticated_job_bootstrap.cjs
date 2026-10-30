@@ -46,7 +46,8 @@ function prepare({authorization,authorizationSha256,env=process.env,runBuilder}=
  execute('phase1',childEnv);execute('phase2',childEnv);
  const planFile=path.join(dir,'cfg/campaign-plan.json'),planBytes=fs.readFileSync(planFile),plan=privateJson(planFile,sha(planBytes));
  if(plan.runtime!=='GitHub Actions SpeakSharp'||plan.campaignId!==scope.campaignId||plan.sourceSha!==scope.sourceSha||plan.servedSha!==scope.servedSha||plan.deadlineAt!==scope.deadlineAt)throw Error('BUILT_PLAN_SCOPE_DIFFERS');
- const producerCases=plan.cases.filter(c=>['AHT-01','AHT-02','AHT-03','AHT-07','AHT-08'].includes(c.id)).map(c=>c.id);
+ const selected=require(path.join(H,'campaign-core.cjs')).selectedOrder(plan);
+ const producerCases=plan.cases.filter(c=>selected.includes(c.id)&&['AHT-01','AHT-02','AHT-03','AHT-07','AHT-08'].includes(c.id)).map(c=>c.id);
  if(JSON.stringify([...producerCases].sort())!==JSON.stringify([...scope.caseIds].sort()))throw Error('BUILT_PRODUCER_CASES_DIFFER');
  const savedScope=writePrivate(path.join(dir,'producer-scope.json'),scope);
  return {kind:'same-job-preparation-not-live-result',plan:{file:planFile,sha256:sha(planBytes)},scope:savedScope,descriptor:selection,authorizationSha256};

@@ -59,8 +59,10 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None):
     full = mode == "full"
     if mode not in ("partial", "full"):
         E("coverageMode must be partial or full; there is no default (a run is exactly one mode)")
-    elif req.get("sampleMode") != modes[mode]["sampleMode"]:
+    elif req.get("sampleMode") not in modes[mode].get("allowedSampleModes", [modes[mode]["sampleMode"]]):
         E("sampleMode %r does not match the %s mode (%s); the mode is passed to the plan builder, never defaulted" % (req.get("sampleMode"), mode, modes[mode]["sampleMode"]))
+    if req.get("executionRuntime", "Claude SpeakSharp R4") not in ("Claude SpeakSharp R4", "GitHub Actions SpeakSharp"):
+        E("executionRuntime must be an explicitly supported runtime")
     if req.get("schema") != "speaksharp.cloud-test.run-request.v2":
         E("schema is not speaksharp.cloud-test.run-request.v2")
     if not req.get("runId"):

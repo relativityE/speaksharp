@@ -15,7 +15,7 @@ from _fixtures import ROOT, REPO, J, wjson
 
 
 class IndependentGithubCasePreparation(unittest.TestCase):
-    def build(self, case, actual_job=True, bootstrap=False):
+    def build(self, case, actual_job=True, bootstrap=False, extra_env=None):
         temporary = tempfile.TemporaryDirectory(prefix="gh-case-prep-")
         self.addCleanup(temporary.cleanup)
         base = Path(temporary.name).resolve()
@@ -42,6 +42,7 @@ class IndependentGithubCasePreparation(unittest.TestCase):
             "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
             "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40,
         }
+        env.update(extra_env or {})
         results = []
         if bootstrap:
             now = datetime.datetime.now(datetime.timezone.utc)

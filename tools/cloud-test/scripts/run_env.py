@@ -34,8 +34,15 @@ def main():
     mode = r.get("coverageMode")
     if mode not in BP_MODE:
         sys.exit("coverageMode must be partial or full; the plan mode is never defaulted")
-    if r.get("sampleMode") != SAMPLE[mode]:
+    from _common import ROOT
+    cfg = load(os.path.join(ROOT, "config", "test-config.v1.json"))
+    allowed = cfg["modes"][mode].get("allowedSampleModes", [SAMPLE[mode]])
+    if r.get("sampleMode") not in allowed:
         sys.exit("sampleMode %r does not match coverageMode %s" % (r.get("sampleMode"), mode))
+    runtime = r.get("executionRuntime", "Claude SpeakSharp R4")
+    if runtime not in ("Claude SpeakSharp R4", "GitHub Actions SpeakSharp"):
+        sys.exit("executionRuntime must be an explicitly supported runtime")
+    builder_mode = "selected-full" if mode == "partial" and r["sampleMode"] == "full" else BP_MODE[mode]
     est, sel, win, appr, rel = r["estimate"], r["selection"], r["window"], r["approvedLimits"], r["release"]
     gates = []
     for s in sel:
@@ -43,7 +50,8 @@ def main():
             gc, row = s["gate"].split(":")
             gates.append("%d:%d:%s" % (num(s["case"]), num(gc), row))
     env = {
-        "BP_CAMPAIGN": r["runId"], "BP_MODE": BP_MODE[mode], "BP_T0": win["startUtc"], "BP_T1": win["endUtc"],
+        "BP_CAMPAIGN": r["runId"], "BP_MODE": builder_mode, "BP_RUNTIME": runtime, "BP_T0": win["startUtc"], "BP_T1": win["endUtc"],
+        "BP_PRODUCER_MODE": "same-github-job" if runtime == "GitHub Actions SpeakSharp" and any(s["case"] in ("AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08") for s in sel) else "unavailable",
         "BP_TOTAL": str(appr["runCapRequests"]), "BP_CLEANUP": str(est["requests"]["cleanupReserve"]), "BP_COACHING_CAP": str(est["providerBillableRequests"]["coachingCap"]),
         "BP_IDENT": str(est["identityReads"]), "BP_SELECT": ",".join(str(num(s["case"])) for s in sel),
         "BP_GATES": ",".join(gates), "BP_EST": ",".join("%d:%d" % (num(s["case"]), s["plannedRequests"]) for s in sel),
@@ -52,6 +60,9 @@ def main():
         "BP_BACKEND_SOURCE": rel["backend"]["source"], "BP_BACKEND_VERIFIED": rel["backend"]["verifiedAtUtc"] or "-",
     }
     env["BP_BACKEND_VERIFIED"] = "" if env["BP_BACKEND_VERIFIED"] == "-" else env["BP_BACKEND_VERIFIED"]
+    if builder_mode == "selected-full":
+        # Preserve the runner's fifteen-row denominator; only selection dispatches.
+        env["BP_CASES"] = ",".join(str(n) for n in range(1, 16))
     missing = [k for k, v in env.items() if v in (None, "None") or (v == "" and k not in ("BP_GATES", "BP_BACKEND_VERIFIED"))]
     if missing:
         print("missing values for", missing)

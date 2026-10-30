@@ -9,6 +9,8 @@
 const fs = require('fs'), path = require('path');
 const harness = path.resolve(process.argv[2]), planFile = path.resolve(process.argv[3]);
 const catalog = process.argv[4] ? JSON.parse(fs.readFileSync(path.resolve(process.argv[4]), 'utf8')) : null;
+const selectedFull = process.argv[5] === '--selected-full';
+if(process.argv.length>6 || (process.argv[5] && !selectedFull) || (selectedFull && !catalog))throw new Error('exact catalog scope required');
 const bundle = path.join(harness, 'bundle');
 const runner = require(path.join(bundle, 'harness/campaign-runner.cjs'));
 const core = require(path.join(bundle, 'harness/campaign-core.cjs'));
@@ -25,6 +27,7 @@ const out = {};
   if (catalog) {
     await attempt('assertion catalog and failure caps', async () => {
       const problems = [];
+      if(selectedFull && (plan.coverageMode!=='partial'||plan.assertionDepth!=='full'||!plan.selection?.ids?.length||core.selectedOrder(plan).length>6))problems.push('explicit partial-selection/full-assertion binding missing');
       for (const id of core.selectedOrder(plan)) {
         const row = plan.cases.find(c => c.id === id), cfg = JSON.parse(fs.readFileSync(row.configFile, 'utf8')), spec = catalog.cases[id];
         const want = JSON.stringify([...spec.requiredAssertions].sort()), got = JSON.stringify([...(cfg.requiredAssertions || [])].sort());
@@ -34,7 +37,7 @@ const out = {};
         if (cfg.sampleMode) problems.push(id + ': sampleMode ' + cfg.sampleMode + ' is not full coverage');
         if (!(row.maxMs > 0)) problems.push(id + ': no time limit');
       }
-      if (core.selectedOrder(plan).length !== Object.keys(catalog.cases).length) problems.push('the plan does not select every catalog journey');
+      if (!selectedFull && core.selectedOrder(plan).length !== Object.keys(catalog.cases).length) problems.push('the plan does not select every catalog journey');
       if (!plan.requestBudget) problems.push('no request budget');
       if (problems.length) throw new Error(problems.join('; '));
     });
