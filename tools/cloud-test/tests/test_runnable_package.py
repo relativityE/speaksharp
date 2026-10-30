@@ -231,7 +231,7 @@ class PlanBuilderProof(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         prerequisite(node_ok(), "node")
-        prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and subprocess.run(["git", "-C", REPO, "cat-file", "-e", RECEIVING_SOURCE + "^{commit}"], capture_output=True).returncode == 0, "git history with the receiving-source SHA")
+        prerequisite(subprocess.run(["git", "-C", REPO, "cat-file", "-e", RECEIVING_SOURCE + "^{commit}"], capture_output=True).returncode == 0, "git history with the receiving-source SHA")
         prerequisite(os.path.isfile(os.path.join(REPO, "tests", "fixtures", "rwt", "open_mic_tts.wav")), "the reviewed speech fixtures in the checkout")
         cls.work = tempfile.mkdtemp(prefix="ct-plan-")
         req = sample()["req"]

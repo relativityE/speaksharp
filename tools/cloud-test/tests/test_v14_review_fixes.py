@@ -105,28 +105,53 @@ class BaselineIsTheMostRecentRunWithAVerdict(unittest.TestCase):
 @needs_history
 class PipelineComparesWithTheRightRun(unittest.TestCase):
     def test_the_pipeline_compares_the_latest_run_with_every_baseline_it_needs(self):
-        prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and __import__("subprocess").run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
+        prerequisite(__import__("subprocess").run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
         d = tempfile.mkdtemp(prefix="ct-pipe-")
         for lab in ("R4", "R4B", "R4C", "R5"):
             shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
         shutil.copytree(os.path.join(RECEIPTS, "R5"), os.path.join(d, "R6T"))
         writable(d)
         p = os.path.join(d, "R6T", "case-results.json")
-        cr = json.load(open(p)); cr["campaignId"] = "R6T"
+        cr = json.load(open(p)); cr["campaignId"] = "R6T"; cr["synthetic"] = True
         for c in cr["cases"]:
             if c["caseId"] == "AHT-12":
                 for a in c["assertions"]:
                     if a["id"] in ("press-bound-denial", "denial-truthful-no-mic"):
                         a["result"] = "PASS"
         wjson(p, cr)
+        case_path = os.path.join(d, "R6T", "AHT-12", "case-result.json")
+        case = json.load(open(case_path)); case["synthetic"] = True
+        for assertion in case["assertions"]:
+            if assertion["id"] in ("press-bound-denial", "denial-truthful-no-mic"):
+                assertion["result"] = "PASS"
+        wjson(case_path, case)
+        plan_path = os.path.join(d, "R6T", "campaign-plan.json")
+        plan = json.load(open(plan_path)); plan["campaignId"] = "R6T"; plan["synthetic"] = True; wjson(plan_path, plan)
+        if os.path.exists(os.path.join(d, "R6T", "plan.sha")):
+            import hashlib
+            with open(os.path.join(d, "R6T", "plan.sha"), "w") as handle:
+                handle.write(hashlib.sha256(open(plan_path, "rb").read()).hexdigest() + "\n")
         cfg = copy.deepcopy(sample()["cfg"])
-        cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": TESTED, "ledgersOnly": False, "receiptsManifestSha256": manifest(os.path.join(d, "R6T"))})
+        from _synthetic_receipts import seal_in_place
+        pin = seal_in_place(os.path.join(d, "R6T"), "R6T")
+        cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": TESTED, "ledgersOnly": False, "receiptsManifestSha256": pin})
         cp = os.path.join(d, "cfg.json"); wjson(cp, cfg)
         out = os.path.join(d, "out")
         r = run_py("scripts/pipeline.py", "--request", request_path(), "--out-dir", out, "--config", cp, "--receipts-root", d, "--latest-label", "R6T",
                    "--repo", REPO, "--generated-at", "2026-10-29T00:00:00Z")
-        # exit 3 is the pipeline's own "actual spend over the cap" signal: the synthetic latest run is an R5 copy (2,085 requests) against a 180-request cap
-        self.assertIn(r.returncode, (0, 3), r.stdout[-1500:] + r.stderr[-1500:])
+        # Comparison must still be computed for an unqualified release. This retained
+        # request claims a deployed product fix without cloud-verified inclusion; its
+        # admission refusal must remain distinct from a comparison/execution failure.
+        self.assertEqual(r.returncode, 1, r.stdout[-1500:] + r.stderr[-1500:])
+        validation = json.load(open(os.path.join(out, "request-validation.json")))
+        self.assertFalse(validation["valid"])
+        self.assertEqual(validation["errors"], ["priority prove-deployed-fix needs a targeted product-fix gap whose (non-candidate) fix has cloud-verified deployed inclusion; an undeployed or unverified fix cannot be proven"])
+        self.assertTrue(json.load(open(os.path.join(out, "receipts-verification.json")))["allVerified"])
+        for baseline in ("R4C", "R5"):
+            comparison = json.load(open(os.path.join(out, "comparisons", baseline, "comparison.json")))
+            self.assertEqual(comparison["receipts"]["problems"], [])
+        self.assertTrue(json.load(open(os.path.join(out, "report/validation.json")))["valid"])
+        self.assertEqual(json.load(open(os.path.join(out, "gate-status.json")))["decision"], "NO-GO")
         self.assertTrue(os.path.isfile(os.path.join(out, "comparisons", "R4C", "comparison.json")), "R4C was not compared although it holds the only verdict for the defect")
         self.assertTrue(os.path.isfile(os.path.join(out, "comparisons", "R5", "comparison.json")))
         gap = next(g for g in json.load(open(os.path.join(out, "ledger-derived.json")))["gaps"] if g["id"] == "GAP-03")
@@ -134,6 +159,23 @@ class PipelineComparesWithTheRightRun(unittest.TestCase):
         self.assertNotEqual(gap["status"], "CLOSED")           # R6T is an R5 copy: harness and release differ from R4C, so the comparison with R4C does not prove a fix
         self.assertIn("R4C", gap["latest"]["comparableReason"])
         self.assertIn("baselines.json", os.listdir(out))
+
+    def test_a_mismatched_seal_stops_the_pipeline_before_comparison(self):
+        prerequisite(__import__("subprocess").run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
+        with tempfile.TemporaryDirectory(prefix="ct-pipe-negative-") as d:
+            for label in ("R4", "R4B", "R4C", "R5"):
+                shutil.copytree(os.path.join(RECEIPTS, label), os.path.join(d, label))
+            writable(d)
+            with open(os.path.join(d, "R5", "AHT-12", "case-result.json"), "a") as handle:
+                handle.write("\n")  # The pin remains unchanged: this MUST be rejected.
+            out = os.path.join(d, "out")
+            result = run_py("scripts/pipeline.py", "--request", request_path(), "--out-dir", out,
+                            "--receipts-root", d, "--repo", REPO)
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(os.path.exists(os.path.join(out, "comparisons")))
+            verification = json.load(open(os.path.join(out, "receipts-verification.json")))
+            self.assertFalse(verification["allVerified"])
+            self.assertIn("changed: AHT-12/case-result.json", verification["sets"]["R5"]["errors"])
 
 
 def counters_through(stated="R5", frozen="R5"):

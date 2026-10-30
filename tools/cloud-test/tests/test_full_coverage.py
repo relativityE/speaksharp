@@ -629,10 +629,16 @@ class FullModePipeline(unittest.TestCase):
     def test_the_control_plane_reports_the_full_proposal_without_approving_it(self):
         repo = os.environ.get("CT_TEST_REPO") or os.path.abspath(os.path.join(ROOT, "..", ".."))
         from _fixtures import prerequisite
-        prerequisite(os.path.isdir(os.path.join(repo, ".git")), "git history")
+        prerequisite(subprocess.run(["git", "-C", repo, "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True).stdout.strip() == "true", "git history")
         with tempfile.TemporaryDirectory() as d:
+            # This is a synthetic, unapproved proposal. The retained fixture has
+            # 46 Starts; the full contract needs 40 more. The old 85 was short by one.
+            proposal = json.load(open(request_path("R7-full-coverage-proposal.json")))
+            proposal["proposedLimits"]["startsCap"] = 86
+            proposal["proposedLimits"]["startsIncreaseJustification"] = "SYNTHETIC TEST ONLY: 46 retained fixture Starts + 40 planned; NO LIVE APPROVAL"
+            request = os.path.join(d, "request.json"); wjson(request, proposal)
             out = os.path.join(d, "out")
-            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", request_path("R7-full-coverage-proposal.json"), "--out-dir", out,
+            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", request, "--out-dir", out,
                                 "--repo", repo, "--generated-at", "2026-10-29T01:00:00Z"], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout[-800:] + r.stderr[-800:])
             gates = json.load(open(os.path.join(out, "gate-status.json")))
@@ -640,6 +646,13 @@ class FullModePipeline(unittest.TestCase):
             self.assertIn("G5", gates["blockingOpen"])
             self.assertEqual(json.load(open(os.path.join(out, "coverage.json")))["kind"], "NO RUN")
             self.assertTrue(json.load(open(os.path.join(out, "request-validation.json")))["valid"])
+            self.assertTrue(json.load(open(os.path.join(out, "report/validation.json")))["valid"])
+            report = json.load(open(os.path.join(out, "report/report.json")))
+            self.assertEqual(report["status"], "BLOCKED")
+            self.assertEqual(report["executiveSummary"]["fields"]["recommendation"], "HOLD")
+            attestation = json.load(open(os.path.join(out, "preflight-attestation.json")))
+            self.assertEqual(attestation["productHostsContacted"], 0)
+            self.assertEqual(attestation["networkAttempts"], 0)
             html = open(os.path.join(out, "report", "REPORT.html"), encoding="utf-8").read()
             self.assertIn("Full-coverage budget (proposal, not approved)", html)
             self.assertIn("Run kind and assertion coverage", html)

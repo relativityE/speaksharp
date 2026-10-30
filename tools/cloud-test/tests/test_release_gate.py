@@ -172,7 +172,7 @@ class RealRepository(unittest.TestCase):
     """The real tested release: #1744 (blocked-microphone guidance) is a verified deployed fix; the 502 fix touches the backend and stays unverified."""
     @needs_history  # verify_release.py reads the config's history runs and their sealed receipts
     def test_1744_is_in_the_tested_release_and_verified(self):
-        prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and os.system("git -C %s cat-file -e 4c85b006ac05e180521fd6e7d807f736987cafe8 2>/dev/null" % REPO) == 0, "git history of the repository")
+        prerequisite(os.system("git -C %s cat-file -e 4c85b006ac05e180521fd6e7d807f736987cafe8 2>/dev/null" % REPO) == 0, "git history of the repository")
         from _fixtures import run_py
         d = tempfile.mkdtemp(); out = os.path.join(d, "rv.json")
         r = run_py("scripts/verify_release.py", "--request", request_path(), "--ledger", os.path.join(ROOT, "config/gap-ledger.json"), "--repo", REPO, "--now", NOW, "--out", out)
