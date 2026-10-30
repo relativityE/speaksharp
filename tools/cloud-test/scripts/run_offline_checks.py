@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """Runs every offline check of the package and writes offline-checks.json (consumed by gate G10). No network, no secrets.
-Checks: package tests (including the integration proof on loopback when its prerequisites exist; the GitHub job requires them via CT_REQUIRE_INTEGRATION=1), report-builder tests, sealed receipts verified against their pinned hashes, the vendored harness verified against the approved hashes, the offline-proof index, config/workflow consistency.
+Checks (current run only, never N/A): package tests (including the integration proof on loopback when its prerequisites exist; the GitHub job requires
+them via CT_REQUIRE_INTEGRATION=1), report-builder tests, the reservation ledger, the additive catalog history, the vendored harness verified against the
+approved hashes, the assertion catalog derived from the harness contract, config/workflow consistency and the offline proof generated in this job.
 Usage: run_offline_checks.py --out offline-checks.json   (run from the package root: tools/cloud-test)"""
 import argparse
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from _common import ROOT, load, dump, now_utc  # noqa: E402
 
-# Owner decision 2026-10-30: a run may receive no retained history. With CT_HISTORY=none these checks, which can only
-# judge the sealed receipts, index and proofs, are reported NOT APPLICABLE (never passed); every other check still gates.
-# The assertion-catalog check cross-checks the harness contract against every compared run's sealed case results.
-HISTORY_BOUND = ("history-index-verified", "assertion-catalog-matches-harness", "sealed-receipts-verified", "case-costs-reconcile-to-sealed-ledgers", "offline-proof-index")
-NO_HISTORY_REASON = "NOT APPLICABLE: owner decision 2026-10-30, no retained history supplied (CT_HISTORY=none)"
+# Current-run checks only (PO 2026-10-30, Sam 1793400946): this suite needs no retained campaign history and none of its checks is ever
+# N/A. The audits of the retained campaigns (history index, sealed receipts, case costs, catalog rows of the compared runs) run only in
+# scripts/run_legacy_audit.py, which never earns current-execution credit.
+CHECKS = ("package-unit-tests", "report-builder-tests", "reservation-ledger-verified", "catalog-history-additive", "harness-verified",
+          "assertion-catalog-matches-harness", "config-matches-workflow", "offline-proof-index")
 # The harness corrections an offline proof must cover, exactly (Sam 1793379188); held equal to offline_proof.py's CORR by test.
 PROOF_CORRECTIONS = ("diagnostic-codes", "duplicate-markers", "contradictory-observations", "request-latency", "failure-path-evidence",
                      "effective-speech-stimulus", "selected-case-execution", "run-identity-binding", "outcome-classes")
@@ -47,10 +52,6 @@ def proof_problem(proof, pinned):
     return None
 
 
-def not_applicable(name):
-    return {"id": name, "passed": None, "applicable": False, "detail": NO_HISTORY_REASON}
-
-
 def command_check(name, cmd, env):
     """Keep actual child outcomes, including output needed to diagnose a failed run."""
     try:
@@ -71,29 +72,41 @@ def input_check(name, evaluate):
         return {"id": name, "passed": False, "detail": "%s: %s" % (type(error).__name__, error)}
 
 
+def catalog_matches_harness():
+    """The tracked assertion catalog equals the one derived from the hash-verified harness contract alone (no compared runs)."""
+    import derive_assertion_catalog as CAT
+    with tempfile.TemporaryDirectory(prefix="ct-catalog-") as d:
+        os.makedirs(os.path.join(d, "harness", "draft-adapters"))
+        os.makedirs(os.path.join(d, "config"))
+        shutil.copyfile(os.path.join(ROOT, "harness", "draft-adapters", "contracts.json"), os.path.join(d, "harness", "draft-adapters", "contracts.json"))
+        dump({"history": {"comparisonBaselines": []}}, os.path.join(d, "config", "test-config.v1.json"))
+        out, errs = CAT.derive(d)
+    if errs:
+        return False, "; ".join(errs)
+    with open(os.path.join(ROOT, "config", "assertion-catalog.json"), encoding="utf-8") as f:
+        same = f.read() == json.dumps(out, indent=1) + "\n"
+    return same, "%d assertions from the harness contract%s" % (out["totalAssertions"], "" if same else "; the tracked catalog differs")
+
+
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--out", required=True)
     x = a.parse_args()
-    history = os.environ.get("CT_HISTORY", "required")
-    if history not in ("required", "none"):
-        print("OFFLINE_CHECKS_REFUSED: CT_HISTORY must be 'required' or 'none', not %r" % history, file=sys.stderr)
+    if os.environ.get("CT_HISTORY"):
+        print("OFFLINE_CHECKS_REFUSED: CT_HISTORY is retired for the current suite, which needs no retained history; the retained campaigns are "
+              "audited by scripts/run_legacy_audit.py", file=sys.stderr)
         return 2
-    # Proof v2: a proof generated in THIS job (CT_PROOF_FILE) needs no retained history, so offline-proof-index stays applicable.
+    # The offline proof must be generated in THIS job (CT_PROOF_FILE); a retained proof file is never substituted.
     proof_file = os.environ.get("CT_PROOF_FILE") or None
-    in_job = {"offline-proof-index"} if proof_file else set()
-    bound = (lambda name, make: not_applicable(name) if history == "none" and name in HISTORY_BOUND and name not in in_job else make())
     checks = []
     env = {**os.environ}
     for name, cmd in (("package-unit-tests", [sys.executable, "-I", "-W", "ignore::ResourceWarning", "-m", "unittest", "discover", "-s", os.path.join(ROOT, "tests"), "-p", "test_*.py"]),
                       ("report-builder-tests", [sys.executable, "-I", "-W", "ignore::ResourceWarning", "-m", "unittest", "discover", "-s", os.path.join(ROOT, "report", "tests"), "-p", "test_*.py"])):
         checks.append(command_check(name, cmd, env))
-    for name, script, extra in (("history-index-verified", "history_index.py", ["verify"]), ("reservation-ledger-verified", "reservations.py", ["verify"]), ("catalog-history-additive", "verify_catalog_history.py", [])):
-        checks.append(bound(name, lambda: command_check(name, [sys.executable, "-I", os.path.join(HERE, script)] + extra, env)))
-    checks.append(bound("assertion-catalog-matches-harness", lambda: command_check("assertion-catalog-matches-harness", [sys.executable, "-I", os.path.join(HERE, "derive_assertion_catalog.py"), "--out", os.path.join(ROOT, "config", "assertion-catalog.json"), "--check"], env)))
-    for name, script in (("sealed-receipts-verified", "verify_receipts.py"), ("harness-verified", "verify_harness.py")):
-        checks.append(bound(name, lambda: command_check(name, [sys.executable, "-I", os.path.join(HERE, script), "--config", os.path.join(ROOT, "config", "test-config.v1.json")], env)))
-    checks.append(bound("case-costs-reconcile-to-sealed-ledgers", lambda: command_check("case-costs-reconcile-to-sealed-ledgers", [sys.executable, "-I", os.path.join(HERE, "derive_case_costs.py"), "--receipts-root", os.path.join(ROOT, "config", "history", "receipts"), "--run", "R4C", "--run", "R5", "--out", os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", "case-costs-check.json")], env)))
+    for name, script, extra in (("reservation-ledger-verified", "reservations.py", ["verify"]), ("catalog-history-additive", "verify_catalog_history.py", [])):
+        checks.append(command_check(name, [sys.executable, "-I", os.path.join(HERE, script)] + extra, env))
+    checks.append(command_check("harness-verified", [sys.executable, "-I", os.path.join(HERE, "verify_harness.py"), "--config", os.path.join(ROOT, "config", "test-config.v1.json")], env))
+    checks.append(input_check("assertion-catalog-matches-harness", catalog_matches_harness))
 
     cfg, wf = {}, {}
 
@@ -104,24 +117,19 @@ def main():
         return cfg["workflowVersion"] == wf["version"], "config %s workflow %s" % (cfg["workflowVersion"], wf["version"])
 
     def proof_index():
-        # The proof is selected by the harness the config pins (Sam 1793378783), never by a fixed or historical filename,
-        # and must bind that exact manifest; an older proof is never substituted or relabelled.
+        # The proof must bind the harness the config pins (Sam 1793378783) and come from this job; an older proof is never substituted.
         pinned = cfg["harness"]["expectedCodeManifestSha256"]
         if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{64}", pinned):
             return False, "the pinned harness manifest is not a sha256"
-        name = "offline-proof-%s.json" % pinned[:8]
-        if proof_file:
-            name = "in-job proof"
-        problem = proof_problem(load(proof_file or os.path.join(ROOT, "config", "proofs", name)), pinned)
-        return problem is None, "%s: %s" % (name, problem or "all %d corrections PASS; hash matches config" % len(PROOF_CORRECTIONS))
+        if not proof_file:
+            return False, "no offline proof was generated in this job (CT_PROOF_FILE is not set)"
+        problem = proof_problem(load(proof_file), pinned)
+        return problem is None, "in-job proof: %s" % (problem or "all %d corrections PASS; hash matches config" % len(PROOF_CORRECTIONS))
 
     checks.append(input_check("config-matches-workflow", versions))
-    checks.append(bound("offline-proof-index", lambda: input_check("offline-proof-index", proof_index)))
-    applicable = [c for c in checks if c.get("applicable", True)]
-    out = {"schema": "speaksharp.cloud-test.offline-checks.v1", "ranUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "workflowVersion": wf.get("version") if isinstance(wf, dict) else None,
-           "historyMode": history, "proofSource": "in-job" if proof_file else "config",
-           "notApplicable": [c["id"] for c in checks if not c.get("applicable", True)],
-           "checks": checks, "passed": bool(applicable) and all(c["passed"] is True for c in applicable)}
+    checks.append(input_check("offline-proof-index", proof_index))
+    out = {"schema": "speaksharp.cloud-test.offline-checks.v2", "ranUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "workflowVersion": wf.get("version") if isinstance(wf, dict) else None,
+           "proofSource": "in-job" if proof_file else None, "checks": checks, "passed": all(c["passed"] is True for c in checks)}
     # The job log of this public repository shows only check names and statuses; child output and details stay in the
     # written report on the runner. A report that cannot be written is a failure, and its diagnostics are not printed.
     written = True
@@ -131,7 +139,7 @@ def main():
         out["passed"], written = False, False
         print("OFFLINE_CHECKS_REPORT_WRITE_FAILED: " + type(error).__name__, file=sys.stderr)
     for c in checks:
-        print(("N/A  " if not c.get("applicable", True) else "PASS " if c["passed"] is True else "FAIL ") + c["id"])
+        print(("PASS " if c["passed"] is True else "FAIL ") + c["id"])
     return 0 if written and out["passed"] else 1
 
 

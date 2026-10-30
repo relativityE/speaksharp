@@ -2,7 +2,7 @@
 """Reduces offline-checks.json to the public summary: check names, statuses and counts only (PO 2026-10-30, minimal exposure).
 The repository is public, so no child output, detail or traceback leaves the runner; for a failed unittest check only the failing
 test names and the unittest counts are kept. A missing, malformed or inconsistent result is a failure, never an empty success.
-Usage: summarize_offline_checks.py --in offline-checks.json --out offline-checks-summary.json   (mode from CT_HISTORY)"""
+Usage: summarize_offline_checks.py --in offline-checks.json --out offline-checks-summary.json"""
 import argparse
 import builtins
 import json
@@ -12,11 +12,10 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# The exact inventory of run_offline_checks.py (Sam 1793373703): every ID once, none missing or extra.
-HISTORY_BOUND = frozenset(("history-index-verified", "assertion-catalog-matches-harness", "sealed-receipts-verified",
-                           "case-costs-reconcile-to-sealed-ledgers", "offline-proof-index"))
-CURRENT_SOURCE = frozenset(("package-unit-tests", "report-builder-tests", "reservation-ledger-verified", "catalog-history-additive",
-                            "harness-verified", "config-matches-workflow"))
+# The exact inventory of run_offline_checks.py (Sam 1793373703): every ID once, none missing or extra. Every check is a current-run check and
+# none is ever N/A; the retained-campaign audits run only in scripts/run_legacy_audit.py (PO 2026-10-30, Sam 1793400946).
+CHECKS = frozenset(("package-unit-tests", "report-builder-tests", "reservation-ledger-verified", "catalog-history-additive", "harness-verified",
+                    "assertion-catalog-matches-harness", "config-matches-workflow", "offline-proof-index"))
 # The unittest suites whose own counts must prove a clean, non-empty run before the workflow counts as delivered.
 SUITES = ("package-unit-tests", "report-builder-tests")
 # unittest's closing status line after "Ran N tests": OK or FAILED, optionally with "key=value" counts in parentheses.
@@ -83,13 +82,12 @@ def _counts(c):
     return {k: suite[k] for k in ("ran", "failures", "errors", "skipped")} if suite else {}
 
 
-def delivery_refusals(checks, rows, history):
-    """Every reason this result is not the delivered workflow (PO 2026-10-30 via Sam 1793398305: GitHub cloud-test passing with
-    NO skips). Empty means delivered. Reduced scope is truthfully reported elsewhere but is never delivery."""
-    if history != "required":
-        return ["REDUCED_SCOPE"]
-    refusals = ["NOT_APPLICABLE:" + r["id"] for r in rows if r["status"] == "N/A"]
-    refusals += ["FAILED:" + r["id"] for r in rows if r["status"] == "FAIL"]
+def delivery_refusals(checks, rows, result):
+    """Every reason this result is not the delivered workflow (PO 2026-10-30 via Sam 1793398305: GitHub cloud-test passing with NO skips).
+    Empty means delivered."""
+    refusals = ["FAILED:" + r["id"] for r in rows if r["status"] == "FAIL"]
+    if result.get("proofSource") != "in-job":
+        refusals.append("PROOF_NOT_FROM_THIS_JOB")
     for c in checks:
         if c["id"] not in SUITES:
             continue
@@ -103,26 +101,15 @@ def delivery_refusals(checks, rows, history):
     return refusals
 
 
-def _status(c):
-    return "N/A" if c.get("applicable", True) is False and c.get("passed") is None else "PASS" if c.get("passed") is True else "FAIL"
-
-
-def summarize(result, history):
+def summarize(result):
     """Return the public summary for a parsed result (None when the file is missing). Never raises on bad input."""
-    reduced = history == "none"
-    # Reduced scope (Sam 1793373376): the history-bound pipeline and its attestation do not run, so neither is claimed.
-    summary = {"schema": "speaksharp.cloud-test.offline-checks-summary.v2", "historyMode": history, "reducedScope": reduced,
-               "liveExecutionAuthorized": False,
-               "steps": {"control-plane-pipeline": "NOT APPLICABLE" if reduced else "REQUIRED",
-                         "preflight-attestation": "NOT APPLICABLE" if reduced else "REQUIRED"},
+    summary = {"schema": "speaksharp.cloud-test.offline-checks-summary.v3", "liveExecutionAuthorized": False,
                "resultValid": False, "delivered": False, "overallPassed": False}
 
     def fail(error):
         summary["error"] = error
         return summary
 
-    if history not in ("required", "none"):
-        return fail("HISTORY_MODE_INVALID")
     if result is None:
         return fail("RESULT_MISSING")
     checks = result.get("checks") if isinstance(result, dict) else None
@@ -131,23 +118,16 @@ def summarize(result, history):
     ids = [c["id"] for c in checks]
     if len(ids) != len(set(ids)):
         return fail("RESULT_DUPLICATE_CHECK")
-    if set(ids) != HISTORY_BOUND | CURRENT_SOURCE:
+    if set(ids) != CHECKS:
         return fail("RESULT_CHECK_INVENTORY_MISMATCH")
-    # A proof generated in this job (proofSource in-job) needs no retained history: only then is offline-proof-index applicable when reduced.
-    in_job = {"offline-proof-index"} if result.get("proofSource") == "in-job" else set()
-    if result.get("proofSource", "config") not in ("in-job", "config"):
+    if result.get("proofSource") not in ("in-job", None):
         return fail("RESULT_MALFORMED")
-    for c in checks:
-        # Current-source checks are never N/A; in the reduced scope exactly the history-bound checks are, in required mode none is.
-        if c["id"] in HISTORY_BOUND and reduced and c["id"] not in in_job:
-            legal = c.get("applicable") is False and c.get("passed") is None
-        else:
-            legal = c.get("applicable", True) is True and isinstance(c.get("passed"), bool)
-        if not legal:
-            return fail("RESULT_ILLEGAL_APPLICABILITY")
+    # No check is ever N/A: each must be applicable with a boolean outcome.
+    if not all(c.get("applicable", True) is True and isinstance(c.get("passed"), bool) for c in checks):
+        return fail("RESULT_ILLEGAL_APPLICABILITY")
     rows = []
     for c in checks:
-        row = {"id": c["id"], "status": _status(c)}
+        row = {"id": c["id"], "status": "PASS" if c["passed"] else "FAIL"}
         if _counts(c):
             row["tests"] = _counts(c)
         names = sorted(set(FAILING.findall(_text(c))))
@@ -155,16 +135,12 @@ def summarize(result, history):
             row["failingTests"] = names
             row["failureTypes"] = _failure_types(_text(c))
         rows.append(row)
-    count = lambda value: sum(r["status"] == value for r in rows)
-    summary.update(checks=rows, passed=count("PASS"), failed=count("FAIL"), notApplicable=count("N/A"))
-    derived = all(r["status"] == "PASS" for r in rows if r["status"] != "N/A")
-    if result.get("historyMode", "required") != history or (result.get("passed") is True) != derived:
+    summary.update(checks=rows, passed=sum(r["status"] == "PASS" for r in rows), failed=sum(r["status"] == "FAIL" for r in rows))
+    if (result.get("passed") is True) != all(r["status"] == "PASS" for r in rows):
         return fail("RESULT_INCONSISTENT")
-    # Required mode is the delivery: it passes only with no skip, error, failure, N/A or missing/empty suite count. Reduced mode
-    # keeps its truthful verdict and is never labelled delivered.
-    refusals = delivery_refusals(checks, rows, history)
-    summary.update(resultValid=True, delivered=not refusals, deliveryRefusals=refusals,
-                   overallPassed=derived and (reduced or not refusals))
+    # The delivery: every check passes, both suites show one complete, non-empty, clean count, and the proof was generated in this job.
+    refusals = delivery_refusals(checks, rows, result)
+    summary.update(resultValid=True, delivered=not refusals, deliveryRefusals=refusals, overallPassed=not refusals)
     return summary
 
 
@@ -184,7 +160,7 @@ def main():
                 result = json.load(f)
         except (OSError, ValueError):
             result = {}
-    summary = summarize(result, os.environ.get("CT_HISTORY", "required"))
+    summary = summarize(result)
     with open(x.out, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=1)
     for r in summary.get("checks", []):
@@ -196,8 +172,7 @@ def main():
     if "error" in summary:
         print("offline checks: " + summary["error"])
     else:
-        print("offline checks: %d passed, %d failed, %d not applicable; reduced scope %s; overall %s"
-              % (summary["passed"], summary["failed"], summary["notApplicable"], summary["reducedScope"], "PASS" if summary["overallPassed"] else "FAIL"))
+        print("offline checks: %d passed, %d failed; overall %s" % (summary["passed"], summary["failed"], "PASS" if summary["overallPassed"] else "FAIL"))
         print("delivery: " + ("DELIVERED (required mode, no skips)" if summary["delivered"]
                               else "NOT DELIVERED: " + ", ".join(summary["deliveryRefusals"])))
     return 0 if summary["overallPassed"] else 1
