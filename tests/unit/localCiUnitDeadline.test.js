@@ -148,7 +148,7 @@ async function observeUnitExit(rejectUnit, childReport) {
         if (rejectUnit) throw new Error('[UNIT] Exited with code 1');
     };
     let stageCall = between(source, 'await runStage(3, "Test Execution", async (stage) => {', '\n        // Stage 4:');
-    stageCall = stageCall.replace(/\n        }\s*$/, '')
+    stageCall = stageCall.replace(/\n {8}}\s*$/, '')
         .replace("const { execSync } = await import('child_process');", 'const { execSync } = __fixtureChildProcess;');
     await vm.runInContext(`(async () => { ${stageCall} })()`, context);
     return JSON.parse(JSON.stringify(vm.runInContext('buildAuditModel(ciTelemetry)', context)));
