@@ -3,7 +3,7 @@
 // Run the existing guarded campaign in the SAME credentialed job. No account creation, arbitrary
 // command, cloud dispatch, secret-store query or mutation endpoint is exposed by this launcher.
 const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:child_process');
-const {createProducer,startBroker}=require('./authenticated-job-producer.cjs');
+const {createProducer,startBroker,assertJobReceipt}=require('./authenticated-job-producer.cjs');
 const {sha}=require('./existing-runner-projection.cjs');
 function privateJson(file,expected){
  const absolute=path.resolve(file),st=fs.lstatSync(absolute),parent=path.dirname(absolute),ps=fs.lstatSync(parent);
@@ -24,7 +24,9 @@ async function main(argv){
   if(plan.campaignId!==scope.campaignId||plan.sourceSha!==scope.sourceSha||plan.servedSha!==scope.servedSha||plan.deadlineAt!==scope.deadlineAt)throw new Error('NOT_RUN: CAMPAIGN_PRODUCER_SCOPE_DIFFERS');
   const cases=plan.cases.filter(c=>scope.caseIds.includes(c.id));if(cases.length!==scope.caseIds.length)throw new Error('NOT_RUN: PRODUCER_CASE_BINDING_MISSING');
   for(const c of cases){const config=privateJson(c.configFile,c.configSha256);if(config.account?.id!==scope.ownerAccountId)throw new Error('NOT_RUN: PRODUCER_ACCOUNT_DIFFERS');}
-  const producer=createProducer({scope}),directory=fs.realpathSync(path.dirname(args['--scope']));broker=await startBroker({directory,producer});
+  const producer=createProducer({scope}),admission=privateJson(plan.admissionConfigFile,plan.admissionConfigSha256),attestation=privateJson(admission.runtimeAttestationFile,admission.runtimeAttestationSha256);
+  require('./runtime-selection.cjs').validateGitHubSelection(attestation,admission,Date.now());assertJobReceipt(attestation,producer.job);
+  const directory=fs.realpathSync(path.dirname(args['--scope']));broker=await startBroker({directory,producer});
   child=spawn(process.execPath,[path.join(__dirname,'campaign-runner.cjs'),'--plan',path.resolve(args['--plan']),'--plan-sha256',args['--plan-sha256'],'--execute-r0','true'],{stdio:'inherit',env:driverEnvironment(process.env,broker.socketPath)});
   for(const signal of ['SIGINT','SIGTERM']){const fn=()=>child.kill(signal);process.on(signal,fn);signals.push([signal,fn]);}
   timer=setTimeout(()=>child.kill('SIGTERM'),Math.max(1,Date.parse(scope.deadlineAt)-Date.now()));timer.unref();

@@ -11,11 +11,14 @@ const producerSha=()=>p.sha(fs.readFileSync(__filename));
 function descriptor(reviewReference,env=process.env){
  const job=jobIdentity(env),relative='draft-adapters/receivers/github-job-evidence-reader.cjs';
  if(typeof reviewReference!=='string'||!reviewReference.trim())fail('INDEPENDENT_PRODUCER_REVIEW_REQUIRED');
- return {kind:'same-github-job-receiver-selection-not-execution-proof',producerIdentity:job.identity,producerCodeSha256:producerSha(),receiverRelativePath:relative,receiverSourceSha256:p.sha(fs.readFileSync(path.resolve(__dirname,'../..',relative))),workflowSourceSha:job.producerSourceSha,reviewReference};
+ return {kind:'same-github-job-receiver-selection-not-execution-proof',producerIdentity:job.identity,jobId:job.jobId,producerCodeSha256:producerSha(),receiverRelativePath:relative,receiverSourceSha256:p.sha(fs.readFileSync(path.resolve(__dirname,'../..',relative))),workflowSourceSha:job.producerSourceSha,reviewReference};
 }
 function jobIdentity(env){
- if(env.GITHUB_ACTIONS!=='true'||env.GITHUB_REPOSITORY!=='relativityE/speaksharp'||!/^\d+$/.test(env.GITHUB_RUN_ID||'')||!/^\d+$/.test(env.GITHUB_RUN_ATTEMPT||'')||!SHA.test(env.GITHUB_SHA||''))fail('AUTHENTICATED_JOB_UNAVAILABLE');
- return {identity:`github-actions:relativityE/speaksharp:${env.GITHUB_RUN_ID}:${env.GITHUB_RUN_ATTEMPT}`,reference:`https://github.com/relativityE/speaksharp/actions/runs/${env.GITHUB_RUN_ID}`,producerSourceSha:env.GITHUB_SHA};
+ if(env.GITHUB_ACTIONS!=='true'||env.GITHUB_REPOSITORY!=='relativityE/speaksharp'||!/^\d+$/.test(env.GITHUB_RUN_ID||'')||!/^\d+$/.test(env.GITHUB_RUN_ATTEMPT||'')||!/^[A-Za-z0-9_-]{1,100}$/.test(env.GITHUB_JOB||'')||!SHA.test(env.GITHUB_SHA||''))fail('AUTHENTICATED_JOB_UNAVAILABLE');
+ return {identity:`github-actions:relativityE/speaksharp:${env.GITHUB_RUN_ID}:${env.GITHUB_RUN_ATTEMPT}:${env.GITHUB_JOB}`,jobId:env.GITHUB_JOB,runId:env.GITHUB_RUN_ID,runAttempt:env.GITHUB_RUN_ATTEMPT,reference:`https://github.com/relativityE/speaksharp/actions/runs/${env.GITHUB_RUN_ID}`,producerSourceSha:env.GITHUB_SHA};
+}
+function assertJobReceipt(receipt,job){
+ if(receipt?.repository!=='relativityE/speaksharp'||receipt.runId!==job.runId||receipt.runAttempt!==job.runAttempt||receipt.jobId!==job.jobId||receipt.workflowSourceSha!==job.producerSourceSha||receipt.immutableEnvironmentId!==`relativityE/speaksharp/${job.runId}/${job.runAttempt}/${job.jobId}`)fail('PRODUCER_RUNTIME_JOB_DIFFERS');
 }
 function validateScope(s,now){
  if(!s||!UUID.test(s.ownerAccountId||'')||!SHA.test(s.sourceSha||'')||s.servedSha!==s.sourceSha||typeof s.campaignId!=='string'||!s.campaignId||!Array.isArray(s.caseIds)||!s.caseIds.length||new Set(s.caseIds).size!==s.caseIds.length||s.caseIds.some(k=>!ROLES[k]))fail('PRODUCER_SCOPE_INVALID');
@@ -103,4 +106,4 @@ async function startBroker({directory,producer}){
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(socketPath,()=>{fs.chmodSync(socketPath,0o600);resolve();});});
  return {socketPath,async close(){for(const c of controllers)c.abort();for(const c of clients)c.destroy();await new Promise((resolve,reject)=>server.close(e=>e?reject(e):resolve()));}};
 }
-module.exports={createProducer,startBroker,jobIdentity,validateScope,producerSha,descriptor};
+module.exports={createProducer,startBroker,jobIdentity,assertJobReceipt,validateScope,producerSha,descriptor};

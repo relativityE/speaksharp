@@ -285,7 +285,7 @@ class PlanBuilderProof(unittest.TestCase):
         fp = os.path.join(self.work, name + "-facts.json"); wjson(fp, facts)
         packet = os.path.join(ROOT, "harness")
         receiver = "draft-adapters/receivers/github-job-evidence-reader.cjs"
-        descriptor = {"producerIdentity": "github-actions:relativityE/speaksharp:123:1",
+        descriptor = {"producerIdentity": "github-actions:relativityE/speaksharp:123:1:live", "jobId": "live",
                       "producerCodeSha256": sha(open(os.path.join(packet, "bundle/harness/authenticated-job-producer.cjs"), "rb").read()),
                       "receiverSourceSha256": sha(open(os.path.join(packet, receiver), "rb").read()),
                       "receiverRelativePath": receiver, "workflowSourceSha": "b" * 40, "reviewReference": review}
@@ -304,7 +304,7 @@ class PlanBuilderProof(unittest.TestCase):
                 self.assertTrue(c["producerReceiverFile"].endswith("github-job-evidence-reader.cjs"))
                 cfg = json.load(open(c["configFile"]))
                 for producer in cfg["privateEvidenceProducers"].values():
-                    self.assertEqual(producer["producerIdentity"], "github-actions:relativityE/speaksharp:123:1")
+                    self.assertEqual(producer["producerIdentity"], "github-actions:relativityE/speaksharp:123:1:live")
                     self.assertEqual(producer["deliveryKind"], "reviewed-authenticated-workflow-artifact")
         att = json.load(open(os.path.join(private, "cfg/runtime-attestation.json")))
         self.assertEqual(att["kind"], "github-actions-job-environment-receipt")
@@ -322,6 +322,12 @@ class PlanBuilderProof(unittest.TestCase):
     def test_same_job_descriptor_from_another_run_is_refused(self):
         inputs = self.job_inputs("other-job"); inputs["GITHUB_RUN_ID"] = "999"
         _, out = self.build("p-other-job", extra=inputs)
+        self.assertNotEqual(out[-1].returncode, 0)
+        self.assertIn("producer belongs to another job", out[-1].stderr)
+
+    def test_same_run_descriptor_from_another_job_is_refused(self):
+        inputs = self.job_inputs("other-job-same-run"); inputs["GITHUB_JOB"] = "other"
+        _, out = self.build("p-other-job-same-run", extra=inputs)
         self.assertNotEqual(out[-1].returncode, 0)
         self.assertIn("producer belongs to another job", out[-1].stderr)
 

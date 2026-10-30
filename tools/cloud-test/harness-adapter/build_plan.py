@@ -129,7 +129,8 @@ if phase == 'phase1':
         assert os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('GITHUB_REPOSITORY') == 'relativityE/speaksharp', 'same GitHub job required'
         run_id, attempt = need('GITHUB_RUN_ID'), need('GITHUB_RUN_ATTEMPT')
         assert run_id.isdecimal() and attempt.isdecimal(), 'actual GitHub run/attempt required'
-        assert descriptor['producerIdentity'] == f'github-actions:relativityE/speaksharp:{run_id}:{attempt}', 'producer belongs to another job'
+        job_id = need('GITHUB_JOB')
+        assert descriptor['producerIdentity'] == f'github-actions:relativityE/speaksharp:{run_id}:{attempt}:{job_id}' and descriptor['jobId'] == job_id, 'producer belongs to another job'
         assert descriptor['producerCodeSha256'] == shaf(f'{PACKET}/bundle/harness/authenticated-job-producer.cjs'), 'producer bytes differ'
         assert descriptor['receiverSourceSha256'] == receiver_sha and descriptor['receiverRelativePath'] == receiver_rel, 'receiver bytes/path differ'
         assert descriptor['workflowSourceSha'] == need('GITHUB_SHA'), 'producer workflow source differs'
