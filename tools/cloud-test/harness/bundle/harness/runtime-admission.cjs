@@ -6,7 +6,7 @@ const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 function validateDispatchEvidence({admission,qualification,qualificationSha256,qualificationFile,admissionSha256,expectedAdmissionSha256,campaignId,codeManifestSha256,policySha256,ledgerFile,actualRuntime,browserArtifactSha256,now=Date.now(),evidence,requiredCapability='browser-guard',ledgerIdentity}) {
  const fail=s=>{throw new Error('BLOCKED_SETUP: '+s);};
  if(!/^[a-f0-9]{64}$/.test(expectedAdmissionSha256||'')||admissionSha256!==expectedAdmissionSha256)fail('admission receipt bytes unbound/changed');
- if(!admission||admission.result!=='ADMISSION PASS'||admission.runtime!=='Claude SpeakSharp R4')fail('current R0 admission not PASS');
+ if(!admission||admission.result!=='ADMISSION PASS'||!require('./runtime-selection.cjs').supported(admission.runtime))fail('current R0 admission not PASS');
  if(!campaignId||admission.binding?.campaignId!==campaignId)fail('wrong campaign admission');
  for(const id of STAGES)if(admission.steps?.filter(x=>x.id===id&&x.result==='PASS').length!==1)fail('missing admission stage '+id);
  const b=admission.binding;
@@ -19,7 +19,7 @@ function validateDispatchEvidence({admission,qualification,qualificationSha256,q
  if(!actualRuntime||['node','playwright','chromiumRevision','chromeSha256','wrapperSha256'].some(k=>actualRuntime[k]!==b.runtimeVariant?.[k])||browserArtifactSha256!==b.browserArtifactSha256)fail('current runtime/browser bytes differ from admitted compatibility variant');
  if(requiredCapability==='lighthouse'&&(!/^[a-f0-9]{64}$/.test(actualRuntime.lighthouseCliSha256||'')||actualRuntime.lighthouseCliSha256!==b.runtimeVariant?.lighthouseCliSha256))fail('current Lighthouse CLI bytes differ from admitted qualification');
  const stage=admission.steps.find(s=>s.id==='A6.guard-selftest');
- verifyQualification(qualification,{codeManifestSha256,startedAt:Date.parse(stage.startedAt),endedBy:Date.parse(stage.endedAt),expectedRuntime:b.runtimeVariant,expectedSelection:b.lighthouseSelection,ownerApprovalReference:b.lighthouseOwnerApprovalReference,requiredCapability,evidence});
+ verifyQualification(qualification,{codeManifestSha256,startedAt:Date.parse(stage.startedAt),endedBy:Date.parse(stage.endedAt),expectedRuntime:b.runtimeVariant,expectedRuntimeName:admission.runtime,expectedSelection:b.lighthouseSelection,ownerApprovalReference:b.lighthouseOwnerApprovalReference,requiredCapability,evidence});
  return {result:'DISPATCH_ADMISSION_VALID',campaignId,sourceSha:b.sourceSha,servedSha:b.servedSha,deadlineAt:b.approvedDeadlineAt,expectedLedgerIdentity:b.campaignLedgerIdentity};
 }
 function regular(file){const p=path.resolve(file);const st=fs.lstatSync(p);if(st.isSymbolicLink()||!st.isFile()||fs.realpathSync(p)!==p)throw new Error('BLOCKED_SETUP: noncanonical evidence file');return p;}

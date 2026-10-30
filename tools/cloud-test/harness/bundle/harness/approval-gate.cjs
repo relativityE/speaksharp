@@ -8,7 +8,7 @@ const sha256 = b => crypto.createHash('sha256').update(b).digest('hex');
 function validateSecurityApproval(record, expected, now = Date.now()) {
   const fail = why => { const e = new Error('APPROVAL_REQUIRED: ' + why); e.code = 'APPROVAL_REQUIRED'; throw e; };
   if (!record || record.version !== 1) fail('explicit action-time owner record absent');
-  if (record.runtime !== 'Claude SpeakSharp R4' || expected.runtime !== record.runtime) fail('wrong runtime');
+  if (!require('./runtime-selection.cjs').supported(record.runtime) || expected.runtime !== record.runtime) fail('wrong runtime');
   if (record.action !== 'ephemeral-browser-spki-exception') fail('wrong action');
   if (!record.ownerApprovalReference || !record.approvedBy || record.approvalSource !== 'explicit-user-message') fail('missing owner approval provenance');
   if (!/^[a-f0-9]{64}$/.test(record.reviewedCodeManifestSha256 || '') || record.reviewedCodeManifestSha256 !== expected.codeManifestSha256) fail('reviewed bytes differ');
@@ -28,7 +28,8 @@ function assertSecurityApproval(opts = {}, policy) {
   const integrity = require('./preflight.cjs').verifyManifest(root,'CODE.sha256');
   if(integrity.result !== 'PASS') throw new Error('APPROVAL_REQUIRED: actual code differs from reviewed manifest');
   const manifest = fs.readFileSync(path.join(root, 'CODE.sha256'));
-  const expected = { runtime: 'Claude SpeakSharp R4', codeManifestSha256: sha256(manifest), hosts: Object.keys(policy?.hosts || {}) };
-  return validateSecurityApproval(JSON.parse(fs.readFileSync(file, 'utf8')), expected);
+  const record=JSON.parse(fs.readFileSync(file, 'utf8'));
+  const expected = { runtime: record.runtime, codeManifestSha256: sha256(manifest), hosts: Object.keys(policy?.hosts || {}) };
+  return validateSecurityApproval(record, expected);
 }
 module.exports = { validateSecurityApproval, assertSecurityApproval };
