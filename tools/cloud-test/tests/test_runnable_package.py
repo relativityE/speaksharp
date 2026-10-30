@@ -16,6 +16,7 @@ from _fixtures import NOW, REPO, REQUIRE, ROOT, TESTED, J, prerequisite, request
 import verify_harness as VH
 
 CFG = os.path.join(ROOT, "config", "test-config.v1.json")
+RECEIVING_SOURCE = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
 
 
 def sha(b):
@@ -230,10 +231,13 @@ class PlanBuilderProof(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         prerequisite(node_ok(), "node")
-        prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and subprocess.run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
+        prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and subprocess.run(["git", "-C", REPO, "cat-file", "-e", RECEIVING_SOURCE + "^{commit}"], capture_output=True).returncode == 0, "git history with the receiving-source SHA")
         prerequisite(os.path.isfile(os.path.join(REPO, "tests", "fixtures", "rwt", "open_mic_tts.wav")), "the reviewed speech fixtures in the checkout")
         cls.work = tempfile.mkdtemp(prefix="ct-plan-")
         req = sample()["req"]
+        # The receiving adapter rejects the historic 4c85 binding. Exercise the
+        # same current source as FullPlanProof, not an obsolete request identity.
+        req["release"]["testedSha"] = RECEIVING_SOURCE
         req["approvedLimits"] = {"cumulativeCeilingRequests": 6700, "identityCap": 98, "runCapRequests": 180, "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
         req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
         req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
@@ -272,7 +276,7 @@ class PlanBuilderProof(unittest.TestCase):
         self.assertEqual((plan["requestBudget"]["runCap"], plan["requestBudget"]["cleanupReserve"], plan["identityCap"]), (180, 50, 4))
         pol = json.load(open(os.path.join(private, "cfg", "policy.json")))
         self.assertEqual((pol["caps"]["total"], pol["caps"]["coaching"], pol["caps"]["account-closure"]), (180, 0, 0))
-        self.assertEqual(plan["sourceSha"], TESTED)
+        self.assertEqual(plan["sourceSha"], RECEIVING_SOURCE)
 
     def test_no_session_specific_value_is_embedded_in_the_generated_files(self):
         private, out = self.build("p-embed")
