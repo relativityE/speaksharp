@@ -72,11 +72,18 @@ class ExistingSetupCaller(unittest.TestCase):
         self.config["tools"]["pdfjs"]["pdfMjsSha256"] = hashlib.sha256(self.pdf_module.read_bytes()).hexdigest()
         self.config_path = self.root / "unit-config.json"
         self.config_path.write_text(json.dumps(self.config))
+        self.request_path = self.root / "synthetic-request.json"
+        # A real, readable request shape for the production route selector. It
+        # selects only inert setup fixtures and grants no product-run authority.
+        self.request_path.write_text(json.dumps({
+            "executionRuntime": "Claude SpeakSharp R4",
+            "selection": [{"case": "AHT-12"}],
+        }))
         self.out = self.root / "out"
 
     def run_stage(self, omit=(), extra=None, stage="install-tools"):
         env = {"PATH": str(self.bin) + os.pathsep + os.environ["PATH"], "HOME": str(self.root),
-               "CT_CONFIG": str(self.config_path), "CT_OUT": str(self.out), "CT_REQUEST": "SYNTHETIC-NOT-A-RUN",
+               "CT_CONFIG": str(self.config_path), "CT_OUT": str(self.out), "CT_REQUEST": str(self.request_path),
                "CT_CHROME": str(self.browser), "CT_CHECKOUT": str(self.checkout),
                "CT_SOURCE_SHA": "a1" * 20, "CT_EXECUTION_RUN_ID": "SYNTHETIC-setup-1"}
         for key in omit:
@@ -99,18 +106,35 @@ class ExistingSetupCaller(unittest.TestCase):
     def test_missing_browser_is_refused_without_any_acquisition(self):
         result = self.run_stage(omit=("CT_CHROME",))
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("CT_CHROME is required for existing-only setup", result.stderr)
         self.assertFalse((self.out / "chrome-path.txt").exists())
+
+    def test_missing_request_is_refused_before_setup_without_acquisition(self):
+        self.request_path.unlink()
+        result = self.run_stage()
+        self.assertEqual(result.returncode, 78)
+        self.assertIn("explicit supported runtime and case selection required", result.stderr)
+        self.assertFalse((self.out / "browser-identity.json").exists())
+
+    def test_unsupported_runtime_is_refused_before_setup_without_acquisition(self):
+        self.request_path.write_text(json.dumps({"executionRuntime": "unsupported", "selection": [{"case": "AHT-12"}]}))
+        result = self.run_stage()
+        self.assertEqual(result.returncode, 78)
+        self.assertIn("explicit supported runtime and case selection required", result.stderr)
+        self.assertFalse((self.out / "browser-identity.json").exists())
 
     def test_mismatched_browser_is_refused_without_any_acquisition(self):
         self.browser.write_bytes(b"different bytes")
         result = self.run_stage()
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("existing browser binary sha256 differs from the pin", result.stderr)
         self.assertFalse((self.out / "chrome-path.txt").exists())
 
     def test_missing_playwright_is_refused_and_not_installed(self):
         self.playwright_manifest.unlink()
         result = self.run_stage()
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("existing pinned Playwright is unavailable", result.stderr)
         self.assertFalse(self.playwright_manifest.exists())
         self.assertFalse((self.out / "chrome-path.txt").exists())
 
@@ -118,22 +142,26 @@ class ExistingSetupCaller(unittest.TestCase):
         self.playwright_manifest.write_text('{"version":"wrong"}')
         result = self.run_stage()
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("existing Playwright version differs from the pin", result.stderr)
         self.assertEqual(self.playwright_manifest.read_text(), '{"version":"wrong"}')
 
     def test_missing_pdf_is_refused_without_copying(self):
         self.pdf_module.unlink()
         result = self.run_stage()
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("existing pinned PDF parser is unavailable", result.stderr)
         self.assertFalse(self.pdf_module.exists())
 
     def test_missing_run_binding_is_refused_without_acquisition(self):
         result = self.run_stage(omit=("CT_EXECUTION_RUN_ID",))
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("--existing requires --receipt, exact --source-sha and safe --run-id", result.stderr)
         self.assertFalse((self.out / "browser-identity.json").exists())
 
     def test_unknown_setup_mode_is_not_treated_as_acquisition(self):
         result = self.run_stage(extra={"CT_SETUP_MODE": "unexpected"})
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("CT_SETUP_MODE must be existing-only or separately authorized acquire", result.stderr)
         self.assertFalse((self.out / "chrome-path.txt").exists())
 
     def test_previous_browser_receipt_is_preserved_on_repeat_attempt(self):
@@ -142,6 +170,7 @@ class ExistingSetupCaller(unittest.TestCase):
         receipt.write_text("retained bytes")
         result = self.run_stage()
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("cannot create the NEW existing-browser identity receipt", result.stderr)
         self.assertEqual(receipt.read_text(), "retained bytes")
         self.assertFalse((self.out / "chrome-path.txt").exists())
 
@@ -160,6 +189,7 @@ class ExistingSetupCaller(unittest.TestCase):
         self.playwright_entry.write_text("// changed fixture entry\n")
         result = self.run_stage(stage="stimulus-preflight")
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("Playwright identity changed after setup", result.stderr)
         self.assertFalse(self.stimulus_called.exists())
 
     def test_stimulus_refuses_a_different_valid_dependency_root(self):
@@ -172,6 +202,7 @@ class ExistingSetupCaller(unittest.TestCase):
         (package / "index.js").write_bytes(self.playwright_entry.read_bytes())
         result = self.run_stage(stage="stimulus-preflight", extra={"CT_EXISTING_DEPENDENCY_ROOT": str(other)})
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("Playwright identity changed after setup", result.stderr)
         self.assertFalse(self.stimulus_called.exists())
 
     def test_stimulus_refuses_missing_verification_receipt(self):
@@ -180,6 +211,7 @@ class ExistingSetupCaller(unittest.TestCase):
         (self.out / "playwright-identity.json").unlink()
         result = self.run_stage(stage="stimulus-preflight")
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("verified Playwright identity is missing", result.stderr)
         self.assertFalse(self.stimulus_called.exists())
 
 
