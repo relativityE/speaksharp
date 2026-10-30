@@ -4,6 +4,7 @@
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 // Packet under test: the vendored harness, or a temp copy named by CT_PROOF_PACKET (mutation controls). The harness bytes are never written.
 const P=process.env.CT_PROOF_PACKET||require('node:path').resolve(__dirname,'..','..','..','..','harness');
+const S=null;
 const observer=require(P+'/draft-adapters/browser-observers.cjs');
 const {chromium}=require('playwright');
 // Same Chrome for Testing binary the guarded lane runs (browser.json sourceExecutable); the lane also passes --deny-permission-prompts.

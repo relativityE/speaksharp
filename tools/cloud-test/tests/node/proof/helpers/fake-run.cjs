@@ -9,6 +9,8 @@ const P=process.env.CT_PROOF_PACKET||require('node:path').resolve(__dirname,'..'
 const PRIV=process.env.CT_PROOF_CASES_DIR;if(!PRIV)throw new Error('CT_PROOF_CASES_DIR (placeholder case configs) is required');
 // The pin is the packet's own reviewed source SHA, never a literal from another harness version.
 const PIN=JSON.parse(fs.readFileSync(P+'/draft-adapters/SOURCE.sha256.json','utf8')).sourceSha;
+// Stubs apply only to modules loaded by the BOUND packet's source-adapters.cjs (vendored or temp copy; real path, as Node reports it).
+const SOURCE_ADAPTERS=fs.realpathSync(P+'/draft-adapters/source-adapters.cjs');
 const cfgOf=id=>({...JSON.parse(fs.readFileSync(PRIV+'/cases/'+id+'.json','utf8')),sourceSha:PIN,servedSha:PIN});
 const MIN_NEEDS={'AHT-01':[2,2],'AHT-02':[1,1],'AHT-03':[1,1],'AHT-04':[0,1],'AHT-05':[1,1],'AHT-06':[1,1],'AHT-07':[1,1],'AHT-08':[0,0],'AHT-09':[1,1],'AHT-10':[1,1],'AHT-11':[1,3],'AHT-12':[0,1],'AHT-13':[0,1],'AHT-14':[0,1],'AHT-15':[0,0]};
 const minCfg=id=>({...cfgOf(id),sampleMode:'minimal',takeCap:MIN_NEEDS[id][0],startPressCap:MIN_NEEDS[id][1]});
@@ -31,7 +33,7 @@ function fake(caseId,o={}){
   './feedback-retry-controls.cjs':{...real('feedback-retry-controls.cjs'),preflight(){},run:async()=>{counts.retryRun++;},armFinal(){},finalize:async()=>{counts.finalize++;}},
   './repeat-probes.cjs':{...real('repeat-probes.cjs'),pendingSameSet:async()=>true,beginRapidRepeat:()=>({}),rapidRepeat:async()=>[],cancelRapidWindow:async()=>{},nextStart:async()=>[]},
   './presentation-controls.cjs':{...real('presentation-controls.cjs'),openMicReview:async()=>real('presentation-controls.cjs').OPEN_ROWS.map(id=>({id,result:'PASS',facts:{}})),...(o.presentation||{})},...(o.extraStubs||{})};
- const orig=Module._load;Module._load=function(req,parent,...r){if(parent&&/rev6-r15-prep\/draft-adapters\/source-adapters\.cjs$/.test(parent.filename)&&stubs[req])return stubs[req];return orig.call(this,req,parent,...r);};
+ const orig=Module._load;Module._load=function(req,parent,...r){if(parent&&parent.filename===SOURCE_ADAPTERS&&stubs[req])return stubs[req];return orig.call(this,req,parent,...r);};
  delete require.cache[require.resolve(P+'/draft-adapters/source-adapters.cjs')];let mod;try{mod=require(P+'/draft-adapters/source-adapters.cjs');}finally{Module._load=orig;}
  const c={...minCfg(caseId),...(o.cfg||{})};FINAL=()=>c.focus?.expectedFinal||[];const recorded=[],evidence=[];let n=0;
  const oracle=r=>async a=>a.phase==='assert'||a.phase==='numeric'?{result:'PASS',contentSafe:true,evidenceRefs:['unit.json'],observed:true,...r}:{observed:true};

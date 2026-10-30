@@ -6,7 +6,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const rig=require('./helpers/browser-rig.cjs');const P=rig.P;
 const man=require(P+'/draft-adapters/oracles/pure/fixture-manifest.json').fixtures,act=require(P+'/draft-adapters/fixture-activity.json');
 const timing=require(P+'/draft-adapters/audio-timing.cjs'),maker=require(P+'/draft-adapters/make-fixture-activity.cjs');
-const DIR='/home/user/speaksharp/tests/fixtures/rwt';
+const DIR=path.resolve(__dirname,'..','..','..','..','..','tests','fixtures','rwt'); // the pinned checkout's reviewed fixtures
 const NAMES=['focus_points_tts','focus_points_partial_tts','open_mic_tts'];
 const loop=n=>man[n].speechSeconds+man[n].trailingSilenceSeconds;
 const run=new Map();
