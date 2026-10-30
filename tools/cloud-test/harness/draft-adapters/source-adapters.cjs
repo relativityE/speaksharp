@@ -258,7 +258,7 @@ async function run(caseId,args){
    await check('next-take-isolated',!!next&&!beforeNext.some(r=>r.id===next)&&afterNext.filter(r=>r.id===next&&r.status==='completed').length===1,{newIdentity:!beforeNext.some(r=>r.id===next)});
    }
   }else if(caseId==='AHT-11'){
-   await ui.openMic(page,c);await ui.start(page);const a=page;const b=await newPage();await ui.openMic(b,c);await ui.primary(b);
+   await ui.openMic(page,c);await hook('takeoverLease','before-first');await ui.start(page);const a=page;const b=await newPage();await ui.openMic(b,c);await ui.primary(b);
    await b.getByText('Active session in another tab. Switch to that tab to continue.',{exact:true}).waitFor({state:'visible',timeout:30000});
    const [am,bm]=[await observer.mic(a),await observer.mic(b)];await check('same-browser-refused',!!am&&!!bm&&am.recording&&am.liveTracks>0&&!bm.recording&&bm.liveTracks===0,{aRecording:!!am?.recording,bRecording:!!bm?.recording});await b.close();
    const other=await browser.newContext({baseURL:c.targetUrl,serviceWorkers:'block',permissions:['microphone']});contexts.push(other);const d=await newPage(other);requireThat(await ui.login(d,c,cap.credentials),'independent context did not bind same account');await ui.openMic(d,c);
