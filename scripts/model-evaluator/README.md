@@ -140,19 +140,20 @@ The command accepts versioned baseline, candidate, corpus, and device manifests.
 
 The corpus manifest must explicitly declare integer `trials >= 2`. Before adapter execution, the runner freezes the independent corpus × trials population with raw-reference SHA256, Track-A reference-word count and speaker cluster. It attaches that identity at dispatch and calls the accepted paired-evidence validator before comparison. Missing/duplicate/substituted rows, including the same omitted final trial in both arms, leave statistics unavailable and acceptance HOLD. Complete failed-trial rows and observed identities remain in the immutable report; disposal rejections are retained in `inputFailures`. Completeness is separate from quality, acoustic annotation, trial adequacy and policy approval.
 
-For a local execution smoke using the current v2 browser worker, first start the mock test server with disposable mock config, then run:
+**Retained legacy smoke manifests are outside the current qualification route.**
+`baseline-v2-smoke.json` and `candidate-v2-smoke.json` select the unchanged
+`private-v2-browser.ts` adapter. It uses the bare-runtime `/private-dropin.html`
+page and bundled Playwright Chromium, rather than the shared `PrivateSTT` facade
+and explicitly installed Chrome. These historical artifacts do not qualify the
+current shared path and are not the permitted current-task run. Their presence
+does not authorize that browser or execution.
 
-```sh
-VITE_INTERNAL_BUILD=true VITE_SUPABASE_URL=https://localhost.invalid VITE_SUPABASE_ANON_KEY=mock_eval VITE_AUTH_MODE=mock pnpm dev:test
-node scripts/host-interlock.mjs hold local -- pnpm model:evaluate \
-  --baseline tests/evidence/fixtures/model-evaluator/baseline-v2-smoke.json \
-  --candidate tests/evidence/fixtures/model-evaluator/candidate-v2-smoke.json \
-  --corpus tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json \
-  --device tests/evidence/fixtures/model-evaluator/device-local-wasm.json \
-  --out /private/tmp/model-evaluator-smoke.json
-```
+For the current shared-facade baseline-versus-baseline smoke, use
+`baseline-shared-v2.json` for **both** arm arguments in the command documented
+under "Command-line and shared SpeakSharp modes", with a fresh output path and
+the documented setup, consent and shared-host interlock prerequisites.
 
-The two v2 manifests intentionally name the **same model**. This proves adapter execution and baseline-vs-baseline mechanics, not candidate non-inferiority. The three synthetic WAVs are one speaker cluster, lack required noisy/accented/long-take/Focus slices, and have no approved numeric policy; a successful smoke therefore returns HOLD (exit code 2). FAIL exits 1. This first increment never emits an overall PASS: even if its model-only comparison passes, missing product-path and required metrics hold acceptance. A report's transcript content is from public synthetic fixtures only; do not publish private recordings or user transcripts.
+Using the same shared baseline manifest in both arms proves adapter execution and baseline-vs-baseline mechanics, not candidate non-inferiority. The three synthetic WAVs are one speaker cluster, lack required noisy/accented/long-take/Focus slices, and have no approved numeric policy; a successful smoke therefore returns HOLD (exit code 2). FAIL exits 1. This first increment never emits an overall PASS: even if its model-only comparison passes, missing product-path and required metrics hold acceptance. A report's transcript content is from public synthetic fixtures only; do not publish private recordings or user transcripts.
 
 The requested first comparison is v2 BASE against explicitly pinned v4 BASE q4 on WASM. Retained manifests also cover distil and Moonshine; retaining them does not select those alternatives. WebGPU is a separate real-device run. A mixed-backend device manifest names each arm's backend and requires a headed browser plus a checked GPU vendor for WebGPU. Their local browser adapter uses `model-evaluator.local.html`, a dev-server-only page excluded from Vite's production build input; it requires `VITE_INTERNAL_BUILD=true`. Current main already pins `@huggingface/transformers@4.3.0` through merged #1592; the adapter still verifies the actual running package rather than treating the source pin as runtime evidence. The adapter recomputes v4's committed pin-set digest but does not yet verify each downloaded response body, so that proof remains outstanding. V4 activation remains separate. Moonshine's runtime does not introspect model ID or revision: those fields come from checked-in pins, while init/decode/backend are observed. Its pinned asset loader hashes downloaded files before giving them to the runtime.
 
