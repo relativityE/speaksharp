@@ -96,6 +96,15 @@ test('typed fixture-audio helper credits all six harness callables from stripped
       const raw=structuredClone(phase.coverage);change(raw);
       assert.throws(()=>validateNativeCallables(raw,phase.binding,f.dir,[helper.file]),/NOT RUN|Missing|Malformed/);
     }
+    const overrun=structuredClone(phase.coverage);
+    for(const report of overrun)for(const script of report.result??[])for(const fn of script.functions)if(fn.functionName==='')fn.ranges[0].endOffset++;
+    assert.throws(()=>validateNativeCallables(overrun,phase.binding,f.dir,[helper.file]),error=>{
+      const detail=JSON.parse(error.message.slice(error.message.indexOf('{')));
+      assert.equal(detail.predicate,'beyond-executed-length');assert.equal(detail.function,'<module>');
+      assert.equal(detail.sourceSha256,createHash('sha256').update(source).digest('hex'));assert.equal(detail.sourceLength,source.length);
+      assert.equal(detail.node,phase.binding.runtime.version);assert.equal(detail.range[1],detail.executedLength+1);
+      return true;
+    });
     f.write(helper.file,'\n '+fs.readFileSync(path.join(f.dir,helper.file),'utf8'));
     assert.throws(()=>validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),/callable NOT RUN/);
   }finally{f.clean();}

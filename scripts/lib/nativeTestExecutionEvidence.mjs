@@ -298,12 +298,20 @@ export function validateNativeCallables(raw,binding,root,helpers) {
     for(const script of entries) {
       if(!Array.isArray(script.functions)||!script.functions.length)fail('Malformed raw native callable coverage');
       for(const fn of script.functions) {
-        if(typeof fn.functionName!=='string'||typeof fn.isBlockCoverage!=='boolean'||!Array.isArray(fn.ranges)||!fn.ranges.length
-          ||fn.ranges.some(range=>!Number.isSafeInteger(range.count)||range.count<0
-            ||!Number.isSafeInteger(range.startOffset)||!Number.isSafeInteger(range.endOffset)
-            ||range.startOffset<0||range.startOffset>=range.endOffset||range.endOffset>executed.length
-            ||range.startOffset<fn.ranges[0].startOffset||range.endOffset>fn.ranges[0].endOffset))
-          fail(`Malformed raw native callable ranges/count: ${file}:${fn.functionName||'<module>'} ${JSON.stringify(fn.ranges.map(range=>[range.startOffset,range.endOffset,range.count]))} executedLength=${executed.length} sourceLength=${source.length}`);
+        // Same guard, named: the first failing predicate and its range are reported with bounded, content-free identity.
+        const shape=typeof fn.functionName!=='string'||typeof fn.isBlockCoverage!=='boolean'||!Array.isArray(fn.ranges)||!fn.ranges.length;
+        const predicate=range=>!Number.isSafeInteger(range.count)||range.count<0?'count'
+          :!Number.isSafeInteger(range.startOffset)||!Number.isSafeInteger(range.endOffset)||range.startOffset<0||range.startOffset>=range.endOffset?'offsets'
+          :range.endOffset>executed.length?'beyond-executed-length'
+          :range.startOffset<fn.ranges[0].startOffset||range.endOffset>fn.ranges[0].endOffset?'containment':null;
+        const bad=shape?null:fn.ranges.findIndex(range=>predicate(range));
+        if(shape||bad>=0) {
+          const range=shape?null:fn.ranges[bad];
+          fail(`Malformed raw native callable ranges/count: ${JSON.stringify({file,sourceSha256:hash(source),sourceLength:source.length,
+            executedLength:executed.length,node:binding.runtime?.version??null,function:typeof fn.functionName==='string'?fn.functionName||'<module>':null,
+            predicate:shape?'shape':predicate(range),rangeIndex:shape?null:bad,
+            range:range?[range.startOffset,range.endOffset,range.count]:null,outer:shape?null:[fn.ranges[0].startOffset,fn.ranges[0].endOffset]})}`);
+        }
       }
     }
     for(const name of contract.callables) {
