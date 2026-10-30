@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import unittest
 
-from _fixtures import ROOT, REPO, TESTED, J, fake_rv, prerequisite, request_path, run_py, sample, wjson
+from _fixtures import ROOT, REPO, TESTED, J, fake_rv, prerequisite, request_path, run_py, sample, wjson, needs_history
 import reconcile_cumulative as RC
 import select_baselines as SB
 import check_coverage as CC
@@ -81,12 +81,14 @@ class BaselineIsTheMostRecentRunWithAVerdict(unittest.TestCase):
         out = SB.select({"gaps": [{"id": "G", "expectedPass": {"requirements": [{"case": "AHT-14", "assertions": ["download-fault-exercised"]}]}}]}, json.load(open(os.path.join(d, "cfg.json"))), d, "R6T")
         self.assertIsNone(out["gaps"]["G"]["rows"]["AHT-14/download-fault-exercised"]["baseline"])
 
+    @needs_history
     def test_a_latest_run_that_is_not_in_the_history_is_refused(self):
         with self.assertRaises(ValueError):
             SB.select(sample()["ledger"], sample()["cfg"], RECEIPTS, "R9")
 
 
 class PipelineComparesWithTheRightRun(unittest.TestCase):
+    @needs_history
     def test_the_pipeline_compares_the_latest_run_with_every_baseline_it_needs(self):
         prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and __import__("subprocess").run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
         d = tempfile.mkdtemp(prefix="ct-pipe-")
@@ -145,12 +147,14 @@ def with_later_run(reads=4, requests=130, logs=True):
 
 
 class UnexplainedUsageIsCarriedForward(unittest.TestCase):
+    @needs_history
     def test_the_current_snapshot_is_unchanged(self):
         rc = RC.reconcile(sample()["cfg"], counters_through(), RECEIPTS)
         self.assertEqual((rc["requests"]["measuredFromSealedLedgers"], rc["requests"]["unreconciled"], rc["requests"]["conservativeUsed"]), (5421, 108, 5529))
         self.assertEqual((rc["identityReads"]["measuredFromSealedLedgers"], rc["identityReads"]["unreconciled"], rc["identityReads"]["conservativeUsed"]), (92, 2, 94))
         self.assertEqual(rc["snapshot"]["carriedForwardUnexplained"], {"requests": 108, "identityReads": 2})
 
+    @needs_history
     def test_92_measured_94_reported_plus_4_new_is_98_not_96(self):
         """The reviewed defect: max(measured, owner) = max(96, 94) = 96 dropped the owner's 2 unexplained reads as soon as measured usage passed the snapshot."""
         d, cfg = with_later_run(reads=4)
@@ -161,6 +165,7 @@ class UnexplainedUsageIsCarriedForward(unittest.TestCase):
         self.assertEqual(rc["requests"]["conservativeUsed"], 5421 + 130 + 108)     # not max(5551, 5529)
         self.assertEqual(rc["snapshot"]["runsAddedAfterStatement"], ["R6T"])
 
+    @needs_history
     def test_with_the_freeze_unchanged_the_new_run_is_added_once_and_the_difference_stays(self):
         import spend_report as S
         d, cfg = with_later_run(reads=4)
@@ -172,6 +177,7 @@ class UnexplainedUsageIsCarriedForward(unittest.TestCase):
         self.assertEqual(out["countedOnce"]["afterRun"]["identityReads"], 98)
         self.assertEqual(out["countedOnce"]["afterRun"]["requests"], 5529 + 130)
 
+    @needs_history
     def test_both_routes_agree(self):
         d, cfg = with_later_run(reads=4)
         a = RC.reconcile(cfg, counters_through("R5", "R6T"), d)
@@ -179,37 +185,44 @@ class UnexplainedUsageIsCarriedForward(unittest.TestCase):
         self.assertEqual(a["identityReads"]["conservativeUsed"], b["identityReads"]["conservativeUsed"] + 4)
         self.assertEqual(a["requests"]["conservativeUsed"], b["requests"]["conservativeUsed"] + 130)
 
+    @needs_history
     def test_measured_usage_above_the_owner_count_is_never_reduced(self):
         c = counters_through(); c["identityReadsCumulative"] = 90; c["requests"]["allowanceBaselineThroughR4C"] = 3000
         rc = RC.reconcile(sample()["cfg"], c, RECEIPTS)
         self.assertEqual(rc["identityReads"]["conservativeUsed"], 92)
         self.assertEqual(rc["requests"]["conservativeUsed"], 5421)
 
+    @needs_history
     def test_a_snapshot_that_does_not_say_what_it_covers_is_rejected(self):
         c = counters_through(); del c["statedThroughRun"]
         with self.assertRaises(ValueError) as e:
             RC.reconcile(sample()["cfg"], c, RECEIPTS)
         self.assertIn("stale or unlabeled", str(e.exception))
 
+    @needs_history
     def test_a_freeze_earlier_than_the_statement_is_rejected(self):
         with self.assertRaises(ValueError):
             RC.reconcile(sample()["cfg"], counters_through("R5", "R4C"), RECEIPTS)
 
+    @needs_history
     def test_a_statement_about_an_unknown_run_is_rejected(self):
         with self.assertRaises(ValueError):
             RC.reconcile(sample()["cfg"], counters_through("R9", "R5"), RECEIPTS)
 
+    @needs_history
     def test_starts_and_takes_are_carried_from_the_later_runs_reservation_logs(self):
         d, cfg = with_later_run()
         rc = RC.reconcile(cfg, counters_through("R5", "R6T"), d)
         self.assertEqual((rc["starts"]["ownerCounted"], rc["takes"]["ownerCounted"]), (46 + 14, 24 + 9))
 
+    @needs_history
     def test_a_later_run_without_reservation_logs_cannot_be_carried_and_is_rejected(self):
         d, cfg = with_later_run(logs=False)
         with self.assertRaises(ValueError) as e:
             RC.reconcile(cfg, counters_through("R5", "R6T"), d)
         self.assertIn("restate the owner counters", str(e.exception))
 
+    @needs_history
     def test_the_requirement_for_the_next_run_uses_the_carried_figure(self):
         d, cfg = with_later_run(reads=4)
         rc = RC.reconcile(cfg, counters_through("R5", "R6T"), d)
@@ -267,6 +280,7 @@ class ApprovedOmissionsAreIncompleteCoverage(unittest.TestCase):
         errs = W.validate(rep, sample()["wf"])
         self.assertTrue(any("approved omissions are incomplete coverage" in e for e in errs), errs)
 
+    @needs_history
     def test_the_validator_warns_that_an_omission_is_not_a_full_pass(self):
         import validate_run_request as V
         from _fixtures import reconciliation
@@ -311,6 +325,7 @@ class DeployedVersionBinding(unittest.TestCase):
         self.assertFalse(out["deployedVersionBinding"]["ok"])
         self.assertFalse(out["fullLiveRun"])
 
+    @needs_history
     def test_the_sealed_r5_identity_receipts_all_matched_the_tested_sha(self):
         r5 = J("config", "history", "receipts", "R5", "case-results.json")
         req = copy.deepcopy(self.req); req["release"]["testedSha"] = r5["sourceSha"]

@@ -15,6 +15,17 @@ REPO = os.environ.get("CT_TEST_REPO") or os.path.abspath(os.path.join(ROOT, ".."
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 sys.path.insert(0, os.path.join(ROOT, "report"))
 REQUIRE = os.environ.get("CT_REQUIRE_INTEGRATION") == "1"
+# Owner decision 2026-10-30: a GitHub run may receive NO retained history (sealed receipts, index, bindings, proofs).
+# CT_HISTORY=none marks exactly the tests that read those real files NOT APPLICABLE; every other test still runs and gates.
+HISTORY_MODE = os.environ.get("CT_HISTORY", "required")
+if HISTORY_MODE not in ("required", "none"):
+    raise SystemExit("CT_HISTORY must be 'required' or 'none', not %r" % HISTORY_MODE)
+NO_HISTORY_REASON = "NOT APPLICABLE: owner decision 2026-10-30, no retained history supplied (CT_HISTORY=none)"
+
+
+def needs_history(obj):
+    """Skip a test or test class that reads the real retained history when CT_HISTORY=none; never otherwise."""
+    return unittest.skipIf(HISTORY_MODE == "none", NO_HISTORY_REASON)(obj)
 NOW = "2026-10-28T22:00:00Z"
 TESTED = "4c85b006ac05e180521fd6e7d807f736987cafe8"
 REQUEST_FIXTURES = {

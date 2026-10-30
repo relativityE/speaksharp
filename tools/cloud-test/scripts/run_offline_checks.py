@@ -12,6 +12,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from _common import ROOT, load, dump, now_utc  # noqa: E402
 
+# Owner decision 2026-10-30: a run may receive no retained history. With CT_HISTORY=none these checks, which can only
+# judge the sealed receipts, index and proofs, are reported NOT APPLICABLE (never passed); every other check still gates.
+HISTORY_BOUND = ("history-index-verified", "sealed-receipts-verified", "case-costs-reconcile-to-sealed-ledgers", "offline-proof-index")
+NO_HISTORY_REASON = "NOT APPLICABLE: owner decision 2026-10-30, no retained history supplied (CT_HISTORY=none)"
+
+
+def not_applicable(name):
+    return {"id": name, "passed": None, "applicable": False, "detail": NO_HISTORY_REASON}
+
 
 def command_check(name, cmd, env):
     """Keep actual child outcomes, including output needed to diagnose a failed run."""
@@ -37,17 +46,22 @@ def main():
     a = argparse.ArgumentParser()
     a.add_argument("--out", required=True)
     x = a.parse_args()
+    history = os.environ.get("CT_HISTORY", "required")
+    if history not in ("required", "none"):
+        print("OFFLINE_CHECKS_REFUSED: CT_HISTORY must be 'required' or 'none', not %r" % history, file=sys.stderr)
+        return 2
+    bound = (lambda name, make: not_applicable(name) if history == "none" and name in HISTORY_BOUND else make())
     checks = []
     env = {**os.environ}
     for name, cmd in (("package-unit-tests", [sys.executable, "-I", "-W", "ignore::ResourceWarning", "-m", "unittest", "discover", "-s", os.path.join(ROOT, "tests"), "-p", "test_*.py"]),
                       ("report-builder-tests", [sys.executable, "-I", "-W", "ignore::ResourceWarning", "-m", "unittest", "discover", "-s", os.path.join(ROOT, "report", "tests"), "-p", "test_*.py"])):
         checks.append(command_check(name, cmd, env))
     for name, script, extra in (("history-index-verified", "history_index.py", ["verify"]), ("reservation-ledger-verified", "reservations.py", ["verify"]), ("catalog-history-additive", "verify_catalog_history.py", [])):
-        checks.append(command_check(name, [sys.executable, "-I", os.path.join(HERE, script)] + extra, env))
+        checks.append(bound(name, lambda: command_check(name, [sys.executable, "-I", os.path.join(HERE, script)] + extra, env)))
     checks.append(command_check("assertion-catalog-matches-harness", [sys.executable, "-I", os.path.join(HERE, "derive_assertion_catalog.py"), "--out", os.path.join(ROOT, "config", "assertion-catalog.json"), "--check"], env))
     for name, script in (("sealed-receipts-verified", "verify_receipts.py"), ("harness-verified", "verify_harness.py")):
-        checks.append(command_check(name, [sys.executable, "-I", os.path.join(HERE, script), "--config", os.path.join(ROOT, "config", "test-config.v1.json")], env))
-    checks.append(command_check("case-costs-reconcile-to-sealed-ledgers", [sys.executable, "-I", os.path.join(HERE, "derive_case_costs.py"), "--receipts-root", os.path.join(ROOT, "config", "history", "receipts"), "--run", "R4C", "--run", "R5", "--out", os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", "case-costs-check.json")], env))
+        checks.append(bound(name, lambda: command_check(name, [sys.executable, "-I", os.path.join(HERE, script), "--config", os.path.join(ROOT, "config", "test-config.v1.json")], env)))
+    checks.append(bound("case-costs-reconcile-to-sealed-ledgers", lambda: command_check("case-costs-reconcile-to-sealed-ledgers", [sys.executable, "-I", os.path.join(HERE, "derive_case_costs.py"), "--receipts-root", os.path.join(ROOT, "config", "history", "receipts"), "--run", "R4C", "--run", "R5", "--out", os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", "case-costs-check.json")], env)))
 
     cfg, wf = {}, {}
 
@@ -64,8 +78,11 @@ def main():
         return ok, "%d corrections; hash %s" % (len(proof["corrections"]), "matches config" if same else "DIFFERS")
 
     checks.append(input_check("config-matches-workflow", versions))
-    checks.append(input_check("offline-proof-index", proof_index))
-    out = {"schema": "speaksharp.cloud-test.offline-checks.v1", "ranUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "workflowVersion": wf.get("version") if isinstance(wf, dict) else None, "checks": checks, "passed": all(c["passed"] for c in checks)}
+    checks.append(bound("offline-proof-index", lambda: input_check("offline-proof-index", proof_index)))
+    applicable = [c for c in checks if c.get("applicable", True)]
+    out = {"schema": "speaksharp.cloud-test.offline-checks.v1", "ranUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "workflowVersion": wf.get("version") if isinstance(wf, dict) else None,
+           "historyMode": history, "notApplicable": [c["id"] for c in checks if not c.get("applicable", True)],
+           "checks": checks, "passed": bool(applicable) and all(c["passed"] is True for c in applicable)}
     try:
         dump(out, x.out)
     except (OSError, TypeError, ValueError) as error:
@@ -75,7 +92,7 @@ def main():
         print(json.dumps(out))
         return 1
     for c in checks:
-        print(("PASS " if c["passed"] else "FAIL ") + c["id"], "-", c["detail"])
+        print(("N/A  " if not c.get("applicable", True) else "PASS " if c["passed"] else "FAIL ") + c["id"], "-", c["detail"])
     return 0 if out["passed"] else 1
 
 

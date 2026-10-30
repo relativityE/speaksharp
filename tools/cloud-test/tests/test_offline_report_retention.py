@@ -24,7 +24,7 @@ class OfflineReportRetention(unittest.TestCase):
         (self.root / "workflow.json").write_text('{"version":"test"}')
         self.out = self.root / "offline-checks.json"
 
-    def invoke(self, failure=False, write_failure=False):
+    def invoke(self, failure=False, write_failure=False, history="required"):
         count = 0
 
         def child(cmd, **_kwargs):
@@ -36,6 +36,7 @@ class OfflineReportRetention(unittest.TestCase):
 
         stdout, stderr = io.StringIO(), io.StringIO()
         with mock.patch.object(runner, "ROOT", str(self.root)), \
+                mock.patch.dict(runner.os.environ, {"CT_HISTORY": history}), \
                 mock.patch.object(sys, "argv", ["run_offline_checks.py", "--out", str(self.out)]), \
                 mock.patch.object(runner.subprocess, "run", side_effect=child), \
                 contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
@@ -105,3 +106,30 @@ class OfflineReportRetention(unittest.TestCase):
         selected = next(c for c in report["checks"] if c["id"] == "offline-proof-index")
         self.assertFalse(selected["passed"])
         self.assertIn("offline-proof-582e5e30.json", selected["detail"])
+
+    def test_no_history_marks_only_history_checks_not_applicable_and_never_passed(self):
+        code, stdout, _ = self.invoke(history="none")
+        self.assertEqual(code, 0)
+        report = json.loads(self.out.read_text())
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["historyMode"], "none")
+        self.assertEqual(sorted(report["notApplicable"]), sorted(runner.HISTORY_BOUND))
+        for check in report["checks"]:
+            if check["id"] in runner.HISTORY_BOUND:
+                self.assertIsNone(check["passed"])
+                self.assertFalse(check["applicable"])
+                self.assertIn("N/A  " + check["id"], stdout)
+            else:
+                self.assertIs(check["passed"], True)
+        self.assertEqual(len([c for c in report["checks"] if "returncode" in c]), 6)
+
+    def test_no_history_still_fails_on_any_applicable_failure(self):
+        code, _, _ = self.invoke(failure=True, history="none")
+        self.assertNotEqual(code, 0)
+        self.assertFalse(json.loads(self.out.read_text())["passed"])
+
+    def test_unknown_history_mode_is_refused_before_any_check(self):
+        code, _, stderr = self.invoke(history="skip")
+        self.assertEqual(code, 2)
+        self.assertFalse(self.out.exists())
+        self.assertIn("OFFLINE_CHECKS_REFUSED", stderr)
