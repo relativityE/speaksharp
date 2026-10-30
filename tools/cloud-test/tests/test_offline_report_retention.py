@@ -121,7 +121,7 @@ class OfflineReportRetention(unittest.TestCase):
                 self.assertIn("N/A  " + check["id"], stdout)
             else:
                 self.assertIs(check["passed"], True)
-        self.assertEqual(len([c for c in report["checks"] if "returncode" in c]), 6)
+        self.assertEqual(len([c for c in report["checks"] if "returncode" in c]), 5)
 
     def test_no_history_still_fails_on_any_applicable_failure(self):
         code, _, _ = self.invoke(failure=True, history="none")

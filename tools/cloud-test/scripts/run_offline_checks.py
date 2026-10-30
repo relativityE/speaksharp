@@ -14,7 +14,8 @@ from _common import ROOT, load, dump, now_utc  # noqa: E402
 
 # Owner decision 2026-10-30: a run may receive no retained history. With CT_HISTORY=none these checks, which can only
 # judge the sealed receipts, index and proofs, are reported NOT APPLICABLE (never passed); every other check still gates.
-HISTORY_BOUND = ("history-index-verified", "sealed-receipts-verified", "case-costs-reconcile-to-sealed-ledgers", "offline-proof-index")
+# The assertion-catalog check cross-checks the harness contract against every compared run's sealed case results.
+HISTORY_BOUND = ("history-index-verified", "assertion-catalog-matches-harness", "sealed-receipts-verified", "case-costs-reconcile-to-sealed-ledgers", "offline-proof-index")
 NO_HISTORY_REASON = "NOT APPLICABLE: owner decision 2026-10-30, no retained history supplied (CT_HISTORY=none)"
 
 
@@ -58,7 +59,7 @@ def main():
         checks.append(command_check(name, cmd, env))
     for name, script, extra in (("history-index-verified", "history_index.py", ["verify"]), ("reservation-ledger-verified", "reservations.py", ["verify"]), ("catalog-history-additive", "verify_catalog_history.py", [])):
         checks.append(bound(name, lambda: command_check(name, [sys.executable, "-I", os.path.join(HERE, script)] + extra, env)))
-    checks.append(command_check("assertion-catalog-matches-harness", [sys.executable, "-I", os.path.join(HERE, "derive_assertion_catalog.py"), "--out", os.path.join(ROOT, "config", "assertion-catalog.json"), "--check"], env))
+    checks.append(bound("assertion-catalog-matches-harness", lambda: command_check("assertion-catalog-matches-harness", [sys.executable, "-I", os.path.join(HERE, "derive_assertion_catalog.py"), "--out", os.path.join(ROOT, "config", "assertion-catalog.json"), "--check"], env)))
     for name, script in (("sealed-receipts-verified", "verify_receipts.py"), ("harness-verified", "verify_harness.py")):
         checks.append(bound(name, lambda: command_check(name, [sys.executable, "-I", os.path.join(HERE, script), "--config", os.path.join(ROOT, "config", "test-config.v1.json")], env)))
     checks.append(bound("case-costs-reconcile-to-sealed-ledgers", lambda: command_check("case-costs-reconcile-to-sealed-ledgers", [sys.executable, "-I", os.path.join(HERE, "derive_case_costs.py"), "--receipts-root", os.path.join(ROOT, "config", "history", "receipts"), "--run", "R4C", "--run", "R5", "--out", os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", "case-costs-check.json")], env)))
