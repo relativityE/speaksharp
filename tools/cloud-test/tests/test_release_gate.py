@@ -6,7 +6,7 @@ import os
 import tempfile
 import unittest
 
-from _fixtures import NOW, REPO, ROOT, git_repo, prerequisite, request_path, sample, wjson
+from _fixtures import NOW, REPO, ROOT, git_repo, needs_history, prerequisite, request_path, sample, wjson
 import verify_release as VR
 from _common import load
 
@@ -170,6 +170,7 @@ class ReleaseGate(unittest.TestCase):
 
 class RealRepository(unittest.TestCase):
     """The real tested release: #1744 (blocked-microphone guidance) is a verified deployed fix; the 502 fix touches the backend and stays unverified."""
+    @needs_history  # verify_release.py reads the config's history runs and their sealed receipts
     def test_1744_is_in_the_tested_release_and_verified(self):
         prerequisite(os.path.isdir(os.path.join(REPO, ".git")) and os.system("git -C %s cat-file -e 4c85b006ac05e180521fd6e7d807f736987cafe8 2>/dev/null" % REPO) == 0, "git history of the repository")
         from _fixtures import run_py

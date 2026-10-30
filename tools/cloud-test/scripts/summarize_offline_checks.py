@@ -9,6 +9,10 @@ import os
 import re
 import sys
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from _common import dump  # noqa: E402  (loads the network guard, like every control-plane script)
+
 # The exact inventory of run_offline_checks.py (Sam 1793373703): every ID once, none missing or extra.
 HISTORY_BOUND = frozenset(("history-index-verified", "assertion-catalog-matches-harness", "sealed-receipts-verified",
                            "case-costs-reconcile-to-sealed-ledgers", "offline-proof-index"))
@@ -100,8 +104,7 @@ def main():
         except (OSError, ValueError):
             result = {}
     summary = summarize(result, os.environ.get("CT_HISTORY", "required"))
-    with open(x.out, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=1)
+    dump(summary, x.out)
     for r in summary.get("checks", []):
         print("%-4s %s" % (r["status"], r["id"]))
         if "tests" in r:

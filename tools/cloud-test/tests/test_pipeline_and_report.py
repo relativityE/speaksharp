@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from _fixtures import NOW, REPO, ROOT, TESTED, prerequisite, request_path, run_py, sample, wjson
+from _fixtures import HISTORY_MODE, NO_HISTORY_REASON, NOW, REPO, ROOT, TESTED, prerequisite, request_path, run_py, sample, wjson
 import derive_summary as DS
 import workflow_report as W
 
@@ -15,6 +15,10 @@ REQ = request_path()
 
 
 def pipeline(extra=(), env=None, out=None):
+    # pipeline.py reads the retained receipts, history index and owner counters; with CT_HISTORY=none every caller
+    # (these classes and the report-refusal tests that reuse ReportRefusals) is skipped, never passed.
+    if HISTORY_MODE == "none":
+        raise unittest.SkipTest(NO_HISTORY_REASON)
     d = tempfile.mkdtemp(prefix="ct-pl-")
     oc = os.path.join(d, "oc.json"); wjson(oc, {"passed": True})
     out = out or os.path.join(d, "out")
