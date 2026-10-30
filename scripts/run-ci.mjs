@@ -538,7 +538,7 @@ async function main() {
         // Stage 3: Testing
         if (!process.argv.includes('--skip-test')) {
             await runStage(3, "Test Execution", async (stage) => {
-                let unitFailed = false;
+                let unitFailure = null;
                 let e2eFailed = false;
                 try {
                     const { execSync } = await import('child_process');
@@ -584,7 +584,7 @@ async function main() {
                     } catch (err) {
                         if (!isInfraMode) {
                             console.error(`${ANSI.RED}[UNIT] Unit tests failed, but proceeding to E2E...${ANSI.RESET}`);
-                            unitFailed = true;
+                            unitFailure = err;
                         }
                     }
 
@@ -727,6 +727,10 @@ async function main() {
                             flakyTests: ciTelemetry.tests.playwright.flakyTests || []
                         };
                     }
+
+                    // Fresh all-pass task counts cannot override a rejected command or evidence check.
+                    // Preserve the original exit/timeout error for the stage failure and final audit.
+                    if (unitFailure) throw unitFailure;
 
                     if (e2eFailed) {
                       throw new Error('[CI] One or more E2E shards failed');
