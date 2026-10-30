@@ -84,19 +84,19 @@ test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS
     // Witness of the hosted runtime's executed bytes: the module range ends exactly after Node's sourceURL suffix.
     const source=fs.readFileSync(path.join(f.dir,helper.file),'utf8'),url=pathToFileURL(path.join(phase.binding.cwd,helper.file)).href;
     const modules=phase.coverage.flatMap(report=>report.result??[]).filter(script=>script.url===url)
-      .flatMap(script=>script.functions).filter(fn=>fn.functionName==='');
+      .flatMap(script=>script.functions).filter(fn=>fn.functionName===''&&fn.ranges[0].startOffset===0);
     assert.deepEqual([...new Set(modules.map(fn=>fn.ranges[0].endOffset))],[`${source}\n\n//# sourceURL=${url}`.length]);
     for(const change of [
       rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName===names.at(-1))for(const range of fn.ranges)range.count=0;},
-      rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName==='')fn.ranges[0].endOffset++;},
+      rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName===''&&fn.ranges[0].startOffset===0)fn.ranges[0].endOffset++;},
       rows=>{for(const report of rows)for(const script of report.result)script.url=script.url.replace('fixtureAudioStream.ts','fixtureAudioStream.js');},
-      rows=>{for(const report of rows)for(const script of report.result)script.functions=script.functions.filter(fn=>fn.functionName==='');},
+      rows=>{for(const report of rows)for(const script of report.result)script.functions=script.functions.filter(fn=>fn.functionName===''&&fn.ranges[0].startOffset===0);},
     ]) {
       const raw=structuredClone(phase.coverage);change(raw);
       assert.throws(()=>validateNativeCallables(raw,phase.binding,f.dir,[helper.file]),/NOT RUN|Missing|Malformed/);
     }
     const overrun=structuredClone(phase.coverage);
-    for(const report of overrun)for(const script of report.result??[])for(const fn of script.functions)if(fn.functionName==='')fn.ranges[0].endOffset++;
+    for(const report of overrun)for(const script of report.result??[])for(const fn of script.functions)if(fn.functionName===''&&fn.ranges[0].startOffset===0)fn.ranges[0].endOffset++;
     assert.throws(()=>validateNativeCallables(overrun,phase.binding,f.dir,[helper.file]),error=>{
       const detail=JSON.parse(error.message.slice(error.message.indexOf('{')));
       assert.equal(detail.predicate,'beyond-executed-length');assert.equal(detail.function,'<module>');
