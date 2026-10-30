@@ -58,7 +58,7 @@ def main():
         return cfg["workflowVersion"] == wf["version"], "config %s workflow %s" % (cfg["workflowVersion"], wf["version"])
 
     def proof_index():
-        proof = load(os.path.join(ROOT, "config", "proofs", "offline-proof-7dae348f.json"))
+        proof = load(os.path.join(ROOT, "config", "proofs", "offline-proof-582e5e30.json"))
         same = proof["codeManifestSha256"] == cfg["harness"]["expectedCodeManifestSha256"]
         ok = proof["result"] == "PASS" and all(c["result"] == "PASS" for c in proof["corrections"]) and same
         return ok, "%d corrections; hash %s" % (len(proof["corrections"]), "matches config" if same else "DIFFERS")

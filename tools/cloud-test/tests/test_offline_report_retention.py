@@ -64,7 +64,7 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertEqual(len([c for c in report["checks"] if "returncode" in c]), 9)
 
     def test_malformed_proof_and_config_are_explicit_failures_in_written_report(self):
-        (self.root / "config" / "proofs" / "offline-proof-7dae348f.json").write_text("not json")
+        (self.root / "config" / "proofs" / "offline-proof-582e5e30.json").write_text("not json")
         (self.root / "config" / "test-config.v1.json").write_text("[]")
         code, _, _ = self.invoke()
         self.assertNotEqual(code, 0)
@@ -87,10 +87,21 @@ class OfflineReportRetention(unittest.TestCase):
     def test_valid_proof_can_pass_and_does_not_erase_nonzero_child(self):
         proof = {"result": "PASS", "corrections": [{"result": "PASS"}],
                  "codeManifestSha256": "a" * 64}
-        (self.root / "config" / "proofs" / "offline-proof-7dae348f.json").write_text(json.dumps(proof))
+        (self.root / "config" / "proofs" / "offline-proof-582e5e30.json").write_text(json.dumps(proof))
         code, _, _ = self.invoke()
         self.assertEqual(code, 0)
         self.assertTrue(json.loads(self.out.read_text())["passed"])
         code, _, _ = self.invoke(failure=True)
         self.assertNotEqual(code, 0)
         self.assertFalse(json.loads(self.out.read_text())["passed"])
+
+    def test_previous_historical_proof_cannot_substitute_for_selected_proof(self):
+        proof = {"result": "PASS", "corrections": [{"result": "PASS"}],
+                 "codeManifestSha256": "a" * 64}
+        (self.root / "config" / "proofs" / "offline-proof-7dae348f.json").write_text(json.dumps(proof))
+        code, _, _ = self.invoke()
+        self.assertNotEqual(code, 0)
+        report = json.loads(self.out.read_text())
+        selected = next(c for c in report["checks"] if c["id"] == "offline-proof-index")
+        self.assertFalse(selected["passed"])
+        self.assertIn("offline-proof-582e5e30.json", selected["detail"])
