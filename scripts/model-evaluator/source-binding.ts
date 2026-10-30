@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, lstatSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { createSourceFile, ScriptTarget, ScriptKind, isExportAssignment, isStringLiteral, isNoSubstitutionTemplateLiteral } from 'typescript';
 
 export interface SourceBinding {
   head: string;
@@ -50,13 +51,17 @@ export function assertServedRelease(expected: SourceBinding, actual: unknown): v
   }
 }
 
-/** Vite ?raw modules contain a JSON string export. Parse data only; never evaluate response code. */
+/** Parse Vite's string or escaped template export as syntax data; never execute response code. */
 export function viteRawSource(body: string): string {
-  const match = /^\s*export default ("(?:[^"\\]|\\.)*")(?:;|\s|$)/.exec(body);
-  if (!match) throw new Error('served_raw_source_unavailable');
-  const source: unknown = JSON.parse(match[1]);
-  if (typeof source !== 'string') throw new Error('served_raw_source_unavailable');
-  return source;
+  const module = createSourceFile('served-raw.mjs', body, ScriptTarget.Latest, false, ScriptKind.JS);
+  if (module.statements.length !== 1 || !isExportAssignment(module.statements[0])) {
+    throw new Error('served_raw_source_unavailable');
+  }
+  const value = module.statements[0].expression;
+  if (!isStringLiteral(value) && !isNoSubstitutionTemplateLiteral(value)) {
+    throw new Error('served_raw_source_unavailable');
+  }
+  return value.text;
 }
 
 export function servedSourceFiles(binding: SourceBinding) {

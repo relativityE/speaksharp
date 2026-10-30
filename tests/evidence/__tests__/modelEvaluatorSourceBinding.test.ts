@@ -42,6 +42,10 @@ describe('model evaluator source and degraded-input binding', () => {
     for (const actual of [null, 'dev', 'e'.repeat(40)]) expect(() => assertServedRelease(expected, actual)).toThrow('served_release');
     const source = 'export const model = "real source";\n';
     expect(viteRawSource(`export default ${JSON.stringify(source)};\n`)).toBe(source);
+    expect(viteRawSource('export default `line one\\nline two`;')).toBe('line one\nline two');
+    expect(viteRawSource('export default `literal \\${model}`;')).toBe('literal ${model}');
+    expect(() => viteRawSource('export default `executed ${model}`;')).toThrow('served_raw_source');
+    expect(() => viteRawSource('export default "source"; run();')).toThrow('served_raw_source');
     expect(() => viteRawSource('<html>fallback</html>')).toThrow('served_raw_source');
     expect(() => viteRawSource('export default (() => "forged")();')).toThrow('served_raw_source');
   });
