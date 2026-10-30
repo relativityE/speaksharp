@@ -19,7 +19,7 @@ function verify(env=process.env,cwd=process.cwd()){
  // The checked-out source must be the actual job head, not a caller-supplied substitute.
  if(git(['rev-parse','HEAD']).trim()!==env.GITHUB_SHA)throw Error('JOB_SOURCE_DIFFERS');
  git(['merge-base','--is-ancestor',release,env.GITHUB_SHA]);
- const paths=git(['diff','--name-only','-z',release,env.GITHUB_SHA,'--']).split('\0').filter(Boolean);
+ const paths=git(['diff','--no-renames','--name-only','-z',release,env.GITHUB_SHA,'--']).split('\0').filter(Boolean);
  if(paths.some(p=>p!=='.github/workflows/rc-gates.yml'&&!p.startsWith('tools/cloud-test/')))throw Error('PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS');
  return {kind:'rwt-diagnostic-source-compatible-not-release-qualification',workflowSha:env.GITHUB_SHA,servedSha:release,changedProofPaths:paths.length};
 }
