@@ -11,7 +11,7 @@ const text = 'synthetic final content';
 const source = { head: 'a'.repeat(40), tree: 'b'.repeat(40), lockSha256: 'c'.repeat(64), worktreeSha256: 'd'.repeat(64), files: [] };
 const binding: ProductEvidenceBinding = { source, candidateId: 'v2:base.en', backend: 'wasm', journey: 'open_mic', fixtureWavSha256: 'e'.repeat(64) };
 const receipt = () => ({ sessionSha256: sha256(session), transcriptSha256: sha256(text) });
-const attribution = { attributionStatus: 'verified', engine: 'private', engineVersion: 'private_v2:whisper-base.en', modelName: 'whisper-base.en' };
+const attribution = { attributionStatus: 'verified', engine: 'private', engineVersion: 'private_v2:whisper-base.en', modelName: 'whisper-base.en', deviceType: 'browser' };
 function observations(): ProductEvidence {
   return { timeline: { release: source.head, startMs: 10, stopMs: 100, playbackStartMs: 20,
     partials: [{ atMs: 40, sha256: sha256('synthetic partial'), chars: 17 }],
@@ -44,7 +44,7 @@ describe('passive product evidence', () => {
       const unverified = observations(); unverified.persisted[0].attributionStatus = status;
       expect(evaluateProductEvidence(binding, unverified)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_attribution_unverified'] });
     }
-    for (const field of ['engine', 'engineVersion', 'modelName'] as const) {
+    for (const field of ['engine', 'engineVersion', 'modelName', 'deviceType'] as const) {
       const mismatch = observations(); mismatch.persisted[0][field] = 'other';
       expect(evaluateProductEvidence(binding, mismatch)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_candidate_identity_mismatch'] });
     }
@@ -103,7 +103,7 @@ describe('passive product evidence', () => {
       request: () => ({ method: () => 'GET' }), json: unrelatedHistory } as unknown as Response);
     events.emit('response', { url: () => 'https://api.example.invalid/rest/v1/sessions?id=eq.' + session, ok: () => true,
       request: () => ({ method: () => 'GET' }), json: async () => [{ id: session, transcript: text, product: 'open_mic',
-        attribution_status: 'verified', engine: 'private', engine_version: 'private_v2:whisper-base.en', model_name: 'whisper-base.en' }] } as unknown as Response);
+        attribution_status: 'verified', engine: 'private', engine_version: 'private_v2:whisper-base.en', model_name: 'whisper-base.en', device_type: 'browser' }] } as unknown as Response);
     window.history.replaceState({}, '', '/progress/' + session);
     // Repository setup replaces location with a static navigation double; advance its observed route too.
     vi.stubGlobal('location', { ...window.location, pathname: '/progress/' + session });

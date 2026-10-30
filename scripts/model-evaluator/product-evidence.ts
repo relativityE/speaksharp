@@ -30,7 +30,7 @@ export interface ProductTimeline {
 }
 
 type TextReceipt = { sessionSha256: string; transcriptSha256: string; product?: string;
-  attributionStatus?: string; engine?: string; engineVersion?: string; modelName?: string };
+  attributionStatus?: string; engine?: string; engineVersion?: string; modelName?: string; deviceType?: string };
 export interface ProductEvidence {
   timeline: ProductTimeline | null;
   completion: TextReceipt[];
@@ -90,9 +90,9 @@ export function evaluateProductEvidence(binding: ProductEvidenceBinding, evidenc
     ? `${variants[candidate.engine]}:${modelName}` : null;
   if (!candidate || !engineVersion) failures.push('persisted_candidate_identity_unsupported');
   for (const row of evidence.persisted) {
-    if (!row.attributionStatus || !row.engine || !row.engineVersion || !row.modelName) holds.push('persisted_attribution_unavailable');
+    if (!row.attributionStatus || !row.engine || !row.engineVersion || !row.modelName || !row.deviceType) holds.push('persisted_attribution_unavailable');
     else if (row.attributionStatus !== 'verified') failures.push('persisted_attribution_unverified');
-    else if (row.engine !== 'private' || row.engineVersion !== engineVersion || row.modelName !== modelName) failures.push('persisted_candidate_identity_mismatch');
+    else if (row.engine !== 'private' || row.engineVersion !== engineVersion || row.modelName !== modelName || row.deviceType !== 'browser') failures.push('persisted_candidate_identity_mismatch');
   }
   return { verdict: failures.length ? 'FAIL' as const : holds.length ? 'HOLD' as const : 'PASS' as const,
     reasons: [...new Set([...failures, ...holds])], scope: 'Observed STT product take only; no coaching/provider or model-promotion qualification' };
@@ -189,7 +189,7 @@ export async function attachProductEvidence(page: Page, binding: ProductEvidence
             ? (row as Record<string, string>)[key] : undefined;
           evidence.persisted.push({ sessionSha256: sha256(row.id), transcriptSha256: sha256(row.transcript), product: row.product,
             attributionStatus: field('attribution_status'), engine: field('engine'),
-            engineVersion: field('engine_version'), modelName: field('model_name') });
+            engineVersion: field('engine_version'), modelName: field('model_name'), deviceType: field('device_type') });
         }
       }
     }
