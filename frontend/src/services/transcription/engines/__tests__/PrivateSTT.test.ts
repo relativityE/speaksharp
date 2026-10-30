@@ -567,9 +567,12 @@ describe('PrivateSTT (Routing Logic)', () => {
         const moonshineShaped = () => {
             const state = { transcriberOpen: false, terminations: 0, settleInit: (() => undefined) as (result: Result<void, Error>) => void };
             const engine = {
-                init: vi.fn(() => new Promise<Result<void, Error>>((resolve) => {
-                    state.settleInit = (result) => { state.transcriberOpen = true; resolve(result); };
-                })),
+                init: vi.fn(() => {
+                    // Own the partial resource while acquisition is pending. Settling a cancelled
+                    // load must not manufacture a new resource after its teardown already completed.
+                    state.transcriberOpen = true;
+                    return new Promise<Result<void, Error>>((resolve) => { state.settleInit = resolve; });
+                }),
                 transcribe: vi.fn(async () => ({ isOk: true, data: '' })),
                 start: vi.fn(async () => {}), stop: vi.fn(async () => {}),
                 pause: vi.fn(async () => {}), resume: vi.fn(async () => {}),
@@ -591,7 +594,9 @@ describe('PrivateSTT (Routing Logic)', () => {
             pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'moonshine-streaming' } as never);
             const pending = pstt.init();
             await vi.waitFor(() => expect(moonshine.engine.init).toHaveBeenCalledTimes(1));
+            expect(moonshine.state.transcriberOpen).toBe(true);
             await pstt[teardown]();
+            expect(moonshine.state.transcriberOpen).toBe(false);
             moonshine.state.settleInit(Result.ok(undefined));
             const result = await pending;
 
@@ -606,7 +611,7 @@ describe('PrivateSTT (Routing Logic)', () => {
             const pending = pstt.init();
             await vi.waitFor(() => expect(gates).toHaveLength(1));
             created[0].onDestroy.mockRejectedValueOnce(new Error('dispose exploded'));
-            await pstt.destroy();
+            await expect(pstt.destroy()).rejects.toThrow(/release uncertain\): dispose exploded/);
             gates[0](Result.ok(undefined));
             const result = await pending;
             expect(result.isOk).toBe(false);
@@ -667,7 +672,7 @@ describe('PrivateSTT (Routing Logic)', () => {
             const outcomes = await Promise.allSettled([pstt.terminate(), pstt.destroy(), pstt.terminate()]);
             expect(outcomes.map((outcome) => outcome.status)).toEqual(['rejected', 'rejected', 'rejected']);
             const [reason, ...others] = outcomes.map((outcome) => (outcome as PromiseRejectedResult).reason as Error);
-            expect(reason.message).toBe('engine stuck');
+            expect(reason.message).toBe('[PrivateSTT] engine release FAILED during teardown (release uncertain): engine stuck');
             for (const other of others) expect(other).toBe(reason);
             expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
             pstt = null;
@@ -835,25 +840,29 @@ describe('PrivateSTT (Routing Logic)', () => {
             if (teardown.status === 'rejected') pstt = null; // its teardown failed by design; afterEach must not replay it
         });
 
-        it('Sam r7 adjacent #1: a pending init B does not become ready after stale A\'s cleanup fails; only B\'s candidate is disposed', async () => {
+        it('Sam r7 adjacent #1: init B waits for pending A retirement and acquires nothing if that release fails', async () => {
             const { PrivateSTT } = await import('../PrivateSTT');
             pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
             const initA = pstt.init();
             await vi.waitFor(() => expect(gates).toHaveLength(1)); // pending A
-            await pstt.destroy(); // cancel A
-            const initB = pstt.init(); // start pending B: it passes the sticky check at entry
-            await vi.waitFor(() => expect(gates).toHaveLength(2));
             const staleFailure = new Error('stale A cleanup failed');
-            created[0].onDestroy.mockRejectedValueOnce(staleFailure);
-            gates[0](Result.ok(undefined)); // A settles cancelled, and its cleanup rejects
+            let failRelease!: (error: Error) => void;
+            created[0].onDestroy.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { failRelease = reject; }));
+            const retirement = pstt.destroy().then(() => null, (error: unknown) => error);
+            const initB = pstt.init(); // B must wait for A's pending release, before construction.
+            await vi.waitFor(() => expect(created[0].onDestroy).toHaveBeenCalledTimes(1));
+            expect(created).toHaveLength(1);
+            failRelease(staleFailure);
+            expect(await retirement).toEqual(expect.objectContaining({ message: expect.stringMatching(/release uncertain\): stale A cleanup failed/) }));
+            gates[0](Result.ok(undefined));
             const resultA = await initA;
+            expect(resultA.isOk).toBe(false);
             expect(resultA.isOk ? '' : resultA.error.message).toMatch(/release uncertain\): stale A cleanup failed/);
-            gates[1](Result.ok(undefined)); // B settles after the uncertainty is known
             const resultB = await initB;
 
             expect(resultB.isOk).toBe(false);
-            expect(resultB.isOk ? '' : resultB.error.message).toMatch(/release uncertain\): stale A cleanup failed/);
-            expect(created[1].onDestroy).toHaveBeenCalledTimes(1); // B's own candidate is disposed
+            expect(resultB.isOk ? '' : resultB.error.message).toBe('[STTEngine] transformers-js cannot initialise: its previous teardown failed (release uncertain); create a new engine. stale A cleanup failed');
+            expect(created).toHaveLength(1); // B never acquires a worker after an uncertain release.
             expect(created[0].onDestroy).toHaveBeenCalledTimes(1); // A is not closed a second time
             await expect(pstt.start()).rejects.toThrow(/not initialized/);
             pstt = null; // its release is uncertain by design; afterEach must not replay it

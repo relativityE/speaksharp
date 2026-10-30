@@ -1252,12 +1252,23 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             ...(kind === 'transformers-js-v4'
                 ? { v4Variant: this.runtimePath?.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT } : {}),
         };
+        let engine: IPrivateSTTEngine | undefined;
         try {
-            const engine = await constructPrivateEngine(kind, candidate, options);
+            engine = await constructPrivateEngine(kind, candidate, options);
+            if (this.acquisitionCancelled(generation)) {
+                const failure = await this.releaseEngine(engine);
+                return { isOk: false, error: failure
+                    ? new Error(`Whisper init cancelled; release uncertain: ${failure.message}`)
+                    : this.cancelledInitError(true) };
+            }
+            // Teardown must reach a child whose worker is still loading, before adoption.
+            this.acquiringEngines.add(engine);
             const result = await engine.init(timeoutMs, isMock);
             if (result && result.isOk === false) {
-                await this.releaseEngine(engine);
-                return { isOk: false, error: result.error };
+                const failure = await this.releaseEngine(engine);
+                return { isOk: false, error: failure
+                    ? new Error(`${result.error.message}; releasing ${kind} failed (release uncertain): ${failure.message}`)
+                    : result.error };
             }
             const adopted = await this.adoptEngine(engine, generation);
             if (!adopted.isOk) return { isOk: false, error: adopted.error };
@@ -1265,7 +1276,15 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             this._engineType = kind;
             return { isOk: true, data: kind };
         } catch (error) {
+            if (engine) {
+                const failure = await this.releaseEngine(engine);
+                if (failure) return { isOk: false, error: new Error(
+                    `Whisper init failed: ${error instanceof Error ? error.message : String(error)}; release uncertain: ${failure.message}`,
+                ) };
+            }
             return { isOk: false, error: error instanceof Error ? error : new Error(String(error)) };
+        } finally {
+            if (engine) this.acquiringEngines.delete(engine);
         }
     }
 
