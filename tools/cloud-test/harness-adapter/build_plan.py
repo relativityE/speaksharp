@@ -23,6 +23,9 @@ def need(name):
     return v
 
 MODE = os.environ.get('BP_MODE')
+RUNTIME = os.environ.get('BP_RUNTIME', 'Claude SpeakSharp R4')
+if RUNTIME not in ('Claude SpeakSharp R4', 'GitHub Actions SpeakSharp'):
+    raise ValueError('BLOCKED_SETUP: unsupported execution runtime')
 if MODE not in ('minimal', 'breadth', 'full'):
     print('BLOCKED_SETUP: BP_MODE must be minimal, breadth or full (no default; it is passed from the request)', file=sys.stderr); sys.exit(78)
 PACKET = need('BP_PACKET')
@@ -109,8 +112,29 @@ if phase == 'phase1':
         else {c['caseId']: c for c in jload(f'{PACKET}/draft-adapters/contracts.json')}
     fx = jload(f'{PACKET}/draft-adapters/oracles/pure/fixture-manifest.json')['fixtures']
     oracle_sha = shaf(f'{PACKET}/draft-adapters/oracles/index.cjs')
-    receiver_path = f'{PACKET}/draft-adapters/receivers/unavailable-evidence-reader.cjs'
+    producer_mode = os.environ.get('BP_PRODUCER_MODE', 'unavailable')
+    if producer_mode not in ('unavailable', 'same-github-job'):
+        raise ValueError('BLOCKED_SETUP: unknown producer mode')
+    same_job = producer_mode == 'same-github-job'
+    assert not same_job or RUNTIME == 'GitHub Actions SpeakSharp', 'same-job producer requires explicit GitHub runtime'
+    assert RUNTIME != 'GitHub Actions SpeakSharp' or same_job, 'GitHub runtime requires actual same-job evidence selection'
+    receiver_rel = 'draft-adapters/receivers/' + ('github-job-evidence-reader.cjs' if same_job else 'unavailable-evidence-reader.cjs')
+    receiver_path = f'{PACKET}/{receiver_rel}'
     receiver_sha = shaf(receiver_path)
+    descriptor = None
+    if same_job:
+        descriptor_file = need('BP_PRODUCER_DESCRIPTOR')
+        assert shaf(descriptor_file) == need('BP_PRODUCER_DESCRIPTOR_SHA256'), 'producer descriptor bytes differ'
+        descriptor = jload(descriptor_file)
+        assert os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('GITHUB_REPOSITORY') == 'relativityE/speaksharp', 'same GitHub job required'
+        run_id, attempt = need('GITHUB_RUN_ID'), need('GITHUB_RUN_ATTEMPT')
+        assert run_id.isdecimal() and attempt.isdecimal(), 'actual GitHub run/attempt required'
+        job_id = need('GITHUB_JOB')
+        assert descriptor['producerIdentity'] == f'github-actions:relativityE/speaksharp:{run_id}:{attempt}:{job_id}' and descriptor['jobId'] == job_id, 'producer belongs to another job'
+        assert descriptor['producerCodeSha256'] == shaf(f'{PACKET}/bundle/harness/authenticated-job-producer.cjs'), 'producer bytes differ'
+        assert descriptor['receiverSourceSha256'] == receiver_sha and descriptor['receiverRelativePath'] == receiver_rel, 'receiver bytes/path differ'
+        assert descriptor['workflowSourceSha'] == need('GITHUB_SHA'), 'producer workflow source differs'
+        assert descriptor['reviewReference'] == FACTS.get('producerReviewReference') and descriptor['reviewReference'], 'independent producer review binding missing'
     # schema digest: defined here as sha256 over sorted "path:blob" of backend/supabase/migrations at the pinned source
     mig = subprocess.run(['git', '-C', CHECKOUT, 'ls-tree', '-r', B, '--', 'backend/supabase/migrations'], capture_output=True, text=True).stdout.strip().splitlines()
     schema_sha = sha('\n'.join(sorted(f"{l.split()[3]}:{l.split()[2]}" for l in mig)).encode())
@@ -126,11 +150,11 @@ if phase == 'phase1':
     R['dl'] = 'A6-qualification-of-this-campaign:S14.* (forward reference, produced by this run)'
     def producer(role, kind, inputs):
         return {'scope': 'existing-authenticated-producer-receiving-capability',
-                'producerIdentity': 'NONE-AVAILABLE:fail-closed-stand-in:no-authorized-evidence-reader-in-this-session',
-                'producerCodeSha256': sha(b'NONE-AVAILABLE:no-producer-exists'),
+                'producerIdentity': descriptor['producerIdentity'] if descriptor else 'NONE-AVAILABLE:fail-closed-stand-in:no-authorized-evidence-reader-in-this-session',
+                'producerCodeSha256': descriptor['producerCodeSha256'] if descriptor else sha(b'NONE-AVAILABLE:no-producer-exists'),
                 'receiverSourceSha256': receiver_sha,
-                'reviewReference': FACTS.get('producerReviewReference', 'evidence-reader-unavailable;server-evidence-NOT_RUN;no-passing-receiver'),
-                'deliveryKind': kind, 'allowedObservationInputs': inputs}
+                'reviewReference': descriptor['reviewReference'] if descriptor else FACTS.get('producerReviewReference', 'evidence-reader-unavailable;server-evidence-NOT_RUN;no-passing-receiver'),
+                'deliveryKind': 'reviewed-authenticated-workflow-artifact' if same_job else kind, 'allowedObservationInputs': inputs}
     PROD = {'coaching-authority': producer('coaching-authority', 'reviewed-authenticated-workflow-artifact', ['startedAt', 'sessionIds']),
             'feedback-association': producer('feedback-association', 'reviewed-authenticated-workflow-artifact', ['startedAt', 'idempotencyKey']),
             'feedback-received': producer('feedback-received', 'authenticated-connector-artifact', ['startedAt', 'journeyId', 'bootId'])}
@@ -200,7 +224,7 @@ if phase == 'phase1':
         cfg['rules'] = keep
     pol_sha = put(f'{PRIVATE}/cfg/policy.json', pol)
     # security approval
-    sa = {'version': 1, 'runtime': 'Claude SpeakSharp R4', 'action': 'ephemeral-browser-spki-exception', 'ownerApprovalReference': OWNER_REF,
+    sa = {'version': 1, 'runtime': RUNTIME, 'action': 'ephemeral-browser-spki-exception', 'ownerApprovalReference': OWNER_REF,
           'approvedBy': APPROVED_BY, 'approvalSource': 'explicit-user-message', 'reviewedCodeManifestSha256': shaf(f'{PACKET}/bundle/CODE.sha256'),
           'notBefore': T0, 'expiresAt': T1, 'allowedHosts': [HOST_APP, HOST_DB, 'a.test', 'c.test', 'd.test'],
           'installTrustRoot': False, 'globalCertificateBypass': False, 'environmentSecurityChanges': False,
@@ -217,7 +241,11 @@ if phase == 'phase1':
     m = jload(f'{PACKET}/bundle/config/reviewed-steps.EXAMPLE.json'); m = {k: v for k, v in m.items() if not k.startswith('_')}
     m['reviewer'] = REVIEWER + ' (drivers, oracle factory, durable oracle, fail-closed receiver inspected)'
     m['reviewedAt'] = now()
-    m['steps'].append({'path': 'draft-adapters/receivers/unavailable-evidence-reader.cjs', 'sha256': receiver_sha, 'dependencies': []})
+    receiver_deps = ['bundle/harness/existing-runner-receiver.cjs', 'bundle/harness/existing-runner-projection.cjs',
+                     'draft-adapters/oracles/pure/rwtCoachingEvidence.cjs', 'draft-adapters/oracles/pure/coaching-contract.json',
+                     'draft-adapters/oracles/pure/fixture-manifest.json'] if same_job else []
+    m['steps'].append({'path': receiver_rel, 'sha256': receiver_sha,
+                       'dependencies': [{'path': p, 'sha256': shaf(f'{PACKET}/{p}')} for p in receiver_deps]})
     steps_sha = put(f'{PRIVATE}/cfg/reviewed-steps.json', m)
     q = jload(f'{PACKET}/bundle/qualification/reviewed-steps.TEMPLATE.json'); q = {k: v for k, v in q.items() if not k.startswith('_')}
     q['reviewer'] = REVIEWER + ' (qualification helper steps inspected)'; q['reviewedAt'] = now()
@@ -230,7 +258,8 @@ if phase == 'phase1':
         put(f'{PRIVATE}/cfg/save-oracle-AHT-{n:02d}.json', so)
     # plan rows file (finished in phase 2 once hashes of everything exist)
     json.dump({'cases': {k: {'config': v[0], 'configSha256': v[1]} for k, v in cases.items()}, 'policySha256': pol_sha,
-               'securityApprovalSha256': sa_sha, 'providerEvidenceSha256': pe_sha, 'stepsSha256': steps_sha, 'qualStepsSha256': qsteps_sha},
+               'securityApprovalSha256': sa_sha, 'providerEvidenceSha256': pe_sha, 'stepsSha256': steps_sha, 'qualStepsSha256': qsteps_sha,
+               'producerReceiverRelativePath': receiver_rel},
               open(f'{PRIVATE}/cfg/phase1-index.json', 'w'), indent=2)
     print('phase1 OK', json.dumps({'cases': len(cases), 'policy': pol_sha[:12], 'approval': sa_sha[:12], 'steps': steps_sha[:12]}))
 
@@ -239,13 +268,25 @@ elif phase == 'phase2':
     UID = open(UID_FILE).read().strip()
     # runtime attestation: actual platform observation, written only after the window opened
     assert now() >= T0, 'window not open yet'
-    att = {'kind': 'authoritative-claude-task-environment-receipt', 'platformUrl': 'https://claude.ai/code',
-           'environmentSelector': 'SpeakSharp R4', 'runtime': 'Claude SpeakSharp R4',
-           'taskId': need('BP_TASK_ID'), 'sourceReference': need('BP_SOURCE_REFERENCE'), 'observedAt': now(),
-           'immutableEnvironmentId': need('BP_ENV_ID')}
+    if RUNTIME == 'GitHub Actions SpeakSharp':
+        assert os.environ.get('GITHUB_ACTIONS') == 'true' and need('GITHUB_REPOSITORY') == 'relativityE/speaksharp', 'actual selected GitHub job required'
+        run_id, attempt, job_id = need('GITHUB_RUN_ID'), need('GITHUB_RUN_ATTEMPT'), need('GITHUB_JOB')
+        assert run_id.isdecimal() and attempt.isdecimal(), 'actual GitHub run/attempt required'
+        workflow_sha = need('GITHUB_SHA')
+        assert len(workflow_sha) == 40 and all(c in '0123456789abcdef' for c in workflow_sha), 'workflow source identity missing'
+        att = {'kind': 'github-actions-job-environment-receipt', 'platformUrl': 'https://github.com', 'runtime': RUNTIME,
+               'repository': 'relativityE/speaksharp', 'runId': run_id, 'runAttempt': attempt, 'jobId': job_id,
+               'workflowSourceSha': workflow_sha, 'observedAt': now(),
+               'sourceReference': f'https://github.com/relativityE/speaksharp/actions/runs/{run_id}',
+               'immutableEnvironmentId': f'relativityE/speaksharp/{run_id}/{attempt}/{job_id}'}
+    else:
+        att = {'kind': 'authoritative-claude-task-environment-receipt', 'platformUrl': 'https://claude.ai/code',
+               'environmentSelector': 'SpeakSharp R4', 'runtime': RUNTIME,
+               'taskId': need('BP_TASK_ID'), 'sourceReference': need('BP_SOURCE_REFERENCE'), 'observedAt': now(),
+               'immutableEnvironmentId': need('BP_ENV_ID')}
     att_sha = put(f'{PRIVATE}/cfg/runtime-attestation.json', att)
     tmpl = jload(f'{PACKET}/bundle/config/admission.TEMPLATE.json'); adm = {k: v for k, v in tmpl.items() if not k.startswith('_')}
-    adm.update({'sourceSha': B, 'sourceTree': TREE, 'lockSha256': shaf(f'{CHECKOUT}/pnpm-lock.yaml'), 'checkoutDir': CHECKOUT,
+    adm.update({'runtime': RUNTIME, 'sourceSha': B, 'sourceTree': TREE, 'lockSha256': shaf(f'{CHECKOUT}/pnpm-lock.yaml'), 'checkoutDir': CHECKOUT,
                 'lighthouseCli': None, 'lighthouseSelection': 'not-selected', 'expectedServedSha': B, 'identityCap': IDENT_CAP,
                 'identityLedger': f'{PRIVATE}/ledgers/identity-ledger.json', 'campaignLedger': f'{PRIVATE}/ledgers/campaign-ledger.json',
                 'securityApprovalFile': f'{PRIVATE}/cfg/security-approval.json', 'securityApprovalSha256': idx['securityApprovalSha256'],
@@ -257,6 +298,8 @@ elif phase == 'phase2':
                 'campaignId': CAMPAIGN, 'privateMediaParent': MEDIA_PARENT, 'runtimeAttestationFile': f'{PRIVATE}/cfg/runtime-attestation.json',
                 'runtimeAttestationSha256': att_sha, 'ownerApprovalReference': OWNER_REF, 'qualificationMaxMs': QUAL_MS,
                 'cleanupReserveMs': CLEANUP_MS, 'runtimeEnvironmentId': att['immutableEnvironmentId']})
+    if RUNTIME == 'GitHub Actions SpeakSharp':
+        adm['runtimeWorkflowSourceSha'] = att['workflowSourceSha']
     os.makedirs(f'{PRIVATE}/ledgers', mode=0o700, exist_ok=True)
     adm_sha = put(f'{PRIVATE}/cfg/admission.json', adm)
     rows = []
@@ -271,9 +314,9 @@ elif phase == 'phase2':
         if n in (5, 6):
             of = f'{PRIVATE}/cfg/save-oracle-{cid}.json'; r['oracleConfigFile'] = of; r['oracleConfigSha256'] = shaf(of)
         if n in oracle_cases: r['caseOracleFile'] = f'{PACKET}/draft-adapters/oracles/index.cjs'
-        if n in prod_cases: r['producerReceiverFile'] = f'{PACKET}/draft-adapters/receivers/unavailable-evidence-reader.cjs'
+        if n in prod_cases: r['producerReceiverFile'] = f"{PACKET}/{idx['producerReceiverRelativePath']}"
         rows.append(r)
-    plan = {'version': 1, 'campaignId': CAMPAIGN, 'runtime': 'Claude SpeakSharp R4', 'targetUrl': f'https://{HOST_APP}/', 'costCeilingUsd': 0,
+    plan = {'version': 1, 'campaignId': CAMPAIGN, 'runtime': RUNTIME, 'targetUrl': f'https://{HOST_APP}/', 'costCeilingUsd': 0,
             'sourceSha': B, 'servedSha': B, 'admissionConfigFile': f'{PRIVATE}/cfg/admission.json', 'admissionConfigSha256': adm_sha,
             'stepRoot': PACKET, 'stepManifestFile': f'{PRIVATE}/cfg/reviewed-steps.json', 'stepManifestSha256': idx['stepsSha256'],
             'campaignLedger': adm['campaignLedger'], 'identityLedger': adm['identityLedger'], 'runRoot': f'{PRIVATE}/run',

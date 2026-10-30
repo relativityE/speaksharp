@@ -32,6 +32,7 @@ const lighthouseSelection=selection(a['lighthouse-selection']||'required');
 if(lighthouseSelection==='required'&&(!a['lighthouse-cli']||require(path.join(H,'launch-boundary.cjs')).hashExecutable(a['lighthouse-cli'],a['lighthouse-cli-sha256']).sha256!==a['lighthouse-cli-sha256']))throw new Error('selected Lighthouse executable required');
 if(lighthouseSelection==='not-selected'&&a['lighthouse-cli'])throw new Error('unselected Lighthouse must not bind executable');
 const capabilityApproval=validateSelectionApproval(lighthouseSelection,JSON.parse(fs.readFileSync(a['security-approval'],'utf8')));
+const selectedRuntime=JSON.parse(fs.readFileSync(a['security-approval'],'utf8')).runtime;
 process.exitCode = 3; // a run that ends without reaching the verdict is never a pass
 // SOURCE-ONLY port until actually qualified in the selected R0 runtime. No self-issued approval.
 const OUT = path.resolve(a.out);
@@ -698,7 +699,7 @@ for(const [signal,number] of [['SIGTERM',15],['SIGINT',2],['SIGHUP',1]])process.
   }
   const lighthouseEvidence=path.join(OUT,'control-lighthouse.json');fs.writeFileSync(lighthouseEvidence,JSON.stringify({sourceSummarySha256:sha256(fs.readFileSync(summaryFile)),selection:lighthouseSelection,ownerApprovalReference:capabilityApproval.ownerApprovalReference,results:results.filter(r=>r.id.startsWith('S10.'))},null,2)+'\n',{mode:0o600});
   const capabilities={lighthouse:{...capabilityApproval,result:verdict.lighthouseResult,...(lighthouseSelection==='not-selected'?{reason:'OWNER_NOT_SELECTED'}:{}),evidenceSha256:sha256(fs.readFileSync(lighthouseEvidence)),evidencePath:path.basename(lighthouseEvidence)}};
-  const receipt={...verdict,capabilities,lighthouseCliSha256:lighthouseSelection==='required'?a['lighthouse-cli-sha256']:null,runtime:'Claude SpeakSharp R4',node:process.version.slice(1),playwright:installedPlaywright,chromiumRevision:installedChromiumRevision,codeManifestSha256:sha256(fs.readFileSync(path.join(H,'..','CODE.sha256'))),checks,scope:'approved-loopback-fixtures-only',productTraffic:false,summarySha256:sha256(fs.readFileSync(summaryFile)),startedAt:QUAL_STARTED_AT,endedAt:new Date().toISOString()};
+  const receipt={...verdict,capabilities,lighthouseCliSha256:lighthouseSelection==='required'?a['lighthouse-cli-sha256']:null,runtime:selectedRuntime,node:process.version.slice(1),playwright:installedPlaywright,chromiumRevision:installedChromiumRevision,codeManifestSha256:sha256(fs.readFileSync(path.join(H,'..','CODE.sha256'))),checks,scope:'approved-loopback-fixtures-only',productTraffic:false,summarySha256:sha256(fs.readFileSync(summaryFile)),startedAt:QUAL_STARTED_AT,endedAt:new Date().toISOString()};
   fs.writeFileSync(path.join(OUT,'qualification-receipt.json'),JSON.stringify(receipt,null,2)+'\n',{mode:0o600});
   console.log(`SELFTEST ${verdict.result}: ${verdict.passed} PASS / ${verdict.failed} FAIL / ${verdict.notRun} NOT_RUN; scope=${verdict.qualifiedScope}`);
   clearTimeout(qualificationTimer); clearInterval(parentWatch);

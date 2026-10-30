@@ -278,6 +278,59 @@ class PlanBuilderProof(unittest.TestCase):
         self.assertEqual((pol["caps"]["total"], pol["caps"]["coaching"], pol["caps"]["account-closure"]), (180, 0, 0))
         self.assertEqual(plan["sourceSha"], RECEIVING_SOURCE)
 
+    def job_inputs(self, name):
+        review = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"
+        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        facts["producerReviewReference"] = review
+        fp = os.path.join(self.work, name + "-facts.json"); wjson(fp, facts)
+        packet = os.path.join(ROOT, "harness")
+        receiver = "draft-adapters/receivers/github-job-evidence-reader.cjs"
+        descriptor = {"producerIdentity": "github-actions:relativityE/speaksharp:123:1:live", "jobId": "live",
+                      "producerCodeSha256": sha(open(os.path.join(packet, "bundle/harness/authenticated-job-producer.cjs"), "rb").read()),
+                      "receiverSourceSha256": sha(open(os.path.join(packet, receiver), "rb").read()),
+                      "receiverRelativePath": receiver, "workflowSourceSha": "b" * 40, "reviewReference": review}
+        dp = os.path.join(self.work, name + "-descriptor.json"); wjson(dp, descriptor)
+        return {"BP_RUNTIME": "GitHub Actions SpeakSharp", "BP_PRODUCER_MODE": "same-github-job", "BP_PRODUCER_DESCRIPTOR": dp,
+                "BP_PRODUCER_DESCRIPTOR_SHA256": sha(open(dp, "rb").read()), "BP_FACTS": fp,
+                "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40}
+
+    def test_same_job_plan_uses_actual_reviewed_receiver_and_github_attestation(self):
+        private, out = self.build("p-same-job", extra=self.job_inputs("same-job"))
+        self.assertEqual([o.returncode for o in out], [0, 0], [o.stderr for o in out])
+        plan = json.load(open(os.path.join(private, "cfg/campaign-plan.json")))
+        self.assertEqual(plan["runtime"], "GitHub Actions SpeakSharp")
+        for c in plan["cases"]:
+            if c["id"] in ("AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"):
+                self.assertTrue(c["producerReceiverFile"].endswith("github-job-evidence-reader.cjs"))
+                cfg = json.load(open(c["configFile"]))
+                for producer in cfg["privateEvidenceProducers"].values():
+                    self.assertEqual(producer["producerIdentity"], "github-actions:relativityE/speaksharp:123:1:live")
+                    self.assertEqual(producer["deliveryKind"], "reviewed-authenticated-workflow-artifact")
+        att = json.load(open(os.path.join(private, "cfg/runtime-attestation.json")))
+        self.assertEqual(att["kind"], "github-actions-job-environment-receipt")
+        self.assertEqual(att["immutableEnvironmentId"], "relativityE/speaksharp/123/1/live")
+        self.assertNotIn("claude.ai", json.dumps(att))
+        accepted = self.accept(private)
+        # This source/selection test has not run the real browser stimulus qualification.
+        # Every other real preflight must accept; the missing stimulus must still refuse.
+        result = json.loads(accepted.stdout)
+        self.assertEqual(accepted.returncode, 1)
+        for check in ("campaign plan structure", "request budget binding", "run identity", "every selected case preflight"):
+            self.assertEqual(result[check], "ACCEPTED")
+        self.assertTrue(result["stimulus preflight receipt"].startswith("REFUSED:"))
+
+    def test_same_job_descriptor_from_another_run_is_refused(self):
+        inputs = self.job_inputs("other-job"); inputs["GITHUB_RUN_ID"] = "999"
+        _, out = self.build("p-other-job", extra=inputs)
+        self.assertNotEqual(out[-1].returncode, 0)
+        self.assertIn("producer belongs to another job", out[-1].stderr)
+
+    def test_same_run_descriptor_from_another_job_is_refused(self):
+        inputs = self.job_inputs("other-job-same-run"); inputs["GITHUB_JOB"] = "other"
+        _, out = self.build("p-other-job-same-run", extra=inputs)
+        self.assertNotEqual(out[-1].returncode, 0)
+        self.assertIn("producer belongs to another job", out[-1].stderr)
+
     def test_no_session_specific_value_is_embedded_in_the_generated_files(self):
         private, out = self.build("p-embed")
         blob = ""

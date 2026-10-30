@@ -68,7 +68,7 @@ const SHA=/^[a-f0-9]{64}$/,COMMIT=/^[a-f0-9]{40}$/;
 function validateCampaignPlan(p) {
  const errors=[];
  if(!p||p.version!==1||typeof p.campaignId!=='string'||!p.campaignId.trim())errors.push('campaignId/version');
- if(p?.runtime!=='Claude SpeakSharp R4'||p?.targetUrl!=='https://speaksharp-public.vercel.app/'||p?.costCeilingUsd!==0)errors.push('R0 canonical $0 scope');
+ if(!require('./runtime-selection.cjs').supported(p?.runtime)||p?.targetUrl!=='https://speaksharp-public.vercel.app/'||p?.costCeilingUsd!==0)errors.push('R0 canonical $0 scope');
  if(!COMMIT.test(p?.sourceSha||'')||p?.servedSha!==p?.sourceSha)errors.push('exact aligned source/served SHA');
  for(const k of ['admissionConfigFile','stepRoot','stepManifestFile','campaignLedger','identityLedger','runRoot'])if(typeof p?.[k]!=='string'||!p[k])errors.push(k);
  for(const k of ['admissionConfigSha256','stepManifestSha256'])if(!SHA.test(p?.[k]||''))errors.push(k);
