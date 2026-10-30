@@ -6,7 +6,7 @@ import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
-import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,
+import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
@@ -133,7 +133,7 @@ function fixture(source="import test from 'node:test'; import assert from 'node:
   write('package.json','{"type":"module"}');write('pnpm-lock.yaml','synthetic immutable lock');
   write(NATIVE_REPORTER,fs.readFileSync(path.join(root,NATIVE_REPORTER)));
   const file='tests/db/actual.test.mjs';write(file,source);
-  const contract={testFile:file,runner:'node-test',helpers:[]};
+  const contract={testFile:file,runner:'node-test',helpers:[],batch:0};
   const run=()=>produceNativePhase({root:dir,cwd:dir,contract,provenance,inputSha256,runId,sourceCopyCommit:'e'.repeat(40),
     environment:testEnvironment(dir,null,''),drain:drainOwnedPhase});
   return {dir,file,write,contract,run,clean:()=>fs.rmSync(dir,{recursive:true,force:true})};
@@ -156,9 +156,11 @@ test('INSTALLED Node reporter observes actual collection/assertion/drain and rej
       assert.throws(()=>validateNativePhase(changed,{root:f.dir,provenance,inputSha256,runId,contract:f.contract}),undefined,name);
     }
     const receipt={schemaVersion:2,runId,provenance,...Object.fromEntries(['commit','tree','snapshotSha256'].map(k=>[k,provenance[k]])),
-      status:'executed',tests:[{testFile:f.file,testSha256:hash(fs.readFileSync(path.join(f.dir,f.file))),phase}]};
+      status:'executed',batch:executionBatchIdentity(selectNativeContracts(f.dir,[f.file]),0),
+      tests:[{testFile:f.file,testSha256:hash(fs.readFileSync(path.join(f.dir,f.file))),phase}]};
     assert.deepEqual([...validateNativeReceipt(receipt,{root:f.dir,provenance,inputSha256,files:[f.file]})],[f.file]);
-    for(const change of [r=>{r.tests=[];},r=>{r.tests.push(r.tests[0]);},r=>{r.tests[0].testSha256='0'.repeat(64);},r=>{r.provenance.runAttempt='3';}]) {
+    for(const change of [r=>{r.tests=[];},r=>{r.tests.push(r.tests[0]);},r=>{r.tests[0].testSha256='0'.repeat(64);},r=>{r.provenance.runAttempt='3';},
+      r=>{delete r.batch;},r=>{r.batch.selectionSha256='0'.repeat(64);},r=>{r.batch.index=1;}]) {
       const changed=structuredClone(receipt);change(changed);
       assert.throws(()=>validateNativeReceipt(changed,{root:f.dir,provenance,inputSha256,files:[f.file]}));
     }
@@ -525,5 +527,34 @@ test('a native phase bound to another batch is refused even when its execution p
     assert.throws(()=>validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:{...contract,batch:1}}),/Wrong native source/);
     const moved=structuredClone(phase);moved.binding.batch=1;
     assert.throws(()=>validateNativePhase(moved,{root:f.dir,provenance,inputSha256,runId,contract}),/Wrong native source/);
+  } finally {f.clean();}
+});
+
+test('batch reconciliation requires every batch once with exactly its contracts',()=>{
+  const files=Object.fromEntries(Array.from({length:17},(_,n)=>[`tools/cloud-test/tests/r${String(n).padStart(2,'0')}.test.cjs`,nodeTestCjs]));
+  const f=packageFixture(files);
+  try {
+    const contracts=selectNativeContracts(f.dir,Object.keys(files));
+    const receipts=[0,1,2].map(index=>({batch:executionBatchIdentity(contracts,index),
+      tests:contracts.filter(item=>item.batch===index).map(item=>({testFile:item.testFile}))}));
+    assert.deepEqual(receipts.map(item=>item.tests.length),[8,8,1]);
+    assert.doesNotThrow(()=>reconcileExecutionBatches(receipts,contracts,'native'));
+    for(const [name,change,pattern] of [
+      ['missing batch',r=>r.pop(),/batch inventory/],
+      ['extra batch',r=>r.push(structuredClone(r[2])),/batch inventory/],
+      ['batches reordered',r=>r.reverse(),/batch identity/],
+      ['missing contract',r=>r[1].tests.pop(),/Missing, extra or duplicate native contracts in batch 1/],
+      ['duplicate contract',r=>r[2].tests.push(r[2].tests[0]),/batch 2/],
+      ['contract moved between batches',r=>r[2].tests.push(r[1].tests.pop()),/batch 1/],
+      ['contract absent from selection',r=>{r[0].tests[0]={testFile:'tools/cloud-test/tests/unselected.test.cjs'};},/batch 0/],
+      ['wrong selection digest',r=>{r[0].batch.selectionSha256='0'.repeat(64);},/batch identity/],
+      ['wrong batch size',r=>{r[0].batch.size=9;},/batch identity/],
+    ]) {
+      const changed=structuredClone(receipts);change(changed);
+      assert.throws(()=>reconcileExecutionBatches(changed,contracts,'native'),pattern,name);
+    }
+    // An empty selection still needs exactly one not-applicable receipt; zero receipts are refused.
+    assert.throws(()=>reconcileExecutionBatches([],[],'native'),/batch inventory/);
+    assert.doesNotThrow(()=>reconcileExecutionBatches([{batch:executionBatchIdentity([],0),tests:[]}],[],'native'));
   } finally {f.clean();}
 });

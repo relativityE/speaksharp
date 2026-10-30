@@ -8,7 +8,8 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
-import {nativeTestRoute,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness} from './nativeTestExecutionEvidence.mjs';
+import {nativeTestRoute,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness,
+  NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (root, args) => execFileSync('git', args, {cwd:root,encoding:'utf8',maxBuffer:16*1024*1024}).trim();
@@ -269,6 +270,34 @@ export function unavailableExecutionInputs(root,files) {
     return route?.applicable===false?[{file,reason:route.unavailableReason}]:[];
   });
 }
+export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}={}) {
+  const selected=(helpersOnly?[]:evidenceFiles
+    .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
+    .map(file=>executionRoute(file,root).runner==='vitest-fixture'
+      ? {testFile:executionRoute(file,root).consumer,fixtureFile:file}:{testFile:file}))
+    .concat(HELPER_CONTRACTS.filter(contract=>evidenceFiles.includes(contract.helperFile)
+      && helperApplicability(root,contract.helperFile).supported)
+      .map(contract=>({...contract,helper:true})));
+  const sqlFiles=helpersOnly?[]:evidenceFiles.filter(file=>SQL_INPUTS.includes(file));
+  if(sqlFiles.length) {
+    const ordinary=selected.find(item=>item.testFile===SQL_CONSUMER&&!item.helper);
+    if(ordinary)ordinary.sqlFiles=sqlFiles;
+    else selected.push({testFile:SQL_CONSUMER,sqlFiles});
+  }
+  const sourceFiles=helpersOnly?[]:evidenceFiles.filter(file=>{
+    const route=executionRoute(file,root);return route?.runner==='vitest-source-contract' && route.applicable;
+  });
+  if(sourceFiles.length) selected.push({testFile:SOURCE_CONSUMER,sourceFiles});
+  // Deduplicate actual consumer execution, never a helper's callable proof.
+  for(const contract of [...selected]) if(contract.helper || contract.sourceFiles) {
+    const ordinary=selected.findIndex(item=>item!==contract && item.testFile===contract.testFile && !item.helper && !item.fixtureFile && !item.sourceFiles);
+    if(ordinary>=0) {selected.splice(ordinary,1);contract.consumerExecution=true;}
+  }
+  // Same bound as native execution: batches keep the eight-file budget; the fixed ceiling refuses, never trims.
+  if(selected.length>NATIVE_BATCH_SIZE*NATIVE_MAX_BATCHES)
+    throw new Error(`NOT RUN: changed Vitest execution exceeds ${NATIVE_MAX_BATCHES} batches of ${NATIVE_BATCH_SIZE} files`);
+  return selected.map((contract,n)=>({...contract,batch:Math.floor(n/NATIVE_BATCH_SIZE)}));
+}
 // Shared conservative policy; the consumer supplies the actual Git diff, not receipt claims.
 export function pilotAffectedByPaths(files) {
   return files===null || files.some(file=>/^(scripts\/|tests\/unit\/testEfficacy\.test\.js$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|frontend\/(src\/|package\.json|vitest\.config\.mjs|tsconfig[^/]*\.json|tests\/)|\.github\/)/.test(file));
@@ -407,18 +436,41 @@ export function validateVitestExecution(receipt, expected, root) {
   return files;
 }
 
+// The consumer recomputes the selection itself; every batch must be present once with exactly its contracts.
+export function validateVitestBatches(receipts,expected,root) {
+  const list=Array.isArray(receipts)?receipts:[receipts],first=list[0];
+  const kind=first?.executionKind||'changed-evidence';
+  const contracts=selectExecutionContracts(root,executionRequiredFiles(root,first?.base,kind),{helpersOnly:kind==='registered-helpers'});
+  reconcileExecutionBatches(list,contracts,'Vitest');
+  const files=new Set(),runs=new Set();
+  for(const receipt of list) {
+    if(receipt.base!==first.base||receipt.executionKind!==first.executionKind||!receipt.runId||runs.has(receipt.runId))
+      throw new Error('Inconsistent Vitest execution batches');
+    runs.add(receipt.runId);
+    if(receipt.status==='not-applicable' && !receipt.tests.length) continue;
+    for(const file of validateVitestExecution(receipt,expected,root)) {
+      if(files.has(file)) throw new Error('Duplicate Vitest execution credit across batches');
+      files.add(file);
+    }
+  }
+  return files;
+}
+
 export function executionCoverage(files, {root,expected,pilot,execution,native,playwright,base}={}) {
   const changes=changedPaths(root,base);
   const required=pilotAffectedByPaths(!base || base==='0'.repeat(40)?null:changes);
   let proven=null;
   if (pilot?.status==='executed') proven=validatePilotExecution(pilot,expected,root);
-  const executed=['executed','incomplete'].includes(execution?.status)?validateVitestExecution(execution,expected,root):new Set();
+  const executions=Array.isArray(execution)?execution:execution?[execution]:[];
+  const executed=executions.some(item=>['executed','incomplete'].includes(item?.status))?validateVitestBatches(executions,expected,root):new Set();
   const ordinary=files.filter(file=>executionRoute(file,root)?.runner==='playwright');
   const browser=playwright ? validatePlaywrightExecution(playwright,{root,expected,requiredFiles:ordinary}):new Set();
   let nativeFiles=new Set();
   if(native) {
-    assertProvenance(native.provenance,expected);
-    if(native.base!==(base||null))throw new Error('Wrong native execution comparison base');
+    for(const receipt of Array.isArray(native)?native:[native]) {
+      assertProvenance(receipt?.provenance,expected);
+      if(receipt.base!==(base||null))throw new Error('Wrong native execution comparison base');
+    }
     const entries=sourceEntries(root);
     if(hash(JSON.stringify(entries))!==expected.snapshotSha256)throw new Error('Native source snapshot changed');
     nativeFiles=validateNativeReceipt(native,{root,provenance:expected,files,
