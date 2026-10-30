@@ -93,9 +93,7 @@ test('S1 selection validation: owner reference, reason, ids, order permutation a
   assert.throws(()=>v(plan({gates:gates()})),/gates need a valid selection/);
 });
 test('S2 identity cap scales with the selection: 2k+2 reads, so 5 cases need 12 and 11 is refused; the full run still needs 32',()=>{
-  assert.equal(core.requiredIdentityCap(5),12);assert.throws(()=>core.validateCampaignPlan(plan({selection:selection(),identityCap:11})),/minimum 12 for 5 cases/);
-  // Proof-v2 positive control (Sam 1793390819, Jensen's M11 witness): the scaled minimum is ACCEPTED, so a cap that ignores the selection is caught here.
-  assert.doesNotThrow(()=>core.validateCampaignPlan(plan({selection:selection(),identityCap:12})));assert.equal(core.requiredIdentityCap(),32);assert.throws(()=>core.validateCampaignPlan(plan({identityCap:31})),/minimum 32 for 15 cases/);
+  assert.equal(core.requiredIdentityCap(5),12);assert.doesNotThrow(()=>core.validateCampaignPlan(plan({selection:selection(),identityCap:12})));assert.throws(()=>core.validateCampaignPlan(plan({selection:selection(),identityCap:11})),/minimum 12 for 5 cases/);assert.equal(core.requiredIdentityCap(),32);assert.throws(()=>core.validateCampaignPlan(plan({identityCap:31})),/minimum 32 for 15 cases/);
 });
 test('S3 a selected run dispatches only the selected cases, in the approved order, with exactly 2k+2 identity reads; unselected cases are notSelected, not dispatched and cost nothing',async()=>{
   const x=io(),r=await core.runCampaign(gp(),x,{executeR0:true});
