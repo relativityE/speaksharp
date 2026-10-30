@@ -45,7 +45,8 @@ def tap_text(*tests, summary=True, extra=""):
             lines += ["  ---", "  failureType: 'testCodeFailure'", "  code: '%s'" % code, "  ..."]
     lines.append("1..%d" % len(tests))
     if summary:
-        lines += ["# tests %d" % len(tests), "# pass %d" % sum(t[1] == "ok" for t in tests), "# fail %d" % sum(t[1] == "fail" for t in tests)]
+        lines += ["# tests %d" % len(tests), "# pass %d" % sum(t[1] == "ok" for t in tests), "# fail %d" % sum(t[1] == "fail" for t in tests),
+                  "# cancelled 0", "# skipped %d" % sum(t[1] == "skip" for t in tests), "# todo %d" % sum(t[1] == "todo" for t in tests)]
     return "\n".join(lines) + extra + "\n"
 
 
@@ -61,13 +62,34 @@ class TapJudgement(unittest.TestCase):
         self.assertEqual(self.judged(("FO1 one", "fail", "ERR_ASSERTION"), ("FO2 two", "ok", None))["fail"], 1)
 
     def test_a_runtime_exception_inside_the_named_test_is_not_a_kill(self):
-        r = self.judged(("FO1 one", "fail", "ERR_INVALID_ARG_TYPE"), ("FO2 two", "ok", None))
+        r = self.judged(("FO1 one", "fail", "ERR_TEST_FAILURE"), ("FO2 two", "ok", None))
         self.assertEqual(r["fail"], 0)
-        self.assertIn("without an assertion", r["reason"])
+        self.assertIn("invalid companion execution", r["reason"])
+
+    def test_a_named_kill_beside_an_invalid_companion_is_not_a_kill(self):
+        # e.g. M04: F2 fails by assertion while F3 throws a runtime error -- the mutated run is not a clean mutation proof.
+        for companion in (("FO2 two", "fail", "ERR_TEST_FAILURE"), ("FO2 two", "skip", None), ("FO2 two", "todo", None)):
+            r = self.judged(("FO1 one", "fail", "ERR_ASSERTION"), companion, rc=1 if companion[1] == "fail" else 1)
+            self.assertEqual(r["fail"], 0, companion)
+            self.assertIn("invalid companion execution", r["reason"], companion)
 
     def test_a_named_todo_or_skip_is_not_a_kill(self):
         for status in ("todo", "skip"):
             self.assertEqual(self.judged(("FO1 one", status, None), ("FO2 two", "ok", None), rc=0)["fail"], 0, status)
+
+    def test_a_signal_or_unexpected_exit_is_refused_even_with_complete_tap(self):
+        complete = tap_text(("FO1 one", "fail", "ERR_ASSERTION"), ("FO2 two", "ok", None))
+        for rc in (-9, 2, 7, 0):
+            with self.assertRaises(M.TapError, msg=str(rc)):
+                M.parse_tap(complete, rc)
+        self.assertTrue(M.parse_tap(complete, 1))
+
+    def test_summary_totals_must_reconcile(self):
+        good = tap_text(("FO1 one", "ok", None), ("FO2 two", "skip", None))
+        self.assertTrue(M.parse_tap(good, 0))
+        for old, new in (("# pass 1", "# pass 2"), ("# skipped 1", "# skipped 0"), ("# todo 0", "# todo 1"), ("# cancelled 0", "# cancelled 1")):
+            with self.assertRaises(M.TapError, msg=new):
+                M.parse_tap(good.replace(old, new), 0)
 
     def test_a_failure_in_an_unnamed_test_is_not_a_kill(self):
         self.assertEqual(self.judged(("FO1 one", "ok", None), ("FO2 two", "fail", "ERR_ASSERTION"))["fail"], 0)

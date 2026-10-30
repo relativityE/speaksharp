@@ -72,6 +72,7 @@ class Build(unittest.TestCase):
             "setup error instead of the intended reason": dict(PLAN, **{first_negative: "REFUSED: ENOENT: no such file or directory"}),
             "reworded reason": dict(PLAN, **{first_negative: PLAN[first_negative] + "."}),
             "not a mapping": ["ACCEPTED"],
+            "extra label with a null value": dict(PLAN, **{"negative: invented": None}),
         }
         for label, pc in cases.items():
             doc = complete(pc=pc)

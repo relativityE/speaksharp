@@ -83,7 +83,8 @@ def build(results,conflicting,duplicated,mut,pc,manifest,stream=None):
         rows.append({'id':cid,'correction':title,'tests':tests,'mutationControls':muts,'missingControls':missing,'result':'PASS' if good else 'FAIL'})
     pc=pc if isinstance(pc,dict) else {}
     pos=[k for k in pc if k.startswith('positive')];neg=[k for k in pc if k.startswith('negative')]
-    mismatched=sorted(k for k in set(pc)|set(PLAN_CONTROLS) if pc.get(k)!=PLAN_CONTROLS.get(k))
+    # Exact key-set equality first (Sam 1793385225): an extra label whose value is null must not compare equal to an absent one.
+    mismatched=sorted((set(pc)^set(PLAN_CONTROLS))|{k for k in set(pc)&set(PLAN_CONTROLS) if pc[k]!=PLAN_CONTROLS[k]})
     plan={'positiveAccepted':sum(1 for k in pos if pc[k]=='ACCEPTED'),'positive':len(pos),'negativeRefused':sum(1 for k in neg if str(pc[k]).startswith('REFUSED')),'negative':len(neg),
           'mismatched':mismatched}
     if mismatched: refusals.append('plan controls differ from the reviewed inventory or intended outcomes: %d' % len(mismatched))

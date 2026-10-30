@@ -87,11 +87,15 @@ def parse_tap(stdout, returncode):
             continue
         if current is not None and line.startswith("  ") and re.match(r"^\s+code: 'ERR_ASSERTION'$", line):
             current["assertion"] = True
-    if not {"tests", "pass", "fail"} <= set(summary):
+    if set(summary) != {"tests", "pass", "fail", "cancelled", "skipped", "todo"}:
         raise TapError("missing or malformed summary")
-    if summary["tests"] != len(tests) or summary["fail"] != sum(t["status"] == "FAIL" for t in tests):
+    # Every total must reconcile with the parsed tests (node 22: pass = plain passes, fail = non-TODO failures, every TODO counts as todo).
+    counted = {"tests": len(tests), "pass": sum(t["status"] == "PASS" for t in tests), "fail": sum(t["status"] == "FAIL" for t in tests),
+               "skipped": sum(t["status"] == "SKIP" for t in tests), "todo": sum(t["status"] == "TODO" for t in tests), "cancelled": 0}
+    if summary != counted:
         raise TapError("summary does not match the reported tests")
-    if (summary["fail"] > 0) != (returncode != 0):
+    # node exits 0 with no failure and 1 with failures; a signal (negative status) or any other code is never a judged run.
+    if returncode != (1 if summary["fail"] else 0):
         raise TapError("process status %d disagrees with the TAP summary" % returncode)
     titles = [t["title"] for t in tests]
     if len(titles) != len(set(titles)):
@@ -111,10 +115,12 @@ def judge(baseline, mutated, kills):
         raise TapError("baseline is not a clean pass")
     if [t["title"] for t in mutated] != [t["title"] for t in baseline]:
         return {"fail": 0, "failedTests": [], "tests": len(mutated), "reason": "test inventory changed"}
-    named = [t["title"] for t in mutated if t["title"].startswith(kills) and t["status"] == "FAIL" and t["assertion"]]
-    other = [t["title"] for t in mutated if t["title"].startswith(kills) and t["status"] != "PASS" and t["title"] not in named]
-    return {"fail": len(named), "failedTests": [x[:120] for x in named][:6], "tests": len(mutated),
-            **({"reason": "named tests failed without an assertion or were skipped/todo"} if other and not named else {})}
+    # Any SKIP, TODO or non-assertion failure ANYWHERE in the mutated run makes it an invalid execution (Sam 1793385225), never a kill.
+    invalid = [t["title"] for t in mutated if t["status"] in ("SKIP", "TODO") or (t["status"] == "FAIL" and not t["assertion"])]
+    if invalid:
+        return {"fail": 0, "failedTests": [], "tests": len(mutated), "reason": "invalid companion execution: %d skipped, todo or runtime-error tests" % len(invalid)}
+    named = [t["title"] for t in mutated if t["title"].startswith(kills) and t["status"] == "FAIL"]
+    return {"fail": len(named), "failedTests": [x[:120] for x in named][:6], "tests": len(mutated)}
 
 
 def apply(root, rel, edits):
