@@ -20,6 +20,7 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -39,6 +40,10 @@ SHA1 = re.compile(r"[a-f0-9]{40}\Z")
 
 class Refused(Exception):
     """Only fixed, code-owned reasons may be printed publicly."""
+
+
+class CleanupUnproven(Refused):
+    """Collection must not overlap a possibly live owned process group."""
 
 
 def require(ok, reason):
@@ -140,6 +145,18 @@ def prepare(root, manifest_sha, env, now):
             and all(x in {f"AHT-{i:02d}" for i in range(1, 16)} for x in selected), "SELECTION_INVALID")
     release = request.get("release", {}).get("testedSha", "")
     require(SHA1.fullmatch(release) and m.get("servedSha") == release, "RELEASE_DIFFERS")
+    tested = m.get("testedCheckout") or {}
+    tested_path = Path(tested.get("path", ""))
+    require(tested_path.is_absolute() and tested_path.resolve() == tested_path,
+            "TESTED_CHECKOUT_REQUIRED")
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=tested_path, capture_output=True,
+                              text=True, check=True).stdout.strip()
+    require(git("rev-parse", "--show-toplevel") == str(tested_path)
+            and git("rev-parse", "HEAD") == release == tested.get("head")
+            and git("rev-parse", "HEAD^{tree}") == tested.get("tree")
+            and not git("status", "--porcelain", "--untracked-files=all"),
+            "TESTED_CHECKOUT_DIFFERS_OR_DIRTY")
     window = request.get("window") or {}
     require(stamp(window.get("startUtc")) <= now < stamp(window.get("endUtc")), "WINDOW_CLOSED")
     require(request.get("selectionApprovalRef") == m.get("selectionApprovalRef")
@@ -156,9 +173,12 @@ def prepare(root, manifest_sha, env, now):
             "CUMULATIVE_CONTINUITY_REQUIRED")
     if PRODUCER_CASES.intersection(selected):
         require("CT_EVIDENCE_SCOPE_FILE" in paths, "PRODUCER_SCOPE_REQUIRED")
+        socket = root / ("attempt-" + run_id) / "plan/evidence.sock"
+        require(len(os.fsencode(socket)) <= 100, "PRODUCER_SOCKET_PATH_TOO_LONG")
     if request.get("priority") == "nightly-regression":
         require("CT_APPROVAL" in paths, "RECURRING_APPROVAL_REQUIRED")
     require(not (root / "pending-reconciliation.json").exists(), "PREVIOUS_ATTEMPT_UNRECONCILED")
+    paths["CT_CHECKOUT"] = str(tested_path)
     return m, paths, request, config
 
 
@@ -188,7 +208,7 @@ def child_environment(stage, config, env, paths, out, request):
     for key in ("CT_CHROME", "CT_EXISTING_DEPENDENCY_ROOT", "CT_EXISTING_PDFJS_DIR"):
         require(bool(env.get(key)), "EXISTING_TOOLS_REQUIRED")
         result[key] = env[key]
-    result.update(paths, CT_OUT=str(out), CT_CHECKOUT=str(REPO),
+    result.update(paths, CT_OUT=str(out),
                   CT_SOURCE_SHA=request["release"]["testedSha"],
                   CT_EXECUTION_RUN_ID=request["runId"], CT_SETUP_MODE="existing-only")
     if "CT_EVIDENCE_SCOPE_FILE" in paths:
@@ -201,6 +221,62 @@ def child_environment(stage, config, env, paths, out, request):
     return result
 
 
+def group_alive(pgid):
+    # Darwin can refuse signal0 inspection after the leader exits. Read process
+    # metadata instead: never equate an EPERM, failed/empty listing or malformed
+    # row with an empty group. No process arguments or private values are read.
+    try:
+        result = subprocess.run(["/bin/ps", "-e", "-o", "pid=,pgid=,stat="],
+                                env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+                                capture_output=True, text=True, timeout=2)
+        if result.returncode != 0 or len(result.stdout) > 2097152:
+            raise ValueError()
+        rows = []
+        for line in result.stdout.splitlines():
+            values = line.split()
+            if len(values) != 3 or not values[0].isdigit() or not values[1].isdigit() \
+                    or not re.fullmatch(r"[A-Za-z+<>NsLslEWIURDTZCX?]+", values[2]):
+                raise ValueError()
+            rows.append((int(values[0]), int(values[1])))
+        if not any(pid == os.getpid() for pid, _ in rows):
+            raise ValueError()
+        return any(group == pgid for _, group in rows)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        raise CleanupUnproven("OWNED_GROUP_INSPECTION_DENIED") from None
+
+
+def wait_group_gone(pgid, seconds):
+    deadline = time.monotonic() + seconds
+    while group_alive(pgid):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.01)
+    return True
+
+
+def stop_owned_group(child, grace=5):
+    # A Bash leader exiting does not mean its Node/browser descendants exited.
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        child.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        pass
+    if not wait_group_gone(child.pid, grace):
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    try:
+        child.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        raise CleanupUnproven("OWNED_LEADER_REAP_UNPROVEN") from None
+    if not wait_group_gone(child.pid, 2):
+        raise CleanupUnproven("OWNED_GROUP_STILL_PRESENT_AFTER_KILL")
+
+
 def invoke_stage(stage, env, out, timeout):
     # Fixed executable and argument vector. No command or transport from input JSON.
     with open(out / (stage + ".log"), "xb") as log:
@@ -210,30 +286,25 @@ def invoke_stage(stage, env, out, timeout):
         previous = {}
 
         def interrupted(_signum, _frame):
-            try:
-                os.killpg(child.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(child.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                child.wait()
+            stop_owned_group(child)
             raise Refused("HOSTED_STAGE_INTERRUPTED")
 
         try:
             for signum in (signal.SIGTERM, signal.SIGINT):
                 previous[signum] = signal.signal(signum, interrupted)
-            return child.wait(timeout=timeout)
+            code = child.wait(timeout=timeout)
+            if not wait_group_gone(child.pid, 0.1):
+                stop_owned_group(child)
+                return 78  # forced descendant cleanup cannot turn a stage green
+            return code
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(child.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             child.wait()
+            if not wait_group_gone(child.pid, 2):
+                raise CleanupUnproven("OWNED_GROUP_STILL_PRESENT_AFTER_KILL")
             return 124
         finally:
             for signum, handler in previous.items():
@@ -275,6 +346,7 @@ def execute(root, manifest_sha, env=None, now=None, run_stage=None):
         stages.append("run")
         results = []
         execute_child = run_stage or invoke_stage
+        cleanup_safe = True
         try:
             for stage in stages:
                 remaining = stamp(request["window"]["endUtc"]) - now()
@@ -286,10 +358,13 @@ def execute(root, manifest_sha, env=None, now=None, run_stage=None):
                 result["exit"] = code
                 if code != 0:
                     break
+        except CleanupUnproven:
+            cleanup_safe = False
+            raise
         finally:
             # Collect on an attempted run even when it fails; never replace its exit
             # with collect's success, and never label an absent usage log as zero.
-            if any(x["stage"] == "run" for x in results):
+            if any(x["stage"] == "run" for x in results) and cleanup_safe:
                 try:
                     code = execute_child("collect", child_environment("collect", config, env, paths, out, request), out, 60)
                     results.append({"stage": "collect", "exit": code})
@@ -298,6 +373,7 @@ def execute(root, manifest_sha, env=None, now=None, run_stage=None):
             write_new(out / "entrypoint-receipt.json", {
                 "kind": "hosted-invocation-not-journey-verdict", "stages": results,
                 "inputManifestSha256": manifest_sha, "requiresReconciliation": True,
+                "collectionSuppressedForUnprovenGroupCleanup": not cleanup_safe,
                 "usage": "READ_ACTUAL_GUARD_LEDGERS_OR_UNKNOWN_NEVER_DEFAULT_ZERO",
                 "cleanup": "READ_ACTUAL_PROCESS_RECEIPTS_NOT_INFERRED_FROM_EXIT"})
         return 0 if results and results[-1]["stage"] == "collect" and all(x["exit"] == 0 for x in results) else 78

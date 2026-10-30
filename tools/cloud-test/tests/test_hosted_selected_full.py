@@ -4,7 +4,9 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -17,12 +19,25 @@ spec.loader.exec_module(h)
 
 class HostedSelectedFull(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="hosted-contract-synthetic-")
+        self.temp = tempfile.TemporaryDirectory(prefix="hct-", dir=Path("/tmp").resolve())
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         self.root.chmod(0o700)
         self.sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=h.REPO,
                                   capture_output=True, text=True, check=True).stdout.strip()
+        self.tested = self.root / "tested-source"
+        self.tested.mkdir()
+        git_env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "GIT_CONFIG_NOSYSTEM": "1"}
+        def git(*args):
+            return subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
+                                   "-c", "user.name=Synthetic", "-c", "user.email=synthetic@example.invalid",
+                                   *args], cwd=self.tested, env=git_env,
+                                  capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q")
+        (self.tested / "README").write_text("Synthetic tested checkout, not a product run.\n")
+        git("add", "README")
+        git("commit", "-qm", "Synthetic served-source fixture")
+        self.tested_sha, self.tested_tree = git("rev-parse", "HEAD"), git("rev-parse", "HEAD^{tree}")
         self.env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "GITHUB_ACTIONS": "true",
                     "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
                     "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "selected-full", "GITHUB_SHA": self.sha,
@@ -37,7 +52,7 @@ class HostedSelectedFull(unittest.TestCase):
         self.request = {"runId": "SYNTHETIC-NOT-A-RUN", "executionRuntime": "GitHub Actions SpeakSharp",
                         "sampleMode": "full", "coverageMode": "partial", "priority": "owner-test",
                         "selection": [{"case": "AHT-08"}], "selectionApprovalRef": "SYNTHETIC-NOT-AUTHORITY",
-                        "release": {"testedSha": "a" * 40},
+                        "release": {"testedSha": self.tested_sha},
                         "window": {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2026-01-01T01:00:00Z"}}
         self.now = h.stamp("2026-01-01T00:30:00Z")
         self.config = json.loads((SCRIPT.parent.parent / "config/test-config.v1.json").read_text())
@@ -45,7 +60,8 @@ class HostedSelectedFull(unittest.TestCase):
                 "CT_FACTS_FILE": {"ownerApprovalReference": "SYNTHETIC", "approvedBy": "SYNTHETIC", "reviewer": "SYNTHETIC"},
                 "CT_ACCOUNT_ID_FILE": "00000000-0000-4000-8000-000000000001\n"}
         self.manifest = {"schema": "speaksharp.hosted-selected-full.v1", "workflowSha": self.sha,
-                         "campaignId": self.request["runId"], "servedSha": "a" * 40,
+                         "campaignId": self.request["runId"], "servedSha": self.tested_sha,
+                         "testedCheckout": {"path": str(self.tested), "head": self.tested_sha, "tree": self.tested_tree},
                          "selectionApprovalRef": self.request["selectionApprovalRef"],
                          "privateDelivery": {"kind": "pre-mounted-private-store",
                                              "materializationSelectionRef": "SYNTHETIC", "durableReturnSelectionRef": "SYNTHETIC"},
@@ -99,8 +115,38 @@ class HostedSelectedFull(unittest.TestCase):
     def test_valid_full_selection_keeps_exact_private_input_paths(self):
         _, paths, request, _ = self.prepared()
         self.assertEqual(request["sampleMode"], "full")
-        self.assertEqual(set(paths), h.INPUTS | {"CT_EVIDENCE_SCOPE_FILE"})
+        self.assertEqual(set(paths), h.INPUTS | {"CT_EVIDENCE_SCOPE_FILE", "CT_CHECKOUT"})
         self.assertEqual(paths["CT_COUNTERS"], str(self.root / "CT_COUNTERS.json"))
+
+    def test_genuinely_different_workflow_and_tested_commits_bind_separately(self):
+        self.assertNotEqual(self.sha, self.tested_sha)
+        _, paths, request, config = self.prepared()
+        env = h.child_environment("build-plan", config, self.env, paths, self.root / "out", request)
+        self.assertEqual(env["GITHUB_SHA"], self.sha)
+        self.assertEqual(env["CT_SOURCE_SHA"], self.tested_sha)
+        self.assertEqual(env["CT_CHECKOUT"], str(self.tested))
+        self.assertEqual(h.REPO, SCRIPT.parents[3])
+
+    def test_wrong_dirty_or_unbound_tested_checkout_refuses(self):
+        self.manifest["testedCheckout"]["head"] = self.sha
+        with self.assertRaisesRegex(h.Refused, "TESTED_CHECKOUT_DIFFERS_OR_DIRTY"):
+            self.prepared()
+        self.manifest["testedCheckout"]["head"] = self.tested_sha
+        (self.tested / "README").write_text("unpublished change")
+        with self.assertRaisesRegex(h.Refused, "TESTED_CHECKOUT_DIFFERS_OR_DIRTY"):
+            self.prepared()
+
+    def test_broker_socket_limit_precedes_consumption(self):
+        self.request["runId"] = "X" * 100
+        self.manifest["campaignId"] = self.request["runId"]
+        self.set_input("CT_REQUEST", self.request)
+        self.refresh_continuity()
+        self.state["nextCampaignId"] = self.request["runId"]
+        self.refresh_continuity()
+        with self.assertRaisesRegex(h.Refused, "PRODUCER_SOCKET_PATH_TOO_LONG"):
+            self.execute(lambda *_: self.fail("must not start"))
+        self.assertFalse((self.root / "pending-reconciliation.json").exists())
+        self.assertFalse((self.root / ("attempt-" + self.request["runId"])).exists())
 
     def test_no_transport_or_durable_return_selection_refuses_before_child(self):
         for field in ("materializationSelectionRef", "durableReturnSelectionRef"):
@@ -315,10 +361,10 @@ class HostedSelectedFull(unittest.TestCase):
         out.mkdir()
         with mock.patch.object(h.subprocess, "Popen", return_value=child), \
                 mock.patch.object(h.signal, "signal", side_effect=register), \
-                mock.patch.object(h.os, "killpg") as kill:
+                mock.patch.object(h, "stop_owned_group") as stop:
             with self.assertRaisesRegex(h.Refused, "HOSTED_STAGE_INTERRUPTED"):
                 h.invoke_stage("run", {}, out, 1)
-            kill.assert_called_once_with(child.pid, h.signal.SIGTERM)
+            stop.assert_called_once_with(child)
             self.assertIs(handlers[h.signal.SIGTERM], sentinel)
             self.assertIs(handlers[h.signal.SIGINT], sentinel)
 
@@ -328,9 +374,97 @@ class HostedSelectedFull(unittest.TestCase):
         out = self.root / "synthetic-timeout"
         out.mkdir()
         with mock.patch.object(h.subprocess, "Popen", return_value=child), \
-                mock.patch.object(h.os, "killpg") as kill:
+                mock.patch.object(h.os, "killpg") as kill, \
+                mock.patch.object(h, "wait_group_gone", return_value=True):
             self.assertEqual(h.invoke_stage("run", {}, out, 1), 124)
             kill.assert_called_once_with(child.pid, h.signal.SIGKILL)
+
+    def test_real_term_ignoring_descendant_is_gone_after_leader_exits(self):
+        ready = self.root / "child-ready"
+        descendant = self.root / "descendant.py"
+        descendant.write_text("import os,signal,time,sys\nsignal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+                              "open(sys.argv[1],\"w\").write(str(os.getpid()))\nwhile True: time.sleep(.01)\n")
+        leader = self.root / "leader.py"
+        leader.write_text("import subprocess,sys,signal,time\n"
+                          "signal.signal(signal.SIGTERM,lambda *_:sys.exit(0))\n"
+                          "subprocess.Popen([sys.executable,sys.argv[1],sys.argv[2]])\n"
+                          "while True: time.sleep(.01)\n")
+        child = subprocess.Popen([sys.executable, str(leader), str(descendant), str(ready)],
+                                 start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 env={"PATH": os.environ["PATH"], "HOME": str(self.root)})
+        def alive():
+            rows = subprocess.run(["/bin/ps", "-e", "-o", "pid=,pgid="],
+                                  capture_output=True, text=True, check=True).stdout.splitlines()
+            return any(int(row.split()[1]) == child.pid for row in rows)
+        def cleanup():
+            if alive():
+                os.killpg(child.pid, h.signal.SIGKILL)
+            child.wait(timeout=2)
+        self.addCleanup(cleanup)
+        deadline = time.monotonic() + 3
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue(ready.exists(), "adversarial descendant really started")
+        self.assertTrue(alive(), "the real owned group is initially visible")
+        pid = int(ready.read_text())
+        real_wait, entered, handlers = child.wait, False, {}
+        def cancel_on_wait(*args, **kwargs):
+            nonlocal entered
+            if not entered:
+                entered = True
+                handlers[h.signal.SIGTERM](h.signal.SIGTERM, None)
+            return real_wait(*args, **kwargs)
+        def register(sig, callback):
+            handlers[sig] = callback
+            return h.signal.SIG_DFL
+        out = self.root / "real-cancellation"
+        out.mkdir()
+        observed_error = None
+        original_popen = subprocess.Popen
+        def launch(args, *positional, **kwargs):
+            return child if args[0] == "bash" else original_popen(args, *positional, **kwargs)
+        with mock.patch.object(h.subprocess, "Popen", side_effect=launch), \
+                mock.patch.object(h.signal, "signal", side_effect=register), \
+                mock.patch.object(child, "wait", side_effect=cancel_on_wait):
+            try:
+                h.invoke_stage("run", {}, out, 3)
+            except h.Refused as error:
+                observed_error = error
+        snapshot = subprocess.run(["ps", "-o", "pid=,ppid=,pgid=,state=", "-g", str(child.pid)],
+                                  capture_output=True, text=True)
+        self.assertEqual(str(observed_error), "HOSTED_STAGE_INTERRUPTED", snapshot.stdout)
+        self.assertEqual(child.returncode, 0, "the leader really exited on TERM")
+        self.assertFalse(alive(), "no TERM-ignoring descendant survives before collection")
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def test_group_absence_requires_complete_successful_process_metadata(self):
+        own = os.getpid()
+        cases = [(1, ""), (0, ""), (0, "malformed"), (0, "9999 9999 S\n"),
+                 (0, f"{own} 20 S\nTRUNCATED")]
+        for code, text in cases:
+            with self.subTest(code=code, text=text), \
+                    mock.patch.object(h.subprocess, "run", return_value=mock.Mock(returncode=code, stdout=text)):
+                with self.assertRaises(h.CleanupUnproven):
+                    h.group_alive(123456)
+        with mock.patch.object(h.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=f"{own} 20 S\n123 123456 S\n")):
+            self.assertTrue(h.group_alive(123456))
+        with mock.patch.object(h.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=f"{own} 20 S\n")):
+            self.assertFalse(h.group_alive(123456))
+
+    def test_unproven_group_cleanup_prevents_collection_and_retains_pending(self):
+        calls = []
+        def child(stage, *_):
+            calls.append(stage)
+            if stage == "run":
+                raise h.CleanupUnproven("OWNED_GROUP_CLEANUP_UNPROVEN")
+            return 0
+        with self.assertRaises(h.CleanupUnproven):
+            self.execute(child)
+        self.assertNotIn("collect", calls)
+        receipt = json.loads((self.root / ("attempt-" + self.request["runId"]) / "entrypoint-receipt.json").read_text())
+        self.assertTrue(receipt["collectionSuppressedForUnprovenGroupCleanup"])
+        self.assertTrue((self.root / "pending-reconciliation.json").exists())
 
 
 if __name__ == "__main__":
