@@ -9,7 +9,7 @@ const ui=require(path.join(root,'browser-actions.cjs')),readback=require(path.jo
 const observer=require(path.join(root,'browser-observers.cjs')),presentation=require(path.join(root,'presentation-controls.cjs'));
 const focusControls=require(path.join(root,'focus-controls.cjs'));
 const manifest=require(path.join(root,'oracles/pure/fixture-manifest.json')).fixtures;
-async function execute(caseId,{staleOwner=false,coaching502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false}={}){
+async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false}={}){
  const fixtureName=caseId==='AHT-01'?'open_mic_tts':caseId==='AHT-02'?'focus_points_tts':'focus_points_partial_tts';
  const fixture=manifest[fixtureName],contract=adapters.CONTRACTS[caseId],seen=[],writes=[],recorded=[];
  const c={caseId,campaignId:'UNIT-ONLY',sourceSha:adapters.SOURCE_SHA,servedSha:adapters.SOURCE_SHA,targetUrl:'https://unit.invalid',requiredAssertions:contract.rows,
@@ -26,8 +26,8 @@ async function execute(caseId,{staleOwner=false,coaching502=false,unknownCapture
   getByText:()=>({first(){return this;},isVisible:async()=>false}),
   getByTestId:id=>({getAttribute:async()=>id.startsWith('focus-point-')?(falseFullFocus?'covered':c.focus.expectedFinal[Number(id.slice(12))]):'ready'})});
  patch(ui,'login',async()=>true);patch(ui,'openMic',async()=>{});patch(ui,'products',async()=>{});patch(ui,'setupFocus',async()=>{});
- patch(ui,'start',async()=>seen.push('start'));patch(ui,'stop',async()=>{seen.push('stop');if(coaching502){const request={url:()=>c.readback.origin+'/functions/v1/get-ai-suggestions',method:()=> 'POST',postDataJSON:()=>({sessionId:'take-A',client_attempt:1}),timing:()=>({responseEnd:40})};page.emit('request',request);page.emit('response',{request:()=>request,status:()=>502,headers:()=>({'content-type':'application/json'}),text:async()=>JSON.stringify({error:'AI coaching could not be generated. Please try again.',reason:'provider_timeout'})});}});patch(ui,'saved',async()=>{saved=true;return 'take-A';});
- patch(ui,'reopen',async()=>{seen.push('reopen');return{before:'d'.repeat(64),after:(wrongReopen?'e':'d').repeat(64)};});
+ let delayedResponse=null;patch(ui,'start',async()=>seen.push('start'));patch(ui,'stop',async()=>{seen.push('stop');if(coaching502){const request={url:()=>c.readback.origin+'/functions/v1/get-ai-suggestions',method:()=> 'POST',postDataJSON:()=>({sessionId:'take-A',client_attempt:1}),timing:()=>({responseEnd:40})};page.emit('request',request);const response=()=>page.emit('response',{request:()=>request,status:()=>502,headers:()=>({'content-type':'application/json'}),text:async()=>JSON.stringify({error:'AI coaching could not be generated. Please try again.',reason:'provider_timeout'})});if(late502)delayedResponse=response;else response();}});patch(ui,'saved',async()=>{saved=true;return 'take-A';});
+ patch(ui,'reopen',async()=>{seen.push('reopen');delayedResponse?.();return{before:'d'.repeat(64),after:(wrongReopen?'e':'d').repeat(64)};});
  patch(observer,'install',async()=>{});patch(observer,'mic',async()=>({acquisitions:0,liveTracks:0,recording:false,recorderVisible:false}));
  patch(readback,'sessions',async()=>[...(staleOwner?Array.from({length:24},(_,i)=>({id:'old-'+i,status:'completed'})):[]),...(saved?[{id:wrongSavedTake?'take-B':'take-A',status:'completed',hasIdempotencyKey:true,transcriptState:'available',transcriptLength:20,transcriptSha256:'d'.repeat(64)}]:[])]);
  for(const method of ['openMicReview','beforeFocus','afterFocus'])patch(presentation,method,async()=>[]);
@@ -52,6 +52,9 @@ test('coaching502 remains one explicit FAIL while saved/reopened/PDF observation
  const grounded=f.recorded.filter(r=>r.id==='grounded-coaching');assert.equal(grounded.length,1);assert.equal(grounded[0].result,'FAIL');
  const recovery=f.writes.find(x=>x.kind==='coaching-recovery-record');assert.equal(recovery.verified,false);assert.deepEqual(recovery.failedRoles,['first']);
  assert.ok(JSON.stringify(f.writes).includes('code-provider_timeout'));
+});
+test('a correlated502 arriving during reopen cannot be hidden by an earlier capture NOT RUN',async()=>{
+ const f=await execute('AHT-01',{coaching502:true,late502:true});assert.equal(f.recorded.find(r=>r.id==='saved-once')?.result,'PASS');assert.equal(f.recorded.find(r=>r.id==='review-reopen')?.result,'PASS');const grounded=f.recorded.filter(r=>r.id==='grounded-coaching');assert.equal(grounded.length,1);assert.equal(grounded[0].result,'FAIL');
 });
 test('unknown capture failure stays FAIL; no arbitrary message escapes',async()=>{
  const f=await execute('AHT-01',{unknownCaptureError:true});assert.equal(f.recorded.find(r=>r.id==='grounded-coaching')?.result,'FAIL');
