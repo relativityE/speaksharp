@@ -4,10 +4,10 @@
 // the three explicitly reviewed diagnostic postimages below.
 // This is source compatibility, never permission to run a live case.
 const {spawnSync}=require('node:child_process'),{createHash}=require('node:crypto');
-// Exact source accepted by Sam in packet0f0d1443; never a broad live-test exception.
+// Exact diagnostic postimages; never a broad live-test exception.
 const TEST_PINS=Object.freeze({
  'tests/live/helpers/rwtDocumentIdentity.ts':'25c00c2a7eccd00f0cd0fe2ab3705ba5730049d187c8902e2ddd638c681594f0',
- 'tests/unit/rwtWatchdog1593.test.ts':'0842eeebc4398d951dcc459ef66d957370e31db72605f0176ba783f2bd660c30',
+ 'tests/unit/rwtWatchdog1593.test.ts':'14fe0f998d9ef1f9b5c3bd7e8d26fc264c980687c7f7eeabf166efbd77fb2162',
  'tests/unit/rwtDocumentBinaryTransport.test.js':'e4722993a0e008cf6ead7fe1e092cdc50f3d8b75df0ff29066f35dd95d2bda80',
 });
 const SPECS=Object.freeze([

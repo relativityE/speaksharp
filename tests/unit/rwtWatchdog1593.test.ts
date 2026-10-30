@@ -1038,7 +1038,7 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
     class FakeCdp extends EventEmitter {
         pausedBody: (requestId: string) => Promise<unknown> = () => Promise.reject(new Error('no body'));
         continuation: () => Promise<unknown> = async () => ({});
-        async send(method: string, params?: { requestId?: string }): Promise<unknown> {
+        async send(method: string): Promise<unknown> {
             if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main', loaderId: 'L0' } } };
             if (method === 'Fetch.continueRequest') return this.continuation();
             return {};
