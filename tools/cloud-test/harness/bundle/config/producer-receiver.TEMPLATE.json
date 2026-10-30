@@ -1,0 +1,48 @@
+{
+  "_status": "UNBOUND EXISTING PRODUCER CAPABILITY. No future artifact hash required. No new signer, secrets or accounts authorized.",
+  "privateEvidenceProducers": {
+    "coaching-authority": {
+      "scope": "existing-authenticated-producer-receiving-capability",
+      "producerIdentity": null,
+      "producerCodeSha256": null,
+      "receiverSourceSha256": null,
+      "reviewReference": null,
+      "deliveryKind": "reviewed-authenticated-workflow-artifact",
+      "allowedObservationInputs": [
+        "startedAt",
+        "sessionIds"
+      ]
+    },
+    "feedback-received": {
+      "scope": "existing-authenticated-producer-receiving-capability",
+      "producerIdentity": null,
+      "producerCodeSha256": null,
+      "receiverSourceSha256": null,
+      "reviewReference": null,
+      "deliveryKind": "authenticated-connector-artifact",
+      "allowedObservationInputs": [
+        "startedAt",
+        "journeyId",
+        "bootId"
+      ]
+    },
+    "feedback-association": {
+      "scope": "existing-authenticated-producer-receiving-capability",
+      "producerIdentity": null,
+      "producerCodeSha256": null,
+      "receiverSourceSha256": null,
+      "reviewReference": null,
+      "deliveryKind": "reviewed-authenticated-workflow-artifact",
+      "allowedObservationInputs": [
+        "startedAt",
+        "idempotencyKey"
+      ]
+    }
+  },
+  "producerReceiverFile": null,
+  "_projectionModules": {
+    "producer": "bundle/harness/existing-runner-projection.cjs",
+    "receiverFactory": "bundle/harness/existing-runner-receiver.cjs",
+    "status": "SOURCE INTERFACES ONLY. Existing authenticated current-case invocation/delivery still unbound. Do not run four-cell collector as all15 producer or copy service-role into Claude."
+  }
+}

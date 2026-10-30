@@ -1,0 +1,127 @@
+{
+  "schema": "speaksharp.cloud-test.run-request.v2",
+  "runId": "R6-aht12-prove-1744",
+  "proposal": true,
+  "coverageMode": "partial",
+  "sampleMode": "minimal",
+  "workflowVersion": "1.5.0",
+  "configVersion": "1.4.0",
+  "createdUtc": "2026-10-28T22:00:00Z",
+  "purpose": "Prove the deployed #1744 fix (blocked-microphone guidance) on the release R5 already tested: R5 had no capture device, so the microphone-denial path was never observed. One case, AHT-12, with the capture device bound. No other case runs.",
+  "priority": "prove-deployed-fix",
+  "targetedGaps": [
+    "GAP-03"
+  ],
+  "notTargeted": [
+    {
+      "gap": "GAP-01",
+      "why": "coaching 502: wait for server-side evidence for the failing request; no new coaching take is requested"
+    },
+    {
+      "gap": "GAP-02",
+      "why": "needs AHT-03 and a Focus reading; a separate request after this one reports"
+    },
+    {
+      "gap": "GAP-04",
+      "why": "the 403 recurred in R5 on a release that contains the candidate #1743; no established fix to prove"
+    },
+    {
+      "gap": "GAP-05",
+      "why": "no fix identified"
+    },
+    {
+      "gap": "GAP-06",
+      "why": "AHT-04, 13 and 14 are a separate, larger request (needs a ceiling increase) after AHT-12 proves the capture device and denial stimulus"
+    }
+  ],
+  "selection": [
+    {
+      "order": 1,
+      "case": "AHT-12",
+      "gaps": [
+        "GAP-03"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 96,
+      "gate": null,
+      "reason": "the microphone-denial path with the capture device bound; measured 96 requests in both R4C and R5"
+    }
+  ],
+  "estimate": {
+    "requests": {
+      "planned": 96,
+      "cleanupReserve": 50,
+      "pooledSlack": 34,
+      "runCap": 180
+    },
+    "identityReads": 4,
+    "starts": 1,
+    "takes": 0,
+    "paidActionsAuthorizedUsd": 0,
+    "providerBillableRequests": {
+      "coachingCap": 0,
+      "basis": "AHT-12 saves no take in minimal mode and requests no coaching; the guard coaching category cap is set to 0, so a coaching request is denied, not billed"
+    },
+    "githubRunnerMinutesMax": 30
+  },
+  "proposedLimits": {
+    "cumulativeCeilingRequests": 6700,
+    "identityCap": 98,
+    "runCapRequests": 180,
+    "paidActionsUsd": 0,
+    "guardCaps": {
+      "coaching": 0
+    }
+  },
+  "approvedLimits": {
+    "cumulativeCeilingRequests": null,
+    "identityCap": null,
+    "runCapRequests": null,
+    "approvalRef": null,
+    "approvedBy": null
+  },
+  "window": {
+    "startUtc": null,
+    "endUtc": null,
+    "approvalRef": null
+  },
+  "release": {
+    "testedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "lastRunTestedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "backend": {
+      "sha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "source": "owner-stated",
+      "verifiedAtUtc": null,
+      "evidenceRef": null
+    }
+  },
+  "harness": {
+    "codeManifestSha256": "48f7bf47d82c1f78ed5734a9ccd04657d0f486ba00a3643ad81e7f2e90e63760",
+    "packetManifestSha256": "446de615cc22abccd3a658147ac3496533de6f28c17cbcb608644e25e4369cef",
+    "ownerApprovalRef": null,
+    "offlineProofFile": "config/proofs/offline-proof-7dae348f.json"
+  },
+  "priorRuns": [
+    {
+      "label": "R4C",
+      "bindingFile": "config/history/binding-R4C.json"
+    },
+    {
+      "label": "R5",
+      "bindingFile": "config/history/binding-R5.json"
+    }
+  ],
+  "selectionApprovalRef": null,
+  "ownerInputs": {
+    "prDocsCloseout": {
+      "status": "open",
+      "evidence": null,
+      "note": "SYNTHETIC open closeout used by negative controls; not current project status"
+    }
+  },
+  "deviations": [],
+  "cleanupConditions": "every owned page, process and fixture closed and verified; guard ledgers reconciled; no marked orphan",
+  "synthetic": true,
+  "fixtureScope": "Offline validator scenario only; NO LIVE AUTHORITY; not an actual historical run request"
+}

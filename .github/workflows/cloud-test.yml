@@ -43,6 +43,11 @@ jobs:
     name: Offline checks, gates, comparison and report (no secrets, no product traffic)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # PO 2026-10-30: no retained evidence is supplied to GitHub. The package's no-history mode reports the evidence-bound
+      # checks and tests NOT APPLICABLE (never passed); every other check gates. The history-bound pipeline steps below are
+      # skipped in this mode. "required" restores them and needs the sealed history in the checkout.
+      CT_HISTORY: none
     steps:
       - uses: actions/checkout@v6
         with:
@@ -92,16 +97,36 @@ jobs:
           echo "CT_CHROME=$CT_CHROME" >> "$GITHUB_ENV"
       - name: Verify the vendored reviewed harness against the approved hashes
         run: python3 -I tools/cloud-test/scripts/verify_harness.py --config tools/cloud-test/config/test-config.v1.json
+      # PO 2026-10-30 (option A): ubuntu-24.04 blocks unprivileged user namespaces through AppArmor, so the package's strict
+      # no-route clean-room proof (unshare -rn) cannot run. Re-enable them on this ephemeral runner only, then prove it works.
+      - name: Allow the clean-room network namespace on this ephemeral runner
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -rn true
+      # Proof v2: the offline proof is generated HERE from the vendored harness, the pinned Chrome and the tracked fixtures, so its TAP,
+      # mutation and plan-control inputs have same-job provenance and need no retained history. TAP, plans and the proof stay on the runner.
+      - name: Generate the offline proof in this job (pinned harness and Chrome)
+        working-directory: tools/cloud-test
+        run: python3 -I scripts/generate_offline_proof.py --work "$RUNNER_TEMP/proof" --proof-out "$RUNNER_TEMP/offline-proof.json"
       - name: Offline checks (package tests, report tests, workflow policy, integration proof on loopback)
         working-directory: tools/cloud-test
         env:
           CT_REQUIRE_INTEGRATION: '1'
           # The policy tests otherwise read the package's preserved fixture; they must judge this workflow.
           CLOUD_TEST_YML: ${{ github.workspace }}/.github/workflows/cloud-test.yml
+          CT_PROOF_FILE: ${{ runner.temp }}/offline-proof.json
         run: python3 -I scripts/run_offline_checks.py --out "$RUNNER_TEMP/offline-checks.json"
+      # Minimal exposure (PO 2026-10-30): this repository is public, so only check names and pass/fail counts leave the
+      # runner. The full results, including captured stdout/stderr, stay on the runner and are discarded with it.
+      - name: Reduce the offline results to check names and counts
+        if: always()
+        # Exact inventory, legal applicability and fail-closed handling live in the package and are unit-tested there
+        # (tests/test_offline_summary.py); a missing, malformed or inconsistent result fails this step.
+        run: python3 -I tools/cloud-test/scripts/summarize_offline_checks.py --in "$RUNNER_TEMP/offline-checks.json" --out "$RUNNER_TEMP/offline-checks-summary.json"
       - name: Record job end (usage account)
         run: python3 -I tools/cloud-test/scripts/record_timing.py end --job control-plane --dir "$RUNNER_TEMP/timings"
       - name: Control-plane pipeline (secret-free; stops if a credential-like variable is present)
+        if: env.CT_HISTORY != 'none'
         working-directory: tools/cloud-test
         env:
           RUN_REQUEST: ${{ inputs.run_request }}
@@ -113,6 +138,7 @@ jobs:
           if [ "$MODE" = "report" ]; then ARGS+=(--latest-label "$LATEST_LABEL"); fi
           python3 -I scripts/pipeline.py "${ARGS[@]}"
       - name: Assert the attestation (secret-free, no network attempts, no product host)
+        if: env.CT_HISTORY != 'none'
         run: |
           python3 -I - <<'PY'
           import json, os, sys
@@ -127,12 +153,8 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: cloud-test-control-plane
-          path: |
-            ${{ runner.temp }}/control-plane/report/**
-            ${{ runner.temp }}/control-plane/*.json
-            ${{ runner.temp }}/control-plane/*.md
-            ${{ runner.temp }}/offline-checks.json
-            ${{ runner.temp }}/cloud-browser-identity.json
-            ${{ runner.temp }}/timings/**
+          # Minimal exposure (PO 2026-10-30, Sam RETURN 1793371883): names, statuses and counts only. Browser identity, the
+          # attestation and timings stay on the runner.
+          path: ${{ runner.temp }}/offline-checks-summary.json
           retention-days: 14
           if-no-files-found: error

@@ -1,0 +1,12 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "kind": "authoritative-claude-task-environment-receipt",
+  "platformUrl": "https://claude.ai/code",
+  "environmentSelector": "SpeakSharp R4",
+  "runtime": "Claude SpeakSharp R4",
+  "taskId": null,
+  "sourceReference": null,
+  "observedAt": null,
+  "immutableEnvironmentId": null,
+  "_observedAtRule": "Actual selection observation after approvedStartAt and before admission. A user-written label is not independent environment proof."
+}

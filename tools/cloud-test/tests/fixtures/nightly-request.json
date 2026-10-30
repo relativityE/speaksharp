@@ -1,0 +1,291 @@
+{
+  "schema": "speaksharp.cloud-test.run-request.v2",
+  "runId": "R8-nightly-regression",
+  "proposal": true,
+  "workflowVersion": "1.5.0",
+  "configVersion": "1.4.0",
+  "createdUtc": "2026-10-28T22:00:00Z",
+  "purpose": "Ordinary nightly regression of the deployed product for a paid user: all 15 journeys and every required assertion on the version that is live, independent of any known bug, compared with the previous run and the last known good run.",
+  "priority": "nightly-regression",
+  "targetedGaps": [
+    "GAP-01",
+    "GAP-02",
+    "GAP-03",
+    "GAP-04",
+    "GAP-05",
+    "GAP-06"
+  ],
+  "notTargeted": [],
+  "selection": [
+    {
+      "order": 1,
+      "case": "AHT-01",
+      "gaps": [
+        "GAP-01"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 340,
+      "gate": null,
+      "reason": "full coverage: 20 required rows; closes GAP-01"
+    },
+    {
+      "order": 2,
+      "case": "AHT-02",
+      "gaps": [
+        "GAP-02"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 260,
+      "gate": null,
+      "reason": "full coverage: 33 required rows; closes GAP-02"
+    },
+    {
+      "order": 3,
+      "case": "AHT-03",
+      "gaps": [
+        "GAP-02"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 230,
+      "gate": null,
+      "reason": "full coverage: 29 required rows; closes GAP-02"
+    },
+    {
+      "order": 4,
+      "case": "AHT-04",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 160,
+      "gate": null,
+      "reason": "full coverage: 9 required rows; closes GAP-06"
+    },
+    {
+      "order": 5,
+      "case": "AHT-05",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 320,
+      "gate": null,
+      "reason": "full coverage: 10 required rows"
+    },
+    {
+      "order": 6,
+      "case": "AHT-06",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 310,
+      "gate": null,
+      "reason": "full coverage: 10 required rows"
+    },
+    {
+      "order": 7,
+      "case": "AHT-07",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 360,
+      "gate": null,
+      "reason": "full coverage: 15 required rows"
+    },
+    {
+      "order": 8,
+      "case": "AHT-08",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": false,
+      "plannedRequests": 110,
+      "gate": null,
+      "reason": "full coverage: 9 required rows"
+    },
+    {
+      "order": 9,
+      "case": "AHT-09",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 260,
+      "gate": null,
+      "reason": "full coverage: 12 required rows"
+    },
+    {
+      "order": 10,
+      "case": "AHT-10",
+      "gaps": [
+        "GAP-05"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 190,
+      "gate": null,
+      "reason": "full coverage: 10 required rows; closes GAP-05"
+    },
+    {
+      "order": 11,
+      "case": "AHT-11",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 330,
+      "gate": null,
+      "reason": "full coverage: 9 required rows"
+    },
+    {
+      "order": 12,
+      "case": "AHT-12",
+      "gaps": [
+        "GAP-03"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 120,
+      "gate": null,
+      "reason": "full coverage: 8 required rows; closes GAP-03"
+    },
+    {
+      "order": 13,
+      "case": "AHT-13",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 130,
+      "gate": null,
+      "reason": "full coverage: 8 required rows; closes GAP-06"
+    },
+    {
+      "order": 14,
+      "case": "AHT-14",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 360,
+      "gate": null,
+      "reason": "full coverage: 8 required rows; closes GAP-06"
+    },
+    {
+      "order": 15,
+      "case": "AHT-15",
+      "gaps": [
+        "GAP-04"
+      ],
+      "role": "target",
+      "needsCaptureDevice": false,
+      "plannedRequests": 130,
+      "gate": null,
+      "reason": "full coverage: 14 required rows; closes GAP-04"
+    }
+  ],
+  "estimate": {
+    "requests": {
+      "planned": 3610,
+      "cleanupReserve": 150,
+      "pooledSlack": 550,
+      "runCap": 4310
+    },
+    "identityReads": 32,
+    "starts": 40,
+    "takes": 31,
+    "paidActionsAuthorizedUsd": 0,
+    "providerBillableRequests": {
+      "coachingCap": 40,
+      "basis": "31 takes x 125% retry allowance, rounded up to 10; the guard denies a coaching request beyond the cap"
+    },
+    "window": {
+      "expectedMinutes": 111,
+      "worstCaseMinutes": 294,
+      "proposedMinutes": 300
+    },
+    "githubRunnerMinutesMax": 30
+  },
+  "proposedLimits": {
+    "cumulativeCeilingRequests": 10535,
+    "ceilingIncreaseJustification": "A full-coverage run cannot execute every required row inside the current ceiling: 5529 used + 4310 run cap + 664 protected reserve + 32 identity reads = 10535. The earlier 8,795 figure assumed R4C's measured 2,520 requests, but R4C executed only 104 of 204 rows.",
+    "identityCap": 126,
+    "identityIncreaseJustification": "2 reads per journey plus admission and final for 15 journeys = 32; 94 already used against a cap of 98.",
+    "startsCap": 85,
+    "startsIncreaseJustification": "SYNTHETIC proposal only: the received full contract requires 40 Starts; this does not approve or increase any operational cap.",
+    "takesCap": 55,
+    "takesIncreaseJustification": "The harness contract requires at least 31 authorized takes to reach every row; 24 already used against a cap of 50.",
+    "runCapRequests": 4310,
+    "paidActionsUsd": 0,
+    "guardCaps": {
+      "coaching": 40
+    }
+  },
+  "approvedLimits": {
+    "cumulativeCeilingRequests": null,
+    "identityCap": null,
+    "startsCap": null,
+    "takesCap": null,
+    "runCapRequests": null,
+    "approvalRef": null,
+    "approvedBy": null
+  },
+  "window": {
+    "startUtc": null,
+    "endUtc": null,
+    "approvalRef": null
+  },
+  "release": {
+    "testedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "lastRunTestedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "backend": {
+      "sha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "source": "owner-stated",
+      "verifiedAtUtc": null,
+      "evidenceRef": null
+    }
+  },
+  "harness": {
+    "codeManifestSha256": "48f7bf47d82c1f78ed5734a9ccd04657d0f486ba00a3643ad81e7f2e90e63760",
+    "packetManifestSha256": "446de615cc22abccd3a658147ac3496533de6f28c17cbcb608644e25e4369cef",
+    "ownerApprovalRef": null,
+    "offlineProofFile": "config/proofs/offline-proof-7dae348f.json"
+  },
+  "priorRuns": [
+    {
+      "label": "R4C",
+      "bindingFile": "config/history/binding-R4C.json"
+    },
+    {
+      "label": "R5",
+      "bindingFile": "config/history/binding-R5.json"
+    }
+  ],
+  "selectionApprovalRef": null,
+  "ownerInputs": {
+    "prDocsCloseout": {
+      "status": "open",
+      "evidence": null,
+      "note": "SYNTHETIC open closeout used by negative controls; not current project status"
+    },
+    "recurringApproval": {
+      "status": "open",
+      "note": "the owner's standing approval of recurring cost (config/recurring-approval.json) is not given; no schedule exists"
+    }
+  },
+  "deviations": [],
+  "cleanupConditions": "every owned page, process and fixture closed and verified; guard ledgers reconciled; no marked orphan",
+  "coverageMode": "full",
+  "sampleMode": "full",
+  "approvedOmissions": [],
+  "nightly": {
+    "cadence": "nightly",
+    "scheduleInstalled": false,
+    "standingApprovalRef": null,
+    "accountIdSha256": null
+  },
+  "synthetic": true,
+  "fixtureScope": "Offline validator scenario only; NO LIVE AUTHORITY; not an actual historical run request"
+}
