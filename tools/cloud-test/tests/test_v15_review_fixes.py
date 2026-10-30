@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-from _fixtures import ROOT, J, run_py, sample, wjson
+from _fixtures import ROOT, J, run_py, sample, wjson, needs_history
 from _nightly import CATALOG, SHA, history, make_run, request, utc
 BROKEN = ("AHT-07", CATALOG["cases"]["AHT-07"]["requiredAssertions"][1])
 import check_gates as CG
@@ -871,6 +871,7 @@ class ConcernObservations(unittest.TestCase):
             self.assertIn(needle, html, needle)
         self.assertNotIn(SENTINEL, html)
 
+    @needs_history
     def test_the_real_sealed_runs_are_observed_the_same_way(self):
         cfg = J("config", "test-config.v1.json")
         root = os.path.join(ROOT, "config", "history", "receipts")
