@@ -68,7 +68,7 @@ describe('EngineFactory', () => {
             await EngineFactory.create('private', explicit, PROD_FREE_POLICY);
             expect(privateWhisperMock).toHaveBeenCalledWith(explicit);
             await EngineFactory.create('private', mockConfig, PROD_FREE_POLICY);
-            expect(privateWhisperMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('forceEngine');
+            expect(privateWhisperMock.mock.calls[privateWhisperMock.mock.calls.length - 1]?.[0]).not.toHaveProperty('forceEngine');
         });
 
 
