@@ -21,11 +21,14 @@ HISTORY_MODE = os.environ.get("CT_HISTORY", "required")
 if HISTORY_MODE not in ("required", "none"):
     raise SystemExit("CT_HISTORY must be 'required' or 'none', not %r" % HISTORY_MODE)
 NO_HISTORY_REASON = "NOT APPLICABLE: owner decision 2026-10-30, no retained history supplied (CT_HISTORY=none)"
+# PO 2026-10-30 ("rip the bandaid"): CT_RUN_HISTORY_TESTS=1 runs the history-reading tests anyway, without the history, so
+# their real failures are visible. The offline checks' history-bound N/A results are unaffected.
+SKIP_HISTORY = HISTORY_MODE == "none" and os.environ.get("CT_RUN_HISTORY_TESTS") != "1"
 
 
 def needs_history(obj):
     """Skip a test or test class that reads the real retained history when CT_HISTORY=none; never otherwise."""
-    return unittest.skipIf(HISTORY_MODE == "none", NO_HISTORY_REASON)(obj)
+    return unittest.skipIf(SKIP_HISTORY, NO_HISTORY_REASON)(obj)
 NOW = "2026-10-28T22:00:00Z"
 TESTED = "4c85b006ac05e180521fd6e7d807f736987cafe8"
 REQUEST_FIXTURES = {

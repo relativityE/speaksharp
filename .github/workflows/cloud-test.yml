@@ -103,6 +103,8 @@ jobs:
           CT_REQUIRE_INTEGRATION: '1'
           # The policy tests otherwise read the package's preserved fixture; they must judge this workflow.
           CLOUD_TEST_YML: ${{ github.workspace }}/.github/workflows/cloud-test.yml
+          # Diagnostic (PO 2026-10-30, "rip the bandaid"): run the history-reading tests without history; nothing is skipped.
+          CT_RUN_HISTORY_TESTS: '1'
         run: python3 -I scripts/run_offline_checks.py --out "$RUNNER_TEMP/offline-checks.json"
       # Minimal exposure (PO 2026-10-30): this repository is public, so only check names and pass/fail counts leave the
       # runner. The full results, including captured stdout/stderr, stay on the runner and are discarded with it.

@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from _fixtures import HISTORY_MODE, NO_HISTORY_REASON, NOW, needs_history, REPO, ROOT, TESTED, prerequisite, request_path, run_py, sample, wjson
+from _fixtures import SKIP_HISTORY, NO_HISTORY_REASON, NOW, needs_history, REPO, ROOT, TESTED, prerequisite, request_path, run_py, sample, wjson
 import derive_summary as DS
 import workflow_report as W
 
@@ -28,7 +28,7 @@ class Pipeline(unittest.TestCase):
         prerequisite(os.system("git -C %s cat-file -e %s 2>/dev/null" % (REPO, TESTED)) == 0, "git history of the repository")
         # A complete pipeline run reads the retained receipts, history index and owner counters. With CT_HISTORY=none only
         # the tests that judge that run are skipped; the refusal and guard controls below need no history and still run.
-        if HISTORY_MODE == "none":
+        if SKIP_HISTORY:
             cls.r = cls.out = cls.rep = None
             return
         cls.r, cls.out = pipeline(["--require-secret-free"])
@@ -107,7 +107,7 @@ class ReportRefusals(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Needs a complete pipeline report (retained history); also reached from SummaryRules and the v14/v15 refusal tests.
-        if HISTORY_MODE == "none":
+        if SKIP_HISTORY:
             raise unittest.SkipTest(NO_HISTORY_REASON)
         prerequisite(os.system("git -C %s cat-file -e %s 2>/dev/null" % (REPO, TESTED)) == 0, "git history of the repository")
         r, out = pipeline()
