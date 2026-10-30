@@ -173,6 +173,38 @@ describe('per-run stack status from retained evidence, without probes', () => {
     }
   });
 
+  it.each([
+    ['February 30', '2026-02-30T22:55:00Z'],
+    ['February 29 in a common year', '2026-02-29T22:55:00Z'],
+    ['April 31', '2026-04-31T22:55:00Z'],
+    ['hour 24', '2026-10-29T24:00:00Z'],
+    ['minute 60', '2026-10-29T22:60:00Z'],
+    ['second 60', '2026-10-29T22:55:60Z'],
+    ['month 13', '2026-13-01T22:55:00Z'],
+  ])('rejects a normalizable impossible calendar checkedAt (%s)', async (_, checkedAt) => {
+    const f = await fixture();
+    await f.receipt('sentry-api', 'ops-health', ops('pass', checkedAt));
+    expect(await f.component('sentry-api')).toMatchObject({ status: 'BLOCKED', reason: 'INVALID_OPERATION_TIMESTAMP' });
+  });
+
+  it('round-trips a valid leap day with 1-3 digit fractions, and refuses an impossible clock', async () => {
+    for (const [checkedAt, now] of [
+      ['2028-02-29T12:00:00Z', '2028-02-29T12:05:00Z'],
+      ['2028-02-29T12:00:00.5Z', '2028-02-29T12:05:00.5Z'],
+      ['2028-02-29T12:00:00.123Z', '2028-02-29T12:05:00.12Z'],
+    ]) {
+      const f = await fixture();
+      await f.receipt('sentry-api', 'ops-health', ops('pass', checkedAt), { observedUtc: checkedAt });
+      const report = await collectStackStatus(f.profile, { root: f.root, now });
+      expect(report.observedUtc).toBe(now);
+      expect(report.components.find((c) => c.component === 'sentry-api'))
+        .toMatchObject({ status: 'PASS', observedUtc: checkedAt, reason: null });
+    }
+    const f = await fixture();
+    const refused = await collectStackStatus(f.profile, { root: f.root, now: '2026-02-30T12:00:00Z' });
+    expect(refused).toMatchObject({ status: 'BLOCKED', reason: 'INVALID_PROFILE', observedUtc: null });
+  });
+
   it('keeps future and stale row controls distinct from a valid row', async () => {
     for (const [checkedAt, expected] of [
       ['2026-10-29T23:01:00Z', { status: 'BLOCKED', reason: 'STALE_RECEIPT' }],

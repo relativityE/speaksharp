@@ -14,7 +14,7 @@ const SHA = /^[a-f0-9]{40}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 const ID = /^[a-zA-Z0-9_-]{1,100}$/;
 const CASE = /^AHT-(?:0[1-9]|1[0-5])$/;
-const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+const UTC = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?Z$/;
 const EXCLUSIONS = ['NO_RECORDING_IN_PROFILE', 'NO_COACHING_IN_PROFILE', 'NO_FEEDBACK_IN_PROFILE'];
 const EXCLUDABLE = {
   'mic-and-stt-acquisition': 'NO_RECORDING_IN_PROFILE',
@@ -26,7 +26,15 @@ const MAX_BYTES = 1024 * 1024;
 const matches = (pattern, value) => typeof value === 'string' && pattern.test(value);
 const validAttemptIds = (ids) => Array.isArray(ids) && ids.length > 0
   && ids.every((id) => matches(ID, id)) && new Set(ids).size === ids.length;
-const timestamp = (s) => typeof s === 'string' && UTC.test(s) && Number.isFinite(Date.parse(s));
+// Date.parse normalizes impossible calendar values (February 30, hour 24), so the parsed fields must round-trip.
+const timestamp = (s) => {
+  const parts = typeof s === 'string' ? UTC.exec(s) : null;
+  const ms = parts ? Date.parse(s) : NaN;
+  if (!Number.isFinite(ms)) return false;
+  const d = new Date(ms);
+  return [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()]
+    .every((value, index) => value === Number(parts[index + 1]));
+};
 const safeRef = (s) => typeof s === 'string' && /^[a-zA-Z0-9_./-]{1,200}$/.test(s)
   && !isAbsolute(s) && !s.split('/').some((part) => !part || part === '.' || part === '..');
 
