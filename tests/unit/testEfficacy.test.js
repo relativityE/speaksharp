@@ -311,8 +311,8 @@ test('synthetic execution-only orchestration binds copy identity and enforces bu
     assert.equal(receipt.tests[0].phase.binding.phase,'execution');
     assert.match(receipt.tests[0].phase.binding.sourceCopyCommit,/^[a-f0-9]{40}$/);
     assert.equal(git(['rev-parse','HEAD']),base,'original Git metadata preserved');
-    for(let i=0;i<8;i++)write(`tests/unit/over-budget-${i}.test.js`,'// synthetic budget control\n');
-    assert.throws(()=>runVitestExecution({root:directory,base}),/budget exceeds 8 files/);
+    for(let i=0;i<64;i++)write(`tests/unit/over-budget-${i}.test.js`,'// synthetic budget control\n');
+    assert.throws(()=>runVitestExecution({root:directory,base}),/exceeds 8 batches of 8 files/);
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });
 

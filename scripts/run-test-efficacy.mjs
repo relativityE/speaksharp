@@ -11,7 +11,8 @@ import { executionContext, testEnvironment, pilotAffectedByPaths, executionRoute
   executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONTRACTS,helperApplicability, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
 import {SOURCE_CONSUMER,sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
-import {selectNativeContracts,produceNativePhase,nativeChildTracker,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness} from './lib/nativeTestExecutionEvidence.mjs';
+import {selectNativeContracts,produceNativePhase,nativeChildTracker,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness,
+  NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES} from './lib/nativeTestExecutionEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
@@ -165,8 +166,10 @@ export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}=
     const ordinary=selected.findIndex(item=>item!==contract && item.testFile===contract.testFile && !item.helper && !item.fixtureFile && !item.sourceFiles);
     if(ordinary>=0) {selected.splice(ordinary,1);contract.consumerExecution=true;}
   }
-  if(selected.length>8) throw new Error('NOT RUN: changed Vitest execution budget exceeds 8 files');
-  return selected;
+  // Same bound as native execution: batches keep the eight-file budget; the fixed ceiling refuses, never trims.
+  if(selected.length>NATIVE_BATCH_SIZE*NATIVE_MAX_BATCHES)
+    throw new Error(`NOT RUN: changed Vitest execution exceeds ${NATIVE_MAX_BATCHES} batches of ${NATIVE_BATCH_SIZE} files`);
+  return selected.map((contract,n)=>({...contract,batch:Math.floor(n/NATIVE_BATCH_SIZE)}));
 }
 
 export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false, nativeOnly = false } = {}) {

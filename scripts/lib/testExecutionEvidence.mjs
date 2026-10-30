@@ -221,6 +221,10 @@ export function executionRoute(file, root) {
   if (/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file)) {
     return {runner:'deno',consumer:file,config:'backend/supabase/functions/deno.json'};
   }
+  // The cloud-test package's Python controls have a runner but no approved CI runtime yet: routed, never credited.
+  if (/^tools\/cloud-test\/(?:.*\/)?test_[^/]+\.py$/.test(file)) {
+    return {runner:'python-unittest',consumer:file,applicable:false,unavailableReason:'NOT RUN: no approved Python runtime binding'};
+  }
   if (/^tests\/e2e\/.*\.spec\.[jt]s$/.test(file)) return {runner:'playwright',consumer:file,config:'playwright.config.ts'};
   if (/^tests\/live\/.*\.spec\.[jt]s$/.test(file)) return {runner:'playwright-live',consumer:file,config:'playwright.live.config.ts'};
   if (/\.test\.mjs$/.test(file) && fs.existsSync(path.join(root,file))
@@ -247,7 +251,8 @@ function changedPaths(root, base) {
 export function changedEvidencePaths(root, base) {
   // Deletions still affect raw change/pilot applicability, but cannot be executed.
   // lstat retains malformed existing entries (including dangling links) for refusal.
-  return changedPaths(root,base).filter(file=>/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$/.test(file)
+  // Python unittest modules are named test_*.py; outside tests/ they were silently omitted, not reported UNCOVERED.
+  return changedPaths(root,base).filter(file=>/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
     && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
 }
 

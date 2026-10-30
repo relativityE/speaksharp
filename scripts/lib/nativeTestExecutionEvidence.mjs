@@ -40,8 +40,13 @@ export function nativeTestRoute(file,root) {
   if(SQL_INPUTS.includes(file))return {runner:'vitest-sql',consumer:SQL_CONSUMER,claim:'actual SQL consumed in PGlite fixture; native database NOT RUN'};
   if(/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file))return {runner:'deno',consumer:file};
   if(/\.test\.mjs$/.test(file)&&fs.existsSync(path.join(root,file))&&/\bfrom\s+['"]node:test['"]/.test(fs.readFileSync(regular(root,file),'utf8')))return {runner:'node-test',consumer:file};
+  // The reviewed cloud-test package only: its CommonJS controls run under node:test. A .cjs that never
+  // requires node:test has no runner and stays UNCOVERED rather than being credited by its filename.
+  if(/^tools\/cloud-test\/.*\.test\.cjs$/.test(file)&&fs.existsSync(path.join(root,file))
+    &&/\brequire\(\s*['"]node:test['"]\s*\)/.test(fs.readFileSync(regular(root,file),'utf8')))return {runner:'node-test',consumer:file};
   return null;
 }
+export const NATIVE_BATCH_SIZE=8,NATIVE_MAX_BATCHES=8;
 export function selectNativeContracts(root,files) {
   const tests=new Map();
   for(const file of files) {
@@ -52,8 +57,10 @@ export function selectNativeContracts(root,files) {
     tests.set(route.consumer,value);
   }
   const contracts=[...tests.values()].sort((a,b)=>a.testFile.localeCompare(b.testFile));
-  if(contracts.length>8)fail('NOT RUN: native execution budget exceeds 8 files');
-  return contracts;
+  // Each batch keeps the eight-file budget; the fixed ceiling refuses an unbounded selection rather than dropping files.
+  if(contracts.length>NATIVE_BATCH_SIZE*NATIVE_MAX_BATCHES)
+    fail(`NOT RUN: native execution exceeds ${NATIVE_MAX_BATCHES} batches of ${NATIVE_BATCH_SIZE} files`);
+  return contracts.map((contract,n)=>({...contract,batch:Math.floor(n/NATIVE_BATCH_SIZE)}));
 }
 function binary(name) {
   for(const directory of (process.env.PATH??'').split(path.delimiter)) {
@@ -290,7 +297,7 @@ export function validateSqlWitness(raw,binding,root) {
 }
 export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sourceCopyCommit,runId,environment,drain,children=nativeChildTracker(drain)}) {
   const runtime=nativeRuntime(root,contract.runner),coverageDirectory=fs.mkdtempSync(path.join(cwd,'.native-coverage-'));
-  const binding={phase:'native-execution',phaseId:randomUUID(),runId,provenance,cwd,testFile:contract.testFile,
+  const binding={phase:'native-execution',phaseId:randomUUID(),runId,provenance,cwd,testFile:contract.testFile,batch:contract.batch,
     inputSha256,sourceCopyCommit,runtime,coverageDirectory,repoLockSha256:hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))};
   if(contract.runner==='deno') {
     binding.syntheticSource=validateSyntheticSource(root,contract.testFile);
@@ -328,7 +335,7 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
 export function validateNativePhase(phase,{root,provenance,inputSha256,runId,contract}) {
   const b=phase?.binding;
   if(!b||b.phase!=='native-execution'||!b.phaseId||b.runId!==runId||!path.isAbsolute(b.cwd??'')
-    ||JSON.stringify(b.provenance)!==JSON.stringify(provenance)||b.testFile!==contract.testFile
+    ||JSON.stringify(b.provenance)!==JSON.stringify(provenance)||b.testFile!==contract.testFile||b.batch!==contract.batch
     ||b.inputSha256!==inputSha256||b.repoLockSha256!==hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))
     ||JSON.stringify(b.runtime)!==JSON.stringify(nativeRuntime(root,contract.runner))
     ||JSON.stringify(b.command)!==JSON.stringify(nativeCommand(b)))fail('Wrong native source/runtime/provenance/command binding');

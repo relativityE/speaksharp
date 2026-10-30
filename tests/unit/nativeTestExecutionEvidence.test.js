@@ -10,7 +10,7 @@ import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,s
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
-import {testEnvironment,executionContext,sourceIdentity} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -457,3 +457,73 @@ if(process.env.TEST_EFFICACY_DENO_REAL_RUNTIME==='1') {
     if(failure)throw failure;
   });
 }
+
+function packageFixture(files) {
+  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'native-package-route-')));
+  for(const [file,source] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),source);
+  }
+  return {dir,clean:()=>fs.rmSync(dir,{recursive:true,force:true})};
+}
+const nodeTestCjs="const test=require('node:test');const assert=require('node:assert/strict');test('package control',()=>assert.equal(2+3,5));";
+
+test('cloud-test package node:test .test.cjs routes to native node-test; other .cjs stays unrouted',()=>{
+  const f=packageFixture({
+    'tools/cloud-test/harness/bundle/selftest/guard-core.test.cjs':nodeTestCjs,
+    'tools/cloud-test/harness/bundle/selftest/no-runner.test.cjs':"const assert=require('assert');assert.equal(1,1);",
+    'tests/unit/outside-package.test.cjs':nodeTestCjs,
+  });
+  try {
+    assert.equal(nativeTestRoute('tools/cloud-test/harness/bundle/selftest/guard-core.test.cjs',f.dir)?.runner,'node-test');
+    assert.equal(executionRoute('tools/cloud-test/harness/bundle/selftest/guard-core.test.cjs',f.dir)?.runner,'node-test');
+    // A file that never imports node:test has no actual runner: it must stay UNCOVERED, never default-pass.
+    assert.equal(nativeTestRoute('tools/cloud-test/harness/bundle/selftest/no-runner.test.cjs',f.dir),null);
+    assert.equal(executionRoute('tools/cloud-test/harness/bundle/selftest/no-runner.test.cjs',f.dir),null);
+    // The new route is the reviewed package only, not every .cjs in the repository.
+    assert.equal(nativeTestRoute('tests/unit/outside-package.test.cjs',f.dir),null);
+  } finally {f.clean();}
+});
+
+test('native contracts beyond eight run as deterministic batches of eight with a fixed total ceiling',()=>{
+  const files=Object.fromEntries(Array.from({length:9},(_,n)=>[`tools/cloud-test/tests/p${String(n).padStart(2,'0')}.test.cjs`,nodeTestCjs]));
+  const f=packageFixture(files);
+  try {
+    const contracts=selectNativeContracts(f.dir,Object.keys(files).reverse());
+    assert.equal(contracts.length,9);
+    assert.deepEqual(contracts.map(item=>item.testFile),Object.keys(files));
+    assert.deepEqual(contracts.map(item=>item.batch),[0,0,0,0,0,0,0,0,1]);
+    for(let batch=0;batch<=1;batch++)assert.ok(contracts.filter(item=>item.batch===batch).length<=8);
+  } finally {f.clean();}
+  const many=Object.fromEntries(Array.from({length:65},(_,n)=>[`tools/cloud-test/tests/q${String(n).padStart(2,'0')}.test.cjs`,nodeTestCjs]));
+  const g=packageFixture(many);
+  try {
+    assert.throws(()=>selectNativeContracts(g.dir,Object.keys(many)),/NOT RUN: native execution exceeds 8 batches of 8 files/);
+  } finally {g.clean();}
+});
+
+test('a complete 43-contract package selection fits six batches without trimming, and 64 is the inclusive ceiling',()=>{
+  for(const [count,batches] of [[43,6],[64,8]]) {
+    const files=Object.fromEntries(Array.from({length:count},(_,n)=>[`tools/cloud-test/harness/bundle/selftest/s${String(n).padStart(2,'0')}.test.cjs`,nodeTestCjs]));
+    const f=packageFixture(files);
+    try {
+      const contracts=selectNativeContracts(f.dir,Object.keys(files));
+      // Every selected file is present exactly once: nothing is trimmed to fit the budget.
+      assert.deepEqual(contracts.map(item=>item.testFile),Object.keys(files).sort());
+      assert.equal(new Set(contracts.map(item=>item.batch)).size,batches);
+      for(let batch=0;batch<batches;batch++)assert.ok(contracts.filter(item=>item.batch===batch).length<=8);
+    } finally {f.clean();}
+  }
+});
+
+test('a native phase bound to another batch is refused even when its execution passed',()=>{
+  const f=fixture();
+  try {
+    const contract={...f.contract,batch:0};
+    const phase=produceNativePhase({root:f.dir,cwd:f.dir,contract,provenance,inputSha256,runId,sourceCopyCommit:'e'.repeat(40),
+      environment:testEnvironment(f.dir,null,''),drain:drainOwnedPhase});
+    assert.doesNotThrow(()=>validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract}));
+    assert.throws(()=>validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:{...contract,batch:1}}),/Wrong native source/);
+    const moved=structuredClone(phase);moved.binding.batch=1;
+    assert.throws(()=>validateNativePhase(moved,{root:f.dir,provenance,inputSha256,runId,contract}),/Wrong native source/);
+  } finally {f.clean();}
+});
