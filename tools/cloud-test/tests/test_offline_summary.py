@@ -54,7 +54,7 @@ class Summary(unittest.TestCase):
         doc = report()
         unit = by_id(doc, "package-unit-tests")
         unit.update(passed=False, stderr="ERROR: test_a (m.C.test_a)\nTraceback (most recent call last):\n  SECRET-LIKE DETAIL\n"
-                                          "Ran 3 tests in 1s\n\nFAILED (failures=1, errors=1, skipped=1)\nFAIL: test_b (m.C.test_b)\n")
+                                          "FAIL: test_b (m.C.test_b)\nRan 3 tests in 1s\n\nFAILED (failures=1, errors=1, skipped=1)\n")
         doc["passed"] = False
         out = s.summarize(doc, "none")
         self.assertTrue(out["resultValid"])
@@ -264,6 +264,17 @@ class Delivery(unittest.TestCase):
                        "Ran 9 tests in 1.0s\n\nOK (errors=1)\n", "Ran 9 tests\n\nOK\n", "OK\n", "Ran 9 tests in 1.0s\n\nPASSED\n"):
             self.assertNotDelivered(self.required(output=output), "COUNTS_MISSING:package-unit-tests")
         self.assertNotDelivered(self.required("report-builder-tests", ""), "COUNTS_MISSING:report-builder-tests")
+
+    def test_an_ambiguous_or_contradicted_result_is_refused(self):
+        # Sam 1793398852: a valid summary followed by a second (even truncated) summary or a contradictory status is not one
+        # unambiguous result, and never yields delivery.
+        clean = "Ran 9 tests in 1.0s\n\nOK\n"
+        for output in (clean + "Ran 10 tests\n", clean + "FAILED (errors=1)\n", clean + "Ran 10 tests in 2.0s\n\nOK\n",
+                       "Ran 10 tests\n" + clean, clean + "NO TESTS RAN\n", clean + "OK (skipped=1)\n", clean + "anything else\n"):
+            self.assertNotDelivered(self.required(output=output), "COUNTS_MISSING:package-unit-tests")
+        # The result may sit after stdout and test-time noise, but nothing may follow it.
+        self.assertTrue(self.required(output="noise\nRan into nothing here\n" + clean)["deliveryRefusals"])
+        self.assertEqual(self.required(output="warning: noise\n" + clean)["deliveryRefusals"], [])
 
     def test_an_empty_suite_is_refused(self):
         self.assertNotDelivered(self.required(output="Ran 0 tests in 0.000s\n\nOK\n"), "COUNTS_EMPTY:package-unit-tests")

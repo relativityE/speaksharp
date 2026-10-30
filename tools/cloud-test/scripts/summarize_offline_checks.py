@@ -56,14 +56,18 @@ def _text(c):
 
 
 def _suite(c):
-    """The final unittest counts of a check, read strictly: {} when there is no "Ran N tests" line, or when the line after it is
-    not exactly unittest's OK/FAILED status with known counts (e.g. "NO TESTS RAN" or a truncated log)."""
+    """The unittest counts of a check, read strictly from ONE unambiguous, complete result (Sam 1793398852): exactly one line
+    starting "Ran ", in unittest's exact form, whose next non-blank line is unittest's OK/FAILED status with known counts and is
+    the last non-blank line of the output. Otherwise {}: none or several results, "NO TESTS RAN", a truncated or malformed
+    summary, or anything (another summary, a contradictory status) after it."""
     text = _text(c)
+    if len(re.findall(r"^Ran ", text, re.M)) != 1:
+        return {}
     ran = list(re.finditer(r"^Ran (\d+) tests? in [\d.]+s$", text, re.M))
-    if not ran:
+    if len(ran) != 1:
         return {}
     rest = [ln for ln in text[ran[-1].end():].splitlines() if ln.strip()]
-    status = STATUS.match(rest[0]) if rest else None
+    status = STATUS.match(rest[0]) if len(rest) == 1 else None
     if not status:
         return {}
     pairs = [p.split("=") for p in status.group(2).split(", ")] if status.group(2) else []
