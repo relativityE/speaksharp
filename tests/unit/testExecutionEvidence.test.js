@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {createHash,randomUUID} from 'node:crypto';
-import {execFileSync,spawnSync} from 'node:child_process';
+import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
   changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase,
@@ -12,6 +12,7 @@ import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths,runVitestExecution,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {HELPER_CONTRACTS} from '../../scripts/lib/helperExecutionEvidence.mjs';
+import {executionBatchIdentity} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 const framework=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const {test:registerTest}=framework;
 const fixtureConsumer=registeredFixture('tests/fixtures/efficacy/service-level-evidence.adfeab34.yml');
@@ -71,7 +72,7 @@ test('routes approved source contracts separately from actual live execution',()
   assert.equal(executionRoute('tests/fixtures/unconsumed.json',root),null);
   assert.equal(executionRoute('tests/live/unregistered.live.spec.ts',root).runner,'playwright-live');
 });
-test('deduplicates bound helper consumers within eight phases and still refuses a ninth',()=>{
+test('deduplicates bound helper consumers within eight phases and batches a ninth instead of dropping it',()=>{
   // A planner fixture represents the receiving shape, not a claim that future
   // callables/consumers already exist on the main-branch baseline.
   const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'receiving-phase-plan-')));
@@ -97,7 +98,15 @@ test('deduplicates bound helper consumers within eight phases and still refuses 
   assert.equal(selected.length,8);
   assert.equal(selected.filter(item=>item.helper && item.consumerExecution).length,5);
   assert.equal(new Set(selected.map(item=>item.testFile)).size,8);
-  assert.throws(()=>selectExecutionContracts(dir,[...files,'tests/unit/extra.test.ts']),/budget exceeds 8/);
+  assert.deepEqual(selected.map(item=>item.batch),[0,0,0,0,0,0,0,0]);
+  const ninth=selectExecutionContracts(dir,[...files,'tests/unit/extra.test.ts']);
+  assert.equal(ninth.length,9);
+  assert.ok(ninth.some(item=>item.testFile==='tests/unit/extra.test.ts'),'the ninth contract is batched, not trimmed');
+  assert.deepEqual(ninth.map(item=>item.batch),[0,0,0,0,0,0,0,0,1]);
+  const overflow=Array.from({length:56},(_,n)=>`tests/unit/overflow-${String(n).padStart(2,'0')}.test.ts`);
+  assert.equal(selectExecutionContracts(dir,[...files,...overflow]).length,64);
+  assert.throws(()=>selectExecutionContracts(dir,[...files,...overflow,'tests/unit/extra.test.ts']),
+    /NOT RUN: changed Vitest execution exceeds 8 batches of 8 files/);
   const helperOnly=selectExecutionContracts(dir,[pairs[0][0]]);
   assert.equal(helperOnly.length,1);assert.equal(helperOnly[0].consumerExecution,undefined);
   assert.deepEqual(selectExecutionContracts(dir,['tests/live/helpers/unregistered.ts']),[]);
@@ -519,8 +528,9 @@ test('deleted obsolete test does not break the actual quality writer or earn exe
     assert.doesNotMatch(result.stderr,/ENOENT/);
     const evidence=JSON.parse(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality.latest.json'),'utf8'));
     assert.equal(evidence.overallStatus,'QUALIFIED');
-    assert.equal(evidence.testExecution.status,'not-applicable');
-    assert.deepEqual(evidence.testExecution.tests,[]);assert.deepEqual(evidence.executionCoverage.rows,[]);
+    assert.equal(evidence.testExecution.length,1,'an empty selection still records its one reconciled batch');
+    assert.equal(evidence.testExecution[0].status,'not-applicable');assert.equal(evidence.testExecution[0].batch.count,0);
+    assert.deepEqual(evidence.testExecution[0].tests,[]);assert.deepEqual(evidence.executionCoverage.rows,[]);
     assert.deepEqual(evidence.executionCoverage.pilot,{required:false,status:'NOT APPLICABLE'});
     retainServiceControl('deleted-test-writer',{result},{quality:evidence});
     // Synthetic metric counts and a removed ordinary test claim no executed test or journey.
@@ -767,7 +777,8 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       assert.ok(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality-summary.latest.md'),'utf8')
         .includes('| Flaky (passed only on retry) | 0 | 0 |'));
       assert.deepEqual(evidence.executionCoverage.rows.map(row=>[row.file,row.status]),[[fixtureConsumer.fixtureFile,'EXECUTED']]);
-      const phase=evidence.testExecution.tests[0].phase;
+      assert.equal(evidence.testExecution.length,1);assert.equal(evidence.testExecution[0].batch.count,1);
+      const phase=evidence.testExecution[0].tests[0].phase;
       assert.equal(phase.report.numTotalTests,1);assert.equal(phase.report.numPendingTests,0);
       assert.ok(phase.envelope.finished.files.flatMap(file=>file.tasks).some(task=>task.type==='suite'
         && task.result?.hooks?.beforeAll==='pass' && task.result?.hooks?.afterAll==='pass'),
@@ -928,11 +939,18 @@ test('execution-only consumer binds actual source, runtime, command and controll
     const envelope={schemaVersion:2,binding,observed:{command:binding.command,cwd,runtime:binding.runtime},
       collectionCalls:1,finishedCalls:1,endCalls:1,timedOut:false,collected:[{file:binding.testFile,tests:[{id:'test',name:'synthetic unit control',mode:'run'}]}],
       finished:{files:[{file:binding.testFile,tasks}],errors:[]},ended:{errors:[],reason:'passed'}};
-    const receipt={...expected,provenance:expected,runId:binding.runId,status:'executed',tests:[{testFile:file,
+    const receipt={...expected,provenance:expected,runId:binding.runId,status:'executed',base,executionKind:'changed-evidence',
+      batch:executionBatchIdentity(selectExecutionContracts(dir,[file]),0),tests:[{testFile:file,
       testSha256:hash(fs.readFileSync(path.join(dir,file))),phase:{binding,envelope,report,inputSha256,execution:{status:0,signal:null,error:null}}}]};
     assert.deepEqual([...validateVitestExecution(receipt,expected,dir)],[file]);
     assert.equal(executionCoverage([file],{root:dir,base,expected,execution:receipt}).status,'COMPLETE');
     assert.equal(executionCoverage([file],{root:dir,base,expected}).status,'INCOMPLETE');
+    // The caller's comparison base and kind bind the batch inventory; a receipt cannot choose its own.
+    for(const change of [r=>{r.base='0'.repeat(40);},r=>{r.base=null;},r=>{r.executionKind='registered-helpers';},r=>{delete r.batch;}]) {
+      const candidate=structuredClone(receipt);change(candidate);
+      assert.throws(()=>executionCoverage([file],{root:dir,base,expected,execution:candidate}),/base\/kind|batch/);
+    }
+    assert.throws(()=>executionCoverage([file],{root:dir,base:'0'.repeat(40),expected,execution:receipt}),/base\/kind/);
     for(const [change,reason] of [
       [r=>{r.provenance={...expected,commit:'a'.repeat(40)};},/provenance/],
       [r=>{r.provenance={...expected,runAttempt:'2'};},/provenance/],
@@ -965,7 +983,8 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
       assert.deepEqual(changedEvidencePaths(dir,git(['rev-parse','HEAD'])),[file]);
       assert.equal(receipt.overallStatus,'QUALIFIED');assert.equal(receipt.testEfficacy.status,'not-applicable');
       assert.deepEqual(receipt.executionCoverage.rows.map(row=>[row.file,row.status,row.claim]),[[file,'EXECUTED','collection and execution only']]);
-      assert.equal(receipt.testExecution.tests[0].phase.report.numTotalTests,1);
+      assert.equal(receipt.testExecution.length,1);
+      assert.equal(receipt.testExecution[0].tests[0].phase.report.numTotalTests,1);
     };
     try {
       green();
@@ -997,6 +1016,38 @@ if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME
 }
 
 if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  // Asynchronous spawn keeps the worker's event loop free: this file's synchronous writer runs approach Vitest's 60 s RPC limit.
+  const runAsync=(command,args,options)=>new Promise(resolve=>{
+    const child=spawn(command,args,options);let stdout='',stderr='',error;
+    child.stdout.setEncoding('utf8').on('data',chunk=>{stdout+=chunk;});child.stderr.setEncoding('utf8').on('data',chunk=>{stderr+=chunk;});
+    child.on('error',cause=>{error=cause;});child.on('close',(status,signal)=>resolve({error,status,signal,stdout,stderr}));
+  });
+  test('INSTALLED Vitest: nine changed tests run as two actual batches through the writer and reconcile only when complete',async()=>{
+    runtimeIdentity(root);
+    const {dir,write,git,file,passing}=executionFixture(true);
+    const evidenceFile=path.join(dir,'product_release/evidence/software-quality.latest.json');
+    const files=[file,...Array.from({length:8},(_,n)=>`tests/unit/changed-execution-${n}.test.js`)].sort();
+    files.forEach((name,n)=>write(name,passing.replace('changed non-pilot computes','changed non-pilot '+n+' computes')));
+    try {
+      const head=git(['rev-parse','HEAD']);
+      const result=await runAsync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{cwd:dir,timeout:600000,
+        env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_SHA:head,GITHUB_RUN_ID:'901',GITHUB_RUN_ATTEMPT:'3',
+          TEST_EFFICACY_BASE:head,SOFTWARE_QUALITY_INVOCATION:randomUUID(),NODE_V8_COVERAGE:''}});
+      assert.equal(result.error,undefined);assert.equal(result.signal,null);assert.equal(result.status,0,result.stderr);
+      const evidence=JSON.parse(fs.readFileSync(evidenceFile,'utf8'));
+      assert.deepEqual(evidence.testExecution.map(receipt=>[receipt.batch.index,receipt.batch.count,receipt.tests.length]),[[0,2,8],[1,2,1]]);
+      assert.deepEqual(evidence.testExecution.flatMap(receipt=>receipt.tests.map(item=>item.testFile)),files);
+      assert.equal(new Set(evidence.testExecution.map(receipt=>receipt.runId)).size,2);
+      assert.deepEqual(evidence.executionCoverage.rows.map(row=>[row.file,row.status]),files.map(name=>[name,'EXECUTED']));
+      assert.equal(readCurrentQuality(evidenceFile,evidence.provenance,dir,head).overallStatus,'QUALIFIED');
+      for(const [name,change] of [['missing batch',e=>{e.testExecution.pop();}],['duplicate batch',e=>{e.testExecution[1]=structuredClone(e.testExecution[0]);}],
+        ['reordered',e=>{e.testExecution.reverse();}],['moved contract',e=>{e.testExecution[1].tests.push(e.testExecution[0].tests.pop());}]]) {
+        const candidate=structuredClone(evidence);change(candidate);fs.writeFileSync(evidenceFile,JSON.stringify(candidate));
+        assert.throws(()=>readCurrentQuality(evidenceFile,evidence.provenance,dir,head),/batch|Inconsistent|Duplicate|contracts/,name);
+      }
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+  },600000);
+
   test('INSTALLED Vitest: weakening a registered assertion fails the actual writer and thin report, then restores GREEN',()=>{
     const {dir,write,git}=executionFixture(true);
     const evidence=path.join(dir,'product_release/evidence/software-quality.latest.json');
@@ -1087,4 +1138,37 @@ test('CI-invoked writer fails incomplete coverage and succeeds after valid evide
       assert.deepEqual(receipt.executionCoverage.rows,[]);
     }
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('Python unittest modules are inventoried and routed NOT RUN; none is omitted or credited',()=>{
+  const f=executionFixture();
+  try {
+    const python={
+      'tools/cloud-test/tests/test_full_plan.py':'import unittest\n',
+      'tools/cloud-test/report/tests/test_run_report.py':'import unittest\n',
+      'tests/unit/test_outside_package.py':'import unittest\n',
+      'tools/cloud-test/scripts/verify_harness.py':'print("not a test module")\n',
+    };
+    for(const [file,source] of Object.entries(python))f.write(file,source);
+    const inventory=changedEvidencePaths(f.dir,f.base);
+    // Every test_*.py is an evidence path, including outside tests/; ordinary scripts stay out.
+    for(const file of Object.keys(python).filter(file=>/\/test_[^/]+\.py$/.test(file)))assert.ok(inventory.includes(file),file);
+    assert.ok(!inventory.includes('tools/cloud-test/scripts/verify_harness.py'));
+    // Package modules have a runner but no approved runtime: routed, unavailable, never executed.
+    for(const file of ['tools/cloud-test/tests/test_full_plan.py','tools/cloud-test/report/tests/test_run_report.py']) {
+      assert.deepEqual(executionRoute(file,f.dir),{runner:'python-unittest',consumer:file,applicable:false,
+        unavailableReason:'NOT RUN: no approved Python runtime binding'});
+    }
+    // Outside the reviewed package there is no runner at all: UNCOVERED, not routed.
+    assert.equal(executionRoute('tests/unit/test_outside_package.py',f.dir),null);
+    // Provenance of the fixture under test, not the hosting checkout (which may hold runner scratch such as .efficacy-tmp/).
+    const expected=executionContext(f.dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    const coverage=executionCoverage(inventory.filter(file=>file.endsWith('.py')),{root:f.dir,expected,base:f.base});
+    assert.deepEqual(Object.fromEntries(coverage.rows.map(row=>[row.file,row.status])),{
+      'tests/unit/test_outside_package.py':'UNCOVERED',
+      'tools/cloud-test/report/tests/test_run_report.py':'NOT RUN',
+      'tools/cloud-test/tests/test_full_plan.py':'NOT RUN',
+    });
+    assert.equal(coverage.status,'INCOMPLETE');
+  } finally {fs.rmSync(f.dir,{recursive:true,force:true});}
 });
