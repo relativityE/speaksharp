@@ -11,6 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import run_offline_checks as runner
+import summarize_offline_checks as summarizer
 
 
 class OfflineReportRetention(unittest.TestCase):
@@ -146,3 +147,12 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertFalse(self.out.exists())
         self.assertIn("OFFLINE_CHECKS_REFUSED", stderr)
+
+    def test_the_public_summary_accepts_exactly_the_reports_this_runner_writes(self):
+        self.assertEqual(set(runner.HISTORY_BOUND), set(summarizer.HISTORY_BOUND))
+        for history, overall in (("none", True), ("required", False)):  # required: no proof file in this fixture root
+            self.invoke(history=history)
+            out = summarizer.summarize(json.loads(self.out.read_text()), history)
+            self.assertNotIn("error", out, history)
+            self.assertTrue(out["resultValid"], history)
+            self.assertIs(out["overallPassed"], overall, history)
