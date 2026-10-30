@@ -1161,7 +1161,9 @@ test('Python unittest modules are inventoried and routed NOT RUN; none is omitte
     }
     // Outside the reviewed package there is no runner at all: UNCOVERED, not routed.
     assert.equal(executionRoute('tests/unit/test_outside_package.py',f.dir),null);
-    const coverage=executionCoverage(inventory.filter(file=>file.endsWith('.py')),{root:f.dir,expected:context(),base:f.base});
+    // Provenance of the fixture under test, not the hosting checkout (which may hold runner scratch such as .efficacy-tmp/).
+    const expected=executionContext(f.dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    const coverage=executionCoverage(inventory.filter(file=>file.endsWith('.py')),{root:f.dir,expected,base:f.base});
     assert.deepEqual(Object.fromEntries(coverage.rows.map(row=>[row.file,row.status])),{
       'tests/unit/test_outside_package.py':'UNCOVERED',
       'tools/cloud-test/report/tests/test_run_report.py':'NOT RUN',
