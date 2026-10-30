@@ -22,8 +22,8 @@ test('bounded native routes retain explicit planner/protocol and fixture-only cl
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
-  assert.equal(contracts.length,5);
-  assert.equal(contracts.filter(item=>item.runner==='node-test').length,4);
+  assert.equal(contracts.length,6);
+  assert.equal(contracts.filter(item=>item.runner==='node-test').length,5);
   for(const item of NATIVE_HELPERS) {
     assert.equal(nativeTestRoute(item.file,root).consumer,item.consumer);
     assert.match(nativeTestRoute(item.file,root).claim,/NOT RUN/);
@@ -60,6 +60,38 @@ test('edited-take helper maps only to its exact protocol test and refuses source
     }
     f.write(helper.file,'\n '+fs.readFileSync(path.join(f.dir,helper.file),'utf8'));
     assert.throws(()=>validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]));
+  }finally{f.clean();}
+});
+
+test('typed fixture-audio helper credits all six harness callables from stripped-TS V8 offsets only',()=>{
+  const helper=NATIVE_HELPERS.find(item=>item.file==='tests/live/helpers/fixtureAudioStream.ts');
+  assert.equal(helper.consumer,'tests/live/helpers/fixtureAudioStream.node.test.mjs');
+  assert.match(helper.claim,/fake browser objects in node:vm; browser\/audio\/model NOT RUN/);
+  assert.equal(nativeTestRoute(helper.file,root).runner,'node-test-helper');
+  assert.equal(nativeTestRoute('tests/live/helpers/otherAudioStream.ts',root),null);
+  const names=helper.callables;
+  const f=fixture(`import test from 'node:test'; import assert from 'node:assert/strict';
+    import {${names.join(',')}} from '../live/helpers/fixtureAudioStream.ts';
+    test('all registered harness callables execute',async()=>{
+      assert.deepEqual(await Promise.all([${names.map(name=>`${name}({n:1})`).join(',')}]),[1,2,3,4,5,6]);
+    });`);
+  try {
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
+    f.write(helper.file,"import type {Page} from '@playwright/test';\ninterface State {n: number}\n"
+      +names.map((name,n)=>`export async function ${name}(page: State, timeoutMs: number = 1): Promise<number> {return page.n+${n}+timeoutMs-1;}\n`).join(''));
+    f.contract.helpers=[helper.file];
+    const phase=f.run();
+    assert.deepEqual(validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),[helper.file]);
+    for(const change of [
+      rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName===names[5])for(const range of fn.ranges)range.count=0;},
+      rows=>{for(const report of rows)for(const script of report.result)script.url=script.url.replace('fixtureAudioStream.ts','fixtureAudioStream.js');},
+      rows=>{for(const report of rows)for(const script of report.result)script.functions=script.functions.filter(fn=>fn.functionName==='');},
+    ]) {
+      const raw=structuredClone(phase.coverage);change(raw);
+      assert.throws(()=>validateNativeCallables(raw,phase.binding,f.dir,[helper.file]),/NOT RUN|Missing|Malformed/);
+    }
+    f.write(helper.file,'\n '+fs.readFileSync(path.join(f.dir,helper.file),'utf8'));
+    assert.throws(()=>validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),/callable NOT RUN/);
   }finally{f.clean();}
 });
 
@@ -288,7 +320,8 @@ test('INSTALLED actual helper calls retain exact V8 ranges; import-only, wrong s
 });
 test('import-only raw helper coverage cannot claim planner or observer execution',()=>{
   const binding={cwd:root};
-  for(const helper of NATIVE_HELPERS) {
+  // The typed fixture-audio helper's import-only refusal runs against its own reviewed source below.
+  for(const helper of NATIVE_HELPERS.filter(item=>item.file.endsWith('.mjs'))) {
     const raw=[{result:[{url:pathToFileURL(path.join(root,helper.file)).href,
       functions:[{functionName:'',isBlockCoverage:true,ranges:[{startOffset:0,endOffset:fs.readFileSync(path.join(root,helper.file),'utf8').length,count:1}]}]}]}];
     assert.throws(()=>validateNativeCallables(raw,binding,root,[helper.file]),/callable NOT RUN/);

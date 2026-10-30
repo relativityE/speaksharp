@@ -25,6 +25,11 @@ export const NATIVE_HELPERS=Object.freeze([
     callables:['assertRetentionOwners','cleanupOwnedRetentionFixture','observeRetentionOwnerRace',
       'ownedRetentionProcessIds','createRetentionLocalPeer','startOwnedRetentionFixture'],
     claim:'actual owner/cleanup/transport protocol guards only; native database NOT RUN'},
+  // Node's default type stripping blanks annotations in place, so V8 offsets index the .ts source itself.
+  {file:'tests/live/helpers/fixtureAudioStream.ts',consumer:'tests/live/helpers/fixtureAudioStream.node.test.mjs',
+    callables:['injectAlignedFixtureAudio','playFixtureAudioOnce','readFixturePlaybackState','resetFixtureAudioToStart',
+      'disposeFixtureAudio','waitForFixtureAudioEnd'],
+    claim:'actual harness state-machine callables with fake browser objects in node:vm; browser/audio/model NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {
@@ -267,9 +272,10 @@ export function nativeChildTracker(drain,{spawn=spawnSync}={}) {
     },
   };
 }
-function callableNodes(root,source,name) {
-  const require=createRequire(path.join(root,'package.json')),ts=require('typescript');
-  const parsed=ts.createSourceFile('evidence.mjs',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS),nodes=[];
+function callableNodes(root,source,name,file) {
+  const require=createRequire(path.join(root,'package.json')),ts=require('typescript'),typed=file.endsWith('.ts');
+  const parsed=ts.createSourceFile(typed?'evidence.ts':'evidence.mjs',source,ts.ScriptTarget.Latest,true,
+    typed?ts.ScriptKind.TS:ts.ScriptKind.JS),nodes=[];
   if(parsed.parseDiagnostics.length)fail('Invalid native helper syntax');
   const visit=node=>{
     if((ts.isFunctionDeclaration(node)||ts.isMethodDeclaration(node))&&node.name?.text===name&&node.body)nodes.push(node);
@@ -297,7 +303,7 @@ export function validateNativeCallables(raw,binding,root,helpers) {
       }
     }
     for(const name of contract.callables) {
-      const node=callableNodes(root,source,name);
+      const node=callableNodes(root,source,name,file);
       const matches=entries.flatMap(script=>script.functions??[]).filter(fn=>fn.functionName===name&&fn.ranges?.[0]?.count>0
         &&fn.ranges[0].startOffset>=node.getStart()&&fn.ranges[0].startOffset<=node.name.getStart()
         &&fn.ranges[0].endOffset===node.end);
