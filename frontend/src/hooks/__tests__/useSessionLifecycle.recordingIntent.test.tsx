@@ -11,6 +11,13 @@ import type { UsageLimitCheck } from '../useUsageLimit';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import type { UserProfile } from '@/types/user';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import * as Sentry from '@sentry/react';
+import { beginJourney, beginRecordingAttempt, currentAttemptId, currentAttemptSeq, currentBootId, currentJourneyId } from '@/services/telemetry/journeyIdentity';
+
+vi.mock('@sentry/react', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@sentry/react')>();
+    return { ...actual, withScope: vi.fn(actual.withScope), captureException: vi.fn(actual.captureException) };
+});
 
 // Mock ALL hooks used inside useSessionLifecycle
 // #1476: the account-wide recording lease. Granted by default so these suites exercise the Start flow beyond it;
@@ -470,6 +477,31 @@ describe('#1259 F01 — every intent reaches analytics through the real hook', (
         // was accepted, and then it failed. Collapsing them would lose the fact that recording was
         // genuinely attempted.
         expect(outcomes).toEqual(['accepted', 'failed']);
+    });
+
+    it('captures the failed accepted take in Sentry even if ambient telemetry advances while setup is pending', async () => {
+        const tags = new Map<string, string>();
+        const scope = { setTag: (key: string, value: string) => tags.set(key, value), setContext: vi.fn() };
+        const scopeSpy = vi.mocked(Sentry.withScope).mockImplementation(
+            ((callback: (value: unknown) => unknown) => callback(scope)) as typeof Sentry.withScope,
+        );
+        const capture = vi.mocked(Sentry.captureException).mockReturnValue('synthetic-event-id');
+        let rejectStart!: (error: Error) => void;
+        vi.mocked(speechRuntimeController.startRecording).mockImplementation(() => new Promise((_, reject) => { rejectStart = reject; }));
+        const { result } = mountWith({ runtimeState: 'READY' });
+        let pending!: Promise<void>;
+        await act(async () => { pending = result.current.handleStartStop(); });
+        const expected = { boot_id: currentBootId(), journey_id: currentJourneyId(), attempt_id: currentAttemptId(), attempt_seq: String(currentAttemptSeq()) };
+        expect(expected.attempt_id).not.toBeNull();
+        beginJourney();
+        beginRecordingAttempt();
+        expect(currentAttemptId()).not.toBe(expected.attempt_id);
+        await act(async () => { rejectStart(new Error('Synthetic engine setup failure')); await pending; });
+        expect(Object.fromEntries([...tags].filter(([key]) => key in expected))).toEqual(expected);
+        expect(tags.get('surface')).toBe('recording_start');
+        expect(capture).toHaveBeenCalledOnce();
+        scopeSpy.mockRestore();
+        capture.mockRestore();
     });
 
     it('carries the runtime state the machine was ACTUALLY in at the click', async () => {
