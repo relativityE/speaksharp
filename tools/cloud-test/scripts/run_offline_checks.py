@@ -79,7 +79,10 @@ def main():
     if history not in ("required", "none"):
         print("OFFLINE_CHECKS_REFUSED: CT_HISTORY must be 'required' or 'none', not %r" % history, file=sys.stderr)
         return 2
-    bound = (lambda name, make: not_applicable(name) if history == "none" and name in HISTORY_BOUND else make())
+    # Proof v2: a proof generated in THIS job (CT_PROOF_FILE) needs no retained history, so offline-proof-index stays applicable.
+    proof_file = os.environ.get("CT_PROOF_FILE") or None
+    in_job = {"offline-proof-index"} if proof_file else set()
+    bound = (lambda name, make: not_applicable(name) if history == "none" and name in HISTORY_BOUND and name not in in_job else make())
     checks = []
     env = {**os.environ}
     for name, cmd in (("package-unit-tests", [sys.executable, "-I", "-W", "ignore::ResourceWarning", "-m", "unittest", "discover", "-s", os.path.join(ROOT, "tests"), "-p", "test_*.py"]),
@@ -107,14 +110,17 @@ def main():
         if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{64}", pinned):
             return False, "the pinned harness manifest is not a sha256"
         name = "offline-proof-%s.json" % pinned[:8]
-        problem = proof_problem(load(os.path.join(ROOT, "config", "proofs", name)), pinned)
+        if proof_file:
+            name = "in-job proof"
+        problem = proof_problem(load(proof_file or os.path.join(ROOT, "config", "proofs", name)), pinned)
         return problem is None, "%s: %s" % (name, problem or "all %d corrections PASS; hash matches config" % len(PROOF_CORRECTIONS))
 
     checks.append(input_check("config-matches-workflow", versions))
     checks.append(bound("offline-proof-index", lambda: input_check("offline-proof-index", proof_index)))
     applicable = [c for c in checks if c.get("applicable", True)]
     out = {"schema": "speaksharp.cloud-test.offline-checks.v1", "ranUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "workflowVersion": wf.get("version") if isinstance(wf, dict) else None,
-           "historyMode": history, "notApplicable": [c["id"] for c in checks if not c.get("applicable", True)],
+           "historyMode": history, "proofSource": "in-job" if proof_file else "config",
+           "notApplicable": [c["id"] for c in checks if not c.get("applicable", True)],
            "checks": checks, "passed": bool(applicable) and all(c["passed"] is True for c in applicable)}
     # The job log of this public repository shows only check names and statuses; child output and details stay in the
     # written report on the runner. A report that cannot be written is a failure, and its diagnostics are not printed.

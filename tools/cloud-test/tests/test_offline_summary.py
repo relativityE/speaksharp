@@ -170,6 +170,21 @@ class Summary(unittest.TestCase):
         doc["historyMode"] = "required"
         self.assertRefused(doc, "RESULT_INCONSISTENT")
 
+    def test_only_an_in_job_proof_may_make_the_proof_check_applicable_when_reduced(self):
+        doc = report()
+        by_id(doc, "offline-proof-index").update(passed=True, applicable=True)
+        self.assertRefused(doc, "RESULT_ILLEGAL_APPLICABILITY")
+        doc["proofSource"] = "in-job"
+        out = s.summarize(doc, "none")
+        self.assertTrue(out["resultValid"] and out["overallPassed"], out)
+        self.assertEqual(out["notApplicable"], 4)
+        doc = report()
+        doc["proofSource"] = "in-job"  # an in-job proof must be judged, never left N/A
+        self.assertRefused(doc, "RESULT_ILLEGAL_APPLICABILITY")
+        doc = report()
+        doc["proofSource"] = "somewhere-else"
+        self.assertRefused(doc, "RESULT_MALFORMED")
+
     def test_an_unknown_mode_is_refused(self):
         self.assertRefused(report(), "HISTORY_MODE_INVALID", "skip")
 

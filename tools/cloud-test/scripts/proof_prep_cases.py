@@ -45,7 +45,8 @@ def pinned_pdfjs():
     return source
 
 
-def build(out, packet):
+def build(out, packet, phases=("phase1",), stimulus_receipt=None):
+    """phase1 writes the 15 case configs; phase1+phase2 also write cfg/campaign-plan.json (with BP_STIM, bound to that stimulus receipt)."""
     if os.path.exists(out):
         raise SystemExit("--out must not exist")
     pdfjs = pinned_pdfjs()
@@ -63,10 +64,13 @@ def build(out, packet):
     env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"),
                BP_ACCOUNT_ID_FILE=acct, BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
                BP_ENV_ID="env_PLACEHOLDER", BP_MEDIA_PARENT=os.path.join(work, "media"), VITE_SUPABASE_ANON_KEY="placeholder-publishable-key", BP_PDFJS_DIR=pdfjs)
-    script = "set -euo pipefail; set -a; . %s; set +a; python3 -I %s phase1" % (shlex.quote(envf), shlex.quote(os.path.join(ROOT, "harness-adapter", "build_plan.py")))
-    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
-    if r.returncode:
-        raise SystemExit("build_plan.py phase1 failed (%d)" % r.returncode)
+    for phase in phases:
+        # BP_STIM is exported AFTER the request-derived environment is sourced, as FullPlanProof does, so the request's values cannot override it.
+        stim = "export BP_STIM=%s; " % shlex.quote(stimulus_receipt) if stimulus_receipt else ""
+        script = "set -euo pipefail; set -a; . %s; set +a; %spython3 -I %s %s" % (shlex.quote(envf), stim, shlex.quote(os.path.join(ROOT, "harness-adapter", "build_plan.py")), phase)
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+        if r.returncode:
+            raise SystemExit("build_plan.py %s failed (%d)" % (phase, r.returncode))
     cases = os.path.join(out, "cases")
     missing = [n for n in range(1, 16) if not os.path.isfile(os.path.join(cases, "AHT-%02d.json" % n))]
     if missing:

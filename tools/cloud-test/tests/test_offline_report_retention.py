@@ -32,7 +32,7 @@ class OfflineReportRetention(unittest.TestCase):
         (self.root / "workflow.json").write_text('{"version":"test"}')
         self.out = self.root / "offline-checks.json"
 
-    def invoke(self, failure=False, write_failure=False, history="required"):
+    def invoke(self, failure=False, write_failure=False, history="required", proof_file=None):
         count = 0
 
         def child(cmd, **_kwargs):
@@ -44,7 +44,7 @@ class OfflineReportRetention(unittest.TestCase):
 
         stdout, stderr = io.StringIO(), io.StringIO()
         with mock.patch.object(runner, "ROOT", str(self.root)), \
-                mock.patch.dict(runner.os.environ, {"CT_HISTORY": history}), \
+                mock.patch.dict(runner.os.environ, {"CT_HISTORY": history, "CT_PROOF_FILE": proof_file or ""}), \
                 mock.patch.object(sys, "argv", ["run_offline_checks.py", "--out", str(self.out)]), \
                 mock.patch.object(runner.subprocess, "run", side_effect=child), \
                 contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
@@ -216,3 +216,29 @@ class OfflineReportRetention(unittest.TestCase):
         tree = ast.parse((Path(runner.__file__).parent / "offline_proof.py").read_text())
         corr = next(n.value for n in tree.body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "CORR")
         self.assertEqual(tuple(ast.literal_eval(e.elts[0]) for e in corr.elts), runner.PROOF_CORRECTIONS)
+
+    def test_an_in_job_proof_makes_the_proof_check_applicable_without_history(self):
+        good = self.root / "in-job-proof.json"
+        good.write_text(json.dumps(full_proof("a" * 64)))
+        self.invoke(history="none", proof_file=str(good))
+        report = json.loads(self.out.read_text())
+        self.assertEqual(report["proofSource"], "in-job")
+        proof = next(c for c in report["checks"] if c["id"] == "offline-proof-index")
+        self.assertIs(proof["passed"], True)
+        self.assertNotIn("offline-proof-index", report["notApplicable"])
+        self.assertEqual(len(report["notApplicable"]), 4)
+        out = summarizer.summarize(report, "none")
+        self.assertNotIn("error", out)
+        self.assertIs(out["overallPassed"], True)
+
+    def test_an_in_job_proof_is_held_to_the_same_strict_rules(self):
+        bad = self.root / "in-job-proof.json"
+        doc = full_proof("a" * 64)
+        doc["corrections"].pop()
+        bad.write_text(json.dumps(doc))
+        self.invoke(history="none", proof_file=str(bad))
+        report = json.loads(self.out.read_text())
+        proof = next(c for c in report["checks"] if c["id"] == "offline-proof-index")
+        self.assertIs(proof["passed"], False)
+        self.assertIn("correction ids differ", proof["detail"])
+        self.assertIs(report["passed"], False)

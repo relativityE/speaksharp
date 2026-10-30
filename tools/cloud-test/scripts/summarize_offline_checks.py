@@ -90,9 +90,13 @@ def summarize(result, history):
         return fail("RESULT_DUPLICATE_CHECK")
     if set(ids) != HISTORY_BOUND | CURRENT_SOURCE:
         return fail("RESULT_CHECK_INVENTORY_MISMATCH")
+    # A proof generated in this job (proofSource in-job) needs no retained history: only then is offline-proof-index applicable when reduced.
+    in_job = {"offline-proof-index"} if result.get("proofSource") == "in-job" else set()
+    if result.get("proofSource", "config") not in ("in-job", "config"):
+        return fail("RESULT_MALFORMED")
     for c in checks:
         # Current-source checks are never N/A; in the reduced scope exactly the history-bound checks are, in required mode none is.
-        if c["id"] in HISTORY_BOUND and reduced:
+        if c["id"] in HISTORY_BOUND and reduced and c["id"] not in in_job:
             legal = c.get("applicable") is False and c.get("passed") is None
         else:
             legal = c.get("applicable", True) is True and isinstance(c.get("passed"), bool)
