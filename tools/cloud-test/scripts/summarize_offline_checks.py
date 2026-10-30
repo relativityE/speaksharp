@@ -18,7 +18,8 @@ CURRENT_SOURCE = frozenset(("package-unit-tests", "report-builder-tests", "reser
                             "harness-verified", "config-matches-workflow"))
 # unittest's failure headers, including class-level fixtures such as "ERROR: setUpClass (module.Class)".
 FAILING = re.compile(r"^(?:ERROR|FAIL): (\w+ \([\w.]+\))", re.M)
-TYPE_NAME = re.compile(r"^[A-Za-z_][\w.]*$")
+# Only an exception-class shape is ever published (Sam 1793376723): a word from a message or from captured output never is.
+EXCEPTION_CLASS = re.compile(r"^(?:[A-Za-z_]\w*\.)*[A-Z]\w*(?:Error|Exception|Exit|Interrupt|Warning|Failure|SkipTest)$")
 
 
 def _failure_types(text):
@@ -30,10 +31,14 @@ def _failure_types(text):
         if not head:
             continue
         body = re.split(r"^-{50,}$", block, flags=re.M)
-        lines = [ln for ln in "".join(body[1:2]).splitlines() if ln and not ln[0].isspace()
-                 and not ln.startswith(("Traceback", "During handling", "The above exception"))]
-        name = lines[-1].split(":", 1)[0].strip() if lines else ""
-        types[head.group(1)] = name if TYPE_NAME.match(name) else "UNPARSED"
+        lines = "".join(body[1:2]).splitlines()
+        # The raised exception is the first unindented line after the traceback's last frame; its message may span
+        # further lines and is never read past the class name.
+        frames = [i for i, ln in enumerate(lines) if ln.startswith("  File ")]
+        name = ""
+        if frames:
+            name = next((ln.split(":", 1)[0].strip() for ln in lines[frames[-1] + 1:] if ln and not ln[0].isspace()), "")
+        types[head.group(1)] = name if EXCEPTION_CLASS.match(name) else "UNPARSED"
     return types
 
 

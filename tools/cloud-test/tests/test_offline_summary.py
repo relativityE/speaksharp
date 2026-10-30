@@ -83,6 +83,22 @@ class Summary(unittest.TestCase):
         for leaked in ("SECRET-LIKE", "PRIVATE-PATH", "returned 3", "unexpected"):
             self.assertNotIn(leaked, text)
 
+    def test_only_an_exception_class_shape_is_ever_published(self):
+        sep, dash = "=" * 70, "-" * 70
+        def types(*body):
+            doc = report()
+            by_id(doc, "package-unit-tests").update(passed=False, stderr="\n".join(
+                [sep, "FAIL: test_x (m.C.test_x)", dash, "Traceback (most recent call last):", '  File "t.py", line 9, in test_x',
+                 "    self.assertEqual(r.returncode, 0, r.stdout)", *body, "", dash, "Ran 1 test in 1s", "", "FAILED (failures=1)"]))
+            doc["passed"] = False
+            return by_id(s.summarize(doc, "none"), "package-unit-tests")["failureTypes"]["test_x (m.C.test_x)"]
+        # A multi-line message whose later lines are captured output: only the class is read.
+        self.assertEqual(types("AssertionError: 5 != 0 : STOP: credential-like variables are present", "STOP: PRIVATE",
+                               "SECRET-LIKE"), "AssertionError")
+        self.assertEqual(types("pkg.mod.CustomFailure"), "pkg.mod.CustomFailure")
+        for leaked in ("STOP: credential-like variables are present", "Hello: there", "secret", "PRIVATE-WORD"):
+            self.assertEqual(types(leaked), "UNPARSED", leaked)
+
     def assertRefused(self, doc, error, history="none"):
         out = s.summarize(doc, history)
         self.assertEqual(out.get("error"), error)
