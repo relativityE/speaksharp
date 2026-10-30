@@ -140,25 +140,9 @@ class OtherAlertKinds(unittest.TestCase):
         self.assertEqual(a["kind"], "NEW-FAILURE")
         self.assertIsNone(a["lastKnownGood"])
 
-    @needs_history
-    def test_the_sealed_history_gives_real_alerts_for_r5(self):
-        out = DA.derive(J("config", "test-config.v1.json"), os.path.join(ROOT, "config", "history", "receipts"), "R5", {"fullLiveRun": False, "kind": "PARTIAL", "statement": "92 of 204 required rows executed", "reasons": ["partial"], "missing": []})
-        kinds = sorted(a["kind"] for a in out["alerts"])
-        self.assertIn("COVERAGE-INCOMPLETE", kinds)
-        self.assertIn("RECOVERED", kinds)          # AHT-10 leave-released: FAIL in R4C, PASS in R5
-        self.assertEqual(kinds.count("STILL-FAILING"), 2)   # AHT-02 and AHT-03 never passed
 
 
 class RetainedHistory(unittest.TestCase):
-    @needs_history
-    def test_the_shipped_index_verifies_and_is_pinned(self):
-        cfg = J("config", "test-config.v1.json")
-        idx = J("config", "history", "index.json")
-        self.assertEqual(HI.verify(idx, cfg, os.path.join(ROOT, "config", "history", "receipts")), [])
-        self.assertEqual(cfg["history"]["index"]["headHash"], idx["headHash"])
-        self.assertEqual([e["label"] for e in idx["entries"]], ["R4", "R4B", "R4C", "R5"])
-        r5 = idx["entries"][3]["summary"]
-        self.assertEqual((r5["rows"], r5["rowsExecuted"]), ({"PASS": 90, "FAIL": 2, "NOT RUN": 112}, 92))
 
     def build(self, *specs):
         root, cfg = history(*specs)
@@ -254,18 +238,6 @@ class AdditiveCatalog(unittest.TestCase):
         errs = VC.verify(self.snaps(), c2, 1)
         self.assertTrue(any("freeze a new version" in e for e in errs), errs)
 
-    @needs_history
-    def test_history_is_judged_against_the_catalog_of_its_own_time(self):
-        """R5 stays 92 of 204 however large the catalog grows: its index entry was recorded against v1 and is never recomputed against v2."""
-        idx = J("config", "history", "index.json")
-        self.assertEqual({e["catalogVersion"] for e in idx["entries"]}, {1})
-        c2 = self.v2(lambda c: c["cases"]["AHT-01"]["requiredAssertions"].append("new-check"))
-        r5 = J("config", "history", "receipts", "R5", "case-results.json")
-        old = CC.assess(request("R5-x", r5["sourceSha"]), CATALOG, r5)
-        self.assertEqual((old["rowsExecuted"], old["rowsRequired"]), (92, 204))
-        newer = CC.assess(request("R5-x", r5["sourceSha"]), c2, r5)
-        self.assertEqual(newer["rowsRequired"], 205)
-        self.assertEqual(idx["entries"][3]["summary"]["rowsTotal"], 204)
 
     def test_an_indexed_run_with_an_unknown_catalog_version_is_refused(self):
         idx = {"entries": [{"label": "SYNTHETIC", "catalogVersion": 7}]}
@@ -325,16 +297,6 @@ class StandingApprovalOfRecurringCost(unittest.TestCase):
         old = {"entries": [{"summary": {"kind": "run", "requests": used, "identityReads": 5, "endedUtc": "2026-10-20T03:40:00Z"}}]}
         self.assertEqual(self.gate(index=old)["status"], "READY", "usage before the period start does not count")
 
-    @needs_history
-    def test_the_nightly_request_is_valid_and_a_partial_nightly_is_not(self):
-        s = self.s
-        from _fixtures import fake_rv, reconciliation
-        b = V.derive_budget(s["cfg"], reconciliation(), os.path.join(ROOT, "config", "history", "receipts"))
-        errs, _ = V.validate(J("config", "runs", "R8-nightly-regression-proposal.json"), s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation(), b)
-        self.assertEqual(errs, [])
-        bad = J("config", "runs", "R8-nightly-regression-proposal.json"); bad["coverageMode"] = "partial"; bad["sampleMode"] = "minimal"
-        errs, _ = V.validate(bad, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation(), None)
-        self.assertTrue(any("only for coverageMode full" in e for e in errs), errs)
 
     def test_a_nightly_run_is_limited_by_the_standing_approval_not_the_one_time_ceiling(self):
         from _fixtures import fake_rv, reconciliation
@@ -345,20 +307,6 @@ class StandingApprovalOfRecurringCost(unittest.TestCase):
         self.assertEqual(st["G11"], "OWNER-INPUT-OPEN")
         self.assertEqual(out["decision"], "NO-GO")
 
-    @needs_history
-    def test_the_proposal_is_derived_flagged_and_keeps_unknown_costs_unknown(self):
-        from _fixtures import reconciliation
-        budget = json.load(open(os.path.join(ROOT, "FULL-COVERAGE-BUDGET.json"))) if os.path.exists(os.path.join(ROOT, "FULL-COVERAGE-BUDGET.json")) else None
-        import full_coverage_budget as FB
-        import derive_case_costs as DC
-        costs = {"runs": {lab: DC.derive_run(os.path.join(ROOT, "config", "history", "receipts"), lab) for lab in ("R4C", "R5")}}
-        budget = FB.compute(self.s["cfg"], costs, CATALOG, reconciliation())
-        p = RB.proposal(self.s["cfg"], budget, J("config", "history", "index.json"), 30)
-        self.assertIn("NOT APPROVED", p["status"])
-        self.assertEqual(p["periodTotals"]["requests"], 30 * budget["requests"]["runCap"])
-        self.assertFalse(p["measuredFullRunAvailable"])
-        self.assertEqual(p["unknownCosts"]["cloudAgentUsd"], "unknown")
-        self.assertEqual(p["periodTotals"]["paidActionsUsd"], 0)
 
     def test_after_a_measured_full_run_the_proposal_is_based_on_that_run(self):
         root, cfg = history(("N1", {"requests": 3500}))
@@ -387,6 +335,68 @@ class NothingIsScheduledOrSent(unittest.TestCase):
         self.assertNotIn("secrets.", txt)
         self.assertIn("permissions:\n  contents: read", txt)
         self.assertFalse(os.path.exists(os.path.join(ROOT, "..", "..", ".github", "workflows", "nightly-control-plane.yml")))
+
+
+class SyntheticHistoryRules(unittest.TestCase):
+    """The nightly rules on the SYNTHETIC sealed history (tests/_synthetic_history.py); the retained-campaign versions are kept unchanged in
+    tests/legacy_audit/audit_nightly_regression.py. Synthetic R5 executed every row except 9 of AHT-05's 10 and AHT-12 rows 2-3 (204 - 11 = 193),
+    failed none, and passes AHT-02 row 1, which failed in R4C."""
+    @classmethod
+    def setUpClass(cls):
+        from _synthetic_history import shared as synthetic_history
+        cls.h = synthetic_history()
+        cls.s = sample()
+
+    def test_the_index_verifies_and_is_pinned(self):
+        with open(self.h.index, encoding="utf-8") as f:
+            idx = json.load(f)
+        self.assertEqual(HI.verify(idx, self.h.cfg, self.h.receipts), [])
+        self.assertEqual(self.h.cfg["history"]["index"]["headHash"], idx["headHash"])
+        self.assertEqual([e["label"] for e in idx["entries"]], ["R4", "R4B", "R4C", "R5"])
+        r5 = idx["entries"][3]["summary"]
+        self.assertEqual((r5["rows"], r5["rowsExecuted"]), ({"PASS": 193, "FAIL": 0, "NOT RUN": 11}, 193))
+
+    def test_the_sealed_history_gives_alerts_for_r5(self):
+        out = DA.derive(self.h.cfg, self.h.receipts, "R5", {"fullLiveRun": False, "kind": "PARTIAL", "statement": "193 of 204 required rows executed", "reasons": ["partial"], "missing": []})
+        kinds = sorted(a["kind"] for a in out["alerts"])
+        self.assertIn("COVERAGE-INCOMPLETE", kinds)
+        self.assertIn("RECOVERED", kinds)                     # AHT-02 row 1: FAIL in R4C, PASS in R5
+        self.assertEqual(kinds.count("STILL-FAILING"), 0)     # R5 failed no row
+
+    def test_the_nightly_request_is_valid_and_a_partial_nightly_is_not(self):
+        # The tracked synthetic nightly proposal carrying the independently expected budget of the synthetic history (test_full_coverage.EXPECTED).
+        from _fixtures import fake_rv, reconciliation
+        from test_full_coverage import full_request
+        s = self.s
+        req = J("config", "runs", "R8-nightly-regression-proposal.json")
+        budgeted = full_request()
+        req["estimate"]["requests"].update(budgeted["estimate"]["requests"])
+        req["estimate"]["window"].update(budgeted["estimate"]["window"])
+        plan = {x["case"]: x["plannedRequests"] for x in budgeted["selection"]}
+        for x in req["selection"]:
+            x["plannedRequests"] = plan[x["case"]]
+        for k in ("cumulativeCeilingRequests", "runCapRequests", "ceilingIncreaseJustification"):
+            req["proposedLimits"][k] = budgeted["proposedLimits"][k]
+        b = V.derive_budget(s["cfg"], reconciliation(), self.h.receipts)
+        errs, _ = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation(), b)
+        self.assertEqual(errs, [])
+        bad = J("config", "runs", "R8-nightly-regression-proposal.json"); bad["coverageMode"] = "partial"; bad["sampleMode"] = "minimal"
+        errs, _ = V.validate(bad, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation(), None)
+        self.assertTrue(any("only for coverageMode full" in e for e in errs), errs)
+
+    def test_the_proposal_is_derived_flagged_and_keeps_unknown_costs_unknown(self):
+        from _fixtures import reconciliation
+        import full_coverage_budget as FB
+        import derive_case_costs as DC
+        costs = {"runs": {lab: DC.derive_run(self.h.receipts, lab) for lab in ("R4C", "R5")}}
+        budget = FB.compute(self.s["cfg"], costs, CATALOG, reconciliation())
+        with open(self.h.index, encoding="utf-8") as f:
+            p = RB.proposal(self.s["cfg"], budget, json.load(f), 30)
+        self.assertIn("NOT APPROVED", p["status"])
+        self.assertEqual(p["periodTotals"]["requests"], 30 * 3430)        # 30 runs x the synthetic run cap (test_full_coverage.EXPECTED)
+        self.assertFalse(p["measuredFullRunAvailable"])
+        self.assertEqual(p["unknownCosts"]["cloudAgentUsd"], "unknown")
+        self.assertEqual(p["periodTotals"]["paidActionsUsd"], 0)
 
 
 if __name__ == "__main__":

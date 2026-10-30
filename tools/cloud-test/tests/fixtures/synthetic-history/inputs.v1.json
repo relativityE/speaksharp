@@ -1,6 +1,6 @@
 {
  "schema": "speaksharp.cloud-test.synthetic-history-inputs.v1",
- "note": "SYNTHETIC offline fixture for the current test suite. Not a real campaign, account, usage figure or approval, and never live authority. Every expected value a current test asserts about this history is written as arithmetic over the numbers declared here. servedSha values are public commits of this repository (R5 = the tested release used by the existing fixtures, R4C its parent), so release and gap logic can resolve them. The runs are timed just before the suite's fixed evaluation time (_fixtures.NOW), so identity evidence is fresh by the package's own rule. R4C and R5 declare different per-journey driver hashes (the harness changed between them), so their comparison is not controlled. R5 fails AHT-12 rows 2 and 3 (press-bound-denial, denial-truthful-no-mic), the rows GAP-03 observes, so a prior failure exists for the gap logic.",
+ "note": "SYNTHETIC offline fixture for the current test suite. Not a real campaign, account, usage figure or approval, and never live authority. Every expected value a current test asserts about this history is written as arithmetic over the numbers declared here. servedSha values are public commits of this repository (R5 = the tested release used by the existing fixtures, R4C its parent), so release and gap logic can resolve them. The runs are timed just before the suite's fixed evaluation time (_fixtures.NOW), so identity evidence is fresh by the package's own rule. R4C and R5 declare different per-journey driver hashes (the harness changed between them), so their comparison is not controlled. As in the retained campaigns, R4C fails the two AHT-12 rows GAP-03 observes (press-bound-denial, denial-truthful-no-mic) and R5 does not run them, so R4C holds the only verdict for that defect.",
  "startUtc": "2026-10-28T19:00:00Z",
  "runs": [
   {
@@ -44,6 +44,14 @@
     [
      "AHT-02",
      1
+    ],
+    [
+     "AHT-12",
+     2
+    ],
+    [
+     "AHT-12",
+     3
     ]
    ],
    "driverSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
@@ -72,7 +80,9 @@
      "wallSeconds": 150
     }
    },
-   "fail": [
+   "fail": [],
+   "driverSha256": "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1",
+   "notRun": [
     [
      "AHT-12",
      2
@@ -81,8 +91,7 @@
      "AHT-12",
      3
     ]
-   ],
-   "driverSha256": "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1"
+   ]
   }
  ],
  "counters": {

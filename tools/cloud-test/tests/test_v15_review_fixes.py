@@ -871,22 +871,6 @@ class ConcernObservations(unittest.TestCase):
             self.assertIn(needle, html, needle)
         self.assertNotIn(SENTINEL, html)
 
-    @needs_history
-    def test_the_real_sealed_runs_are_observed_the_same_way(self):
-        cfg = J("config", "test-config.v1.json")
-        root = os.path.join(ROOT, "config", "history", "receipts")
-        r5 = J("config", "history", "receipts", "R5", "case-results.json")
-        req = request("R5-x", r5["sourceSha"])
-        out = DCN.derive(cfg, CCFG, root, "R5", req)
-        v = {c["id"]: c["verdict"] for c in out["concerns"]}
-        self.assertEqual((v["CON-1"], v["CON-4"]), ("OBSERVED CLEAN", "OBSERVED CLEAN"))
-        _, s = sub_of(out, "CON-2", "outbound requests started after termination")
-        self.assertEqual(s["verdict"], "OBSERVED CLEAN")
-        _, p = sub_of(out, "CON-2", "owned processes after termination")
-        self.assertEqual(p["verdict"], "OBSERVED CLEAN", "AHT-10 and AHT-11 stopped on their allowance (exit 6) with 0 processes remaining: the harness's own controlled stop")
-        _, n = sub_of(out, "CON-2", "requests in flight at termination")
-        self.assertIn("24 forwarded request(s)", n["detail"])
-        self.assertEqual(v["CON-3"], "NOT OBSERVABLE")
 
     def test_the_command_line_writes_concerns_and_the_scan_only_mode_fails_on_a_finding(self):
         d = tempfile.mkdtemp()

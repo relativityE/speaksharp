@@ -103,14 +103,14 @@ class BaselineIsTheMostRecentRunWithAVerdict(unittest.TestCase):
             SB.select(sample()["ledger"], sample()["cfg"], RECEIPTS, "R9")
 
 
-@needs_history
 class PipelineComparesWithTheRightRun(unittest.TestCase):
+    """On the synthetic history, as in the retained one: R4C fails the two GAP-03 rows of AHT-12 and R5 does not run them."""
     def test_the_pipeline_compares_the_latest_run_with_every_baseline_it_needs(self):
         prerequisite(__import__("subprocess").run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
         d = tempfile.mkdtemp(prefix="ct-pipe-")
         for lab in ("R4", "R4B", "R4C", "R5"):
-            shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
-        shutil.copytree(os.path.join(RECEIPTS, "R5"), os.path.join(d, "R6T"))
+            shutil.copytree(os.path.join(SYNTH_RECEIPTS, lab), os.path.join(d, lab))
+        shutil.copytree(os.path.join(SYNTH_RECEIPTS, "R5"), os.path.join(d, "R6T"))
         writable(d)
         p = os.path.join(d, "R6T", "case-results.json")
         cr = json.load(open(p)); cr["campaignId"] = "R6T"; cr["synthetic"] = True
@@ -132,14 +132,15 @@ class PipelineComparesWithTheRightRun(unittest.TestCase):
             import hashlib
             with open(os.path.join(d, "R6T", "plan.sha"), "w") as handle:
                 handle.write(hashlib.sha256(open(plan_path, "rb").read()).hexdigest() + "\n")
-        cfg = copy.deepcopy(sample()["cfg"])
+        cfg = synthetic_cfg()
         from _synthetic_receipts import seal_in_place
         pin = seal_in_place(os.path.join(d, "R6T"), "R6T")
         cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": TESTED, "ledgersOnly": False, "receiptsManifestSha256": pin})
         cp = os.path.join(d, "cfg.json"); wjson(cp, cfg)
         out = os.path.join(d, "out")
-        r = run_py("scripts/pipeline.py", "--request", request_path(), "--out-dir", out, "--config", cp, "--receipts-root", d, "--latest-label", "R6T",
-                   "--repo", REPO, "--generated-at", "2026-10-29T00:00:00Z")
+        h = synthetic_history()
+        r = run_py("scripts/pipeline.py", "--request", h.request(request_path()), "--out-dir", out, "--config", cp, "--receipts-root", d, "--latest-label", "R6T",
+                   "--history-index", h.index, "--counters", h.counters, "--reservations", h.reservations, "--repo", REPO, "--generated-at", "2026-10-29T00:00:00Z")
         # Comparison must still be computed for an unqualified release. This retained
         # request claims a deployed product fix without cloud-verified inclusion; its
         # admission refusal must remain distinct from a comparison/execution failure.
@@ -165,13 +166,14 @@ class PipelineComparesWithTheRightRun(unittest.TestCase):
         prerequisite(__import__("subprocess").run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
         with tempfile.TemporaryDirectory(prefix="ct-pipe-negative-") as d:
             for label in ("R4", "R4B", "R4C", "R5"):
-                shutil.copytree(os.path.join(RECEIPTS, label), os.path.join(d, label))
+                shutil.copytree(os.path.join(SYNTH_RECEIPTS, label), os.path.join(d, label))
             writable(d)
             with open(os.path.join(d, "R5", "AHT-12", "case-result.json"), "a") as handle:
                 handle.write("\n")  # The pin remains unchanged: this MUST be rejected.
             out = os.path.join(d, "out")
-            result = run_py("scripts/pipeline.py", "--request", request_path(), "--out-dir", out,
-                            "--receipts-root", d, "--repo", REPO)
+            h = synthetic_history()
+            result = run_py("scripts/pipeline.py", "--request", h.request(request_path()), "--out-dir", out, "--config", h.config,
+                            "--history-index", h.index, "--counters", h.counters, "--reservations", h.reservations, "--receipts-root", d, "--repo", REPO)
             self.assertEqual(result.returncode, 2)
             self.assertFalse(os.path.exists(os.path.join(out, "comparisons")))
             verification = json.load(open(os.path.join(out, "receipts-verification.json")))
@@ -340,13 +342,16 @@ class ApprovedOmissionsAreIncompleteCoverage(unittest.TestCase):
         errs = W.validate(rep, sample()["wf"])
         self.assertTrue(any("approved omissions are incomplete coverage" in e for e in errs), errs)
 
-    @needs_history
     def test_the_validator_warns_that_an_omission_is_not_a_full_pass(self):
+        # The budget-carrying synthetic proposal (test_full_coverage.full_request) with one approved omission, judged against the budget
+        # derived from the synthetic history.
         import validate_run_request as V
         from _fixtures import reconciliation
+        from test_full_coverage import full_request
         s = sample()
         req, _ = self.request(1)
-        b = V.derive_budget(s["cfg"], reconciliation(), RECEIPTS)
+        req.update({k: v for k, v in full_request().items() if k in ("estimate", "selection", "proposedLimits")})
+        b = V.derive_budget(s["cfg"], reconciliation(), SYNTH_RECEIPTS)
         errs, warns = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation(), b)
         self.assertEqual(errs, [])
         self.assertTrue(any("incomplete coverage" in w and "full 204-row pass" in w for w in warns), warns)
@@ -385,9 +390,10 @@ class DeployedVersionBinding(unittest.TestCase):
         self.assertFalse(out["deployedVersionBinding"]["ok"])
         self.assertFalse(out["fullLiveRun"])
 
-    @needs_history
     def test_the_sealed_r5_identity_receipts_all_matched_the_tested_sha(self):
-        r5 = J("config", "history", "receipts", "R5", "case-results.json")
+        # The synthetic sealed R5 (2 identity receipts per journey, all MATCH); the retained R5 is audited in tests/legacy_audit.
+        with open(os.path.join(SYNTH_RECEIPTS, "R5", "case-results.json"), encoding="utf-8") as f:
+            r5 = json.load(f)
         req = copy.deepcopy(self.req); req["release"]["testedSha"] = r5["sourceSha"]
         b = CC.deployed_version_binding(req, r5)
         self.assertTrue(b["ok"], b)

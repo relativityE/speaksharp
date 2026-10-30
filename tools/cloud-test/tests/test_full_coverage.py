@@ -26,14 +26,16 @@ RECEIPTS = synthetic_history().receipts
 # Independent expected budget for that history (Sam 1793402195: never taken from the function under test), written from inputs.v1.json and
 # the config's budget model (allowance 125%, cleanup 10 per case, pooled slack 15%, uplift cap 3.0):
 #   fixed overhead = max(R4C 20+30+10, R5 20+40+10) = 70; variable work = max(R4C 60+40+10, R5 50+40+10) = 110
-#   R5 executed every row of every journey except AHT-05 (1 row; R4C half = 5 of 10), so only AHT-05 is scaled: min(3.0, 10/5) = 2.0
-#   estimate = ceil10(70 + 110) = 180 for 14 journeys; AHT-05 = ceil10(70 + 110 x 2) = 290
-#   planned 14 x 180 + 290 = 2810; cleanup 15 x 10 = 150; slack ceil10(2810 x 15%) = ceil10(421.5) = 430; run cap 2810 + 150 + 430 = 3390
-#   cumulative ceiling over the synthetic reconciliation (UsageHistory: 5529 used): 5529 + 3390 + 664 protected reserve + 32 identity reads = 9615
-#   window: expected 2 + (14 x 120 s + AHT-05 150 s x 2.0) / 60 + 10 = 45 min; worst case 20 + 272 + 2 = 294; proposed 300 (next 30)
-EST = {"AHT-%02d" % n: (290 if n == 5 else 180) for n in range(1, 16)}
-EXPECTED = {"planned": 2810, "cleanupReserve": 150, "pooledSlack": 430, "runCap": 3390, "requiredCeiling": 9615,
-            "window": {"expectedMinutes": 45, "worstCaseMinutes": 294, "proposedMinutes": 300}}
+#   R5 executed every row except AHT-05 (1 row of 10; R4C half = 5) and AHT-12 (6 of 8: rows 2 and 3 not run; R4C half = 4), so only those two
+#   are scaled: AHT-05 min(3.0, 10/5) = 2.0, AHT-12 min(3.0, 8/6) = 1.33
+#   estimate = ceil10(70 + 110) = 180 for 13 journeys; AHT-05 = ceil10(70 + 110 x 2) = 290; AHT-12 = ceil10(ceil(70 + 110 x 8/6)) = ceil10(217) = 220
+#   planned 13 x 180 + 290 + 220 = 2850; cleanup 15 x 10 = 150; slack ceil10(ceil(2850 x 15%)) = ceil10(428) = 430; run cap 2850 + 150 + 430 = 3430
+#   cumulative ceiling over the synthetic reconciliation (UsageHistory: 5529 used): 5529 + 3430 + 664 protected reserve + 32 identity reads = 9655
+#   window: expected round(2 + (13 x 120 s + AHT-05 150 s x 2.0 + AHT-12 120 s x 8/6) / 60 + 10) = round(45.65) = 46 min; worst case
+#   20 + 272 + 2 = 294; proposed 300 (next 30)
+EST = {"AHT-%02d" % n: (290 if n == 5 else 220 if n == 12 else 180) for n in range(1, 16)}
+EXPECTED = {"planned": 2850, "cleanupReserve": 150, "pooledSlack": 430, "runCap": 3430, "requiredCeiling": 9655,
+            "window": {"expectedMinutes": 46, "worstCaseMinutes": 294, "proposedMinutes": 300}}
 
 
 def costs():
@@ -57,7 +59,7 @@ def full_request():
     for s in req["selection"]:
         s["plannedRequests"] = EST[s["case"]]
     req["proposedLimits"].update(cumulativeCeilingRequests=EXPECTED["requiredCeiling"], runCapRequests=EXPECTED["runCap"],
-                                 ceilingIncreaseJustification="SYNTHETIC: 5529 used + 3390 run cap + 664 protected reserve + 32 identity reads = 9615.")
+                                 ceilingIncreaseJustification="SYNTHETIC: 5529 used + 3430 run cap + 664 protected reserve + 32 identity reads = 9655.")
     return req
 
 
@@ -168,7 +170,7 @@ class DerivedBudget(unittest.TestCase):
         self.assertEqual(self.b["cumulative"]["requiredCeiling"], EXPECTED["requiredCeiling"])
         w = self.b["window"]
         self.assertEqual((w["expectedMinutes"], w["worstCaseMinutes"], w["proposedWindowMinutes"]), tuple(EXPECTED["window"].values()))
-        self.assertEqual({p["case"]: p["ceiling"] for p in self.b["perCase"]}, {c: (370 if e == 290 else 230) for c, e in EST.items()})  # 125% rule
+        self.assertEqual({p["case"]: p["ceiling"] for p in self.b["perCase"]}, {c: {290: 370, 220: 280, 180: 230}[e] for c, e in EST.items()})  # 125% rule
 
     def test_the_budget_carrying_request_is_still_an_unapproved_proposal(self):
         # Sam 1793403415: full_request() changes only budget fields; it stays a proposal with no approval and no omission.
@@ -194,7 +196,7 @@ class DerivedBudget(unittest.TestCase):
     def test_cumulative_ceiling_identity_and_action_caps(self):
         c = self.b["cumulative"]
         self.assertEqual(c["requiredCeiling"], 5529 + self.b["requests"]["runCap"] + 664 + 32)
-        self.assertEqual(c["requiredCeiling"], 5529 + 3390 + 664 + 32)
+        self.assertEqual(c["requiredCeiling"], 5529 + 3430 + 664 + 32)
         self.assertGreater(c["requiredCeiling"], 8795)           # the earlier proposal understated a full run
         self.assertEqual(self.b["identity"]["required"], 94 + 32)
         self.assertEqual(self.b["identity"]["required"], 126)
@@ -478,12 +480,12 @@ class Completeness(unittest.TestCase):
         self.assertEqual(out["kind"], "PARTIAL")
 
     def test_the_sealed_synthetic_r5_results_are_reported_as_partial(self):
-        # Declared: R5 executed every row except 9 of AHT-05's 10, so 204 - 9 = 195 rows executed and 9 missing.
+        # Declared: R5 executed every row except 9 of AHT-05's 10 and AHT-12 rows 2 and 3, so 204 - 9 - 2 = 193 executed and 11 missing.
         with open(os.path.join(RECEIPTS, "R5", "case-results.json"), encoding="utf-8") as f:
             out = CC.assess(r7(), catalog(), json.load(f))
         self.assertFalse(out["fullLiveRun"])
-        self.assertEqual(out["rowsExecuted"], 204 - 9)
-        self.assertEqual(len(out["missing"]), 9)
+        self.assertEqual(out["rowsExecuted"], 204 - 9 - 2)
+        self.assertEqual(len(out["missing"]), 9 + 2)
 
     def test_no_results_is_no_run(self):
         self.assertEqual(CC.assess(r7(), catalog(), None)["kind"], "NO RUN")
@@ -648,12 +650,12 @@ class FullModePipeline(unittest.TestCase):
         prerequisite(subprocess.run(["git", "-C", repo, "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True).stdout.strip() == "true", "git history")
         with tempfile.TemporaryDirectory() as d:
             # A synthetic, unapproved proposal over the synthetic history and owner counters (inputs.v1.json): conservative used 5840 (5800 measured
-            # + 40 unexplained), so the ceiling is 5840 + 3390 + 664 + 32 = 9926; Starts 30 owned + 40 planned = 70 and takes 30 + 31 = 61 exceed
+            # + 40 unexplained), so the ceiling is 5840 + 3430 + 664 + 32 = 9966; Starts 30 owned + 40 planned = 70 and takes 30 + 31 = 61 exceed
             # the synthetic caps 50/40, so both increases are proposed with their justification. NO LIVE APPROVAL.
             h = synthetic_history()
             proposal = full_request()
-            proposal["proposedLimits"].update(cumulativeCeilingRequests=5840 + 3390 + 664 + 32, startsCap=30 + 40, takesCap=30 + 31,
-                                              ceilingIncreaseJustification="SYNTHETIC TEST ONLY: 5840 + 3390 + 664 + 32 = 9926; NO LIVE APPROVAL",
+            proposal["proposedLimits"].update(cumulativeCeilingRequests=5840 + 3430 + 664 + 32, startsCap=30 + 40, takesCap=30 + 31,
+                                              ceilingIncreaseJustification="SYNTHETIC TEST ONLY: 5840 + 3430 + 664 + 32 = 9966; NO LIVE APPROVAL",
                                               startsIncreaseJustification="SYNTHETIC TEST ONLY: 30 owned + 40 planned; NO LIVE APPROVAL",
                                               takesIncreaseJustification="SYNTHETIC TEST ONLY: 30 owned + 31 planned; NO LIVE APPROVAL")
             source = os.path.join(d, "proposal.json"); wjson(source, proposal)

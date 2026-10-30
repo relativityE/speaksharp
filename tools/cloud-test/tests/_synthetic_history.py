@@ -56,6 +56,7 @@ def _full_run(root, run, start, catalog):
     used["total"] = 0
     identity = 0
     fails = {tuple(f) for f in run.get("fail", [])}
+    skipped = {tuple(f) for f in run.get("notRun", [])}
     cases, plan_cases = [], []
     for cid in sorted(catalog["cases"], key=lambda c: int(c.split("-")[1])):
         spec, required = case_spec(run, cid), catalog["cases"][cid]["requiredAssertions"]
@@ -64,7 +65,7 @@ def _full_run(root, run, start, catalog):
         executed = rows_executed(spec, len(required))
         rows, digests = [], {}
         for i, a in enumerate(required, 1):
-            result = "NOT RUN" if i > executed else ("FAIL" if (cid, i) in fails else "PASS")
+            result = "NOT RUN" if i > executed or (cid, i) in skipped else ("FAIL" if (cid, i) in fails else "PASS")
             ref = "fact-%d.json" % i
             wjson(os.path.join(d, ref), {"synthetic": True, "contentSafe": True, "caseId": cid, "assertion": a, "result": result})
             digests[ref] = sha256_file(os.path.join(d, ref))
@@ -90,7 +91,7 @@ def _full_run(root, run, start, catalog):
         before = {"result": "MATCH", "servedSha": sha, "expectedSha": sha, "identityGetsUsed": identity + 1}
         identity += 2
         after = {"result": "MATCH", "servedSha": sha, "expectedSha": sha, "identityGetsUsed": identity}
-        result = "FAIL" if any(r["result"] == "FAIL" for r in rows) else ("PASS" if executed == len(required) else "NOT RUN")
+        result = "FAIL" if any(r["result"] == "FAIL" for r in rows) else ("PASS" if all(r["result"] == "PASS" for r in rows) else "NOT RUN")
         wjson(os.path.join(d, "case-result.json"), {"caseId": cid, "result": result, "assertions": rows, "evidenceDigests": digests, "contentSafe": True})
         cases.append({"caseId": cid, "result": result, "assertions": rows, "identityBefore": before, "identityAfter": after,
                       "executionReceipt": {"summarySha256": sha256_file(os.path.join(d, "summary.json"))},
