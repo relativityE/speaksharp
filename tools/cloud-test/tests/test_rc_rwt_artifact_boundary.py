@@ -51,7 +51,7 @@ class RwtArtifactBoundary(unittest.TestCase):
         with self.assertRaises(AssertionError):
             assert_upload_boundary(self, changed)
 
-    def test_frontend_binding_is_separate_from_workflow_source_for_only_aht15(self):
+    def test_frontend_binding_requires_closed_rwt_source_compatibility_guard(self):
         steps = self.workflow["jobs"]["gate-3-dast"]["steps"]
         bindings = []
         for name, key in (("Classify Gate 3 evidence target", "EXPECTED_RELEASE_SHA"),
@@ -60,12 +60,12 @@ class RwtArtifactBoundary(unittest.TestCase):
             step = next(s for s in steps if s.get("name") == name)
             bindings.append(step["env"][key])
         self.assertEqual(len(set(bindings)), 1)
-        self.assertIn(SPEC, bindings[0])
         self.assertIn("github.event.inputs.diagnostic_release_sha || github.sha", bindings[0])
-        guard = next(s for s in steps if s.get("name") == "Validate bounded AHT15 release selection")
-        self.assertIn("!= '" + SPEC + "'", guard["run"])
-        self.assertIn("^[0-9a-f]{40}$", guard["run"])
-        self.assertIn("exit 1", guard["run"])
+        guard = next(s for s in steps if s.get("name") == "Validate bounded RWT release selection")
+        self.assertEqual(guard["run"], "node tools/cloud-test/scripts/validate_rwt_release_binding.cjs")
+        self.assertEqual(guard["env"]["SELECTED_GATE"], "${{ github.event.inputs.gate }}")
+        self.assertEqual(guard["env"]["DIAGNOSTIC_GREP"], "${{ github.event.inputs.diagnostic_dast_grep }}")
+        self.assertLess(steps.index(guard), next(i for i,s in enumerate(steps) if s.get("uses") == "./.github/actions/setup-environment"))
         comparison = next(s for s in self.workflow["jobs"]["comparison-authorization"]["steps"] if s.get("name") == "Authorize one comparison cell (exact release, Production, repository owner)")
         self.assertEqual(comparison["env"]["EXPECTED_RELEASE_SHA"], "${{ github.sha }}")
 
