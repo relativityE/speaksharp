@@ -2,6 +2,7 @@ import type { Page, Response } from 'playwright';
 import { randomUUID } from 'node:crypto';
 import { assertServedRelease, sha256, type SourceBinding } from './source-binding';
 import { LIVE_INTERIM, LIVE_TRANSCRIPT, SESSION_SHELL, SESSION_STATE_ATTR } from '../../tests/helpers/micControls';
+import { CANDIDATES, type CandidateId } from '../../frontend/src/services/transcription/candidateRegistry';
 
 export interface ProductEvidenceBinding {
   source: SourceBinding;
@@ -28,7 +29,8 @@ export interface ProductTimeline {
   failures: string[];
 }
 
-type TextReceipt = { sessionSha256: string; transcriptSha256: string; product?: string };
+type TextReceipt = { sessionSha256: string; transcriptSha256: string; product?: string;
+  attributionStatus?: string; engine?: string; engineVersion?: string; modelName?: string };
 export interface ProductEvidence {
   timeline: ProductTimeline | null;
   completion: TextReceipt[];
@@ -77,6 +79,21 @@ export function evaluateProductEvidence(binding: ProductEvidenceBinding, evidenc
   if (rows.length && rows.some(row => row.sessionSha256 !== rows[0].sessionSha256 || row.transcriptSha256 !== rows[0].transcriptSha256)) failures.push('saved_content_or_session_mismatch');
   if (timeline?.sessions.length && rows.some(row => !timeline.sessions.includes(row.sessionSha256))) failures.push('completion_not_recorded_take');
   if (evidence.persisted.some(row => row.product !== binding.journey)) failures.push('persisted_product_mismatch');
+  // These are persisted declared identity fields, not observed weight identity.
+  const candidate = Object.prototype.hasOwnProperty.call(CANDIDATES, binding.candidateId)
+    ? CANDIDATES[binding.candidateId as CandidateId] : null;
+  const variants: Record<string, string> = { 'transformers-js': 'private_v2', 'transformers-js-v4': 'private_v4',
+    'moonshine-streaming': 'private_moonshine', 'granite-ctc': 'private_granite', 'parakeet-tdt': 'private_parakeet' };
+  const modelName = candidate?.engine === 'transformers-js-v4' ? candidate.execution.variant
+    : candidate?.execution.localModelId ?? candidate?.model.id;
+  const engineVersion = candidate && modelName && variants[candidate.engine]
+    ? `${variants[candidate.engine]}:${modelName}` : null;
+  if (!candidate || !engineVersion) failures.push('persisted_candidate_identity_unsupported');
+  for (const row of evidence.persisted) {
+    if (!row.attributionStatus || !row.engine || !row.engineVersion || !row.modelName) holds.push('persisted_attribution_unavailable');
+    else if (row.attributionStatus !== 'verified') failures.push('persisted_attribution_unverified');
+    else if (row.engine !== 'private' || row.engineVersion !== engineVersion || row.modelName !== modelName) failures.push('persisted_candidate_identity_mismatch');
+  }
   return { verdict: failures.length ? 'FAIL' as const : holds.length ? 'HOLD' as const : 'PASS' as const,
     reasons: [...new Set([...failures, ...holds])], scope: 'Observed STT product take only; no coaching/provider or model-promotion qualification' };
 }
@@ -168,7 +185,11 @@ export async function attachProductEvidence(page: Page, binding: ProductEvidence
       for (const row of rows) {
         if (row && typeof row === 'object' && 'id' in row && 'transcript' in row && 'product' in row
           && typeof row.id === 'string' && typeof row.transcript === 'string' && row.transcript.length && typeof row.product === 'string') {
-          evidence.persisted.push({ sessionSha256: sha256(row.id), transcriptSha256: sha256(row.transcript), product: row.product });
+          const field = (key: string) => key in row && typeof (row as Record<string, unknown>)[key] === 'string'
+            ? (row as Record<string, string>)[key] : undefined;
+          evidence.persisted.push({ sessionSha256: sha256(row.id), transcriptSha256: sha256(row.transcript), product: row.product,
+            attributionStatus: field('attribution_status'), engine: field('engine'),
+            engineVersion: field('engine_version'), modelName: field('model_name') });
         }
       }
     }

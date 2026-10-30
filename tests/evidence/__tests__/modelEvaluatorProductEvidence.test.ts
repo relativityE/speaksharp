@@ -11,17 +11,44 @@ const text = 'synthetic final content';
 const source = { head: 'a'.repeat(40), tree: 'b'.repeat(40), lockSha256: 'c'.repeat(64), worktreeSha256: 'd'.repeat(64), files: [] };
 const binding: ProductEvidenceBinding = { source, candidateId: 'v2:base.en', backend: 'wasm', journey: 'open_mic', fixtureWavSha256: 'e'.repeat(64) };
 const receipt = () => ({ sessionSha256: sha256(session), transcriptSha256: sha256(text) });
+const attribution = { attributionStatus: 'verified', engine: 'private', engineVersion: 'private_v2:whisper-base.en', modelName: 'whisper-base.en' };
 function observations(): ProductEvidence {
   return { timeline: { release: source.head, startMs: 10, stopMs: 100, playbackStartMs: 20,
     partials: [{ atMs: 40, sha256: sha256('synthetic partial'), chars: 17 }],
     sessions: [sha256(session)], captures: [sha256('capture')], candidates: ['v2:base.en'], backends: ['wasm'],
     focusChanges: [{ index: 0, status: 'covered', atMs: 50 }], finalFocus: ['covered'], failures: [] },
-    completion: [receipt()], persisted: [{ ...receipt(), product: 'open_mic' }], reopened: receipt(), failures: [] };
+    completion: [receipt()], persisted: [{ ...receipt(), ...attribution, product: 'open_mic' }], reopened: receipt(), failures: [] };
 }
 
 afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; document.documentElement.removeAttribute('data-runtime-state'); window.history.replaceState({}, '', '/'); });
 
 describe('passive product evidence', () => {
+  it.each([
+    ['granite:turboctc-q4f16', 'webgpu', 'private_granite', 'ibm-granite/granite-speech-5.0-470m-turboctc'],
+    ['parakeet:tdt-v3:int8', 'wasm', 'private_parakeet', 'nvidia/parakeet-tdt-0.6b-v3'],
+  ] as const)('binds verified persisted identity to %s rather than browser diagnostics alone', (candidateId, backend, variant, modelName) => {
+    const selected = { ...binding, candidateId, backend };
+    const evidence = observations();
+    evidence.timeline!.candidates = [candidateId]; evidence.timeline!.backends = [backend];
+    expect(evaluateProductEvidence(selected, evidence)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_candidate_identity_mismatch'] });
+    Object.assign(evidence.persisted[0], { modelName, engineVersion: `${variant}:${modelName}` });
+    expect(evaluateProductEvidence(selected, evidence).verdict).toBe('PASS');
+    evidence.persisted[0].attributionStatus = 'pending';
+    expect(evaluateProductEvidence(selected, evidence)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_attribution_unverified'] });
+  });
+
+  it('refuses saved text with missing, pending, unverified or mismatched persisted attribution', () => {
+    const absent = observations(); delete absent.persisted[0].attributionStatus;
+    expect(evaluateProductEvidence(binding, absent)).toMatchObject({ verdict: 'HOLD', reasons: ['persisted_attribution_unavailable'] });
+    for (const status of ['pending', 'unverified', 'legacy_unknown']) {
+      const unverified = observations(); unverified.persisted[0].attributionStatus = status;
+      expect(evaluateProductEvidence(binding, unverified)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_attribution_unverified'] });
+    }
+    for (const field of ['engine', 'engineVersion', 'modelName'] as const) {
+      const mismatch = observations(); mismatch.persisted[0][field] = 'other';
+      expect(evaluateProductEvidence(binding, mismatch)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_candidate_identity_mismatch'] });
+    }
+  });
   it('requires actual partial-before-Stop and matching completion, persisted product and reopened content', () => {
     expect(evaluateProductEvidence(binding, observations()).verdict).toBe('PASS');
     const missing = observations(); missing.timeline!.partials = [{ atMs: 110, sha256: sha256('late final'), chars: 10 }];
@@ -75,7 +102,8 @@ describe('passive product evidence', () => {
     events.emit('response', { url: () => 'https://api.example.invalid/rest/v1/sessions?select=*', ok: () => true,
       request: () => ({ method: () => 'GET' }), json: unrelatedHistory } as unknown as Response);
     events.emit('response', { url: () => 'https://api.example.invalid/rest/v1/sessions?id=eq.' + session, ok: () => true,
-      request: () => ({ method: () => 'GET' }), json: async () => [{ id: session, transcript: text, product: 'open_mic' }] } as unknown as Response);
+      request: () => ({ method: () => 'GET' }), json: async () => [{ id: session, transcript: text, product: 'open_mic',
+        attribution_status: 'verified', engine: 'private', engine_version: 'private_v2:whisper-base.en', model_name: 'whisper-base.en' }] } as unknown as Response);
     window.history.replaceState({}, '', '/progress/' + session);
     // Repository setup replaces location with a static navigation double; advance its observed route too.
     vi.stubGlobal('location', { ...window.location, pathname: '/progress/' + session });
@@ -85,6 +113,7 @@ describe('passive product evidence', () => {
     const report = await collector.finish();
     expect(report.productProof.reasons).toEqual([]);
     expect(report.productProof.verdict).toBe('PASS');
+    expect(report.evidence.persisted[0]).toMatchObject(attribution);
     expect(report.evidence.timeline!.partials[0].sha256).toBe(sha256('private synthetic interim'));
     expect(JSON.stringify(report)).not.toContain('private synthetic interim');
     expect(JSON.stringify(report)).not.toContain(text);

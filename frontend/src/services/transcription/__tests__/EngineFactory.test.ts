@@ -59,9 +59,16 @@ describe('EngineFactory', () => {
                 await expect(EngineFactory.create('private', mockConfig, PROD_FREE_POLICY)).resolves.toBeDefined();
                 expect(privateWhisperMock).toHaveBeenCalledWith({
                     ...mockConfig,
-                    forceEngine: provider.id,
                 });
             }
+        });
+
+        it('preserves a caller override without manufacturing one from provider defaults', async () => {
+            const explicit = { ...mockConfig, forceEngine: 'transformers-js-v4' } as TranscriptionModeOptions;
+            await EngineFactory.create('private', explicit, PROD_FREE_POLICY);
+            expect(privateWhisperMock).toHaveBeenCalledWith(explicit);
+            await EngineFactory.create('private', mockConfig, PROD_FREE_POLICY);
+            expect(privateWhisperMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('forceEngine');
         });
 
 
