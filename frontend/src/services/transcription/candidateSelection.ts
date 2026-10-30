@@ -230,25 +230,16 @@ export function effectiveCandidate(
  * an encoder and differ only in decoder precision, so anything inferred from the id alone cannot tell
  * them apart — which is the shape of the defect that once recorded an int8 session as q4.
  */
-const V4_VARIANT: Readonly<Partial<Record<CandidateId, PrivSttV4VariantId>>> = Object.freeze({
-    'v4:base:q4': 'base_q4',
-    'v4:distil:q4': 'distil_q4',
-    // 'v4:base:int8' is DELIBERATELY ABSENT. It is a benchmark arm: `PRIV_STT_V4_VARIANTS` registers no
-    // int8 variant, so the engine has no way to load one. Mapping it to base_q4 to "make it work" is
-    // precisely the defect this module exists to prevent — the session would run q4 and be recorded as
-    // int8, and a comparison between them would be a model against itself.
-});
-
 export function v4VariantFor(candidate: Candidate): PrivSttV4VariantId {
-    const v = V4_VARIANT[candidate.id];
-    if (!v) {
+    const v = candidate.execution.variant;
+    if (candidate.engine !== 'transformers-js-v4' || !candidate.execution.implemented || !v) {
         throw new UnknownCandidateError(
             `candidate "${candidate.id}" has no v4 RUNTIME variant, so the engine cannot load it. `
             + 'It is registered for benchmarking only. Selecting it would run a different model under '
             + 'this id; configure a candidate the runtime can actually instantiate.',
         );
     }
-    return v;
+    return v as PrivSttV4VariantId;
 }
 
 /** A candidate that requires an accelerator this device does not have. */

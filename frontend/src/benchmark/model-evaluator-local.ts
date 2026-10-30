@@ -1,11 +1,8 @@
 /** Dev-server-only PCM seam. This HTML is not a Vite production build input. */
-import { TransformersJSV4Engine } from '@/services/transcription/engines/TransformersJSV4Engine';
-import { MoonshineStreamingEngine } from '@/services/transcription/engines/MoonshineStreamingEngine';
+import { PrivateSTT } from '@/services/transcription/engines/PrivateSTT';
 import { CANDIDATES, type CandidateId } from '@/services/transcription/candidateRegistry';
-import type { TranscriptionModeOptions } from '@/services/transcription/modes/types';
 
-type ArmId = 'v4:base:q4' | 'v4:distil:q4' | 'moonshine:streaming-medium';
-type Engine = TransformersJSV4Engine | MoonshineStreamingEngine;
+type ArmId = CandidateId;
 
 type HarnessState = {
   candidateId: ArmId | null;
@@ -35,65 +32,88 @@ const state: HarnessState = {
   candidateId: null, decodedCount: 0, lastInputSha256: null, lastTranscript: null, runtime: null,
   workerAcquisition: null,
 };
-let engine: Engine | null = null;
+let engine: PrivateSTT | null = null;
+let generation = 0;
+// A newer initialization must await release, including a failed/uncertain release.
+let retirement: Promise<void> = Promise.resolve();
 
-async function dispose(): Promise<void> {
-  await engine?.terminate();
+function retireCurrentEngine(): Promise<void> {
+  const retiring = engine;
   engine = null;
   state.candidateId = null;
+  state.decodedCount = 0;
   state.lastInputSha256 = null;
   state.lastTranscript = null;
   state.runtime = null;
   state.workerAcquisition = null;
+  if (retiring) {
+    retirement = Promise.all([retirement, retiring.terminate()]).then(() => undefined);
+  }
+  return retirement;
+}
+
+function assertCurrentEngine(selected: PrivateSTT, selectedGeneration: number): void {
+  if (generation !== selectedGeneration || engine !== selected) {
+    throw new Error('evaluator operation superseded');
+  }
+}
+
+async function dispose(): Promise<void> {
+  generation++;
+  await retireCurrentEngine();
 }
 
 async function initialize(candidateId: ArmId, backend: 'wasm' | 'webgpu'): Promise<HarnessState> {
-  if (!(['v4:base:q4', 'v4:distil:q4', 'moonshine:streaming-medium'] as string[]).includes(candidateId)) {
+  if (!Object.prototype.hasOwnProperty.call(CANDIDATES, candidateId)) {
     throw new Error(`unsupported model evaluator candidate: ${candidateId}`);
   }
+  const candidate = CANDIDATES[candidateId];
   if ((backend !== 'wasm' && backend !== 'webgpu') ||
-      (candidateId === 'moonshine:streaming-medium' && backend !== 'wasm')) {
+      (candidate.model.device === 'wasm' && backend !== 'wasm')) {
     throw new Error('unsupported model evaluator backend');
   }
-  if (engine) await dispose();
-  const candidate = CANDIDATES[candidateId as CandidateId];
-  if (candidate.engine === 'transformers-js-v4') {
-    const v4Variant = candidateId === 'v4:distil:q4' ? 'distil_q4' : 'base_q4';
-    const options: TranscriptionModeOptions & {
-      v4Variant: typeof v4Variant; evaluatorCandidateId: ArmId; evaluatorBackend: typeof backend;
-    } = {
-      v4Variant, evaluatorCandidateId: candidateId, evaluatorBackend: backend,
-      onTranscriptUpdate: () => {}, onReady: () => {},
-    };
-    engine = new TransformersJSV4Engine(options);
-  } else {
-    engine = new MoonshineStreamingEngine({
-      candidateId: 'moonshine:streaming-medium', modelArch: 'MOONSHINE_STREAMING_MEDIUM',
-    });
+  const selectedGeneration = ++generation;
+  await retireCurrentEngine();
+  if (generation !== selectedGeneration) throw new Error('evaluator initialization superseded');
+  const selected = new PrivateSTT({
+    evaluatorCandidateId: candidateId, evaluatorBackend: backend,
+    onTranscriptUpdate: () => {}, onReady: () => {},
+  });
+  engine = selected;
+  try {
+    const result = await selected.init();
+    assertCurrentEngine(selected, selectedGeneration);
+    if (!result.isOk) throw result.error;
+    if (selected.getMetadata().candidateId !== candidateId) throw new Error('Facade initialized a different candidate');
+    const evidence = selected.getExecutionEvidence();
+    state.candidateId = candidateId;
+    state.decodedCount = 0;
+    state.runtime = evidence.runtime;
+    state.workerAcquisition = evidence.workerAcquisition;
+    return { ...state };
+  } catch (error) {
+    // A later initialize/dispose already owns a superseded instance's release.
+    if (generation === selectedGeneration && engine === selected) await retireCurrentEngine();
+    throw error;
   }
-  const result = await engine.init();
-  if (!result.isOk) throw result.error;
-  state.candidateId = candidateId;
-  state.decodedCount = 0;
-  state.runtime = candidate.engine === 'transformers-js-v4'
-    ? (window as unknown as { __PRIVATE_V4_RUNTIME__?: unknown }).__PRIVATE_V4_RUNTIME__ ?? null
-    : (engine as MoonshineStreamingEngine).getMetadata();
-  state.workerAcquisition = engine instanceof TransformersJSV4Engine
-    ? engine.getAcquisitionReceipt() : null;
-  return { ...state };
 }
 
 async function decodePcmBase64(value: string): Promise<{ transcript: string; inputSha256: string }> {
-  if (!engine || !state.candidateId) throw new Error('evaluator engine is not initialized');
+  const selected = engine;
+  const candidateId = state.candidateId;
+  const selectedGeneration = generation;
+  if (!selected || !candidateId) throw new Error('evaluator engine is not initialized');
   const binary = atob(value);
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   if (!bytes.length || bytes.byteLength % 4 !== 0) throw new Error('invalid Float32 PCM payload');
   const pcm = new Float32Array(bytes.buffer);
   const digest = await crypto.subtle.digest('SHA-256', bytes.buffer);
+  assertCurrentEngine(selected, selectedGeneration);
+  if (state.candidateId !== candidateId) throw new Error('evaluator candidate changed before decode');
   const inputSha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-  const result = engine instanceof MoonshineStreamingEngine
-    ? await engine.transcribe(pcm, { final: true })
-    : await engine.transcribe(pcm);
+  const result = await selected.transcribe(pcm, { final: true });
+  assertCurrentEngine(selected, selectedGeneration);
+  if (state.candidateId !== candidateId) throw new Error('evaluator candidate changed during decode');
   if (!result.isOk) throw result.error;
   state.decodedCount += 1;
   state.lastInputSha256 = inputSha256;

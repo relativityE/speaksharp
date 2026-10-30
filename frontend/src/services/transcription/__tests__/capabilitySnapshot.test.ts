@@ -38,7 +38,7 @@ describe('one snapshot, taken once', () => {
             webgpuPromotionAllowed: false,
             turboModelCached: false,
             capabilities: { webgpuAvailable: true },
-            v4: { enabled: true, distilEnabled: false, variant: 'distil_q4', allowWithoutWebGPU: false },
+            v4: { enabled: true, variant: 'distil_q4', allowWithoutWebGPU: false },
         });
         expect(decision.provider, 'a v4 request must not resolve to the v2 provider').toBe('transformers-js-v4');
         expect(decision.v4Variant).toBe('distil_q4');
@@ -52,7 +52,7 @@ describe('one snapshot, taken once', () => {
             webgpuPromotionAllowed: false,
             turboModelCached: false,
             capabilities: { webgpuAvailable: false },
-            v4: { enabled: true, distilEnabled: false, variant: 'distil_q4', allowWithoutWebGPU: false },
+            v4: { enabled: true, variant: 'distil_q4', allowWithoutWebGPU: false },
         });
         expect(decision.provider).toBe('transformers-js');
         expect(decision.webgpuAvailable).toBe(false);

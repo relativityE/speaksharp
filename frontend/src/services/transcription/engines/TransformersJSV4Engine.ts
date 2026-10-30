@@ -1,4 +1,5 @@
 import { activeCandidate, effectiveCandidate, v4VariantFor } from '../candidateSelection';
+import { CANDIDATES, type Candidate } from '../candidateRegistry';
 /**
  * ============================================================================
  * TRANSFORMERS.JS V4 ENGINE
@@ -10,16 +11,16 @@ import { activeCandidate, effectiveCandidate, v4VariantFor } from '../candidateS
  */
 
 import { Result, TranscriptionModeOptions } from '@/services/transcription/modes/types';
-import { EngineType } from '@/contracts/IPrivateSTTEngine';
+import { EngineType, type PrivateRuntimeEvidence } from '@/contracts/IPrivateSTTEngine';
 import { MicStream } from '@/services/transcription/utils/types';
 
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
-import { readPrivateDecodeOptionsOverride, V4_ANTI_LOOP_DECODE_DEFAULTS } from '@/services/transcription/engines/whisperDecodeOptions';
+import { readPrivateDecodeOptionsOverride } from '@/services/transcription/engines/whisperDecodeOptions';
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
-import { buildShippingDecodeOptions } from '../decodeOptions';
+import { buildWhisperDecodeOptions } from '../decodeOptions';
 import v4WorkerUrl from './transformers-js-v4.worker.ts?worker&url';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
@@ -89,38 +90,44 @@ function summarizeRawResult(result: unknown): UnknownRecord {
     return summary;
 }
 
-function getV4AsrOptions(modelId: string, audioLengthSeconds: number, decodeOptions?: Record<string, unknown>): Record<string, unknown> {
-    const options: Record<string, unknown> = {
-        // #1304: shared with the v2 product path and the A1 harness — see decodeOptions.ts.
-        ...buildShippingDecodeOptions(audioLengthSeconds),
-        // Conservative anti-loop generation defaults (F2). Overridable by the proof hook below.
-        ...V4_ANTI_LOOP_DECODE_DEFAULTS,
-    };
-
-    // Decide language off the model ACTUALLY loaded (base_q4→whisper-base.en, distil_q4→distil-small.en),
-    // not the legacy PRIV_STT_V4.MODEL_ID constant. `.en` models are English-only and must NOT set language.
-    if (!modelId.endsWith('.en')) {
-        options.language = 'en';
-        options.task = 'transcribe';
-    }
-
-    if (decodeOptions) {
-        Object.assign(options, decodeOptions);
-    }
-
-    return options;
-}
-
 export class TransformersJSV4Engine extends STTEngine {
     public readonly type: EngineType = 'transformers-js-v4';
     private transcriber: Pipeline | null = null;
     private worker: Worker | null = null;
     private workerRequestId: number = 0;
+    private activeLoadRequestId: number | null = null;
     private pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
     private lastModelProgress: number = -1;
     // The v4 model id this engine actually loaded (base_q4→whisper-base.en, distil_q4→distil-small.en).
     // Source of truth for the ASR language decision — never the dead PRIV_STT_V4.MODEL_ID constant.
-    private v4ModelId: string = PRIV_STT_V4_VARIANTS[PRIV_STT_V4_DEFAULT_VARIANT].MODEL_ID;
+    private runtimeEvidence: PrivateRuntimeEvidence & {
+        resolvedDevice: string; backend: string; dtype: unknown; modelId: string;
+        modelSource: 'hf'; fallbackOccurred: boolean;
+    } | null = null;
+
+    public getRuntimeEvidence(): PrivateRuntimeEvidence | null { return this.runtimeEvidence; }
+
+    private resolvedCandidate(): Candidate {
+        const options = this.options as TranscriptionModeOptions & {
+            resolvedCandidate?: Candidate; evaluatorCandidateId?: string; v4Variant?: string;
+        };
+        if (options.resolvedCandidate) return options.resolvedCandidate;
+        if (options.evaluatorCandidateId) {
+            return effectiveCandidate({ candidate: options.evaluatorCandidateId, acknowledgeNotProductionReady: true }).candidate;
+        }
+        // Compatibility for direct engine diagnostics. Product construction always supplies its frozen descriptor.
+        const variant = options.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT;
+        const candidate = Object.values(CANDIDATES).find((entry) =>
+            entry.engine === 'transformers-js-v4' && entry.execution.variant === variant);
+        if (!candidate) throw new Error('No registered Whisper descriptor matches the requested runtime variant');
+        return candidate;
+    }
+
+    private decodeOptions(audioLengthSeconds: number): Record<string, unknown> {
+        const profile = this.resolvedCandidate().execution.decode;
+        if (profile.kind !== 'whisper') throw new Error('Whisper adapter requires a Whisper decode profile');
+        return buildWhisperDecodeOptions(profile, audioLengthSeconds, readPrivateDecodeOptionsOverride());
+    }
 
     constructor(options?: TranscriptionModeOptions) {
         super(options);
@@ -150,7 +157,6 @@ export class TransformersJSV4Engine extends STTEngine {
             DTYPE: baseVariant.DTYPE,
             EXPECTED_SPLIT_DOWNLOAD_MB: baseVariant.EXPECTED_SPLIT_DOWNLOAD_MB,
         };
-        this.v4ModelId = v4Model.MODEL_ID;
         if (this.transcriber || this.worker) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJSV4] Engine already initialized, skipping.');
             options.onReady?.();
@@ -182,10 +188,7 @@ export class TransformersJSV4Engine extends STTEngine {
                 if (evaluatorBackend !== undefined && evaluatorBackend !== 'wasm' && evaluatorBackend !== 'webgpu') {
                     throw new Error('unsupported evaluator backend');
                 }
-                const selected = effectiveCandidate({
-                    candidate: evaluatorCandidateId,
-                    acknowledgeNotProductionReady: true,
-                }).candidate;
+                const selected = this.resolvedCandidate();
                 if (selected.id !== evaluatorCandidateId || selected.model.id !== v4Model.MODEL_ID ||
                     v4VariantFor(selected) !== variant) {
                     throw new Error('evaluator candidate, loaded v4 variant, or safety selection differs');
@@ -195,7 +198,8 @@ export class TransformersJSV4Engine extends STTEngine {
                 if (!useWorker) throw new Error('evaluator v4 candidate requires the worker path');
             }
             if (useWorker) {
-                await this.initWorker(isMock, v4Model, evaluatorBackend);
+                const requestedDevice = evaluatorBackend ?? this.resolvedCandidate().model.device ?? undefined;
+                await this.initWorker(isMock, v4Model, requestedDevice);
                 options.onModelLoadProgress?.(100);
                 this.updateHeartbeat();
                 options.onReady?.();
@@ -244,7 +248,7 @@ export class TransformersJSV4Engine extends STTEngine {
              */
             const candidateDevice = (() => {
                 try {
-                    const c = activeCandidate();
+                    const c = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate ?? activeCandidate();
                     return c.engine === 'transformers-js-v4' ? c.model.device ?? null : null;
                 } catch {
                     // An unresolvable config must not silently pick a device; fall through to the default.
@@ -312,6 +316,8 @@ export class TransformersJSV4Engine extends STTEngine {
                 reject(e);
             });
             this.pendingWorkerRequests.clear();
+            this.activeLoadRequestId = null;
+            this.runtimeEvidence = null;
             return Result.err(e);
         }
     }
@@ -341,6 +347,8 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     protected async onDestroy(): Promise<void> {
+        this.activeLoadRequestId = null;
+        this.runtimeEvidence = null;
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJSV4] Destroying engine resources...');
         this.transcriber = null;
         if (this.worker) {
@@ -375,7 +383,8 @@ export class TransformersJSV4Engine extends STTEngine {
             if (this.worker) {
                 const workerAudio = audio.slice(0);
                 const response = await this.sendWorkerRequest(
-                    { type: 'transcribe', audio: workerAudio, decodeOptions: readPrivateDecodeOptionsOverride() },
+                    { type: 'transcribe', audio: workerAudio,
+                        decodeOptions: this.decodeOptions(samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ)) },
                     [workerAudio.buffer],
                 );
                 if (response.type !== 'result') {
@@ -422,7 +431,7 @@ export class TransformersJSV4Engine extends STTEngine {
             }
 
             const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
-            const options = getV4AsrOptions(this.v4ModelId, audioLengthSeconds, readPrivateDecodeOptionsOverride());
+            const options = this.decodeOptions(audioLengthSeconds);
 
             const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
 
@@ -501,23 +510,28 @@ export class TransformersJSV4Engine extends STTEngine {
         this.worker = new Worker(v4WorkerUrl, { type: 'module' });
         // #1259: delegated to a NAMED method so the receipt-acceptance decision can be driven
         // directly by test. An inline closure can only be exercised by constructing a real Worker.
-        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.handleWorkerMessage(event.data, v4Model);
+        const currentWorker = this.worker;
+        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+            if (this.worker !== currentWorker) return;
+            this.handleWorkerMessage(event.data, v4Model);
+        };
         this.worker.onerror = (event) => {
+            if (this.worker !== currentWorker) return;
             const error = new Error(event.message || 'TransformersJSV4 worker failed.');
             this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
                 clearTimeout(timeoutId);
                 reject(error);
             });
             this.pendingWorkerRequests.clear();
+            this.activeLoadRequestId = null;
+            this.runtimeEvidence = null;
         };
 
         // MINTED BEFORE ANYTHING IS FETCHED, from the candidate frozen at this instant.
         // The internal evaluator names an explicit candidate without changing the product config.
         // effectiveCandidate still enforces the internal-build acknowledgement and safety kill.
         const evaluatorCandidateId = (this.options as { evaluatorCandidateId?: string })?.evaluatorCandidateId;
-        const candidateForAttempt = evaluatorCandidateId
-            ? effectiveCandidate({ candidate: evaluatorCandidateId, acknowledgeNotProductionReady: true }).candidate
-            : effectiveCandidate().candidate;
+        const candidateForAttempt = this.resolvedCandidate();
         if (evaluatorCandidateId && (candidateForAttempt.id !== evaluatorCandidateId ||
             candidateForAttempt.model.id !== v4Model.MODEL_ID ||
             v4VariantFor(candidateForAttempt) !== (this.options as { v4Variant?: string })?.v4Variant)) {
@@ -527,6 +541,7 @@ export class TransformersJSV4Engine extends STTEngine {
         this.activeAttempt = attempt;
         this.settledAttempt = attempt;
         this.acquisitionReceipt = null;
+        this.runtimeEvidence = null;
         let response;
         try {
             response = await this.sendWorkerRequest({
@@ -547,6 +562,12 @@ export class TransformersJSV4Engine extends STTEngine {
         if (response.type !== 'ready') {
             throw new Error(`Unexpected TransformersJSV4 worker init response: ${response.type}`);
         }
+        const observed = this.getRuntimeEvidence();
+        if (!isMock && (!observed || observed.modelId !== v4Model.MODEL_ID
+            || observed.fallbackOccurred
+            || (deviceOverride && observed.backend !== deviceOverride))) {
+            throw new Error('Whisper worker execution differs from the requested model/backend');
+        }
     }
 
 
@@ -561,6 +582,10 @@ export class TransformersJSV4Engine extends STTEngine {
             }
 
             if (response.type === 'loaded') {
+                // Loaded precedes ready on the same init request. Receipt presence is irrelevant
+                // for cached loads; request ownership and single publication are mandatory.
+                if (response.id !== this.activeLoadRequestId ||
+                    !this.pendingWorkerRequests.has(response.id) || this.runtimeEvidence !== null) return;
                 // ACCEPTED ONLY IF IT IS THIS ATTEMPT'S, and only once. A receipt from a superseded load
                 // — a candidate switch, a retry, a torn-down worker answering late — describes a
                 // different acquisition, and attributing its numbers here is how model selection would
@@ -590,8 +615,17 @@ export class TransformersJSV4Engine extends STTEngine {
                 // window.__PRIVATE_V4_RUNTIME__ (see sttIdentity.ts / sttEvidenceCollector.ts) — this is
                 // the missing WRITER, so the actual device/backend the worker resolved is observable
                 // instead of always "NOT_AVAILABLE". Diagnostic only; never gates product behavior.
+                const rawDevice = response.device;
+                this.runtimeEvidence = {
+                    initSucceeded: true,
+                    resolvedDevice: rawDevice,
+                    backend: rawDevice.toLowerCase().includes('webgpu') ? 'webgpu' : 'wasm',
+                    dtype: v4Model.DTYPE,
+                    modelId: response.model,
+                    modelSource: 'hf',
+                    fallbackOccurred: rawDevice === 'wasm-fallback',
+                };
                 if (typeof window !== 'undefined') {
-                    const rawDevice = response.device;
                     (window as unknown as { __PRIVATE_V4_RUNTIME__?: {
                         resolvedDevice?: string;
                         backend?: string;
@@ -625,6 +659,10 @@ export class TransformersJSV4Engine extends STTEngine {
             const pending = this.pendingWorkerRequests.get(response.id);
             if (!pending) return;
             this.pendingWorkerRequests.delete(response.id);
+            if (response.id === this.activeLoadRequestId) {
+                this.activeLoadRequestId = null;
+                if (response.type === 'error') this.runtimeEvidence = null;
+            }
             clearTimeout(pending.timeoutId);
 
             if (response.type === 'error') {
@@ -656,10 +694,18 @@ export class TransformersJSV4Engine extends STTEngine {
         }
 
         const id = ++this.workerRequestId;
+        if (request.type === 'init') {
+            this.activeLoadRequestId = id;
+            this.runtimeEvidence = null;
+        }
         return new Promise((resolve, reject) => {
             const timeoutId = setTimeout(() => {
                 if (!this.pendingWorkerRequests.has(id)) return;
                 this.pendingWorkerRequests.delete(id);
+                if (this.activeLoadRequestId === id) {
+                    this.activeLoadRequestId = null;
+                    this.runtimeEvidence = null;
+                }
                 reject(new Error(`TransformersJSV4 worker request timed out after ${PRIV_STT_V4.WORKER_REQUEST_TIMEOUT_MS}ms (${request.type}).`));
             }, PRIV_STT_V4.WORKER_REQUEST_TIMEOUT_MS);
             this.pendingWorkerRequests.set(id, { resolve, reject, timeoutId });

@@ -31,10 +31,10 @@ interface RawPin { sha256: string; bytes: number; url: string }
  * wrong subset would load a coherent set of files for a model nobody asked for — which the digest check
  * would then happily confirm.
  */
-export function pinnedAssetsFor(modelId: string): PinnedAsset[] {
+export function pinnedAssetsFor(modelId: string, pinKeyPrefix?: string): PinnedAsset[] {
     const assets = (PINS as { assets: Record<string, RawPin> }).assets;
     const mine = Object.entries(assets)
-        .filter(([key]) => key.includes(modelId))
+        .filter(([key]) => pinKeyPrefix ? key.startsWith(pinKeyPrefix) : key.includes(modelId))
         .map(([key, pin]) => ({ file: key.split('/').pop()!, url: pin.url, sha256: pin.sha256, bytes: pin.bytes }));
     if (mine.length === 0) {
         throw new Error(`no committed asset pins for model ${modelId}; refusing to fetch unpinned bytes`);

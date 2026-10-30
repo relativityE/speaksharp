@@ -50,6 +50,8 @@ const loaded = (acquisition: AcquisitionReceipt | null) => ({
 });
 
 type V4Private = {
+    activeLoadRequestId: number | null;
+    pendingWorkerRequests: Map<number, unknown>;
     handleWorkerMessage: (r: unknown, m: unknown) => void;
     activeAttempt: { token: string; candidateId: string } | null;
     acquisitionReceipt: AcquisitionReceipt | null;
@@ -66,6 +68,8 @@ const deliver = (msg: unknown) => engine.handleWorkerMessage(msg, V4_MODEL);
 
 beforeEach(() => {
     engine = new TransformersJSV4Engine({} as never) as unknown as V4Private;
+    engine.activeLoadRequestId = 1;
+    engine.pendingWorkerRequests = new Map([[1, {}]]);
     engine.acquisitionReceipt = null;
     engine.activeAttempt = null;
 });

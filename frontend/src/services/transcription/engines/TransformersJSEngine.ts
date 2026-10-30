@@ -15,19 +15,21 @@
  */
 
 import { Result, TranscriptionModeOptions } from '@/services/transcription/modes/types';
-import { EngineType } from '@/contracts/IPrivateSTTEngine';
+import { EngineType, type PrivateRuntimeEvidence } from '@/contracts/IPrivateSTTEngine';
 import { MicStream } from '@/services/transcription/utils/types';
 
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
 import { STTEngine } from '@/contracts/STTEngine';
-import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
-import { resolvePrivateModel, publishPrivateModelTelemetry } from '../utils/privateModelFlag';
+import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
+import { publishPrivateModelTelemetry } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 import { acquisitionComponentGroupsFor, acquisitionScopeFor } from '../candidateAssetRequests';
 import { effectiveCandidate } from '../candidateSelection';
+import type { Candidate } from '../candidateRegistry';
+import { buildWhisperDecodeOptions } from '../decodeOptions';
 import {
     mintAcquisitionAttempt, receiptMatches,
     type AcquisitionAttempt, type AcquisitionReceipt,
@@ -201,7 +203,20 @@ export class TransformersJSEngine extends STTEngine {
     private transcriber: Pipeline | null = null;
     private worker: Worker | null = null;
     private workerRequestId: number = 0;
+    private activeLoadRequestId: number | null = null;
     private pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
+
+    private resolvedModel() {
+        const candidate = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate
+            ?? effectiveCandidate().candidate;
+        const localId = candidate.execution.localModelId;
+        if (candidate.engine !== 'transformers-js' || !localId ||
+            candidate.assets.provenance !== 'self_hosted') {
+            throw new Error('Xenova Whisper requires an explicit self-hosted descriptor');
+        }
+        return { key: localId, localId, remoteId: candidate.model.id,
+            approxMB: candidate.execution.expectedDownloadMb ?? 0 };
+    }
 
     private async warmUpTranscriber(): Promise<void> {
         if (!this.transcriber || ENV.isTest || ENV.isE2E) return;
@@ -311,8 +326,7 @@ export class TransformersJSEngine extends STTEngine {
 
             // Selected-model-aware: honor the resolved Private model's LOCAL asset dir (base.en default /
             // tiny.en fallback), not a hardcoded model — mirrors the worker path.
-            const selectedModel = resolvePrivateModel();
-            const localModelId = PRIV_STT_MODELS.CANDIDATES[selectedModel].localId;
+            const localModelId = this.resolvedModel().localId;
             const loadStart = performance.now();
             try {
                 this.transcriber = await pipeline(
@@ -401,6 +415,8 @@ export class TransformersJSEngine extends STTEngine {
                 reject(e);
             });
             this.pendingWorkerRequests.clear();
+            this.activeLoadRequestId = null;
+            this.runtimeEvidence = null;
             return Result.err(e);
         }
     }
@@ -430,6 +446,8 @@ export class TransformersJSEngine extends STTEngine {
     }
 
     protected async onDestroy(): Promise<void> {
+        this.activeLoadRequestId = null;
+        this.runtimeEvidence = null;
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Destroying engine resources...');
         this.transcriber = null;
         if (this.worker) {
@@ -463,7 +481,12 @@ export class TransformersJSEngine extends STTEngine {
         try {
             if (this.worker) {
                 const workerAudio = audio.slice(0);
-                const decodeOptions = readPrivateDecodeOptionsOverride();
+                const candidate = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate
+                    ?? effectiveCandidate().candidate;
+                const profile = candidate.execution.decode;
+                if (profile.kind !== 'whisper') throw new Error('Whisper adapter requires a Whisper decode profile');
+                const decodeOptions = buildWhisperDecodeOptions(profile,
+                    samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ), readPrivateDecodeOptionsOverride());
                 const captureEvidence = window.__PRIVATE_V2_WORKER_EVIDENCE_ENABLED__ === true;
                 const response = await this.sendWorkerRequest(
                     { type: 'transcribe', audio: workerAudio, decodeOptions, captureEvidence },
@@ -519,18 +542,11 @@ export class TransformersJSEngine extends STTEngine {
 
             const start = performance.now();
             const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
-            const modelName = 'whisper-tiny.en';
-            const isEnglishOnly = modelName.endsWith('.en');
-            const options: Record<string, unknown> = {
-                chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
-                stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
-                return_timestamps: true,
-            };
-            Object.assign(options, readPrivateDecodeOptionsOverride());
-            if (!isEnglishOnly) {
-                options.task = 'transcribe';
-                options.language = 'english';
-            }
+            const candidate = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate
+                ?? effectiveCandidate().candidate;
+            const profile = candidate.execution.decode;
+            if (profile.kind !== 'whisper') throw new Error('Whisper adapter requires a Whisper decode profile');
+            const options = buildWhisperDecodeOptions(profile, audioLengthSeconds, readPrivateDecodeOptionsOverride());
             const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
 
             const latency = performance.now() - start;
@@ -582,6 +598,17 @@ export class TransformersJSEngine extends STTEngine {
         }
 
         if (response.type === 'loaded') {
+                // Loaded precedes ready on the same init request. Receipt presence is irrelevant
+                // for cached loads; request ownership and single publication are mandatory.
+                if (response.id !== this.activeLoadRequestId ||
+                    !this.pendingWorkerRequests.has(response.id) || this.runtimeEvidence !== null) return;
+            this.runtimeEvidence = {
+                initSucceeded: true,
+                // The worker reports a legacy short key, not an introspected repository identity.
+                modelId: null,
+                backend: response.device?.startsWith('wasm') ? 'wasm' : null,
+                fallbackOccurred: false,
+            };
             // #1259: THE RECEIPT IS CAPTURED HERE, where the worker reports it. The main window's
             // Resource Timing never saw these fetches — they happened on the worker's timeline —
             // so this message is the only observation of the real transfer that exists.
@@ -623,16 +650,16 @@ export class TransformersJSEngine extends STTEngine {
                 modelLoadTimeMs: response.loadTimeMs,
             };
             // Model-eval: record the ACTUAL model load time for the A/B download/latency trade-off.
-            const loadedModelKey = resolvePrivateModel();
+            const loadedModel = this.resolvedModel();
             publishPrivateModelTelemetry({
-                model: loadedModelKey,
+                model: response.model,
                 runtime: 'transformers-js',
-                approxMB: PRIV_STT_MODELS.CANDIDATES[loadedModelKey].approxMB,
+                approxMB: loadedModel.approxMB,
                 overridden: false,
                 selectionSource: 'default',
                 loadTimeMs: response.loadTimeMs,
                 // Default tiny is bundled (local→remote fallback); candidates are remote-only.
-                fallbackPath: loadedModelKey === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
+                fallbackPath: 'local-only',
                 // Privacy invariant: Private STT never routes to Cloud.
                 cloudFallbackAttempted: false,
             });
@@ -642,6 +669,10 @@ export class TransformersJSEngine extends STTEngine {
         const pending = this.pendingWorkerRequests.get(response.id);
         if (!pending) return;
         this.pendingWorkerRequests.delete(response.id);
+        if (response.id === this.activeLoadRequestId) {
+            this.activeLoadRequestId = null;
+            if (response.type === 'error') this.runtimeEvidence = null;
+        }
         clearTimeout(pending.timeoutId);
 
         if (response.type === 'error') {
@@ -668,6 +699,8 @@ export class TransformersJSEngine extends STTEngine {
 
     /** #1259: the worker's own acquisition observation, or null when it could not be taken. */
     private acquisitionReceipt: AcquisitionReceipt | null = null;
+    private runtimeEvidence: PrivateRuntimeEvidence | null = null;
+    public getRuntimeEvidence(): PrivateRuntimeEvidence | null { return this.runtimeEvidence; }
     /** The attempt currently in flight. Retired the moment the load settles, so a late receipt has
      *  nothing to match against. */
     private activeAttempt: AcquisitionAttempt | null = null;
@@ -699,20 +732,27 @@ export class TransformersJSEngine extends STTEngine {
         // #1259: assigned through a NAMED method so the acceptance decision below is addressable by
         // test. An inline closure can only be exercised by constructing a real Worker, which means the
         // receipt-authority rules could only ever be asserted about the source rather than run.
-        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.handleWorkerMessage(event.data, options);
+        const currentWorker = this.worker;
+        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+            if (this.worker !== currentWorker) return;
+            this.handleWorkerMessage(event.data, options);
+        };
         this.worker.onerror = (event) => {
+            if (this.worker !== currentWorker) return;
             const error = new Error(event.message || 'TransformersJS worker failed.');
             this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
                 clearTimeout(timeoutId);
                 reject(error);
             });
             this.pendingWorkerRequests.clear();
+            this.activeLoadRequestId = null;
+            this.runtimeEvidence = null;
         };
 
         // Model-eval flag (OFF by default => production whisper-tiny.en, byte-identical).
         // A flag-selected candidate is resolved on the main thread and passed to the worker.
-        const selectedModel = resolvePrivateModel();
-        const modelCfg = PRIV_STT_MODELS.CANDIDATES[selectedModel];
+        const modelCfg = this.resolvedModel();
+        const selectedModel = modelCfg.key;
         publishPrivateModelTelemetry({
             model: selectedModel,
             runtime: 'transformers-js',
@@ -720,15 +760,17 @@ export class TransformersJSEngine extends STTEngine {
             overridden: false,
             selectionSource: 'default',
             loadTimeMs: null,
-            fallbackPath: selectedModel === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
+            fallbackPath: 'local-only',
             cloudFallbackAttempted: false,
         });
         // MINTED BEFORE ANYTHING IS FETCHED, from the candidate frozen at this instant.
-        const candidateForAttempt = effectiveCandidate().candidate;
+        const candidateForAttempt = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate
+            ?? effectiveCandidate().candidate;
         const attempt = mintAcquisitionAttempt(candidateForAttempt.id);
         this.activeAttempt = attempt;
         this.settledAttempt = attempt;
         this.acquisitionReceipt = null;
+        this.runtimeEvidence = null;
         let response;
         try {
             response = await this.sendWorkerRequest({
@@ -764,10 +806,18 @@ export class TransformersJSEngine extends STTEngine {
         }
 
         const id = ++this.workerRequestId;
+        if (request.type === 'init') {
+            this.activeLoadRequestId = id;
+            this.runtimeEvidence = null;
+        }
         return new Promise((resolve, reject) => {
             const timeoutId = setTimeout(() => {
                 if (!this.pendingWorkerRequests.has(id)) return;
                 this.pendingWorkerRequests.delete(id);
+                if (this.activeLoadRequestId === id) {
+                    this.activeLoadRequestId = null;
+                    this.runtimeEvidence = null;
+                }
                 reject(new Error(`TransformersJS worker request timed out after ${TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS}ms (${request.type}).`));
             }, TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS);
             this.pendingWorkerRequests.set(id, { resolve, reject, timeoutId });

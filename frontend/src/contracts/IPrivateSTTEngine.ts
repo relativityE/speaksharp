@@ -15,7 +15,7 @@ import { Result } from '@/services/transcription/modes/types';
 /**
  * Engine type identifier
  */
-export type EngineType = 'transformers-js' | 'transformers-js-v4' | 'moonshine-streaming' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai' | 'deepgram';
+export type EngineType = 'transformers-js' | 'transformers-js-v4' | 'moonshine-streaming' | 'granite-ctc' | 'parakeet-tdt' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai' | 'deepgram';
 
 /**
  * Callbacks for engine lifecycle events
@@ -49,7 +49,17 @@ export interface EngineCallbacks {
  */
 export type LiveResultKind = 'incremental' | 'snapshot';
 
+/** Load-message observations from this instance, separate from verified asset provenance. */
+export interface PrivateRuntimeEvidence {
+    initSucceeded: boolean;
+    backend: string | null;
+    /** Worker-reported request identity, NOT introspection of loaded weights. Null if unavailable. */
+    modelId: string | null;
+    fallbackOccurred: boolean;
+}
+
 export interface IPrivateSTTEngine {
+    getRuntimeEvidence?(): PrivateRuntimeEvidence | null;
     /**
      * Engine type identifier
      */

@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CANDIDATES } from '../../candidateRegistry';
+import { buildWhisperDecodeOptions } from '../../decodeOptions';
 
 type WorkerMessage = {
     id: number;
@@ -22,10 +24,21 @@ async function loadWorkerModule(): Promise<void> {
     await import('../transformers-js.worker');
 }
 
-function dispatchWorkerMessage(data: WorkerMessage): void {
+function dispatchWorkerMessage(data: WorkerMessage, includeDescriptor = true): void {
     const handler = self.onmessage as ((event: MessageEvent<WorkerMessage>) => void) | null;
     if (!handler) {
         throw new Error('Worker onmessage handler was not installed');
+    }
+    const candidate = CANDIDATES['v2:base.en'];
+    const profile = candidate.execution.decode;
+    if (includeDescriptor && data.type === 'init') {
+        data = { model: { key: candidate.execution.localModelId,
+            localId: candidate.execution.localModelId, remoteId: candidate.model.id }, ...data };
+    }
+    if (includeDescriptor && data.type === 'transcribe' && profile.kind === 'whisper') {
+        data = { ...data, decodeOptions: buildWhisperDecodeOptions(profile,
+            (data.audio as Float32Array).length / candidate.model.sampleRateHz,
+            data.decodeOptions as Record<string, unknown> | undefined) };
     }
     handler({ data } as MessageEvent<WorkerMessage>);
 }
@@ -229,7 +242,7 @@ describe('transformers-js.worker protocol contract', () => {
 
         expect(pipeline).toHaveBeenCalledWith(
             'automatic-speech-recognition',
-            'whisper-tiny.en',
+            'whisper-base.en',
             expect.objectContaining({ quantized: true }),
         );
         expect(observedAudio).toBe(audio);

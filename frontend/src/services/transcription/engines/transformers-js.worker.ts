@@ -1,5 +1,4 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
-import { buildShippingDecodeOptions } from '../decodeOptions';
 import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
 import { createProgressAggregator, type ProgressEvent } from './progressAggregator';
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
@@ -183,8 +182,11 @@ async function init(
     const loadStart = performance.now();
     // Model-eval flag: default keeps whisper-tiny.en (production); a flag-selected model is
     // passed from the main thread in the init request. RMS/decode path is otherwise unchanged.
-    const localModelId = model?.localId ?? 'whisper-tiny.en';
-    const loadedModelKey = model?.key ?? 'whisper-tiny.en';
+    if (!model?.localId || !model.key || !model.remoteId) {
+        throw new Error('MODEL_DESCRIPTOR_REQUIRED: local Whisper loading requires explicit model identity');
+    }
+    const localModelId = model.localId;
+    const loadedModelKey = model.key;
     // SELF-HOSTED, NO HUGGINGFACE AT RUNTIME: every Private model (whisper-tiny.en, whisper-base.en)
     // is bundled under /models/ and served from our own origin (Vercel, via Git LFS). We load
     // LOCAL-ONLY and fail closed — `allowRemoteModels` stays false so a missing/misnamed asset
@@ -275,8 +277,12 @@ async function transcribe(
     const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
     // #1304: window/stride/timestamps come from the SHARED builder so the v2 product path, the v4
     // engine and the A1 harness cannot drift apart. Do not re-derive these here.
-    const options: Record<string, unknown> = { ...buildShippingDecodeOptions(audioLengthSeconds) };
-    Object.assign(options, decodeOptions);
+    if (!decodeOptions || typeof decodeOptions.chunk_length_s !== 'number'
+        || typeof decodeOptions.stride_length_s !== 'number'
+        || typeof decodeOptions.return_timestamps !== 'boolean') {
+        throw new Error('Worker requires descriptor-resolved Whisper decode options');
+    }
+    const options = decodeOptions;
 
     // Hash only when the dedicated evidence harness explicitly opts in. Ordinary
     // Private sessions avoid the full-buffer copy and digest cost entirely.
