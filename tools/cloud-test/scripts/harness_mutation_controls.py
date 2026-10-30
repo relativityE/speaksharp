@@ -103,17 +103,23 @@ def parse_tap(stdout, returncode):
     return tests
 
 
-def tap(args, env):
-    r = subprocess.run(["node", "--test", "--test-concurrency=1", "--test-reporter=tap", *args], capture_output=True, text=True, cwd=ROOT,
-                       env={"PATH": os.environ["PATH"], "HOME": tempfile.gettempdir(), **env})
-    return parse_tap(r.stdout, r.returncode)
+def tap(files, env):
+    """Each test file runs in its own node process; a test's identity is (file, title), so equal titles in different files stay distinct."""
+    tests = []
+    for path in files:
+        r = subprocess.run(["node", "--test", "--test-reporter=tap", path], capture_output=True, text=True, cwd=ROOT,
+                           env={"PATH": os.environ["PATH"], "HOME": tempfile.gettempdir(), **env})
+        for t in parse_tap(r.stdout, r.returncode):
+            t["file"] = os.path.basename(path)
+            tests.append(t)
+    return tests
 
 
 def judge(baseline, mutated, kills):
     """A kill is a NAMED test that fails with an assertion, in a run whose exact title inventory equals the clean baseline's."""
     if not baseline or any(t["status"] != "PASS" for t in baseline):
         raise TapError("baseline is not a clean pass")
-    if [t["title"] for t in mutated] != [t["title"] for t in baseline]:
+    if [(t.get("file"), t["title"]) for t in mutated] != [(t.get("file"), t["title"]) for t in baseline]:
         return {"fail": 0, "failedTests": [], "tests": len(mutated), "reason": "test inventory changed"}
     # Any SKIP, TODO or non-assertion failure ANYWHERE in the mutated run makes it an invalid execution (Sam 1793385225), never a kill.
     invalid = [t["title"] for t in mutated if t["status"] in ("SKIP", "TODO") or (t["status"] == "FAIL" and not t["assertion"])]

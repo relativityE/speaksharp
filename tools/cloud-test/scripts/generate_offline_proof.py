@@ -105,12 +105,22 @@ def main():
     plan = os.path.join(work, "plan")
     prep.build(plan, HARNESS, phases=("phase1", "phase2"), stimulus_receipt=receipt)
 
-    packet_tap, extra_tap = os.path.join(work, "packet.tap"), os.path.join(work, "extra.tap")
+    # One node process and one TAP file per test file (Sam 1793390819): a test's identity is file + title, so equal titles in two packet
+    # files are two tests. Proof test files run one at a time (serially), as the original suite requires.
     packet_tests = sorted(glob.glob(os.path.join(HARNESS, "draft-adapters", "tests", "*.test.cjs")) + glob.glob(os.path.join(HARNESS, "bundle", "selftest", "*.test.cjs"))
                           + glob.glob(os.path.join(HARNESS, "bundle", "qualification", "*.test.cjs")))
-    packet = node_tap(packet_tests, HARNESS, base, packet_tap)
+    proof_tests = sorted(glob.glob(os.path.join(ROOT, "tests", "node", "proof", "*.test.cjs")))
     proof_env = dict(base, CT_PROOF_CASES_DIR=plan, CT_CHROME=chrome, NODE_PATH=os.path.join(pw, "node_modules"))
-    extra = node_tap(["--test-concurrency=1", *sorted(glob.glob(os.path.join(ROOT, "tests", "node", "proof", "*.test.cjs")))], ROOT, proof_env, extra_tap)
+    os.makedirs(os.path.join(work, "tap"))
+    suites, tap_files = {}, []
+    for kind, files, cwd, env in (("packet", packet_tests, HARNESS, base), ("proof", proof_tests, ROOT, proof_env)):
+        for i, path in enumerate(files):
+            rel = os.path.relpath(path, HARNESS if kind == "packet" else ROOT)
+            out = os.path.join(work, "tap", "%s-%03d-%s.tap" % (kind, i, os.path.basename(path)))
+            suites["%s:%s" % (kind, rel)] = node_tap([path], cwd, env, out)
+            tap_files.append(out)
+    if not packet_tests or not proof_tests:
+        raise SystemExit("BLOCKED_SETUP: no packet or proof test files found")
 
     mutations, refusals = M.evaluate_packet(plan)
     more, more_refusals = M.evaluate_additional()
@@ -129,14 +139,14 @@ def main():
 
     # The proof is written inside this run's own new work directory and copied to --proof-out ONLY when the whole run is accepted.
     candidate = os.path.join(work, "offline-proof.json")
-    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "offline_proof.py"), "--tap", packet_tap, "--tap", extra_tap, "--mutations", neg, "--plan-controls", pc,
+    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "offline_proof.py"), *[a for t in tap_files for a in ("--tap", t)], "--mutations", neg, "--plan-controls", pc,
                         "--code-manifest-sha256", cfg["harness"]["expectedCodeManifestSha256"], "--out", candidate], capture_output=True, text=True, cwd=ROOT, env=base)
     try:
         with open(candidate, encoding="utf-8") as f:
             proof = json.load(f)
     except (OSError, ValueError):
         proof = None
-    problems = run_problems({"packet": packet, "proof": extra}, plan_run, mutations, refusals, list(M.PACKET) + list(M.ADDITIONAL), r.returncode, proof,
+    problems = run_problems(suites, plan_run, mutations, refusals, list(M.PACKET) + list(M.ADDITIONAL), r.returncode, proof,
                             offline_proof.PLAN_CONTROLS)
     print("mutation controls: %d caught of %d; %d refused" % (sum(isinstance(v, dict) and v.get("fail", 0) > 0 for v in mutations.values()), len(mutations), len(refusals)))
     if isinstance(proof, dict):

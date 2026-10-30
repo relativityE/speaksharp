@@ -104,11 +104,14 @@ class Build(unittest.TestCase):
 
 
 class Tap(unittest.TestCase):
-    def parse(self, *lines):
+    def write(self, name, *lines):
         d = tempfile.mkdtemp()
-        f = os.path.join(d, "t.tap")
+        f = os.path.join(d, name)
         Path(f).write_text("\n".join(lines) + "\n")
-        return P.tap([f])
+        return f
+
+    def parse(self, *lines):
+        return P.tap([self.write("t.tap", *lines)])
 
     def test_skip_and_todo_are_never_a_pass(self):
         results, _, _ = self.parse("ok 1 - D1 alpha # SKIP no browser", "ok 2 - D2 beta # todo later", "ok 3 - D3 gamma")
@@ -118,7 +121,7 @@ class Tap(unittest.TestCase):
         for order in (("not ok 1 - D1 alpha", "ok 2 - D1 alpha"), ("ok 1 - D1 alpha", "not ok 2 - D1 alpha")):
             results, conflicting, duplicated = self.parse(*order)
             self.assertEqual(results["D1 alpha"], "FAIL", order)
-            self.assertEqual((conflicting, duplicated), (["D1 alpha"], ["D1 alpha"]))
+            self.assertEqual((conflicting, duplicated), (["t.tap :: D1 alpha"], ["t.tap :: D1 alpha"]))
 
     def test_untitled_nested_and_bail_out_lines_are_counted_from_the_stream(self):
         d = tempfile.mkdtemp()
@@ -130,7 +133,18 @@ class Tap(unittest.TestCase):
 
     def test_a_repeated_title_is_reported(self):
         results, conflicting, duplicated = self.parse("ok 1 - D1 alpha", "ok 2 - D1 alpha")
-        self.assertEqual((results["D1 alpha"], conflicting, duplicated), ("PASS", [], ["D1 alpha"]))
+        self.assertEqual((results["D1 alpha"], conflicting, duplicated), ("PASS", [], ["t.tap :: D1 alpha"]))
+
+    def test_the_same_title_in_two_files_is_two_tests_not_a_duplicate(self):
+        a = self.write("a.tap", "ok 1 - shared title", "ok 2 - D1 alpha")
+        b = self.write("b.tap", "ok 1 - shared title")
+        results, conflicting, duplicated = P.tap([a, b])
+        self.assertEqual((results["shared title"], conflicting, duplicated), ("PASS", [], []))
+
+    def test_a_title_failing_in_any_one_file_fails_and_is_never_overwritten(self):
+        for first, second in (("ok 1 - shared title", "not ok 1 - shared title"), ("not ok 1 - shared title", "ok 1 - shared title")):
+            results, conflicting, duplicated = P.tap([self.write("a.tap", first), self.write("b.tap", second)])
+            self.assertEqual((results["shared title"], conflicting, duplicated), ("FAIL", [], []), (first, second))
 
 
 class Cli(unittest.TestCase):

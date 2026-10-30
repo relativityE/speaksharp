@@ -93,7 +93,9 @@ test('S1 selection validation: owner reference, reason, ids, order permutation a
   assert.throws(()=>v(plan({gates:gates()})),/gates need a valid selection/);
 });
 test('S2 identity cap scales with the selection: 2k+2 reads, so 5 cases need 12 and 11 is refused; the full run still needs 32',()=>{
-  assert.equal(core.requiredIdentityCap(5),12);assert.throws(()=>core.validateCampaignPlan(plan({selection:selection(),identityCap:11})),/minimum 12 for 5 cases/);assert.equal(core.requiredIdentityCap(),32);assert.throws(()=>core.validateCampaignPlan(plan({identityCap:31})),/minimum 32 for 15 cases/);
+  assert.equal(core.requiredIdentityCap(5),12);assert.throws(()=>core.validateCampaignPlan(plan({selection:selection(),identityCap:11})),/minimum 12 for 5 cases/);
+  // Proof-v2 positive control (Sam 1793390819, Jensen's M11 witness): the scaled minimum is ACCEPTED, so a cap that ignores the selection is caught here.
+  assert.doesNotThrow(()=>core.validateCampaignPlan(plan({selection:selection(),identityCap:12})));assert.equal(core.requiredIdentityCap(),32);assert.throws(()=>core.validateCampaignPlan(plan({identityCap:31})),/minimum 32 for 15 cases/);
 });
 test('S3 a selected run dispatches only the selected cases, in the approved order, with exactly 2k+2 identity reads; unselected cases are notSelected, not dispatched and cost nothing',async()=>{
   const x=io(),r=await core.runCampaign(gp(),x,{executeR0:true});
@@ -136,8 +138,9 @@ test('I1 run identity: release, runner and backend are required and labelled; ow
 test('I2 the report carries the run identity with the media and driver hash of every selected case (null media where none is bound)',async()=>{
   const ri={frontend:{sourceSha:commit,servedSha:commit},runner:{codeManifestSha256:hash,packetManifestSha256:hash},backend};
   const x1=io();x1.verifyRunIdentity=async()=>{};const r=await core.runCampaign(plan({selection:selection(),identityCap:12,runIdentity:ri}),x1,{});
+  assert.ok(r.report&&r.report.runIdentity,'the report carries a run identity');  // asserted before use (Sam 1793390819): absence is a FAIL, never a runtime error
   assert.equal(r.report.runIdentity.backend.source,'owner-stated');assert.equal(r.report.runIdentity.cases.length,5);assert.equal(r.report.runIdentity.cases.find(c=>c.id==='AHT-12').mediaSha256,hash);
-  const x2=io();x2.verifyRunIdentity=async()=>{};const r2=await core.runCampaign(plan({runIdentity:ri}),x2,{});assert.equal(r2.report.runIdentity.cases.find(c=>c.id==='AHT-01').mediaSha256,null);
+  const x2=io();x2.verifyRunIdentity=async()=>{};const r2=await core.runCampaign(plan({runIdentity:ri}),x2,{});assert.ok(r2.report&&r2.report.runIdentity,'the full-run report carries a run identity');assert.equal(r2.report.runIdentity.cases.find(c=>c.id==='AHT-01').mediaSha256,null);
 });
 test('I3 the runner refuses a run whose loaded runner code differs from the identity the plan declares (real adapter hook)',async()=>{
   const runner=require(P+'/bundle/harness/campaign-runner.cjs'),bundle=P+'/bundle',crypto=require('node:crypto');

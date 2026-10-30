@@ -54,16 +54,20 @@ def stream_failures(files):
     return out
 
 def tap(files):
-    """Every occurrence is kept: a title passes only if each occurrence is a plain ok; SKIP/TODO is never a pass."""
-    seen={}
+    """Test identity is FILE + TITLE (Sam 1793390819): one TAP file per test file. A title repeated within one file is a duplicate (and a
+    conflict when its statuses differ); the same title in two files is two tests, and it passes only if it passes in every file.
+    Every occurrence is kept, so a later ok never overwrites an earlier not ok; SKIP/TODO is never a pass."""
+    seen,within={},{}
     for f in files:
         with open(f) as fh:
             for l in fh:
                 m=TAP_LINE.match(l.rstrip('\n'))
-                if m: seen.setdefault(m.group(2).strip(),[]).append('SKIP' if m.group(3) else 'FAIL' if m.group(1) else 'PASS')
+                if not m: continue
+                title,status=m.group(2).strip(),('SKIP' if m.group(3) else 'FAIL' if m.group(1) else 'PASS')
+                seen.setdefault(title,[]).append(status);within.setdefault((f,title),[]).append(status)
     results={t:('PASS' if set(v)=={'PASS'} else 'SKIP' if set(v)=={'SKIP'} else 'FAIL') for t,v in seen.items()}
-    conflicting=sorted(t for t,v in seen.items() if len(set(v))>1)
-    duplicated=sorted(t for t,v in seen.items() if len(v)>1)
+    conflicting=sorted('%s :: %s'%(_o.path.basename(f),t) for (f,t),v in within.items() if len(set(v))>1)
+    duplicated=sorted('%s :: %s'%(_o.path.basename(f),t) for (f,t),v in within.items() if len(v)>1)
     return results,conflicting,duplicated
 
 def build(results,conflicting,duplicated,mut,pc,manifest,stream=None):
