@@ -9,7 +9,7 @@ const sessionRef=id=>typeof id==='string'&&id?crypto.createHash('sha256').update
 // r14/r15 closed diagnostics for a FAILED attempt (R5 recorded only the status and duration of the 502; the layer that failed was unknowable). Only closed values survive:
 // content kind, body size, two labelled latencies, an error code that is a member of a CLOSED ALLOWLIST, a three-digit upstream status and the presence of a retry-after header.
 // No message text, header values, body text, URLs or free identifiers are retained: an identifier-shaped string that is not on the allowlist becomes `code-unlisted` (it could embed an id or a token fragment).
-const ERROR_CODE_ALLOWLIST=Object.freeze(new Set(['bad_gateway','gateway_timeout','upstream_timeout','upstream_error','service_unavailable','rate_limited','quota_exceeded','unauthorized','forbidden','not_found','invalid_request','invalid_input','internal_error','provider_error','provider_timeout','model_unavailable','overloaded','timeout','unknown_error']));
+const ERROR_CODE_ALLOWLIST=Object.freeze(new Set(['bad_gateway','gateway_timeout','upstream_timeout','upstream_error','service_unavailable','rate_limited','quota_exceeded','unauthorized','forbidden','not_found','invalid_request','invalid_input','internal_error','provider_error','provider_timeout','model_unavailable','overloaded','timeout','unknown_error','provider_http_4xx','provider_http_5xx','provider_transport','missing_text','invalid_shape','over_character_ceiling','missing_model_version','request_cancelled','provider_malformed_response']));
 const SHAPE=/^[A-Za-z][A-Za-z0-9_.-]{0,39}$/;
 const normalizeCode=s=>s.toLowerCase().replace(/[-.]/g,'_');
 // startedAt/respondedAt are Date.now() values taken at the browser's request and response EVENTS (the label says so); browserTimingMs is the browser's own responseEnd when it reports one.
@@ -19,7 +19,7 @@ function classifyFailureResponse({contentType,body,startedAt,respondedAt,browser
   let kind=text.length===0?'empty':/json/.test(ct)?'json':/html/.test(ct)||/^\s*</.test(text)?'html':/text|plain/.test(ct)?'text':'other';
   let parsed=null;if(kind==='json'||kind==='other'||kind==='text'){try{parsed=JSON.parse(text.slice(0,4096));if(kind!=='json'&&parsed&&typeof parsed==='object')kind='json';}catch{parsed=null;}}
   const o=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:null;
-  const rawCode=(()=>{for(const k of ['code','error_code','errorCode','error']){const v=o?.[k];if(typeof v==='string'&&SHAPE.test(v))return v;}return null;})();
+  const rawCode=(()=>{for(const k of ['reason','code','error_code','errorCode','error']){const v=o?.[k];if(typeof v==='string'&&SHAPE.test(v))return v;}return null;})();
   const code=rawCode===null?null:ERROR_CODE_ALLOWLIST.has(normalizeCode(rawCode))?'code-'+normalizeCode(rawCode):'code-unlisted';
   const num=(...keys)=>{for(const k of keys){const v=o?.[k];if(Number.isInteger(v)&&v>=100&&v<=599)return v;}return null;};
   const event=Number.isFinite(startedAt)&&Number.isFinite(respondedAt)&&respondedAt>=startedAt?Math.round(respondedAt-startedAt):null;
