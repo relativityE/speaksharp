@@ -1,5 +1,54 @@
 # Model evaluator (#1565)
 
+## Shared candidate adoption
+
+The application and `candidate-browser.ts` construct the same `PrivateSTT` facade.
+The existing registry carries model/runtime/revision/pins/backend/precision and
+typed profiles; algorithms live in the Whisper, Granite CTC and Parakeet TDT adapters.
+Once an internal comparison build is configured with
+`acknowledgeNotProductionReady: true`, model selection is the single `candidate`
+line in `frontend/src/config/private-stt.config.json`. The checked-in production
+default remains `v2:base.en` and unqualified candidates still fail production boot.
+
+| Candidate | Configured runtime | Evaluation backend |
+| --- | --- | --- |
+| `v2:base.en` | Xenova Transformers.js 2.17.2 | WASM |
+| `v4:base:q4` | Hugging Face Transformers.js 4.3.0 | Explicit WASM or WebGPU |
+| `granite:turboctc-q4f16` | Pinned IBM export / ORT Web 1.26.0 | Explicit WASM or WebGPU |
+| `parakeet:tdt-v3:int8` | Published parakeet.js 1.4.4 / ORT Web 1.24.1 | WASM/int8 |
+
+For the account-free model-only page, start the existing test server with
+`VITE_INTERNAL_BUILD=true` in addition to the disposable mock configuration below,
+then open `/model-evaluator.local.html`. Its one-line acquisition call is:
+
+```js
+await window.__MODEL_EVALUATOR__.initialize('parakeet:tdt-v3:int8', 'wasm', true);
+```
+
+The final `true` explicitly consents to the descriptor's possible download.
+The evaluator calls the same `checkAvailability` and `grantModelConsent` facade
+methods as the product. In a `candidate-browser` adapter manifest set
+`options.candidateId` to the selected registry ID and `options.consentToDownload`
+to `true` after approving that acquisition. Changing the candidate ID then uses
+the same path. Missing consent fails before acquisition when consent is required.
+Parakeet's full pinned inventory is 682,972,569 bytes; Granite's is 339,374,194 bytes.
+
+The frozen package lock is unchanged. Parakeet's unchanged published MIT source
+and exact ORT browser inputs are retained under
+`frontend/public/models/parakeet-runtime/1.4.4-ort1.24.1/source/`.
+Reproduce its single-module binding with
+`node scripts/model-evaluator/build-parakeet-runtime.mjs`; verify the real native
+worker/runtime with `node scripts/model-evaluator/parakeet-runtime.smoke.mjs`.
+That smoke uses a tiny Identity graph and proves runtime loading, the same ORT
+singleton and the real 128-bin frontend. It does not qualify speech recognition.
+The Parakeet worker requires real recurrent TDT tensor/duration/state warmups
+before publishing READY; Granite requires its CTC warmup. Both reject fallback.
+
+Full candidate-weight/corpus and product journey qualification belong to Eval.
+`activationReady` and production `comparisonReady` remain false for Granite and
+Parakeet. Consolidating Whisper onto one runtime follows successful shared-path
+qualification; both current locked Whisper runtimes remain until that evidence.
+
 `pnpm model:evaluate` runs a **model-only corpus lane**. It does not change the product selector, activate a model, or prove an Open Mic/Focus journey. The old `benchmark-v4.live.spec.ts` remains disabled because its retired selector and fake microphone timing cannot qualify a candidate. Today the checked-in product default is v2; v4 is optional, with a roadmap toward v4 primary and v2 backup. The evaluator does not encode that roadmap as an activation decision.
 
 The command accepts versioned baseline, candidate, corpus, and device manifests. A model-specific adapter implements `initialize`, `decode`, `finalize`, and `dispose` in `adapter.ts`. The runner reads each WAV once, verifies WAV and Float32 PCM SHA256, gives the same PCM samples and boundaries to each arm, and alternates AB/BA order across trials. It writes one JSON report with manifest hashes and refuses to overwrite an existing path. Missing policy yields HOLD. A candidate's observed model/runtime/assets/backend must match its manifest; a silent v4→v2 fallback fails.

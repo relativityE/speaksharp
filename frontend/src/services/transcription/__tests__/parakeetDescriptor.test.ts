@@ -53,8 +53,9 @@ describe('non-default Parakeet TDT descriptor', () => {
     it('recomputes the entire pinned inventory digest and exact acquisition URLs', () => {
         const hash = createHash('sha256');
         for (const file of [...pins.files].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) {
-            if (file.url.startsWith('https://')) expect(file.url).toContain(`/resolve/${pins.revision}/`);
-            else expect(file.url).toMatch(/^\/models\/parakeet-runtime\/1\.4\.4-ort1\.24\.1\//);
+            const pattern = file.url.startsWith('https://') ? new RegExp(`/resolve/${pins.revision}/`)
+                : /^\/models\/parakeet-runtime\/1\.4\.4-ort1\.24\.1\//;
+            expect(file.url).toMatch(pattern);
             hash.update(`${file.path}:${file.sha256}\n`);
         }
         expect(hash.digest('hex')).toBe(candidate.assets.pinDigest);

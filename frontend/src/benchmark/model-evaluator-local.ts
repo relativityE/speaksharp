@@ -16,7 +16,7 @@ type HarnessState = {
 declare global {
   interface Window {
     __MODEL_EVALUATOR__?: {
-      initialize: (candidateId: ArmId, backend: 'wasm' | 'webgpu') => Promise<HarnessState>;
+      initialize: (candidateId: ArmId, backend: 'wasm' | 'webgpu', consentToDownload?: boolean) => Promise<HarnessState>;
       decodePcmBase64: (value: string) => Promise<{ transcript: string; inputSha256: string }>;
       dispose: () => Promise<void>;
       state: HarnessState;
@@ -63,7 +63,7 @@ async function dispose(): Promise<void> {
   await retireCurrentEngine();
 }
 
-async function initialize(candidateId: ArmId, backend: 'wasm' | 'webgpu'): Promise<HarnessState> {
+async function initialize(candidateId: ArmId, backend: 'wasm' | 'webgpu', consentToDownload = false): Promise<HarnessState> {
   if (!Object.prototype.hasOwnProperty.call(CANDIDATES, candidateId)) {
     throw new Error(`unsupported model evaluator candidate: ${candidateId}`);
   }
@@ -81,6 +81,14 @@ async function initialize(candidateId: ArmId, backend: 'wasm' | 'webgpu'): Promi
   });
   engine = selected;
   try {
+    const availability = await selected.checkAvailability();
+    assertCurrentEngine(selected, selectedGeneration);
+    if (availability.reason === 'CONSENT_REQUIRED') {
+      if (!consentToDownload) throw new Error('CONSENT_REQUIRED: explicitly approve this candidate download');
+      selected.grantModelConsent();
+    } else if (!availability.isAvailable && availability.reason !== 'CACHE_MISS') {
+      throw new Error(availability.message ?? 'Selected candidate is unavailable');
+    }
     const result = await selected.init();
     assertCurrentEngine(selected, selectedGeneration);
     if (!result.isOk) throw result.error;

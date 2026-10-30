@@ -1,3 +1,4 @@
+/* global importScripts */
 /* Classic worker: ORT's pinned UMD bundle installs globalThis.ort via importScripts. */
 let engine = null;
 let glueUrl = null;

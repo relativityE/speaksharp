@@ -107,7 +107,7 @@ type BrowserRuntime = {
 declare global {
   interface Window {
     __MODEL_EVALUATOR__?: {
-      initialize: (id: CandidateId, backend: 'wasm' | 'webgpu') => Promise<BrowserRuntime>;
+      initialize: (id: CandidateId, backend: 'wasm' | 'webgpu', consentToDownload?: boolean) => Promise<BrowserRuntime>;
       decodePcmBase64: (base64: string) => Promise<{ transcript: string; inputSha256: string }>;
       dispose: () => Promise<void>;
     };
@@ -149,7 +149,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
         throw new Error(`PREREQUISITE_RUNTIME_VERSION_MISMATCH: expected ${context.expected.runtime}, installed ${runtime}`);
       }
       const digest = await configuredAssetDigest(context.repositoryRoot, candidateId, context.expected.modelId);
-      browser = await chromium.launch({ headless: context.headless });
+      browser = await chromium.launch({ headless: context.headless, chromiumSandbox: true });
       page = await browser.newPage();
       page.setDefaultTimeout(180_000);
       await transfer.attach(page);
@@ -182,8 +182,9 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
           throw new Error('real WebGPU adapter unavailable or differs from device manifest');
         }
       }
-      const state = await page.evaluate(({ id, backend }) => window.__MODEL_EVALUATOR__!.initialize(id, backend),
-        { id: candidateId, backend } as const) as BrowserRuntime;
+      const state = await page.evaluate(({ id, backend, consentToDownload }) =>
+        window.__MODEL_EVALUATOR__!.initialize(id, backend, consentToDownload),
+        { id: candidateId, backend, consentToDownload: context.options.consentToDownload === true } as const) as BrowserRuntime;
       acquisition = state.workerAcquisition ?? null;
       if (acquisition &&
           (acquisition as { candidateId?: string }).candidateId !== candidateId) {

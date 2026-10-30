@@ -34,15 +34,16 @@ describe('configured runtime versions match the INSTALLED packages', () => {
         // ran. The registry must name the exact bytes the lockfile resolved.
         for (const id of CANDIDATE_IDS) {
             const { runtime } = CANDIDATES[id];
-            if (runtime.distribution !== 'pinned-assets') {
-                expect(runtime.version, `${id} runtime version`).toBe(installedVersion(runtime.package));
-            } else {
-                // Vendored browser runtime version is configured provenance from the pinned source;
-                // its bytes are part of the verified descriptor inventory, not the npm install tree.
-                expect(CANDIDATES[id].assets.files?.length).toBeGreaterThan(0);
-                expect(CANDIDATES[id].assets.pinDigest).toMatch(/^[a-f0-9]{64}$/);
-            }
             expect(runtime.version, `${id} must be exact, not a range`).toMatch(/^\d+\.\d+\.\d+/);
+        }
+        for (const id of CANDIDATE_IDS.filter(id => CANDIDATES[id].runtime.distribution !== 'pinned-assets')) {
+            const { runtime } = CANDIDATES[id];
+            expect(runtime.version, `${id} runtime version`).toBe(installedVersion(runtime.package));
+        }
+        // Browser runtimes are checked against their explicit verified inventory.
+        for (const id of CANDIDATE_IDS.filter(id => CANDIDATES[id].runtime.distribution === 'pinned-assets')) {
+            expect(CANDIDATES[id].assets.files?.length).toBeGreaterThan(0);
+            expect(CANDIDATES[id].assets.pinDigest).toMatch(/^[a-f0-9]{64}$/);
         }
     });
 });

@@ -5,6 +5,8 @@ import type { CandidateId } from '@/services/transcription/candidateRegistry';
 type InitResult = { isOk: true; data: undefined } | { isOk: false; error: Error };
 type DecodeResult = { isOk: true; data: string } | { isOk: false; error: Error };
 type FacadeDouble = {
+  checkAvailability: () => Promise<import('@/services/transcription/STTStrategy').AvailabilityResult>;
+  grantModelConsent: () => void;
   init: () => Promise<InitResult>;
   terminate: () => Promise<void>;
   transcribe: (audio: Float32Array, options: { final: boolean }) => Promise<DecodeResult>;
@@ -35,6 +37,8 @@ function prepare(candidateId: CandidateId) {
   const load = vi.fn<() => Promise<InitResult>>().mockResolvedValue({ isOk: true, data: undefined });
   const decode = vi.fn<FacadeDouble['transcribe']>().mockResolvedValue({ isOk: true, data: candidateId });
   const engine = {
+    checkAvailability: vi.fn<FacadeDouble['checkAvailability']>().mockResolvedValue({ isAvailable: true }),
+    grantModelConsent: vi.fn(),
     init: vi.fn(() => { entered.resolve(undefined); return load(); }),
     terminate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     transcribe: vi.fn<FacadeDouble['transcribe']>((audio, options) => {
@@ -75,6 +79,24 @@ afterEach(() => {
 });
 
 describe('model evaluator operation ownership', () => {
+  it('requires explicit download consent through the shared facade before acquiring a candidate', async () => {
+    const harness = await openHarness();
+    const first = prepare(FIRST);
+    first.engine.checkAvailability.mockResolvedValue({ isAvailable: false, reason: 'CONSENT_REQUIRED' });
+    await expect(harness.initialize(FIRST, 'wasm')).rejects.toThrow('CONSENT_REQUIRED');
+    expect(first.engine.init).not.toHaveBeenCalled();
+    expect(first.engine.grantModelConsent).not.toHaveBeenCalled();
+    expect(first.engine.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('records explicit download consent using the same facade method as the product', async () => {
+    const harness = await openHarness();
+    const first = prepare(FIRST);
+    first.engine.checkAvailability.mockResolvedValue({ isAvailable: false, reason: 'CONSENT_REQUIRED' });
+    expect(await harness.initialize(FIRST, 'wasm', true)).toMatchObject({ candidateId: FIRST });
+    expect(first.engine.grantModelConsent).toHaveBeenCalledTimes(1);
+    expect(first.engine.init).toHaveBeenCalledTimes(1);
+  });
   it('initializes, decodes and retires the selected facade normally', async () => {
     const harness = await openHarness();
     const first = prepare(FIRST);
