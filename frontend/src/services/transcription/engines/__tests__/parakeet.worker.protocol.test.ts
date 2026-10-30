@@ -20,6 +20,7 @@ function deferred<T>() {
 
 function harness() {
     const replies: ParakeetWorkerReply[] = [];
+    const phases: ParakeetWorkerReply[] = [];
     const tensors: TestTensor[] = [];
     const urls = new Set<string>();
     const created: Array<{ bytes: Uint8Array; mime: string; url: string }> = [];
@@ -59,14 +60,17 @@ function harness() {
     }));
     files[profile.vocabularyFile] = encode('▁a 0\nb 1\n<blk> 2\n');
     const loadRuntime = vi.fn(async () => runtime);
-    const handle = createParakeetWorker({ loadRuntime, postMessage: reply => replies.push(reply),
+    const handle = createParakeetWorker({ loadRuntime, postMessage: reply => {
+        if (reply.ok && reply.type === 'initializing') phases.push(reply);
+        else replies.push(reply);
+    },
         createUrl: (bytes, mime) => {
             const url = `blob:owned-${++urlId}`; urls.add(url); created.push({ bytes, mime, url }); return url;
         }, revokeUrl: url => { urls.delete(url); },
     });
     const initialize = () => handle({ id: 1, type: 'init', profile: { ...profile }, runtime: { ...identity },
         files, runtimeUrl: 'blob:verified-binding' });
-    return { handle, initialize, runtime, model, files, replies, urls, created, loadRuntime,
+    return { handle, initialize, runtime, model, files, replies, phases, urls, created, loadRuntime,
         encoderRun, decoderRun, tensors, TestTensor };
 }
 
@@ -82,10 +86,15 @@ describe('Parakeet owned worker protocol', () => {
         const h = harness();
         await h.initialize();
         expect(h.loadRuntime).toHaveBeenCalledWith('blob:verified-binding');
+        expect(h.phases).toEqual(['runtime', 'model', 'validation', 'features', 'encoder', 'decoder', 'transcript'].map(phase =>
+            ({ id: 1, ok: true, type: 'initializing', phase })));
         expect(h.replies).toEqual([{ id: 1, ok: true, type: 'ready', backend: 'wasm', ortVersion: '1.24.1' }]);
         expect(h.runtime.ort.env.wasm).toMatchObject({ numThreads: 1, proxy: false,
             wasmPaths: { mjs: h.created[0].url, wasm: h.created[1].url } });
         expect(h.created[1].bytes).toBe(h.files[profile.wasmBinaryFile]);
+        expect(h.files).not.toHaveProperty(profile.encoderFile);
+        expect(h.files).not.toHaveProperty(profile.decoderFile);
+        expect([...h.urls]).toEqual(h.created.slice(0, 2).map(item => item.url));
         expect(h.runtime.ParakeetModel.fromUrls).toHaveBeenCalledWith({
             encoderUrl: h.created[2].url, decoderUrl: h.created[3].url, tokenizerUrl: h.created[4].url,
             backend: 'wasm', cpuThreads: 1, preprocessorBackend: 'js', nMels: 128,
@@ -107,6 +116,26 @@ describe('Parakeet owned worker protocol', () => {
         expect(h.replies[h.replies.length - 1]).toEqual({ id: 2, ok: true, type: 'transcript', text: 'TDT segment' });
         // The verified package exposes no public dispose method; this working double has none.
         expect(h.model).not.toHaveProperty('dispose');
+    });
+
+    it('releases transferred model references before session creation and blobs before warmup', async () => {
+        const h = harness();
+        const loading = deferred<ParakeetModelInstance>();
+        const entered = deferred<void>();
+        h.runtime.ParakeetModel.fromUrls = vi.fn(() => { entered.resolve(undefined); return loading.promise; });
+        h.model.computeFeatures.mockImplementationOnce(async () => {
+            expect(h.created.slice(2).every(item => !h.urls.has(item.url))).toBe(true);
+            return { features: new Float32Array(256), T: 2, melBins: 128, validLength: 2 };
+        });
+        const pending = h.initialize();
+        await entered.promise;
+        expect(h.files).not.toHaveProperty(profile.encoderFile);
+        expect(h.files).not.toHaveProperty(profile.decoderFile);
+        expect(h.created.slice(2).every(item => h.urls.has(item.url))).toBe(true);
+        expect(h.replies).toHaveLength(0);
+        loading.resolve(h.model);
+        await pending;
+        expect(h.replies).toEqual([{ id: 1, ok: true, type: 'ready', backend: 'wasm', ortVersion: '1.24.1' }]);
     });
 
     it.each(['missing', 'extra'] as const)('refuses %s verified inventory before runtime loading', async (change) => {

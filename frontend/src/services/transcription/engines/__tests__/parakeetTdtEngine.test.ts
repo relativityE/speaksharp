@@ -211,6 +211,24 @@ describe('Parakeet TDT adapter lifetime and asset authority', () => {
         expect(urls.size).toBe(0);
     });
 
+    it('phase messages identify a stall without publishing readiness or extending the deadline', async () => {
+        vi.useFakeTimers(); replyMode = 'hold';
+        current = new ParakeetTdtEngine(options());
+        const pending = current.init(20);
+        await vi.advanceTimersByTimeAsync(10);
+        const id = workers[0].messages[0].id;
+        workers[0].deliver({ id, ok: true, type: 'initializing', phase: 'runtime' });
+        expect(current.getRuntimeEvidence()).toBeNull();
+        await vi.advanceTimersByTimeAsync(9);
+        workers[0].deliver({ id, ok: true, type: 'initializing', phase: 'model' });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(await pending).toMatchObject({ isOk: false,
+            error: expect.objectContaining({ message: 'Parakeet worker timed out during model' }) });
+        expect(workers[0].terminated).toBe(true);
+        expect(current.getRuntimeEvidence()).toBeNull();
+        expect(urls.size).toBe(0);
+    });
+
     it('a native postMessage failure cannot leave an initialized worker behind', async () => {
         replyMode = 'post-error';
         current = new ParakeetTdtEngine(options());

@@ -39,8 +39,11 @@ export type ParakeetWorkerRequest = {
     files: Record<string, Uint8Array>; runtimeUrl: string }
     | { type: 'decode'; audio: Float32Array });
 
+export type ParakeetInitPhase = 'runtime' | 'model' | 'validation' | 'features' | 'encoder' | 'decoder' | 'transcript';
+
 export type ParakeetWorkerReply = { id: number } & (
     { ok: true; type: 'ready'; backend: 'wasm'; ortVersion: string }
+    | { ok: true; type: 'initializing'; phase: ParakeetInitPhase }
     | { ok: true; type: 'transcript'; text: string }
     | { ok: false; error: string }
 );

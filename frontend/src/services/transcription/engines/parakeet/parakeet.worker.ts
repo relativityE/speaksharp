@@ -1,6 +1,6 @@
 import logger from '@/lib/logger';
 import { assertParakeetProfile, requiredParakeetFiles, type ParakeetModelInstance,
-    type ParakeetRuntimeBundle, type ParakeetTdtProfile, type ParakeetWorkerReply,
+    type ParakeetInitPhase, type ParakeetRuntimeBundle, type ParakeetTdtProfile, type ParakeetWorkerReply,
     type ParakeetWorkerRequest, type RuntimeTensor } from './contracts';
 
 interface WorkerDependencies {
@@ -33,7 +33,7 @@ function assertModelMetadata(profile: ParakeetTdtProfile, files: Record<string, 
 
 /** Probe the actual encoder and combined recurrent TDT outputs; upstream compatibility warnings cannot pass readiness. */
 export async function probeParakeetTdt(model: ParakeetModelInstance, runtime: ParakeetRuntimeBundle,
-    profile: ParakeetTdtProfile): Promise<void> {
+    profile: ParakeetTdtProfile, phase?: (value: ParakeetInitPhase) => void): Promise<void> {
     const constants = model.getStreamingConstants();
     if (constants.melBins !== profile.melBins || constants.blankId !== profile.blankId ||
         constants.subsampling !== profile.subsampling || constants.windowStride !== profile.windowStride) {
@@ -60,12 +60,14 @@ export async function probeParakeetTdt(model: ParakeetModelInstance, runtime: Pa
     const finite = (value: RuntimeTensor | undefined): value is RuntimeTensor & { data: Float32Array } =>
         Boolean(value && value.data instanceof Float32Array && value.data.every(sample => Number.isFinite(sample)));
     try {
+        phase?.('features');
         const features = await model.computeFeatures(new Float32Array(1600), 16000);
         const length = features.validLength ?? features.T;
         if (features.melBins !== profile.melBins || !Number.isSafeInteger(features.T) || features.T <= 0 ||
             !Number.isSafeInteger(length) || length <= 0 || length > features.T ||
             features.features.length !== profile.melBins * features.T ||
             features.features.some(sample => !Number.isFinite(sample))) throw new Error('Parakeet feature warmup failed');
+        phase?.('encoder');
         const encoded = retain(await encoder.run({
             audio_signal: tensor('float32', features.features, [1, profile.melBins, features.T]),
             length: tensor('int64', BigInt64Array.from([BigInt(length)]), [1]),
@@ -76,6 +78,7 @@ export async function probeParakeetTdt(model: ParakeetModelInstance, runtime: Pa
         const channels = encoded.dims[1];
         const frames = encoded.dims[2];
         const frame = Float32Array.from({ length: channels }, (_, channel) => encoded.data[channel * frames]);
+        phase?.('decoder');
         const outputs = retain(await decoder.run({
             encoder_outputs: tensor('float32', frame, [1, channels, 1]),
             targets: tensor('int32', Int32Array.from([profile.blankId]), [1, 1]),
@@ -91,6 +94,7 @@ export async function probeParakeetTdt(model: ParakeetModelInstance, runtime: Pa
             if (!finite(state) || state.dims.length !== 3 || state.dims[0] !== 2 || state.dims[1] !== 1 ||
                 state.dims[2] !== 640 || state.data.length !== 1280) throw new Error('Parakeet recurrent state warmup failed');
         }
+        phase?.('transcript');
         const result = await model.transcribe(new Float32Array(1600), 16000);
         if (typeof result.utterance_text !== 'string') throw new Error('Parakeet transcript warmup failed');
         model.clearIncrementalCache();
@@ -120,6 +124,7 @@ export function createParakeetWorker(dependencies: WorkerDependencies): (message
                 if (Object.keys(files).length !== required.length || required.some(name =>
                     !(files[name] instanceof Uint8Array) || !files[name].byteLength)) throw new Error('Parakeet verified file inventory mismatch');
                 assertModelMetadata(profile, files);
+                dependencies.postMessage({ id: message.id, ok: true, type: 'initializing', phase: 'runtime' });
                 const runtime = await dependencies.loadRuntime(message.runtimeUrl);
                 if (runtime.bindingIdentity.package !== expected.package || runtime.bindingIdentity.version !== expected.version ||
                     runtime.bindingIdentity.ortVersion !== expected.ortVersion ||
@@ -134,15 +139,29 @@ export function createParakeetWorker(dependencies: WorkerDependencies): (message
                 };
                 runtime.ort.env.wasm.numThreads = 1;
                 runtime.ort.env.wasm.proxy = false;
+                const encoderUrl = blobUrl(files[profile.encoderFile], 'application/octet-stream');
+                const decoderUrl = blobUrl(files[profile.decoderFile], 'application/octet-stream');
+                const tokenizerUrl = blobUrl(files[profile.vocabularyFile], 'text/plain');
+                // Blob construction owns a copy. This worker accepts init only once, so retaining the
+                // transferred 670 MB model buffers through session creation duplicates them needlessly.
+                delete files[profile.encoderFile];
+                delete files[profile.decoderFile];
+                dependencies.postMessage({ id: message.id, ok: true, type: 'initializing', phase: 'model' });
                 const initialized = await runtime.ParakeetModel.fromUrls({
-                    encoderUrl: blobUrl(files[profile.encoderFile], 'application/octet-stream'),
-                    decoderUrl: blobUrl(files[profile.decoderFile], 'application/octet-stream'),
-                    tokenizerUrl: blobUrl(files[profile.vocabularyFile], 'text/plain'),
+                    encoderUrl, decoderUrl, tokenizerUrl,
                     backend: 'wasm', cpuThreads: 1, preprocessorBackend: 'js', nMels: profile.melBins,
                     subsampling: profile.subsampling, windowStride: profile.windowStride, enableGraphCapture: false,
                 });
+                // fromUrls resolves after both sessions and tokenizer have consumed their bytes.
+                // Keep only the small runtime glue/WASM URLs for the remaining worker lifetime.
+                for (const url of [encoderUrl, decoderUrl, tokenizerUrl]) {
+                    dependencies.revokeUrl(url);
+                    urls.splice(urls.indexOf(url), 1);
+                }
                 if (initialized.ort !== runtime.ort) throw new Error('Parakeet model used a different ORT instance');
-                await probeParakeetTdt(initialized, runtime, profile);
+                dependencies.postMessage({ id: message.id, ok: true, type: 'initializing', phase: 'validation' });
+                await probeParakeetTdt(initialized, runtime, profile, phase =>
+                    dependencies.postMessage({ id: message.id, ok: true, type: 'initializing', phase }));
                 model = initialized;
                 dependencies.postMessage({ id: message.id, ok: true, type: 'ready', backend: 'wasm',
                     ortVersion: runtime.ort.env.versions!.common! });

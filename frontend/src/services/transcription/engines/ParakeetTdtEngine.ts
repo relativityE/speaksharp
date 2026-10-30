@@ -21,7 +21,8 @@ export class ParakeetTdtEngine implements IPrivateSTTEngine {
     private heartbeat = 0;
     private readonly options: ParakeetTdtOptions;
     private readonly pending = new Map<number, { resolve: (reply: ParakeetWorkerReply) => void;
-        reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+        reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>;
+        operation: unknown; phase: string }>();
 
     constructor(options: ParakeetTdtOptions) {
         this.options = Object.freeze({ ...options, profile: Object.freeze({ ...options.profile }),
@@ -58,11 +59,13 @@ export class ParakeetTdtEngine implements IPrivateSTTEngine {
         const id = ++this.nextId;
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
+                const phase = this.pending.get(id)?.phase;
                 this.pending.delete(id);
-                reject(new Error('Parakeet worker timed out'));
+                reject(new Error(`Parakeet worker timed out${phase ? ` during ${phase}` : ''}`));
                 if (this.worker === worker) void this.terminate();
             }, timeoutMs);
-            this.pending.set(id, { resolve, reject, timer });
+            this.pending.set(id, { resolve, reject, timer, operation: payload.type,
+                phase: payload.type === 'init' ? 'worker startup' : '' });
             try { worker.postMessage({ ...payload, id }, transfer); }
             catch (error) {
                 logger.warn('[ParakeetTDT] Worker request could not be posted');
@@ -101,6 +104,12 @@ export class ParakeetTdtEngine implements IPrivateSTTEngine {
                 if (this.worker !== worker || generation !== this.generation) return;
                 const item = this.pending.get(data.id);
                 if (!item) return;
+                if (data.ok && data.type === 'initializing' && item.operation === 'init' &&
+                    ['runtime', 'model', 'validation', 'features', 'encoder', 'decoder', 'transcript'].includes(data.phase)) {
+                    // A phase is diagnostic only: it neither resolves initialization nor renews its deadline.
+                    item.phase = data.phase;
+                    return;
+                }
                 clearTimeout(item.timer); this.pending.delete(data.id); this.heartbeat = Date.now();
                 if (data.ok) item.resolve(data); else item.reject(new Error(data.error));
             };
