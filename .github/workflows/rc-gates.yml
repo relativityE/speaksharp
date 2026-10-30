@@ -37,7 +37,7 @@ on:
         required: false
         default: ''
       diagnostic_release_sha:
-        description: 'AHT15 diagnostic ONLY: exact deployed frontend SHA, distinct from reviewed workflow SHA. Empty preserves existing binding.'
+        description: 'Closed RWT single-test diagnostic ONLY: exact deployed ancestor SHA; product/live-test/dependency bytes must match workflow source. Empty preserves existing binding.'
         required: false
         default: ''
       comparison_cell:
@@ -130,24 +130,24 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - name: Validate bounded AHT15 release selection
+        with:
+          fetch-depth: 0
+      - name: Validate bounded RWT release selection
         env:
           DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
           DIAGNOSTIC_RELEASE: ${{ github.event.inputs.diagnostic_release_sha }}
-        run: |
-          set -euo pipefail
-          if [ -n "$DIAGNOSTIC_RELEASE" ]; then
-            if [ "$DIAGNOSTIC_SPEC" != 'tests/live/rwt-products-navigation.live.spec.ts' ] || [[ ! "$DIAGNOSTIC_RELEASE" =~ ^[0-9a-f]{40}$ ]]; then
-              echo '::error::HOLD: explicit frontend SHA is restricted to the selected AHT15 diagnostic'; exit 1
-            fi
-          fi
+          DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
+          SELECTED_GATE: ${{ github.event.inputs.gate }}
+          COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
+          PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}
+        run: node tools/cloud-test/scripts/validate_rwt_release_binding.cjs
       - uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
       - name: Classify Gate 3 evidence target
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
-          EXPECTED_RELEASE_SHA: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/rwt-products-navigation.live.spec.ts' && github.event.inputs.diagnostic_release_sha || github.sha }}
+          EXPECTED_RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
           EVIDENCE_SCOPE: ${{ github.event.inputs.diagnostic_dast_spec == '' && 'canonical-production' || 'diagnostic' }}
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
         run: node scripts/rc-evidence-target-preflight.mjs
@@ -321,7 +321,7 @@ jobs:
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
-          EXPECTED_RELEASE_SHA: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/rwt-products-navigation.live.spec.ts' && github.event.inputs.diagnostic_release_sha || github.sha }}
+          EXPECTED_RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
           EVIDENCE_SCOPE: diagnostic
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
@@ -385,7 +385,7 @@ jobs:
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
-          RELEASE_SHA: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/rwt-products-navigation.live.spec.ts' && github.event.inputs.diagnostic_release_sha || github.sha }}
+          RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
           # The first-download receipt (only a measured cold network download passes) is required PER BINDING, of the one
           # binding the receipt marks `firstDownload` (#1532 Codex P1 r4124290575): a repeat take in the post-reload journey
           # loads the model from cache by construction, and a feedback/PDF-only journey acquires nothing. Each binding also names

@@ -28,7 +28,7 @@
     "expectedCodeManifestSha256": "48f7bf47d82c1f78ed5734a9ccd04657d0f486ba00a3643ad81e7f2e90e63760",
     "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
     "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
-    "expectedPacketManifestSha256": "d22613290fa5f95c5b0c9a631e5475b19cee6f3df96d2e5555ca26df4a7e2771"
+    "expectedPacketManifestSha256": "dc88ad15e28da7e67e62d49a986806542c42836aedee7ed3a45f0a99a4dbb880"
   },
   "credentials": {
     "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",
@@ -213,10 +213,11 @@
     ]
   },
   "modes": {
-    "note": "A run is exactly one mode, named in the request (coverageMode) and passed to the plan builder; there is no default. PARTIAL runs a few cases with the minimal sample and never counts as a full live run. FULL runs all 15 journeys with every required assertion. Partial and carried-forward results are preserved and shown, but neither counts as a full live run.",
+    "note": "Coverage scope and case depth are explicit. PARTIAL selects at most six cases, with either minimal or full case assertions; it never counts as a full all15 live run. FULL runs all 15 journeys with every required assertion. Partial and carried-forward results never count as a full live run.",
     "partial": {
       "label": "PARTIAL",
       "sampleMode": "minimal",
+      "allowedSampleModes": ["minimal", "full"],
       "countsAsFullLiveRun": false,
       "limits": {
         "maxSelectedCases": 6,

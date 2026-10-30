@@ -26,8 +26,8 @@ MODE = os.environ.get('BP_MODE')
 RUNTIME = os.environ.get('BP_RUNTIME', 'Claude SpeakSharp R4')
 if RUNTIME not in ('Claude SpeakSharp R4', 'GitHub Actions SpeakSharp'):
     raise ValueError('BLOCKED_SETUP: unsupported execution runtime')
-if MODE not in ('minimal', 'breadth', 'full'):
-    print('BLOCKED_SETUP: BP_MODE must be minimal, breadth or full (no default; it is passed from the request)', file=sys.stderr); sys.exit(78)
+if MODE not in ('minimal', 'breadth', 'full', 'selected-full'):
+    print('BLOCKED_SETUP: BP_MODE must be minimal, breadth, full or selected-full (no default; it is passed from the request)', file=sys.stderr); sys.exit(78)
 PACKET = need('BP_PACKET')
 CHECKOUT = need('BP_CHECKOUT')
 PRIVATE = need('BP_PRIVATE')
@@ -68,6 +68,7 @@ for _k, _v in PRESS_EXTRA.items(): PRESS[_k] = _v
 BREADTH = MODE == 'breadth'
 MINIMAL = MODE == 'minimal'
 FULL = MODE == 'full'
+SELECTED_FULL = MODE == 'selected-full'
 MIN_TAKES = {1: 2, 2: 1, 3: 1, 4: 0, 5: 1, 6: 1, 7: 1, 8: 0, 9: 1, 10: 1, 11: 1, 12: 0, 13: 0, 14: 0, 15: 0}
 MIN_PRESS = {1: 2, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 0, 9: 1, 10: 1, 11: 3, 12: 1, 13: 1, 14: 1, 15: 0}
 MIN_EST = {1: 350, 2: 190, 3: 170, 4: 90, 5: 160, 6: 160, 7: 150, 8: 90, 9: 190, 10: 120, 11: 170, 12: 100, 13: 115, 14: 125, 15: 125}
@@ -117,7 +118,11 @@ if phase == 'phase1':
         raise ValueError('BLOCKED_SETUP: unknown producer mode')
     same_job = producer_mode == 'same-github-job'
     assert not same_job or RUNTIME == 'GitHub Actions SpeakSharp', 'same-job producer requires explicit GitHub runtime'
-    assert RUNTIME != 'GitHub Actions SpeakSharp' or same_job, 'GitHub runtime requires actual same-job evidence selection'
+    # The execution platform is independent of whether these exact selected cases
+    # need a privileged evidence producer. AHT04/15 must not acquire service keys
+    # merely to run in GitHub. Evidence-dependent cases still refuse before build.
+    producer_cases_selected = set(SELECTED).intersection({1, 2, 3, 7, 8})
+    assert RUNTIME != 'GitHub Actions SpeakSharp' or same_job or not producer_cases_selected, 'GitHub selected cases require actual same-job evidence selection'
     receiver_rel = 'draft-adapters/receivers/' + ('github-job-evidence-reader.cjs' if same_job else 'unavailable-evidence-reader.cjs')
     receiver_path = f'{PACKET}/{receiver_rel}'
     receiver_sha = shaf(receiver_path)
@@ -305,7 +310,7 @@ elif phase == 'phase2':
     rows = []
     prod_cases = {1, 2, 3, 7, 8}
     oracle_cases = {1, 2, 3, 7, 8, 9, 10, 11}
-    for n in SEL:
+    for n in (range(1, 16) if SELECTED_FULL else SEL):
         cid = f'AHT-{n:02d}'; drv = f'{PACKET}/draft-adapters/{cid}.cjs'
         r = {'id': cid, 'driverFile': drv, 'driverSha256': shaf(drv), 'configFile': idx['cases'][cid]['config'],
              'configSha256': idx['cases'][cid]['configSha256'], 'maxMs': MAXMS[n]}
@@ -325,13 +330,19 @@ elif phase == 'phase2':
         plan['requestBudget'] = {'runCap': CAPS['total'], 'cleanupReserve': BP_CLEANUP,
                                  'estimates': {f'AHT-{k:02d}': v for k, v in MIN_EST.items()},
                                  'ceilings': {f'AHT-{k:02d}': ((v * 125 + 99) // 100 + 9) // 10 * 10 for k, v in MIN_EST.items()}}
-    if FULL:
+    if FULL or SELECTED_FULL:
         # full coverage: every case, every required assertion; the harness's own per-case caps (TAKES/PRESS) stay at the contract minimums
-        if sorted(BP_EST) != list(range(1, 16)) or SELECTED != list(range(1, 16)):
+        if FULL and (sorted(BP_EST) != list(range(1, 16)) or SELECTED != list(range(1, 16))):
             print('BLOCKED_SETUP: full mode needs all 15 cases selected in order and a request estimate for each', file=sys.stderr); sys.exit(78)
+        if SELECTED_FULL:
+            if not 1 <= len(SELECTED) <= 6 or len(set(SELECTED)) != len(SELECTED) or not set(SELECTED).issubset(range(1, 16)) or sorted(BP_EST) != sorted(SELECTED):
+                print('BLOCKED_SETUP: selected-full needs an explicit subset of at most six cases and exact request estimates', file=sys.stderr); sys.exit(78)
+            plan['coverageMode'] = 'partial'
+            plan['assertionDepth'] = 'full'
+        budget_estimates = {k: BP_EST.get(k, 0) for k in range(1, 16)} if SELECTED_FULL else BP_EST
         plan['requestBudget'] = {'runCap': CAPS['total'], 'cleanupReserve': BP_CLEANUP,
-                                 'estimates': {f'AHT-{k:02d}': v for k, v in BP_EST.items()},
-                                 'ceilings': {f'AHT-{k:02d}': ((v * 125 + 99) // 100 + 9) // 10 * 10 for k, v in BP_EST.items()}}
+                                 'estimates': {f'AHT-{k:02d}': v for k, v in budget_estimates.items()},
+                                 'ceilings': {f'AHT-{k:02d}': ((v * 125 + 99) // 100 + 9) // 10 * 10 for k, v in budget_estimates.items()}}
     if BREADTH:
         plan['requestBudget'] = {'runCap': CAPS['total'], 'cleanupReserve': BP_CLEANUP,
                                  'estimates': {f'AHT-{k:02d}': v for k, v in BREADTH_EST.items()},

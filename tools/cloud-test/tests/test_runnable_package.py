@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -249,6 +250,9 @@ class PlanBuilderProof(unittest.TestCase):
     def build(self, name, extra=None, drop=()):
         private = os.path.join(self.work, name)
         script = ("set -euo pipefail; set -a; . %s; set +a; " % os.path.join(self.work, "env.txt"))
+        # Test-specific runtime/negative controls must override the sourced request,
+        # as FullPlanProof already does; otherwise they silently exercise Claude.
+        script += "".join("export %s=%s; " % (key, shlex.quote(value)) for key, value in (extra or {}).items() if key not in drop)
         env = {"PATH": os.environ["PATH"], "HOME": self.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
                "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": self.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(self.work, "media"),
