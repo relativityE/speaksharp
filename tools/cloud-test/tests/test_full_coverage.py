@@ -512,11 +512,11 @@ class ReadyNeedsAFullLiveRun(unittest.TestCase):
 
 class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
     """Self-review defect: collect_run_record read startPresses/takes from case results that never carry them, so Starts and takes were always null and no run
-    ever consumed the cumulative Starts/takes caps. They are now counted from each case's action-reservations.jsonl."""
-    @needs_history
+    ever consumed the cumulative Starts/takes caps. They are now counted from each case's action-reservations.jsonl.
+    Synthetic history: every journey logs 1 Start and 1 take, so each full run has 15 and 15; owner counters 30/30 through R5, Starts cap 50."""
     def test_sealed_runs_are_counted_from_their_reservation_logs(self):
-        self.assertEqual(DC.count_actions(os.path.join(RECEIPTS, "R4C")), {"starts": 20, "takes": 14})
-        self.assertEqual(DC.count_actions(os.path.join(RECEIPTS, "R5")), {"starts": 14, "takes": 9})
+        self.assertEqual(DC.count_actions(os.path.join(RECEIPTS, "R4C")), {"starts": 15, "takes": 15})
+        self.assertEqual(DC.count_actions(os.path.join(RECEIPTS, "R5")), {"starts": 15, "takes": 15})
 
     def test_no_reservation_log_is_null_never_zero(self):
         with tempfile.TemporaryDirectory() as d:
@@ -524,7 +524,6 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
             self.assertIsNone(DC.count_actions(d))
             self.assertIsNone(DC.count_actions(os.path.join(d, "missing")))
 
-    @needs_history
     def test_the_spend_report_uses_them_for_a_sealed_latest_run(self):
         import shutil
         import reconcile_cumulative as RC
@@ -533,15 +532,14 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
             for lab in ("R4", "R4B", "R4C", "R5"):
                 shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
             shutil.copytree(os.path.join(d, "R5"), os.path.join(d, "R6T"))
-            cfg = copy.deepcopy(sample()["cfg"]); cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": "x", "ledgersOnly": False})
-            rc = RC.reconcile(cfg, J("config", "history", "owner-counters.json"), d)
+            cfg = copy.deepcopy(synthetic_history().cfg); cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": "x", "ledgersOnly": False})
+            rc = RC.reconcile(cfg, copy.deepcopy(synthetic_history().counters_doc), d)
             req = r7()
             out = S.build(req, cfg, rc, None, None, None, "R6T", d)
-            self.assertEqual((out["starts"]["actual"], out["takes"]["actual"]), (14, 9))
-            self.assertEqual(out["remainingAfterRun"]["starts"], 81 - 46 - 14)
+            self.assertEqual((out["starts"]["actual"], out["takes"]["actual"]), (15, 15))
+            self.assertEqual(out["remainingAfterRun"]["starts"], 50 - 30 - 15)
             self.assertIn("afterRunWithIdentityReadsAsRequests", out["countedOnce"])
 
-    @needs_history
     def test_more_starts_than_estimated_is_over_cap(self):
         import shutil
         import reconcile_cumulative as RC
@@ -549,14 +547,13 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             for lab in ("R4", "R4B", "R4C", "R5"):
                 shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
-            cfg = sample()["cfg"]
-            rc = RC.reconcile(cfg, J("config", "history", "owner-counters.json"), d)
+            cfg = copy.deepcopy(synthetic_history().cfg)
+            rc = RC.reconcile(cfg, copy.deepcopy(synthetic_history().counters_doc), d)
             req = r7(); req["estimate"]["starts"] = 10
-            rr = {"spend": {"requests": 2085, "byCategory": {"signed-in": 778, "coaching": 3}, "identityReads": 32, "starts": 14, "takes": 9}}
+            rr = {"spend": {"requests": 15 * 170, "byCategory": {"signed-in": 15 * 50, "coaching": 15 * 10}, "identityReads": 32, "starts": 15, "takes": 15}}
             out = S.build(req, cfg, rc, rr, None, None, None, d)
             self.assertFalse(out["withinCap"])
 
-    @needs_history
     def test_the_collector_counts_them_from_the_cases_directory(self):
         import shutil
         with tempfile.TemporaryDirectory() as d:
@@ -570,7 +567,7 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
                                 "--ledger-dir", led, "--gate-status", gs, "--workflow", os.path.join(ROOT, "workflow.json"), "--runner-json", rj, "--out", out], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             rec = json.load(open(out))
-            self.assertEqual((rec["spend"]["starts"], rec["spend"]["takes"]), (14, 9))
+            self.assertEqual((rec["spend"]["starts"], rec["spend"]["takes"]), (15, 15))
 
 
 class GeneratedProposalRendering(unittest.TestCase):
@@ -637,22 +634,26 @@ class GeneratedProposalRendering(unittest.TestCase):
 
 
 
-@needs_history
 class FullModePipeline(unittest.TestCase):
     def test_the_control_plane_reports_the_full_proposal_without_approving_it(self):
         repo = os.environ.get("CT_TEST_REPO") or os.path.abspath(os.path.join(ROOT, "..", ".."))
         from _fixtures import prerequisite
         prerequisite(subprocess.run(["git", "-C", repo, "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True).stdout.strip() == "true", "git history")
         with tempfile.TemporaryDirectory() as d:
-            # This is a synthetic, unapproved proposal. The retained fixture has
-            # 46 Starts; the full contract needs 40 more. The old 85 was short by one.
-            proposal = json.load(open(request_path("R7-full-coverage-proposal.json")))
-            proposal["proposedLimits"]["startsCap"] = 86
-            proposal["proposedLimits"]["startsIncreaseJustification"] = "SYNTHETIC TEST ONLY: 46 retained fixture Starts + 40 planned; NO LIVE APPROVAL"
-            request = os.path.join(d, "request.json"); wjson(request, proposal)
+            # A synthetic, unapproved proposal over the synthetic history and owner counters (inputs.v1.json): conservative used 5840 (5800 measured
+            # + 40 unexplained), so the ceiling is 5840 + 3390 + 664 + 32 = 9926; Starts 30 owned + 40 planned = 70 and takes 30 + 31 = 61 exceed
+            # the synthetic caps 50/40, so both increases are proposed with their justification. NO LIVE APPROVAL.
+            h = synthetic_history()
+            proposal = full_request()
+            proposal["proposedLimits"].update(cumulativeCeilingRequests=5840 + 3390 + 664 + 32, startsCap=30 + 40, takesCap=30 + 31,
+                                              ceilingIncreaseJustification="SYNTHETIC TEST ONLY: 5840 + 3390 + 664 + 32 = 9926; NO LIVE APPROVAL",
+                                              startsIncreaseJustification="SYNTHETIC TEST ONLY: 30 owned + 40 planned; NO LIVE APPROVAL",
+                                              takesIncreaseJustification="SYNTHETIC TEST ONLY: 30 owned + 31 planned; NO LIVE APPROVAL")
+            source = os.path.join(d, "proposal.json"); wjson(source, proposal)
+            request = h.request(source)
             out = os.path.join(d, "out")
             r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", request, "--out-dir", out,
-                                "--repo", repo, "--generated-at", "2026-10-29T01:00:00Z"], capture_output=True, text=True)
+                                "--repo", repo, "--generated-at", "2026-10-29T01:00:00Z", *h.args()], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout[-800:] + r.stderr[-800:])
             gates = json.load(open(os.path.join(out, "gate-status.json")))
             self.assertEqual(gates["decision"], "NO-GO")

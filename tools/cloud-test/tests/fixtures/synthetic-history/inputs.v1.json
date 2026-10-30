@@ -80,10 +80,10 @@
   "statedThroughRun": "R5",
   "frozenAsOfUtc": "2026-10-28T20:30:00Z",
   "requests": {
-   "allowanceBaselineThroughR4C": 3000,
+   "allowanceBaselineThroughR4C": 3250,
    "outsideRunEstimate": 40
   },
-  "identityReadsCumulative": 60,
+  "identityReadsCumulative": 86,
   "startsCumulative": 30,
   "takesCumulative": 30,
   "ceilings": {
@@ -93,5 +93,6 @@
    "starts": 50,
    "takes": 40
   }
- }
+ },
+ "countersNote": "Owner counters stated through R5 exceed the sealed ledgers by an unexplained 40 requests and 2 identity reads, so the carry-forward rule is exercised: measured requests 500 + 200 + 2550 + 2550 = 5800, owner-counted 3250 + 2550 (R5) + 40 outside-run = 5840; identity reads measured 10 + 10 + 32 + 32 = 84, owner-counted 86."
 }
