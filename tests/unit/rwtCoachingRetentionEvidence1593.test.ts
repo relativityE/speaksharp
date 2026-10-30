@@ -1,6 +1,6 @@
 // @vitest-environment node
 /** #1593: retention cannot erase a positive witness or invent one for an interrupted take. */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -369,7 +369,7 @@ describe('saved coaching witnesses survive lawful retention, never absence', () 
     it('public outcomes expose no raw transcript, pair, owner or session identifiers', () => {
         const a = fixture(1); const b = fixture(2, 30); const first = capture(a); const second = capture(b);
         if (!('take' in first) || !('take' in second)) throw new Error('expected positive witnesses');
-        const dir = mkdtempSync(path.join(tmpdir(), 'rwt-retention-evidence-')); dirs.push(dir);
+        const dir = mkdtempSync(path.join(realpathSync(tmpdir()), 'rwt-retention-evidence-')); dirs.push(dir);
         const out = coachingEvidenceOutcome({ releaseSha: RELEASE, destination: { dir }, firstTake: first, repeatTake: second });
         expect(out.verdict).toBe('PASS');
         for (const raw of [a.inputs.transcript, a.rendered.what_worked, b.rendered.what_to_try_next, USER, a.id.sessionId, b.id.sessionId]) {
