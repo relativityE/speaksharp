@@ -1,0 +1,97 @@
+{
+ "schema": "speaksharp.cloud-test.synthetic-history-inputs.v1",
+ "note": "SYNTHETIC offline fixture for the current test suite. Not a real campaign, account, usage figure or approval, and never live authority. Every expected value a current test asserts about this history is written as arithmetic over the numbers declared here. servedSha values are public commits of this repository (R5 = the tested release used by the existing fixtures, R4C its parent), so release and gap logic can resolve them. The runs are timed just before the suite's fixed evaluation time (_fixtures.NOW), so identity evidence is fresh by the package's own rule. R4C and R5 declare different per-journey driver hashes (the harness changed between them), so their comparison is not controlled.",
+ "startUtc": "2026-10-28T19:00:00Z",
+ "runs": [
+  {
+   "label": "R4",
+   "ledgersOnly": true,
+   "servedSha": "9710fc8b4cefc0196068653ea29c720098c75d3e",
+   "requests": 500,
+   "identityGets": 10
+  },
+  {
+   "label": "R4B",
+   "ledgersOnly": true,
+   "servedSha": "9710fc8b4cefc0196068653ea29c720098c75d3e",
+   "requests": 200,
+   "identityGets": 10
+  },
+  {
+   "label": "R4C",
+   "servedSha": "d1e6a28a223f5969f35485846e2120e688238ed5",
+   "requestBudget": true,
+   "case": {
+    "public": 20,
+    "navigations": 5,
+    "preflight": 30,
+    "auth": 10,
+    "signed-in": 60,
+    "model": 40,
+    "coaching": 10,
+    "wallSeconds": 120,
+    "rowsExecuted": "half",
+    "starts": 1,
+    "takes": 1,
+    "connectRefused": 0
+   },
+   "cases": {
+    "AHT-03": {
+     "reason": "allowance-exhausted"
+    }
+   },
+   "fail": [
+    [
+     "AHT-02",
+     1
+    ]
+   ],
+   "driverSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  {
+   "label": "R5",
+   "servedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+   "requestBudget": true,
+   "case": {
+    "public": 20,
+    "navigations": 5,
+    "preflight": 40,
+    "auth": 10,
+    "signed-in": 50,
+    "model": 40,
+    "coaching": 10,
+    "wallSeconds": 100,
+    "rowsExecuted": "all",
+    "starts": 1,
+    "takes": 1,
+    "connectRefused": 0
+   },
+   "cases": {
+    "AHT-05": {
+     "rowsExecuted": 1,
+     "wallSeconds": 150
+    }
+   },
+   "fail": [],
+   "driverSha256": "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1"
+  }
+ ],
+ "counters": {
+  "statedThroughRun": "R5",
+  "frozenAsOfUtc": "2026-10-28T20:30:00Z",
+  "requests": {
+   "allowanceBaselineThroughR4C": 3000,
+   "outsideRunEstimate": 40
+  },
+  "identityReadsCumulative": 60,
+  "startsCumulative": 30,
+  "takesCumulative": 30,
+  "ceilings": {
+   "requests": 6700,
+   "protectedReserveRequests": 664,
+   "identityReads": 98,
+   "starts": 50,
+   "takes": 40
+  }
+ }
+}
