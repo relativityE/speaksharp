@@ -34,6 +34,7 @@ import {
 } from '@/services/transcription/modelComparisonAuthorization';
 import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
 import { beginRecordingAttempt, endRecordingAttempt } from '@/services/telemetry/journeyIdentity';
+import { applyRecordingFailureContext, captureRecordingFailureContext, type RecordingFailureContext } from '@/services/telemetry/recordingFailureContext';
 import { markCompletionStage } from '@/services/telemetry/completionStages';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
@@ -652,6 +653,7 @@ export const useSessionLifecycle = () => {
             // once the take is RECORDING it stays until capture is live on real frames (SessionPage clears it then).
             // #1258 C10 (PM 6207105255): this press's own identity; settled only when THIS invocation returns (finally).
             const { attempt: startAttempt, settle: settleStartAttempt } = beginStartAttempt();
+            let failureContext: RecordingFailureContext | null = null;
             useSessionStore.getState().setStartupWaitStartedAt(Date.now());
             try {
                 setSTTStatus({ type: 'idle', message: 'Ready to record' });
@@ -882,6 +884,7 @@ export const useSessionLifecycle = () => {
                 // starts, and still before the await, so a hung start is both visible and attributable.
                 endRecordingAttempt();
                 beginRecordingAttempt();
+                failureContext = captureRecordingFailureContext();
                 reportIntent('accepted');
                 // #1428 F-15 — controller Start -> authoritative RECORDING. `startRecording` deliberately
                 // remains pending across cold model preparation, so this captures the delay the user experiences
@@ -986,6 +989,7 @@ export const useSessionLifecycle = () => {
                 const startLeaf = sanitizeStartError((err as { cause?: unknown })?.cause);
                 logger.error({ error: err, stack: err?.stack, mode: latestMode }, '[useSessionLifecycle] Failed to start recording');
                 Sentry.withScope((scope) => {
+                    applyRecordingFailureContext(scope, failureContext);
                     // #P1-observability: surface the engine-start LEAF (mic / AudioWorklet / engine-init),
                     // not just the generic TRANSCRIPTION_START_DID_NOT_RECORD wrapper. The controller
                     // attaches the raw leaf as err.cause (Sentry links it in the exception chain); we ALSO
