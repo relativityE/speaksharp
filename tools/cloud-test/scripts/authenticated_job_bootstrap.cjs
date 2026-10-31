@@ -6,7 +6,7 @@ const H=path.resolve(__dirname,'../harness/bundle/harness');
 const {descriptor,jobIdentity,validateScope}=require(path.join(H,'authenticated-job-producer.cjs'));
 const {privateJson}=require(path.join(H,'with-authenticated-evidence.cjs'));
 const {sha}=require(path.join(H,'existing-runner-projection.cjs'));
-const BP_NAMES=Object.freeze(['MODE','PACKET','CHECKOUT','PRIVATE','FACTS','ACCOUNT_ID_FILE','SOURCE_SHA','CAMPAIGN','T0','T1','TOTAL','CLEANUP','IDENT','SELECT','GATES','EST','COACHING_CAP','SELECT_REF','SELECT_REASON','BACKEND_SOURCE','BACKEND_VERIFIED','CASES','HOST_APP','HOST_DB','MEDIA_PARENT','PDFJS_DIR','PDFJS_SHA','PRESS_EXTRA','SKIP','STIM','LEASE_RPCS','LEASE_READ'].map(x=>'BP_'+x));
+const BP_NAMES=Object.freeze(['MODE','PACKET','CHECKOUT','PRIVATE','FACTS','ACCOUNT_ID_FILE','BROWSER_IDENTITY','SOURCE_SHA','CAMPAIGN','T0','T1','TOTAL','CLEANUP','IDENT','SELECT','GATES','EST','COACHING_CAP','SELECT_REF','SELECT_REASON','BACKEND_SOURCE','BACKEND_VERIFIED','CASES','HOST_APP','HOST_DB','MEDIA_PARENT','PDFJS_DIR','PDFJS_SHA','PRESS_EXTRA','SKIP','STIM','LEASE_RPCS','LEASE_READ'].map(x=>'BP_'+x));
 function builderEnvironment(env,selection){
  const out={};
  for(const k of ['PATH','HOME','LANG','LC_ALL','TMPDIR','GITHUB_ACTIONS','GITHUB_REPOSITORY','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_JOB','GITHUB_SHA','VITE_SUPABASE_ANON_KEY',...BP_NAMES])if(env[k]!==undefined)out[k]=env[k];

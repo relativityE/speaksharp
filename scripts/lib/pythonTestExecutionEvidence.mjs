@@ -9,6 +9,22 @@ import {NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,executionBatchIdentity,reconcileExe
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fail=message=>{throw new Error(message);};
 export const PYTHON_REPORTER='scripts/lib/python-unittest-reporter.py';
+// Non-test inputs are credited only through the exact Python consumer that reads
+// or integrity-checks them.  This is deliberately a closed inventory: an
+// unregistered fixture remains UNCOVERED rather than borrowing a nearby suite.
+export const PYTHON_INPUT_CONTRACTS=Object.freeze([
+  {inputFile:'tools/cloud-test/harness/draft-adapters/source/d100/20260731120000_session_progress_evaluations.sql',testFile:'tools/cloud-test/tests/test_runnable_package.py'},
+  {inputFile:'tools/cloud-test/harness/draft-adapters/source/d100/20260731130000_progress_recommendations.sql',testFile:'tools/cloud-test/tests/test_runnable_package.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/accepted-comparison-R5-vs-R4C.json',testFile:'tools/cloud-test/tests/test_pipeline_and_report.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/cloud-test.yml',testFile:'tools/cloud-test/tests/test_workflow_policy.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/full-request.json',testFile:'tools/cloud-test/tests/test_pipeline_and_report.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly-control-plane.yml.proposed',testFile:'tools/cloud-test/tests/test_nightly_regression.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/nightly-request.json',testFile:'tools/cloud-test/tests/test_nightly_regression.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/original-r15-pins.json',testFile:'tools/cloud-test/tests/test_runnable_package.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/partial-request.json',testFile:'tools/cloud-test/tests/test_pipeline_and_report.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/plan-facts.PLACEHOLDER.json',testFile:'tools/cloud-test/tests/test_selected_full_case_route.py'},
+  {inputFile:'tools/cloud-test/tests/fixtures/synthetic-history/inputs.v1.json',testFile:'tools/cloud-test/tests/test_full_coverage.py'},
+]);
 
 function regular(root,file) {
   if(typeof file!=='string'||path.isAbsolute(file)||file.includes('\\')||path.posix.normalize(file)!==file||file.startsWith('../'))fail('Invalid Python evidence path');
@@ -50,12 +66,24 @@ export function pythonEnvironment(environment=process.env) {
 }
 
 export function pythonTestRoute(file) {
+  const input=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile===file);
+  if(input)return {runner:'python-unittest-input',consumer:input.testFile,applicable:true};
   return /^tools\/cloud-test\/(?:.*\/)?test_[^/]+\.py$/.test(file)
     ?{runner:'python-unittest',consumer:file,applicable:true}:null;
 }
 
 export function selectPythonContracts(files) {
-  const contracts=[...new Set(files.filter(file=>pythonTestRoute(file)))].sort().map(testFile=>({testFile}));
+  const selected=new Map();
+  for(const file of [...new Set(files)].sort()) {
+    const route=pythonTestRoute(file);if(!route)continue;
+    const contract=selected.get(route.consumer)??{testFile:route.consumer,sourceFiles:[],consumerExecution:false};
+    if(route.runner==='python-unittest-input')contract.sourceFiles.push(file);
+    else contract.consumerExecution=true;
+    selected.set(route.consumer,contract);
+  }
+  const contracts=[...selected.values()].map(contract=>({testFile:contract.testFile,
+    ...(contract.sourceFiles.length?{sourceFiles:contract.sourceFiles}:{}),
+    ...(contract.consumerExecution?{consumerExecution:true}:{})}));
   if(contracts.length>NATIVE_BATCH_SIZE*NATIVE_MAX_BATCHES)fail(`NOT RUN: Python execution exceeds ${NATIVE_MAX_BATCHES} batches of ${NATIVE_BATCH_SIZE} files`);
   return contracts.map((contract,index)=>({...contract,batch:Math.floor(index/NATIVE_BATCH_SIZE)}));
 }
@@ -111,8 +139,10 @@ export function producePythonReceipt({root,base,provenance,files,batch=0,drain,s
   try {
     for(const contract of selected) {
       const phaseId=randomUUID(),receiptFile=path.join(receiptDirectory,`${phaseId}.json`),testFile=regular(root,contract.testFile);
+      const sourceFiles=(contract.sourceFiles??[]).map(file=>({file,sha256:hash(fs.readFileSync(regular(root,file)))}));
       const binding={schemaVersion:1,phase:'python-unittest',phaseId,runId,root:fs.realpathSync(root),testFile:contract.testFile,
         testSha256:hash(fs.readFileSync(testFile)),receiptDirectory,receiptFile,base:base??null,provenance,runtime,environment:environmentBinding};
+      if(sourceFiles.length)binding.sourceFiles=sourceFiles;
       const command=[runtime.execPath,'-I',regular(root,PYTHON_REPORTER)],result=spawn(command[0],command.slice(1),{
         cwd:root,env:fixedEnvironment(receiptDirectory,binding),encoding:'utf8',timeout:120000,killSignal:'SIGKILL',detached:true,maxBuffer:4*1024*1024});
       const processCleanup=drain(result);
@@ -120,7 +150,9 @@ export function producePythonReceipt({root,base,provenance,files,batch=0,drain,s
       const report=JSON.parse(fs.readFileSync(receiptFile,'utf8'));
       const phase={binding,command,execution:{status:result.status,signal:result.signal,error:result.error?.code??null,processCleanup},report};
       validatePythonPhase(phase,{root,base,provenance,runId,contract,runtime,environment});
-      tests.push({testFile:contract.testFile,testSha256:binding.testSha256,phase});
+      tests.push({testFile:contract.testFile,testSha256:binding.testSha256,
+        ...(contract.sourceFiles?{sourceFiles:contract.sourceFiles}:{}),
+        ...(contract.consumerExecution?{consumerExecution:true}:{}),phase});
     }
   } catch(error){primaryError=error;}
   try{fs.rmSync(receiptDirectory,{recursive:true,force:true,maxRetries:3,retryDelay:50});}catch(cleanup){throw new AggregateError(primaryError?[primaryError,cleanup]:[cleanup],'Python evidence cleanup failed');}
@@ -133,6 +165,7 @@ export function validatePythonPhase(phase,{root,base,provenance,runId,contract,r
   const b=phase?.binding,report=phase?.report;
   if(!b||b.schemaVersion!==1||b.phase!=='python-unittest'||b.runId!==runId||!b.phaseId||b.root!==fs.realpathSync(root)
     ||b.testFile!==contract.testFile||b.testSha256!==hash(fs.readFileSync(regular(root,contract.testFile)))||b.base!==(base??null)
+    ||!isDeepStrictEqual(b.sourceFiles??[],(contract.sourceFiles??[]).map(file=>({file,sha256:hash(fs.readFileSync(regular(root,file)))})))
     ||!isDeepStrictEqual(b.provenance,provenance)||!isDeepStrictEqual(b.runtime,runtime)
     ||!isDeepStrictEqual(b.environment,pythonEnvironment(environment))
     ||JSON.stringify(phase.command)!==JSON.stringify([runtime.execPath,'-I',regular(root,PYTHON_REPORTER)]))fail('Wrong Python source/runtime/provenance/command binding');
@@ -163,7 +196,10 @@ export function validatePythonReceipt(receipts,{root,base,provenance,files,envir
     selected.forEach((contract,index)=>{
       const item=receipt.tests[index];
       if(item.testFile!==contract.testFile||item.testSha256!==hash(fs.readFileSync(regular(root,contract.testFile)))||phases.has(item.phase?.binding?.phaseId))fail('Wrong or duplicate Python test source');
-      credited.add(validatePythonPhase(item.phase,{root,base,provenance,runId:receipt.runId,contract,environment}));phases.add(item.phase.binding.phaseId);
+      const testFile=validatePythonPhase(item.phase,{root,base,provenance,runId:receipt.runId,contract,environment});
+      for(const file of contract.sourceFiles??[])credited.add(file);
+      if(contract.consumerExecution)credited.add(testFile);
+      phases.add(item.phase.binding.phaseId);
     });
   }
   return credited;

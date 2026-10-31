@@ -7,6 +7,7 @@ import unittest
 from _fixtures import REPO, ROOT, J
 
 YML = os.environ.get("CLOUD_TEST_YML") or os.path.join(ROOT, "tests", "fixtures", "cloud-test.yml")
+FIXTURE_YML = os.path.join(ROOT, "tests", "fixtures", "cloud-test.yml")
 ALLOWED_ACTIONS = ("actions/checkout@", "actions/setup-python@", "actions/setup-node@", "actions/upload-artifact@")
 
 
@@ -29,6 +30,19 @@ class WorkflowPolicy(unittest.TestCase):
     def test_only_manual_dispatch_trigger(self):
         on = self.doc.get("on", self.doc.get(True))
         self.assertEqual(list(on.keys()), ["workflow_dispatch"])
+
+    def test_preserved_workflow_fixture_retains_the_secret_free_manual_control_plane(self):
+        """The registered fixture is itself consumed even when CI binds the current workflow through CLOUD_TEST_YML."""
+        import yaml
+        with open(FIXTURE_YML, encoding="utf-8") as f:
+            text = f.read()
+        doc = yaml.safe_load(text)
+        trigger = doc.get("on", doc.get(True))
+        self.assertEqual(list(trigger.keys()), ["workflow_dispatch"])
+        self.assertEqual(doc["permissions"], {"contents": "read"})
+        self.assertNotIn("environment", doc["jobs"]["control-plane"])
+        for needle in ("secrets.", "secrets:", "vars.", "GITHUB_TOKEN", "id-token", "inherit"):
+            self.assertNotIn(needle, text, needle)
 
     def test_default_mode_is_the_preflight_that_spends_nothing(self):
         inp = self.doc.get("on", self.doc.get(True))["workflow_dispatch"]["inputs"]

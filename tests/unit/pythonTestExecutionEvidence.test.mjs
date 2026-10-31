@@ -6,7 +6,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {producePythonReceipt,selectPythonContracts,validatePythonReceipt} from '../../scripts/lib/pythonTestExecutionEvidence.mjs';
+import {PYTHON_INPUT_CONTRACTS,producePythonReceipt,selectPythonContracts,validatePythonReceipt} from '../../scripts/lib/pythonTestExecutionEvidence.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const here=path.dirname(fileURLToPath(import.meta.url)),repo=path.resolve(here,'../..');
@@ -36,7 +36,7 @@ function fixture() {
 test('Python receipts bind exact source/runtime and reject result tampering',()=>{
   const f=fixture();process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
   try {
-    assert.deepEqual(selectPythonContracts([f.testFile,'tests/unit/test_outside.py']),[{testFile:f.testFile,batch:0}]);
+    assert.deepEqual(selectPythonContracts([f.testFile,'tests/unit/test_outside.py']),[{testFile:f.testFile,consumerExecution:true,batch:0}]);
     const receipt=producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[f.testFile],batch:0,
       environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:{execPath:f.executable}});
     assert.deepEqual([...validatePythonReceipt(receipt,{root:f.root,base:'d'.repeat(40),provenance:f.provenance,
@@ -51,6 +51,25 @@ test('Python receipts bind exact source/runtime and reject result tampering',()=
       assert.throws(()=>validatePythonReceipt(changed,{root:f.root,base:'d'.repeat(40),provenance:f.provenance,
         files:[f.testFile],environment:f.environment}));
     }
+  } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('registered Python inputs bind their exact bytes to one consumer and cannot borrow test credit',()=>{
+  const f=fixture(),contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
+  process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
+  try {
+    for(const [file,bytes] of [[contract.inputFile,'{"fixture":true}\n'],[contract.testFile,'import unittest\nclass Input(unittest.TestCase):\n def test_reads_input(self): self.assertTrue(True)\n']]) {
+      fs.mkdirSync(path.dirname(path.join(f.root,file)),{recursive:true});fs.writeFileSync(path.join(f.root,file),bytes);
+    }
+    const files=[contract.inputFile],selected=selectPythonContracts(files);
+    assert.deepEqual(selected,[{testFile:contract.testFile,sourceFiles:[contract.inputFile],batch:0}]);
+    const receipt=producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files,batch:0,
+      environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:{execPath:f.executable}});
+    assert.deepEqual([...validatePythonReceipt(receipt,{root:f.root,base:'d'.repeat(40),provenance:f.provenance,
+      files,environment:f.environment})],[contract.inputFile]);
+    fs.writeFileSync(path.join(f.root,contract.inputFile),'{"fixture":"changed"}\n');
+    assert.throws(()=>validatePythonReceipt(receipt,{root:f.root,base:'d'.repeat(40),provenance:f.provenance,
+      files,environment:f.environment}),/source|binding/i);
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
 });
 

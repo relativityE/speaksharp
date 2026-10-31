@@ -229,12 +229,12 @@ export function executionRoute(file, root) {
   }
   const native=nativeTestRoute(file,root);
   if(native)return native;
+  const python=pythonTestRoute(file);if(python)return python;
   if (sqlConsumers[file]) return sqlConsumers[file];
   if (file.endsWith('.sql')) return null;
   if (/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file)) {
     return {runner:'deno',consumer:file,config:'backend/supabase/functions/deno.json'};
   }
-  const python=pythonTestRoute(file);if(python)return python;
   if (/^tests\/e2e\/.*\.spec\.[jt]s$/.test(file)) return {runner:'playwright',consumer:file,config:'playwright.config.ts'};
   if (/^tests\/live\/.*\.spec\.[jt]s$/.test(file)) return {runner:'playwright-live',consumer:file,config:'playwright.live.config.ts'};
   if (/\.test\.mjs$/.test(file) && fs.existsSync(path.join(root,file))

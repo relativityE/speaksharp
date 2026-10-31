@@ -13,6 +13,7 @@ import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../script
 import {dependencyPaths,runVitestExecution,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {HELPER_CONTRACTS} from '../../scripts/lib/helperExecutionEvidence.mjs';
 import {executionBatchIdentity} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+import {PYTHON_INPUT_CONTRACTS} from '../../scripts/lib/pythonTestExecutionEvidence.mjs';
 const framework=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const {test:registerTest}=framework;
 const fixtureConsumer=registeredFixture('tests/fixtures/efficacy/service-level-evidence.adfeab34.yml');
@@ -71,6 +72,17 @@ test('routes approved source contracts separately from actual live execution',()
   assert.equal(executionRoute('tests/live/unregistered-helper.ts',root),null);
   assert.equal(executionRoute('tests/fixtures/unconsumed.json',root),null);
   assert.equal(executionRoute('tests/live/unregistered.live.spec.ts',root).runner,'playwright-live');
+});
+test('routes the selected cloud package inputs only through their bounded Python consumers',()=>{
+  for(const contract of PYTHON_INPUT_CONTRACTS) {
+    assert.deepEqual(executionRoute(contract.inputFile,root),
+      {runner:'python-unittest-input',consumer:contract.testFile,applicable:true});
+  }
+  assert.equal(executionRoute('tools/cloud-test/tests/fixtures/unregistered.json',root),null);
+  const document=executionRoute('tests/live/helpers/rwtDocumentIdentity.ts',root);
+  assert.equal(document.runner,'vitest-helper');
+  assert.equal(document.consumer,'tests/unit/rwtWatchdog1593.test.ts');
+  assert.equal(document.applicable,true);
 });
 test('deduplicates bound helper consumers within eight phases and batches a ninth instead of dropping it',()=>{
   // A planner fixture represents the receiving shape, not a claim that future

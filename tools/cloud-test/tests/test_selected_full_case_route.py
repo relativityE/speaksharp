@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 import shutil
+import hashlib
 
 from _fixtures import ROOT, REPO, J, sample, fake_rv
 import validate_run_request as validator
@@ -72,9 +73,16 @@ class SelectedFullCaseRoute(unittest.TestCase):
         req.write_text(json.dumps(request)); req.chmod(0o600)
         facts.write_text(json.dumps(J("tests", "fixtures", "plan-facts.PLACEHOLDER.json"))); facts.chmod(0o600)
         uid.write_text("00000000-0000-4000-8000-000000000001"); uid.chmod(0o600)
+        browser = root / "synthetic-browser"
+        browser.write_bytes(b"synthetic browser identity; never executed\n")
+        browser_identity = output / "browser-identity.json"
+        browser_identity.write_text(json.dumps({"schema": "speaksharp.cloud-test.existing-browser.v1",
+                                                "path": str(browser.resolve()),
+                                                "observedBinarySha256": hashlib.sha256(browser.read_bytes()).hexdigest()}))
         env = {"PATH": os.environ["PATH"], "HOME": str(root), "CT_CONFIG": str(Path(ROOT) / "config/test-config.v1.json"),
                "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),
-               "CT_ACCOUNT_ID_FILE": str(uid), "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE",
+               "CT_ACCOUNT_ID_FILE": str(uid), "BP_BROWSER_IDENTITY": str(browser_identity),
+               "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE",
                "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40,
                "THROWAWAY_TEST_EMAIL": "unit@example.invalid", "THROWAWAY_TEST_PASSWORD": "SYNTHETIC-PASSWORD"}
