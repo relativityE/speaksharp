@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
+import { createClient } from '@supabase/supabase-js';
 import { createSupabaseMock, createSupabaseNotFoundMock, createSupabaseErrorMock } from '../../../tests/utils/supabase-mock';
 import * as supabaseModule from '@/lib/supabaseClient';
 import {
@@ -224,6 +225,59 @@ describe('domainServices', () => {
                     weeklyGoal: 10,
                     clarityGoal: 95
                 });
+            });
+
+            it('edits the existing owner row through the actual SDK without a second insert', async () => {
+                vi.useRealTimers();
+                const rows = new Map<string, Record<string, unknown>>();
+                const requests: URL[] = [];
+                const client = createClient('https://goals.unit.invalid', 'synthetic-public-key', {
+                    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+                    global: { fetch: async (input, init) => {
+                        const url = new URL(input instanceof Request ? input.url : String(input));
+                        expect(url.pathname).toBe('/rest/v1/user_goals');
+                        requests.push(url);
+                        const body = JSON.parse(String(init?.body));
+                        const existing = rows.get(body.user_id);
+                        if (existing && url.searchParams.get('on_conflict') !== 'user_id') {
+                            return Response.json({ code: '23505', message: 'unique owner constraint' }, { status: 409 });
+                        }
+                        const row = { id: existing?.id ?? 'synthetic-row', ...existing, ...body };
+                        rows.set(body.user_id, row);
+                        return Response.json(row);
+                    } }
+                });
+                vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(client as ReturnType<typeof supabaseModule.getSupabaseClient>);
+
+                await goalsService.upsert('owner-a', { weeklyGoal: 5, clarityGoal: 90 });
+                const firstId = rows.get('owner-a')?.id;
+                await expect(goalsService.upsert('owner-a', { weeklyGoal: 8, clarityGoal: 95 }))
+                    .resolves.toEqual({ weeklyGoal: 8, clarityGoal: 95 });
+                expect(rows.size).toBe(1);
+                expect(rows.get('owner-a')).toEqual({ id: firstId, user_id: 'owner-a', weekly_goal: 8, clarity_goal: 95 });
+                expect(requests).toHaveLength(2);
+            });
+
+            it('does not forward a foreign owner, row identity or database fields from a goals DTO', async () => {
+                const mockClient = createSupabaseMock({ weekly_goal: 8, clarity_goal: 95 }, null);
+                vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
+                const untrustedGoals = { weeklyGoal: 8, clarityGoal: 95, user_id: 'owner-b', id: 'foreign-row', weekly_goal: 20 };
+                await goalsService.upsert('owner-a', untrustedGoals);
+                expect((mockClient as unknown as { upsert: Mock }).upsert).toHaveBeenCalledWith(
+                    { user_id: 'owner-a', weekly_goal: 8, clarity_goal: 95 },
+                    { onConflict: 'user_id' }
+                );
+            });
+
+            it('preserves permission failures instead of reporting a saved goal or absent row', async () => {
+                vi.useRealTimers();
+                const client = createClient('https://goals.unit.invalid', 'synthetic-public-key', {
+                    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+                    global: { fetch: async () => Response.json({ code: '42501', message: 'permission denied' }, { status: 403 }) }
+                });
+                vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(client as ReturnType<typeof supabaseModule.getSupabaseClient>);
+                await expect(goalsService.get('owner-a')).rejects.toMatchObject({ code: '42501' });
+                await expect(goalsService.upsert('owner-a', { weeklyGoal: 8 })).rejects.toMatchObject({ code: '42501' });
             });
         });
     });
