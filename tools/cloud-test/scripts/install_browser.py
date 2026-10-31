@@ -5,9 +5,13 @@ Every failure is a hard failure (exit 78, BLOCKED_SETUP): wrong archive size, wr
 Nothing is ignored or retried silently.
 Usage: install_browser.py --config C.json [--browsers-path DIR] [--archive FILE]
        install_browser.py --config C.json --existing FILE --source-sha SHA --run-id ID --receipt NEW_FILE
+       install_browser.py --installed --baselines B.json --environment ENV [--candidate FILE] --source-sha SHA --run-id ID --receipt NEW_FILE
   --archive uses an already downloaded file (still verified); without it the pinned URL is downloaded.
   --existing ONLY verifies an existing executable against the unchanged binary pin.
   It never downloads, extracts, copies, installs, chmods or launches a browser.
+  --installed (PO 2026-10-31) discovers the preinstalled Chrome/Chromium (--candidate, else the environment's listed paths), runs only
+  `--version`, requires a major version at or above the environment's established baseline and records the observed path, version and
+  sha256. It never downloads or installs; an unknown environment, a missing browser or an older one is BLOCKED_SETUP.
 Prints the verified chrome executable path on success."""
 import argparse
 import hashlib
@@ -15,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.request
@@ -49,6 +54,79 @@ def verify_existing(browser, path):
             "browserLaunched": False}
 
 
+VERSION_LINE = re.compile(r"^(Google Chrome|Chromium)(?: for Testing)? (\d+)\.(\d+)\.(\d+)\.(\d+)\b")
+
+
+NATIVE_FORMATS = {b"\x7fELF": "ELF", b"\xfe\xed\xfa\xce": "Mach-O", b"\xfe\xed\xfa\xcf": "Mach-O", b"\xce\xfa\xed\xfe": "Mach-O",
+                  b"\xcf\xfa\xed\xfe": "Mach-O", b"\xca\xfe\xba\xbe": "Mach-O universal"}
+
+
+def native_format(path):
+    """The executable format when `path` is a native binary; None for a launcher script or any other file."""
+    with open(path, "rb") as f:
+        return NATIVE_FORMATS.get(f.read(4))
+
+
+def probe_installed(path, minimum):
+    """(identity, None) when `path` resolves to a native browser binary whose `--version` exits 0 and meets `minimum`; else (None, reason).
+    The resolved binary itself is what runs, is hashed and is recorded: a launcher script is refused, so its hash can never stand in for
+    the browser it execs, and the bytes must be unchanged across the version check."""
+    if not path or not os.path.isfile(path) or not os.access(path, os.X_OK):
+        return None, "%s: missing or not executable" % (path or "''")
+    real = os.path.realpath(path)
+    fmt = native_format(real)
+    if fmt is None:
+        return None, "%s: %s is a launcher script or not a native executable, not the browser binary" % (path, real)
+    before = sha(real)
+    try:
+        r = subprocess.run([real, "--version"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, "%s: did not report its version (%s)" % (path, e)
+    out = r.stdout.strip()
+    if r.returncode != 0:
+        return None, "%s: --version exited %d" % (path, r.returncode)
+    m = VERSION_LINE.match(out)
+    if not m:
+        return None, "%s: unrecognised version output %r" % (path, out[:80])
+    if int(m.group(2)) < minimum:
+        return None, "%s: %s is below the established baseline %d" % (path, out[:80], minimum)
+    if os.path.realpath(path) != real or sha(real) != before:
+        return None, "%s: the binary changed during the version check" % path
+    return {"path": real, "format": fmt, "product": m.group(1), "version": ".".join(m.group(i) for i in range(2, 6)), "sha256": before}, None
+
+
+def discover_installed(baselines_file, environment, candidate):
+    """Return the observed identity of the preinstalled browser only when it meets the environment's established baseline.
+    An explicit candidate must qualify itself; otherwise the listed paths are examined in order until one qualifies."""
+    with open(baselines_file, encoding="utf-8") as f:
+        env = json.load(f)["environments"].get(environment)
+    if not isinstance(env, dict) or not isinstance(env.get("minimumMajor"), int) or isinstance(env.get("minimumMajor"), bool):
+        fail("no established browser baseline for environment %r; record one by reviewed change before use" % environment)
+    paths = [candidate] if candidate is not None else list(env.get("candidates") or [])
+    reasons = []
+    for path in paths:
+        found, reason = probe_installed(path, env["minimumMajor"])
+        if found:
+            break
+        reasons.append(reason)
+    else:
+        fail("no qualifying preinstalled Chrome/Chromium for %s (%s); no download or install is permitted" % (environment, "; ".join(reasons) or "no candidates"))
+    return {"schema": "speaksharp.cloud-test.installed-browser.v1",
+            "acquisition": "preinstalled; no installation or download",
+            "environment": environment, "minimumMajor": env["minimumMajor"], "baselinesSha256": sha(baselines_file),
+            "path": found["path"], "binaryFormat": found["format"], "product": found["product"], "version": found["version"],
+            "observedBinarySha256": found["sha256"], "versionExecuted": True, "browserLaunched": False, "rejectedCandidates": reasons}
+
+
+def write_receipt(path, identity):
+    try:
+        with open(path, "x", encoding="utf-8") as output:
+            json.dump(identity, output, sort_keys=True)
+            output.write("\n")
+    except OSError:
+        fail("cannot create the NEW browser identity receipt")
+
+
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--config", required=True)
@@ -58,7 +136,24 @@ def main():
     a.add_argument("--receipt", help="new identity receipt for --existing (never overwritten)")
     a.add_argument("--source-sha", help="exact source identity bound to the --existing receipt")
     a.add_argument("--run-id", help="execution identity bound to the --existing receipt")
+    a.add_argument("--installed", action="store_true", help="discover the preinstalled browser against the environment's baseline; never download or install")
+    a.add_argument("--baselines", help="config/browser-baselines.v1.json for --installed")
+    a.add_argument("--environment", help="the environment whose established baseline applies (--installed)")
+    a.add_argument("--candidate", help="explicit preinstalled executable for --installed instead of the environment's listed paths")
     x = a.parse_args()
+    if x.installed:
+        if x.existing is not None or x.archive:
+            fail("--installed cannot be combined with --existing or --archive")
+        if not x.baselines or not x.environment or not x.receipt or not re.fullmatch(r"[0-9a-f]{40}", x.source_sha or "") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", x.run_id or ""):
+            fail("--installed requires --baselines, --environment, --receipt, exact --source-sha and safe --run-id")
+        identity = discover_installed(x.baselines, x.environment, x.candidate)
+        identity.update({"sourceSha": x.source_sha, "runId": x.run_id,
+                         "bindingScope": "Caller-supplied source/run identities; not a live deployment assertion"})
+        write_receipt(x.receipt, identity)
+        print(identity["path"])
+        return
+    if x.candidate is not None or x.baselines or x.environment:
+        fail("--candidate, --baselines and --environment require --installed")
     if x.existing is not None and x.archive:
         fail("--existing and --archive are mutually exclusive")
     if x.receipt and x.existing is None:

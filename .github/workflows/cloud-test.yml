@@ -9,7 +9,7 @@ name: Cloud Test control plane (manual, secret-free)
 #   mode=report: after a run's receipts were sealed into config/history/receipts/<latest_label>/ (and pinned in the config), compares Latest against the
 #                previous run automatically and derives gap status, spend and the summary from that evidence.
 #
-# Network use: setup downloads only (PyPI pyyaml pinned, the npm lockfile, the pinned browser archive verified by sha256). The control-plane scripts run
+# Network use: setup downloads only (PyPI pyyaml pinned, the npm lockfile); no browser is downloaded or installed. The control-plane scripts run
 # under a network guard; the attestation artifact records secret-free: true, network attempts: 0 and product hosts contacted: 0.
 on:
   workflow_dispatch:
@@ -79,20 +79,21 @@ jobs:
         run: python -m pip install --quiet pyyaml==6.0.2
       - name: Install runner dependencies from the lockfile
         run: npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund
-      # No separate browser archive (PO 10-30): the same Playwright 1.57.0 chromium install the existing CI job performs,
-      # then the binary must equal the package's pinned hash. A missing or different binary fails; nothing is substituted.
-      - name: Install the pinned browser (existing CI Playwright 1.57.0 chromium; package no-fetch --existing verifier; any mismatch fails the job)
+      # No browser download or install (PO 2026-10-31): use the runner's preinstalled Chrome/Chromium at or above this environment's
+      # established baseline (config/browser-baselines.v1.json; GitHub-hosted = 156). The observed path, version and sha256 are recorded and
+      # every later step must use exactly that binary. A missing, older or unrecognised browser is SETUP-BLOCKED; nothing is fetched.
+      # A runner may name its environment (CT_BROWSER_ENVIRONMENT) and browser (CT_CHROME); an environment without a baseline is blocked.
+      - name: Discover the preinstalled browser (no download or install; missing or below the baseline is setup-blocked)
         working-directory: tools/cloud-test
         run: |
           set -euo pipefail
-          runner/node_modules/.bin/playwright install chromium
-          CT_CHROME="$(python3 -I -c 'import json, os; b = json.load(open("config/test-config.v1.json"))["tools"]["browser"]; print(os.path.expanduser("~/.cache/ms-playwright/%s/chrome-linux64/chrome" % b["playwrightRevision"]))')"
-          EXPECTED="$(python3 -I -c 'import json; print(json.load(open("config/test-config.v1.json"))["tools"]["browser"]["chromeBinarySha256"])')"
-          ACTUAL=missing
-          if [ -f "$CT_CHROME" ]; then ACTUAL="$(sha256sum "$CT_CHROME" | cut -d' ' -f1)"; fi
-          echo "chromium identity: expected_sha256=$EXPECTED actual_sha256=$ACTUAL"
-          python3 -I scripts/install_browser.py --config config/test-config.v1.json --existing "$CT_CHROME" --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT" --receipt "$RUNNER_TEMP/cloud-browser-identity.json"
-          echo "CT_CHROME=$CT_CHROME" >> "$GITHUB_ENV"
+          ARGS=(--installed --baselines config/browser-baselines.v1.json --environment "${CT_BROWSER_ENVIRONMENT:-github-hosted}")
+          if [ -n "${CT_CHROME:-}" ]; then ARGS+=(--candidate "$CT_CHROME"); fi
+          RECEIPT="$RUNNER_TEMP/cloud-browser-identity.json"
+          CHROME="$(python3 -I scripts/install_browser.py --config config/test-config.v1.json "${ARGS[@]}" --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT" --receipt "$RECEIPT")"
+          python3 -I -c 'import json, sys; r = json.load(open(sys.argv[1])); print("browser identity: environment=%(environment)s minimumMajor=%(minimumMajor)s product=%(product)s version=%(version)s sha256=%(observedBinarySha256)s path=%(path)s" % r)' "$RECEIPT"
+          echo "CT_CHROME=$CHROME" >> "$GITHUB_ENV"
+          echo "CT_BROWSER_RECEIPT=$RECEIPT" >> "$GITHUB_ENV"
       - name: Verify the vendored reviewed harness against the approved hashes
         run: python3 -I tools/cloud-test/scripts/verify_harness.py --config tools/cloud-test/config/test-config.v1.json
       # PO 2026-10-30 (option A): ubuntu-24.04 blocks unprivileged user namespaces through AppArmor, so the package's strict
@@ -101,9 +102,9 @@ jobs:
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           unshare -rn true
-      # Proof v2: the offline proof is generated HERE from the vendored harness, the pinned Chrome and the tracked fixtures, so its TAP,
+      # Proof v2: the offline proof is generated HERE from the vendored harness, the discovered Chrome and the tracked fixtures, so its TAP,
       # mutation and plan-control inputs have same-job provenance and need no retained history. TAP, plans and the proof stay on the runner.
-      - name: Generate the offline proof in this job (pinned harness and Chrome)
+      - name: Generate the offline proof in this job (pinned harness, discovered Chrome)
         working-directory: tools/cloud-test
         run: python3 -I scripts/generate_offline_proof.py --work "$RUNNER_TEMP/proof" --proof-out "$RUNNER_TEMP/offline-proof.json"
       - name: Offline checks (package tests, report tests, workflow policy, integration proof on loopback)

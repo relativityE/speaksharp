@@ -85,7 +85,9 @@ class WorkflowPolicy(unittest.TestCase):
 
     def test_the_browser_pin_is_verified_before_the_checks_and_failures_are_not_ignored(self):
         names = [s.get("name", "") for s in self.steps()]
-        self.assertLess(next(i for i, n in enumerate(names) if n.startswith("Install the pinned browser")), next(i for i, n in enumerate(names) if n.startswith("Offline checks")))
+        # Located by what it runs, not its name: the preserved fixture installs, the current workflow only verifies a preinstalled browser.
+        pin = next(i for i, s in enumerate(self.steps()) if "scripts/install_browser.py" in s.get("run", ""))
+        self.assertLess(pin, next(i for i, n in enumerate(names) if n.startswith("Offline checks")))
         for s in self.steps():
             self.assertNotIn("|| true", s.get("run", ""))
             self.assertNotIn("continue-on-error", s)
