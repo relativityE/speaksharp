@@ -124,7 +124,7 @@ class FullPlanProof(unittest.TestCase):
         prerequisite(cls.chrome, "the pinned browser installed and hash-verified (CT_CHROME)")
         cls.cwd = playwright_cwd()
         prerequisite(cls.cwd, "playwright installed from the lockfile")
-        cls.work = tempfile.mkdtemp(prefix="ct-fullplan-")
+        cls.work = os.path.realpath(tempfile.mkdtemp(prefix="ct-fullplan-"))
         req = J("config", "runs", "R7-full-coverage-proposal.json")
         req["release"]["testedSha"] = RECEIVING_SOURCE
         req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55, "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}

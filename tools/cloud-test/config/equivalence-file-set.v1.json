@@ -1,7 +1,7 @@
 {
  "schema": "speaksharp.cloud-test.equivalence-file-set.v1",
  "root": "tools/cloud-test",
- "reviewed": "proposal accepted by Sam 1793407393 (137 paths); implementation under review",
+ "reviewed": "R5 all12 receiving candidate; preserved91b21ed4 plus additive catalogv3 and accepted standalone legacy acquisition module; not independent acceptance",
  "paths": [
   ".gitignore",
   "config/assertion-catalog.json",
@@ -11,6 +11,7 @@
   "config/gap-ledger.json",
   "config/history/catalogs/v1.json",
   "config/history/catalogs/v2.json",
+  "config/history/catalogs/v3.json",
   "config/recurring-approval.json",
   "config/required-test-ids.v1.json",
   "config/test-config.v1.json",
@@ -91,6 +92,7 @@
   "tests/fixtures/partial-request.json",
   "tests/fixtures/plan-facts.PLACEHOLDER.json",
   "tests/fixtures/synthetic-history/inputs.v1.json",
+  "tests/legacy_acquire_route_checks.py",
   "tests/legacy_audit/audit_comparison_automation.py",
   "tests/legacy_audit/audit_full_coverage.py",
   "tests/legacy_audit/audit_nightly_regression.py",

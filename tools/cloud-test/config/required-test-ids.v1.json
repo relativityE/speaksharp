@@ -1,8 +1,8 @@
 {
  "schema": "speaksharp.cloud-test.required-test-ids.v1",
- "sourceHead": "43fca779af098064c899be70474231083a58e6e5",
- "sourceTree": "83394e657e82591ee5c6725dfabb5c849386e5a9",
- "provenance": "R5 uncommitted admission candidate on receiving43fca779, collected with actual unittest loader using existing runner Python3.12.11/PyYAML; 668 package IDs (20 additions, zero removals) plus unchanged report IDs. Collection is not execution or qualification.",
+ "sourceHead": "91b21ed4fe56490d30e3891da1e2a738831e9c24",
+ "sourceTree": "25f45aa153042db92702e4a9f14d2950ae170a71",
+ "provenance": "All12 uncommitted successor on preserved91b21ed4, collected by actual unittest loader using existing runner Python3.12.11/PyYAML. One new proposal-versus-execution negative control; archived real ZIP acquisition control explicitly relocated to legacy_acquire_route_checks by accepted Elon postimage. Collection is not execution or qualification.",
  "ids": [
   "package-unit-tests::test_case_start_caps.CaseStartContract.test_bad_contract_and_missing_parser_under_isolated_python_refuse",
   "package-unit-tests::test_case_start_caps.CaseStartContract.test_boolean_cap_is_not_integer_even_when_equal",
@@ -17,6 +17,7 @@
   "package-unit-tests::test_case_start_caps.CaseStartContract.test_missing_changed_or_unreadable_raw_inputs_refuse",
   "package-unit-tests::test_case_start_caps.CaseStartContract.test_phase_two_does_not_require_phase_one_credential",
   "package-unit-tests::test_case_start_caps.CaseStartContract.test_phase_two_invalid_fields_preserve_every_phase_one_file",
+  "package-unit-tests::test_case_start_caps.CaseStartContract.test_proposed_ceiling_can_validate_but_never_authorizes_execution",
   "package-unit-tests::test_case_start_caps.CaseStartContract.test_protected_approval_and_reconciliation_nested_shapes",
   "package-unit-tests::test_case_start_caps.CaseStartContract.test_selected_case_emits_all_fifteen_configs_only_selected_has_approval",
   "package-unit-tests::test_case_start_caps.RegressionWitness.test_changed_request_bytes_refuse_without_new_case_files",
@@ -447,7 +448,6 @@
   "package-unit-tests::test_runnable_package.BrowserPin.test_an_unsafe_archive_path_fails_closed",
   "package-unit-tests::test_runnable_package.BrowserPin.test_the_download_url_must_be_the_chrome_for_testing_bucket",
   "package-unit-tests::test_runnable_package.BrowserPin.test_the_pins_in_the_config_are_the_verified_ones",
-  "package-unit-tests::test_runnable_package.BrowserPin.test_the_real_pinned_archive_installs_when_supplied",
   "package-unit-tests::test_runnable_package.BrowserPin.test_wrong_archive_hash_fails_closed",
   "package-unit-tests::test_runnable_package.BrowserPin.test_wrong_archive_size_fails_closed",
   "package-unit-tests::test_runnable_package.BrowserPin.test_wrong_binary_hash_fails_closed",

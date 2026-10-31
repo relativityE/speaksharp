@@ -286,7 +286,7 @@
         "sha256": "3933cf952feb18779495e11336252fd0127c6343609e6dec1c5bd09ef5fc2144",
         "totalAssertions": 204,
         "rule": "A full live run executes every catalog row (PASS or FAIL). A row left NOT RUN must be named in approvedOmissions with a reason and an approval reference, and a run with any omission is not a full live run.",
-        "version": 2,
+        "version": 3,
         "snapshots": "config/history/catalogs/v<N>.json (one frozen snapshot per version; each must contain every case and row of the one before)"
       }
     }

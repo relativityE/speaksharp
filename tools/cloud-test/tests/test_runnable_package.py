@@ -15,6 +15,7 @@ import zipfile
 
 from _fixtures import NOW, REPO, REQUIRE, ROOT, TESTED, J, prerequisite, request_path, run_py, sample, wjson
 import verify_harness as VH
+from test_case_start_caps import synthetic_allocation, bind_synthetic_files
 
 CFG = os.path.join(ROOT, "config", "test-config.v1.json")
 RECEIVING_SOURCE = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
@@ -150,14 +151,8 @@ class BrowserPin(unittest.TestCase):
         self.assertEqual(b["archiveBytes"], 172695801)
         self.assertTrue(b["archiveUrl"].startswith("https://storage.googleapis.com/chrome-for-testing-public/143.0.7499.4/"))
 
-    def test_the_real_pinned_archive_installs_when_supplied(self):
-        arch = os.environ.get("CT_BROWSER_ARCHIVE")
-        if not (arch and os.path.exists(arch)):
-            self.skipTest("CT_BROWSER_ARCHIVE not supplied (the install step verifies the real download on the runner)")
-        d = tempfile.mkdtemp()
-        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "install_browser.py"), "--config", CFG, "--browsers-path", d, "--archive", arch], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(sha(open(r.stdout.strip(), "rb").read()), "2e61bc3fd990bd4d7b419ef6b6303c67aaed683e5b83b3b25e416f015f343209")
+    # The real-archive install belongs to the legacy acquire route, not current qualification (PO 2026-10-31):
+    # tests/legacy_acquire_route_checks.py, which discovery does not load.
 
 
 class NothingIsIgnored(unittest.TestCase):
@@ -203,6 +198,13 @@ def node_ok():
 
 
 def chrome_path():
+    # This run's discovered preinstalled browser (PO 2026-10-31): exactly the path and sha256 its discovery receipt recorded.
+    rec_path, chrome = os.environ.get("CT_BROWSER_RECEIPT"), os.environ.get("CT_CHROME")
+    if rec_path and chrome and os.path.isfile(rec_path) and os.path.isfile(chrome):
+        rec = json.load(open(rec_path, encoding="utf-8"))
+        if rec.get("path") == os.path.realpath(chrome) and rec.get("observedBinarySha256") == sha(open(chrome, "rb").read()):
+            return chrome
+        return None
     cand = [os.environ.get("CT_CHROME"), os.path.join(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", ""), "chromium-1200", "chrome-linux64", "chrome"), os.path.expanduser("~/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome")]
     for c in cand:
         if c and os.path.isfile(c) and sha(open(c, "rb").read()) == J("config", "test-config.v1.json")["tools"]["browser"]["chromeBinarySha256"]:
@@ -234,7 +236,7 @@ class PlanBuilderProof(unittest.TestCase):
         prerequisite(node_ok(), "node")
         prerequisite(subprocess.run(["git", "-C", REPO, "cat-file", "-e", RECEIVING_SOURCE + "^{commit}"], capture_output=True).returncode == 0, "git history with the receiving-source SHA")
         prerequisite(os.path.isfile(os.path.join(REPO, "tests", "fixtures", "rwt", "open_mic_tts.wav")), "the reviewed speech fixtures in the checkout")
-        cls.work = tempfile.mkdtemp(prefix="ct-plan-")
+        cls.work = os.path.realpath(tempfile.mkdtemp(prefix="ct-plan-"))
         req = sample()["req"]
         # The receiving adapter rejects the historic 4c85 binding. Exercise the
         # same current source as FullPlanProof, not an obsolete request identity.
@@ -242,9 +244,12 @@ class PlanBuilderProof(unittest.TestCase):
         req["approvedLimits"] = {"cumulativeCeilingRequests": 6700, "identityCap": 98, "runCapRequests": 180, "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
         req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
         req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
-        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req)
+        synthetic_allocation(req)
+        cls.request = req
+        cls.bindings = bind_synthetic_files(cls.work, req)
+        cls.reqp = cls.bindings['BP_REQUEST_FILE']
         cls.acct = os.path.join(cls.work, "acct.txt"); open(cls.acct, "w").write("00000000-0000-4000-8000-000000000001\n"); os.chmod(cls.acct, 0o600)
-        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--out", os.path.join(cls.work, "env.txt"))
+        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--reconciliation", cls.bindings['BP_RECONCILIATION_FILE'], "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
 
     def build(self, name, extra=None, drop=()):
@@ -254,7 +259,7 @@ class PlanBuilderProof(unittest.TestCase):
         # as FullPlanProof already does; otherwise they silently exercise Claude.
         script += "".join("export %s=%s; " % (key, shlex.quote(value)) for key, value in (extra or {}).items() if key not in drop)
         env = {"PATH": os.environ["PATH"], "HOME": self.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
-               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": self.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
+               "BP_FACTS": self.bindings['BP_FACTS'], "BP_ACCOUNT_ID_FILE": self.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(self.work, "media"),
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key"}
         env.update(extra or {})
@@ -284,7 +289,7 @@ class PlanBuilderProof(unittest.TestCase):
 
     def job_inputs(self, name):
         review = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"
-        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        facts = json.load(open(self.bindings['BP_FACTS'], encoding='utf-8'))
         facts["producerReviewReference"] = review
         fp = os.path.join(self.work, name + "-facts.json"); wjson(fp, facts)
         packet = os.path.join(ROOT, "harness")
@@ -294,8 +299,13 @@ class PlanBuilderProof(unittest.TestCase):
                       "receiverSourceSha256": sha(open(os.path.join(packet, receiver), "rb").read()),
                       "receiverRelativePath": receiver, "workflowSourceSha": "b" * 40, "reviewReference": review}
         dp = os.path.join(self.work, name + "-descriptor.json"); wjson(dp, descriptor)
-        return {"BP_RUNTIME": "GitHub Actions SpeakSharp", "BP_PRODUCER_MODE": "same-github-job", "BP_PRODUCER_DESCRIPTOR": dp,
-                "BP_PRODUCER_DESCRIPTOR_SHA256": sha(open(dp, "rb").read()), "BP_FACTS": fp,
+        # A runtime override must change the exact synthetic request, not bypass
+        # the production request/runtime binding for a test-only route.
+        request = json.loads(json.dumps(self.request)); request['executionRuntime'] = 'GitHub Actions SpeakSharp'
+        binding_root = os.path.join(self.work, name + '-binding'); os.mkdir(binding_root)
+        bindings = bind_synthetic_files(binding_root, request, facts=facts)
+        return {**bindings, "BP_RUNTIME": "GitHub Actions SpeakSharp", "BP_PRODUCER_MODE": "same-github-job", "BP_PRODUCER_DESCRIPTOR": dp,
+                "BP_PRODUCER_DESCRIPTOR_SHA256": sha(open(dp, "rb").read()),
                 "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40}
 
     def test_same_job_plan_uses_actual_reviewed_receiver_and_github_attestation(self):
@@ -327,13 +337,15 @@ class PlanBuilderProof(unittest.TestCase):
         inputs = self.job_inputs("other-job"); inputs["GITHUB_RUN_ID"] = "999"
         _, out = self.build("p-other-job", extra=inputs)
         self.assertNotEqual(out[-1].returncode, 0)
-        self.assertIn("producer belongs to another job", out[-1].stderr)
+        self.assertEqual(out[-1].returncode, 78)
+        self.assertEqual(out[-1].stderr.strip(), 'BLOCKED_SETUP: INVALID_BINDING_INPUT')
 
     def test_same_run_descriptor_from_another_job_is_refused(self):
         inputs = self.job_inputs("other-job-same-run"); inputs["GITHUB_JOB"] = "other"
         _, out = self.build("p-other-job-same-run", extra=inputs)
         self.assertNotEqual(out[-1].returncode, 0)
-        self.assertIn("producer belongs to another job", out[-1].stderr)
+        self.assertEqual(out[-1].returncode, 78)
+        self.assertEqual(out[-1].stderr.strip(), 'BLOCKED_SETUP: INVALID_BINDING_INPUT')
 
     def test_no_session_specific_value_is_embedded_in_the_generated_files(self):
         private, out = self.build("p-embed")
@@ -395,7 +407,7 @@ class PlanBuilderProof(unittest.TestCase):
         p = os.path.join(self.work, "facts-bad.json"); wjson(p, bad)
         _, out = self.build("p-facts", extra={"BP_FACTS": p})
         self.assertEqual(out[0].returncode, 78)
-        self.assertIn("facts file lacks", out[0].stderr)
+        self.assertEqual(out[0].stderr.strip(), 'BLOCKED_SETUP: INVALID_BINDING_INPUT')
 
     def test_the_builder_never_overwrites_an_existing_private_directory(self):
         private, out = self.build("p-twice")
