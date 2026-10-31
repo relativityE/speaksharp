@@ -95,7 +95,9 @@ function observedOperation(component, producer, data, expectedBinding) {
       || data?.migrationReady !== true || data?.targetReleaseSha == null) {
       return { reason: 'CANARY_PREREQUISITE_HELD' };
     }
-    if (data.productLanesResult === 'failure') return { status: 'FAIL', operation: 'PRODUCT_CANARY' };
+    // canary.yml's PRODUCT_LANES_RESULT is the whole canary-check matrix (the weekly run adds the Stripe billing lane),
+    // so a failure there proves neither that recording failed nor that it ran. Only an all-lanes success covers it.
+    if (data.productLanesResult === 'failure') return { reason: 'PRODUCT_CANARY_AGGREGATE_FAILURE' };
     if (data.productLanesResult !== 'success') return { reason: 'PRODUCT_CANARY_NOT_RUN' };
     return { status: 'PASS', operation: 'PRODUCT_CANARY' };
   }

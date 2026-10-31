@@ -268,6 +268,17 @@ describe('per-run stack status from retained evidence, without probes', () => {
     expect(await f.component('recording-stop-save')).toMatchObject({ reason: 'PRODUCT_CANARY_NOT_RUN' });
   });
 
+  // Codex P2 on #1761: canary-result reads the canary-check matrix aggregate, which the weekly run shares with the
+  // Stripe billing lane, so its failure cannot be attributed to recording.
+  it('holds an aggregate canary failure instead of reporting a recording FAIL', async () => {
+    const f = await fixture();
+    await f.receipt('recording-stop-save', 'canary', { targetReleaseSha: RELEASE,
+      bindingResult: 'success', readinessResult: 'success', migrationReady: true, productLanesResult: 'failure' });
+    expect(await f.component('recording-stop-save')).toMatchObject({ status: 'BLOCKED', operation: 'NOT_MEASURED',
+      reason: 'PRODUCT_CANARY_AGGREGATE_FAILURE' });
+    expect((await f.collect()).status).toBe('BLOCKED');
+  });
+
   it('does not let an aggregate green badge hide the migration HOLD', async () => {
     const f = await fixture();
     await f.receipt('recording-stop-save', 'canary', { targetReleaseSha: RELEASE,
