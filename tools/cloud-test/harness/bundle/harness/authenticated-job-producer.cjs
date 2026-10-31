@@ -74,8 +74,20 @@ function createProducer({scope,env=process.env,fetchImpl=globalThis.fetch,teleme
   if(probeNonces.has(request.nonce)||capabilityProbes>=8)fail('PRODUCER_PROBE_REPLAY_OR_LIMIT');
   probeNonces.add(request.nonce);capabilityProbes++;
   if(s.caseIds.some(id=>ROLES[id].includes('feedback-received'))&&(!env.POSTHOG_PROJECT_ID||!env.POSTHOG_PERSONAL_API_KEY))fail('TELEMETRY_CAPABILITY_UNAVAILABLE');
-  const requiredTelemetryReads=s.caseIds.filter(id=>ROLES[id].includes('feedback-received')).length;
-  if(s.maxTelemetryReads-telemetryReads<requiredTelemetryReads)fail('PRODUCER_TELEMETRY_HEADROOM_UNAVAILABLE');
+  // Minimum one delivery for EACH selected role. Coaching additionally requires
+  // ownership SELECT + authority RPC; association needs one SELECT; received
+  // uses its separately counted governed telemetry-reader invocation.
+  // This lower bound never claims to cover every subsequent poll/repeat.
+  const required={deliveries:0,supabaseRequests:0,telemetryReads:0};
+  for(const id of s.caseIds)for(const role of ROLES[id]){
+   required.deliveries++;
+   if(role==='coaching-authority')required.supabaseRequests+=2;
+   else if(role==='feedback-association')required.supabaseRequests++;
+   else required.telemetryReads++;
+  }
+  if(s.maxDeliveries-deliveries<required.deliveries)fail('PRODUCER_DELIVERY_HEADROOM_UNAVAILABLE');
+  if(s.maxSupabaseRequests-supabaseRequests<required.supabaseRequests)fail('PRODUCER_SUPABASE_HEADROOM_UNAVAILABLE');
+  if(s.maxTelemetryReads-telemetryReads<required.telemetryReads)fail('PRODUCER_TELEMETRY_HEADROOM_UNAVAILABLE');
   // Local readiness only. It neither queries a remote service nor establishes
   // valid credentials, a stored report, received telemetry or a model result.
   return {kind:'same-job-capability-receipt',nonce:request.nonce,bindingSha256,configured:true,remoteReadProven:false,producedAt:new Date(t).toISOString()};
