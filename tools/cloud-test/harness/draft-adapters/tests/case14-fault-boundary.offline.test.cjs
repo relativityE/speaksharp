@@ -58,8 +58,10 @@ async function runWithFacts(s){
   const result=await adapters.run('AHT-14',{context:{newPage:async()=>w.page,grantPermissions:async()=>{},clearPermissions:async()=>{}},guard:w.guard,caseConfig:c,
    capabilities:{credentials:{email:'synthetic@example.invalid',password:'synthetic-only'},oracles:{},
     recordStartPress:async({control})=>{events.push('press:'+control);if(control==='mic-start')saved=true;},
-    writeEvidence:async(n,v)=>{if(v?.assertion)facts.set(v.assertion,v.facts);return n;},recordAssertion:async r=>recorded.push(r)}});
-  const row=id=>recorded.find(r=>r.id===id);
+    writeEvidence:async(n,v)=>{if(v?.assertion){if(facts.has(v.assertion))throw new Error('second evidence write for '+v.assertion);facts.set(v.assertion,v.facts);}return n;},
+    // Like case-results.cjs, a changed duplicate is refused; any duplicate at all fails row() below.
+    recordAssertion:async r=>{const old=recorded.find(x=>x.id===r.id);if(old&&JSON.stringify(old)!==JSON.stringify(r))throw new Error('changed duplicate assertion '+r.id);recorded.push(r);}}});
+  const row=id=>{const all=recorded.filter(r=>r.id===id);assert.ok(all.length<=1,'exactly one recorded row for '+id+', got '+all.length);if(all[0])assert.equal(new Set(all[0].evidenceRefs).size,all[0].evidenceRefs.length,'no repeated evidence ref for '+id);return all[0];};
   return {result,events,row,facts:id=>facts.get(id),presses:events.filter(e=>e.startsWith('press:')).map(e=>e.slice(6))};
  }finally{for(const [object,key,value] of changes.reverse())object[key]=value;}
 }
@@ -73,7 +75,9 @@ test('Case14 full path: exactly Download → Retry → Start journaled, restorat
  assert.equal(f.row('start-press-budget')?.result,'PASS');
 });
 
-test('Case14 (a) selected boundary: an established browser prefix receipt is reported, not the proxy write',async()=>{
+// (a) controls test the ADAPTER GATE only: the receipt object is supplied by the fake. Exact-request correlation and before-offline order belong to
+// the runner's real event correlator (Jensen's binding) and need their own integration controls once the interface is agreed.
+test('Case14 (a) adapter gate: an established browser prefix receipt is reported, not the proxy write',async()=>{
  const f=await runWithFacts({receipt:ESTABLISHED});
  assert.equal(f.row('download-fault-exercised')?.result,'PASS');
  assert.equal(f.facts('download-fault-exercised')?.browserPrefixReceipt,'ESTABLISHED');
@@ -83,7 +87,7 @@ test('Case14 (a) selected boundary: an established browser prefix receipt is rep
 
 for(const [name,receipt] of [['absent',undefined],['not observed',{...ESTABLISHED,observed:false}],['received after offline',{...ESTABLISHED,beforeOffline:false}],
  ['another request',{...ESTABLISHED,requestCorrelated:false}],['zero bytes',{...ESTABLISHED,bytes:0}]])
- test('Case14 (a) browser receipt '+name+': NOT QUALIFIED, never PASS, and no recovery is attempted',async()=>{
+ test('Case14 (a) adapter gate, receipt '+name+': NOT QUALIFIED, never PASS, and no recovery is attempted',async()=>{
   const f=await runWithFacts({receipt});
   assert.equal(f.row('download-fault-exercised')?.result,'NOT RUN');
   assert.equal(f.result.blocker,'browser-prefix-receipt-not-established');
