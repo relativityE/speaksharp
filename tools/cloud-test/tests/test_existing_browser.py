@@ -121,9 +121,9 @@ class InstalledBrowserBaseline(unittest.TestCase):
         self.baselines = self.root / "baselines.json"
         self.write_baselines({"github-hosted": {"minimumMajor": 156, "candidates": [str(self.root / "absent"), str(self.chrome)]}})
 
-    def fake(self, name, version_line):
+    def fake(self, name, version_line, exit_code=0):
         p = self.root / name
-        p.write_text("#!/bin/sh\necho '%s'\n" % version_line)
+        p.write_text("#!/bin/sh\necho '%s'\nexit %d\n" % (version_line, exit_code))
         p.chmod(0o700)
         return p
 
@@ -169,6 +169,21 @@ class InstalledBrowserBaseline(unittest.TestCase):
 
     def test_an_older_browser_is_refused(self):
         self.refused("--candidate", self.fake("old", "Google Chrome 155.0.7000.1"))
+
+    def test_an_older_listed_browser_does_not_block_a_later_qualifying_one(self):
+        old = self.fake("old", "Google Chrome 155.0.7000.1")
+        newer = self.fake("chromium", "Chromium 156.0.8078.0")
+        self.write_baselines({"github-hosted": {"minimumMajor": 156, "candidates": [str(old), str(newer)]}})
+        self.assertEqual(self.call(), str(newer.resolve()))
+        r = json.loads((self.root / "identity.json").read_text())
+        self.assertEqual((r["product"], r["version"]), ("Chromium", "156.0.8078.0"))
+        self.assertEqual(len(r["rejectedCandidates"]), 1)
+        self.assertIn("below the established baseline", r["rejectedCandidates"][0])
+
+    def test_a_failing_version_command_is_refused_despite_valid_looking_output(self):
+        self.refused("--candidate", self.fake("crashing", "Google Chrome 156.0.8078.47", exit_code=1))
+        self.write_baselines({"github-hosted": {"minimumMajor": 156, "candidates": [str(self.fake("crashing2", "Google Chrome 157.0.1.1", exit_code=3))]}})
+        self.refused()
 
     def test_an_environment_without_its_own_baseline_is_refused_not_given_another(self):
         self.refused(environment="cloud")

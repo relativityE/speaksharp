@@ -57,31 +57,46 @@ def verify_existing(browser, path):
 VERSION_LINE = re.compile(r"^(Google Chrome|Chromium)(?: for Testing)? (\d+)\.(\d+)\.(\d+)\.(\d+)\b")
 
 
+def probe_installed(path, minimum):
+    """(version match, None) when `path` is an executable browser whose `--version` exits 0 and meets `minimum`; else (None, reason)."""
+    if not path or not os.path.isfile(path) or not os.access(path, os.X_OK):
+        return None, "%s: missing or not executable" % (path or "''")
+    try:
+        r = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, "%s: did not report its version (%s)" % (path, e)
+    out = r.stdout.strip()
+    if r.returncode != 0:
+        return None, "%s: --version exited %d" % (path, r.returncode)
+    m = VERSION_LINE.match(out)
+    if not m:
+        return None, "%s: unrecognised version output %r" % (path, out[:80])
+    if int(m.group(2)) < minimum:
+        return None, "%s: %s is below the established baseline %d" % (path, out[:80], minimum)
+    return m, None
+
+
 def discover_installed(baselines_file, environment, candidate):
-    """Return the observed identity of the preinstalled browser only when it meets the environment's established baseline."""
+    """Return the observed identity of the preinstalled browser only when it meets the environment's established baseline.
+    An explicit candidate must qualify itself; otherwise the listed paths are examined in order until one qualifies."""
     with open(baselines_file, encoding="utf-8") as f:
         env = json.load(f)["environments"].get(environment)
     if not isinstance(env, dict) or not isinstance(env.get("minimumMajor"), int) or isinstance(env.get("minimumMajor"), bool):
         fail("no established browser baseline for environment %r; record one by reviewed change before use" % environment)
     paths = [candidate] if candidate is not None else list(env.get("candidates") or [])
-    path = next((p for p in paths if p and os.path.isfile(p) and os.access(p, os.X_OK)), None)
-    if path is None:
-        fail("no preinstalled Chrome/Chromium found (%s); no download or install is permitted" % ", ".join(p or "''" for p in paths))
-    try:
-        out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=30).stdout.strip()
-    except (OSError, subprocess.SubprocessError) as e:
-        fail("the preinstalled browser did not report its version: %s" % e)
-    m = VERSION_LINE.match(out)
-    if not m:
-        fail("unrecognised browser version output %r" % out[:80])
-    major = int(m.group(2))
-    if major < env["minimumMajor"]:
-        fail("preinstalled browser %s is below the established baseline %d for %s" % (out[:80], env["minimumMajor"], environment))
+    reasons = []
+    for path in paths:
+        m, reason = probe_installed(path, env["minimumMajor"])
+        if m:
+            break
+        reasons.append(reason)
+    else:
+        fail("no qualifying preinstalled Chrome/Chromium for %s (%s); no download or install is permitted" % (environment, "; ".join(reasons) or "no candidates"))
     return {"schema": "speaksharp.cloud-test.installed-browser.v1",
             "acquisition": "preinstalled; no installation or download",
             "environment": environment, "minimumMajor": env["minimumMajor"], "baselinesSha256": sha(baselines_file),
             "path": os.path.realpath(path), "product": m.group(1), "version": ".".join(m.group(i) for i in range(2, 6)),
-            "observedBinarySha256": sha(path), "versionExecuted": True, "browserLaunched": False}
+            "observedBinarySha256": sha(path), "versionExecuted": True, "browserLaunched": False, "rejectedCandidates": reasons}
 
 
 def write_receipt(path, identity):
