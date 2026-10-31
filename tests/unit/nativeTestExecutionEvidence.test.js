@@ -6,11 +6,11 @@ import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
-import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,
+import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
-import {testEnvironment,executionContext,sourceIdentity} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -22,8 +22,8 @@ test('bounded native routes retain explicit planner/protocol and fixture-only cl
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
-  assert.equal(contracts.length,5);
-  assert.equal(contracts.filter(item=>item.runner==='node-test').length,4);
+  assert.equal(contracts.length,6);
+  assert.equal(contracts.filter(item=>item.runner==='node-test').length,5);
   for(const item of NATIVE_HELPERS) {
     assert.equal(nativeTestRoute(item.file,root).consumer,item.consumer);
     assert.match(nativeTestRoute(item.file,root).claim,/NOT RUN/);
@@ -60,6 +60,52 @@ test('edited-take helper maps only to its exact protocol test and refuses source
     }
     f.write(helper.file,'\n '+fs.readFileSync(path.join(f.dir,helper.file),'utf8'));
     assert.throws(()=>validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]));
+  }finally{f.clean();}
+});
+
+test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS V8 offsets',()=>{
+  const helper=NATIVE_HELPERS.find(item=>item.file==='tests/live/helpers/fixtureAudioStream.ts');
+  assert.equal(helper.consumer,'tests/live/helpers/fixtureAudioStream.node.test.mjs');
+  assert.match(helper.claim,/fake browser objects in node:vm; browser\/audio\/model NOT RUN/);
+  assert.equal(nativeTestRoute(helper.file,root).runner,'node-test-helper');
+  assert.equal(nativeTestRoute('tests/live/helpers/otherAudioStream.ts',root),null);
+  const names=helper.callables;
+  assert.deepEqual(names,['injectAlignedFixtureAudio','resetFixtureAudioToStart','getFixtureGetUserMediaCalls']);
+  const f=fixture();
+  try {
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
+    // Use the real repository bytes: synthetic exports/consumers hid the missing route in #1762.
+    for(const file of [helper.file,helper.consumer])f.write(file,fs.readFileSync(path.join(root,file)));
+    f.contract.testFile=helper.consumer;
+    f.contract.helpers=[helper.file];
+    const phase=f.run();
+    assert.ok(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract}).counts.assertions>0);
+    assert.deepEqual(validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),[helper.file]);
+    // Witness of the hosted runtime's executed bytes: the module range ends exactly after Node's sourceURL suffix.
+    const source=fs.readFileSync(path.join(f.dir,helper.file),'utf8'),url=pathToFileURL(path.join(phase.binding.cwd,helper.file)).href;
+    const modules=phase.coverage.flatMap(report=>report.result??[]).filter(script=>script.url===url)
+      .flatMap(script=>script.functions).filter(fn=>fn.functionName===''&&fn.ranges[0].startOffset===0);
+    assert.deepEqual([...new Set(modules.map(fn=>fn.ranges[0].endOffset))],[`${source}\n\n//# sourceURL=${url}`.length]);
+    for(const change of [
+      rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName===names.at(-1))for(const range of fn.ranges)range.count=0;},
+      rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)if(fn.functionName===''&&fn.ranges[0].startOffset===0)fn.ranges[0].endOffset++;},
+      rows=>{for(const report of rows)for(const script of report.result)script.url=script.url.replace('fixtureAudioStream.ts','fixtureAudioStream.js');},
+      rows=>{for(const report of rows)for(const script of report.result)script.functions=script.functions.filter(fn=>fn.functionName===''&&fn.ranges[0].startOffset===0);},
+    ]) {
+      const raw=structuredClone(phase.coverage);change(raw);
+      assert.throws(()=>validateNativeCallables(raw,phase.binding,f.dir,[helper.file]),/NOT RUN|Missing|Malformed/);
+    }
+    const overrun=structuredClone(phase.coverage);
+    for(const report of overrun)for(const script of report.result??[])for(const fn of script.functions)if(fn.functionName===''&&fn.ranges[0].startOffset===0)fn.ranges[0].endOffset++;
+    assert.throws(()=>validateNativeCallables(overrun,phase.binding,f.dir,[helper.file]),error=>{
+      const detail=JSON.parse(error.message.slice(error.message.indexOf('{')));
+      assert.equal(detail.predicate,'beyond-executed-length');assert.equal(detail.function,'<module>');
+      assert.equal(detail.sourceSha256,createHash('sha256').update(source).digest('hex'));assert.equal(detail.sourceLength,source.length);
+      assert.equal(detail.node,phase.binding.runtime.version);assert.equal(detail.range[1],detail.executedLength+1);
+      return true;
+    });
+    f.write(helper.file,'\n '+fs.readFileSync(path.join(f.dir,helper.file),'utf8'));
+    assert.throws(()=>validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),/callable NOT RUN/);
   }finally{f.clean();}
 });
 
@@ -133,7 +179,7 @@ function fixture(source="import test from 'node:test'; import assert from 'node:
   write('package.json','{"type":"module"}');write('pnpm-lock.yaml','synthetic immutable lock');
   write(NATIVE_REPORTER,fs.readFileSync(path.join(root,NATIVE_REPORTER)));
   const file='tests/db/actual.test.mjs';write(file,source);
-  const contract={testFile:file,runner:'node-test',helpers:[]};
+  const contract={testFile:file,runner:'node-test',helpers:[],batch:0};
   const run=()=>produceNativePhase({root:dir,cwd:dir,contract,provenance,inputSha256,runId,sourceCopyCommit:'e'.repeat(40),
     environment:testEnvironment(dir,null,''),drain:drainOwnedPhase});
   return {dir,file,write,contract,run,clean:()=>fs.rmSync(dir,{recursive:true,force:true})};
@@ -156,9 +202,11 @@ test('INSTALLED Node reporter observes actual collection/assertion/drain and rej
       assert.throws(()=>validateNativePhase(changed,{root:f.dir,provenance,inputSha256,runId,contract:f.contract}),undefined,name);
     }
     const receipt={schemaVersion:2,runId,provenance,...Object.fromEntries(['commit','tree','snapshotSha256'].map(k=>[k,provenance[k]])),
-      status:'executed',tests:[{testFile:f.file,testSha256:hash(fs.readFileSync(path.join(f.dir,f.file))),phase}]};
+      status:'executed',batch:executionBatchIdentity(selectNativeContracts(f.dir,[f.file]),0),
+      tests:[{testFile:f.file,testSha256:hash(fs.readFileSync(path.join(f.dir,f.file))),phase}]};
     assert.deepEqual([...validateNativeReceipt(receipt,{root:f.dir,provenance,inputSha256,files:[f.file]})],[f.file]);
-    for(const change of [r=>{r.tests=[];},r=>{r.tests.push(r.tests[0]);},r=>{r.tests[0].testSha256='0'.repeat(64);},r=>{r.provenance.runAttempt='3';}]) {
+    for(const change of [r=>{r.tests=[];},r=>{r.tests.push(r.tests[0]);},r=>{r.tests[0].testSha256='0'.repeat(64);},r=>{r.provenance.runAttempt='3';},
+      r=>{delete r.batch;},r=>{r.batch.selectionSha256='0'.repeat(64);},r=>{r.batch.index=1;}]) {
       const changed=structuredClone(receipt);change(changed);
       assert.throws(()=>validateNativeReceipt(changed,{root:f.dir,provenance,inputSha256,files:[f.file]}));
     }
@@ -286,7 +334,8 @@ test('INSTALLED actual helper calls retain exact V8 ranges; import-only, wrong s
 });
 test('import-only raw helper coverage cannot claim planner or observer execution',()=>{
   const binding={cwd:root};
-  for(const helper of NATIVE_HELPERS) {
+  // The typed fixture-audio helper's import-only refusal runs against its own reviewed source below.
+  for(const helper of NATIVE_HELPERS.filter(item=>item.file.endsWith('.mjs'))) {
     const raw=[{result:[{url:pathToFileURL(path.join(root,helper.file)).href,
       functions:[{functionName:'',isBlockCoverage:true,ranges:[{startOffset:0,endOffset:fs.readFileSync(path.join(root,helper.file),'utf8').length,count:1}]}]}]}];
     assert.throws(()=>validateNativeCallables(raw,binding,root,[helper.file]),/callable NOT RUN/);
@@ -457,3 +506,102 @@ if(process.env.TEST_EFFICACY_DENO_REAL_RUNTIME==='1') {
     if(failure)throw failure;
   });
 }
+
+function packageFixture(files) {
+  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'native-package-route-')));
+  for(const [file,source] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),source);
+  }
+  return {dir,clean:()=>fs.rmSync(dir,{recursive:true,force:true})};
+}
+const nodeTestCjs="const test=require('node:test');const assert=require('node:assert/strict');test('package control',()=>assert.equal(2+3,5));";
+
+test('cloud-test package node:test .test.cjs routes to native node-test; other .cjs stays unrouted',()=>{
+  const f=packageFixture({
+    'tools/cloud-test/harness/bundle/selftest/guard-core.test.cjs':nodeTestCjs,
+    'tools/cloud-test/harness/bundle/selftest/no-runner.test.cjs':"const assert=require('assert');assert.equal(1,1);",
+    'tests/unit/outside-package.test.cjs':nodeTestCjs,
+  });
+  try {
+    assert.equal(nativeTestRoute('tools/cloud-test/harness/bundle/selftest/guard-core.test.cjs',f.dir)?.runner,'node-test');
+    assert.equal(executionRoute('tools/cloud-test/harness/bundle/selftest/guard-core.test.cjs',f.dir)?.runner,'node-test');
+    // A file that never imports node:test has no actual runner: it must stay UNCOVERED, never default-pass.
+    assert.equal(nativeTestRoute('tools/cloud-test/harness/bundle/selftest/no-runner.test.cjs',f.dir),null);
+    assert.equal(executionRoute('tools/cloud-test/harness/bundle/selftest/no-runner.test.cjs',f.dir),null);
+    // The new route is the reviewed package only, not every .cjs in the repository.
+    assert.equal(nativeTestRoute('tests/unit/outside-package.test.cjs',f.dir),null);
+  } finally {f.clean();}
+});
+
+test('native contracts beyond eight run as deterministic batches of eight with a fixed total ceiling',()=>{
+  const files=Object.fromEntries(Array.from({length:9},(_,n)=>[`tools/cloud-test/tests/p${String(n).padStart(2,'0')}.test.cjs`,nodeTestCjs]));
+  const f=packageFixture(files);
+  try {
+    const contracts=selectNativeContracts(f.dir,Object.keys(files).reverse());
+    assert.equal(contracts.length,9);
+    assert.deepEqual(contracts.map(item=>item.testFile),Object.keys(files));
+    assert.deepEqual(contracts.map(item=>item.batch),[0,0,0,0,0,0,0,0,1]);
+    for(let batch=0;batch<=1;batch++)assert.ok(contracts.filter(item=>item.batch===batch).length<=8);
+  } finally {f.clean();}
+  const many=Object.fromEntries(Array.from({length:65},(_,n)=>[`tools/cloud-test/tests/q${String(n).padStart(2,'0')}.test.cjs`,nodeTestCjs]));
+  const g=packageFixture(many);
+  try {
+    assert.throws(()=>selectNativeContracts(g.dir,Object.keys(many)),/NOT RUN: native execution exceeds 8 batches of 8 files/);
+  } finally {g.clean();}
+});
+
+test('a complete 43-contract package selection fits six batches without trimming, and 64 is the inclusive ceiling',()=>{
+  for(const [count,batches] of [[43,6],[64,8]]) {
+    const files=Object.fromEntries(Array.from({length:count},(_,n)=>[`tools/cloud-test/harness/bundle/selftest/s${String(n).padStart(2,'0')}.test.cjs`,nodeTestCjs]));
+    const f=packageFixture(files);
+    try {
+      const contracts=selectNativeContracts(f.dir,Object.keys(files));
+      // Every selected file is present exactly once: nothing is trimmed to fit the budget.
+      assert.deepEqual(contracts.map(item=>item.testFile),Object.keys(files).sort());
+      assert.equal(new Set(contracts.map(item=>item.batch)).size,batches);
+      for(let batch=0;batch<batches;batch++)assert.ok(contracts.filter(item=>item.batch===batch).length<=8);
+    } finally {f.clean();}
+  }
+});
+
+test('a native phase bound to another batch is refused even when its execution passed',()=>{
+  const f=fixture();
+  try {
+    const contract={...f.contract,batch:0};
+    const phase=produceNativePhase({root:f.dir,cwd:f.dir,contract,provenance,inputSha256,runId,sourceCopyCommit:'e'.repeat(40),
+      environment:testEnvironment(f.dir,null,''),drain:drainOwnedPhase});
+    assert.doesNotThrow(()=>validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract}));
+    assert.throws(()=>validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:{...contract,batch:1}}),/Wrong native source/);
+    const moved=structuredClone(phase);moved.binding.batch=1;
+    assert.throws(()=>validateNativePhase(moved,{root:f.dir,provenance,inputSha256,runId,contract}),/Wrong native source/);
+  } finally {f.clean();}
+});
+
+test('batch reconciliation requires every batch once with exactly its contracts',()=>{
+  const files=Object.fromEntries(Array.from({length:17},(_,n)=>[`tools/cloud-test/tests/r${String(n).padStart(2,'0')}.test.cjs`,nodeTestCjs]));
+  const f=packageFixture(files);
+  try {
+    const contracts=selectNativeContracts(f.dir,Object.keys(files));
+    const receipts=[0,1,2].map(index=>({batch:executionBatchIdentity(contracts,index),
+      tests:contracts.filter(item=>item.batch===index).map(item=>({testFile:item.testFile}))}));
+    assert.deepEqual(receipts.map(item=>item.tests.length),[8,8,1]);
+    assert.doesNotThrow(()=>reconcileExecutionBatches(receipts,contracts,'native'));
+    for(const [name,change,pattern] of [
+      ['missing batch',r=>r.pop(),/batch inventory/],
+      ['extra batch',r=>r.push(structuredClone(r[2])),/batch inventory/],
+      ['batches reordered',r=>r.reverse(),/batch identity/],
+      ['missing contract',r=>r[1].tests.pop(),/Missing, extra or duplicate native contracts in batch 1/],
+      ['duplicate contract',r=>r[2].tests.push(r[2].tests[0]),/batch 2/],
+      ['contract moved between batches',r=>r[2].tests.push(r[1].tests.pop()),/batch 1/],
+      ['contract absent from selection',r=>{r[0].tests[0]={testFile:'tools/cloud-test/tests/unselected.test.cjs'};},/batch 0/],
+      ['wrong selection digest',r=>{r[0].batch.selectionSha256='0'.repeat(64);},/batch identity/],
+      ['wrong batch size',r=>{r[0].batch.size=9;},/batch identity/],
+    ]) {
+      const changed=structuredClone(receipts);change(changed);
+      assert.throws(()=>reconcileExecutionBatches(changed,contracts,'native'),pattern,name);
+    }
+    // An empty selection still needs exactly one not-applicable receipt; zero receipts are refused.
+    assert.throws(()=>reconcileExecutionBatches([],[],'native'),/batch inventory/);
+    assert.doesNotThrow(()=>reconcileExecutionBatches([{batch:executionBatchIdentity([],0),tests:[]}],[],'native'));
+  } finally {f.clean();}
+});

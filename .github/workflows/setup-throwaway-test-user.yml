@@ -24,8 +24,8 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          # Exception to maintained email Variables: the throwaway identity must remain confidential.
-          THROWAWAY_TEST_EMAIL: ${{ secrets.THROWAWAY_TEST_EMAIL }}
+          # Like the maintained emails, the throwaway email is a repository Variable (PO 2026-10-31); its password stays a Secret.
+          THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}
           THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
           # Identifiers only, for the shared helper's collision denylist. No maintained passwords.
           CANARY_TRIAL_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}

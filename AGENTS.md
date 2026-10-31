@@ -337,10 +337,10 @@ maintained test-account **EMAIL is a repository Variable**; every **PASSWORD is 
 `secrets.FREE_TEST_PASSWORD` — never source a maintained account's email from Secrets. A static guard
 (`tests/release/flawless-launch-product-contract-guard.test.ts`) fails closed on the governed maintained email names.
 
-The dedicated `setup-throwaway-test-user.yml` / `setup-throwaway-test-user.mjs` path is the narrow confidentiality
-exception: **both** `THROWAWAY_TEST_EMAIL` and `THROWAWAY_TEST_PASSWORD` resolve from fixed GitHub Secrets, so
-the new identity is masked in GitHub's environment header as well as script output. This exception applies only
-to the create-only `throwaway_free` purpose, never to maintained Free/Pro, checkout, soak or canary bindings.
+The dedicated `setup-throwaway-test-user.yml` / `setup-throwaway-test-user.mjs` path follows the same split (PO
+2026-10-31): `THROWAWAY_TEST_EMAIL` is a repository Variable and `THROWAWAY_TEST_PASSWORD` a fixed GitHub Secret.
+The email is therefore visible in GitHub's environment header; scripts and reports must still never print it. This
+create-only path serves only the `throwaway_free` purpose, never to maintained Free/Pro, checkout, soak or canary bindings.
 It uses no plaintext credential inputs, arbitrary secret selector, local credential file or shared-password
 fallback. Maintained email Variables may be passed solely as collision-denylist identifiers; no maintained
 password or account operation belongs in that process. Existing-identity/race/uncertain outcomes stop rather

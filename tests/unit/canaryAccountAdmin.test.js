@@ -253,13 +253,15 @@ describe('throwaway_free actual CLI boundary', () => {
     expect(result.calls).toEqual([]);
   });
 
-  it('dedicated workflow keeps both identity/password secret and never invokes maintained setup (static contract)', () => {
+  it('dedicated workflow binds the email Variable and the password Secret and never invokes maintained setup (static contract)', () => {
     const source = fs.readFileSync(path.resolve('.github/workflows/setup-throwaway-test-user.yml'), 'utf8');
     const step = source.split('      - name: Create one secret-backed throwaway Free account\n')[1]?.split('      - name:')[0];
     expect(step).toBeTruthy();
-    expect(step).toContain('THROWAWAY_TEST_EMAIL: ${{ secrets.THROWAWAY_TEST_EMAIL }}');
+    // PO 2026-10-31: the throwaway email is a repository Variable; its password stays a Secret.
+    expect(step).toContain('THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}');
+    expect(source).not.toContain('secrets.THROWAWAY_TEST_EMAIL');
     expect(step).toContain('THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}');
-    expect(source).not.toMatch(/vars\.THROWAWAY_TEST_EMAIL|github\.event\.inputs|SOAK_TEST_PASSWORD|FREE_TEST_PASSWORD|CANARY_(?:TRIAL|PAID)_PASSWORD|secrets\[/);
+    expect(source).not.toMatch(/vars\.THROWAWAY_TEST_PASSWORD|github\.event\.inputs|SOAK_TEST_PASSWORD|FREE_TEST_PASSWORD|CANARY_(?:TRIAL|PAID)_PASSWORD|secrets\[/);
     expect(step).toContain('run: node scripts/setup-throwaway-test-user.mjs');
     expect(source).not.toContain('setup-test-users.mjs');
     const maintained = fs.readFileSync(path.resolve('.github/workflows/setup-test-users.yml'), 'utf8');
