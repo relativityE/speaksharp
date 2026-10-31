@@ -380,7 +380,7 @@ export const goalsService = {
 
         const { data, error } = await supabase
             .from('user_goals')
-            .upsert({ user_id: userId, ...dbGoals })
+            .upsert({ user_id: userId, ...dbGoals }, { onConflict: 'user_id' })
             .select()
             .single();
 
