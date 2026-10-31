@@ -7,7 +7,7 @@
 // transmitted — including requests that never settle and stay in flight — then run the real calculator CLI on a
 // projection of the same scenario and require every observed count to fit its declared component. Worst cases are equal.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -74,11 +74,16 @@ const ZERO = {
 
 /** The real calculator's declared components for a projection. A refusal fails the control; it never reads as zero. */
 function declared(projection: Partial<typeof ZERO>): Record<string, number> {
-    const file = join(mkdtempSync(join(tmpdir(), 'case10-observed-')), 'projection.json');
-    writeFileSync(file, JSON.stringify({ ...ZERO, ...projection }));
-    const run = spawnSync('python3', ['-I', CALCULATOR, file], { encoding: 'utf8', timeout: 60_000 });
-    if (run.status !== 0) throw new Error(`calculator refused (exit ${run.status}): ${run.stderr}`);
-    return (JSON.parse(run.stdout) as { components: Record<string, number> }).components;
+    const dir = mkdtempSync(join(tmpdir(), 'case10-observed-'));
+    try {
+        const file = join(dir, 'projection.json');
+        writeFileSync(file, JSON.stringify({ ...ZERO, ...projection }));
+        const run = spawnSync('python3', ['-I', CALCULATOR, file], { encoding: 'utf8', timeout: 60_000 });
+        if (run.status !== 0) throw new Error(`calculator refused (exit ${run.status}): ${run.stderr}`);
+        return (JSON.parse(run.stdout) as { components: Record<string, number> }).components;
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 }
 
 const count = (name: string) => sent.filter((s) => s === name).length;

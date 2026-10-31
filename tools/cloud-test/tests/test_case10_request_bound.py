@@ -44,6 +44,7 @@ class RealAllowanceAndPagination(unittest.TestCase):
 
     def test_allowance_240_admits_240_requests_and_refuses_request_241(self):
         d = os.path.realpath(tempfile.mkdtemp(prefix="ct-case10-ledger-"))  # the ledger refuses a symlinked parent (macOS /var)
+        self.addCleanup(shutil.rmtree, d, True)
         r = node("""
 const {Ledger}=require(process.argv[1]);
 const l=new Ledger(process.argv[2]+'/campaign-ledger.json',{total:1000});
@@ -143,6 +144,7 @@ class ArithmeticOnly(unittest.TestCase):
 
     def test_the_cli_refuses_a_bad_projection_with_exit_78_and_reports_a_good_one(self):
         d = tempfile.mkdtemp(prefix="ct-case10-cli-")
+        self.addCleanup(shutil.rmtree, d, True)
         good, bad = os.path.join(d, "good.json"), os.path.join(d, "bad.json")
         with open(good, "w") as f:
             json.dump(projection(), f)
