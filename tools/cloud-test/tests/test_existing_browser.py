@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -368,6 +369,72 @@ class StimulusBrowserIsTheRecordedBrowser(unittest.TestCase):
             self.retry.attempt("/fixture/harness", "/fixture/plan.json", str(self.browser),
                                str(self.receipt), original_sha, str(self.root), str(self.root / "out.json"))
         self.assertIn("BLOCKED_SETUP", str(error.exception.code))
+
+
+class RealBrowserSetupCopyBoundary(unittest.TestCase):
+    """Exercise browser-setup.cjs's real copy-boundary implementation in a
+    private root while stubbing only privileged ownership commands."""
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="ct-browser-copy-")
+        self.addCleanup(self.temporary.cleanup)
+        self.base = Path(self.temporary.name).resolve()
+        self.source_dir = self.base / "supplied-browser"
+        self.source_dir.mkdir()
+        self.source = self.source_dir / "company-browser-bin"
+        self.source.write_bytes(b"explicit nondefault browser bytes")
+        self.source.chmod(0o700)
+        self.expected = hashlib.sha256(self.source.read_bytes()).hexdigest()
+        self.root = self.base / "private-root"
+        self.conflicting = self.root / "default-cache" / "chrome"
+        self.conflicting.parent.mkdir(parents=True)
+        self.conflicting.write_bytes(b"different cached browser that must be ignored")
+        self.module = Path(__file__).resolve().parents[1] / "harness" / "bundle" / "harness" / "browser-setup.cjs"
+
+    def invoke(self, mode="clean"):
+        script = r"""
+const fs=require('fs'),path=require('path');
+const [mod,source,root,expected,mode]=process.argv.slice(1);
+const {copyBoundBrowser}=require(mod);
+const copyDirectory=(src,dst)=>{fs.cpSync(src,dst,{recursive:true});if(mode==='copied-tamper')fs.writeFileSync(path.join(dst,path.basename(source)),'tampered copied bytes');if(mode==='source-during-copy')fs.writeFileSync(source,'tampered source bytes');};
+try{
+ const out=copyBoundBrowser({sourceExecutable:source,expectedSha256:expected,root,copyDirectory,
+  preparePrivateDirectory:p=>{fs.mkdirSync(p,{recursive:true});fs.chmodSync(p,0o700);},
+  setOwnership:()=>{},setPermissions:()=>{},setWrapperOwnership:()=>{}});
+ console.log(JSON.stringify(out));
+}catch(e){console.error(String(e.message||e));process.exit(78);}
+"""
+        return subprocess.run(
+            ["node", "-e", script, str(self.module), str(self.source), str(self.root), self.expected, mode],
+            capture_output=True, text=True,
+        )
+
+    def test_real_copy_uses_explicit_nondefault_nonchrome_browser_and_ignores_conflicting_cache(self):
+        result = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        receipt = json.loads(result.stdout)
+        copied = Path(receipt["copiedExecutable"])
+        self.assertEqual(copied.name, "chrome")
+        self.assertEqual(copied.read_bytes(), self.source.read_bytes())
+        self.assertNotEqual(copied.read_bytes(), self.conflicting.read_bytes())
+
+    def test_real_copy_does_not_require_a_default_browser_cache(self):
+        self.conflicting.unlink()
+        result = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(Path(receipt["copiedExecutable"]).read_bytes(), self.source.read_bytes())
+
+    def test_real_copy_refuses_source_and_copied_byte_tampering(self):
+        self.source.write_bytes(b"changed before copy")
+        before = self.invoke()
+        self.assertEqual(before.returncode, 78, before.stdout + before.stderr)
+        self.assertIn("changed after outer setup", before.stderr)
+        self.source.write_bytes(b"explicit nondefault browser bytes")
+        for mode in ("copied-tamper", "source-during-copy"):
+            with self.subTest(mode=mode):
+                result = self.invoke(mode)
+                self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+                self.assertRegex(result.stderr, r"copied chrome binary differs|changed during copy")
 
 
 if __name__ == "__main__":

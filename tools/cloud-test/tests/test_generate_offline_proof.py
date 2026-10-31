@@ -1,6 +1,7 @@
 """The in-job proof generator propagates every failure (Sam 1793385574): a truncated or failing suite, an incomplete plan-control run, any
 mutation refusal or uncaught control, or a proof that is not PASS means no accepted proof and a failing job. A pre-existing output is refused."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -72,11 +73,13 @@ class Verdict(unittest.TestCase):
 class Cli(unittest.TestCase):
     def test_the_browser_receipt_is_required_before_any_plan_is_built(self):
         d = Path(tempfile.mkdtemp())
+        env = dict(os.environ)
+        env.pop("CT_BROWSER_RECEIPT", None)
         r = subprocess.run(
             [sys.executable, "-I", str(SCRIPTS / "generate_offline_proof.py"),
              "--work", str(d / "work"), "--proof-out", str(d / "proof.json"),
              "--chrome", str(d / "untrusted-browser")],
-            capture_output=True, text=True,
+            capture_output=True, text=True, env=env,
         )
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("--browser-receipt or CT_BROWSER_RECEIPT is required", r.stderr)
