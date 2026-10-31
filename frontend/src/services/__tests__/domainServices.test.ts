@@ -263,7 +263,7 @@ describe('domainServices', () => {
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
                 const untrustedGoals = { weeklyGoal: 8, clarityGoal: 95, user_id: 'owner-b', id: 'foreign-row', weekly_goal: 20 };
                 await goalsService.upsert('owner-a', untrustedGoals);
-                expect(mockClient.upsert).toHaveBeenCalledWith(
+                expect((mockClient as unknown as { upsert: Mock }).upsert).toHaveBeenCalledWith(
                     { user_id: 'owner-a', weekly_goal: 8, clarity_goal: 95 },
                     { onConflict: 'user_id' }
                 );

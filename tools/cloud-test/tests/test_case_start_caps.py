@@ -146,6 +146,45 @@ class CaseStartContract(unittest.TestCase):
         approval = json.loads((self.f.root / "private/cases/AHT-13.json").read_text())["startPressApproval"]
         self.assertEqual(approval["requestSha256"], self.f.env["BP_REQUEST_SHA256"])
 
+    def test_selected_private_evidence_cases_refuse_unavailable_receiver_before_builder_outputs(self):
+        for case in (1, 2, 3, 7, 8):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as root:
+                self.f = SyntheticBuilder(root, cases=(case,))
+                self.rejected()
+
+    def test_selected_feedback_cases_use_real_descriptor_binding_without_live_credentials(self):
+        from proof_prep_cases import synthetic_producer_environment
+        for case in (7, 8):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as root:
+                f = SyntheticBuilder(root, cases=(case,))
+                f.request['executionRuntime'] = 'GitHub Actions SpeakSharp'
+                facts = J('tests', 'fixtures', 'plan-facts.PLACEHOLDER.json')
+                producer_env = synthetic_producer_environment(f.root, str(Path(ROOT) / 'harness'), facts)
+                f.repin(facts=facts)
+                f.env.update(producer_env)
+                result = f.run()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                cfg = json.loads((f.root / ('private/cases/AHT-%02d.json' % case)).read_text())
+                self.assertTrue(all(p['producerIdentity'].endswith(':123:1:live') for p in cfg['privateEvidenceProducers'].values()))
+                self.assertNotIn('SUPABASE_SERVICE_ROLE_KEY', f.env)
+                self.assertNotIn('POSTHOG_PERSONAL_API_KEY', f.env)
+                self.assertEqual(f.run('phase2').returncode, 0)
+                # Compare the REAL builder postimage with the REAL launcher's
+                # instance gate. Synthetic job labels here establish no auth.
+                check = """const fs=require('node:fs'),path=require('node:path');
+const {validatePlanProducers}=require(process.argv[1]);
+const {jobIdentity}=require(path.join(path.dirname(process.argv[1]),'authenticated-job-producer.cjs'));
+const plan=JSON.parse(fs.readFileSync(process.argv[2])),config=JSON.parse(fs.readFileSync(process.argv[3]));
+const scope={campaignId:plan.campaignId,ownerAccountId:config.account.id,sourceSha:plan.sourceSha,servedSha:plan.servedSha,notBefore:plan.notBefore,deadlineAt:plan.deadlineAt,caseIds:[config.caseId],maxDeliveries:8,maxSupabaseRequests:16,maxTelemetryReads:2,producerReviewReference:config.privateEvidenceProducers['feedback-association'].reviewReference};
+validatePlanProducers(plan,scope,[{caseId:config.caseId,config}],{job:jobIdentity(process.env)});
+console.log('SYNTHETIC-BUILDER-LAUNCHER-BINDING-PASS');"""
+                checked = subprocess.run(['node', '--input-type=commonjs', '-e', check,
+                    str(Path(ROOT) / 'harness/bundle/harness/with-authenticated-evidence.cjs'),
+                    str(f.root / 'private/cfg/campaign-plan.json'), str(f.root / ('private/cases/AHT-%02d.json' % case))],
+                    env=f.env, capture_output=True, text=True, timeout=15)
+                self.assertEqual(checked.returncode, 0, checked.stderr)
+                self.assertEqual(checked.stdout.strip(), 'SYNTHETIC-BUILDER-LAUNCHER-BINDING-PASS')
+
     def test_minimal_and_future_phase_one_preserve_existing_floor(self):
         self.f = SyntheticBuilder(self.temp.name, cases=(13,14), minimal=True)
         self.f.request["window"]["startUtc"] = "2098-01-01T00:00:00Z"; self.f.repin()

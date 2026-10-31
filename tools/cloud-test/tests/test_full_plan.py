@@ -17,6 +17,7 @@ from _fixtures import REPO, ROOT, TESTED, J, prerequisite, wjson
 from test_runnable_package import chrome_path, node_ok, playwright_cwd
 import install_pdfjs
 from test_case_start_caps import synthetic_allocation, bind_synthetic_files
+from proof_prep_cases import synthetic_producer_environment
 
 PIN = J("config", "test-config.v1.json")["tools"]["pdfjs"]
 CATALOG = J("config", "assertion-catalog.json")
@@ -130,10 +131,13 @@ class FullPlanProof(unittest.TestCase):
         req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55, "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
         req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
         req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
+        req["executionRuntime"] = "GitHub Actions SpeakSharp"
         synthetic_allocation(req)
         cls.req = req
         cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req)
-        cls.bindings = bind_synthetic_files(cls.work, req)
+        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        cls.producer_env = synthetic_producer_environment(cls.work, os.path.join(ROOT, "harness"), facts)
+        cls.bindings = bind_synthetic_files(cls.work, req, facts)
         cls.reqp = cls.bindings["BP_REQUEST_FILE"]
         cls.acct = os.path.join(cls.work, "acct.txt"); open(cls.acct, "w").write("00000000-0000-4000-8000-000000000001\n"); os.chmod(cls.acct, 0o600)
         r = run_py("scripts/run_env.py", "--request", cls.reqp, "--reconciliation", cls.bindings["BP_RECONCILIATION_FILE"], "--out", os.path.join(cls.work, "env.txt"))
@@ -159,6 +163,7 @@ class FullPlanProof(unittest.TestCase):
                "BP_FACTS": cls.bindings["BP_FACTS"], "BP_ACCOUNT_ID_FILE": cls.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(cls.work, "media"),
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key", "BP_PDFJS_DIR": cls.pdf_source}
+        env.update(cls.producer_env)
         for k in drop:
             env.pop(k, None)
         out = []

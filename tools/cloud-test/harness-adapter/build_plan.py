@@ -184,7 +184,7 @@ def read_binding_inputs(env, argv):
         # need a privileged evidence producer. AHT04/15 must not acquire service keys
         # merely to run in GitHub. Evidence-dependent cases still refuse before build.
         producer_cases_selected = set(SELECTED).intersection({1, 2, 3, 7, 8})
-        require(RUNTIME != 'GitHub Actions SpeakSharp' or same_job or not producer_cases_selected, 'input-binding')
+        require(same_job or not producer_cases_selected, 'input-binding')
         receiver_rel = 'draft-adapters/receivers/' + ('github-job-evidence-reader.cjs' if same_job else 'unavailable-evidence-reader.cjs')
         receiver_path = f'{PACKET}/{receiver_rel}'
         receiver_sha = shaf(receiver_path)

@@ -19,6 +19,34 @@ REPO = os.path.abspath(os.path.join(ROOT, "..", ".."))
 DUMMY_ACCOUNT = "00000000-0000-4000-8000-000000000001"
 
 
+def synthetic_producer_environment(work, packet, facts):
+    """Explicit fixture metadata for the real builder path, NOT a running job or producer.
+
+    No credential is supplied: starting the real producer with this environment
+    still refuses. Browser/proof tests use only loopback and synthetic inputs.
+    The live builder has no special fixture bypass.
+    """
+    def sha_file(path):
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    review = "SYNTHETIC-NOT-A-RUN-producer-source"
+    facts["producerReviewReference"] = review
+    receiver = "draft-adapters/receivers/github-job-evidence-reader.cjs"
+    descriptor = {"kind": "same-github-job-receiver-selection-not-execution-proof",
+                  "producerIdentity": "github-actions:relativityE/speaksharp:123:1:live", "jobId": "live",
+                  "producerCodeSha256": sha_file(os.path.join(packet, "bundle/harness/authenticated-job-producer.cjs")),
+                  "receiverRelativePath": receiver, "receiverSourceSha256": sha_file(os.path.join(packet, receiver)),
+                  "workflowSourceSha": "a" * 40, "reviewReference": review}
+    file = os.path.join(work, "synthetic-producer-descriptor.json")
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(descriptor, f)
+    os.chmod(file, 0o600)
+    return {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
+            "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "a" * 40,
+            "BP_PRODUCER_MODE": "same-github-job", "BP_PRODUCER_DESCRIPTOR": file,
+            "BP_PRODUCER_DESCRIPTOR_SHA256": sha_file(file)}
+
+
 def placeholder_request(packet):
     with open(os.path.join(ROOT, "tests", "fixtures", "full-request.json"), encoding="utf-8") as f:
         req = json.load(f)
@@ -28,6 +56,7 @@ def placeholder_request(packet):
                              "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
     req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
     req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
+    req["executionRuntime"] = "GitHub Actions SpeakSharp"
     req["approvedLimits"]["startPressCaps"] = dict(req["proposedLimits"]["startPressCaps"])
     return req
 
@@ -63,6 +92,7 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None):
         json.dump({"synthetic": "PLACEHOLDER-NOT-A-RUN", "starts": {"ownerCounted": 0}, "ceilings": {"starts": 85}}, f)
     with open(os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), encoding="utf-8") as f:
         facts = json.load(f)
+    producer_env = synthetic_producer_environment(work, packet, facts)
     def sha_file(path):
         with open(path, "rb") as f:
             return hashlib.sha256(f.read()).hexdigest()
@@ -81,6 +111,7 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None):
     env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=factp,
                BP_ACCOUNT_ID_FILE=acct, BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
                BP_ENV_ID="env_PLACEHOLDER", BP_MEDIA_PARENT=os.path.join(work, "media"), VITE_SUPABASE_ANON_KEY="placeholder-publishable-key", BP_PDFJS_DIR=pdfjs)
+    env.update(producer_env)
     for phase in phases:
         # BP_STIM is exported AFTER the request-derived environment is sourced, as FullPlanProof does, so the request's values cannot override it.
         stim = "export BP_STIM=%s; " % shlex.quote(stimulus_receipt) if stimulus_receipt else ""
