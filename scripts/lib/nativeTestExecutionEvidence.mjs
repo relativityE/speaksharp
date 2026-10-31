@@ -8,6 +8,7 @@ import {spawnSync} from 'node:child_process';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 export const NATIVE_REPORTER='scripts/lib/nativeTestExecutionEvidence.mjs';
+export const PROOF_CASES_TEST='tools/cloud-test/tests/node/proof/harness-fixes-r15.offline.test.cjs';
 export const SQL_CONSUMER='tests/unit/accountCompletionBillingSettlement.test.ts';
 export const SQL_INPUTS=Object.freeze([
   'backend/supabase/migrations/20261027192550_account_completion_billing_settlement.sql',
@@ -190,6 +191,21 @@ export function nativeEnvironment(cwd,environment) {
   return {PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(path.delimiter),HOME:home,USERPROFILE:home,
     TMPDIR:temporary,TMP:temporary,TEMP:temporary,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true',NODE_ENV:'test'};
 }
+export function proofCasesBinding(contract,environment) {
+  if(contract.testFile!==PROOF_CASES_TEST)return null;
+  const directory=environment?.CT_PROOF_CASES_DIR;
+  if(typeof directory!=='string'||!path.isAbsolute(directory))fail('NOT RUN: CT_PROOF_CASES_DIR is required for the r15 proof control');
+  const real=fs.realpathSync(directory),cases=path.join(real,'cases');
+  if(real!==directory||!fs.statSync(real).isDirectory()||fs.realpathSync(cases)!==cases)fail('Aliased proof-cases directory');
+  const expected=Array.from({length:15},(_,n)=>`AHT-${String(n+1).padStart(2,'0')}.json`);
+  const actual=fs.readdirSync(cases).sort();
+  if(JSON.stringify(actual)!==JSON.stringify(expected))fail('Proof-cases inventory is incomplete or unexpected');
+  return {directory:real,files:expected.map(name=>{
+    const file=path.join(cases,name),stat=fs.lstatSync(file);
+    if(!stat.isFile()||fs.realpathSync(file)!==file)fail('Aliased proof-case input');
+    return {name,sha256:hash(fs.readFileSync(file))};
+  })};
+}
 // Runs in Node's real test reporter, observing the runner's raw event stream.
 export default async function* nativeReporter(events) {
   yield JSON.stringify({type:'native:binding',binding:JSON.parse(process.env.TEST_EFFICACY_BINDING??'null'),
@@ -341,8 +357,10 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
     binding.syntheticSource=validateSyntheticSource(root,contract.testFile);
     binding.permissionPolicy=nativeDenoPolicy(contract.testFile);
   }
+  const proofCases=proofCasesBinding(contract,environment);if(proofCases)binding.proofCases=proofCases;
   binding.command=nativeCommand(binding);
-  const env={...nativeEnvironment(cwd,environment),TEST_EFFICACY_BINDING:JSON.stringify(binding),NODE_V8_COVERAGE:contract.runner==='node-test'?coverageDirectory:''};
+  const env={...nativeEnvironment(cwd,environment),...(proofCases?{CT_PROOF_CASES_DIR:proofCases.directory}:{}),
+    TEST_EFFICACY_BINDING:JSON.stringify(binding),NODE_V8_COVERAGE:contract.runner==='node-test'?coverageDirectory:''};
   let warmup;
   if(contract.runner==='deno') {
     // Frozen-lock import acquisition is a separate no-run phase in an owned cache.
@@ -377,6 +395,8 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
     ||b.inputSha256!==inputSha256||b.repoLockSha256!==hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))
     ||JSON.stringify(b.runtime)!==JSON.stringify(nativeRuntime(root,contract.runner))
     ||JSON.stringify(b.command)!==JSON.stringify(nativeCommand(b)))fail('Wrong native source/runtime/provenance/command binding');
+  const expectedProof=proofCasesBinding(contract,b.proofCases?{CT_PROOF_CASES_DIR:b.proofCases.directory}:{});
+  if(JSON.stringify(b.proofCases??null)!==JSON.stringify(expectedProof))fail('Wrong or changed proof-cases binding');
   if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null
     ||phase.execution.processCleanup?.status!=='drained')fail('Native execution failed or did not drain');
   if(contract.runner==='deno') {

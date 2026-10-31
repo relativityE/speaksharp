@@ -13,6 +13,7 @@ import {HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/
 import {sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
 import {selectNativeContracts,produceNativePhase,nativeChildTracker,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,executionBatchIdentity} from './lib/nativeTestExecutionEvidence.mjs';
+import {producePythonReceipt} from './lib/pythonTestExecutionEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
@@ -141,6 +142,12 @@ export function runVitestHelperExecution(options = {}) {
 
 export function runNativeExecution(options = {}) {
   return runTestEfficacy({...options,executionOnly:true,nativeOnly:true});
+}
+
+export function runPythonExecution({root=process.cwd(),base=process.env.TEST_EFFICACY_BASE,provenance,batch=0}={}) {
+  root=canonicalPath(root);
+  provenance??=executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+  return producePythonReceipt({root,base:base||null,provenance,files:executionRequiredFiles(root,base),batch,drain:drainOwnedPhase});
 }
 
 // Moved beside its independent validator; re-exported so existing callers keep one selection.
