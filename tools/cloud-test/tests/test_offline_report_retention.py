@@ -245,5 +245,173 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertIn("204 assertions", detail)
 
 
+PROBE = '''import unittest
+class Plain(unittest.TestCase):
+    def test_pass(self): pass
+    def test_subtests(self):
+        for i in range(3):
+            with self.subTest(i=i):
+                self.assertNotEqual(i, 1)
+    def test_skipped_subtest(self):
+        with self.subTest(k="x"):
+            self.skipTest("probe skip")
+    @unittest.expectedFailure
+    def test_expected(self): self.fail("expected")
+class Fixture(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): raise RuntimeError("class setup")
+    def test_never_run(self): pass
+class Teardown(unittest.TestCase):
+    def tearDown(self): raise RuntimeError("teardown")
+    def test_fails_then_teardown_errors(self): self.fail("first")
+'''
+
+
+class StructuredSuiteResults(unittest.TestCase):
+    """The suite child (Sam 1793406369 point 3): unittest's own output and exit code, plus one structured record per test id from the callbacks."""
+
+    def run_child(self, source):
+        d = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, d, True)
+        Path(d, "test_probe.py").write_text(source)
+        results = Path(d, "results.json")
+        child = subprocess.run([sys.executable, "-I", runner.__file__, "--suite-child", d, "--results", str(results)], capture_output=True, text=True)
+        plain = subprocess.run([sys.executable, "-I", "-m", "unittest", "discover", "-s", d, "-p", "test_*.py"], capture_output=True, text=True)
+        return child, plain, json.loads(results.read_text()) if results.exists() else None
+
+    def test_the_child_prints_unittests_own_result_and_exit_code(self):
+        child, plain, _ = self.run_child(PROBE)
+        self.assertEqual(child.returncode, plain.returncode)
+        self.assertEqual(summarizer._suite({"stderr": child.stderr}), summarizer._suite({"stderr": plain.stderr}))
+        self.assertTrue(summarizer._suite({"stderr": child.stderr}))
+        child, plain, _ = self.run_child("import unittest\n")
+        self.assertEqual((child.returncode, plain.returncode), (5, 5), "NO TESTS RAN keeps its exit code")
+
+    def test_records_come_from_callbacks_and_fixtures_credit_nothing(self):
+        child, _, res = self.run_child(PROBE)
+        tests = {t["id"]: t for t in res["tests"]}
+        self.assertEqual(sorted(tests), ["test_probe.Plain.test_expected", "test_probe.Plain.test_pass", "test_probe.Plain.test_skipped_subtest",
+                                         "test_probe.Plain.test_subtests", "test_probe.Teardown.test_fails_then_teardown_errors"],
+                         "the class whose setup failed contributes no method")
+        self.assertEqual(tests["test_probe.Teardown.test_fails_then_teardown_errors"]["outcomes"], ["failure", "error"])
+        self.assertEqual(tests["test_probe.Plain.test_pass"]["outcomes"], ["success"])
+        self.assertEqual((tests["test_probe.Plain.test_subtests"]["outcomes"], sorted(tests["test_probe.Plain.test_subtests"]["subtests"])),
+                         ([], ["failure", "success", "success"]), "a failed subtest leaves no parent success")
+        self.assertEqual(tests["test_probe.Plain.test_skipped_subtest"]["subtests"], ["skipped"])
+        self.assertEqual(tests["test_probe.Plain.test_expected"]["outcomes"], ["expectedFailure"])
+        self.assertTrue(all(t["starts"] == t["stops"] == 1 for t in tests.values()))
+        self.assertEqual(res["fixtures"], [{"description": "setUpClass (test_probe.Fixture)", "outcome": "error"}])
+        printed = summarizer._suite({"stderr": child.stderr})
+        self.assertEqual({k: res["callbackCounts"][k] for k in printed}, printed, "callback counts equal the printed count line")
+
+    def test_the_summary_aggregates_the_real_records(self):
+        child, _, res = self.run_child(PROBE)
+        rows, codes = summarizer._suite_records({"id": "package-unit-tests", "stderr": child.stderr, "results": res})
+        self.assertEqual({i: r["outcome"] for i, r in rows.items()},
+                         {"test_probe.Plain.test_expected": "expectedFailure", "test_probe.Plain.test_pass": "success",
+                          "test_probe.Plain.test_skipped_subtest": "skipped", "test_probe.Plain.test_subtests": "failure",
+                          "test_probe.Teardown.test_fails_then_teardown_errors": "error"})
+        self.assertEqual(codes, ["FIXTURE_EVENTS:package-unit-tests"])
+
+
+class FileSetIdentity(unittest.TestCase):
+    """The reviewed file set (Sam 1793407393): explicit paths, harness through its manifest, excluded trees pruned before descent, symlinks never
+    followed, unexpected files counted by category only."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        for rel in ("scripts/a.py", "config/c.json", "harness/bundle/x.cjs", "config/history/receipts/R5/private.json", "runner/node_modules/pkg/i.js"):
+            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / rel).write_text(rel)
+        (self.root / "harness" / "PACKET-MANIFEST.sha256").write_text("%s  bundle/x.cjs\n" % ("0" * 64))
+        (self.root / "runner" / "node_modules" / ".bin").mkdir()
+        (self.root / "runner" / "node_modules" / ".bin" / "tool").symlink_to(self.root / "runner" / "node_modules" / "pkg" / "i.js")
+        spec = json.loads((Path(runner.__file__).parents[1] / "config" / "equivalence-file-set.v1.json").read_text())
+        spec["paths"] = ["config/c.json", "config/equivalence-file-set.v1.json", "scripts/a.py"]
+        (self.root / "config" / "equivalence-file-set.v1.json").write_text(json.dumps(spec))
+
+    def identity(self):
+        with mock.patch.object(runner, "ROOT", str(self.root)):
+            return runner.file_set_identity()
+
+    def test_a_clean_tree_is_complete_and_excluded_trees_are_never_entered(self):
+        walked = []
+        real_walk = runner.os.walk
+        def spy(top, **kwargs):
+            for dirpath, dirnames, filenames in real_walk(top, **kwargs):
+                walked.append(dirpath)
+                yield dirpath, dirnames, filenames
+        with mock.patch.object(runner.os, "walk", side_effect=spy):
+            fs = self.identity()
+        self.assertEqual((fs["status"], fs["codes"]), ("COMPLETE", []))
+        self.assertEqual([p for p, _ in fs["files"]], ["config/c.json", "config/equivalence-file-set.v1.json", "scripts/a.py"])
+        self.assertFalse([w for w in walked if "node_modules" in w or "receipts" in w], "pruned before descent: the .bin link is never seen")
+
+    def test_missing_unexpected_and_linked_files_are_incomplete_and_publish_no_private_path(self):
+        (self.root / "scripts" / "a.py").unlink()
+        (self.root / "scripts" / "unlisted.py").write_text("x")
+        (self.root / "harness" / "bundle" / "extra.cjs").write_text("x")
+        (self.root / "config" / "linked.json").symlink_to(self.root / "config" / "c.json")
+        fs = self.identity()
+        self.assertEqual((fs["status"], fs["codes"]), ("INCOMPLETE", ["MISSING", "SYMLINK", "UNEXPECTED"]))
+        self.assertEqual((fs["missing"], fs["symlinks"], fs["unexpected"]), (["scripts/a.py"], 1, {"source": 2}))
+        self.assertNotIn(str(self.root), json.dumps(fs))
+        self.assertNotIn("unlisted", json.dumps(fs))
+
+    def test_a_linked_directory_component_of_a_listed_path_is_never_followed(self):
+        real = self.root / "elsewhere"
+        real.mkdir()
+        (real / "a.py").write_text("scripts/a.py")
+        (self.root / "scripts" / "a.py").unlink()
+        (self.root / "scripts").rmdir()
+        (self.root / "scripts").symlink_to(real)
+        fs = self.identity()
+        self.assertIn("SYMLINK", fs["codes"])
+        self.assertNotIn("scripts/a.py", [p for p, _ in fs["files"]])
+
+    def test_a_linked_named_harness_file_or_manifest_is_incomplete_even_with_matching_bytes(self):
+        # Sam 1793410354: a link to identical bytes must never stand in for an included file; both manifests are preflighted before any read.
+        twin = self.root / "elsewhere"
+        twin.mkdir()
+        for rel in ("harness/bundle/x.cjs", "config/equivalence-file-set.v1.json", "harness/PACKET-MANIFEST.sha256"):
+            target = self.root / rel
+            original = target.read_bytes()
+            (twin / target.name).write_bytes(original)
+            target.unlink()
+            target.symlink_to(twin / target.name)
+            fs = self.identity()
+            self.assertEqual(fs["status"], "INCOMPLETE", rel)
+            self.assertIn("SYMLINK", fs["codes"], rel)
+            target.unlink()
+            target.write_bytes(original)
+            (twin / target.name).unlink()
+        twin.rmdir()
+        self.assertEqual(self.identity()["status"], "COMPLETE", "restored regular files: each negative was the link alone")
+
+    def test_a_scan_error_is_incomplete_and_names_no_path(self):
+        real_walk = runner.os.walk
+        def failing(top, **kwargs):
+            kwargs["onerror"](PermissionError(13, "denied", str(self.root / "scripts" / "private-subtree")))
+            yield from real_walk(top, **kwargs)
+        with mock.patch.object(runner.os, "walk", side_effect=failing):
+            fs = self.identity()
+        self.assertEqual((fs["status"], fs["codes"], fs["scanErrors"]), ("INCOMPLETE", ["SCAN_ERROR"], 1))
+        self.assertNotIn("private-subtree", json.dumps(fs))
+
+    def test_external_inputs_publish_repository_paths_only(self):
+        outside = tempfile.NamedTemporaryFile(delete=False)
+        outside.write(b"x")
+        outside.close()
+        self.addCleanup(Path(outside.name).unlink)
+        with mock.patch.dict(runner.os.environ, {"CT_TEST_REPO": str(self.root), "CLOUD_TEST_YML": outside.name}):
+            got = runner.external_input("cloud-test-yml", "CLOUD_TEST_YML", None)
+            self.assertEqual((got["source"], got["path"], got["state"]), ("env", "outside-repo", "BOUND"))
+            got = runner.external_input("lock", None, str(self.root / "nope.yaml"))
+            self.assertEqual((got["path"], got["sha256"], got["state"]), ("nope.yaml", None, "UNKNOWN"))
+        self.assertEqual(runner.external_input("chrome", "CT_CHROME_UNSET_PROBE", None)["state"], "UNKNOWN")
+
+
 if __name__ == "__main__":
     unittest.main()
