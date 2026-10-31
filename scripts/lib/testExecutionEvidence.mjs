@@ -89,12 +89,15 @@ export function testEnvironment(directory, binding, envelopeFile) {
   const proofCases=process.env.CT_PROOF_CASES_DIR;
   if(proofCases&&(!path.isAbsolute(proofCases)||fs.realpathSync(proofCases)!==proofCases||!fs.statSync(proofCases).isDirectory()))
     throw new Error('Invalid CT_PROOF_CASES_DIR');
+  const pdfjs=process.env.CT_EXISTING_PDFJS_DIR;
+  if(pdfjs&&(!path.isAbsolute(pdfjs)||fs.realpathSync(pdfjs)!==pdfjs||!fs.statSync(pdfjs).isDirectory()))
+    throw new Error('Invalid CT_EXISTING_PDFJS_DIR');
   return {PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(path.delimiter),
     HOME:home,USERPROFILE:home,TMPDIR:temp,TMP:temp,TEMP:temp,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',
     CI:'true',NODE_ENV:'test',NODE_V8_COVERAGE:'',VITEST_MAX_FORKS:'1',
     VITE_SUPABASE_URL:'https://test.supabase.co',VITE_SUPABASE_ANON_KEY:'test-anon-key',
     TEST_EFFICACY_BINDING:JSON.stringify(binding),TEST_EFFICACY_ENVELOPE:envelopeFile,
-    ...(proofCases?{CT_PROOF_CASES_DIR:proofCases}:{})};
+    ...(proofCases?{CT_PROOF_CASES_DIR:proofCases}:{}),...(pdfjs?{CT_EXISTING_PDFJS_DIR:pdfjs}:{})};
 }
 
 // One immutable data input, not a generic exemption for fixtures. Its consumer must actually
