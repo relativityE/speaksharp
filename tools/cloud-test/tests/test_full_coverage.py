@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from _fixtures import ROOT, J, sample, reconciliation, request_path, fake_rv, wjson, needs_history
+from _synthetic_history import shared as synthetic_history
 
 import derive_case_costs as DC
 import full_coverage_budget as FB
@@ -18,7 +19,23 @@ import check_gates as CG
 import derive_assertion_catalog as CAT
 from _common import sha256_file
 
-RECEIPTS = os.path.join(ROOT, "config", "history", "receipts")
+# Costs and budgets come from the SYNTHETIC sealed history (tests/_synthetic_history.py over tests/fixtures/synthetic-history/inputs.v1.json).
+# The retained campaigns are read only by the historical-audit suite (tests/legacy_audit/audit_full_coverage.py).
+RECEIPTS = synthetic_history().receipts
+
+# Independent expected budget for that history (Sam 1793402195: never taken from the function under test), written from inputs.v1.json and
+# the config's budget model (allowance 125%, cleanup 10 per case, pooled slack 15%, uplift cap 3.0):
+#   fixed overhead = max(R4C 20+30+10, R5 20+40+10) = 70; variable work = max(R4C 60+40+10, R5 50+40+10) = 110
+#   R5 executed every row except AHT-05 (1 row of 10; R4C half = 5) and AHT-12 (6 of 8: rows 2 and 3 not run; R4C half = 4), so only those two
+#   are scaled: AHT-05 min(3.0, 10/5) = 2.0, AHT-12 min(3.0, 8/6) = 1.33
+#   estimate = ceil10(70 + 110) = 180 for 13 journeys; AHT-05 = ceil10(70 + 110 x 2) = 290; AHT-12 = ceil10(ceil(70 + 110 x 8/6)) = ceil10(217) = 220
+#   planned 13 x 180 + 290 + 220 = 2850; cleanup 15 x 10 = 150; slack ceil10(ceil(2850 x 15%)) = ceil10(428) = 430; run cap 2850 + 150 + 430 = 3430
+#   cumulative ceiling over the synthetic reconciliation (UsageHistory: 5529 used): 5529 + 3430 + 664 protected reserve + 32 identity reads = 9655
+#   window: expected round(2 + (13 x 120 s + AHT-05 150 s x 2.0 + AHT-12 120 s x 8/6) / 60 + 10) = round(45.667) = 46 min; worst case
+#   20 + 272 + 2 = 294; proposed 300 (next 30)
+EST = {"AHT-%02d" % n: (290 if n == 5 else 220 if n == 12 else 180) for n in range(1, 16)}
+EXPECTED = {"planned": 2850, "cleanupReserve": 150, "pooledSlack": 430, "runCap": 3430, "requiredCeiling": 9655,
+            "window": {"expectedMinutes": 46, "worstCaseMinutes": 294, "proposedMinutes": 300}}
 
 
 def costs():
@@ -30,7 +47,20 @@ def catalog():
 
 
 def r7():
+    """The tracked SYNTHETIC, unapproved full-request fixture (tests/fixtures/full-request.json, resolved by J()); not the private R7 request."""
     return J("config", "runs", "R7-full-coverage-proposal.json")
+
+
+def full_request():
+    """r7() carrying the independently EXPECTED budget above: only the budget fields change; selection, gaps, caps and every other field stay."""
+    req = r7()
+    req["estimate"]["requests"].update({k: EXPECTED[k] for k in ("planned", "cleanupReserve", "pooledSlack", "runCap")})
+    req["estimate"]["window"].update(EXPECTED["window"])
+    for s in req["selection"]:
+        s["plannedRequests"] = EST[s["case"]]
+    req["proposedLimits"].update(cumulativeCeilingRequests=EXPECTED["requiredCeiling"], runCapRequests=EXPECTED["runCap"],
+                                 ceilingIncreaseJustification="SYNTHETIC: 5529 used + 3430 run cap + 664 protected reserve + 32 identity reads = 9655.")
+    return req
 
 
 def validate(req, budget="derive", rv=None):
@@ -40,14 +70,15 @@ def validate(req, budget="derive", rv=None):
     return V.validate(req, s["cfg"], s["ledger"], s["wf"], rv or fake_rv(), rc, b)
 
 
-@needs_history
 class CaseCostsFromGuardLogs(unittest.TestCase):
+    """Per-case costs from the synthetic sealed guard logs. Each declared journey adds public + preflight + auth + signed-in + model + coaching:
+    R4C 20+30+10+60+40+10 = 170 and R5 20+40+10+50+40+10 = 170, so each run's ledger is 15 x 170 = 2550."""
     @classmethod
     def setUpClass(cls):
         cls.c = costs()
 
     def test_per_case_costs_reconcile_to_each_runs_sealed_ledger(self):
-        for lab, total in (("R4C", 2520), ("R5", 2085)):
+        for lab, total in (("R4C", 15 * 170), ("R5", 15 * 170)):
             r = self.c["runs"][lab]
             self.assertTrue(r["reconciliation"]["ok"], r["reconciliation"])
             self.assertEqual(sum(x["requests"]["total"] for x in r["cases"]), total)
@@ -61,15 +92,17 @@ class CaseCostsFromGuardLogs(unittest.TestCase):
                 self.assertEqual(b["public"] + b["preflight"] + b["auth"] + b["signed-in"] + b["model"] + b["coaching"], x["requests"]["total"], x["case"])
 
     def test_known_cases_match_the_logs(self):
+        # The declared synthetic figures (the retained-campaign figures are checked in tests/legacy_audit/audit_full_coverage.py).
         r4c = {x["case"]: x for x in self.c["runs"]["R4C"]["cases"]}
         r5 = {x["case"]: x for x in self.c["runs"]["R5"]["cases"]}
-        self.assertEqual(r4c["AHT-01"]["requests"]["total"], 157)
-        self.assertEqual(r4c["AHT-05"]["requests"]["total"], 315)
-        self.assertEqual(r5["AHT-10"]["requests"]["total"], 150)
-        self.assertTrue(r5["AHT-10"]["lowerBound"])
-        self.assertIn("stopped by its request allowance", " ".join(r5["AHT-10"]["lowerBoundBecause"]))
-        self.assertEqual(r4c["AHT-12"]["startsPressed"], 1)
-        self.assertEqual(r4c["AHT-12"]["takesSaved"], 0)
+        self.assertEqual(r4c["AHT-01"]["requests"]["total"], 20 + 30 + 10 + 60 + 40 + 10)
+        self.assertEqual(r5["AHT-01"]["requests"]["byCategory"]["preflight"], 40)
+        self.assertTrue(r4c["AHT-03"]["lowerBound"])
+        self.assertIn("stopped by its request allowance", " ".join(r4c["AHT-03"]["lowerBoundBecause"]))
+        self.assertEqual((r5["AHT-05"]["rows"]["executed"], r5["AHT-05"]["rows"]["notRun"]), (1, 10 - 1))
+        self.assertTrue(r5["AHT-05"]["lowerBound"])
+        self.assertFalse(r5["AHT-04"]["lowerBound"])
+        self.assertEqual((r4c["AHT-12"]["startsPressed"], r4c["AHT-12"]["takesSaved"]), (1, 1))
 
     def test_a_case_with_unexecuted_rows_is_marked_a_lower_bound(self):
         for r in self.c["runs"].values():
@@ -107,13 +140,6 @@ class AssertionCatalog(unittest.TestCase):
         self.assertEqual(errs, [])
         self.assertEqual(json.dumps(out, indent=1) + "\n", open(os.path.join(ROOT, "config", "assertion-catalog.json"), encoding="utf-8").read())
 
-    @needs_history
-    def test_every_sealed_receipt_row_is_in_the_catalog(self):
-        cat = catalog()["cases"]
-        for lab in ("R4C", "R5"):
-            for row in J("config", "history", "receipts", lab, "case-results.json")["cases"]:
-                self.assertEqual(sorted(a["id"] for a in row["assertions"]), sorted(cat[row["caseId"]]["requiredAssertions"]))
-
     def test_a_tampered_catalog_makes_the_budget_underivable_and_the_request_invalid(self):
         s = sample()
         bad = copy.deepcopy(s["cfg"]); bad["modes"]["full"]["assertionCatalog"]["sha256"] = "0" * 64
@@ -131,11 +157,27 @@ class AssertionCatalog(unittest.TestCase):
         self.assertEqual({int(k.split("-")[1]): v for k, v in cfg.items()}, builder)
 
 
-@needs_history
 class DerivedBudget(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.b = FB.with_sensitivity(sample()["cfg"], costs(), catalog(), reconciliation())
+
+    def test_the_derivation_equals_the_independently_expected_budget(self):
+        self.assertEqual({p["case"]: p["estimate"] for p in self.b["perCase"]}, EST)
+        r = self.b["requests"]
+        self.assertEqual((r["plannedSumOfEstimates"], r["cleanupReserve"], r["pooledSlack"], r["runCap"]),
+                         (EXPECTED["planned"], EXPECTED["cleanupReserve"], EXPECTED["pooledSlack"], EXPECTED["runCap"]))
+        self.assertEqual(self.b["cumulative"]["requiredCeiling"], EXPECTED["requiredCeiling"])
+        w = self.b["window"]
+        self.assertEqual((w["expectedMinutes"], w["worstCaseMinutes"], w["proposedWindowMinutes"]), tuple(EXPECTED["window"].values()))
+        self.assertEqual({p["case"]: p["ceiling"] for p in self.b["perCase"]}, {c: {290: 370, 220: 280, 180: 230}[e] for c, e in EST.items()})  # 125% rule
+
+    def test_the_budget_carrying_request_is_still_an_unapproved_proposal(self):
+        # Sam 1793403415: full_request() changes only budget fields; it stays a proposal with no approval and no omission.
+        r = full_request()
+        self.assertTrue(r["proposal"])
+        self.assertTrue(all(v is None for v in r["approvedLimits"].values()))
+        self.assertEqual(r["approvedOmissions"], [])
 
     def test_it_is_a_proposal_and_never_an_approval(self):
         self.assertIn("NOT APPROVED", self.b["status"])
@@ -154,6 +196,7 @@ class DerivedBudget(unittest.TestCase):
     def test_cumulative_ceiling_identity_and_action_caps(self):
         c = self.b["cumulative"]
         self.assertEqual(c["requiredCeiling"], 5529 + self.b["requests"]["runCap"] + 664 + 32)
+        self.assertEqual(c["requiredCeiling"], 5529 + 3430 + 664 + 32)
         self.assertGreater(c["requiredCeiling"], 8795)           # the earlier proposal understated a full run
         self.assertEqual(self.b["identity"]["required"], 94 + 32)
         self.assertEqual(self.b["identity"]["required"], 126)
@@ -194,92 +237,79 @@ class SeparateModeLimits(unittest.TestCase):
         self.assertEqual(cfg["modes"]["partial"]["limits"]["maxSelectedCases"], 6)
         self.assertEqual(cfg["modes"]["full"]["limits"]["maxSelectedCases"], 15)
 
-    @needs_history
     def test_the_proposal_is_valid_and_flags_every_owner_decision(self):
-        errs, warns = validate(r7())
+        errs, warns = validate(full_request())
         self.assertEqual(errs, [])
         self.assertTrue(any("ceiling increase" in w for w in warns))
         self.assertTrue(any("Starts cap increase" in w for w in warns))
         self.assertTrue(any("takes cap increase" in w for w in warns))
 
-    @needs_history
     def test_the_partial_request_is_still_valid_under_its_own_limits(self):
         errs, _ = validate(sample()["req"])
         self.assertEqual(errs, [])
 
-    @needs_history
     def test_a_request_with_no_mode_is_invalid_there_is_no_default(self):
-        req = r7(); del req["coverageMode"]
+        req = full_request(); del req["coverageMode"]
         errs, _ = validate(req)
         self.assertTrue(any("coverageMode must be partial or full" in e for e in errs), errs)
 
-    @needs_history
     def test_the_sample_mode_must_match_the_mode(self):
-        req = r7(); req["sampleMode"] = "minimal"
+        req = full_request(); req["sampleMode"] = "minimal"
         errs, _ = validate(req)
         self.assertTrue(any("sampleMode" in e for e in errs), errs)
 
-    @needs_history
     def test_a_partial_request_cannot_borrow_the_full_limits(self):
         req = sample()["req"]
-        req["selection"] = r7()["selection"][:7]
+        req["selection"] = full_request()["selection"][:7]
         errs, _ = validate(req)
         self.assertTrue(any("exceeds the configured maximum 6" in e for e in errs), errs)
 
-    @needs_history
     def test_a_full_request_must_select_all_fifteen_journeys(self):
-        req = r7(); req["selection"] = req["selection"][:14]
+        req = full_request(); req["selection"] = req["selection"][:14]
         for i, s in enumerate(req["selection"], 1): s["order"] = i
         errs, _ = validate(req)
         self.assertTrue(any("selects all 15 journeys" in e for e in errs), errs)
 
-    @needs_history
     def test_a_full_request_must_evaluate_every_tracked_gap(self):
-        req = r7(); req["targetedGaps"] = req["targetedGaps"][:3]
+        req = full_request(); req["targetedGaps"] = req["targetedGaps"][:3]
         errs, _ = validate(req)
         self.assertTrue(any("evaluates every tracked gap" in e for e in errs), errs)
 
-    @needs_history
     def test_planned_requests_must_equal_the_derived_estimate(self):
-        req = r7(); req["selection"][0]["plannedRequests"] += 10
+        req = full_request(); req["selection"][0]["plannedRequests"] += 10
         errs, _ = validate(req)
         self.assertTrue(any("plannedRequests" in e and "derived estimate" in e for e in errs), errs)
 
-    @needs_history
     def test_the_run_cap_cannot_be_trimmed_in_the_request(self):
-        req = r7(); req["estimate"]["requests"]["pooledSlack"] -= 100; req["estimate"]["requests"]["runCap"] -= 100; req["proposedLimits"]["runCapRequests"] -= 100
+        req = full_request(); req["estimate"]["requests"]["pooledSlack"] -= 100; req["estimate"]["requests"]["runCap"] -= 100; req["proposedLimits"]["runCapRequests"] -= 100
         errs, _ = validate(req)
         self.assertTrue(any("derived full-coverage budget" in e for e in errs), errs)
 
-    @needs_history
     def test_a_ceiling_below_the_requirement_is_invalid(self):
-        req = r7(); req["proposedLimits"]["cumulativeCeilingRequests"] = 8795
+        req = full_request(); req["proposedLimits"]["cumulativeCeilingRequests"] = 8795
         errs, _ = validate(req)
         self.assertTrue(any("below the reconciled requirement" in e for e in errs), errs)
 
-    @needs_history
     def test_starts_and_takes_need_a_proposed_cap_with_a_justification(self):
-        req = r7(); del req["proposedLimits"]["startsCap"]
+        req = full_request(); del req["proposedLimits"]["startsCap"]
         s, rc = sample(), reconciliation()
         # A negative control must actually cross its synthetic cap.
         rc["ceilings"]["starts"] = 39
         budget = V.derive_budget(s["cfg"], rc, RECEIPTS)
         errs, _ = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), rc, budget)
         self.assertTrue(any("Starts would exceed the cumulative cap" in e for e in errs), errs)
-        req = r7(); req["proposedLimits"].pop("takesIncreaseJustification")
+        req = full_request(); req["proposedLimits"].pop("takesIncreaseJustification")
         errs, _ = validate(req)
         self.assertTrue(any("takesIncreaseJustification" in e for e in errs), errs)
 
-    @needs_history
     def test_full_priority_is_only_for_full_mode(self):
-        req = r7(); req["priority"] = "prove-deployed-fix"
+        req = full_request(); req["priority"] = "prove-deployed-fix"
         self.assertTrue(any("priority full-coverage" in e for e in validate(req)[0]))
         req = sample()["req"]; req["priority"] = "full-coverage"
         self.assertTrue(any("only for coverageMode full" in e for e in validate(req)[0]))
 
-    @needs_history
     def test_an_omission_needs_a_reason_an_approval_and_a_real_row(self):
-        req = r7(); req["approvedOmissions"] = [{"case": "AHT-02", "assertion": "no-such-row", "reason": "x", "approvalRef": "owner-1"}]
+        req = full_request(); req["approvedOmissions"] = [{"case": "AHT-02", "assertion": "no-such-row", "reason": "x", "approvalRef": "owner-1"}]
         self.assertTrue(any("not an assertion in the catalog" in e for e in validate(req)[0]))
         req["approvedOmissions"] = [{"case": "AHT-02", "assertion": "owner-bound", "reason": "x"}]
         self.assertTrue(any("needs case, assertion, reason and approvalRef" in e for e in validate(req)[0]))
@@ -289,7 +319,6 @@ class SeparateModeLimits(unittest.TestCase):
         self.assertTrue(any("approved omission" in w for w in warns))
 
 
-@needs_history
 class GatesForFullMode(unittest.TestCase):
     def gates(self, req, now="2026-10-29T01:00:00Z"):
         from _common import parse_utc
@@ -301,8 +330,9 @@ class GatesForFullMode(unittest.TestCase):
         return {g["id"]: g for g in out["gates"]}
 
     def approved(self, **w):
-        req = r7()
-        req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55, "runCapRequests": 4310, "approvalRef": "owner-test", "approvedBy": "owner"}
+        req = full_request()
+        req["approvedLimits"] = {"cumulativeCeilingRequests": EXPECTED["requiredCeiling"], "identityCap": 126, "startsCap": 85, "takesCap": 55,
+                                 "runCapRequests": EXPECTED["runCap"], "approvalRef": "owner-test", "approvedBy": "owner"}
         req["window"] = {"startUtc": "2026-10-29T02:00:00Z", "endUtc": "2026-10-29T07:00:00Z", "approvalRef": "owner-test"}
         req["window"].update(w)
         return req
@@ -381,7 +411,8 @@ class ModePassThrough(unittest.TestCase):
         self.assertEqual(r.returncode, 78)
         self.assertIn("BP_MODE must be", r.stderr)
         src = open(path, encoding="utf-8").read()
-        self.assertIn("if FULL:", src)
+        # The full branch is shared with selected-full since 76457a64 (selected full-depth execution); it still refuses fewer than 15 cases.
+        self.assertIn("if FULL or SELECTED_FULL:", src)
         self.assertIn("full mode needs all 15 cases", src)
         self.assertNotIn("sampleMode'] = 'minimal'\n        if FULL", src)
         self.assertNotIn("\"BP_MODE\": \"minimal\"", open(os.path.join(ROOT, "scripts", "run_env.py"), encoding="utf-8").read())
@@ -448,13 +479,13 @@ class Completeness(unittest.TestCase):
         self.assertFalse(out["fullLiveRun"])
         self.assertEqual(out["kind"], "PARTIAL")
 
-    @needs_history
-    def test_the_sealed_r5_results_are_reported_as_partial_92_of_204(self):
-        req = r7()
-        out = CC.assess(req, catalog(), J("config", "history", "receipts", "R5", "case-results.json"))
+    def test_the_sealed_synthetic_r5_results_are_reported_as_partial(self):
+        # Declared: R5 executed every row except 9 of AHT-05's 10 and AHT-12 rows 2 and 3, so 204 - 9 - 2 = 193 executed and 11 missing.
+        with open(os.path.join(RECEIPTS, "R5", "case-results.json"), encoding="utf-8") as f:
+            out = CC.assess(r7(), catalog(), json.load(f))
         self.assertFalse(out["fullLiveRun"])
-        self.assertEqual(out["rowsExecuted"], 92)
-        self.assertEqual(len(out["missing"]), 112)
+        self.assertEqual(out["rowsExecuted"], 204 - 9 - 2)
+        self.assertEqual(len(out["missing"]), 9 + 2)
 
     def test_no_results_is_no_run(self):
         self.assertEqual(CC.assess(r7(), catalog(), None)["kind"], "NO RUN")
@@ -490,11 +521,11 @@ class ReadyNeedsAFullLiveRun(unittest.TestCase):
 
 class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
     """Self-review defect: collect_run_record read startPresses/takes from case results that never carry them, so Starts and takes were always null and no run
-    ever consumed the cumulative Starts/takes caps. They are now counted from each case's action-reservations.jsonl."""
-    @needs_history
+    ever consumed the cumulative Starts/takes caps. They are now counted from each case's action-reservations.jsonl.
+    Synthetic history: every journey logs 1 Start and 1 take, so each full run has 15 and 15; owner counters 30/30 through R5, Starts cap 50."""
     def test_sealed_runs_are_counted_from_their_reservation_logs(self):
-        self.assertEqual(DC.count_actions(os.path.join(RECEIPTS, "R4C")), {"starts": 20, "takes": 14})
-        self.assertEqual(DC.count_actions(os.path.join(RECEIPTS, "R5")), {"starts": 14, "takes": 9})
+        self.assertEqual(DC.count_actions(os.path.join(RECEIPTS, "R4C")), {"starts": 15, "takes": 15})
+        self.assertEqual(DC.count_actions(os.path.join(RECEIPTS, "R5")), {"starts": 15, "takes": 15})
 
     def test_no_reservation_log_is_null_never_zero(self):
         with tempfile.TemporaryDirectory() as d:
@@ -502,7 +533,6 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
             self.assertIsNone(DC.count_actions(d))
             self.assertIsNone(DC.count_actions(os.path.join(d, "missing")))
 
-    @needs_history
     def test_the_spend_report_uses_them_for_a_sealed_latest_run(self):
         import shutil
         import reconcile_cumulative as RC
@@ -511,15 +541,14 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
             for lab in ("R4", "R4B", "R4C", "R5"):
                 shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
             shutil.copytree(os.path.join(d, "R5"), os.path.join(d, "R6T"))
-            cfg = copy.deepcopy(sample()["cfg"]); cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": "x", "ledgersOnly": False})
-            rc = RC.reconcile(cfg, J("config", "history", "owner-counters.json"), d)
+            cfg = copy.deepcopy(synthetic_history().cfg); cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": "x", "ledgersOnly": False})
+            rc = RC.reconcile(cfg, copy.deepcopy(synthetic_history().counters_doc), d)
             req = r7()
             out = S.build(req, cfg, rc, None, None, None, "R6T", d)
-            self.assertEqual((out["starts"]["actual"], out["takes"]["actual"]), (14, 9))
-            self.assertEqual(out["remainingAfterRun"]["starts"], 81 - 46 - 14)
+            self.assertEqual((out["starts"]["actual"], out["takes"]["actual"]), (15, 15))
+            self.assertEqual(out["remainingAfterRun"]["starts"], 50 - 30 - 15)
             self.assertIn("afterRunWithIdentityReadsAsRequests", out["countedOnce"])
 
-    @needs_history
     def test_more_starts_than_estimated_is_over_cap(self):
         import shutil
         import reconcile_cumulative as RC
@@ -527,14 +556,13 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             for lab in ("R4", "R4B", "R4C", "R5"):
                 shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
-            cfg = sample()["cfg"]
-            rc = RC.reconcile(cfg, J("config", "history", "owner-counters.json"), d)
+            cfg = copy.deepcopy(synthetic_history().cfg)
+            rc = RC.reconcile(cfg, copy.deepcopy(synthetic_history().counters_doc), d)
             req = r7(); req["estimate"]["starts"] = 10
-            rr = {"spend": {"requests": 2085, "byCategory": {"signed-in": 778, "coaching": 3}, "identityReads": 32, "starts": 14, "takes": 9}}
+            rr = {"spend": {"requests": 15 * 170, "byCategory": {"signed-in": 15 * 50, "coaching": 15 * 10}, "identityReads": 32, "starts": 15, "takes": 15}}
             out = S.build(req, cfg, rc, rr, None, None, None, d)
             self.assertFalse(out["withinCap"])
 
-    @needs_history
     def test_the_collector_counts_them_from_the_cases_directory(self):
         import shutil
         with tempfile.TemporaryDirectory() as d:
@@ -548,7 +576,7 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
                                 "--ledger-dir", led, "--gate-status", gs, "--workflow", os.path.join(ROOT, "workflow.json"), "--runner-json", rj, "--out", out], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             rec = json.load(open(out))
-            self.assertEqual((rec["spend"]["starts"], rec["spend"]["takes"]), (14, 9))
+            self.assertEqual((rec["spend"]["starts"], rec["spend"]["takes"]), (15, 15))
 
 
 class GeneratedProposalRendering(unittest.TestCase):
@@ -613,33 +641,28 @@ class GeneratedProposalRendering(unittest.TestCase):
         self.assertEqual((b["actions"]["takesRequired"], b["actions"]["takesShortfall"]), (41, 1))
         self.assertEqual(b["actions"]["ownerDecision"], "required")
 
-    @needs_history
-    def test_the_proposal_request_carries_exactly_the_derived_limits(self):
-        r = r7()
-        b = FB.with_sensitivity(sample()["cfg"], costs(), catalog(), reconciliation())
-        self.assertEqual(r["proposedLimits"]["cumulativeCeilingRequests"], b["cumulative"]["requiredCeiling"])
-        self.assertEqual(r["estimate"]["requests"]["runCap"], b["requests"]["runCap"])
-        self.assertTrue(all(v is None for k, v in r["approvedLimits"].items()))
-        self.assertTrue(r["proposal"])
-        self.assertEqual(r["approvedOmissions"], [])
 
 
-@needs_history
 class FullModePipeline(unittest.TestCase):
     def test_the_control_plane_reports_the_full_proposal_without_approving_it(self):
         repo = os.environ.get("CT_TEST_REPO") or os.path.abspath(os.path.join(ROOT, "..", ".."))
         from _fixtures import prerequisite
         prerequisite(subprocess.run(["git", "-C", repo, "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True).stdout.strip() == "true", "git history")
         with tempfile.TemporaryDirectory() as d:
-            # This is a synthetic, unapproved proposal. The retained fixture has
-            # 46 Starts; the full contract needs 40 more. The old 85 was short by one.
-            proposal = json.load(open(request_path("R7-full-coverage-proposal.json")))
-            proposal["proposedLimits"]["startsCap"] = 86
-            proposal["proposedLimits"]["startsIncreaseJustification"] = "SYNTHETIC TEST ONLY: 46 retained fixture Starts + 40 planned; NO LIVE APPROVAL"
-            request = os.path.join(d, "request.json"); wjson(request, proposal)
+            # A synthetic, unapproved proposal over the synthetic history and owner counters (inputs.v1.json): conservative used 5840 (5800 measured
+            # + 40 unexplained), so the ceiling is 5840 + 3430 + 664 + 32 = 9966; Starts 30 owned + 40 planned = 70 and takes 30 + 31 = 61 exceed
+            # the synthetic caps 50/40, so both increases are proposed with their justification. NO LIVE APPROVAL.
+            h = synthetic_history()
+            proposal = full_request()
+            proposal["proposedLimits"].update(cumulativeCeilingRequests=5840 + 3430 + 664 + 32, startsCap=30 + 40, takesCap=30 + 31,
+                                              ceilingIncreaseJustification="SYNTHETIC TEST ONLY: 5840 + 3430 + 664 + 32 = 9966; NO LIVE APPROVAL",
+                                              startsIncreaseJustification="SYNTHETIC TEST ONLY: 30 owned + 40 planned; NO LIVE APPROVAL",
+                                              takesIncreaseJustification="SYNTHETIC TEST ONLY: 30 owned + 31 planned; NO LIVE APPROVAL")
+            source = os.path.join(d, "proposal.json"); wjson(source, proposal)
+            request = h.request(source)
             out = os.path.join(d, "out")
             r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", request, "--out-dir", out,
-                                "--repo", repo, "--generated-at", "2026-10-29T01:00:00Z"], capture_output=True, text=True)
+                                "--repo", repo, "--generated-at", "2026-10-29T01:00:00Z", *h.args()], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout[-800:] + r.stderr[-800:])
             gates = json.load(open(os.path.join(out, "gate-status.json")))
             self.assertEqual(gates["decision"], "NO-GO")

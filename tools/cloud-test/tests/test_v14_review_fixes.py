@@ -14,6 +14,7 @@ import check_coverage as CC
 import derive_summary as DS
 import workflow_report as W
 from test_comparison_automation import derive_gap, synthetic_latest, writable, manifest
+from _synthetic_history import shared as synthetic_history
 
 RECEIPTS = os.path.join(ROOT, "config", "history", "receipts")
 GAP03_PASS = {"AHT-12": {"press-bound-denial": "PASS", "denial-truthful-no-mic": "PASS"}}
@@ -102,14 +103,14 @@ class BaselineIsTheMostRecentRunWithAVerdict(unittest.TestCase):
             SB.select(sample()["ledger"], sample()["cfg"], RECEIPTS, "R9")
 
 
-@needs_history
 class PipelineComparesWithTheRightRun(unittest.TestCase):
+    """On the synthetic history, as in the retained one: R4C fails the two GAP-03 rows of AHT-12 and R5 does not run them."""
     def test_the_pipeline_compares_the_latest_run_with_every_baseline_it_needs(self):
         prerequisite(__import__("subprocess").run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
         d = tempfile.mkdtemp(prefix="ct-pipe-")
         for lab in ("R4", "R4B", "R4C", "R5"):
-            shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
-        shutil.copytree(os.path.join(RECEIPTS, "R5"), os.path.join(d, "R6T"))
+            shutil.copytree(os.path.join(SYNTH_RECEIPTS, lab), os.path.join(d, lab))
+        shutil.copytree(os.path.join(SYNTH_RECEIPTS, "R5"), os.path.join(d, "R6T"))
         writable(d)
         p = os.path.join(d, "R6T", "case-results.json")
         cr = json.load(open(p)); cr["campaignId"] = "R6T"; cr["synthetic"] = True
@@ -131,14 +132,15 @@ class PipelineComparesWithTheRightRun(unittest.TestCase):
             import hashlib
             with open(os.path.join(d, "R6T", "plan.sha"), "w") as handle:
                 handle.write(hashlib.sha256(open(plan_path, "rb").read()).hexdigest() + "\n")
-        cfg = copy.deepcopy(sample()["cfg"])
+        cfg = synthetic_cfg()
         from _synthetic_receipts import seal_in_place
         pin = seal_in_place(os.path.join(d, "R6T"), "R6T")
         cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": TESTED, "ledgersOnly": False, "receiptsManifestSha256": pin})
         cp = os.path.join(d, "cfg.json"); wjson(cp, cfg)
         out = os.path.join(d, "out")
-        r = run_py("scripts/pipeline.py", "--request", request_path(), "--out-dir", out, "--config", cp, "--receipts-root", d, "--latest-label", "R6T",
-                   "--repo", REPO, "--generated-at", "2026-10-29T00:00:00Z")
+        h = synthetic_history()
+        r = run_py("scripts/pipeline.py", "--request", h.request(request_path()), "--out-dir", out, "--config", cp, "--receipts-root", d, "--latest-label", "R6T",
+                   "--history-index", h.index, "--counters", h.counters, "--reservations", h.reservations, "--repo", REPO, "--generated-at", "2026-10-29T00:00:00Z")
         # Comparison must still be computed for an unqualified release. This retained
         # request claims a deployed product fix without cloud-verified inclusion; its
         # admission refusal must remain distinct from a comparison/execution failure.
@@ -164,13 +166,14 @@ class PipelineComparesWithTheRightRun(unittest.TestCase):
         prerequisite(__import__("subprocess").run(["git", "-C", REPO, "cat-file", "-e", TESTED + "^{commit}"], capture_output=True).returncode == 0, "git history with the tested SHA")
         with tempfile.TemporaryDirectory(prefix="ct-pipe-negative-") as d:
             for label in ("R4", "R4B", "R4C", "R5"):
-                shutil.copytree(os.path.join(RECEIPTS, label), os.path.join(d, label))
+                shutil.copytree(os.path.join(SYNTH_RECEIPTS, label), os.path.join(d, label))
             writable(d)
             with open(os.path.join(d, "R5", "AHT-12", "case-result.json"), "a") as handle:
                 handle.write("\n")  # The pin remains unchanged: this MUST be rejected.
             out = os.path.join(d, "out")
-            result = run_py("scripts/pipeline.py", "--request", request_path(), "--out-dir", out,
-                            "--receipts-root", d, "--repo", REPO)
+            h = synthetic_history()
+            result = run_py("scripts/pipeline.py", "--request", h.request(request_path()), "--out-dir", out, "--config", h.config,
+                            "--history-index", h.index, "--counters", h.counters, "--reservations", h.reservations, "--receipts-root", d, "--repo", REPO)
             self.assertEqual(result.returncode, 2)
             self.assertFalse(os.path.exists(os.path.join(out, "comparisons")))
             verification = json.load(open(os.path.join(out, "receipts-verification.json")))
@@ -178,8 +181,19 @@ class PipelineComparesWithTheRightRun(unittest.TestCase):
             self.assertIn("changed: AHT-12/case-result.json", verification["sets"]["R5"]["errors"])
 
 
+# The cumulative-usage arithmetic runs on the SYNTHETIC history and owner counters (tests/fixtures/synthetic-history/inputs.v1.json):
+#   measured requests 500 + 200 + 2550 + 2550 = 5800; owner-counted 3250 + 2550 + 40 = 5840, so 40 requests are unexplained
+#   measured identity reads 10 + 10 + 32 + 32 = 84; owner-counted 86, so 2 reads are unexplained
+#   owner Starts/takes 30/30 through R5; each synthetic run logs 15 Starts and 15 takes (one per journey)
+SYNTH_RECEIPTS = synthetic_history().receipts
+
+
+def synthetic_cfg():
+    return copy.deepcopy(synthetic_history().cfg)
+
+
 def counters_through(stated="R5", frozen="R5"):
-    c = json.load(open(os.path.join(ROOT, "config/history/owner-counters.json")))
+    c = copy.deepcopy(synthetic_history().counters_doc)
     c["statedThroughRun"] = stated
     c["frozen"]["throughRun"] = frozen
     return c
@@ -188,7 +202,7 @@ def counters_through(stated="R5", frozen="R5"):
 def with_later_run(reads=4, requests=130, logs=True):
     d = tempfile.mkdtemp(prefix="ct-carry-")
     for lab in ("R4", "R4B", "R4C", "R5"):
-        shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
+        shutil.copytree(os.path.join(SYNTH_RECEIPTS, lab), os.path.join(d, lab))
     shutil.copytree(os.path.join(d, "R5"), os.path.join(d, "R6T"))
     writable(d)
     wjson(os.path.join(d, "R6T", "campaign-ledger.json"), {"used": {"total": requests, "signed-in": requests - 10, "public": 10}})
@@ -198,39 +212,39 @@ def with_later_run(reads=4, requests=130, logs=True):
             for f in fs:
                 if f == "action-reservations.jsonl":
                     os.remove(os.path.join(r, f))
-    cfg = copy.deepcopy(sample()["cfg"])
+    cfg = synthetic_cfg()
     cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": "x", "ledgersOnly": False})
     return d, cfg
 
 
-@needs_history
 class UnexplainedUsageIsCarriedForward(unittest.TestCase):
     def test_the_current_snapshot_is_unchanged(self):
-        rc = RC.reconcile(sample()["cfg"], counters_through(), RECEIPTS)
-        self.assertEqual((rc["requests"]["measuredFromSealedLedgers"], rc["requests"]["unreconciled"], rc["requests"]["conservativeUsed"]), (5421, 108, 5529))
-        self.assertEqual((rc["identityReads"]["measuredFromSealedLedgers"], rc["identityReads"]["unreconciled"], rc["identityReads"]["conservativeUsed"]), (92, 2, 94))
-        self.assertEqual(rc["snapshot"]["carriedForwardUnexplained"], {"requests": 108, "identityReads": 2})
+        rc = RC.reconcile(synthetic_cfg(), counters_through(), SYNTH_RECEIPTS)
+        self.assertEqual((rc["requests"]["measuredFromSealedLedgers"], rc["requests"]["unreconciled"], rc["requests"]["conservativeUsed"]), (5800, 40, 5840))
+        self.assertEqual((rc["identityReads"]["measuredFromSealedLedgers"], rc["identityReads"]["unreconciled"], rc["identityReads"]["conservativeUsed"]), (84, 2, 86))
+        self.assertEqual(rc["snapshot"]["carriedForwardUnexplained"], {"requests": 40, "identityReads": 2})
 
-    def test_92_measured_94_reported_plus_4_new_is_98_not_96(self):
-        """The reviewed defect: max(measured, owner) = max(96, 94) = 96 dropped the owner's 2 unexplained reads as soon as measured usage passed the snapshot."""
+    def test_84_measured_86_reported_plus_4_new_is_90_not_88(self):
+        """The reviewed defect: max(measured, owner) = max(88, 86) = 88 dropped the owner's 2 unexplained reads as soon as measured usage passed the snapshot.
+        (The original retained figures were 92 measured, 94 reported, 98 not 96; the same rule on the synthetic counters.)"""
         d, cfg = with_later_run(reads=4)
         rc = RC.reconcile(cfg, counters_through("R5", "R6T"), d)          # the freeze was moved forward without restating the owner's numbers
-        self.assertEqual(rc["identityReads"]["measuredFromSealedLedgers"], 96)
-        self.assertEqual(rc["identityReads"]["conservativeUsed"], 98)
-        self.assertNotEqual(rc["identityReads"]["conservativeUsed"], max(96, 94))
-        self.assertEqual(rc["requests"]["conservativeUsed"], 5421 + 130 + 108)     # not max(5551, 5529)
+        self.assertEqual(rc["identityReads"]["measuredFromSealedLedgers"], 84 + 4)
+        self.assertEqual(rc["identityReads"]["conservativeUsed"], 84 + 4 + 2)
+        self.assertNotEqual(rc["identityReads"]["conservativeUsed"], max(84 + 4, 86))
+        self.assertEqual(rc["requests"]["conservativeUsed"], 5800 + 130 + 40)     # not max(5930, 5840)
         self.assertEqual(rc["snapshot"]["runsAddedAfterStatement"], ["R6T"])
 
     def test_with_the_freeze_unchanged_the_new_run_is_added_once_and_the_difference_stays(self):
         import spend_report as S
         d, cfg = with_later_run(reads=4)
         rc = RC.reconcile(cfg, counters_through(), d)
-        self.assertEqual(rc["identityReads"]["conservativeUsed"], 94)
+        self.assertEqual(rc["identityReads"]["conservativeUsed"], 86)
         self.assertEqual([x["label"] for x in rc["afterFreeze"]], ["R6T"])
         rr = {"spend": {"requests": 130, "byCategory": {"signed-in": 120, "public": 10}, "identityReads": 4, "starts": 1, "takes": 0}}
         out = S.build(sample()["req"], cfg, rc, rr, None, None, "R6T", d)
-        self.assertEqual(out["countedOnce"]["afterRun"]["identityReads"], 98)
-        self.assertEqual(out["countedOnce"]["afterRun"]["requests"], 5529 + 130)
+        self.assertEqual(out["countedOnce"]["afterRun"]["identityReads"], 86 + 4)
+        self.assertEqual(out["countedOnce"]["afterRun"]["requests"], 5840 + 130)
 
     def test_both_routes_agree(self):
         d, cfg = with_later_run(reads=4)
@@ -240,29 +254,30 @@ class UnexplainedUsageIsCarriedForward(unittest.TestCase):
         self.assertEqual(a["requests"]["conservativeUsed"], b["requests"]["conservativeUsed"] + 130)
 
     def test_measured_usage_above_the_owner_count_is_never_reduced(self):
-        c = counters_through(); c["identityReadsCumulative"] = 90; c["requests"]["allowanceBaselineThroughR4C"] = 3000
-        rc = RC.reconcile(sample()["cfg"], c, RECEIPTS)
-        self.assertEqual(rc["identityReads"]["conservativeUsed"], 92)
-        self.assertEqual(rc["requests"]["conservativeUsed"], 5421)
+        # owner-counted below the ledgers: identity 80 < 84 measured; requests 3000 + 2550 + 40 = 5590 < 5800 measured
+        c = counters_through(); c["identityReadsCumulative"] = 80; c["requests"]["allowanceBaselineThroughR4C"] = 3000
+        rc = RC.reconcile(synthetic_cfg(), c, SYNTH_RECEIPTS)
+        self.assertEqual(rc["identityReads"]["conservativeUsed"], 84)
+        self.assertEqual(rc["requests"]["conservativeUsed"], 5800)
 
     def test_a_snapshot_that_does_not_say_what_it_covers_is_rejected(self):
         c = counters_through(); del c["statedThroughRun"]
         with self.assertRaises(ValueError) as e:
-            RC.reconcile(sample()["cfg"], c, RECEIPTS)
+            RC.reconcile(synthetic_cfg(), c, SYNTH_RECEIPTS)
         self.assertIn("stale or unlabeled", str(e.exception))
 
     def test_a_freeze_earlier_than_the_statement_is_rejected(self):
         with self.assertRaises(ValueError):
-            RC.reconcile(sample()["cfg"], counters_through("R5", "R4C"), RECEIPTS)
+            RC.reconcile(synthetic_cfg(), counters_through("R5", "R4C"), SYNTH_RECEIPTS)
 
     def test_a_statement_about_an_unknown_run_is_rejected(self):
         with self.assertRaises(ValueError):
-            RC.reconcile(sample()["cfg"], counters_through("R9", "R5"), RECEIPTS)
+            RC.reconcile(synthetic_cfg(), counters_through("R9", "R5"), SYNTH_RECEIPTS)
 
     def test_starts_and_takes_are_carried_from_the_later_runs_reservation_logs(self):
         d, cfg = with_later_run()
         rc = RC.reconcile(cfg, counters_through("R5", "R6T"), d)
-        self.assertEqual((rc["starts"]["ownerCounted"], rc["takes"]["ownerCounted"]), (46 + 14, 24 + 9))
+        self.assertEqual((rc["starts"]["ownerCounted"], rc["takes"]["ownerCounted"]), (30 + 15, 30 + 15))
 
     def test_a_later_run_without_reservation_logs_cannot_be_carried_and_is_rejected(self):
         d, cfg = with_later_run(logs=False)
@@ -274,7 +289,7 @@ class UnexplainedUsageIsCarriedForward(unittest.TestCase):
         d, cfg = with_later_run(reads=4)
         rc = RC.reconcile(cfg, counters_through("R5", "R6T"), d)
         n = RC.need(rc, 4310, 32)
-        self.assertEqual(n["requiredIdentityCap"], 98 + 32)
+        self.assertEqual(n["requiredIdentityCap"], 90 + 32)
         self.assertEqual(n["requiredCeiling"], rc["requests"]["conservativeUsed"] + 4310 + 664 + 32)
 
 
@@ -327,13 +342,16 @@ class ApprovedOmissionsAreIncompleteCoverage(unittest.TestCase):
         errs = W.validate(rep, sample()["wf"])
         self.assertTrue(any("approved omissions are incomplete coverage" in e for e in errs), errs)
 
-    @needs_history
     def test_the_validator_warns_that_an_omission_is_not_a_full_pass(self):
+        # The budget-carrying synthetic proposal (test_full_coverage.full_request) with one approved omission, judged against the budget
+        # derived from the synthetic history.
         import validate_run_request as V
         from _fixtures import reconciliation
+        from test_full_coverage import full_request
         s = sample()
         req, _ = self.request(1)
-        b = V.derive_budget(s["cfg"], reconciliation(), RECEIPTS)
+        req.update({k: v for k, v in full_request().items() if k in ("estimate", "selection", "proposedLimits")})
+        b = V.derive_budget(s["cfg"], reconciliation(), SYNTH_RECEIPTS)
         errs, warns = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation(), b)
         self.assertEqual(errs, [])
         self.assertTrue(any("incomplete coverage" in w and "full 204-row pass" in w for w in warns), warns)
@@ -372,9 +390,10 @@ class DeployedVersionBinding(unittest.TestCase):
         self.assertFalse(out["deployedVersionBinding"]["ok"])
         self.assertFalse(out["fullLiveRun"])
 
-    @needs_history
     def test_the_sealed_r5_identity_receipts_all_matched_the_tested_sha(self):
-        r5 = J("config", "history", "receipts", "R5", "case-results.json")
+        # The synthetic sealed R5 (2 identity receipts per journey, all MATCH); the retained R5 is audited in tests/legacy_audit.
+        with open(os.path.join(SYNTH_RECEIPTS, "R5", "case-results.json"), encoding="utf-8") as f:
+            r5 = json.load(f)
         req = copy.deepcopy(self.req); req["release"]["testedSha"] = r5["sourceSha"]
         b = CC.deployed_version_binding(req, r5)
         self.assertTrue(b["ok"], b)

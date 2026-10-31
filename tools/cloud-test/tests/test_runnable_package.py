@@ -13,7 +13,7 @@ import tempfile
 import unittest
 import zipfile
 
-from _fixtures import HISTORY_MODE, NO_HISTORY_REASON, NOW, REPO, REQUIRE, ROOT, TESTED, J, prerequisite, request_path, run_py, sample, wjson
+from _fixtures import NOW, REPO, REQUIRE, ROOT, TESTED, J, prerequisite, request_path, run_py, sample, wjson
 import verify_harness as VH
 
 CFG = os.path.join(ROOT, "config", "test-config.v1.json")
@@ -150,14 +150,8 @@ class BrowserPin(unittest.TestCase):
         self.assertEqual(b["archiveBytes"], 172695801)
         self.assertTrue(b["archiveUrl"].startswith("https://storage.googleapis.com/chrome-for-testing-public/143.0.7499.4/"))
 
-    def test_the_real_pinned_archive_installs_when_supplied(self):
-        arch = os.environ.get("CT_BROWSER_ARCHIVE")
-        if not (arch and os.path.exists(arch)):
-            self.skipTest("CT_BROWSER_ARCHIVE not supplied (the install step verifies the real download on the runner)")
-        d = tempfile.mkdtemp()
-        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "install_browser.py"), "--config", CFG, "--browsers-path", d, "--archive", arch], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(sha(open(r.stdout.strip(), "rb").read()), "2e61bc3fd990bd4d7b419ef6b6303c67aaed683e5b83b3b25e416f015f343209")
+    # The real-archive install belongs to the legacy acquire route, not current qualification (PO 2026-10-31):
+    # tests/legacy_acquire_route_checks.py, which discovery does not load.
 
 
 class NothingIsIgnored(unittest.TestCase):
@@ -203,6 +197,13 @@ def node_ok():
 
 
 def chrome_path():
+    # This run's discovered preinstalled browser (PO 2026-10-31): exactly the path and sha256 its discovery receipt recorded.
+    rec_path, chrome = os.environ.get("CT_BROWSER_RECEIPT"), os.environ.get("CT_CHROME")
+    if rec_path and chrome and os.path.isfile(rec_path) and os.path.isfile(chrome):
+        rec = json.load(open(rec_path, encoding="utf-8"))
+        if rec.get("path") == os.path.realpath(chrome) and rec.get("observedBinarySha256") == sha(open(chrome, "rb").read()):
+            return chrome
+        return None
     cand = [os.environ.get("CT_CHROME"), os.path.join(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", ""), "chromium-1200", "chrome-linux64", "chrome"), os.path.expanduser("~/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome")]
     for c in cand:
         if c and os.path.isfile(c) and sha(open(c, "rb").read()) == J("config", "test-config.v1.json")["tools"]["browser"]["chromeBinarySha256"]:
@@ -408,13 +409,14 @@ class SecretFreeCleanRoom(unittest.TestCase):
     """Item 4: the GitHub preflight is secret-free with no product traffic. Demonstrated here in a clean room: an empty environment and, where the kernel
     allows, a network namespace with no route at all. (The same steps run on GitHub in the workflow; a run there needs the owner's merge first.)"""
     def run_clean(self, wrapper):
-        if HISTORY_MODE == "none":  # pipeline.py reads the retained history
-            raise unittest.SkipTest(NO_HISTORY_REASON)
+        # The real pipeline over the SYNTHETIC sealed history (tests/_synthetic_history.py), so the clean-room proof needs no retained campaigns.
+        from _synthetic_history import shared as synthetic_history
+        h = synthetic_history()
         d = tempfile.mkdtemp(prefix="ct-cr-")
         oc = os.path.join(d, "oc.json"); wjson(oc, {"passed": True})
         out = os.path.join(d, "out")
-        cmd = wrapper + [sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", request_path(), "--out-dir", out,
-                         "--offline-checks", oc, "--repo", REPO, "--now", NOW, "--generated-at", NOW, "--require-secret-free"]
+        cmd = wrapper + [sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", h.request(request_path()), "--out-dir", out,
+                         "--offline-checks", oc, "--repo", REPO, "--now", NOW, "--generated-at", NOW, "--require-secret-free", *h.args()]
         r = subprocess.run(cmd, capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": d})
         return r, out
 

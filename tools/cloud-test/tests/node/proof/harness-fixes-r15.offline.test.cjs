@@ -43,7 +43,9 @@ test('D1 error codes come from a CLOSED allowlist: listed codes normalised, any 
   assert.equal(c({error:'Upstream-Timeout'}),'code-upstream_timeout');assert.equal(c({code:'RATE_LIMITED'}),'code-rate_limited');assert.equal(c({error_code:'bad.gateway'}),'code-bad_gateway');
   assert.equal(c({error:'user_9f3a1c77deadbeef'}),'code-unlisted','an id-shaped value must never reach evidence');assert.equal(c({error:'tok_live_abc123'}),'code-unlisted');
   assert.equal(c({error:'Something went wrong with provider X'}),null);assert.equal(c({message:'only prose'}),null);
-  for(const code of policy.ERROR_CODE_ALLOWLIST)assert.match(code,/^[a-z][a-z_]*$/);assert.ok(policy.ERROR_CODE_ALLOWLIST.size>=15);
+  assert.equal(c({error:'provider_http_5xx'}),'code-provider_http_5xx');assert.equal(c({error:'PROVIDER-HTTP-4XX'}),'code-provider_http_4xx');
+  assert.equal(c({error:'provider_http_503'}),'code-unlisted','a concrete status number is not a status class');
+  for(const code of policy.ERROR_CODE_ALLOWLIST)assert.match(code,/^[a-z]+(?:_[a-z]+)*(?:_[1-5]xx)?$/,'lowercase words; a digit only as an HTTP status-class suffix');assert.ok(policy.ERROR_CODE_ALLOWLIST.size>=15);
   const j=policy.classifyFailureResponse({contentType:'application/json',body:JSON.stringify({error:'user_9f3a1c77deadbeef'}),startedAt:0,respondedAt:10});assert.equal(sanitizeEvidence({contentSafe:true,...j}).stats.blockedStrings,0);assert.ok(!JSON.stringify(j).includes('9f3a1c77'));
 });
 test('D2 latency is honest: event-clock elapsed and the browser timing are separate labelled fields; a missing measurement is null, never a number from a later moment',()=>{
@@ -71,8 +73,15 @@ test('E1 Stop fails after the live window: the frozen live rows and diagnostics 
   assert.equal(summarizeAssertions({...r.config},r.res.assertions).result,'FAIL','the preserved FAIL still decides the case');
 });
 test('E2 static: the live window is recorded exactly once, before Stop, and open-mic review rows are still recorded after save',()=>{
-  const s=fs.readFileSync(P+'/draft-adapters/source-adapters.cjs','utf8'),a=s.indexOf('const firstStartedAt='),b=s.indexOf("await check('saved-once'",a),body=s.slice(a,b);
-  assert.ok(body.indexOf("await emitPresentation(livePresentation,")<body.indexOf('await ui.stop'));assert.equal((body.match(/emitPresentation\(livePresentation,/g)||[]).length,1);assert.ok(body.indexOf('openMicReview')>body.indexOf('await ui.saved'));
+  const s=fs.readFileSync(P+'/draft-adapters/source-adapters.cjs','utf8');
+  const start=s.indexOf("if(['AHT-01','AHT-02','AHT-03'].includes(caseId)){"),end=s.indexOf("}else if(caseId==='AHT-04'){",start);
+  assert.ok(start>=0&&end>start,'the AHT-01/02/03 branch and the AHT-04 boundary are both present');const body=s.slice(start,end);
+  const at=(anchor,from)=>{const i=body.indexOf(anchor,from);assert.ok(i>=0,'missing in the AHT-01/02/03 branch: '+anchor);return i;};
+  const live=at('await emitPresentation(livePresentation,',0),stop=at('await ui.stop(page);',live),saved=at('const first=await ui.saved(page);',stop),
+        once=at("await check('saved-once',ownSaved(firstSavedRows,first)",saved),review=at('await presentationRows(await presentation.openMicReview(page))',once);
+  assert.ok(live<stop&&stop<saved&&saved<once&&once<review&&review<body.length,'live emit < Stop < awaited ui.saved < saved-once < review < next case');
+  assert.equal((s.match(/emitPresentation\(livePresentation,/g)||[]).length,1,'the live window is emitted exactly once in the adapter');
+  assert.equal((s.match(/presentation\.openMicReview\(/g)||[]).length,1,'the review rows are recorded once in the adapter, in this branch');
 });
 // ---------- S. selected cases and stimulus gates (real campaign core) ----------
 const hash='a'.repeat(64),commit='b'.repeat(40),NOW=Date.parse('2026-10-28T20:00:00Z');

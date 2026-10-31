@@ -8,12 +8,14 @@ import shutil
 import tempfile
 import unittest
 
-from _fixtures import ROOT, fake_rv, run_py, sample, wjson, needs_history
+from _fixtures import ROOT, fake_rv, run_py, sample, wjson
+from _synthetic_history import shared as synthetic_history
 import derive_ledger as DL
 import verify_receipts as VRC
 
-RECEIPTS = os.path.join(ROOT, "config", "history", "receipts")
-FIXTURE = os.path.join(ROOT, "tests", "fixtures", "accepted-comparison-R5-vs-R4C.json")
+# The sealing, comparison and ledger rules run on the SYNTHETIC sealed history (tests/_synthetic_history.py); the retained campaigns and the
+# accepted R5-vs-R4C comparison are audited unchanged in tests/legacy_audit/audit_comparison_automation.py.
+RECEIPTS = synthetic_history().receipts
 
 
 def manifest(base):
@@ -37,7 +39,7 @@ def writable(d):
 
 class SealedReceipts(unittest.TestCase):
     def setUp(self):
-        self.cfg = sample()["cfg"]
+        self.cfg = synthetic_history().cfg
         self.pin = {r["label"]: r["receiptsManifestSha256"] for r in self.cfg["history"]["runs"]}
 
     def copy_set(self, label):
@@ -46,14 +48,12 @@ class SealedReceipts(unittest.TestCase):
         writable(d)
         return os.path.join(d, label)
 
-    @needs_history
     def test_the_four_sealed_sets_verify_against_their_pinned_hashes(self):
         for lab, pin in self.pin.items():
             errs, n = VRC.verify_set(os.path.join(RECEIPTS, lab), pin)
             self.assertEqual(errs, [], lab)
             self.assertGreater(n, 0)
 
-    @needs_history
     def test_a_changed_receipt_fails(self):
         b = self.copy_set("R5")
         with open(os.path.join(b, "AHT-12", "case-result.json"), "a") as f:
@@ -61,19 +61,16 @@ class SealedReceipts(unittest.TestCase):
         errs, _ = VRC.verify_set(b, self.pin["R5"])
         self.assertTrue(any("changed: AHT-12/case-result.json" in e for e in errs), errs)
 
-    @needs_history
     def test_an_added_receipt_fails(self):
         b = self.copy_set("R5")
         open(os.path.join(b, "AHT-12", "extra.json"), "w").write("{}")
         self.assertTrue(any("unlisted file" in e for e in VRC.verify_set(b, self.pin["R5"])[0]))
 
-    @needs_history
     def test_a_removed_receipt_fails(self):
         b = self.copy_set("R5")
         os.remove(os.path.join(b, "AHT-12", "case-result.json"))
         self.assertTrue(any("missing: AHT-12/case-result.json" in e for e in VRC.verify_set(b, self.pin["R5"])[0]))
 
-    @needs_history
     def test_a_regenerated_manifest_does_not_match_the_pinned_hash(self):
         b = self.copy_set("R5")
         with open(os.path.join(b, "case-results.json"), "a") as f:
@@ -81,11 +78,9 @@ class SealedReceipts(unittest.TestCase):
         manifest(b)  # an attacker re-seals the changed set; the pin in the config still differs
         self.assertTrue(any("pinned hash" in e for e in VRC.verify_set(b, self.pin["R5"])[0]))
 
-    @needs_history
     def test_an_unpinned_set_fails(self):
         self.assertTrue(any("no pinned" in e for e in VRC.verify_set(os.path.join(RECEIPTS, "R5"), None)[0]))
 
-    @needs_history
     def test_compare_refuses_a_tampered_set(self):
         d = tempfile.mkdtemp()
         for lab in ("R4C", "R5"):
@@ -93,7 +88,8 @@ class SealedReceipts(unittest.TestCase):
         writable(d)
         with open(os.path.join(d, "R5", "AHT-01", "case-result.json"), "a") as f:
             f.write(" ")
-        r = run_py("scripts/compare_latest.py", "--current", "R5", "--previous", "R4C", "--out", os.path.join(d, "out"), "--receipts-root", d)
+        r = run_py("scripts/compare_latest.py", "--current", "R5", "--previous", "R4C", "--out", os.path.join(d, "out"), "--receipts-root", d,
+                   "--config", synthetic_history().config)
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertFalse(os.path.exists(os.path.join(d, "out")))
 
@@ -110,40 +106,11 @@ class SealedReceipts(unittest.TestCase):
         r = run_py("scripts/seal_receipts.py", "--label", "X", "--out", os.path.join(d, "X"), "--ledgers-only", "--campaign-ledger", led, "--identity-ledger", idl, "--provenance", "t")
         self.assertNotEqual(r.returncode, 0)
 
-    @needs_history
-    def test_sealed_sets_exclude_certificates_and_sandbox_files_and_contain_no_secret_patterns(self):
-        for lab in ("R4C", "R5"):
-            for r, ds, fs in os.walk(os.path.join(RECEIPTS, lab)):
-                self.assertNotIn("tls", ds)
-                self.assertNotIn("sandbox.json", fs)
-        import re
-        pat = re.compile(rb"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|sb_secret_|-----BEGIN [A-Z ]*PRIVATE KEY|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}")
-        for r, _, fs in os.walk(RECEIPTS):
-            for f in fs:
-                self.assertIsNone(pat.search(open(os.path.join(r, f), "rb").read()), os.path.join(r, f))
 
-
-@needs_history
 class AutomaticComparison(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.d = tempfile.mkdtemp(prefix="ct-cmp-")
-        r = run_py("scripts/compare_latest.py", "--current", "R5", "--previous", "R4C", "--out", os.path.join(cls.d, "cmp"), "--generated-at", "2026-10-28T18:11:53Z")
-        assert r.returncode == 0, r.stdout + r.stderr
-        cls.out = json.load(open(os.path.join(cls.d, "cmp", "comparison.json")))
-        cls.accepted = json.load(open(FIXTURE))
-
-    def test_generated_comparison_reproduces_the_independently_verified_result(self):
-        for k in ("headline", "classes", "denominators", "validity", "changes", "signals"):
-            self.assertEqual(self.out[k], self.accepted[k], k)
-        self.assertEqual([(j["id"], j["prev"], j["cur"], j["class"]) for j in self.out["journeys"]], [(j["id"], j["prev"], j["cur"], j["class"]) for j in self.accepted["journeys"]])
-        self.assertEqual([(a["id"], a["class"]) for a in self.out["areas"]], [(a["id"], a["class"]) for a in self.accepted["areas"]])
-
-    def test_no_journey_is_claimed_improved_or_regressed_for_r5_against_r4c(self):
-        self.assertEqual(self.out["classes"]["journeys"], {"improved": 0, "regressed": 0, "unchanged": 5, "inconclusive": 10})
-
     def test_inconsistent_latest_receipts_are_flagged_and_never_close_a_gap(self):
         """A forged or inconsistent latest PASS (campaign report and case receipt disagree) is reported as a receipt problem and cannot close a gap."""
+        # Synthetic R5 fails AHT-12 rows 2 and 3, the GAP-03 rows; the forged R6T campaign report claims them PASS while its case receipt does not.
         d = tempfile.mkdtemp(prefix="ct-forge-")
         for lab in ("R4", "R4B", "R4C", "R5"):
             shutil.copytree(os.path.join(RECEIPTS, lab), os.path.join(d, lab))
@@ -159,7 +126,7 @@ class AutomaticComparison(unittest.TestCase):
                         a["result"] = "PASS"
         wjson(p, cr)
         pin = manifest(os.path.join(d, "R6T"))
-        cfg = copy.deepcopy(sample()["cfg"])
+        cfg = copy.deepcopy(synthetic_history().cfg)
         cfg["history"]["runs"].append({"label": "R6T", "campaignId": "R6T", "servedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8", "ledgersOnly": False, "receiptsManifestSha256": pin})
         cp = os.path.join(d, "cfg.json"); wjson(cp, cfg)
         r = run_py("scripts/compare_latest.py", "--current", "R6T", "--previous", "R5", "--out", os.path.join(d, "cmp"), "--config", cp, "--receipts-root", d, "--generated-at", "2026-10-29T00:00:00Z")
@@ -180,6 +147,10 @@ class AutomaticComparison(unittest.TestCase):
         self.assertNotEqual(g["status"], "CLOSED")
 
 
+# derive_ledger.py over the synthetic history and its config (the retained-campaign verdicts and guard signals are audited in tests/legacy_audit).
+SYNTHETIC_LEDGER_ARGS = ("--config", synthetic_history().config, "--receipts-root", synthetic_history().receipts)
+
+
 class DerivedLedger(unittest.TestCase):
     def setUp(self):
         self.led = sample()["ledger"]
@@ -187,7 +158,8 @@ class DerivedLedger(unittest.TestCase):
             return
         d = tempfile.mkdtemp(); self.out = os.path.join(d, "ld.json")
         wjson(os.path.join(d, "rv.json"), fake_rv())
-        r = run_py("scripts/derive_ledger.py", "--ledger", os.path.join(ROOT, "config/gap-ledger.json"), "--release-verification", os.path.join(d, "rv.json"), "--out", self.out)
+        r = run_py("scripts/derive_ledger.py", "--ledger", os.path.join(ROOT, "config/gap-ledger.json"), "--release-verification", os.path.join(d, "rv.json"), "--out", self.out,
+                   *SYNTHETIC_LEDGER_ARGS)
         assert r.returncode == 0, r.stderr
         self.gaps = {g["id"]: g for g in json.load(open(self.out))["gaps"]}
 
@@ -196,14 +168,6 @@ class DerivedLedger(unittest.TestCase):
             for k in ("priorRuns", "priorFail", "latest", "status", "deployedInclusion", "r5Evidence", "comparable"):
                 self.assertNotIn(k, g, "%s.%s must be derived, not typed" % (g["id"], k))
 
-    @needs_history
-    def test_prior_verdicts_come_from_the_sealed_receipts(self):
-        g = self.gaps["GAP-03"]
-        self.assertEqual({k: v["rollup"] for k, v in g["history"].items()}, {"R4C": "FAIL", "R5": "NOT RUN"})
-        self.assertEqual(g["priorFail"]["run"], "R4C")
-        self.assertIn("denial-truthful-no-mic", g["priorFail"]["what"])
-
-    @needs_history
     def test_evidence_references_carry_the_sha256_of_the_sealed_file(self):
         g = self.gaps["GAP-03"]
         ev = [e for e in g["priorFail"]["evidence"] if e["file"].endswith(".json")]
@@ -212,23 +176,14 @@ class DerivedLedger(unittest.TestCase):
             path = os.path.join(RECEIPTS, *e["file"].split("/"))
             self.assertEqual(hashlib.sha256(open(path, "rb").read()).hexdigest(), e["sha256"], e["file"])
 
-    @needs_history
-    def test_guard_signals_are_counted_from_the_guard_logs(self):
-        coaching = [o for r, h in self.gaps["GAP-01"]["history"].items() for o in h["observations"] if "signal" in o]
-        self.assertEqual([o["count"] for o in coaching], [4, 1])
-        rest = [o for h in self.gaps["GAP-04"]["history"].values() for o in h["observations"] if "signal" in o]
-        self.assertEqual([o["count"] for o in rest], [3, 1])
-
-    @needs_history
     def test_a_missing_assertion_is_not_run_never_pass(self):
         led = copy.deepcopy(self.led)
         led["gaps"][2]["observations"] = [{"case": "AHT-12", "assertion": "no-such-assertion"}]
         d = tempfile.mkdtemp(); lp = os.path.join(d, "l.json"); wjson(lp, led); wjson(os.path.join(d, "rv.json"), fake_rv())
-        r = run_py("scripts/derive_ledger.py", "--ledger", lp, "--release-verification", os.path.join(d, "rv.json"), "--out", os.path.join(d, "o.json"))
+        r = run_py("scripts/derive_ledger.py", "--ledger", lp, "--release-verification", os.path.join(d, "rv.json"), "--out", os.path.join(d, "o.json"), *SYNTHETIC_LEDGER_ARGS)
         g = next(x for x in json.load(open(os.path.join(d, "o.json")))["gaps"] if x["id"] == "GAP-03")
         self.assertEqual({k: v["rollup"] for k, v in g["history"].items()}, {"R4C": "NOT RUN", "R5": "NOT RUN"})
 
-    @needs_history
     def test_pending_until_a_latest_run_exists(self):
         for g in self.gaps.values():
             self.assertEqual(g["latest"]["result"], "PENDING")
@@ -254,12 +209,10 @@ class DerivedLedger(unittest.TestCase):
         g = {"kind": "evidence-restoration", "fix": {}, "latest": {"result": "PENDING"}}
         self.assertEqual(DL.ledger_status(g)[0], "OPEN")
 
-    @needs_history
     def test_the_candidate_fix_for_the_403_is_never_a_verified_fix(self):
         self.assertTrue(self.gaps["GAP-04"]["fix"]["candidate"])
         self.assertEqual(self.gaps["GAP-04"]["status"], "OPEN")
 
-    @needs_history
     def test_a_deployed_fix_that_was_tested_and_still_failed_is_failed_retest_not_open(self):
         g = copy.deepcopy(self.gaps["GAP-03"]); g["latest"] = {"result": "FAIL", "evidence": [{"file": "x", "sha256": "y"}]}
         self.assertEqual(DL.ledger_status(g)[0], "FAILED-RETEST")
