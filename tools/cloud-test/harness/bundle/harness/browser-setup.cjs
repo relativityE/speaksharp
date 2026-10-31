@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
-// browser-setup.cjs --playwright <version> --revision <chromium-NNNN> [--out <browser.json>]
-// Browser discovery for the guarded lane. Resolves the Chromium that the installed Playwright
-// expects, refuses a version/revision mismatch (no symlink or alternate browser), copies it to the
+// browser-setup.cjs --playwright <version> --revision <chromium-NNNN> --existing-browser <path> --existing-browser-sha256 <sha256> [--out <browser.json>]
+// Browser binding for the guarded lane. Requires the same existing browser path and bytes that the
+// outer setup stage verified, while separately recording the installed Playwright runtime. Copies it to the
 // 65534-traversable root /var/tmp/ss-harness/chrome-linux, installs chrome-wrapper.sh, and writes
 // browser.json for Playwright (executablePath) and Lighthouse (CHROME_PATH). Exit 0 only when the
 // copy and wrapper are byte-checked and `--version` runs through the wrapper as 65534.
@@ -14,20 +14,25 @@ const { execFileSync } = require('child_process');
 const { assertSecurityApproval } = require('./approval-gate.cjs');
 const {childEnvironment,strictPairs}=require('./launch-boundary.cjs');
 const ROOT = '/var/tmp/ss-harness';
-let args;try{args=strictPairs(process.argv.slice(2),['playwright','revision','out','security-approval'],['playwright','revision','security-approval']);}catch(e){console.error('browser-setup: '+e.message);process.exit(2);}
+let args;try{args=strictPairs(process.argv.slice(2),['playwright','revision','existing-browser','existing-browser-sha256','out','security-approval'],['playwright','revision','existing-browser','existing-browser-sha256','security-approval']);}catch(e){console.error('browser-setup: '+e.message);process.exit(2);}
 function fail(msg) { console.error('browser-setup: BLOCKED_SETUP: ' + msg); process.exit(2); }
 const sha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 
 try { assertSecurityApproval({ securityApprovalFile: args['security-approval'] }, { hosts: {} }); } catch (e) { fail(e.message); }
 
-if (!args.playwright || !/^chromium-\d+$/.test(args.revision || '')) fail('usage: --playwright <version> --revision chromium-NNNN');
+if (!args.playwright || !/^chromium-\d+$/.test(args.revision || '') || !/^[a-f0-9]{64}$/.test(args['existing-browser-sha256'] || '')) fail('usage: --playwright <version> --revision chromium-NNNN --existing-browser <path> --existing-browser-sha256 <sha256>');
 let pwPkg, chromium;
 try { pwPkg = require(require.resolve('playwright/package.json', { paths: [process.cwd()] })); chromium = require(require.resolve('playwright', { paths: [process.cwd()] })).chromium; }
 catch (e) { fail('playwright is not resolvable from ' + process.cwd()); }
 if (pwPkg.version !== args.playwright) fail(`playwright ${pwPkg.version} installed, ${args.playwright} required`);
-const exe = chromium.executablePath();
-if (!exe.split(path.sep).includes(args.revision)) fail(`Playwright expects ${exe}, not revision ${args.revision}`);
-if (!fs.existsSync(exe)) fail('expected Chromium is not installed: ' + exe);
+const expected = chromium.executablePath();
+if (!expected.split(path.sep).includes(args.revision)) fail(`Playwright metadata expects ${expected}, not revision ${args.revision}`);
+const requested = args['existing-browser'];
+if (!path.isAbsolute(requested) || !fs.existsSync(requested)) fail('bound existing browser is missing or not absolute');
+const st = fs.lstatSync(requested);
+if (!st.isFile() || st.isSymbolicLink() || fs.realpathSync(requested) !== path.resolve(requested)) fail('bound existing browser must be a canonical regular file');
+const exe = requested;
+if (sha(exe) !== args['existing-browser-sha256']) fail('bound existing browser bytes changed after outer setup');
 const srcDir = path.dirname(exe);
 
 fs.mkdirSync(ROOT, { recursive: true, mode: 0o755 });
@@ -41,6 +46,7 @@ for (const d of ['profiles', 'home', 'downloads']) {
 const dst = path.join(ROOT, 'chrome-linux');
 fs.rmSync(dst, { recursive: true, force: true });
 execFileSync('cp', ['-a', '--no-preserve=ownership', srcDir + '/.', dst + '/'], { stdio: 'inherit' });
+if (path.basename(exe) !== 'chrome') fs.copyFileSync(path.join(dst, path.basename(exe)), path.join(dst, 'chrome'));
 execFileSync('chown', ['-R', '0:0', dst]);
 execFileSync('chmod', ['-R', 'a+rX,go-w', dst]);
 if (sha(path.join(dst, 'chrome')) !== sha(exe)) fail('copied chrome binary differs from the source');

@@ -7,6 +7,7 @@ Derived from the reviewed prep builder (build_private_r15_prep.py); every sessio
   BP_FACTS       reviewed facts JSON (owner approval reference, probe receipts, reviewer, ...)  BP_ACCOUNT_ID_FILE file holding the throwaway account id (not a secret)
   BP_TASK_ID / BP_SOURCE_REFERENCE / BP_ENV_ID   the Claude task-environment receipt the harness admission requires (the only runtime it accepts)
   BP_CAMPAIGN BP_T0 BP_T1 BP_TOTAL BP_CLEANUP BP_IDENT BP_SELECT BP_GATES BP_EST BP_COACHING_CAP BP_SELECT_REF BP_SELECT_REASON BP_BACKEND_*  (from scripts/run_env.py)
+  BP_BROWSER_IDENTITY  this run's existing-browser identity receipt, created before either plan phase
   BP_PDFJS_DIR / BP_PDFJS_SHA  optional: where the pinned pdfjs-dist is (default: the checkout's node_modules) and its pinned pdf.mjs sha256
   BP_MODE        minimal (partial run) | breadth | full (full coverage). Required: there is no default, so a run can never silently become the minimal sample.
   VITE_SUPABASE_ANON_KEY  (phase1 only: the publishable key written into the private case configs)
@@ -269,6 +270,16 @@ if phase == 'phase1':
     print('phase1 OK', json.dumps({'cases': len(cases), 'policy': pol_sha[:12], 'approval': sa_sha[:12], 'steps': steps_sha[:12]}))
 
 elif phase == 'phase2':
+    browser_identity_file = need('BP_BROWSER_IDENTITY')
+    browser_identity = jload(browser_identity_file)
+    if browser_identity.get('schema') not in ('speaksharp.cloud-test.existing-browser.v1', 'speaksharp.cloud-test.installed-browser.v1'):
+        raise ValueError('BLOCKED_SETUP: unsupported browser identity receipt')
+    browser_path = browser_identity.get('path')
+    browser_sha = browser_identity.get('observedBinarySha256')
+    if not isinstance(browser_path, str) or not os.path.isabs(browser_path) or os.path.realpath(browser_path) != browser_path \
+            or not isinstance(browser_sha, str) or len(browser_sha) != 64 or any(c not in '0123456789abcdef' for c in browser_sha) \
+            or not os.path.isfile(browser_path) or os.path.islink(browser_path) or shaf(browser_path) != browser_sha:
+        raise ValueError('BLOCKED_SETUP: browser identity path/bytes changed before plan binding')
     idx = jload(f'{PRIVATE}/cfg/phase1-index.json'); facts = jload(f'{PRIVATE}/cfg/phase1-facts.json')
     UID = open(UID_FILE).read().strip()
     # runtime attestation: actual platform observation, written only after the window opened
@@ -300,6 +311,7 @@ elif phase == 'phase2':
                 'qualificationStepManifestSha256': idx['qualStepsSha256'], 'approvedStartAt': T0, 'approvedDeadlineAt': T1,
                 'policyFile': f'{PRIVATE}/cfg/policy.json', 'policySha256': idx['policySha256'], 'accountSelection': 'throwaway',
                 'providerAttemptContractEvidence': {'file': f'{PRIVATE}/cfg/provider-contract-evidence.json', 'sha256': idx['providerEvidenceSha256']},
+                'browserIdentityFile': browser_identity_file, 'browserIdentitySha256': shaf(browser_identity_file),
                 'campaignId': CAMPAIGN, 'privateMediaParent': MEDIA_PARENT, 'runtimeAttestationFile': f'{PRIVATE}/cfg/runtime-attestation.json',
                 'runtimeAttestationSha256': att_sha, 'ownerApprovalReference': OWNER_REF, 'qualificationMaxMs': QUAL_MS,
                 'cleanupReserveMs': CLEANUP_MS, 'runtimeEnvironmentId': att['immutableEnvironmentId']})

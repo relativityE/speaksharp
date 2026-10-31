@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+from pathlib import Path
 import shutil
 import shlex
 import subprocess
@@ -242,6 +243,11 @@ class PlanBuilderProof(unittest.TestCase):
         prerequisite(subprocess.run(["git", "-C", REPO, "cat-file", "-e", RECEIVING_SOURCE + "^{commit}"], capture_output=True).returncode == 0, "git history with the receiving-source SHA")
         prerequisite(os.path.isfile(os.path.join(REPO, "tests", "fixtures", "rwt", "open_mic_tts.wav")), "the reviewed speech fixtures in the checkout")
         cls.work = tempfile.mkdtemp(prefix="ct-plan-")
+        cls.browser = os.path.join(cls.work, "synthetic-browser")
+        Path(cls.browser).write_bytes(b"synthetic browser identity; never executed\n")
+        cls.browser_identity = os.path.join(cls.work, "browser-identity.json")
+        wjson(cls.browser_identity, {"schema": "speaksharp.cloud-test.existing-browser.v1", "path": os.path.realpath(cls.browser),
+                                    "observedBinarySha256": hashlib.sha256(Path(cls.browser).read_bytes()).hexdigest()})
         req = sample()["req"]
         # The receiving adapter rejects the historic 4c85 binding. Exercise the
         # same current source as FullPlanProof, not an obsolete request identity.
@@ -263,6 +269,7 @@ class PlanBuilderProof(unittest.TestCase):
         env = {"PATH": os.environ["PATH"], "HOME": self.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
                "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": self.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(self.work, "media"),
+               "BP_BROWSER_IDENTITY": self.browser_identity,
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key"}
         env.update(extra or {})
         for k in drop:
@@ -390,8 +397,8 @@ class PlanBuilderProof(unittest.TestCase):
 
     # ---- fail closed on missing inputs
     def test_missing_inputs_are_blocked_setup(self):
-        for name in ("BP_FACTS", "BP_ACCOUNT_ID_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_SOURCE_SHA", "BP_SELECT_REF"):
-            private, out = self.build("p-miss-" + name.lower(), drop=(name,)) if name in ("BP_FACTS", "BP_ACCOUNT_ID_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT") else (None, None)
+        for name in ("BP_FACTS", "BP_ACCOUNT_ID_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY", "BP_SOURCE_SHA", "BP_SELECT_REF"):
+            private, out = self.build("p-miss-" + name.lower(), drop=(name,)) if name in ("BP_FACTS", "BP_ACCOUNT_ID_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY") else (None, None)
             if out is None:
                 continue
             self.assertTrue(out[-1].returncode == 78, (name, out[-1].returncode, out[-1].stderr[-200:]))

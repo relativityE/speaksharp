@@ -132,7 +132,7 @@ build() {
     set -euo pipefail
     set -a; . "$CT_OUT/plan-env.txt"; set +a
     export BP_PACKET="'"$HP"'" BP_CHECKOUT="$CT_CHECKOUT" BP_PRIVATE="'"$private"'" BP_FACTS="$CT_FACTS_FILE" BP_ACCOUNT_ID_FILE="$CT_ACCOUNT_ID_FILE" \
-           BP_MEDIA_PARENT="${CT_MEDIA_PARENT:-/var/tmp/ss-media-cloud-test}" BP_LEASE_RPCS=1 BP_LEASE_READ=1
+           BP_MEDIA_PARENT="${CT_MEDIA_PARENT:-/var/tmp/ss-media-cloud-test}" BP_BROWSER_IDENTITY="$CT_OUT/browser-identity.json" BP_LEASE_RPCS=1 BP_LEASE_READ=1
     if [ "$BP_RUNTIME" = "Claude SpeakSharp R4" ]; then
       export BP_TASK_ID="${CT_TASK_ID:?actual Claude task required}" BP_SOURCE_REFERENCE="${CT_SOURCE_REFERENCE:?actual Claude source reference required}" BP_ENV_ID="${CT_ENV_ID:?actual Claude environment required}"
     fi

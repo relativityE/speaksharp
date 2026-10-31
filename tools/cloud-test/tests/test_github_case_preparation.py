@@ -25,12 +25,18 @@ class IndependentGithubCasePreparation(unittest.TestCase):
         wjson(str(facts), facts_value)
         uid = base / "account.txt"
         uid.write_text("00000000-0000-4000-8000-000000000001")
+        browser = base / "synthetic-browser"
+        browser.write_bytes(b"synthetic browser identity; never executed\n")
+        browser_identity = base / "browser-identity.json"
+        wjson(str(browser_identity), {"schema": "speaksharp.cloud-test.existing-browser.v1", "path": str(browser.resolve()),
+                                      "observedBinarySha256": hashlib.sha256(browser.read_bytes()).hexdigest()})
         output = base / "plan"
         source = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
         env = {
             "PATH": os.environ["PATH"], "HOME": str(base),
             "BP_PACKET": str(Path(ROOT) / "harness"), "BP_CHECKOUT": REPO,
             "BP_PRIVATE": str(output), "BP_FACTS": str(facts), "BP_ACCOUNT_ID_FILE": str(uid),
+            "BP_BROWSER_IDENTITY": str(browser_identity),
             "BP_SOURCE_SHA": source, "BP_CAMPAIGN": "SYNTHETIC-NOT-A-LIVE-RUN",
             "BP_MODE": "breadth", "BP_CASES": str(case), "BP_SELECT": str(case),
             "BP_SELECT_REF": "UNIT-SELECTION-NOT-A-RUN", "BP_SELECT_REASON": "unit preparation",

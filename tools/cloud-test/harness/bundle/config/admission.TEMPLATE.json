@@ -62,6 +62,8 @@
   "privateMediaParent": null,
   "runtimeAttestationFile": null,
   "runtimeAttestationSha256": null,
+  "browserIdentityFile": null,
+  "browserIdentitySha256": null,
   "ownerApprovalReference": null,
   "qualificationMaxMs": null,
   "cleanupReserveMs": null,

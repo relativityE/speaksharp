@@ -124,6 +124,9 @@ class FullPlanProof(unittest.TestCase):
         cls.cwd = playwright_cwd()
         prerequisite(cls.cwd, "playwright installed from the lockfile")
         cls.work = tempfile.mkdtemp(prefix="ct-fullplan-")
+        cls.browser_identity = os.path.join(cls.work, "browser-identity.json")
+        wjson(cls.browser_identity, {"schema": "speaksharp.cloud-test.existing-browser.v1", "path": os.path.realpath(cls.chrome),
+                                    "observedBinarySha256": hashlib.sha256(Path(cls.chrome).read_bytes()).hexdigest()})
         req = J("config", "runs", "R7-full-coverage-proposal.json")
         req["release"]["testedSha"] = RECEIVING_SOURCE
         req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55, "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
@@ -154,6 +157,7 @@ class FullPlanProof(unittest.TestCase):
         env = {"PATH": os.environ["PATH"], "HOME": cls.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
                "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": cls.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(cls.work, "media"),
+               "BP_BROWSER_IDENTITY": cls.browser_identity,
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key", "BP_PDFJS_DIR": cls.pdf_source}
         for k in drop:
             env.pop(k, None)
