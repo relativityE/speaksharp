@@ -312,7 +312,7 @@ test('consumer rejects a stale otherwise-green output before trusting coverage c
 });
 
 test('explicit child environment excludes host secrets, loaders, proxies and package hooks',()=>{
-  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quality-env-'));
+  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'quality-env-')));
   try {
     const proofCases=path.join(dir,'proof-cases'),pdfjs=path.join(dir,'pdfjs');fs.mkdirSync(proofCases);fs.mkdirSync(pdfjs);
     const env=testEnvironment(dir,{phaseId:'synthetic'},path.join(dir,'raw.json'),{
