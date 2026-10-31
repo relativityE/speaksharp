@@ -7,13 +7,24 @@ import { performance } from 'node:perf_hooks';
 import type { AdapterContext, ModelAdapter } from '../adapter';
 import type { ModelIdentity } from '../../../tests/evidence/modelEvaluator';
 import { AssetTransferRecorder } from '../asset-transfer';
-import { CANDIDATES, type CandidateId } from '../../../frontend/src/services/transcription/candidateRegistry';
+import { type CandidateId } from '../../../frontend/src/services/transcription/candidateRegistry';
+import { readCandidateCatalog } from '../product-campaign';
+import { expectedModelIdentity, verifyModelPackage } from '../../../frontend/src/services/transcription/modelPackage';
 import type { PrivateRuntimeEvidence } from '../../../frontend/src/contracts/IPrivateSTTEngine';
 import { assertServedRelease, servedSourceFiles, sha256, viteRawSource } from '../source-binding';
 
 export async function configuredAssetDigest(root: string, candidateId: CandidateId, modelId: string): Promise<string> {
-  const candidate = CANDIDATES[candidateId];
+  const candidate = readCandidateCatalog(root)[candidateId];
   if (!candidate || candidate.model.id !== modelId) throw new Error('Candidate/model identity mismatch');
+  if (candidate.modelPackage) {
+    const pkg = await verifyModelPackage(candidate.modelPackage.descriptor);
+    for (const asset of pkg.assets.files) {
+      if (!asset.url.startsWith('/models/')) throw Error('diagnostic_package_requires_verified_local_assets');
+      const bytes = await readFile(join(root,'frontend/public',asset.url));
+      if (bytes.length!==asset.bytes || sha256(bytes)!==asset.sha256) throw Error('Package local asset bytes differ');
+    }
+    return pkg.assetDigest;
+  }
   const source = candidate.assets.pinSource;
   if (!source) throw new Error('Descriptor has no asset inventory source');
   if (candidate.assets.provenance === 'self_hosted') {
@@ -122,6 +133,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
   if (!context.source) throw new Error('candidate-browser requires source binding');
   const source = context.source;
   const candidateId = context.options.candidateId as CandidateId | undefined;
+  const CANDIDATES = readCandidateCatalog(context.repositoryRoot);
   if (!candidateId || !Object.prototype.hasOwnProperty.call(CANDIDATES, candidateId)) {
     throw new Error('candidate-browser needs a registered candidateId adapter option');
   }
@@ -130,11 +142,8 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
     throw new Error(`PREREQUISITE_CANDIDATE_UNAVAILABLE: ${candidate.browser.reason}`);
   }
   const backend = context.expected.backend;
-  if (candidate.engine === 'granite-ctc' && backend !== candidate.model.device) {
-    throw new Error('Granite product backend mismatch: use the registered WebGPU arm');
-  }
   if ((backend !== 'wasm' && backend !== 'webgpu') ||
-      (candidate.model.device === 'wasm' && backend !== 'wasm')) {
+      backend !== candidate.model.device) {
     throw new Error('candidate-browser needs a supported declared backend');
   }
   let browser: Browser | null = null;
@@ -245,12 +254,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
         throw new Error('Runtime model differs from the frozen descriptor');
       }
       // Historical report tokens describe runtime families, never individual model choices.
-      const reportEngine = {
-        'transformers-js': 'private-v2', 'transformers-js-v4': 'private-v4',
-        'moonshine-streaming': 'moonshine-streaming',
-        'granite-ctc': 'granite-ctc',
-        'parakeet-tdt': 'parakeet-tdt',
-      }[candidate.engine];
+      const reportEngine = expectedModelIdentity(candidate).engine;
       // Model/revision remain configured provenance when the runtime cannot introspect them.
       return {
         engine: reportEngine, modelId: candidate.model.id, revision: candidate.model.revision,

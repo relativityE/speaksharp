@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** #1565 model-only corpus lane. This command neither selects a production model nor runs a product journey. */
+/** Product lifecycle is canonical. Raw whole-clip decode is an explicitly selected diagnostic. */
 import { createHash } from 'node:crypto';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
@@ -14,9 +14,11 @@ import { countFillerWords } from '../../frontend/src/utils/fillerWordUtils';
 import { scoreCorpusUtterance } from '../../tests/evidence/benchmarkScore';
 import { readSourceBinding, assertSameSource, type SourceBinding } from './source-binding';
 import { prepareControlInput, type AudioControl } from './controls';
+import { readCandidateCatalog } from './product-campaign';
+import { expectedModelIdentity } from '../../frontend/src/services/transcription/modelPackage';
 
 type ArmManifest = {
-  version: 1; identity: ModelIdentity; adapterModule: string;
+  version: 1; candidateId?: string; identity: ModelIdentity; adapterModule: string;
   adapterOptions?: Record<string, unknown>;
 };
 type CorpusManifest = { version: 1; trials: number; clips: Array<CorpusClip & { path: string; wavSha256: string; control?: AudioControl }> };
@@ -42,6 +44,15 @@ async function readManifest<T>(name: string): Promise<{ value: T; path: string; 
 }
 
 async function loadAdapter(manifest: ArmManifest, device: DeviceManifest, source: SourceBinding): Promise<ModelAdapter> {
+  const catalog = readCandidateCatalog(root);
+  const candidateId = manifest.candidateId ?? manifest.adapterOptions?.candidateId;
+  if (typeof candidateId === 'string') {
+    const candidate = Object.hasOwn(catalog,candidateId) ? catalog[candidateId] : null;
+    if (!candidate) throw Error('diagnostic_candidate_unknown');
+    const derived = expectedModelIdentity(candidate);
+    if (manifest.identity && Object.entries(derived).some(([key,value]) => manifest.identity[key as keyof ModelIdentity] !== value)) throw Error('diagnostic_duplicate_identity_mismatch');
+    manifest.identity = derived;
+  }
   if (!manifest.adapterModule.startsWith('./') && !manifest.adapterModule.startsWith('../')) {
     throw new Error('adapterModule must be a local relative path');
   }
@@ -62,6 +73,18 @@ async function main(): Promise<void> {
   const source = readSourceBinding(root);
   const baselineManifest = await readManifest<ArmManifest>('baseline');
   const candidateManifest = await readManifest<ArmManifest>('candidate');
+  // Candidate-only manifests are accepted; legacy duplicate identities must match,
+  // and are replaced with the catalogue derivation before planning or scoring.
+  const catalog=readCandidateCatalog(root);
+  for(const manifest of [baselineManifest.value,candidateManifest.value]){
+    const id=manifest.candidateId??manifest.adapterOptions?.candidateId;
+    if(typeof id!=='string')continue; // Explicit third-party raw adapters remain diagnostic only.
+    if(!Object.hasOwn(catalog,id))throw Error('diagnostic_candidate_unknown');
+    const derived=expectedModelIdentity(catalog[id]);
+    if(manifest.identity&&Object.entries(derived).some(([key,value])=>manifest.identity[key as keyof ModelIdentity]!==value))throw Error('diagnostic_duplicate_identity_mismatch');
+    manifest.identity=derived;manifest.adapterModule??='./scripts/model-evaluator/adapters/candidate-browser.ts';
+    manifest.adapterOptions={...manifest.adapterOptions,candidateId:id};
+  }
   const corpusManifest = await readManifest<CorpusManifest>('corpus');
   const deviceManifest = await readManifest<DeviceManifest>('device');
   const policyPath = process.argv.includes('--policy') ? resolve(arg('policy')) : null;
@@ -203,6 +226,8 @@ async function main(): Promise<void> {
       clips.find((clip) => clip.id === row.clipId)!.reference, row.transcript),
   })) });
   const report = {
+    mode: 'raw-decode',
+    timingSemantics: 'finalLatencyMs is whole-clip adapter decode+finalize wall time; NOT product Stop-to-final latency',
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
     source, sourceAfter,
@@ -248,4 +273,13 @@ async function main(): Promise<void> {
 
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+async function entry() {
+  const mode = process.argv.includes('--mode') ? arg('mode') : 'product-lifecycle';
+  if (mode === 'raw-decode') return main();
+  if (mode !== 'product-lifecycle') throw Error('unsupported_evaluator_mode');
+  if (process.argv.includes('--campaign')) process.env.EVAL_CAMPAIGN_FILE = arg('campaign');
+  // Import the existing guarded runner. It enforces admission, exact source, consent,
+  // account, transport and cleanup before starting the shipping product journey.
+  await import('../../tests/model-dropin/run-bounded-comparison.mjs');
+}
+entry().catch((error) => { console.error(error); process.exitCode = 1; });

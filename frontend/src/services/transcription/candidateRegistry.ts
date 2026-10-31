@@ -25,8 +25,10 @@ import selfHostedTinyPins from './selfHostedTinyAssetPins.json' with { type: 'js
 import granitePins from './engines/granite/assetPins.json' with { type: 'json' };
 import parakeetPins from './engines/parakeet/assetPins.json' with { type: 'json' };
 import type { ParakeetTdtProfile } from './engines/parakeet/contracts';
+import type { ModelPackage } from './modelPackage';
 
-export type CandidateId = keyof typeof CANDIDATE_DEFINITIONS;
+/** IDs are validated package data, not an executable per-model union. */
+export type CandidateId = string;
 
 export type EngineKind = 'transformers-js' | 'transformers-js-v4' | 'moonshine-streaming' | 'granite-ctc' | 'parakeet-tdt';
 
@@ -130,6 +132,7 @@ export interface BrowserExecutability {
 }
 
 interface CandidateDefinition {
+    modelPackage?: { descriptor: ModelPackage; sourcePath: string; digest: string };
     id: string;
     /**
      * Whether this candidate may actually be RUN. Registering a candidate describes it; it does not
@@ -440,9 +443,30 @@ const CANDIDATE_DEFINITIONS = deepFreeze({
     },
 } satisfies Record<string, CandidateDefinition>);
 
-export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = CANDIDATE_DEFINITIONS as {
-    readonly [Id in CandidateId]: Candidate & { id: Id };
-};
+// Dropping a validated package JSON here adds a compatible model without catalogue TS edits.
+// Node callers load the same files explicitly; Vite supplies them to evaluation AND adoption.
+const packageFiles = typeof import.meta.env !== 'undefined'
+    ? import.meta.glob('./model-packages/*.json', { eager: true, query: '?raw', import: 'default' }) : {};
+// Native Node reads the built-in data without a TS module resolver. Its package
+// catalogue is loaded explicitly by product-campaign under the existing tsx entry.
+const packageParsers = typeof import.meta.env !== 'undefined'
+    ? import.meta.glob('./modelPackage.ts', { eager: true }) : {};
+const importedPackages: Record<string, Candidate> = {};
+export const MODEL_PACKAGE_REJECTIONS: Array<{ file: string; code: string }> = [];
+for (const [path, value] of Object.entries(packageFiles)) {
+    try {
+        if (String(value).length > 1_048_576) throw new Error('PACKAGE_DESCRIPTOR_TOO_LARGE');
+        const parser = packageParsers['./modelPackage.ts'] as typeof import('./modelPackage');
+        const candidate = parser.candidateFromPackage(JSON.parse(String(value)), 'frontend/src/services/transcription/' + path.slice(2));
+        if (Object.prototype.hasOwnProperty.call(CANDIDATE_DEFINITIONS, candidate.id) || Object.prototype.hasOwnProperty.call(importedPackages, candidate.id)) throw new Error('PACKAGE_DUPLICATE_ID');
+        importedPackages[candidate.id] = candidate;
+    } catch (error) {
+        // A refused import never replaces the incumbent or prevents its catalogue from loading.
+        MODEL_PACKAGE_REJECTIONS.push({ file: path, code: error instanceof Error && /^[A-Z_]+$/.test(error.message) ? error.message : 'PACKAGE_INVALID' });
+    }
+}
+Object.freeze(MODEL_PACKAGE_REJECTIONS);
+export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({ ...CANDIDATE_DEFINITIONS, ...importedPackages });
 
 export const CANDIDATE_IDS = Object.freeze(Object.keys(CANDIDATES) as CandidateId[]);
 

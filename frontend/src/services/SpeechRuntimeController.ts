@@ -4595,7 +4595,10 @@ export class SpeechRuntimeController {
                             body: {
                                 op: 'register',
                                 recordingKey: recordingId,
-                                expectedModel: mode === 'private' ? resolvePrivateModel() : null,
+                                // Bind this take to the service already warmed and captured above. The
+                                // config default can differ from an internal comparison selection.
+                                // Missing metadata stays unattributed; never substitute the Whisper default.
+                                expectedModel: service.getMetadata?.()?.modelName?.trim() || null,
                             },
                         });
                         if (reg?.error) logger.warn({ err: reg.error, recordingId }, '[controller] pre-recording attribution intent failed — session will be unattributed');

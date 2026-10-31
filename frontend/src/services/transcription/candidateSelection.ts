@@ -90,6 +90,8 @@ export interface PrivateSttConfig {
      * this line and it appearing in a diff.
      */
     acknowledgeNotProductionReady?: boolean;
+    /** Owner-reviewed admission is separate from the immutable model package. */
+    approvedPackages?: Array<{ packageDigest: string; evidenceSha256: string }>;
 }
 
 /** The configured default identity, independent of the candidate currently acquired or running. */
@@ -153,7 +155,9 @@ export function activeCandidate(
         );
     }
 
-    if (!candidate.activationReady && config.acknowledgeNotProductionReady !== true) {
+    const packageApproved = candidate.modelPackage && config.approvedPackages?.some(row =>
+        row.packageDigest === candidate.modelPackage!.digest && /^[a-f0-9]{64}$/.test(row.evidenceSha256));
+    if (!candidate.activationReady && !packageApproved && config.acknowledgeNotProductionReady !== true) {
         // NEVER silently substitute. A configured candidate that is not production-approved must stop
         // the boot with its reason, not quietly become a different model whose transcript would then
         // be attributed to the one that was asked for.

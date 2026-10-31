@@ -2,6 +2,7 @@ import { PRIV_CLOUD_AUDIO, PRIV_STT_V4, samplesToSeconds } from '../sttConstants
 import { detectWebGPUSupport } from '../utils/webgpuSupport';
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
 import { composeAcquisitionReceipt, type AcquisitionReceipt } from '../acquisitionAttempt';
+import { installVerifiedAssetFetch, type AssetResponsePin } from '../verifiedAssetFetch';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
 
@@ -10,6 +11,7 @@ type WorkerRequest =
         id: number; type: 'init'; isE2E: boolean; model: string; dtype: Record<string, string>; device?: string;
         /** #1259: what identifies this candidate's requests on the WORKER timeline. */
         assetPrefixes?: string[];
+        responsePins?: AssetResponsePin[];
         /** #1259: the attempt this load belongs to, echoed back so a superseded receipt is detectable. */
         attempt?: { token: string; candidateId: string };
       }
@@ -39,6 +41,7 @@ interface TranscriptionResult {
 }
 
 let transcriber: Pipeline | null = null;
+let restoreAssetFetch: (() => void) | null = null;
 
 function post(response: WorkerResponse): void {
     self.postMessage(response);
@@ -74,7 +77,8 @@ async function createPipeline(progress_callback: (data: unknown) => void, modelI
 
     env.allowLocalModels = false;
     env.allowRemoteModels = true;
-    env.useBrowserCache = true;
+    // Cache responses must also cross the integrity boundary; the guard owns a verified cache.
+    env.useBrowserCache = false;
     env.logLevel = LogLevel.ERROR;
 
     // DEV/TEST device override (root-cause A/B): 'wasm' forces CPU/WASM, 'webgpu' forces GPU.
@@ -128,6 +132,7 @@ async function init(
     id: number, isE2E: boolean, modelId: string, dtype: unknown, deviceOverride?: string,
     assetPrefixes: string[] = [],
     attempt?: { token: string; candidateId: string },
+    responsePins: AssetResponsePin[] = [],
 ): Promise<void> {
     if (transcriber) {
         post({ id, type: 'ready' });
@@ -149,6 +154,8 @@ async function init(
     };
 
     const loadStart = performance.now();
+    restoreAssetFetch?.();
+    restoreAssetFetch = installVerifiedAssetFetch(responsePins, [`https://huggingface.co/${modelId}/`]);
     const loaded = await createPipeline(progress_callback, modelId, dtype, deviceOverride);
     transcriber = loaded.pipe;
     // Taken AFTER the load has fully settled: a resource entry is recorded when the response BODY
@@ -226,13 +233,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
                         Object.values(request.dtype).some(value => typeof value !== 'string' || !value.trim())) {
                         throw new Error('MODEL_DESCRIPTOR_REQUIRED: explicit model and dtype are required');
                     }
-                    await init(request.id, request.isE2E, request.model, request.dtype, request.device, request.assetPrefixes ?? [], request.attempt);
+                    await init(request.id, request.isE2E, request.model, request.dtype, request.device, request.assetPrefixes ?? [], request.attempt, request.responsePins);
                     break;
                 case 'transcribe':
                     await transcribe(request.id, request.audio, request.decodeOptions);
                     break;
                 case 'destroy':
                     transcriber = null;
+                    restoreAssetFetch?.(); restoreAssetFetch = null;
                     post({ id: request.id, type: 'destroyed' });
                     break;
             }

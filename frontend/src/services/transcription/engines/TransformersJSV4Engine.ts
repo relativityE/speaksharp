@@ -1,5 +1,7 @@
 import { activeCandidate, effectiveCandidate, v4VariantFor } from '../candidateSelection';
 import { CANDIDATES, type Candidate } from '../candidateRegistry';
+import { modelResponsePins } from '../candidateAssetRequests';
+import { installVerifiedAssetFetch, type AssetResponsePin } from '../verifiedAssetFetch';
 /**
  * ============================================================================
  * TRANSFORMERS.JS V4 ENGINE
@@ -97,6 +99,7 @@ export class TransformersJSV4Engine extends STTEngine {
     private workerRequestId: number = 0;
     private activeLoadRequestId: number | null = null;
     private pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
+    private restoreAssetFetch: (() => void) | null = null;
     private lastModelProgress: number = -1;
     // The v4 model id this engine actually loaded (base_q4→whisper-base.en, distil_q4→distil-small.en).
     // Source of truth for the ASR language decision — never the dead PRIV_STT_V4.MODEL_ID constant.
@@ -212,11 +215,11 @@ export class TransformersJSV4Engine extends STTEngine {
             env.allowLocalModels = false;
             env.allowRemoteModels = true;
 
-            const isBrowser = typeof window !== 'undefined' &&
-                typeof window.document !== 'undefined' &&
-                !navigator.userAgent.includes('HappyDOM');
-
-            env.useBrowserCache = isBrowser && !ENV.isE2E;
+            env.useBrowserCache = false;
+            const pinnedCandidate = this.resolvedCandidate();
+            this.restoreAssetFetch?.();
+            this.restoreAssetFetch = installVerifiedAssetFetch(modelResponsePins(pinnedCandidate),
+                [`https://huggingface.co/${pinnedCandidate.model.id}/`]);
             env.logLevel = ENV.debug ? LogLevel.INFO : LogLevel.ERROR;
 
             options.onModelLoadProgress?.(0);
@@ -298,6 +301,7 @@ export class TransformersJSV4Engine extends STTEngine {
             options.onReady?.();
             return Result.ok(undefined);
         } catch (error) {
+            this.restoreAssetFetch?.(); this.restoreAssetFetch = null;
             const e = error instanceof Error ? error : new Error(String(error));
             logger.error({
                 sId: this.serviceId,
@@ -347,6 +351,7 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     protected async onDestroy(): Promise<void> {
+        this.restoreAssetFetch?.(); this.restoreAssetFetch = null;
         this.activeLoadRequestId = null;
         this.runtimeEvidence = null;
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJSV4] Destroying engine resources...');
@@ -552,6 +557,7 @@ export class TransformersJSV4Engine extends STTEngine {
                 // file. Requests in the window that fall outside it are counted and reported rather than
                 // dropped, so a redirect that changed the URL shows up as a discrepancy.
                 assetPrefixes: acquisitionScopeFor(candidateForAttempt),
+                responsePins: modelResponsePins(candidateForAttempt),
                 attempt,
             });
         } finally {
@@ -686,7 +692,7 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     private sendWorkerRequest(
-        request: { type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string; assetPrefixes?: string[]; attempt?: AcquisitionAttempt } | { type: 'transcribe'; audio: Float32Array; decodeOptions?: Record<string, unknown> } | { type: 'destroy' },
+        request: { type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string; assetPrefixes?: string[]; responsePins?: AssetResponsePin[]; attempt?: AcquisitionAttempt } | { type: 'transcribe'; audio: Float32Array; decodeOptions?: Record<string, unknown> } | { type: 'destroy' },
         transfer?: Transferable[],
     ): Promise<WorkerResponse> {
         if (!this.worker) {

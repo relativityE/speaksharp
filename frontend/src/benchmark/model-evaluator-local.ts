@@ -1,4 +1,4 @@
-/** Dev-server-only PCM seam. This HTML is not a Vite production build input. */
+/** Raw-decode diagnostic seam only. Product evaluation uses the real session lifecycle driver. */
 import { PrivateSTT } from '@/services/transcription/engines/PrivateSTT';
 import { CANDIDATES, type CandidateId } from '@/services/transcription/candidateRegistry';
 

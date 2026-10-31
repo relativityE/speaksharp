@@ -1,12 +1,15 @@
 import type { Page, Response } from 'playwright';
 import { randomUUID } from 'node:crypto';
 import { assertServedRelease, sha256, type SourceBinding } from './source-binding';
-import { LIVE_INTERIM, LIVE_TRANSCRIPT, SESSION_SHELL, SESSION_STATE_ATTR } from '../../tests/helpers/micControls';
-import { CANDIDATES, type CandidateId } from '../../frontend/src/services/transcription/candidateRegistry';
+import { LIVE_INTERIM, LIVE_TRANSCRIPT, SESSION_SHELL, SESSION_STATE_ATTR, MIC_CONTROL_BY_STATUS, RECORDER_STOP } from '../../tests/helpers/micControls';
+import { CANDIDATES, type Candidate } from '../../frontend/src/services/transcription/candidateRegistry';
+import { productModelMetadata, verifyModelPackage } from '../../frontend/src/services/transcription/modelPackage';
 
 export interface ProductEvidenceBinding {
   source: SourceBinding;
   candidateId: string;
+  /** Resolved from the sealed campaign catalogue, never a caller-supplied expected identity. */
+  candidate?: Candidate;
   backend: 'wasm' | 'webgpu';
   journey: 'open_mic' | 'focus_points';
   fixtureWavSha256: string;
@@ -15,6 +18,9 @@ export interface ProductEvidenceBinding {
 }
 
 export interface ProductTimeline {
+  timeOriginMs?: number;
+  startClickMs?: number | null;
+  stopClickMs?: number | null;
   release: string | null;
   startMs: number | null;
   stopMs: number | null;
@@ -31,12 +37,15 @@ export interface ProductTimeline {
 
 type TextReceipt = { sessionSha256: string; transcriptSha256: string; product?: string;
   attributionStatus?: string; engine?: string; engineVersion?: string; modelName?: string; deviceType?: string };
+export type AuthorityReceipt = { sessionSha256: string; authorityVersion?: string; engineClass?: string;
+  engine?: string; engineVersion?: string; modelName?: string; provider?: string; deviceType?: string };
 export interface ProductEvidence {
   timeline: ProductTimeline | null;
   completion: TextReceipt[];
   persisted: TextReceipt[];
   reopened: TextReceipt | null;
   failures: string[];
+  authority?: AuthorityReceipt[];
 }
 
 /** Evaluate observations, never a caller-supplied PASS. Missing evidence holds; contradictions fail. */
@@ -80,19 +89,24 @@ export function evaluateProductEvidence(binding: ProductEvidenceBinding, evidenc
   if (timeline?.sessions.length && rows.some(row => !timeline.sessions.includes(row.sessionSha256))) failures.push('completion_not_recorded_take');
   if (evidence.persisted.some(row => row.product !== binding.journey)) failures.push('persisted_product_mismatch');
   // These are persisted declared identity fields, not observed weight identity.
-  const candidate = Object.prototype.hasOwnProperty.call(CANDIDATES, binding.candidateId)
-    ? CANDIDATES[binding.candidateId as CandidateId] : null;
-  const variants: Record<string, string> = { 'transformers-js': 'private_v2', 'transformers-js-v4': 'private_v4',
-    'moonshine-streaming': 'private_moonshine', 'granite-ctc': 'private_granite', 'parakeet-tdt': 'private_parakeet' };
-  const modelName = candidate?.engine === 'transformers-js-v4' ? candidate.execution.variant
-    : candidate?.execution.localModelId ?? candidate?.model.id;
-  const engineVersion = candidate && modelName && variants[candidate.engine]
-    ? `${variants[candidate.engine]}:${modelName}` : null;
+  const candidate = binding.candidate ?? (Object.hasOwn(CANDIDATES,binding.candidateId) ? CANDIDATES[binding.candidateId] : null);
+  const metadata = candidate ? productModelMetadata(candidate) : null;
+  const modelName = metadata?.modelName;
+  const engineVersion = metadata?.engineVersion;
+  if (candidate && (candidate.id !== binding.candidateId || candidate.model.device !== binding.backend)) failures.push('product_binding_identity_mismatch');
   if (!candidate || !engineVersion) failures.push('persisted_candidate_identity_unsupported');
+  // The canonical, owner-readable authority records the terminal verdict. Legacy
+  // sessions.attribution_status is not its projection and commonly remains pending.
+  // Neither a client-declared `verified` string nor browser diagnostics replace it.
+  if (!evidence.authority?.length) holds.push('persisted_authority_unavailable');
+  for (const row of evidence.authority ?? []) {
+    if (!timeline?.sessions.includes(row.sessionSha256) || rows.some(saved => saved.sessionSha256 !== row.sessionSha256)) failures.push('authority_session_mismatch');
+    if (row.authorityVersion !== 'attrib_v1' || row.engineClass !== 'private' || row.provider !== 'transformers-js') failures.push('persisted_authority_invalid');
+    if (!row.engine || !row.engineVersion || !row.modelName || !row.deviceType) holds.push('persisted_attribution_unavailable');
+    else if (row.engine !== 'private' || row.engineVersion !== engineVersion || row.modelName !== modelName || row.deviceType !== 'browser') failures.push('persisted_candidate_identity_mismatch');
+  }
   for (const row of evidence.persisted) {
-    if (!row.attributionStatus) holds.push('persisted_attribution_unavailable');
-    else if (row.attributionStatus !== 'verified') failures.push('persisted_attribution_unverified');
-    else if (!row.engine || !row.engineVersion || !row.modelName || !row.deviceType) holds.push('persisted_attribution_unavailable');
+    if (!row.engine || !row.engineVersion || !row.modelName || !row.deviceType) holds.push('persisted_attribution_unavailable');
     else if (row.engine !== 'private' || row.engineVersion !== engineVersion || row.modelName !== modelName || row.deviceType !== 'browser') failures.push('persisted_candidate_identity_mismatch');
   }
   return { verdict: failures.length ? 'FAIL' as const : holds.length ? 'HOLD' as const : 'PASS' as const,
@@ -100,16 +114,25 @@ export function evaluateProductEvidence(binding: ProductEvidenceBinding, evidenc
 }
 
 /** Self-contained browser callback: passive DOM/read-only diagnostics only, no clicks or product writes. */
-export function installProductObserver(options: { key: string; interim: string; live: string; shell: string; stateAttribute: string }) {
+export function installProductObserver(options: { key: string; interim: string; live: string; shell: string; stateAttribute: string; startControl: string; stopControl: string }) {
   const store = window as unknown as Record<string, unknown>;
   const metadata = (store.__APP_TEST_ENV__ ??= {}) as Record<string, unknown>;
   if (metadata[options.key]) throw new Error('product_observer_already_installed');
   const timeline: ProductTimeline = { release: (store.__APP_RELEASE__ as string | undefined) ?? null,
+    timeOriginMs: performance.timeOrigin, startClickMs: null, stopClickMs: null,
     startMs: null, stopMs: null, playbackStartMs: null, partials: [], sessions: [], captures: [],
     candidates: [], backends: [], focusChanges: [], finalFocus: [], failures: [] };
   const pending: Promise<void>[] = [];
   let lastPartial = '';
   let sealed = false;
+  // Capture before product handlers. Never synthesize, prevent or replace a click.
+  const click = (event: MouseEvent) => {
+    if (!event.isTrusted || sealed) return;
+    const control = event.target instanceof Element ? event.target.closest('[data-testid]')?.getAttribute('data-testid') : null;
+    if (control === options.startControl && timeline.startClickMs == null) timeline.startClickMs = performance.now();
+    if (control === options.stopControl && timeline.startMs !== null && timeline.stopClickMs == null) timeline.stopClickMs = performance.now();
+  };
+  document.addEventListener('click', click, true);
   const digest = async (text: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))))
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
   const appendHash = (values: string[], value: unknown) => {
@@ -152,7 +175,7 @@ export function installProductObserver(options: { key: string; interim: string; 
   observer.observe(document.documentElement, { subtree: true, attributes: true, childList: true, characterData: true });
   sample();
   metadata[options.key] = { async freeze() {
-    sample(); sealed = true; observer.disconnect();
+    sample(); sealed = true; observer.disconnect(); document.removeEventListener('click', click, true);
     try { await Promise.all(pending); } catch { timeline.failures.push('product_observer_hash_failed'); }
     delete metadata[options.key];
     return timeline;
@@ -161,12 +184,13 @@ export function installProductObserver(options: { key: string; interim: string; 
 
 /** Attach to ONE already-authorized Track A take. This collector never drives or provisions a journey. */
 export async function attachProductEvidence(page: Page, binding: ProductEvidenceBinding, approvedApiOrigin: string) {
+  if (binding.candidate?.modelPackage) await verifyModelPackage(binding.candidate.modelPackage.descriptor);
   const origin = new URL(approvedApiOrigin);
   if (origin.origin !== approvedApiOrigin || origin.protocol !== 'https:' || origin.username || origin.password) throw new Error('invalid_product_api_origin');
   if (!/^[a-f0-9]{64}$/.test(binding.fixtureWavSha256)) throw new Error('product_fixture_hash_required');
   assertServedRelease(binding.source, await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null));
   const key = `__model_evaluator_product_${randomUUID()}`;
-  const evidence: ProductEvidence = { timeline: null, completion: [], persisted: [], reopened: null, failures: [] };
+  const evidence: ProductEvidence = { timeline: null, completion: [], persisted: [], authority: [], reopened: null, failures: [] };
   const responses: Promise<void>[] = [];
   const observe = async (response: Response) => {
     const url = new URL(response.url());
@@ -177,6 +201,19 @@ export async function attachProductEvidence(page: Page, binding: ProductEvidence
       if (body.p_status === 'completed' && body.p_session_id && body.p_final_transcript) evidence.completion.push({
         sessionSha256: sha256(body.p_session_id), transcriptSha256: sha256(body.p_final_transcript),
       });
+    } else if (url.pathname === '/rest/v1/session_attribution_authority' && request.method() === 'GET') {
+      const selected = /^eq\.([a-f0-9-]{36})$/i.exec(url.searchParams.get('session_id') ?? '')?.[1];
+      if (!selected || !evidence.timeline?.sessions.includes(sha256(selected))) return;
+      const body: unknown = await response.json();
+      if (!Array.isArray(body)) { evidence.failures.push('authority_response_invalid'); return; }
+      if (body.length > 1) evidence.failures.push('authority_response_ambiguous');
+      for (const row of body) {
+        if (!row || typeof row !== 'object' || typeof row.session_id !== 'string') { evidence.failures.push('authority_response_invalid'); continue; }
+        const field = (name: string) => typeof row[name] === 'string' ? row[name] as string : undefined;
+        evidence.authority!.push({ sessionSha256: sha256(row.session_id), authorityVersion: field('authority_version'),
+          engineClass: field('engine_class'), engine: field('engine'), engineVersion: field('engine_version'),
+          modelName: field('model_id'), provider: field('provider'), deviceType: field('resolved_device') });
+      }
     } else if (url.pathname === '/rest/v1/sessions' && request.method() === 'GET') {
       const selected = /^eq\.([a-f0-9-]{36})$/i.exec(url.searchParams.get('id') ?? '')?.[1];
       // Do not parse unrelated account history. Only this frozen take's exact-id read can prove persistence.
@@ -198,7 +235,8 @@ export async function attachProductEvidence(page: Page, binding: ProductEvidence
   const listener = (response: Response) => { responses.push(observe(response).catch(() => { evidence.failures.push('product_response_observation_failed'); })); };
   page.on('response', listener);
   try {
-    await page.evaluate(installProductObserver, { key, interim: LIVE_INTERIM, live: LIVE_TRANSCRIPT, shell: SESSION_SHELL, stateAttribute: SESSION_STATE_ATTR });
+    await page.evaluate(installProductObserver, { key, interim: LIVE_INTERIM, live: LIVE_TRANSCRIPT, shell: SESSION_SHELL, stateAttribute: SESSION_STATE_ATTR,
+      startControl: MIC_CONTROL_BY_STATUS.ready, stopControl: RECORDER_STOP });
   } catch (error) { page.off('response', listener); throw error; }
   let frozen = false;
   return {
@@ -211,6 +249,7 @@ export async function attachProductEvidence(page: Page, binding: ProductEvidence
         if (!observer) throw new Error('product_observer_missing');
         return observer.freeze();
       }, key);
+      return evidence.timeline;
     },
     /** Call after the EXISTING journey reopens its saved session. No navigation is initiated here. */
     async observeReopened() {

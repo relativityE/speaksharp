@@ -25,7 +25,7 @@
  * cleared the id itself would pass whether or not the controller ever did — which is precisely the shape
  * of casualty this program keeps having to correct.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
 import { __resetRecordingIntentForTests } from '../recordingIntent';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -40,11 +40,11 @@ vi.mock('../../lib/storage', () => ({
     heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
     completeSession: vi.fn().mockResolvedValue({}),
 }));
-vi.mock('../../lib/supabaseClient', () => ({
-    getSupabaseClient: vi.fn(() => ({
-        auth: { getSession: vi.fn().mockResolvedValue({ data: { session: null } }) },
-    })),
+const attributionNetwork = vi.hoisted(() => ({
+    auth: { getSession: vi.fn().mockResolvedValue({ data: { session: null } }) },
+    functions: { invoke: vi.fn().mockResolvedValue({ data: {} }) },
 }));
+vi.mock('../../lib/supabaseClient', () => ({ getSupabaseClient: vi.fn(() => attributionNetwork) }));
 
 /**
  * A service that CONFIRMS it is recording. Admission is gated on the service's own answer (#1431), so a
@@ -100,6 +100,43 @@ const POLICY = {
     allowNative: false, allowCloud: false, allowPrivate: true,
     preferredMode: 'private', allowFallback: false, executionIntent: 'test',
 };
+
+describe('pre-session intent uses the selected warmed service', () => {
+    beforeEach(() => {
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession?.();
+        attributionNetwork.functions.invoke.mockClear();
+        attributionNetwork.auth.getSession.mockResolvedValue({ data: { session: { user: { id: '11111111-1111-4111-8111-111111111111' } } } } as never);
+    });
+    afterEach(() => attributionNetwork.auth.getSession.mockResolvedValue({ data: { session: null } }));
+    it.each(['whisper-base.en', 'nvidia/parakeet-tdt-0.6b-v3', 'ibm-granite/granite-speech-5.0-470m-turboctc'])(
+        'registers %s from metadata populated by warmup', async modelName => {
+            const c = newController(); c.state = 'READY';
+            let warmed = false;
+            c.service = recordingService({ warmUp: vi.fn(async () => { warmed = true; }),
+                getMetadata: () => ({ modelName: warmed ? modelName : 'stale-default', engineVersion: 'test', deviceType: 'browser' }) });
+            await c.startRecording(POLICY, []).catch(() => {});
+            expect(attributionNetwork.functions.invoke).toHaveBeenCalledWith('attest-session-engine', expect.objectContaining({
+                body: expect.objectContaining({ op: 'register', expectedModel: modelName }),
+            }));
+        });
+    it.each([undefined, null, '', '   '])('never substitutes Whisper for missing model metadata %s', async modelName => {
+        const c = newController(); c.state = 'READY';
+        c.service = recordingService({ getMetadata: () => ({ modelName }) });
+        await c.startRecording(POLICY, []).catch(() => {});
+        expect(attributionNetwork.functions.invoke).toHaveBeenCalledWith('attest-session-engine', expect.objectContaining({
+            body: expect.objectContaining({ op: 'register', expectedModel: null }),
+        }));
+    });
+    it('does not register a superseded take when its warmup returns late', async () => {
+        const c = newController(); c.state = 'READY';
+        const entered = deferred(); const resume = deferred();
+        c.service = recordingService({ warmUp: async () => { entered.resolve(); await resume.promise; } });
+        const starting = c.startRecording(POLICY, []).catch(() => {});
+        await entered.promise; await c.hardResetAwaited('supersede-warmup'); resume.resolve(); await starting;
+        expect(attributionNetwork.functions.invoke).not.toHaveBeenCalled();
+    });
+});
 
 describe('#1422 — a new take clears the previous take\'s completed-session identity', () => {
     beforeEach(() => {

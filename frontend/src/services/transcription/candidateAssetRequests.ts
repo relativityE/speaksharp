@@ -18,6 +18,17 @@ import type { Candidate } from './candidateRegistry';
 import type { PinnedAssetRef } from './modelAcquisitionTelemetry';
 import moonshinePins from './moonshineAssetPins.json';
 import { TRANSFORMERS_V2_WASM_ASSET_URLS } from './engines/transformersV2WasmAssets';
+import historicalHfPins from '../../../../tests/fixtures/hf-asset-pins.json';
+import type { AssetResponsePin } from './verifiedAssetFetch';
+
+/** These are executable response pins, not only a digest over a declaration table. */
+export function modelResponsePins(candidate: Candidate): AssetResponsePin[] {
+    if(candidate.assets.files?.length)return candidate.assets.files.map(f=>({url:resolveCandidateAssetUrl(f.url??`${candidate.assets.servedFrom}/${f.path}`),sha256:f.sha256,bytes:f.bytes}));
+    const assets=historicalHfPins.assets as Record<string,string|{sha256:string}>;
+    const keys=candidate.assets.pinKeys??(candidate.assets.pinKeyPrefix?Object.keys(assets).filter(k=>k.startsWith(candidate.assets.pinKeyPrefix!)):[]);
+    return keys.map(key=>{const pin=assets[key];const sha256=typeof pin==='string'?pin:pin?.sha256;
+        if(!sha256)throw Error('MODEL_RESPONSE_PIN_MISSING');return{url:'https://huggingface.co/'+key,sha256};});
+}
 
 export interface CandidateAssetRequests {
     assets: PinnedAssetRef[];

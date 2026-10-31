@@ -2,6 +2,7 @@ import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
 import { createProgressAggregator, type ProgressEvent } from './progressAggregator';
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
+import { installVerifiedAssetFetch, type AssetResponsePin } from '../verifiedAssetFetch';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
@@ -15,6 +16,7 @@ type WorkerRequest =
         /** #1259: URL prefixes identifying this candidate's assets, so the receipt below counts model
          *  fetches and not whatever else the worker might request. */
         assetPrefixes?: string[];
+        responsePins?: AssetResponsePin[];
         expectedComponentGroups?: Array<{
             prefixes: string[];
             minimumUniqueCount: number;
@@ -101,6 +103,7 @@ function post(response: WorkerResponse): void {
     self.postMessage(response);
 }
 
+let restorePackageFetch: (() => void) | null = null;
 async function init(
     id: number, isE2E: boolean,
     model?: { key: string; localId: string; remoteId: string },
@@ -115,6 +118,7 @@ async function init(
     }> = [],
     diagnosticAssetUrls: string[] = [],
     attempt?: { token: string; candidateId: string },
+    responsePins?: AssetResponsePin[],
 ): Promise<void> {
     if (transcriber) {
         post({ id, type: 'ready' });
@@ -137,6 +141,12 @@ async function init(
     env.localModelPath = '/models/';
     env.allowRemoteModels = false;
     env.useBrowserCache = true;
+    if (responsePins) {
+        env.useBrowserCache = false;
+        restorePackageFetch?.();
+        restorePackageFetch = installVerifiedAssetFetch(responsePins,
+            [new URL(`/models/${model!.localId}/`, self.location.origin).href]);
+    }
 
     // PERF (P3): The ONNX WASM backend defaults to a single thread, which is the
     // dominant reason CPU Whisper decodes take tens of seconds and no live text
@@ -314,13 +324,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
             switch (request.type) {
                 case 'init':
                     await init(request.id, request.isE2E, request.model, request.assetPrefixes ?? [],
-                        request.expectedComponentGroups ?? [], request.diagnosticAssetUrls ?? [], request.attempt);
+                        request.expectedComponentGroups ?? [], request.diagnosticAssetUrls ?? [], request.attempt, request.responsePins);
                     break;
                 case 'transcribe':
                     await transcribe(request.id, request.audio, request.decodeOptions, request.captureEvidence);
                     break;
                 case 'destroy':
                     transcriber = null;
+                    restorePackageFetch?.(); restorePackageFetch = null;
                     post({ id: request.id, type: 'destroyed' });
                     break;
             }

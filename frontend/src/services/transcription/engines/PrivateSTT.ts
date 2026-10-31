@@ -62,6 +62,7 @@ import {
 } from '../modelAcquisitionTelemetry';
 import type { Candidate } from '../candidateRegistry';
 import { acquisitionComponentGroupsFor, assetRequestsFor, acquisitionScopeFor, resolveCandidateAssetUrl } from '../candidateAssetRequests';
+import { verifyModelPackage, productModelMetadata } from '../modelPackage';
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
 import { receiptMatches, type AcquisitionAttempt, type AcquisitionReceipt } from '../acquisitionAttempt';
 import type { AcquisitionTrigger } from '../modelAcquisitionTelemetry';
@@ -381,6 +382,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // Moonshine's model name comes from the registry entry the arch resolved to, never from a
         // constant: a hardcoded name here is the same defect as `PRIV_STT_V4_DEFAULT_VARIANT` was.
+        if (modelIdentity && this.selection?.candidate.id === candidateId) {
+            return { ...productModelMetadata(this.selection.candidate), candidateId, modelIdentity };
+        }
         const model = isV4
             ? (resolvedVariant ?? PRIV_STT_V4_DEFAULT_VARIANT)
             : (isMoonshine || isGranite || isParakeet) ? (modelIdentity?.configuredModel.id ?? 'unknown')
@@ -399,6 +403,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected override async onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+        try {
+            const descriptor = this.resolvedSelection(false).candidate.modelPackage?.descriptor;
+            if (descriptor) await verifyModelPackage(descriptor);
+        } catch (error) {
+            return { isOk: false, error: error instanceof Error ? error : new Error('Model package refused') };
+        }
         // #1635: captured synchronously at entry, i.e. the generation of the init() that called us. Every engine
         // this init acquires is adopted only while that generation still owns the facade.
         const generation = this.lifecycleGeneration;
@@ -923,6 +933,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         let selected: Candidate;
         try {
             selected = this.resolvedSelection(false).candidate;
+            if (selected.modelPackage) await verifyModelPackage(selected.modelPackage.descriptor);
         } catch (error) {
             logger.warn('[PrivateSTT] Selected candidate is unavailable');
             return { isAvailable: false, reason: 'UNSUPPORTED',

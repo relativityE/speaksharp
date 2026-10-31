@@ -12,6 +12,8 @@ const source = { head: 'a'.repeat(40), tree: 'b'.repeat(40), lockSha256: 'c'.rep
 const binding: ProductEvidenceBinding = { source, candidateId: 'v2:base.en', backend: 'wasm', journey: 'open_mic', fixtureWavSha256: 'e'.repeat(64) };
 const receipt = () => ({ sessionSha256: sha256(session), transcriptSha256: sha256(text) });
 const attribution = { attributionStatus: 'verified', engine: 'private', engineVersion: 'private_v2:whisper-base.en', modelName: 'whisper-base.en', deviceType: 'browser' };
+const authority = () => ({ sessionSha256: sha256(session), authorityVersion: 'attrib_v1', engineClass: 'private', provider: 'transformers-js',
+  engine: attribution.engine, engineVersion: attribution.engineVersion, modelName: attribution.modelName, deviceType: attribution.deviceType });
 const identityFields = ['engine', 'engineVersion', 'modelName', 'deviceType'] as const;
 const missingIdentityCases = [
   { label: 'all identity fields', fields: identityFields },
@@ -22,19 +24,19 @@ function observations(): ProductEvidence {
     partials: [{ atMs: 40, sha256: sha256('synthetic partial'), chars: 17 }],
     sessions: [sha256(session)], captures: [sha256('capture')], candidates: ['v2:base.en'], backends: ['wasm'],
     focusChanges: [{ index: 0, status: 'covered', atMs: 50 }], finalFocus: ['covered'], failures: [] },
-    completion: [receipt()], persisted: [{ ...receipt(), ...attribution, product: 'open_mic' }], reopened: receipt(), failures: [] };
+    completion: [receipt()], persisted: [{ ...receipt(), ...attribution, product: 'open_mic' }], authority: [authority()], reopened: receipt(), failures: [] };
 }
 
 afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ''; document.documentElement.removeAttribute('data-runtime-state'); window.history.replaceState({}, '', '/'); });
 
 describe('passive product evidence', () => {
-  describe.each(['pending', 'unverified', 'legacy_unknown'])('explicit %s attribution', status => {
+  describe.each(['pending', 'unverified', 'legacy_unknown'])('noncanonical %s authority version', status => {
     it.each(missingIdentityCases)('fails with $label absent', ({ fields }) => {
       const evidence = observations();
-      evidence.persisted[0].attributionStatus = status;
-      for (const field of fields) delete evidence.persisted[0][field];
+      evidence.authority![0].authorityVersion = status;
+      for (const field of fields) delete evidence.authority![0][field];
       expect(evaluateProductEvidence(binding, evidence)).toMatchObject({
-        verdict: 'FAIL', reasons: ['persisted_attribution_unverified'],
+        verdict: 'FAIL', reasons: expect.arrayContaining(['persisted_authority_invalid']),
       });
     });
   });
@@ -42,10 +44,10 @@ describe('passive product evidence', () => {
   describe.each(['absent', 'verified'])('%s attribution evidence', status => {
     it.each(missingIdentityCases)('holds with $label absent', ({ fields }) => {
       const evidence = observations();
-      if (status === 'absent') delete evidence.persisted[0].attributionStatus;
+      if (status === 'absent') evidence.authority = [];
       for (const field of fields) delete evidence.persisted[0][field];
       expect(evaluateProductEvidence(binding, evidence)).toMatchObject({
-        verdict: 'HOLD', reasons: ['persisted_attribution_unavailable'],
+        verdict: 'HOLD', reasons: expect.arrayContaining(['persisted_attribution_unavailable']),
       });
     });
   });
@@ -59,22 +61,27 @@ describe('passive product evidence', () => {
     evidence.timeline!.candidates = [candidateId]; evidence.timeline!.backends = [backend];
     expect(evaluateProductEvidence(selected, evidence)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_candidate_identity_mismatch'] });
     Object.assign(evidence.persisted[0], { modelName, engineVersion: `${variant}:${modelName}` });
+    Object.assign(evidence.authority![0], { modelName, engineVersion: `${variant}:${modelName}` });
     expect(evaluateProductEvidence(selected, evidence).verdict).toBe('PASS');
     evidence.persisted[0].attributionStatus = 'pending';
-    expect(evaluateProductEvidence(selected, evidence)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_attribution_unverified'] });
+    expect(evaluateProductEvidence(selected, evidence).verdict).toBe('PASS');
   });
 
-  it('refuses saved text with missing, pending, unverified or mismatched persisted attribution', () => {
-    const absent = observations(); delete absent.persisted[0].attributionStatus;
-    expect(evaluateProductEvidence(binding, absent)).toMatchObject({ verdict: 'HOLD', reasons: ['persisted_attribution_unavailable'] });
-    for (const status of ['pending', 'unverified', 'legacy_unknown']) {
-      const unverified = observations(); unverified.persisted[0].attributionStatus = status;
-      expect(evaluateProductEvidence(binding, unverified)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_attribution_unverified'] });
+  it('requires canonical authority regardless of forged or stale legacy status', () => {
+    for (const status of ['verified', 'pending', 'unverified', 'legacy_unknown']) {
+      const missing = observations(); missing.persisted[0].attributionStatus = status; missing.authority = [];
+      expect(evaluateProductEvidence(binding, missing)).toMatchObject({ verdict: 'HOLD', reasons: ['persisted_authority_unavailable'] });
+      const valid = observations(); valid.persisted[0].attributionStatus = status;
+      expect(evaluateProductEvidence(binding, valid).verdict).toBe('PASS');
     }
     for (const field of ['engine', 'engineVersion', 'modelName', 'deviceType'] as const) {
       const mismatch = observations(); mismatch.persisted[0][field] = 'other';
       expect(evaluateProductEvidence(binding, mismatch)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_candidate_identity_mismatch'] });
     }
+  });
+  it.each(['engineClass', 'authorityVersion', 'provider', 'sessionSha256', ...identityFields] as const)('rejects wrong canonical %s', field => {
+    const evidence = observations(); evidence.authority![0][field] = 'wrong';
+    expect(evaluateProductEvidence(binding, evidence).verdict).toBe('FAIL');
   });
   it('requires actual partial-before-Stop and matching completion, persisted product and reopened content', () => {
     expect(evaluateProductEvidence(binding, observations()).verdict).toBe('PASS');
@@ -131,6 +138,9 @@ describe('passive product evidence', () => {
     events.emit('response', { url: () => 'https://api.example.invalid/rest/v1/sessions?id=eq.' + session, ok: () => true,
       request: () => ({ method: () => 'GET' }), json: async () => [{ id: session, transcript: text, product: 'open_mic',
         attribution_status: 'verified', engine: 'private', engine_version: 'private_v2:whisper-base.en', model_name: 'whisper-base.en', device_type: 'browser' }] } as unknown as Response);
+    events.emit('response', { url: () => 'https://api.example.invalid/rest/v1/session_attribution_authority?session_id=eq.' + session, ok: () => true,
+      request: () => ({ method: () => 'GET' }), json: async () => [{ session_id: session, authority_version: 'attrib_v1', engine_class: 'private',
+        engine: 'private', engine_version: 'private_v2:whisper-base.en', model_id: 'whisper-base.en', provider: 'transformers-js', resolved_device: 'browser' }] } as unknown as Response);
     window.history.replaceState({}, '', '/progress/' + session);
     // Repository setup replaces location with a static navigation double; advance its observed route too.
     vi.stubGlobal('location', { ...window.location, pathname: '/progress/' + session });

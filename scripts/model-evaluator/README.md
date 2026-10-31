@@ -1,5 +1,10 @@
 # Model evaluator (#1565)
 
+> PR #1760 draft checkpoint: start with the [self-contained handover](../../docs/model-evaluation-handover/README.md)
+> for current source, commands, evidence limits and open Code/Security findings. The integrated
+> package/lifecycle changes are unvalidated and the three-model in-app comparison is incomplete.
+> Earlier results below retain their historical source and do not qualify this head.
+
 ## Shared candidate adoption
 
 The application and `candidate-browser.ts` construct the same `PrivateSTT` facade.

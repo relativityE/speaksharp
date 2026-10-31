@@ -29,6 +29,8 @@ import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 import { acquisitionComponentGroupsFor, acquisitionScopeFor } from '../candidateAssetRequests';
 import { effectiveCandidate } from '../candidateSelection';
 import type { Candidate } from '../candidateRegistry';
+import { modelResponsePins } from '../candidateAssetRequests';
+import { installVerifiedAssetFetch, type AssetResponsePin } from '../verifiedAssetFetch';
 import { buildWhisperDecodeOptions } from '../decodeOptions';
 import {
     mintAcquisitionAttempt, receiptMatches,
@@ -44,6 +46,7 @@ type WorkerRequest =
         type: 'init'; isE2E: boolean;
         model?: { key: string; localId: string; remoteId: string };
         assetPrefixes?: string[];
+        responsePins?: AssetResponsePin[];
         expectedComponentGroups?: Array<{
             prefixes: string[];
             minimumUniqueCount: number;
@@ -205,6 +208,7 @@ export class TransformersJSEngine extends STTEngine {
     private workerRequestId: number = 0;
     private activeLoadRequestId: number | null = null;
     private pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
+    private restorePackageFetch: (() => void) | null = null;
 
     private resolvedModel() {
         const candidate = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate
@@ -304,6 +308,13 @@ export class TransformersJSEngine extends STTEngine {
                 !navigator.userAgent.includes('HappyDOM');
 
             env.useBrowserCache = isBrowser && !ENV.isE2E;
+            const packageCandidate = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate;
+            if (packageCandidate?.modelPackage) {
+                env.useBrowserCache = false;
+                this.restorePackageFetch?.();
+                this.restorePackageFetch = installVerifiedAssetFetch(modelResponsePins(packageCandidate),
+                    [new URL(packageCandidate.assets.servedFrom + '/', window.location.origin).href]);
+            }
 
             if (ENV.debug) {
                 logger.debug({
@@ -391,6 +402,7 @@ export class TransformersJSEngine extends STTEngine {
 
             return Result.ok(undefined);
         } catch (error) {
+            this.restorePackageFetch?.(); this.restorePackageFetch = null;
             const e = error instanceof Error ? error : new Error(String(error));
 
             // Check for common SPA 404 error (HTML returned instead of JSON)
@@ -446,6 +458,7 @@ export class TransformersJSEngine extends STTEngine {
     }
 
     protected async onDestroy(): Promise<void> {
+        this.restorePackageFetch?.(); this.restorePackageFetch = null;
         this.activeLoadRequestId = null;
         this.runtimeEvidence = null;
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Destroying engine resources...');
@@ -781,6 +794,7 @@ export class TransformersJSEngine extends STTEngine {
                 // the main window's Resource Timing cannot see a worker's requests. It needs to know
                 // which requests are the model's.
                 assetPrefixes: acquisitionScopeFor(candidateForAttempt),
+                responsePins: candidateForAttempt.modelPackage ? modelResponsePins(candidateForAttempt) : undefined,
                 expectedComponentGroups: acquisitionComponentGroupsFor(candidateForAttempt),
                 attempt,
             });
