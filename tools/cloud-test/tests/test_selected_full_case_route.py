@@ -14,6 +14,7 @@ import shutil
 
 from _fixtures import ROOT, REPO, J, sample, fake_rv
 import validate_run_request as validator
+from test_case_start_caps import synthetic_allocation, synthetic_reconciliation, bind_synthetic_files
 
 
 class SelectedFullCaseRoute(unittest.TestCase):
@@ -36,6 +37,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
                                      "startsCap": 100, "takesCap": 100, "approvalRef": "SYNTHETIC-NOT-AUTHORIZATION", "approvedBy": "UNIT-FIXTURE"}
         request["window"] = {"startUtc": "2026-10-30T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "SYNTHETIC-NOT-AUTHORIZATION"}
         request["selectionApprovalRef"] = "SYNTHETIC-NOT-AUTHORIZATION"
+        synthetic_allocation(request)
         return base, request
 
     def environment(self, request):
@@ -44,7 +46,8 @@ class SelectedFullCaseRoute(unittest.TestCase):
         root = Path(temporary.name).resolve()
         request_file, output = root / "request.json", root / "env.txt"
         request_file.write_text(json.dumps(request))
-        result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", str(request_file), "--out", str(output)],
+        rc = root / "reconciliation.json"; rc.write_text(json.dumps(synthetic_reconciliation()))
+        result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", str(request_file), "--reconciliation", str(rc), "--out", str(output)],
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         values = {}
@@ -71,6 +74,8 @@ class SelectedFullCaseRoute(unittest.TestCase):
         req, facts, uid = root / "request.json", root / "facts.json", root / "account.txt"
         req.write_text(json.dumps(request)); req.chmod(0o600)
         facts.write_text(json.dumps(J("tests", "fixtures", "plan-facts.PLACEHOLDER.json"))); facts.chmod(0o600)
+        bindings = bind_synthetic_files(root, request)
+        (output / "reconciliation.json").write_bytes(Path(bindings["BP_RECONCILIATION_FILE"]).read_bytes())
         uid.write_text("00000000-0000-4000-8000-000000000001"); uid.chmod(0o600)
         env = {"PATH": os.environ["PATH"], "HOME": str(root), "CT_CONFIG": str(Path(ROOT) / "config/test-config.v1.json"),
                "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),

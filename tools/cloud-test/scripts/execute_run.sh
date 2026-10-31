@@ -119,7 +119,7 @@ require_runtime_inputs() {
   fi
 }
 
-plan_env_file() { python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --out "$OUT/plan-env.txt" >/dev/null; }
+plan_env_file() { python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --reconciliation "$OUT/reconciliation.json" --out "$OUT/plan-env.txt" >/dev/null; }
 
 build() {
   local private="$1" with_receipt="${2:-}" builder="$REPO/$(python3 -I "$ROOT/scripts/cfg_get.py" "$CFG" harness.planBuilder)"

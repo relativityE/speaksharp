@@ -11,6 +11,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import hashlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -27,6 +28,7 @@ def placeholder_request(packet):
                              "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
     req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
     req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
+    req["approvedLimits"]["startPressCaps"] = dict(req["proposedLimits"]["startPressCaps"])
     return req
 
 
@@ -51,17 +53,32 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None):
         raise SystemExit("--out must not exist")
     pdfjs = pinned_pdfjs()
     work = tempfile.mkdtemp(prefix="ct-proof-prep-")
-    reqp, acct, envf = (os.path.join(work, n) for n in ("req.json", "acct.txt", "env.txt"))
+    reqp, acct, envf, rcp, factp = (os.path.join(work, n) for n in ("req.json", "acct.txt", "env.txt", "reconciliation.json", "facts.json"))
+    request = placeholder_request(packet)
     with open(reqp, "w", encoding="utf-8") as f:
-        json.dump(placeholder_request(packet), f)
+        json.dump(request, f)
+    # Explicit made-up counters go through the real approval contract. These
+    # inputs qualify code only and never authorize a product run.
+    with open(rcp, "w", encoding="utf-8") as f:
+        json.dump({"synthetic": "PLACEHOLDER-NOT-A-RUN", "starts": {"ownerCounted": 0}, "ceilings": {"starts": 85}}, f)
+    with open(os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), encoding="utf-8") as f:
+        facts = json.load(f)
+    def sha_file(path):
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    facts["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1", "requestSha256": sha_file(reqp),
+        "reconciliationSha256": sha_file(rcp), "approvalRef": request["approvedLimits"]["approvalRef"],
+        "approvedBy": request["approvedLimits"]["approvedBy"], "selectionApprovalRef": request["selectionApprovalRef"]}
+    with open(factp, "w", encoding="utf-8") as f:
+        json.dump(facts, f)
     with open(acct, "w", encoding="utf-8") as f:
         f.write(DUMMY_ACCOUNT + "\n")
     os.chmod(acct, 0o600)
     base = {"PATH": os.environ["PATH"], "HOME": work}
-    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "run_env.py"), "--request", reqp, "--out", envf], capture_output=True, text=True, cwd=ROOT, env=base)
+    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "run_env.py"), "--request", reqp, "--reconciliation", rcp, "--out", envf], capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
         raise SystemExit("run_env.py failed (%d)" % r.returncode)
-    env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"),
+    env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=factp,
                BP_ACCOUNT_ID_FILE=acct, BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
                BP_ENV_ID="env_PLACEHOLDER", BP_MEDIA_PARENT=os.path.join(work, "media"), VITE_SUPABASE_ANON_KEY="placeholder-publishable-key", BP_PDFJS_DIR=pdfjs)
     for phase in phases:

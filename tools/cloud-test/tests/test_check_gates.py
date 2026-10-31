@@ -1,12 +1,18 @@
 import copy
 import unittest
 
-from _fixtures import ROOT, approved, fake_rv, receipt, reconciliation, sample
+from _fixtures import ROOT, approved as base_approved, fake_rv, receipt, reconciliation, sample
 from _gate_fixtures import GateInputs
 import check_gates as C
 import validate_run_request as V
 
 NOW = "2026-10-28T22:00:00Z"
+
+
+def approved(req, ledger):
+    r, l = base_approved(req, ledger)
+    r["approvedLimits"]["startPressCaps"] = dict(r["proposedLimits"]["startPressCaps"])
+    return r, l
 
 
 class CheckGates(unittest.TestCase):
@@ -154,6 +160,13 @@ class CheckGates(unittest.TestCase):
         r, l = approved(self.req, self.ledger)
         r["harness"]["ownerApprovalRef"] = None
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G3"], "OWNER-INPUT-OPEN")
+
+    def test_g5_never_accepts_aggregate_only_start_permission(self):
+        r,l=approved(self.req,self.ledger)
+        r['approvedLimits']['startPressCaps']=None
+        self.assertEqual(self.status(self.ev(r,l,receipt(r)))['G5'],'OWNER-INPUT-OPEN')
+        r['approvedLimits']['startPressCaps']={'AHT-12':True}
+        self.assertEqual(self.status(self.ev(r,l,receipt(r)))['G5'],'NOT-READY')
 
 
 if __name__ == "__main__":

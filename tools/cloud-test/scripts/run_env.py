@@ -9,7 +9,8 @@ import shlex
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _common import load  # noqa: E402
+from _common import load, sha256_file  # noqa: E402
+from case_start_caps import reconcile_caps
 
 
 SAMPLE = {"partial": "minimal", "full": "full"}
@@ -28,9 +29,14 @@ def num(case):
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--request", required=True)
+    a.add_argument("--reconciliation", required=True)
     a.add_argument("--out", required=True)
     x = a.parse_args()
     r = load(x.request)
+    try:
+        reconcile_caps(r, load(x.reconciliation), execution=True)
+    except (ValueError, TypeError, KeyError):
+        sys.exit("BLOCKED_SETUP: invalid Start allocation")
     mode = r.get("coverageMode")
     if mode not in BP_MODE:
         sys.exit("coverageMode must be partial or full; the plan mode is never defaulted")
@@ -50,6 +56,8 @@ def main():
             gc, row = s["gate"].split(":")
             gates.append("%d:%d:%s" % (num(s["case"]), num(gc), row))
     env = {
+        "BP_REQUEST_FILE": os.path.realpath(x.request), "BP_REQUEST_SHA256": sha256_file(x.request),
+        "BP_RECONCILIATION_FILE": os.path.realpath(x.reconciliation), "BP_RECONCILIATION_SHA256": sha256_file(x.reconciliation),
         "BP_CAMPAIGN": r["runId"], "BP_MODE": builder_mode, "BP_RUNTIME": runtime, "BP_T0": win["startUtc"], "BP_T1": win["endUtc"],
         "BP_PRODUCER_MODE": "same-github-job" if runtime == "GitHub Actions SpeakSharp" and any(s["case"] in ("AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08") for s in sel) else "unavailable",
         "BP_TOTAL": str(appr["runCapRequests"]), "BP_CLEANUP": str(est["requests"]["cleanupReserve"]), "BP_COACHING_CAP": str(est["providerBillableRequests"]["coachingCap"]),

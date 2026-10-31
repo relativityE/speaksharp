@@ -25,3 +25,56 @@ test('builder refusal retains preparation for diagnosis but creates no runnable 
 test('CLI accepts only the fixed preparation command, no arbitrary executable',()=>{const old=console.error;let output='';console.error=x=>{output+=x;};try{assert.equal(main(['--exec','echo PRIVATE']),78);}finally{console.error=old;}assert.equal(output,'NOT_RUN: AUTHENTICATED_JOB_PREPARATION_REFUSED');assert(!output.includes('PRIVATE'));});
 test('inactive producer manifest rows grant no extra account/evidence scope',t=>{const f=fixture(t);f.mutatePlan=p=>{p.cases.push({id:'AHT-02'});p.selection={ids:['AHT-01','AHT-07','AHT-15']};};const result=prepare(f);assert.deepEqual(JSON.parse(fs.readFileSync(result.scope.file)).caseIds,['AHT-01','AHT-07']);});
 test('scope for an unselected producer case refuses instead of widening selection',t=>{const f=fixture(t);f.mutatePlan=p=>{p.selection={ids:['AHT-07','AHT-15']};};assert.throws(()=>prepare(f),/PRODUCER_CASES_DIFFER/);assert.equal(fs.existsSync(path.join(f.out,'producer-scope.json')),false);});
+
+function actualFixture(t){
+ const f=fixture(t),r=JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/partial-request.json')));
+ f.scope.caseIds=['AHT-08'];f.scope.sourceSha=f.scope.servedSha='66328703bf47e865b730e229005411e78481d34c';
+ const caps={'AHT-08':0};
+ Object.assign(r,{runId:f.scope.campaignId,coverageMode:'partial',sampleMode:'full',executionRuntime:'GitHub Actions SpeakSharp',selectionApprovalRef:'SYNTHETIC-NOT-A-RUN'});
+ r.release.testedSha=f.scope.sourceSha;r.window={startUtc:f.scope.notBefore,endUtc:f.scope.deadlineAt};
+ r.selection=[{order:1,case:'AHT-08',plannedRequests:100,startPressCap:0,gate:null}];
+ Object.assign(r.estimate,{starts:0,identityReads:4,requests:{planned:100,cleanupReserve:50,pooledSlack:0,runCap:150},providerBillableRequests:{coachingCap:0,basis:'SYNTHETIC-NOT-A-RUN'}});
+ r.proposedLimits.startPressCaps=caps;
+ Object.assign(r.approvedLimits,{startPressCaps:caps,startsCap:100,runCapRequests:150,approvalRef:'SYNTHETIC-NOT-A-RUN',approvedBy:'SYNTHETIC-NOT-A-RUN'});
+ const write=(name,v)=>{const file=path.join(f.root,name);fs.writeFileSync(file,JSON.stringify(v),{mode:0o600});return file;};
+ const request=write('request.json',r),rc=write('reconciliation.json',{synthetic:'NOT-A-RUN',starts:{ownerCounted:0},ceilings:{starts:100}});
+ const facts=JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/plan-facts.PLACEHOLDER.json')));
+ Object.assign(facts,{ownerApprovalReference:f.scope.ownerApprovalReference,producerReviewReference:f.scope.producerReviewReference,
+  actionApproval:{schema:'speaksharp.case-start-approval.v1',requestSha256:hash(fs.readFileSync(request)),reconciliationSha256:hash(fs.readFileSync(rc)),approvalRef:r.approvedLimits.approvalRef,approvedBy:r.approvedLimits.approvedBy,selectionApprovalRef:r.selectionApprovalRef}});
+ fs.writeFileSync(f.env.BP_FACTS,JSON.stringify(facts));
+ Object.assign(f.env,{BP_MODE:'selected-full',BP_CHECKOUT:path.resolve(__dirname,'../../..'),BP_SOURCE_SHA:f.scope.sourceSha,
+  BP_REQUEST_FILE:request,BP_REQUEST_SHA256:hash(fs.readFileSync(request)),BP_RECONCILIATION_FILE:rc,BP_RECONCILIATION_SHA256:hash(fs.readFileSync(rc)),
+  BP_SELECT:'8',BP_CASES:Array.from({length:15},(_,i)=>i+1).join(','),BP_EST:'8:100',BP_SELECT_REF:r.selectionApprovalRef,BP_SELECT_REASON:'SYNTHETIC-NOT-A-RUN',
+  BP_IDENT:'4',BP_TOTAL:'150',BP_CLEANUP:'50',BP_COACHING_CAP:'0',BP_MEDIA_PARENT:path.join(f.root,'media'),VITE_SUPABASE_ANON_KEY:'SYNTHETIC-PUBLISHABLE'});
+ f.repin();delete f.runBuilder;return f;
+}
+test('actual prepare spawns the fixed isolated builder for both phases and transports all four bindings',t=>{
+ const f=actualFixture(t),result=prepare(f),plan=JSON.parse(fs.readFileSync(result.plan.file));
+ assert.equal(plan.cases.length,15);assert.deepEqual(plan.selection.ids,['AHT-08']);
+ const c=JSON.parse(fs.readFileSync(path.join(f.out,'cases/AHT-08.json')));
+ assert.equal(c.startPressApproval.requestSha256,f.env.BP_REQUEST_SHA256);
+ assert.equal(c.startPressApproval.reconciliationSha256,f.env.BP_RECONCILIATION_SHA256);
+ assert.equal(fs.existsSync(path.join(f.root,'media')),false);
+ assert.equal(fs.existsSync(path.join(f.out,'run')),false);
+});
+for(const key of ['BP_REQUEST_FILE','BP_REQUEST_SHA256','BP_RECONCILIATION_FILE','BP_RECONCILIATION_SHA256'])
+ test('actual prepare refuses a dropped binding without new builder files: '+key,t=>{
+  const f=actualFixture(t);delete f.env[key];assert.throws(()=>prepare(f),/PLAN_BUILD_REFUSED/);
+  assert.deepEqual(fs.readdirSync(f.out),['producer-descriptor.json']);
+ });
+
+for(const caseId of ['AHT-13','AHT-14'])test(caseId+' real Start helper journals and fsyncs three recovery actions; fourth is refused before click',async t=>{
+ const {ActionBudget}=require('../harness/bundle/harness/action-budget.cjs');
+ const ui=require('../harness/draft-adapters/browser-actions.cjs');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'recovery-actions-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const budget=new ActionBudget({runDir:dir,caseId,startPressCap:3,takeCap:1}),clicks=[],order=[];
+ const originalSync=fs.fsyncSync;fs.fsyncSync=fd=>{order.push('fsync');return originalSync(fd);};t.after(()=>{fs.fsyncSync=originalSync;});
+ const page={getByTestId:control=>({click:async()=>{const rows=fs.readFileSync(budget.file,'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(rows.at(-1).control,control);assert.equal(rows.at(-1).ordinal,clicks.length+1);assert.equal(order.at(-1),'fsync');
+  order.push('click');clicks.push(control);}})};
+ ui.bindStartPressRecorder(page,control=>budget.reserveStart({caseId,control}));
+ for(const control of ['mic-download','mic-retry','mic-start'])await ui.pressStart(page,control);
+ const before=fs.readFileSync(budget.file);await assert.rejects(ui.pressStart(page,'mic-start'),e=>e.code==='START_PRESS_CAP');
+ assert.deepEqual(clicks,['mic-download','mic-retry','mic-start']);assert.deepEqual(fs.readFileSync(budget.file),before);
+ assert.equal(budget.summary().used.startPresses,3);
+});

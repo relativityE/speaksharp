@@ -49,7 +49,7 @@ CONTRACTS['AHT-01'].rows.push(...presentation.OPEN_ROWS);
 for(const id of ['AHT-02','AHT-03'])CONTRACTS[id].rows.push(...presentation.FOCUS_ROWS);
 // Full AHT12 cold recovery: denied Start, explicit setup Retry, then a separate recording Start.
 // This strengthens preflight refusal for an insufficient approved cap; it never raises that cap.
-const START_PRESS_MINIMUM=[4,7,4,2,2,2,2,0,3,3,4,3,2,2,0];
+const START_PRESS_MINIMUM=[4,7,4,2,2,2,2,0,3,3,4,3,3,3,0];
 for(const [i,c]of Object.values(CONTRACTS).entries()){c.startPresses=START_PRESS_MINIMUM[i];c.rows=['owner-bound',...c.rows,'start-press-budget','no-cloud-stt','owned-pages-closed'];}
 CONTRACTS['AHT-09'].rows.push('navigation-ready');
 CONTRACTS['AHT-15'].rows.push('return-entry-mic-off','deep-link-exact-return','deep-link-rendered-own-detail','deep-link-mic-off','return-signed-out');
