@@ -1,11 +1,12 @@
 {
   "schema": "speaksharp.cloud-test.browser-baselines.v1",
-  "policy": "PO 2026-10-31: no browser download or install. Each environment uses its preinstalled Chrome/Chromium at or above its OWN established baseline; the observed path, version and sha256 are recorded every run. A baseline is set or raised only by a reviewed change to this file, never lowered or reset by a run. An environment without an entry here is setup-blocked.",
+  "policy": "PO 2026-10-31: no browser download or install. Each environment uses its preinstalled Chrome/Chromium at or above its OWN established baseline; the observed path, version and sha256 of the native browser binary are recorded every run (a launcher script is refused, never hashed in its place). A baseline is set or raised only by a reviewed change to this file, never lowered or reset by a run. An environment without an entry here is setup-blocked.",
   "environments": {
     "github-hosted": {
       "minimumMajor": 156,
       "established": "2026-10-31 (PO via Sam 1793459012.268649 / 1793459056.147699): GitHub-hosted ubuntu-24.04 image 20261026.354.1 lists Google Chrome 156.0.8078.47 and Chromium 156.0.8078.0. Proposed baseline; the first qualification run discloses the actual version used.",
       "candidates": [
+        "/opt/google/chrome/chrome",
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
         "/opt/google/chrome/chrome",

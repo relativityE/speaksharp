@@ -57,12 +57,29 @@ def verify_existing(browser, path):
 VERSION_LINE = re.compile(r"^(Google Chrome|Chromium)(?: for Testing)? (\d+)\.(\d+)\.(\d+)\.(\d+)\b")
 
 
+NATIVE_FORMATS = {b"\x7fELF": "ELF", b"\xfe\xed\xfa\xce": "Mach-O", b"\xfe\xed\xfa\xcf": "Mach-O", b"\xce\xfa\xed\xfe": "Mach-O",
+                  b"\xcf\xfa\xed\xfe": "Mach-O", b"\xca\xfe\xba\xbe": "Mach-O universal"}
+
+
+def native_format(path):
+    """The executable format when `path` is a native binary; None for a launcher script or any other file."""
+    with open(path, "rb") as f:
+        return NATIVE_FORMATS.get(f.read(4))
+
+
 def probe_installed(path, minimum):
-    """(version match, None) when `path` is an executable browser whose `--version` exits 0 and meets `minimum`; else (None, reason)."""
+    """(identity, None) when `path` resolves to a native browser binary whose `--version` exits 0 and meets `minimum`; else (None, reason).
+    The resolved binary itself is what runs, is hashed and is recorded: a launcher script is refused, so its hash can never stand in for
+    the browser it execs, and the bytes must be unchanged across the version check."""
     if not path or not os.path.isfile(path) or not os.access(path, os.X_OK):
         return None, "%s: missing or not executable" % (path or "''")
+    real = os.path.realpath(path)
+    fmt = native_format(real)
+    if fmt is None:
+        return None, "%s: %s is a launcher script or not a native executable, not the browser binary" % (path, real)
+    before = sha(real)
     try:
-        r = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=30)
+        r = subprocess.run([real, "--version"], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError) as e:
         return None, "%s: did not report its version (%s)" % (path, e)
     out = r.stdout.strip()
@@ -73,7 +90,9 @@ def probe_installed(path, minimum):
         return None, "%s: unrecognised version output %r" % (path, out[:80])
     if int(m.group(2)) < minimum:
         return None, "%s: %s is below the established baseline %d" % (path, out[:80], minimum)
-    return m, None
+    if os.path.realpath(path) != real or sha(real) != before:
+        return None, "%s: the binary changed during the version check" % path
+    return {"path": real, "format": fmt, "product": m.group(1), "version": ".".join(m.group(i) for i in range(2, 6)), "sha256": before}, None
 
 
 def discover_installed(baselines_file, environment, candidate):
@@ -86,8 +105,8 @@ def discover_installed(baselines_file, environment, candidate):
     paths = [candidate] if candidate is not None else list(env.get("candidates") or [])
     reasons = []
     for path in paths:
-        m, reason = probe_installed(path, env["minimumMajor"])
-        if m:
+        found, reason = probe_installed(path, env["minimumMajor"])
+        if found:
             break
         reasons.append(reason)
     else:
@@ -95,8 +114,8 @@ def discover_installed(baselines_file, environment, candidate):
     return {"schema": "speaksharp.cloud-test.installed-browser.v1",
             "acquisition": "preinstalled; no installation or download",
             "environment": environment, "minimumMajor": env["minimumMajor"], "baselinesSha256": sha(baselines_file),
-            "path": os.path.realpath(path), "product": m.group(1), "version": ".".join(m.group(i) for i in range(2, 6)),
-            "observedBinarySha256": sha(path), "versionExecuted": True, "browserLaunched": False, "rejectedCandidates": reasons}
+            "path": found["path"], "binaryFormat": found["format"], "product": found["product"], "version": found["version"],
+            "observedBinarySha256": found["sha256"], "versionExecuted": True, "browserLaunched": False, "rejectedCandidates": reasons}
 
 
 def write_receipt(path, identity):

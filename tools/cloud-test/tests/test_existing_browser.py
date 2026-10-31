@@ -3,6 +3,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -11,6 +12,8 @@ from unittest import mock
 
 from _fixtures import sample
 import install_browser
+
+REAL_NATIVE_FORMAT = install_browser.native_format
 
 
 class ExistingBrowserOnly(unittest.TestCase):
@@ -110,20 +113,31 @@ class ExistingBrowserOnly(unittest.TestCase):
 
 class InstalledBrowserBaseline(unittest.TestCase):
     """--installed (PO 2026-10-31): the preinstalled browser at or above the environment's own baseline; never a download or install.
-    The fake browsers are scripts that only answer --version, so nothing real is launched."""
+    The fake browsers are scripts that only answer --version, so nothing real is launched. A fake made with fake() stands in for a native
+    binary (native_format is answered for it); one made with launcher() keeps the real check and is therefore a launcher script."""
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="ct-installed-browser-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.config = self.root / "config.json"
         self.config.write_text(json.dumps(sample()["cfg"]))
+        self.binaries = set()
+        real_check = install_browser.native_format
+        patcher = mock.patch.object(install_browser, "native_format", side_effect=lambda p: "ELF" if os.path.realpath(p) in self.binaries else real_check(p))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.chrome = self.fake("chrome", "Google Chrome 156.0.8078.47")
         self.baselines = self.root / "baselines.json"
         self.write_baselines({"github-hosted": {"minimumMajor": 156, "candidates": [str(self.root / "absent"), str(self.chrome)]}})
 
-    def fake(self, name, version_line, exit_code=0):
+    def fake(self, name, version_line, exit_code=0, body=""):
+        p = self.launcher(name, version_line, exit_code, body)
+        self.binaries.add(os.path.realpath(p))
+        return p
+
+    def launcher(self, name, version_line, exit_code=0, body=""):
         p = self.root / name
-        p.write_text("#!/bin/sh\necho '%s'\nexit %d\n" % (version_line, exit_code))
+        p.write_text("#!/bin/sh\necho '%s'\n%sexit %d\n" % (version_line, body, exit_code))
         p.chmod(0o700)
         return p
 
@@ -157,7 +171,7 @@ class InstalledBrowserBaseline(unittest.TestCase):
         r = json.loads((self.root / "identity.json").read_text())
         self.assertEqual((r["schema"], r["environment"], r["minimumMajor"], r["product"], r["version"]),
                          ("speaksharp.cloud-test.installed-browser.v1", "github-hosted", 156, "Google Chrome", "156.0.8078.47"))
-        self.assertEqual(r["path"], str(self.chrome.resolve()))
+        self.assertEqual((r["path"], r["binaryFormat"]), (str(self.chrome.resolve()), "ELF"))
         self.assertEqual(r["observedBinarySha256"], hashlib.sha256(self.chrome.read_bytes()).hexdigest())
         self.assertEqual(r["baselinesSha256"], hashlib.sha256(self.baselines.read_bytes()).hexdigest())
         self.assertEqual((r["versionExecuted"], r["browserLaunched"], r["sourceSha"], r["runId"]), (True, False, "a1" * 20, "SYNTHETIC-offline-1"))
@@ -179,6 +193,42 @@ class InstalledBrowserBaseline(unittest.TestCase):
         self.assertEqual((r["product"], r["version"]), ("Chromium", "156.0.8078.0"))
         self.assertEqual(len(r["rejectedCandidates"]), 1)
         self.assertIn("below the established baseline", r["rejectedCandidates"][0])
+
+    def test_a_real_native_executable_is_recognised_and_a_launcher_script_is_not(self):
+        self.assertIn(REAL_NATIVE_FORMAT(os.path.realpath(sys.executable)), ("ELF", "Mach-O", "Mach-O universal"))
+        self.assertIsNone(REAL_NATIVE_FORMAT(str(self.launcher("wrapper", "Google Chrome 156.0.8078.47"))))
+        text = self.root / "notes.txt"
+        text.write_text("Google Chrome 156.0.8078.47\n")
+        self.assertIsNone(REAL_NATIVE_FORMAT(str(text)))
+
+    def test_an_explicit_launcher_script_is_refused_even_when_its_version_qualifies(self):
+        self.refused("--candidate", self.launcher("google-chrome", "Google Chrome 156.0.8078.47"))
+
+    def test_a_listed_launcher_is_skipped_for_the_binary_it_execs(self):
+        wrapper = self.launcher("google-chrome", "Google Chrome 156.0.8078.47")
+        self.write_baselines({"github-hosted": {"minimumMajor": 156, "candidates": [str(wrapper), str(self.chrome)]}})
+        self.assertEqual(self.call(), str(self.chrome.resolve()))
+        r = json.loads((self.root / "identity.json").read_text())
+        self.assertEqual(r["observedBinarySha256"], hashlib.sha256(self.chrome.read_bytes()).hexdigest())
+        self.assertIn("launcher script", r["rejectedCandidates"][0])
+
+    def test_an_unchanged_launcher_with_a_changed_binary_is_refused_by_the_consumer(self):
+        import generate_offline_proof
+        wrapper = self.launcher("google-chrome", "Google Chrome 156.0.8078.47")
+        self.write_baselines({"github-hosted": {"minimumMajor": 156, "candidates": [str(wrapper), str(self.chrome)]}})
+        self.call()
+        receipt = str(self.root / "identity.json")
+        self.assertEqual(generate_offline_proof.pinned_chrome(str(self.chrome), {}, receipt), str(self.chrome))
+        wrapper_bytes = wrapper.read_bytes()
+        self.chrome.write_text(self.chrome.read_text() + "# swapped browser build\n")
+        self.assertEqual(wrapper.read_bytes(), wrapper_bytes)
+        for path in (self.chrome, wrapper):
+            with self.subTest(path=path.name), self.assertRaises(SystemExit) as error:
+                generate_offline_proof.pinned_chrome(str(path), {}, receipt)
+            self.assertIn("BLOCKED_SETUP", str(error.exception.code))
+
+    def test_a_binary_that_changes_during_its_version_check_is_refused(self):
+        self.refused("--candidate", self.fake("mutating", "Google Chrome 156.0.8078.47", body="printf '#' >> \"$0\"\n"))
 
     def test_a_failing_version_command_is_refused_despite_valid_looking_output(self):
         self.refused("--candidate", self.fake("crashing", "Google Chrome 156.0.8078.47", exit_code=1))
