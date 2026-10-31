@@ -24,7 +24,8 @@ OBLIGATION_PAGES_MAX = 20
 
 LIST_INPUTS = ("snapshotSizes", "leaseHeldIntervalsMs", "scanObligationCounts", "loadQueueSizes")
 COUNT_INPUTS = ("saveEvaluationInvocations", "distinctRetryDebtsUpperBound", "historyQueryLifecycles",
-                "recommendationSettlementInvocations", "cancelledAttempts", "localRetrySkips",
+                "recommendationSettlementInvocations", "leaseAcquisitions", "leaseConfirmations", "openAttemptAdvances",
+                "cancelledAttempts", "localRetrySkips",
                 "bootstrap", "auth", "navigation", "modelAcquisition", "preflights", "successorSave", "evidenceTail")
 INPUTS = frozenset(LIST_INPUTS + COUNT_INPUTS)
 
@@ -63,6 +64,8 @@ def compute(projection):
     components = {
         "harness": OTHER_HARNESS_GETS + sum(max(1, -(-n // PAGE_ROWS)) for n in sizes),
         "heartbeat": sum(t // HEARTBEAT_MS for t in lists["leaseHeldIntervalsMs"]),
+        # recordingLease.ts: each take sends one acquire and one release; each confirmTakeLease sends one immediate heartbeat.
+        "leaseControl": 2 * counts["leaseAcquisitions"] + counts["leaseConfirmations"],
         "obligations": sum(min(OBLIGATION_PAGES_MAX, n // OBLIGATION_PAGE + 1) for n in lists["scanObligationCounts"]),
         # Released debt retried on a later authenticated load is a separate, charged attempt (each load's queue counts);
         # a local 250 ms retry skip is not an HTTP request, so localRetrySkips is declared but contributes nothing.
@@ -70,13 +73,15 @@ def compute(projection):
                        + 3 * counts["distinctRetryDebtsUpperBound"]),
         "history": 6 * counts["historyQueryLifecycles"],
         "recommendation": 4 * counts["recommendationSettlementInvocations"],
+        # recordProgress.ts advanceBoundAttempt: an advance, a not_comparable advance, and an already-resolved readback.
+        "attemptAdvance": 3 * counts["openAttemptAdvances"],
         "cancelledAttempts": counts["cancelledAttempts"],
         "localRetrySkips": 0,
     }
     for name in ("bootstrap", "auth", "navigation", "modelAcquisition", "preflights", "successorSave", "evidenceTail"):
         components[name] = counts[name]
     total = sum(components.values())
-    return {"schema": "speaksharp.cloud-test.case10-request-bound.v1", "caseId": "AHT-10",
+    return {"schema": "speaksharp.cloud-test.case10-request-bound.v2", "caseId": "AHT-10",
             "allowance": ALLOWANCE, "components": components, "transmittedBound": total,
             "fitsAllowance": total <= ALLOWANCE,
             "harnessAttemptedCeiling": OTHER_HARNESS_GETS + SCANS * MAX_PAGES,

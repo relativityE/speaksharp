@@ -1,10 +1,10 @@
 """Case 10 request bound (R5 dossier, Case 10 acceptance tests and falsifying controls).
 
-The allowance and pagination controls run the REAL harness modules under node; the component-sum controls run the
-planning module. Baseline 99/100 refusal and the 98 Start boundary are covered by
-harness/draft-adapters/tests/case10-admission.offline.test.cjs and are not duplicated here.
+The allowance and pagination controls run the REAL harness modules under node. ArithmeticOnly checks the planning
+module's arithmetic and input refusal; it observes no traffic. The product mechanisms are observed, and compared with
+this module's declared components, by frontend/tests/unit/case10RequestBound.observed.test.ts. Baseline 99/100 refusal
+and the 98 Start boundary are covered by harness/draft-adapters/tests/case10-admission.offline.test.cjs.
 """
-import copy
 import json
 import os
 import re
@@ -29,7 +29,8 @@ def node(script, *args):
 def projection(**over):
     p = {"snapshotSizes": [3, 3, 4, 4, 5, 5], "leaseHeldIntervalsMs": [60000], "scanObligationCounts": [10, 10],
          "loadQueueSizes": [2], "saveEvaluationInvocations": 2, "distinctRetryDebtsUpperBound": 1,
-         "historyQueryLifecycles": 2, "recommendationSettlementInvocations": 1, "cancelledAttempts": 1,
+         "historyQueryLifecycles": 2, "recommendationSettlementInvocations": 1, "leaseAcquisitions": 2,
+         "leaseConfirmations": 2, "openAttemptAdvances": 1, "cancelledAttempts": 1,
          "localRetrySkips": 4, "bootstrap": 5, "auth": 3, "navigation": 4, "modelAcquisition": 2, "preflights": 2,
          "successorSave": 3, "evidenceTail": 2}
     p.update(over)
@@ -42,7 +43,7 @@ class RealAllowanceAndPagination(unittest.TestCase):
         prerequisite(shutil.which("node"), "node")
 
     def test_allowance_240_admits_240_requests_and_refuses_request_241(self):
-        d = tempfile.mkdtemp(prefix="ct-case10-ledger-")
+        d = os.path.realpath(tempfile.mkdtemp(prefix="ct-case10-ledger-"))  # the ledger refuses a symlinked parent (macOS /var)
         r = node("""
 const {Ledger}=require(process.argv[1]);
 const l=new Ledger(process.argv[2]+'/campaign-ledger.json',{total:1000});
@@ -82,7 +83,9 @@ capture.readBaselineRows(db,uid).then(res=>console.log(JSON.stringify({directRef
         self.assertEqual(len(re.findall(r"\brows\(\)", m.group(0))), 1)
 
 
-class ComponentBound(unittest.TestCase):
+class ArithmeticOnly(unittest.TestCase):
+    """The calculator's arithmetic over supplied integers. These prove no mechanism fits the bound."""
+
     def test_six_one_page_scans_plus_six_other_gets_total_twelve(self):
         self.assertEqual(B.compute(projection())["components"]["harness"], 12)
         self.assertEqual(B.compute(projection())["harnessAttemptedCeiling"], 72)
@@ -104,14 +107,17 @@ class ComponentBound(unittest.TestCase):
     def test_immediate_calls_retries_cancelled_attempts_and_each_tick_are_charged(self):
         base = B.compute(projection())["transmittedBound"]
         self.assertEqual(B.compute(projection(cancelledAttempts=2))["transmittedBound"], base + 1)
+        self.assertEqual(B.compute(projection(leaseConfirmations=3))["transmittedBound"], base + 1)
+        self.assertEqual(B.compute(projection(leaseAcquisitions=3))["transmittedBound"], base + 2)
+        self.assertEqual(B.compute(projection(openAttemptAdvances=2))["transmittedBound"], base + 3)
         self.assertEqual(B.compute(projection(leaseHeldIntervalsMs=[65000]))["transmittedBound"], base + 1)
         self.assertEqual(B.compute(projection(saveEvaluationInvocations=3))["transmittedBound"], base + 3)
 
     def test_worst_path_component_sum_equals_the_transmitted_bound_and_names_every_term(self):
         r = B.compute(projection())
         self.assertEqual(sum(r["components"].values()), r["transmittedBound"])
-        for term in ("harness", "heartbeat", "obligations", "evaluation", "history", "recommendation", "cancelledAttempts",
-                     "bootstrap", "auth", "navigation", "modelAcquisition", "preflights", "successorSave", "evidenceTail"):
+        for term in ("harness", "heartbeat", "leaseControl", "obligations", "evaluation", "history", "recommendation",
+                     "attemptAdvance", "cancelledAttempts", "bootstrap", "auth", "navigation", "modelAcquisition", "preflights", "successorSave", "evidenceTail"):
             self.assertIn(term, r["components"])
         self.assertGreater(r["components"]["successorSave"], 0)
         self.assertGreater(r["components"]["evidenceTail"], 0)
@@ -151,12 +157,6 @@ class ComponentBound(unittest.TestCase):
         refused = subprocess.run(["python3", "-I", script, bad], capture_output=True, text=True, timeout=60)
         self.assertEqual(refused.returncode, 78)
         self.assertIn("INPUT_MISSING:successorSave", refused.stderr)
-
-    def test_falsifier_dropping_a_term_changes_the_sum(self):
-        r = B.compute(projection())
-        without = copy.deepcopy(r["components"])
-        without.pop("evidenceTail")
-        self.assertNotEqual(sum(without.values()), r["transmittedBound"])
 
 
 if __name__ == "__main__":
