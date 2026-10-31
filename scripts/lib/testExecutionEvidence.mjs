@@ -87,11 +87,15 @@ export function testEnvironment(directory, binding, envelopeFile, sourceEnvironm
   const temp=path.join(directory,'.efficacy-tmp');
   fs.mkdirSync(home,{recursive:true});fs.mkdirSync(temp,{recursive:true});
   const proofCases=sourceEnvironment.CT_PROOF_CASES_DIR;
-  if(proofCases&&(!path.isAbsolute(proofCases)||fs.realpathSync(proofCases)!==proofCases||!fs.statSync(proofCases).isDirectory()))
-    throw new Error('Invalid CT_PROOF_CASES_DIR');
+  if(proofCases) {
+    try {if(!path.isAbsolute(proofCases)||fs.realpathSync(proofCases)!==proofCases||!fs.statSync(proofCases).isDirectory())throw new Error();}
+    catch{throw new Error('Invalid CT_PROOF_CASES_DIR');}
+  }
   const pdfjs=sourceEnvironment.CT_EXISTING_PDFJS_DIR;
-  if(pdfjs&&(!path.isAbsolute(pdfjs)||fs.realpathSync(pdfjs)!==pdfjs||!fs.statSync(pdfjs).isDirectory()))
-    throw new Error('Invalid CT_EXISTING_PDFJS_DIR');
+  if(pdfjs) {
+    try {if(!path.isAbsolute(pdfjs)||fs.realpathSync(pdfjs)!==pdfjs||!fs.statSync(pdfjs).isDirectory())throw new Error();}
+    catch{throw new Error('Invalid CT_EXISTING_PDFJS_DIR');}
+  }
   return {PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(path.delimiter),
     HOME:home,USERPROFILE:home,TMPDIR:temp,TMP:temp,TEMP:temp,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',
     CI:'true',NODE_ENV:'test',NODE_V8_COVERAGE:'',VITEST_MAX_FORKS:'1',
