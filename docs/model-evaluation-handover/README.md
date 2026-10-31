@@ -122,7 +122,7 @@ selected journeys and are not measured by Open Mic. No fake percentiles/confiden
 | Attempt vs Start vs session accounting | f985 partial correction committed | Untested; preserve duplicate earlier preflight, unknown Start reservations and all budgets |
 | Structured switch diagnostics | Raw outcome projection is not an approved sanitizer | Implement allowlisted categories; no secrets/URLs/transcripts |
 | Playwright `error-context.md` leakage | OPEN, no fix executed | Set/enforce `PLAYWRIGHT_NO_COPY_PROMPT=1` in actual child; dummy sensitive-marker negative test |
-| Cache TOCTOU after verification | OPEN; unfinished edit preserved as unapplied patch | Finish stable-byte binding and lifecycle cleanup; tamper after index/between ranges/symlink controls |
+| Cache TOCTOU after verification | Patch applied (digest matched) and completed: stable-byte binding on an O_NOFOLLOW handle, per-chunk rehash on every response, handles closed on index failure, bind failure and server close. 8 controls in `cachedModelAssets.test.ts` (tamper after index, between ranges, same-bytes inode swap, symlink swap, symlinked entry, descriptor cleanup); 7 fail on the 187e0ccb module | Author evidence only, on dependencies not installed from this lockfile; requires lockfile-installed rerun, quality and independent Security review |
 | Disposable identity vs empty history | Factory correlated and actual login checked | Explicit maintained-user-exclusion assertion/receipt |
 | Package parity and latest-main safety | Source implemented, incumbent selector unchanged | Fourth compatible package with no code edits; unsupported/stale runtime/tamper/stream Stop/second-take/canonical controls; performance comparison |
 
@@ -135,20 +135,14 @@ context line in the unapplied patch. Those bytes were preserved, not silently no
 this is an outstanding check result, not a full-diff pass. Commit/push hooks were disabled
 for this bounded packaging operation to avoid implicitly launching broad tests.
 
-## Preserved unfinished patch
+## Cache TOCTOU patch (applied by the successor)
 
-[UNAPPLIED-cache-toctou.patch](UNAPPLIED-cache-toctou.patch) is nonexecuting documentation.
-Its SHA-256 is in source-inventory.json. It was removed from executable source only after
-the exact diff was saved and reverse-application checked. It is incomplete and untested.
-On a clean compatible successor, inspect it, then use:
-
-```bash
-git apply --check docs/model-evaluation-handover/UNAPPLIED-cache-toctou.patch
-git apply docs/model-evaluation-handover/UNAPPLIED-cache-toctou.patch
-```
-
-Do not apply blindly after changing the target file. Add negative controls and verify file
-handle cleanup before claiming the Security finding closed. No automatic runner applies it.
+[UNAPPLIED-cache-toctou.patch](UNAPPLIED-cache-toctou.patch) is kept unchanged as provenance;
+its SHA-256 still matches `unappliedPatchSha256` in source-inventory.json. The successor
+checked that digest, ran `git apply --check`, applied it to 187e0ccb's unchanged target file,
+and then completed it: a failed server bind now closes the verified handles too. Its negative
+controls are in `tests/model-dropin/cachedModelAssets.test.ts`. The Security finding is not
+closed until those controls pass on lockfile-installed dependencies and an independent review.
 
 ## Setup and resumption commands
 
