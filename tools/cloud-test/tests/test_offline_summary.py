@@ -12,9 +12,9 @@ UNITTEST_CLEAN = "....\n--------------------------------------------------------
 
 
 def report():
-    """A complete, clean result: every check passes, both suites report a clean count, and the proof was generated in this job."""
+    """A complete, clean result: every check passes, both suites report a clean count, and the proof is the one the workflow supplied (CT_PROOF_FILE)."""
     checks = [dict({"id": i, "passed": True}, **({"stdout": "", "stderr": UNITTEST_CLEAN} if i in s.SUITES else {})) for i in sorted(s.CHECKS)]
-    return {"proofSource": "in-job", "passed": True, "checks": checks}
+    return {"proofSource": "ct-proof-file", "passed": True, "checks": checks}
 
 
 def by_id(doc, check_id):
@@ -99,7 +99,7 @@ class Summary(unittest.TestCase):
         self.assertFalse(out["overallPassed"])
 
     def test_the_reviewed_counterexample_is_refused(self):
-        self.assertRefused({"proofSource": "in-job", "passed": True, "checks": [{"id": "package-unit-tests", "passed": True, "applicable": False}]},
+        self.assertRefused({"proofSource": "ct-proof-file", "passed": True, "checks": [{"id": "package-unit-tests", "passed": True, "applicable": False}]},
                            "RESULT_CHECK_INVENTORY_MISMATCH")
 
     def test_missing_malformed_and_empty_results_are_refused(self):
@@ -162,7 +162,7 @@ def real_unittest(source):
 
 class Delivery(unittest.TestCase):
     """PO 2026-10-30 via Sam 1793398305: the delivery is the GitHub workflow passing with NO skips. Any skip, error, failure, N/A, missing,
-    unparseable or empty suite count, or a proof not generated in this job, is refused."""
+    unparseable or empty suite count, or a proof the workflow did not supply, is refused."""
 
     def required(self, suite="package-unit-tests", output=UNITTEST_CLEAN, passed=True):
         doc = report()
@@ -180,13 +180,13 @@ class Delivery(unittest.TestCase):
         out = self.required()
         self.assertEqual((out["delivered"], out["deliveryRefusals"], out["overallPassed"]), (True, [], True))
 
-    def test_a_proof_not_generated_in_this_job_is_never_delivery(self):
+    def test_a_proof_the_workflow_did_not_supply_is_never_delivery(self):
         doc = report()
         doc["proofSource"] = None
         out = s.summarize(doc)
         self.assertTrue(out["resultValid"])
         self.assertEqual((out["delivered"], out["overallPassed"]), (False, False))
-        self.assertIn("PROOF_NOT_FROM_THIS_JOB", out["deliveryRefusals"])
+        self.assertIn("PROOF_NOT_SUPPLIED", out["deliveryRefusals"])
 
     def test_any_skip_is_refused_in_either_suite(self):
         for suite in s.SUITES:

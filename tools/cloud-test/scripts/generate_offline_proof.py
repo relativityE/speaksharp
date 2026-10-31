@@ -12,6 +12,7 @@ import glob
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -156,19 +157,8 @@ def main():
         print("NOT ACCEPTED: " + problem)
     if problems:
         return 1  # diagnostics stay in --work on the runner; no proof is published to --proof-out, and the job fails
-    # Bind the accepted proof to THIS job (Sam 1793405092): run_offline_checks.py accepts it only with the same run identity and pinned harness.
-    import run_offline_checks as R
-    ident = R.job_identity(os.environ)
-    if ident is None:
-        print("NOT ACCEPTED: not in a GitHub job, so the proof cannot be bound to a job")
-        return 1
-    dump_json(dict(proof, generatedIn=dict(ident, codeManifestSha256=cfg["harness"]["expectedCodeManifestSha256"])), proof_out)
+    shutil.copyfile(candidate, proof_out)
     return 0
-
-
-def dump_json(obj, path):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=1)
 
 
 if __name__ == "__main__":

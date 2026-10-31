@@ -1,5 +1,5 @@
-"""Actual offline-check entry point retains failed work without inventing proof. Every check is a current-run check; the proof must be generated
-in this job (CT_PROOF_FILE) and a retained proof file is never substituted."""
+"""Actual offline-check entry point retains failed work without inventing proof. Every check is a current-run check; the proof is the one the workflow
+supplies through CT_PROOF_FILE (its freshness is the workflow boundary's) and a retained proof file is never substituted."""
 import contextlib
 import io
 import json
@@ -15,17 +15,11 @@ import run_offline_checks as runner
 import summarize_offline_checks as summarizer
 
 
-JOB = {"GITHUB_SHA": "f" * 40, "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "control-plane"}
-
-
-def full_proof(manifest, bound=True, **row_overrides):
-    """A proof row per expected correction, every test and control passing, stamped with this fixture job's identity (as the generator does)."""
+def full_proof(manifest, **row_overrides):
+    """A proof row per expected correction, every test and control passing."""
     rows = [dict({"id": i, "result": "PASS", "tests": [{"title": i, "result": "PASS"}], "mutationControls": [{"control": "M-" + i, "caught": True}]},
                  **row_overrides.get(i, {})) for i in runner.PROOF_CORRECTIONS]
-    doc = {"result": "PASS", "corrections": rows, "codeManifestSha256": manifest}
-    if bound:
-        doc["generatedIn"] = {"sha": "f" * 40, "runId": "123", "runAttempt": "1", "job": "control-plane", "codeManifestSha256": manifest}
-    return doc
+    return {"result": "PASS", "corrections": rows, "codeManifestSha256": manifest}
 
 
 class OfflineReportRetention(unittest.TestCase):
@@ -38,10 +32,10 @@ class OfflineReportRetention(unittest.TestCase):
             "workflowVersion": "test", "harness": {"expectedCodeManifestSha256": "a" * 64}}))
         (self.root / "workflow.json").write_text('{"version":"test"}')
         self.out = self.root / "offline-checks.json"
-        self.proof = self.root / "in-job-proof.json"
+        self.proof = self.root / "supplied-proof.json"
 
-    def invoke(self, failure=False, write_failure=False, history="", proof=None, catalog=(True, "fixture catalog"), job=JOB):
-        """proof: a document (dict) or raw text written as this job's proof, or None for no in-job proof."""
+    def invoke(self, failure=False, write_failure=False, history="", proof=None, catalog=(True, "fixture catalog")):
+        """proof: a document (dict) or raw text supplied as CT_PROOF_FILE, or None for no supplied proof."""
         count = 0
 
         def child(cmd, **_kwargs):
@@ -55,7 +49,7 @@ class OfflineReportRetention(unittest.TestCase):
             self.proof.write_text(proof if isinstance(proof, str) else json.dumps(proof))
         stdout, stderr = io.StringIO(), io.StringIO()
         with mock.patch.object(runner, "ROOT", str(self.root)), \
-                mock.patch.dict(runner.os.environ, dict({k: "" for k in JOB}, CT_HISTORY=history, CT_PROOF_FILE=str(self.proof) if proof is not None else "", **job)), \
+                mock.patch.dict(runner.os.environ, {"CT_HISTORY": history, "CT_PROOF_FILE": str(self.proof) if proof is not None else ""}), \
                 mock.patch.object(sys, "argv", ["run_offline_checks.py", "--out", str(self.out)]), \
                 mock.patch.object(runner.subprocess, "run", side_effect=child), \
                 mock.patch.object(runner, "catalog_matches_harness", return_value=catalog), \
@@ -150,7 +144,7 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertEqual(code, 0)
         report = json.loads(self.out.read_text())
         self.assertTrue(report["passed"])
-        self.assertEqual(report["proofSource"], "in-job")
+        self.assertEqual(report["proofSource"], "ct-proof-file")
         code, _, _ = self.invoke(failure=True, proof=full_proof("a" * 64))
         self.assertNotEqual(code, 0)
         self.assertFalse(json.loads(self.out.read_text())["passed"])
@@ -171,7 +165,7 @@ class OfflineReportRetention(unittest.TestCase):
             # The stubbed children print no unittest counts, so the delivery is refused either way, and without a proof also for its source.
             self.assertFalse(out["delivered"])
             self.assertIn("COUNTS_MISSING:package-unit-tests", out["deliveryRefusals"])
-            self.assertEqual("PROOF_NOT_FROM_THIS_JOB" in out["deliveryRefusals"], proof is None)
+            self.assertEqual("PROOF_NOT_SUPPLIED" in out["deliveryRefusals"], proof is None)
 
     def proof_check(self, doc):
         self.invoke(proof=doc)
@@ -230,20 +224,6 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertIs(check["passed"], False)
         self.assertIn("correction ids differ", check["detail"])
         self.assertIs(json.loads(self.out.read_text())["passed"], False)
-
-    def test_a_proof_not_bound_to_this_job_is_never_in_job(self):
-        # Generator-to-consumer binding (Sam 1793405092): a valid proof without this job's stamp, from another run or attempt, or read outside a
-        # GitHub job is refused, and the report never labels it in-job.
-        other = full_proof("a" * 64); other["generatedIn"]["runId"] = "999"
-        retry = full_proof("a" * 64); retry["generatedIn"]["runAttempt"] = "2"
-        wrong = full_proof("a" * 64); wrong["generatedIn"]["codeManifestSha256"] = "b" * 64
-        for label, doc, job in (("unstamped", full_proof("a" * 64, bound=False), JOB), ("another run", other, JOB), ("another attempt", retry, JOB),
-                                ("another harness", wrong, JOB), ("outside a job", full_proof("a" * 64), {})):
-            code, _, _ = self.invoke(proof=doc, job=job)
-            self.assertNotEqual(code, 0, label)
-            report = json.loads(self.out.read_text())
-            self.assertFalse(self.by_id()["offline-proof-index"]["passed"], label)
-            self.assertIsNone(report["proofSource"], label)
 
     def test_the_real_catalog_history_check_reads_no_campaign_index(self):
         # Not mocked. Even with an index file present it is never opened: the current check passes no index to the verifier.

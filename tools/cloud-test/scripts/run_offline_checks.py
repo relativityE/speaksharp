@@ -2,7 +2,7 @@
 """Runs every offline check of the package and writes offline-checks.json (consumed by gate G10). No network, no secrets.
 Checks (current run only, never N/A): package tests (including the integration proof on loopback when its prerequisites exist; the GitHub job requires
 them via CT_REQUIRE_INTEGRATION=1), report-builder tests, the reservation ledger, the additive catalog history, the vendored harness verified against the
-approved hashes, the assertion catalog derived from the harness contract, config/workflow consistency and the offline proof generated in this job.
+approved hashes, the assertion catalog derived from the harness contract, config/workflow consistency and the offline proof the workflow supplies (CT_PROOF_FILE).
 Usage: run_offline_checks.py --out offline-checks.json   (run from the package root: tools/cloud-test)"""
 import argparse
 import json
@@ -82,12 +82,6 @@ def catalog_history_additive():
     return not errs, "; ".join(errs) or "catalog history additive only (snapshots and current version; no campaign index read)"
 
 
-def job_identity(env):
-    """This GitHub job's run identity, which the in-job proof generator stamps and the consumer requires; None outside a GitHub job."""
-    ident = {k: env.get(v) for k, v in (("sha", "GITHUB_SHA"), ("runId", "GITHUB_RUN_ID"), ("runAttempt", "GITHUB_RUN_ATTEMPT"), ("job", "GITHUB_JOB"))}
-    return ident if all(ident.values()) else None
-
-
 def catalog_matches_harness():
     """The tracked assertion catalog equals the one derived from the hash-verified harness contract alone (no compared runs)."""
     import derive_assertion_catalog as CAT
@@ -112,7 +106,8 @@ def main():
         print("OFFLINE_CHECKS_REFUSED: CT_HISTORY is retired for the current suite, which needs no retained history; the retained campaigns are "
               "audited by scripts/run_legacy_audit.py", file=sys.stderr)
         return 2
-    # The offline proof must be generated in THIS job (CT_PROOF_FILE); a retained proof file is never substituted.
+    # The offline proof is the file the workflow supplies through CT_PROOF_FILE: its freshness is the workflow's (a fresh-directory generator writing
+    # that exact path earlier in the same job, Sam 1793405248); this runner only reports the source it was given and never substitutes a retained file.
     proof_file = os.environ.get("CT_PROOF_FILE") or None
     checks = []
     env = {**os.environ}
@@ -133,28 +128,19 @@ def main():
         return cfg["workflowVersion"] == wf["version"], "config %s workflow %s" % (cfg["workflowVersion"], wf["version"])
 
     def proof_index():
-        # The proof must bind the harness the config pins (Sam 1793378783) and come from this job; an older proof is never substituted.
+        # The proof must bind the harness the config pins (Sam 1793378783); a retained proof file is never substituted.
         pinned = cfg["harness"]["expectedCodeManifestSha256"]
         if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{64}", pinned):
             return False, "the pinned harness manifest is not a sha256"
         if not proof_file:
-            return False, "no offline proof was generated in this job (CT_PROOF_FILE is not set)"
-        proof = load(proof_file)
-        problem = proof_problem(proof, pinned)
-        if problem:
-            return False, "in-job proof: " + problem
-        # Generator-to-consumer binding (Sam 1793405092): the proof must carry THIS job's run identity, stamped by generate_offline_proof.py.
-        here = job_identity(os.environ)
-        if here is None:
-            return False, "not in a GitHub job, so the proof cannot be bound to this job"
-        if proof.get("generatedIn") != dict(here, codeManifestSha256=pinned):
-            return False, "the proof is not bound to this job (generatedIn differs from this run's identity and pinned harness)"
-        return True, "in-job proof: all %d corrections PASS; bound to this job; hash matches config" % len(PROOF_CORRECTIONS)
+            return False, "no offline proof was supplied (CT_PROOF_FILE is not set)"
+        problem = proof_problem(load(proof_file), pinned)
+        return problem is None, "CT_PROOF_FILE proof: %s" % (problem or "all %d corrections PASS; hash matches config" % len(PROOF_CORRECTIONS))
 
     checks.append(input_check("config-matches-workflow", versions))
     checks.append(input_check("offline-proof-index", proof_index))
     out = {"schema": "speaksharp.cloud-test.offline-checks.v2", "ranUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "workflowVersion": wf.get("version") if isinstance(wf, dict) else None,
-           "proofSource": "in-job" if next(c for c in checks if c["id"] == "offline-proof-index")["passed"] is True else None,
+           "proofSource": "ct-proof-file" if proof_file else None,
            "checks": checks, "passed": all(c["passed"] is True for c in checks)}
     # The job log of this public repository shows only check names and statuses; child output and details stay in the
     # written report on the runner. A report that cannot be written is a failure, and its diagnostics are not printed.

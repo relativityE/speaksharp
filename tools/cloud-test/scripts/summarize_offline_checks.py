@@ -86,8 +86,8 @@ def delivery_refusals(checks, rows, result):
     """Every reason this result is not the delivered workflow (PO 2026-10-30 via Sam 1793398305: GitHub cloud-test passing with NO skips).
     Empty means delivered."""
     refusals = ["FAILED:" + r["id"] for r in rows if r["status"] == "FAIL"]
-    if result.get("proofSource") != "in-job":
-        refusals.append("PROOF_NOT_FROM_THIS_JOB")
+    if result.get("proofSource") != "ct-proof-file":
+        refusals.append("PROOF_NOT_SUPPLIED")
     for c in checks:
         if c["id"] not in SUITES:
             continue
@@ -120,7 +120,7 @@ def summarize(result):
         return fail("RESULT_DUPLICATE_CHECK")
     if set(ids) != CHECKS:
         return fail("RESULT_CHECK_INVENTORY_MISMATCH")
-    if result.get("proofSource") not in ("in-job", None):
+    if result.get("proofSource") not in ("ct-proof-file", None):
         return fail("RESULT_MALFORMED")
     # No check is ever N/A: each must be applicable with a boolean outcome.
     if not all(c.get("applicable", True) is True and isinstance(c.get("passed"), bool) for c in checks):
@@ -138,7 +138,8 @@ def summarize(result):
     summary.update(checks=rows, passed=sum(r["status"] == "PASS" for r in rows), failed=sum(r["status"] == "FAIL" for r in rows))
     if (result.get("passed") is True) != all(r["status"] == "PASS" for r in rows):
         return fail("RESULT_INCONSISTENT")
-    # The delivery: every check passes, both suites show one complete, non-empty, clean count, and the proof was generated in this job.
+    # The delivery: every check passes, both suites show one complete, non-empty, clean count, and the proof is the one the workflow supplied
+    # (CT_PROOF_FILE; its freshness is the workflow boundary's, Sam 1793405248).
     refusals = delivery_refusals(checks, rows, result)
     summary.update(resultValid=True, delivered=not refusals, deliveryRefusals=refusals, overallPassed=not refusals)
     return summary
