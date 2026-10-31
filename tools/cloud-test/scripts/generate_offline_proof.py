@@ -105,19 +105,22 @@ def main():
     cfg = config()
     if not x.chrome:
         raise SystemExit("BLOCKED_SETUP: --chrome or CT_CHROME (the discovered preinstalled browser) is required")
-    chrome, pw = pinned_chrome(x.chrome, cfg, x.browser_receipt), os.path.abspath(x.playwright_cwd)
+    if not x.browser_receipt:
+        raise SystemExit("BLOCKED_SETUP: --browser-receipt or CT_BROWSER_RECEIPT is required; the proof cannot rebuild a plan from an unbound browser")
+    browser_receipt = os.path.abspath(x.browser_receipt)
+    chrome, pw = pinned_chrome(x.chrome, cfg, browser_receipt), os.path.abspath(x.playwright_cwd)
     os.makedirs(work)
     base = {"PATH": os.environ["PATH"], "HOME": work}
 
     plan0 = os.path.join(work, "plan0")
-    prep.build(plan0, HARNESS, phases=("phase1", "phase2"))
+    prep.build(plan0, HARNESS, phases=("phase1", "phase2"), browser_identity=browser_receipt)
     receipt = os.path.join(work, "stimulus-receipt.json")
     r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "stimulus_preflight_retry.py"), "--harness", HARNESS, "--plan", os.path.join(plan0, "cfg", "campaign-plan.json"),
-                        "--chrome", chrome, "--cwd", pw, "--out", receipt], capture_output=True, text=True, cwd=ROOT, env=base)
+                        "--chrome", chrome, "--browser-receipt", browser_receipt, "--cwd", pw, "--out", receipt], capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
         raise SystemExit("BLOCKED_SETUP: stimulus preflight on the pinned Chrome failed (%d)" % r.returncode)
     plan = os.path.join(work, "plan")
-    prep.build(plan, HARNESS, phases=("phase1", "phase2"), stimulus_receipt=receipt)
+    prep.build(plan, HARNESS, phases=("phase1", "phase2"), stimulus_receipt=receipt, browser_identity=browser_receipt)
 
     # One node process and one TAP file per test file (Sam 1793390819): a test's identity is file + title, so equal titles in two packet
     # files are two tests. Proof test files run one at a time (serially), as the original suite requires.

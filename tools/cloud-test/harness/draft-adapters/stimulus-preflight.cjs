@@ -70,8 +70,9 @@ async function main(argv){
     }
   }
   const ver=(()=>{try{return cp.execFileSync(a['--chrome'],['--version'],{encoding:'utf8',timeout:20000}).trim().replace(/[^A-Za-z0-9 .]/g,'').slice(0,60);}catch{return 'unavailable';}})();
+  const chromePath=fs.realpathSync(a['--chrome']);
   const receipt={schema:'speaksharp.stimulus-preflight.v1',createdAt:new Date().toISOString(),productTraffic:0,scope:'loopback only; same Chrome binary, permission policy and media bytes as the run; no product host, account or credential',
-    codeManifestSha256:sha(fs.readFileSync(path.join(bundle,'CODE.sha256'))),chrome:{executableName:path.basename(a['--chrome']),version:ver},selected,casesRequiringDevice:need.map(n=>n.id),cases:results};
+    codeManifestSha256:sha(fs.readFileSync(path.join(bundle,'CODE.sha256'))),chrome:{executablePath:chromePath,sha256:sha(fs.readFileSync(chromePath)),executableName:path.basename(chromePath),version:ver},selected,casesRequiringDevice:need.map(n=>n.id),cases:results};
   fs.writeFileSync(a['--out'],JSON.stringify(receipt,null,1)+'\n',{flag:'wx',mode:0o600});
   console.log(JSON.stringify({ready:Object.values(results).every(c=>c.ready),cases:Object.fromEntries(Object.entries(results).map(([k,v])=>[k,v.ready])),out:a['--out']}));
   return Object.values(results).every(c=>c.ready)?0:78;

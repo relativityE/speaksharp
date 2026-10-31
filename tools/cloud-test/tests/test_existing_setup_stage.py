@@ -161,8 +161,23 @@ class ExistingSetupCaller(unittest.TestCase):
     def test_unknown_setup_mode_is_not_treated_as_acquisition(self):
         result = self.run_stage(extra={"CT_SETUP_MODE": "unexpected"})
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
-        self.assertIn("CT_SETUP_MODE must be existing-only or separately authorized acquire", result.stderr)
+        self.assertIn("CT_SETUP_MODE must be existing-only", result.stderr)
         self.assertFalse((self.out / "chrome-path.txt").exists())
+
+    def test_legacy_acquire_selection_is_refused_before_download_or_install(self):
+        result = self.run_stage(extra={"CT_SETUP_MODE": "acquire"})
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("acquire is unsupported", result.stderr)
+        self.assertFalse((self.out / "browser-identity.json").exists())
+        self.assertFalse((self.out / "chrome-path.txt").exists())
+
+    def test_stimulus_stage_cannot_reenter_through_legacy_acquire_mode(self):
+        setup = self.run_stage()
+        self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+        result = self.run_stage(stage="stimulus-preflight", extra={"CT_SETUP_MODE": "acquire"})
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("acquire is unsupported", result.stderr)
+        self.assertFalse(self.stimulus_called.exists())
 
     def test_previous_browser_receipt_is_preserved_on_repeat_attempt(self):
         self.out.mkdir()

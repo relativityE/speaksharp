@@ -70,6 +70,19 @@ class Verdict(unittest.TestCase):
 
 
 class Cli(unittest.TestCase):
+    def test_the_browser_receipt_is_required_before_any_plan_is_built(self):
+        d = Path(tempfile.mkdtemp())
+        r = subprocess.run(
+            [sys.executable, "-I", str(SCRIPTS / "generate_offline_proof.py"),
+             "--work", str(d / "work"), "--proof-out", str(d / "proof.json"),
+             "--chrome", str(d / "untrusted-browser")],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("--browser-receipt or CT_BROWSER_RECEIPT is required", r.stderr)
+        self.assertFalse((d / "work").exists())
+        self.assertFalse((d / "proof.json").exists())
+
     def test_a_pre_existing_proof_or_work_directory_is_refused_before_anything_runs(self):
         d = Path(tempfile.mkdtemp())
         existing = d / "offline-proof.json"

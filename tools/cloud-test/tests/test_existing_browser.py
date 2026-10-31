@@ -305,5 +305,70 @@ class RecordedBrowserIsTheOneUsed(unittest.TestCase):
         self.assertIn("pinned", str(error.exception.code))
 
 
+class StimulusBrowserIsTheRecordedBrowser(unittest.TestCase):
+    """The stimulus wrapper accepts only the canonical path and bytes recorded
+    by setup; these controls do not launch the inert fixture."""
+    def setUp(self):
+        import stimulus_preflight_retry
+        self.retry = stimulus_preflight_retry
+        self.bound_browser = stimulus_preflight_retry.bound_browser
+        self.temporary = tempfile.TemporaryDirectory(prefix="ct-stimulus-browser-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.browser = self.root / "non-chrome-browser-name"
+        self.browser.write_bytes(b"inert preflight browser bytes")
+        self.browser.chmod(0o700)
+        self.receipt = self.root / "identity.json"
+        self.write_receipt()
+
+    def write_receipt(self, **overrides):
+        value = {"schema": "speaksharp.cloud-test.existing-browser.v1",
+                 "path": str(self.browser),
+                 "observedBinarySha256": hashlib.sha256(self.browser.read_bytes()).hexdigest()}
+        value.update(overrides)
+        self.receipt.write_text(json.dumps(value))
+
+    def test_non_chrome_basename_is_accepted_when_path_and_bytes_match(self):
+        self.assertEqual(self.bound_browser(str(self.browser), str(self.receipt)),
+                         (str(self.browser), hashlib.sha256(self.browser.read_bytes()).hexdigest()))
+
+    def test_missing_malformed_substituted_changed_and_symlinked_inputs_are_refused(self):
+        other = self.root / "other-browser"
+        other.write_bytes(self.browser.read_bytes())
+        link = self.root / "browser-link"
+        link.symlink_to(self.browser)
+        cases = [
+            ("missing", self.browser, self.root / "missing.json"),
+            ("malformed", self.browser, self.receipt),
+            ("substituted", other, self.receipt),
+            ("symlink", link, self.receipt),
+            ("changed", self.browser, self.receipt),
+        ]
+        for name, browser, receipt in cases:
+            self.write_receipt()
+            if name == "malformed":
+                self.receipt.write_text("not json")
+            elif name == "changed":
+                self.browser.write_bytes(b"changed after setup")
+            with self.subTest(name=name), self.assertRaises(SystemExit) as error:
+                self.bound_browser(str(browser), str(receipt))
+            self.assertIn("BLOCKED_SETUP", str(error.exception.code))
+            if name == "changed":
+                self.browser.write_bytes(b"inert preflight browser bytes")
+
+    def test_browser_replacement_during_stimulus_is_refused(self):
+        original_sha = hashlib.sha256(self.browser.read_bytes()).hexdigest()
+
+        def replace_browser(*_args, **_kwargs):
+            self.browser.write_bytes(b"replacement bytes during stimulus")
+            return self.retry.subprocess.CompletedProcess([], 0, "", "")
+
+        with mock.patch.object(self.retry.subprocess, "run", side_effect=replace_browser), \
+                self.assertRaises(SystemExit) as error:
+            self.retry.attempt("/fixture/harness", "/fixture/plan.json", str(self.browser),
+                               str(self.receipt), original_sha, str(self.root), str(self.root / "out.json"))
+        self.assertIn("BLOCKED_SETUP", str(error.exception.code))
+
+
 if __name__ == "__main__":
     unittest.main()

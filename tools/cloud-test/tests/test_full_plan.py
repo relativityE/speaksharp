@@ -141,7 +141,7 @@ class FullPlanProof(unittest.TestCase):
         assert [o.returncode for o in out] == [0, 0], [o.stderr for o in out]
         cls.receipt = os.path.join(cls.work, "receipt.json")
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "stimulus_preflight_retry.py"), "--harness", os.path.join(ROOT, "harness"), "--plan", os.path.join(cls.p0, "cfg", "campaign-plan.json"),
-                            "--chrome", cls.chrome, "--cwd", cls.cwd, "--out", cls.receipt], capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": cls.work})
+                            "--chrome", cls.chrome, "--browser-receipt", cls.browser_identity, "--cwd", cls.cwd, "--out", cls.receipt], capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": cls.work})
         assert r.returncode == 0, r.stdout + r.stderr
         cls.plan_dir, out = cls.build("plan", extra={"BP_STIM": cls.receipt})
         assert [o.returncode for o in out] == [0, 0], [o.stderr for o in out]

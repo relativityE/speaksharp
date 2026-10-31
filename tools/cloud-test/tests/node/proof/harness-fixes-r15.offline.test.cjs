@@ -160,14 +160,15 @@ test('I3 the runner refuses a run whose loaded runner code differs from the iden
   const s=fs.readFileSync(bundle+'/harness/campaign-runner.cjs','utf8');assert.ok(s.includes('run identity binding (release, runner, media, backend) is required to execute'));assert.ok(s.includes('a stimulus preflight receipt is required to execute'));
 });
 // ---------- P. stimulus preflight receipt ----------
-const receipt=(over={})=>({schema:'speaksharp.stimulus-preflight.v1',createdAt:new Date(NOW-60000).toISOString(),productTraffic:0,codeManifestSha256:hash,cases:{'AHT-12':{mediaSha256:hash,captureGranted:true,ungrantedOutcome:'not-allowed',noDeviceOutcome:'not-found',speechDetected:true,alignment:{status:'not-applicable'},ready:true},'AHT-03':{mediaSha256:hash,captureGranted:true,ungrantedOutcome:'not-allowed',noDeviceOutcome:'not-found',speechDetected:true,alignment:{status:'aligned',estimateSec:0.1},ready:true}},...over});
-const ctx={selected:['AHT-12','AHT-03','AHT-01'],mediaShaByCase:{'AHT-12':hash,'AHT-03':hash,'AHT-01':null},needsDevice:id=>id!=='AHT-01',codeManifestSha256:hash,now:NOW};
+const receipt=(over={})=>({schema:'speaksharp.stimulus-preflight.v1',createdAt:new Date(NOW-60000).toISOString(),productTraffic:0,codeManifestSha256:hash,chrome:{executablePath:'/fixture/browser',sha256:hash},cases:{'AHT-12':{mediaSha256:hash,captureGranted:true,ungrantedOutcome:'not-allowed',noDeviceOutcome:'not-found',speechDetected:true,alignment:{status:'not-applicable'},ready:true},'AHT-03':{mediaSha256:hash,captureGranted:true,ungrantedOutcome:'not-allowed',noDeviceOutcome:'not-found',speechDetected:true,alignment:{status:'aligned',estimateSec:0.1},ready:true}},...over});
+const ctx={selected:['AHT-12','AHT-03','AHT-01'],mediaShaByCase:{'AHT-12':hash,'AHT-03':hash,'AHT-01':null},needsDevice:id=>id!=='AHT-01',codeManifestSha256:hash,browserPath:'/fixture/browser',browserSha256:hash,now:NOW};
 test('P1 a complete receipt passes; every missing proof is a named refusal',()=>{
   assert.deepEqual(verifyStimulusReceipt(receipt(),ctx),[]);
   const bad=(mut,re)=>{const r=receipt();mut(r);const e=verifyStimulusReceipt(r,ctx).join('|');assert.match(e,re);};
   bad(r=>{r.cases['AHT-12'].captureGranted=false;},/capture device not acquired/);bad(r=>{r.cases['AHT-12'].noDeviceOutcome='other';},/no-device control/);bad(r=>{r.cases['AHT-12'].speechDetected=false;},/no speech heard/);
   bad(r=>{r.cases['AHT-12'].ungrantedOutcome='granted';},/NotAllowedError/);bad(r=>{r.cases['AHT-03'].alignment={status:'misaligned'};},/not aligned/);bad(r=>{delete r.cases['AHT-03'];},/no receipt entry/);
   bad(r=>{r.cases['AHT-12'].mediaSha256='d'.repeat(64);},/no receipt entry for the bound media/);bad(r=>{r.codeManifestSha256='d'.repeat(64);},/different runner code manifest/);bad(r=>{r.productTraffic=3;},/zero product traffic/);
+  bad(r=>{r.chrome.sha256='d'.repeat(64);},/pre-plan browser identity/);bad(r=>{r.chrome.executablePath='/fixture/other-browser';},/pre-plan browser identity/);
   bad(r=>{r.createdAt=new Date(NOW-13*3600*1000).toISOString();},/stale/);bad(r=>{r.schema='x';},/schema/);bad(r=>{r.cases['AHT-12'].ready=false;},/not ready/);
 });
 // ---------- O. outcome classes ----------

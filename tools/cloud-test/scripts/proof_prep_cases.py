@@ -45,8 +45,9 @@ def pinned_pdfjs():
     return source
 
 
-def build(out, packet, phases=("phase1",), stimulus_receipt=None):
-    """phase1 writes the 15 case configs; phase1+phase2 also write cfg/campaign-plan.json (with BP_STIM, bound to that stimulus receipt)."""
+def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identity=None):
+    """phase1 writes the 15 case configs; phase2 additionally requires the exact
+    browser identity receipt used by the proof producer and binds it into the plan."""
     if os.path.exists(out):
         raise SystemExit("--out must not exist")
     pdfjs = pinned_pdfjs()
@@ -61,9 +62,13 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None):
     r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "run_env.py"), "--request", reqp, "--out", envf], capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
         raise SystemExit("run_env.py failed (%d)" % r.returncode)
+    if "phase2" in phases and not browser_identity:
+        raise SystemExit("BLOCKED_SETUP: phase2 requires this proof run's browser identity receipt")
     env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"),
                BP_ACCOUNT_ID_FILE=acct, BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
                BP_ENV_ID="env_PLACEHOLDER", BP_MEDIA_PARENT=os.path.join(work, "media"), VITE_SUPABASE_ANON_KEY="placeholder-publishable-key", BP_PDFJS_DIR=pdfjs)
+    if browser_identity:
+        env["BP_BROWSER_IDENTITY"] = os.path.abspath(browser_identity)
     for phase in phases:
         # BP_STIM is exported AFTER the request-derived environment is sourced, as FullPlanProof does, so the request's values cannot override it.
         stim = "export BP_STIM=%s; " % shlex.quote(stimulus_receipt) if stimulus_receipt else ""

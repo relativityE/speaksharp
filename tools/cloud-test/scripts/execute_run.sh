@@ -163,15 +163,8 @@ case "$STAGE" in
         printf '%s\n' "$CHROME" > "$OUT/chrome-path.txt"
         echo "existing pinned browser, Playwright and PDF parser verified; nothing installed" ;;
       acquire)
-        # Separate legacy acquisition route. Selecting this mode requires its own
-        # operational authorization; the restricted receiving task does not use it.
-        CHROME="$(run_stage install-tools python3 -I "$ROOT/scripts/install_browser.py" --config "$CFG")"
-        [ -x "$CHROME" ] || blocked "the verified browser is not executable"
-        printf '%s\n' "$CHROME" > "$OUT/chrome-path.txt"
-        run_stage install-tools npm --prefix "$ROOT/runner" ci --ignore-scripts --no-audit --no-fund
-        run_stage install-tools python3 -I "$ROOT/scripts/install_pdfjs.py" --config "$CFG" --checkout "${CT_CHECKOUT:?CT_CHECKOUT is required to provide the pinned PDF parser}" >/dev/null
-        echo "pinned browser verified; runner dependencies installed from the lockfile; pinned pdfjs-dist 4.10.38 verified in the checkout" ;;
-      *) blocked "CT_SETUP_MODE must be existing-only or separately authorized acquire" ;;
+        blocked "CT_SETUP_MODE=acquire is unsupported by this runner because it cannot produce the required pre-plan existing-browser identity; use existing-only" ;;
+      *) blocked "CT_SETUP_MODE must be existing-only" ;;
     esac ;;
   build-plan) build "$OUT/plan0" ;;
   stimulus-preflight)
@@ -182,10 +175,10 @@ case "$STAGE" in
         PW_IDENTITY="$(playwright_identity)" || blocked "existing Playwright identity cannot be revalidated"
         [ "$PW_IDENTITY" = "$(cat "$OUT/playwright-identity.json")" ] || blocked "Playwright identity changed after setup"
         PW_CWD="$(python3 -I "$ROOT/scripts/cfg_get.py" "$OUT/playwright-identity.json" root)" || blocked "verified Playwright root cannot be read" ;;
-      acquire) PW_CWD="$ROOT/runner" ;;
-      *) blocked "unknown setup mode" ;;
+      acquire) blocked "CT_SETUP_MODE=acquire is unsupported by this runner" ;;
+      *) blocked "CT_SETUP_MODE must be existing-only" ;;
     esac
-    run_stage stimulus-preflight python3 -I "$ROOT/scripts/stimulus_preflight_retry.py" --harness "$HP" --plan "$OUT/plan0/cfg/campaign-plan.json" --chrome "$CHROME" --cwd "$PW_CWD" --out "$OUT/stimulus-preflight-receipt.json" ;;
+    run_stage stimulus-preflight python3 -I "$ROOT/scripts/stimulus_preflight_retry.py" --harness "$HP" --plan "$OUT/plan0/cfg/campaign-plan.json" --chrome "$CHROME" --browser-receipt "$OUT/browser-identity.json" --cwd "$PW_CWD" --out "$OUT/stimulus-preflight-receipt.json" ;;
   build-plan-with-receipt) build "$OUT/plan" with-receipt ;;
   gate-and-validate)
     require_runtime_inputs
