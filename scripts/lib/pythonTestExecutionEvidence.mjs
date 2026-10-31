@@ -45,15 +45,19 @@ export function pythonRuntime(root,{execPath=executable('python3'),spawn=spawnSy
   const yamlFile=fs.realpathSync(observed.yamlFile);
   if(observed.yamlFile!==yamlFile)fail('Aliased Python dependency identity');
   if(observed.yamlSha256!==hash(fs.readFileSync(yamlFile)))fail('Changed Python dependency identity');
+  const tools=Object.fromEntries([['node',process.execPath],['git',executable('git')],['bash',executable('bash')]].map(([name,file])=>{
+    const resolved=fs.realpathSync(file);return [name,{path:resolved,sha256:hash(fs.readFileSync(resolved))}];
+  }));
   return {execPath:fs.realpathSync(execPath),version:observed.version,executableSha256:hash(fs.readFileSync(execPath)),
     yamlVersion:observed.yamlVersion,yamlFile,yamlSha256:observed.yamlSha256,
-    reporterSha256:hash(fs.readFileSync(regular(root,PYTHON_REPORTER)))};
+    reporterSha256:hash(fs.readFileSync(regular(root,PYTHON_REPORTER))),tools};
 }
 
 function fixedEnvironment(directory,binding) {
   const home=path.join(directory,'home'),temporary=path.join(directory,'tmp');
   fs.mkdirSync(home,{recursive:true});fs.mkdirSync(temporary,{recursive:true});
-  return {PATH:path.dirname(binding.runtime.execPath),HOME:home,USERPROFILE:home,TMPDIR:temporary,TMP:temporary,TEMP:temporary,
+  const directories=[path.dirname(binding.runtime.execPath),...Object.values(binding.runtime.tools).map(item=>path.dirname(item.path))];
+  return {PATH:[...new Set(directories)].join(path.delimiter),HOME:home,USERPROFILE:home,TMPDIR:temporary,TMP:temporary,TEMP:temporary,
     LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true',PYTHONHASHSEED:'0',PYTHONDONTWRITEBYTECODE:'1',
     PYTHON_TEST_EVIDENCE_BINDING:JSON.stringify(binding)};
 }

@@ -87,6 +87,12 @@ def main() -> int:
     suite.run(result)
     import yaml  # Imported inside the bound runtime; version is independently checked.
     yaml_file = Path(yaml.__file__).resolve(strict=True)
+    tools = {}
+    for name, expected in binding["runtime"]["tools"].items():
+        executable = Path(expected["path"]).resolve(strict=True)
+        if str(executable) != expected["path"] or _sha256(executable) != expected["sha256"]:
+            raise RuntimeError("Changed Python child tool identity: " + name)
+        tools[name] = {"path": str(executable), "sha256": _sha256(executable)}
     receipt = {
         "schemaVersion": 1,
         "binding": binding,
@@ -98,6 +104,7 @@ def main() -> int:
             "yamlFile": str(yaml_file),
             "yamlSha256": _sha256(yaml_file),
             "reporterSha256": _sha256(Path(__file__).resolve(strict=True)),
+            "tools": tools,
         },
         "collected": collected,
         "outcomes": result.outcomes,
