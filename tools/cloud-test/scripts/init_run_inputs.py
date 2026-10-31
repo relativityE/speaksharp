@@ -32,6 +32,27 @@ FACT_KEYS = {"ownerApprovalReference", "approvedBy", "reviewer", "approvedSource
 RECEIPT_KEYS = {"analytics", "disp", "fence", "review"}
 BACKEND_KEYS = {"manifestRef", "generation", "completion", "migration129"}
 COUNTERS = ("requests", "identityReads", "starts", "takes", "coaching")
+CASE10_SCHEMA = "speaksharp.cloud-test.case10-projection.v1"
+SHA64 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def validate_case10(rec, run_id, source_sha):
+    """Jensen 1793472856.927699: the case 10 request-bound projection, carried with its provenance and never synthesized. Its projection must
+    hold exactly the accepted calculator's required inputs, and the calculator itself must accept it."""
+    _need(isinstance(rec, dict) and set(rec) == {"schema", "runId", "sourceSha", "accountSubjectSha256", "evidenceRef", "projection"}, "case10-projection-shape")
+    _need(rec["schema"] == CASE10_SCHEMA and rec["runId"] == run_id and rec["sourceSha"] == source_sha, "case10-projection-not-for-this-run")
+    _need(isinstance(rec["accountSubjectSha256"], str) and SHA64.match(rec["accountSubjectSha256"]), "case10-projection-account")
+    _need(isinstance(rec["evidenceRef"], str) and REF.match(rec["evidenceRef"]), "case10-projection-evidence")
+    try:
+        import case10_request_bound as C10
+    except ImportError:
+        raise Refused("case10-calculator-missing")
+    _need(isinstance(rec["projection"], dict) and set(rec["projection"]) == set(C10.INPUTS), "case10-projection-inputs")
+    try:
+        C10.compute(rec["projection"])
+    except C10.BoundRefused as e:
+        raise Refused("case10-projection-refused:" + str(e))
+    return rec
 
 
 class Refused(ValueError):
@@ -49,9 +70,12 @@ def parse_cases(csv):
     return sorted(cases)
 
 
-def validate_facts(facts, cases, source_sha):
-    """Bounded reference strings only, bound to THIS source and case selection and to one account role. Values and identifiers are refused."""
-    _need(isinstance(facts, dict) and set(facts) == FACT_KEYS, "facts-shape")
+def validate_facts(facts, cases, source_sha, run_id):
+    """Bounded reference strings only, bound to THIS source and case selection and to one account role. Values and identifiers are refused.
+    `case10RequestBound` is required exactly when AHT-10 is selected."""
+    _need(isinstance(facts, dict) and set(facts) == FACT_KEYS | ({"case10RequestBound"} if "AHT-10" in cases else set()), "facts-shape")
+    if "AHT-10" in cases:
+        validate_case10(facts["case10RequestBound"], run_id, source_sha)
     for k in ("ownerApprovalReference", "approvedBy", "reviewer"):
         _need(isinstance(facts[k], str) and REF.match(facts[k]), "facts-reference:" + k)
     _need(facts["approvedSourceSha"] == source_sha, "approval-not-for-this-source")
@@ -95,7 +119,7 @@ def build(cfg, cases, facts, run_id, attempt, source_sha, prior_state, first_run
     prior = prior_from_state(prior_state, run_id, first_run)
     return {"schema": SCHEMA, "historyMode": MODE, "runId": run_id, "attempt": attempt, "sourceSha": source_sha, "cases": cases,
             "route": "github-producer" if set(cases) & PRODUCER_CASES else "github-direct",
-            "prior": prior, "facts": validate_facts(facts, cases, source_sha),
+            "prior": prior, "facts": validate_facts(facts, cases, source_sha, run_id),
             "counters": {"scope": "run", "runId": run_id, "consumed": {k: 0 for k in COUNTERS},
                          "caps": {"requests": limits["maxRunCapRequests"], "identityReads": limits["maxIdentityReadsPerRun"]}},
             "reservations": {"scope": "run", "runId": run_id, "entries": []}}
@@ -111,7 +135,7 @@ def load_run_inputs(doc, run_id=None, source_sha=None):
     _need(source_sha is None or doc["sourceSha"] == source_sha, "run-inputs-for-another-source")
     _need(doc["attempt"] == 1, "rerun-attempt-refused")
     cases = parse_cases(",".join(doc["cases"]))
-    validate_facts(doc["facts"], cases, doc["sourceSha"])
+    validate_facts(doc["facts"], cases, doc["sourceSha"], doc["runId"])
     p = doc["prior"]
     _need(p == {"mode": "first-run"} or (isinstance(p, dict) and set(p) == {"mode", "record"} and p["mode"] == "replacement"), "prior-mode")
     if p["mode"] == "replacement":

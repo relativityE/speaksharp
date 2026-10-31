@@ -64,7 +64,31 @@ def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=
     return gate("G11", READY if not need else NOTREADY, "within the standing approval of recurring cost (period usage so far: %d run(s), %s requests, %s Starts, %s takes, %s coaching calls, %s runner minutes; %d open reservation(s))" % (u["runs"], used["requests"], used["starts"], used["takes"], used["coachingRequests"], used["runnerMinutes"], len(u["openReservations"])) if not need else "outside the standing approval of recurring cost", need)
 
 
-def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None):
+def historical_prior_gate(req, cfg, base, receipts_root):
+    """G7 in historical mode: the compared runs' sealed receipts verified against their pinned hashes and bindings."""
+    need = []
+    root = receipts_root or os.path.join(base, "config", "history", "receipts")
+    runs = {r["label"]: r for r in cfg["history"]["runs"]}
+    for pr_ in req.get("priorRuns") or []:
+        lab = pr_.get("label")
+        if lab not in runs:
+            need.append("%s is not in the config history" % lab)
+            continue
+        errs, n = verify_set(os.path.join(root, lab), runs[lab].get("receiptsManifestSha256"))
+        if errs:
+            need.append("%s receipts: %s" % (lab, "; ".join(errs[:2])))
+        bf = os.path.join(base, pr_.get("bindingFile") or "")
+        if not pr_.get("bindingFile") or not os.path.exists(bf):
+            need.append("%s binding verification missing" % lab)
+        else:
+            b = load(bf)
+            if b.get("failed") != 0 or not b.get("passed"):
+                need.append("%s binding verification has %s failed checks" % (lab, b.get("failed")))
+    return gate("G7", READY if not need else NOTREADY, "last two runs' sealed receipts verified against their pinned hashes and bindings" if not need else "prior-run receipts not verified", need)
+
+
+def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None,
+             run_inputs=None):
     G = []
     now = now or now_utc()
     try:
@@ -198,26 +222,15 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
             need.append("%s expected PASS not yet confirmed by the owner" % gid)
     only_owner = need and all("confirmed by the owner" in n for n in need)
     G.append(gate("G6", READY if not need else (OWNER if only_owner else NOTREADY), "expected PASS defined before testing for every targeted gap" if not need else "expected PASS not final", need))
-    # G7: sealed, hash-pinned receipts of the compared runs and their binding verification
-    need = []
-    root = receipts_root or os.path.join(base, "config", "history", "receipts")
-    runs = {r["label"]: r for r in cfg["history"]["runs"]}
-    for pr_ in req.get("priorRuns") or []:
-        lab = pr_.get("label")
-        if lab not in runs:
-            need.append("%s is not in the config history" % lab)
-            continue
-        errs, n = verify_set(os.path.join(root, lab), runs[lab].get("receiptsManifestSha256"))
-        if errs:
-            need.append("%s receipts: %s" % (lab, "; ".join(errs[:2])))
-        bf = os.path.join(base, pr_.get("bindingFile") or "")
-        if not pr_.get("bindingFile") or not os.path.exists(bf):
-            need.append("%s binding verification missing" % lab)
-        else:
-            b = load(bf)
-            if b.get("failed") != 0 or not b.get("passed"):
-                need.append("%s binding verification has %s failed checks" % (lab, b.get("failed")))
-    G.append(gate("G7", READY if not need else NOTREADY, "last two runs' sealed receipts verified against their pinned hashes and bindings" if not need else "prior-run receipts not verified", need))
+    # G7: sealed, hash-pinned receipts of the compared runs and their binding verification. In latest-run mode (Sam 1793472272.951949) the one
+    # prior is the validated run inputs' first-run declaration or sanitized terminal record; historical prior runs in the request are a mixed mode.
+    if run_inputs is not None:
+        need = ["latest-run mode does not compare historical prior runs; the request names %s" % ", ".join(p.get("label", "?") for p in req["priorRuns"])] if req.get("priorRuns") else []
+        prior = run_inputs["prior"]
+        G.append(gate("G7", READY if not need else NOTREADY, ("latest-run mode: first run declared" if prior["mode"] == "first-run" else
+                      "latest-run mode: prior terminal record of run %s (%s)" % (prior["record"]["runId"], prior["record"]["outcome"])) if not need else "mixed history modes", need))
+    else:
+        G.append(historical_prior_gate(req, cfg, base, receipts_root))
     # G8
     need = []
     if req.get("workflowVersion") != wf["version"]:
@@ -244,18 +257,24 @@ def main():
     a = argparse.ArgumentParser()
     for k in ("request", "config", "ledger", "workflow", "release-verification", "reconciliation", "base", "out"):
         a.add_argument("--" + k, required=True)
-    for k in ("validation", "offline-checks", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval"):
+    for k in ("validation", "offline-checks", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "run-inputs"):
         a.add_argument("--" + k)
     a.add_argument("--stage", choices=["preflight", "final"], default="final")
     x = a.parse_args()
     req = load(x.request)
     if req.get("priority") == "nightly-regression" and not (x.history_index and x.reservations and x.approval):
         a.error("recurring gates require explicit --history-index, --reservations and --approval inputs")
+    run_inputs = None
+    if x.run_inputs:
+        if x.history_index or x.reservations:
+            a.error("latest-run inputs and historical --history-index/--reservations are mixed history modes")
+        from init_run_inputs import load_run_inputs
+        run_inputs = load_run_inputs(load(x.run_inputs), source_sha=(req.get("release") or {}).get("testedSha"))
     rec = load(x.stimulus_receipt) if x.stimulus_receipt and os.path.exists(x.stimulus_receipt) else None
     out = evaluate(req, load(x.config), load(x.ledger), load(x.workflow), load(x.validation) if x.validation else None,
                    load(x.offline_checks) if x.offline_checks else None, rec, x.base, x.stage, load(x.release_verification), load(x.reconciliation),
                    parse_utc(x.now) if x.now else None, x.receipts_root, load(x.history_index) if x.history_index else None,
-                   load(x.reservations) if x.reservations else None, x.approval)
+                   load(x.reservations) if x.reservations else None, x.approval, run_inputs)
     dump(out, x.out)
     print("decision:", out["decision"], "| blocking open:", ",".join(out["blockingOpen"]) or "none")
 

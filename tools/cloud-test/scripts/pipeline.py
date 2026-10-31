@@ -39,12 +39,86 @@ def credential_names(cfg):
     return sorted(n for n in os.environ if n in declared or (CRED.search(n) and not BENIGN.match(n)))
 
 
+LATEST_RUN_CEILINGS = ("requests", "protectedReserveRequests", "identityReads", "starts", "takes")
+
+
+def latest_run(x, cfg, req, wf, O, now_args, creds, log):
+    """Latest-run history mode (Sam 1793472272.951949): the current run's gates against ONE validated prior (a declared first run or the previous
+    terminal record) and run-scoped counters. The retained-history steps (sealed historical receipts, hash chain, catalog history, historical
+    comparisons and the historical report) do not apply and are not run; every gate that applies to the current run still runs. Mixed or
+    unknown modes, full coverage without a cost basis and unconfigured per-run ceilings stop before anything is spent."""
+    from init_run_inputs import Refused, load_run_inputs
+
+    def stop(msg):
+        print("STOP: " + msg)
+        return 2
+    mixed = [k.replace("_", "-") for k in ("history_index", "counters", "reservations", "latest_label") if getattr(x, k)]
+    if mixed:
+        return stop("latest-run inputs with historical --%s are mixed history modes" % ", --".join(mixed))
+    if req.get("priorRuns"):
+        return stop("latest-run mode does not compare historical prior runs; the request names priorRuns")
+    if req.get("priority") == "nightly-regression":
+        return stop("a recurring run keeps the historical mode and its standing approval")
+    if req.get("coverageMode") == "full":
+        return stop("latest-run-full-coverage-needs-cost-basis: the full-coverage budget is derived from historical basis runs")
+    try:
+        ri = load_run_inputs(load(x.run_inputs), source_sha=(req.get("release") or {}).get("testedSha"))
+    except Refused as e:
+        return stop("run inputs refused: %s" % e)
+    ceil = (cfg["history"].get("latestRun") or {}).get("ceilings")
+    if not isinstance(ceil, dict) or set(ceil) != set(LATEST_RUN_CEILINGS) or not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ceil.values()):
+        return stop("latest-run-ceilings-not-configured")
+    used = ri["counters"]["consumed"]
+    over = [k for k in ("requests", "identityReads", "starts", "takes") if used[k] > ceil[k]]
+    if over:
+        return stop("current-cap-exceeded: %s" % ", ".join(over))
+    # 2'. run-scoped reconciliation in the schema the request validation and gates read; labelled run scope, never cumulative history
+    dump({"schema": "speaksharp.cloud-test.cumulative-reconciliation.v1", "scope": "run", "runId": ri["runId"], "generatedUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"),
+          "rule": "latest-run mode: this run's consumed counters against the configured per-run ceilings; no cumulative history is carried or reset",
+          "prior": ri["prior"]["mode"],
+          "requests": {"conservativeUsed": used["requests"], "ownerCounted": used["requests"]},
+          "identityReads": {"conservativeUsed": used["identityReads"], "ownerCounted": used["identityReads"]},
+          "starts": {"ownerCounted": used["starts"]}, "takes": {"ownerCounted": used["takes"]},
+          "ceilings": dict(ceil),
+          "currentHeadroom": {"requests": ceil["requests"] - ceil["protectedReserveRequests"] - used["requests"], "identityReads": ceil["identityReads"] - used["identityReads"],
+                              "starts": ceil["starts"] - used["starts"], "takes": ceil["takes"] - used["takes"]}}, O("reconciliation.json"))
+    no_history = O("no-historical-receipts")
+    os.makedirs(no_history)
+    run("verify_release.py", "--request", x.request, "--ledger", x.ledger, "--config", x.config, "--receipts-root", no_history, *now_args, "--out", O("release-verification.json"))
+    run("validate_run_request.py", "--request", x.request, "--config", x.config, "--ledger", x.ledger, "--workflow", x.workflow, "--release-verification", O("release-verification.json"),
+        "--reconciliation", O("reconciliation.json"), "--receipts-root", no_history, "--out", O("request-validation.json"))
+    g = ["--request", x.request, "--config", x.config, "--ledger", x.ledger, "--workflow", x.workflow, "--release-verification", O("release-verification.json"), "--reconciliation", O("reconciliation.json"),
+         "--validation", O("request-validation.json"), "--stage", x.stage, "--base", ROOT, "--receipts-root", no_history, "--run-inputs", x.run_inputs, "--out", O("gate-status.json")] + now_args
+    if x.offline_checks:
+        g += ["--offline-checks", x.offline_checks]
+    if x.stimulus_receipt:
+        g += ["--stimulus-receipt", x.stimulus_receipt]
+    run("check_gates.py", *g)
+    attempts = sum(1 for _ in open(log.name)) if os.path.exists(log.name) else 0
+    gate = load(O("gate-status.json"))
+    v = load(O("request-validation.json"))
+    dump({"schema": "speaksharp.cloud-test.preflight-attestation.v1", "runId": req["runId"], "stage": x.stage, "historyMode": "latest-run", "prior": ri["prior"]["mode"],
+          "generatedUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "credentialLikeVariablesPresent": creds, "secretFree": not creds,
+          "networkAttempts": attempts + _netguard.ATTEMPTS, "productHostsContacted": 0, "decision": gate["decision"], "blockingOpen": gate["blockingOpen"]}, O("preflight-attestation.json"))
+    lines = ["## Cloud test control plane (latest-run mode): %s" % req["runId"], "",
+             "- stage: **%s**; workflow %s; prior: **%s**; decision: **%s**; secret-free: **%s**" % (x.stage, wf["version"], ri["prior"]["mode"], gate["decision"], "yes" if not creds else "NO"),
+             "", "| Gate | Status | Detail |", "|---|---|---|"] + ["| %s | %s | %s |" % (gg["id"], gg["status"], gg["detail"].replace("|", "/")) for gg in gate["gates"]]
+    with open(O("preflight-summary.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    if not v["valid"]:
+        return 1
+    if x.enforce_go and gate["decision"] != "GO":
+        print("STOP EARLY: blocking gates not READY (%s). Nothing was spent." % ",".join(gate["blockingOpen"]))
+        return 4
+    return 0
+
+
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--request", required=True)
     a.add_argument("--out-dir", required=True)
     a.add_argument("--stage", choices=["preflight", "final"], default="preflight")
-    for k in ("latest-label", "offline-checks", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations"):
+    for k in ("latest-label", "offline-checks", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations", "run-inputs"):
         a.add_argument("--" + k)
     a.add_argument("--repo", default=os.path.abspath(os.path.join(ROOT, "..", "..")))
     a.add_argument("--config", default=os.path.join(ROOT, "config", "test-config.v1.json"))
@@ -79,6 +153,8 @@ def main():
     if creds and x.require_secret_free:
         print("STOP: credential-like variables are present in a secret-free stage: %s" % ", ".join(creds))
         sys.exit(5)
+    if x.run_inputs:
+        sys.exit(latest_run(x, cfg, req, wf, O, now_args, creds, log))
     # 1. sealed receipts
     r = run("verify_receipts.py", "--config", x.config, "--root", x.receipts_root, "--out", O("receipts-verification.json"))
     if r.returncode:

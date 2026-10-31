@@ -96,6 +96,51 @@ class Build(unittest.TestCase):
             self.build(state(terminal()), cases=many, facts=facts(approvedCases=many))
 
 
+class Case10Binding(unittest.TestCase):
+    """Jensen 1793472856.927699: AHT-10 needs its request-bound projection carried with provenance; it is never synthesized."""
+
+    def test_selecting_case10_without_its_projection_is_refused(self):
+        with self.assertRaisesRegex(I.Refused, "facts-shape"):
+            I.build(J("config", "test-config.v1.json"), ["AHT-10"], facts(approvedCases=["AHT-10"]), "101", 1, SHA, state(terminal()), False)
+
+    def test_a_projection_for_another_run_source_or_shape_is_refused(self):
+        rec = {"schema": I.CASE10_SCHEMA, "runId": "101", "sourceSha": SHA, "accountSubjectSha256": "c" * 64, "evidenceRef": "receipt:case10-projection@aaaaaaaaaaaa",
+               "projection": {}}
+        for over, code in ((dict(runId="100"), "case10-projection-not-for-this-run"), (dict(sourceSha="b" * 40), "case10-projection-not-for-this-run"),
+                           (dict(accountSubjectSha256="x"), "case10-projection-account"), (dict(extra=1), "case10-projection-shape")):
+            with self.subTest(code=code), self.assertRaisesRegex(I.Refused, code):
+                I.validate_case10(dict(rec, **over), "101", SHA)
+
+
+class PipelineLatestRun(unittest.TestCase):
+    """The pipeline reads the same schema and stops before anything is spent on a mixed mode or unconfigured per-run ceilings."""
+
+    def run_pipeline(self, extra=()):
+        d = tempfile.mkdtemp(prefix="ct-latest-run-")
+        self.addCleanup(shutil.rmtree, d, True)
+        req = J("tests", "fixtures", "partial-request.json")
+        req["priorRuns"] = []
+        sha = req["release"]["testedSha"]
+        rp, ip = os.path.join(d, "request.json"), os.path.join(d, "run-inputs.json")
+        with open(rp, "w") as f:
+            json.dump(req, f)
+        with open(ip, "w") as f:
+            json.dump(I.build(J("config", "test-config.v1.json"), list(CASES), facts(approvedSourceSha=sha), "101", 1, sha, state(), True), f)
+        r = subprocess.run(["python3", "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", rp, "--out-dir", os.path.join(d, "out"), "--stage", "final",
+                            "--run-inputs", ip, *extra], capture_output=True, text=True, timeout=120)
+        return r
+
+    def test_historical_inputs_with_run_inputs_are_a_mixed_mode(self):
+        r = self.run_pipeline(["--history-index", os.path.join(ROOT, "config", "history", "index.json")])
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("mixed history modes", r.stdout)
+
+    def test_unconfigured_per_run_ceilings_stop_before_any_gate(self):
+        r = self.run_pipeline()
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("latest-run-ceilings-not-configured", r.stdout)
+
+
 class PipelineReader(unittest.TestCase):
     def setUp(self):
         self.doc = I.build(J("config", "test-config.v1.json"), list(CASES), facts(), "101", 1, SHA, state(terminal()), False)
