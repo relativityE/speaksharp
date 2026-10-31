@@ -11,6 +11,10 @@
  * VERIFY_TARGET=canaries: strictly read-only canary identity inspection (scripts/lib/canaryReadOnlyVerify.mjs).
  * It never authenticates as a canary, so credential viability is not tested.
  *
+ * VERIFY_TARGET=throwaway: the Cloud test live caller's fresh account facts for the configured THROWAWAY_TEST_EMAIL identity (Sam 2(b)):
+ * whether the auth user exists and its head-only completed-session count. The user id is written only to the new private file named by
+ * VERIFY_ACCOUNT_ID_FILE and is never printed; the email is never printed in any form. No profile, session row or content is read.
+ *
  * This script intentionally performs no writes.
  */
 
@@ -18,6 +22,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { pathToFileURL } from 'node:url';
+import { writeFileSync } from 'node:fs';
 import { formatCanaryLine, runCanaryInspection } from './lib/canaryReadOnlyVerify.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
@@ -124,6 +129,19 @@ export async function completedSessionCount(supabase, userId) {
   return !error && Number.isInteger(count) && count >= 0 ? count : null;
 }
 
+/**
+ * The THROWAWAY identity's fresh facts. Read-only: one auth-user lookup and one head-only count. The id goes only to a NEW file
+ * (refused if it exists); the returned and printed facts carry no identifier. A failed count is null, never a 0 that reads as "no history".
+ */
+export async function verifyThrowaway({ supabase, email, accountIdFile, listUsers = listAllAuthUsers, writeFile = writeFileSync }) {
+  if (!email || !accountIdFile) throw new Error('THROWAWAY_TEST_EMAIL and VERIFY_ACCOUNT_ID_FILE are required');
+  const authUser = (await listUsers(supabase)).find((user) => user.email && user.email.toLowerCase() === email.toLowerCase());
+  if (!authUser) return { target: 'throwaway', authUserExists: false, completedSessions: null, accountIdWritten: false };
+  const completedSessions = await completedSessionCount(supabase, authUser.id);
+  writeFile(accountIdFile, `${authUser.id}\n`, { flag: 'wx', mode: 0o600 });
+  return { target: 'throwaway', authUserExists: true, completedSessions, accountIdWritten: true };
+}
+
 export function statusLine(status, result) {
   const prefix = status === 'PASS' ? 'PASS' : 'FAIL';
   const details = [
@@ -152,9 +170,23 @@ async function main() {
     process.exit(1);
   }
 
-  if (!['reviewers', 'canaries'].includes(VERIFY_TARGET)) {
-    console.error(`FAIL verifier config: unknown VERIFY_TARGET '${VERIFY_TARGET}' (expected reviewers or canaries)`);
+  if (!['reviewers', 'canaries', 'throwaway'].includes(VERIFY_TARGET)) {
+    console.error(`FAIL verifier config: unknown VERIFY_TARGET '${VERIFY_TARGET}' (expected reviewers, canaries or throwaway)`);
     process.exit(1);
+  }
+
+  if (VERIFY_TARGET === 'throwaway') {
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const result = await verifyThrowaway({
+      supabase: adminClient,
+      email: process.env.THROWAWAY_TEST_EMAIL?.trim(),
+      accountIdFile: process.env.VERIFY_ACCOUNT_ID_FILE,
+    });
+    console.log(JSON.stringify({ checkedAt: new Date().toISOString(), ...result }, null, 2));
+    if (!result.authUserExists || result.completedSessions === null) process.exit(1);
+    return;
   }
 
   if (VERIFY_TARGET === 'canaries') {

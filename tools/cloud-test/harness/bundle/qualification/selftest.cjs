@@ -44,9 +44,16 @@ try {
   expectedExecutable=require(require.resolve('playwright',{paths:[process.cwd()]})).chromium.executablePath();
   installedChromiumRevision=expectedExecutable.split(path.sep).find(part=>/^chromium-[0-9]+$/.test(part))||null;
 } catch {}
+// Installed-receipt mode (browser-setup.cjs --browser-receipt): the qualified browser is the preinstalled one bound by its receipt, so its
+// identity is the receipt, never a Playwright revision it is not, and Playwright's own Chromium is neither required nor used.
+const installedReceipt = browserInfo.browserMode === 'installed-receipt';
+if (installedReceipt) {
+  const ok = typeof browserInfo.copiedExecutable === 'string' && fs.existsSync(browserInfo.copiedExecutable);
+  installedChromiumRevision = ok ? require('../harness/installed-browser.cjs').browserIdentity(browserInfo) : null;
+}
 // Owner policy: record and qualify this installed compatibility tuple, never enforce obsolete pins
 // or silently select a different browser. Admission binds the same observed tuple to the campaign.
-if (!/^v[0-9]+\.[0-9]+\.[0-9]+/.test(process.version) || !installedPlaywright || installedPlaywright!==browserInfo.playwrightVersion || !installedChromiumRevision || installedChromiumRevision!==browserInfo.revision || !expectedExecutable || !fs.existsSync(expectedExecutable)) {
+if (!/^v[0-9]+\.[0-9]+\.[0-9]+/.test(process.version) || !installedPlaywright || installedPlaywright!==browserInfo.playwrightVersion || !installedChromiumRevision || (installedReceipt ? false : (installedChromiumRevision!==browserInfo.revision || !expectedExecutable || !fs.existsSync(expectedExecutable)))) {
   console.error('BLOCKED_SETUP: observed Node/Playwright/installed expected Chromium tuple is missing or differs from browser discovery'); process.exit(78);
 }
 assertSecurityApproval({ securityApprovalFile: a['security-approval'] }, { hosts: { 'a.test': {}, 'c.test': {}, 'd.test': {} } });

@@ -1,0 +1,216 @@
+name: Cloud Test live journeys (manual, GitHub-hosted)
+
+# Manually dispatched ONLY. The live run of the selected Cloud test journeys on a GitHub-hosted runner, through the existing stage runner
+# tools/cloud-test/scripts/execute_run.sh (route github-producer / github-direct). Nothing is installed or downloaded for the browser: the
+# preinstalled native Chrome is discovered against the REVIEWED baseline (config/browser-baselines.v1.json) and bound by its receipt.
+#
+# Selected design (Sam 1793471205.454429 / 1793471318.770139 / 1793471406.529969):
+#  - one active run (concurrency below); a re-run attempt is refused, because an earlier attempt's consumed state cannot be carried and is never reset;
+#  - the ONE latest record is a bot-owned issue comment updated in place by the isolated record-* jobs, which hold no live credential and only
+#    `issues: write`; the previous completed record stays until a terminal replacement is written, and an interrupted attempt blocks the next run;
+#  - passwords, tokens and keys come only from the `secrets` context; THROWAWAY_TEST_EMAIL is a repository Variable by owner decision
+#    (PO 18:46:25Z via Sam 1793472433.458519), so Actions shows it in the live job's step header; it is never written to the record or artifacts;
+#  - no evidence payload, transcript, account identifier or row content leaves the live job; only the closed latest record does.
+#
+# NOT ACTIVE: TRACKING_ISSUE is empty until activation. The selected record container is PR #1763's conversation (Sam 1793472499.701439); the record
+# jobs refuse while it is empty, and before every update they verify the comment's issue, author, marker and id.
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: Comma-separated AHT-NN cases selected for this run (exactly the selected, ready case contracts)
+        required: true
+        type: string
+      facts_refs:
+        description: Bounded JSON of the selected approval/review reference strings for THIS run (references only; never values or account identifiers)
+        required: true
+        type: string
+      confirm:
+        description: Type LIVE to confirm a live run of exactly the selected cases
+        required: true
+        type: string
+      first_run:
+        description: Declare the first latest-run record (accepted only when no record exists yet)
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: cloud-test-live
+  cancel-in-progress: false
+
+env:
+  TRACKING_ISSUE: ''
+
+jobs:
+  record-begin:
+    name: Record the attempt (latest-record comment; no live credentials)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    outputs:
+      comment_id: ${{ steps.begin.outputs.comment_id }}
+      prior_state: ${{ steps.begin.outputs.prior_state }}
+    steps:
+      - name: Refuse a re-run attempt and an unconfirmed or inactive dispatch
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "BLOCKED_SETUP: rerun-attempt-refused"; exit 78; }
+          [ "$CONFIRM" = LIVE ] || { echo "BLOCKED_SETUP: live-run-not-confirmed"; exit 78; }
+          [ -n "$TRACKING_ISSUE" ] || { echo "BLOCKED_SETUP: tracking-issue-not-bound"; exit 78; }
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/cloud-test/scripts
+      - name: Begin the attempt in the latest record
+        id: begin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          P=tools/cloud-test/scripts/publish_latest_record.py
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" | python3 -I -c 'import json,sys; print(json.dumps([c for page in json.load(sys.stdin) for c in page]))' > "$RUNNER_TEMP/comments.json"
+          python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" > "$RUNNER_TEMP/selected.json"
+          python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); open(sys.argv[2],"w").write(s["body"]); print(s["commentId"] or "")' "$RUNNER_TEMP/selected.json" "$RUNNER_TEMP/previous.md" > "$RUNNER_TEMP/comment-id"
+          # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
+          python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"
+          python3 -I "$P" begin --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --source-sha "$GITHUB_SHA" --started-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$RUNNER_TEMP/body.md"
+          id="$(cat "$RUNNER_TEMP/comment-id")"
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
+          else
+            id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" -F "body=@$RUNNER_TEMP/body.md" --jq .id)"
+          fi
+          echo "comment_id=$id" >> "$GITHUB_OUTPUT"
+
+  live:
+    name: Selected live journeys (existing stage runner; preinstalled browser)
+    needs: record-begin
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CT_SETUP_MODE: existing-only
+      CT_CONFIG: tools/cloud-test/config/test-config.v1.json
+      CT_SOURCE_SHA: ${{ github.sha }}
+      CT_EXECUTION_RUN_ID: ${{ github.run_id }}.${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.23.4'
+      - name: Runner dependencies from the lockfile (no browser)
+        run: npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund
+      - name: Discover the preinstalled browser against the reviewed baseline
+        run: |
+          set -euo pipefail
+          cd tools/cloud-test
+          python3 -I scripts/install_browser.py --config config/test-config.v1.json --installed --environment github-hosted \
+            --baselines config/browser-baselines.v1.json --source-sha "$GITHUB_SHA" --run-id "$CT_EXECUTION_RUN_ID" \
+            --receipt "$RUNNER_TEMP/browser-receipt.json" > "$RUNNER_TEMP/chrome-path.txt"
+          echo "CT_CHROME=$(cat "$RUNNER_TEMP/chrome-path.txt")" >> "$GITHUB_ENV"
+          echo "CT_BROWSER_RECEIPT=$RUNNER_TEMP/browser-receipt.json" >> "$GITHUB_ENV"
+      - name: Run-scoped inputs for this run only (never a reset of an earlier attempt)
+        id: init
+        env:
+          CASES: ${{ inputs.cases }}
+          FACTS_REFS: ${{ inputs.facts_refs }}
+          FIRST_RUN: ${{ inputs.first_run }}
+          PRIOR_STATE: ${{ needs.record-begin.outputs.prior_state }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$PRIOR_STATE" > "$RUNNER_TEMP/prior-state.json"
+          FIRST=(); [ "$FIRST_RUN" = true ] && FIRST=(--first-run)
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py build --config "$CT_CONFIG" --out "$RUNNER_TEMP/run-inputs" --cases "$CASES" \
+            --facts-refs "$FACTS_REFS" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" \
+            --prior-state "$RUNNER_TEMP/prior-state.json" "${FIRST[@]}" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
+      - name: Stage runner (install-tools, plans, stimulus preflight, gates)
+        env:
+          CT_OUT: ${{ runner.temp }}/out
+          CT_CHECKOUT: ${{ github.workspace }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          for stage in install-tools build-plan stimulus-preflight build-plan-with-receipt gate-and-validate; do
+            bash tools/cloud-test/scripts/execute_run.sh "$stage"
+          done
+      - name: Stage runner (run)
+        env:
+          CT_OUT: ${{ runner.temp }}/out
+          CT_CHECKOUT: ${{ github.workspace }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}
+          THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # Producer keys only for the same-job producer route; execute_run.sh refuses them on any other route.
+          SUPABASE_SERVICE_ROLE_KEY: ${{ steps.init.outputs.route == 'github-producer' && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
+          POSTHOG_PERSONAL_API_KEY: ${{ steps.init.outputs.route == 'github-producer' && secrets.POSTHOG_PERSONAL_API_KEY || '' }}
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+        run: bash tools/cloud-test/scripts/execute_run.sh run
+      - name: Stage runner (collect) and the closed latest-record projection
+        if: always()
+        env:
+          CT_OUT: ${{ runner.temp }}/out
+          CT_CHECKOUT: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          bash tools/cloud-test/scripts/execute_run.sh collect
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py project --run-record "$CT_OUT/run-record.json" --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --out "$RUNNER_TEMP/latest-record.json"
+      - name: Hand the closed record to the record job (short-lived; not the authoritative record)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-live-record
+          path: ${{ runner.temp }}/latest-record.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+  record-complete:
+    name: Complete or interrupt the attempt in the latest record (no live credentials)
+    needs: [record-begin, live]
+    if: always() && needs.record-begin.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/cloud-test/scripts
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: cloud-test-live-record
+          path: ${{ runner.temp }}/record
+      - name: Write the terminal record, or mark the attempt interrupted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ needs.record-begin.outputs.comment_id }}
+          LIVE_RESULT: ${{ needs.live.result }}
+        run: |
+          set -euo pipefail
+          P=tools/cloud-test/scripts/publish_latest_record.py
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/comments.json"
+          python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID" | python3 -I -c 'import json,sys; open(sys.argv[1],"w").write(json.load(sys.stdin)["body"])' "$RUNNER_TEMP/previous.md"
+          if [ -f "$RUNNER_TEMP/record/latest-record.json" ] && [ "$LIVE_RESULT" != cancelled ]; then
+            python3 -I "$P" complete --previous "$RUNNER_TEMP/previous.md" --record "$RUNNER_TEMP/record/latest-record.json" --out "$RUNNER_TEMP/body.md"
+          else
+            python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+              --status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)" --out "$RUNNER_TEMP/body.md"
+          fi
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
