@@ -54,6 +54,17 @@ def bind_synthetic_files(root, request, facts=None, reconciliation=None):
     reqp, rcp, factp = [root / name for name in ("request.json", "reconciliation.json", "facts.json")]
     facts = copy.deepcopy(facts or J("tests", "fixtures", "plan-facts.PLACEHOLDER.json"))
     rc = copy.deepcopy(reconciliation if reconciliation is not None else synthetic_reconciliation())
+    if request.get("sampleMode") == "full" and any(row.get("case") == "AHT-10" for row in request.get("selection", [])):
+        # Declared synthetic planning data, never reused as current live facts.
+        from test_case10_request_bound import projection
+        record = {"schema": "speaksharp.cloud-test.case10-projection.v1", "runId": request["runId"],
+                  "sourceSha": request["release"]["testedSha"],
+                  "accountSubjectSha256": hashlib.sha256(b"00000000-0000-4000-8000-000000000001").hexdigest(),
+                  "evidenceRef": "SYNTHETIC-NOT-A-RUN", "projection": projection()}
+        facts.setdefault("case10RequestBound", record)
+        for row in request["selection"]:
+            if row.get("case") == "AHT-10":
+                row["requestBoundSha256"] = hashlib.sha256(json.dumps(facts["case10RequestBound"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     for path, value in ((reqp, request), (rcp, rc)):
         path.write_text(json.dumps(value))
         path.chmod(0o600)

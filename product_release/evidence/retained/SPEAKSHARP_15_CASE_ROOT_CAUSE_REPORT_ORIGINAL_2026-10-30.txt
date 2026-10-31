@@ -1,0 +1,183 @@
+One-shot diagnosis: all 15 SpeakSharp live journeys
+
+Evidence cut: 2026-10-30 20:58 UTC. Investigator scope: read-only diagnosis, not implementation or live execution.
+
+Executive prescription
+
+Do not ask Jensen to rerun eleven opaque failures. There are twelve unclosed cases, of which one is Case15 and eleven are the other unfinished cases. The original R9 ledger has 83/204 assertion rows PASS, zero assertion rows FAIL, 121 NOT RUN. Cases05/06/09 completed on the historical release. That does not mean everything else worked: raw network receipts contain actual coaching HTTP502 responses that the case summary did not classify as FAIL.
+
+The shortest credible closure route is four parallel preparation packages, followed by serial, explicitly approved live executions:
+
+1. Sam + current caller owner: make the full existing standalone adapters executable in the hosted job. Do not rebuild every full case in narrower RWT specs. Jensen has verified his branch contains caller stages but no hosted cloud-test.yml or materialized private admission inputs. This is a real common dependency, not eleven separate product bugs.
+2. Harness owner: repair the evidence bottlenecks before spending another live attempt. Preserve independent save/final-state results before coaching capture; record a closed-vocabulary causal code at each throwing boundary; wire real association/authority producers; resolve local feedback telemetry visibility without pretending a blocked vendor delivery passed. Keep every failing required assertion effective.
+3. Jensen: investigate the actual service and lifecycle signals. Coaching502 in01/07 needs server/provider correlation. Case04 has a specific Products click timeout. Case12 has recovery initialization termination plus an insufficient Start budget. Case11’s interruption needs exact active-row/lease evidence, not a guessed takeover fix.
+4. Sam: prepare exact per-case closure packets for all15. Preserve historical05/06/09 credit without relabeling it current-release proof. Reuse the full catalog, correct scopes and supported producers. Each row closes only with its own complete receipt, not an offline proof-suite PASS or a browser step marked green.
+
+No prescription below guarantees full-case success at100%. Where the immediate blocker is demonstrated, confidence is high that the stated correction removes *that blocker*, not that unseen downstream behavior will pass. Percentages are engineering judgments, not statistical measurements.
+
+Evidence inspected and integrity
+
+E1 — Original R9 executed evidence
+
+Local supplied originals:
+- r9_attachments/sealed-receipts-R9.zip, SHA256 bfc7edad7971e6c56d0ba75fc75c68dc0bf325a440656055ece2c1052328a8b2.
+- r9_attachments/case-results.json, SHA256 eebbb7903a665d35784acad17955f9de633b3bae589f140a1f7ca66f280b86f6.
+- r9_attachments/RESULTS-R9-live-run.md and concerns-R9.json.
+
+I independently read the individual case receipts, action reservations, summaries and guard JSONL. All179 per-case evidence digests matched their referenced archive members. This verifies internal integrity, not a new execution. R9 source/served release was a297ce3a8f411c45c741d721bec177b41b2bd311; journeys ran2026-10-29 18:58–19:25UTC. Paths below are archive members and identify the actual observations, not merely a status report.
+
+E2 — Newer actual diagnostic evidence
+
+- Case08 run41071743003 (https://github.com/relativityE/speaksharp/actions/runs/41071743003): original canonical-thread read reports browser and received-feedback readback success, but watchdog29 unresolved events; not full-case PASS. This is stronger than R9 for the basic no-session association but does not prove every standalone catalog row.
+- Case15 run41115876890 (https://github.com/relativityE/speaksharp/actions/runs/41115876890): API independently confirms completed/failure on c74d00ab138ff3f3db5701f9d365f8d60f370719. I read /tmp/case15-receipts.zip: returning-user receipt18PASS/0FAIL/3HOLD/2HUMAN,66 unresolved identities/11 unattributed requests. Browser routing succeeded; the workflow intentionally rejects diagnostic execution as release qualification. The worksheet/readback placeholders are not new product failures.
+- Final corrected-reader publication (https://app.slack.com/archives/C0C9RE8KNHG/p1793393542858649?thread_ts=1792367917.368209&cid=C0C9RE8KNHG): exact head 018d8d612452f9d5ddf8cd7a678c72a539b56099, author reports129unit/12guard/6boundary PASS and lint0. No corrected-reader runtime receipt yet. Latest original thread read also confirms the missing hosted caller/private-input materialization dependency.
+
+E3 — Independently inspected current source
+
+At the exact018d head:
+- Full source adapters (https://github.com/relativityE/speaksharp/blob/018d8d612452f9d5ddf8cd7a678c72a539b56099/tools/cloud-test/harness/draft-adapters/source-adapters.cjs).
+- Independent oracle implementations (https://github.com/relativityE/speaksharp/blob/018d8d612452f9d5ddf8cd7a678c72a539b56099/tools/cloud-test/harness/draft-adapters/oracles/index.cjs).
+- Browser action/Start primitives (https://github.com/relativityE/speaksharp/blob/018d8d612452f9d5ddf8cd7a678c72a539b56099/tools/cloud-test/harness/draft-adapters/browser-actions.cjs).
+- Feedback retry controls (https://github.com/relativityE/speaksharp/blob/018d8d612452f9d5ddf8cd7a678c72a539b56099/tools/cloud-test/harness/draft-adapters/feedback-retry-controls.cjs).
+
+Current source is evidence for a proposed repair/reuse route, not proof that the same exact code executed in R9. Source mappings inherited from existing completed reviewers are identified below as coverage findings, not historical causal proof.
+
+Important corrections to the previous story
+
+1. Fresh account alone does not fix Case01. Receipt AHT-01/aht-01-2.json proves24existing sessions, but aht-01-20.json also shows RECORDING→STOPPING→READY. Guard sequence261 records coaching502,42,772ms, at2026-10-29T19:01:22.615Z. The driver did continue beyond the nonfresh precondition and then interrupted.
+2. Case07’s first retry did work at the observed transport/UI boundary. aht-07-3.json proves truthful retained form, two attempts, explicit retry201, one fresh ACK and detached dialog. Its missing piece was localSentEvents:0 / localSentSequenceVerified:false. Do not “fix” a successful retry by changing product retry semantics. Separate coaching502 at19:17:12.696Z and two read403s at19:17:51.807Z/52.310Z are also real observations; their endpoint bodies were not retained.
+3. Case08’s R9 reason is known: oracle-feedback-association-1.json explicitly says authorized-evidence-reader-unavailable, serverAssociationRead:false. A capability declaration is not a functioning reader.
+4. Case12 is not proven to be a model-download network failure. Its guard contains zero local-private-model requests, no HTTP>=400, and the action journal is Download then Retry. The trace terminates in engine error. Retained evidence cannot distinguish a cached/setup lifecycle problem from a browser/device problem. The subsequent third Start was blocked by the two-press cap.
+5. “start-recording-wait” in old failure diagnostics is not an accurate failed-operation label. Current browser-actions only changes the global stage around Start, while current source calls coaching capture before recording saved-once. R9 traces clearly show recording and Stop already occurred. Do not diagnose these as “recording never started.”
+
+All15 case prescriptions
+
+Named owners below are proposed routing within existing roles, not new write-ownership assignments. Shared-file changes still require the existing explicit handoff.
+
+Confidence notation: C = confidence in the named cause, F = confidence the prescription removes the named blocker. Neither is a guarantee of full-case PASS. Unknown means there is no responsible numerical fix-confidence estimate.
+
+01 — Open Mic first session: 3/20 historical rows PASS; incomplete
+- Observed: nonfresh owner24sessions; actual recording/Stop; coaching502; generic post-Stop interruption. E1 AHT-01/aht-01-2.json, aht-01-20.json, guard.jsonl seq261.
+- Cause: invalid fresh-session setup is demonstrated. Coaching service failure is demonstrated; upstream provider cause unknown. The exact throwing capture boundary was not retained. C99% freshness /99% HTTP failure /40% specific capture-root hypothesis.
+- Prescription: use the approved fresh disposable identity; preflight actual remaining quota; capture owner-bound save/final-state before coaching readiness/authority capture; preserve the502 as a failed coaching outcome and continue only independent assertions. Retrieve existing request-correlated server/provider records to distinguish timeout, malformed output, upstream5xx or application refusal—do not change retry policy without evidence. F99% for freshness,80% for recovering independent evidence, unknown for curing502.
+- Owner: Jensen integration, Jensen provider diagnosis, Sam evidence review.
+- Control/closure: stale24-session identity must refuse freshness; injected coaching502 must remain failure while successful durable save/reopen stays observable. Execute full20rows, including two grounded coaching outputs, same-target numeric comparison, PDF/reopen and probe isolation. Full standalone budget4Starts/4take reservations; budget is not permission. A narrower RWT run cannot close missing numeric assertions.
+
+02 — Full Focus: 9/33 historical rows PASS; incomplete
+- Observed: live marker/no-red rows passed; RECORDING27.676s→STOPPING78.801s→READY111.801s; generic Error afterward; no coaching request or HTTP>=400 in retained guard. E1 aht-02-33.json, guard.jsonl.
+- Cause: post-Stop evidence/capture interruption, not proven Focus recognition failure. Saved-input/readiness precondition is a plausible source-derived choke point; exact root unknown. C95% post-Stop interruption /55% capture/precondition hypothesis.
+- Prescription: preserve save and final Focus verdicts first; closed reason codes for saved-input availability, rendered-pair identity, authority readiness and capture timeout. Use existing full adapter for live/durable verdict agreement, repeat/numeric and Edit/Cancel/New Set/switch isolation. F85% for exposing the real blocker; unknown for product cure.
+- Owner: Jensen adapter; Jensen only after a concrete product contradiction is isolated.
+- Control/closure: missing coaching inputs must not erase final/save evidence; stale/wrong take and wrong numeric IDs must fail. Full33rows, including five intended saved takes, within reviewed7Start/7take limits. Falsifier: precise capture succeeds yet failure occurs earlier/later in another operation.
+
+03 — Partial Focus: 9/29 historical rows PASS; incomplete
+- Observed: partial live marker/no-red evidence retained; RECORDING23.801s→STOPPING50.209s→READY70.001s; generic interruption afterward; no coaching request/HTTP>=400. E1 aht-03-29.json, guard.jsonl.
+- Cause/prescription: same post-Stop capture bottleneck as02 is plausible, not proven identical. C95% interruption location /55% shared cause; F85% diagnostic repair, unknown product fix. Reuse full partial adapter, not full-Focus expected values.
+- Owner: Jensen; Sam verifies coverage.
+- Control/closure: partial/absent points must stay partial/absent; false full coverage and wrong same-target numeric pair fail. Full29rows, two saved takes,4Start/4take reservations, independent grounded coaching and reopen. Falsifier: capture facts pass but partial-state source itself contradicts the declared fixture.
+
+04 — Leave during cold Start: 6/9 historical rows PASS; incomplete
+- Observed: no-session-on-leave passed, then locator.click on nav-products-button timed out20s; no HTTP error. E1 aht-04-9.json.
+- Cause: Products control unavailable/non-actionable at return transition; underlying overlay, menu, route or product state unknown. C99% click timeout /40% transition-actionability hypothesis.
+- Prescription: use existing full navigation-ready/menu-settlement adapter; record visible/enabled/expanded/menu/route booleans and pending-dialog ownership at this boundary. Correct the demonstrated state/selector race, not by increasing arbitrary timeout. Keep deliberate recovery save; narrow RWT currently stops too early. F70% boundary repair, unknown product fix until state retained.
+- Owner: Jensen harness; Jensen if a stable visible overlay/navigation state blocks a real user.
+- Control/closure: delayed menu teardown and stale route controls; verify return does not resume/capture, then deliberate new save/reopen. Full9rows,2Starts/1take. GAP06 requires04+13+14, not04 alone. Falsifier: no UI race and control is actionable throughout—then inspect handler/lifecycle cancellation.
+
+05 — Save-fault recovery: historical10/10 PASS
+- Observed: complete R9 case,313requests; not an outstanding demonstrated failure. E1 AHT-05/case-result.json.
+- Prescription: preserve successful fault/retry/exactly-once evidence; do not rewrite. Current-release closure requires fresh exact-release receipt if the acceptance target is all15 on one new release. C99% historical PASS; F not applicable.
+- Owner: Sam records credit, Jensen runs only when selected.
+- Control/closure: failed first completion, exact intended retry, one durable completed row, later take isolation and reopen; retain negative duplicate/mismatched save controls.
+
+06 — Alternate save-fault recovery: historical10/10 PASS
+- Observed: complete R9 case,325requests. E1 AHT-06/case-result.json.
+- Prescription: same preserve/requalify treatment as05; no new defect established. C99% historical PASS; F not applicable.
+- Owner/control: Sam/Jensen; retain actual fault boundary, retry count, durable exactly-once/reopen and successor isolation. Do not confuse exceeding the estimate310 with exceeding the actual approved case allowance.
+
+07 — Older-take feedback and retry controls: 4/15 historical rows PASS; incomplete
+- Observed: first controlled transport fault/retry gave correct retained form,201, one ACK; local telemetry sequence0events. Also coaching502 and two read403s. E1 aht-07-3.json, summary.json, guard.jsonl.
+- Cause: first retry row is blocked by absent local causal telemetry, not observed retry malfunction. Whether telemetry was never generated, blocked before observer visibility, compressed/unreadable or captured incorrectly is not established. R9 guard refused telemetry hosts globally. C99% missing local sequence /65% environment-observer interaction.
+- Prescription: validate the passive observer on exact transport and governed local send contract; use typed closed diagnostics for blind/unseen/malformed sequence. Wire actual independent feedback association/received producers. Do not equate201 with stored-once. Preserve existing seven insertion attempts/four reports and three fault modes; narrow single-share RWT is insufficient. Separately correlate502 and403 without adding browser admin access. F85% evidence-path correction; unknown upstream service fix.
+- Owner: Jensen producer/harness, Jensen service diagnosis, Sam acceptance.
+- Control/closure: reordered/missing events fail; wrong older/newer association fails; duplicate persisted row fails; synthetic42501 never counts as actual RLS proof. Full15rows with bound older/newer coaching request identities and final independent receipt. Falsifier: valid local sequence observed yet persisted association or product retry actually fails.
+
+08 — No-session feedback: 4/9 R9 rows PASS; newer diagnostic still HOLD
+- Observed: R9 fresh acknowledgment PASS; independent reader unavailable. New run41071743003 reports correct null session/no coaching and received readback, but29 unresolved watchdog events.
+- Cause: R9 producer/materialization absence is explicit. New blocker is observer attribution, not no-session association contradiction. C99% historical missing reader /95% current attribution gap.
+- Prescription: reuse fixed same-job authenticated evidence producer and corrected reader018d; verify scoped continuation acknowledgment, not blanket URL matching. Keep final idempotency key and received-side binding. F95% producer setup;80% attribution mechanism fixing this run class, not proven historically identical.
+- Owner: Jensen; Sam checks exact receipts.
+- Control/closure: no-session report must have null session and absent coaching link; wrong owner/key, duplicate insert and unobserved delivery fail. Full9rows with0Start/take/coaching. Historical compressed body bytes were not retained, so retrospective100% attribution cause is unavailable.
+
+09 — Navigate away while recording: historical12/12 PASS
+- Observed: complete R9,265requests. E1 AHT-09/case-result.json.
+- Prescription: preserve, not reimplement. C99% historical PASS; F not applicable.
+- Owner/control: Sam/Jensen. Current-release full proof must retain observed recording-before-leave, one saved departed take, release/no-resume, truthful recovery and distinct completed successor. Routing-only or zero-active-row checks are not replacements.
+
+10 — Close tab mid-recording: 8/10 historical rows PASS; allowance interrupted
+- Observed: allowance240/used240,241st request denied before next-take-isolated; exit6. Bound recovery-fence oracle PASS already recorded. E1 summary.json, guard.jsonl seq385, oracle-recovery-fence-2.json.
+- Cause: underestimated request allowance, not demonstrated lifecycle defect. C99%.
+- Prescription: model exact remaining sequence/readback requests from240 consumed plus missing tail, reduce only redundant queries if safe, and obtain an explicit revised bounded case allowance. Preserve the guard; do not disable counting or retry unchanged. F95% for eliminating this exact240 cutoff; unknown full-case PASS.
+- Owner: Jensen budget packet, Sam authorization routing.
+- Control/closure: old cap still stops request241; new bound still stops at its own limit. Complete two distinct take identities, exact durable successor and old immutable fence. Do not “repair” by deleting/closing old row merely to get zero active sessions. Full10rows.
+
+11 — Same account/two contexts takeover: 4/9 historical rows PASS; incomplete
+- Observed: same-browser refusal PASS; subsequent generic Error before independent-context-refused. No HTTP>=400. E1 aht-11-9.json, aht-11-3.json.
+- Cause: exact root unknown. Current oracle begin reads all active owner rows and requires exactlyone; prior abandoned/fenced rows on shared owner could make it ambiguous. This is a hypothesis, not an observed R9 fact. C35% active-row ambiguity hypothesis.
+- Prescription: journal exact closed failure code and active-row count; bind first take to the observed create/lease identity, rather than “the only active row,” if ambiguity is reproduced. Retain continuous refusal/lease-before-model observation and the existing permanent fence readback absent from the narrower RWT assertion set. F75% if ambiguity reproduced; otherwise unknown.
+- Owner: Jensen/Elon, subject to established lease-oracle ownership; Sam reconciles handoff.
+- Control/closure: one unrelated historical fenced-active row must not be selected; wrong first ID/missing fence must fail. Full9rows including refusal, second explicit takeover gesture, old recording_fenced_at/reason=displaced during successor recording and two saved identities.4Starts/2takes. Falsifier: active rows exactlyone and begin succeeded—investigate the next precise operation instead.
+
+12 — Mic denial then permission recovery: 4/8 historical rows PASS; campaign safety stop
+- Observed: actual press-bound NotAllowedError and truthful no-mic response PASS. Journal: mic-download then mic-retry. Recovery trace engine initializing→TERMINATED/error; zero model HTTP requests in this case; no take created. Third Start refused by limit2. E1 aht-12-2/3/4.json, action-reservations.jsonl, summary.json.
+- Cause: two-press plan cannot complete this observed Download→Retry-setup→Start path. Earlier initialization failure’s product/browser cause unknown. C99% cap stop /unknown engine cause.
+- Prescription: explicitly budget three pre-effect Start-family actions for the intended same-context recovery, with bounded no-auto-retry behavior; inspect closed acquisition/model/worker setup codes and permission state around the retry before changing runtime. Reuse full same-context adapter; a fresh allowing browser is not the required denial→grant recovery. F95% cap correction, unknown underlying engine fix.
+- Owner: Jensen setup/driver, App Dev only for reproduced runtime termination.
+- Control/closure: denied attempt cannot record; grant occurs in same guarded context; third permitted action saves exactlyone and reopens; fourth refuses. All8rows. Falsifier: engine still terminates with proper budget—budget was only the stop mechanism, not the initiating defect.
+
+13 — Model download failure: historical0/8, never started
+- Cause: campaign halted at12. No product failure observed. C99%.
+- Prescription: select independently once admission is valid; use existing full adapter’s exact cold app-origin asset fault, truthful never-ready/Private/Retry, restoration and saved recovery/reopen. Do not replace with broad all-model abort pattern. F99% for avoiding prior campaign-order blockage; product outcome unknown.
+- Owner: Jensen, Sam exact packet.
+- Control/closure: fault-not-fired is NOT RUN; falsely-ready and Cloud fallback fail; missing recovered save/reopen fails. All8rows; explicit fault/write/provider scope and reviewed Start budget.
+
+14 — Offline after partial model download: historical0/8, never started
+- Cause: campaign halted at12, not an observed offline failure. C99%.
+- Prescription: existing full download-fault harness must prove actual received prefix (bytesForwarded>0) and browserOfflineApplied, not merely a request-start event. Restore network, Retry setup, Start, save and reopen. Audit action count: setup-only Retry plus Start may need3 actions although an old catalog minimum says2. F99% for avoiding prior order blockage; product outcome unknown.
+- Owner: Jensen full adapter; Sam budget reconciliation.
+- Control/closure: zero-byte/offline-not-applied tests refuse; wrong URL and warm-cache no-fault refuse; never-ready before restoration and noCloud remain mandatory. All8rows. Do not silently raise the cap.
+
+15 — Returning user/full owned detail: historical0/14; newer routing diagnostic incomplete
+- Observed: R9 never started. New c74 browser run passed routing/sign-in/out but66 unresolved event identities/11 unattributed requests; maintained account cannotStart; no owned-detail full contract shown.
+- Cause: demonstrated observer qualification gap. Chrome143 gzipBlob/CDP byte mismatch reproduction supports the installed reader correction; historical request bodies are unavailable, so it is not a100% retrospective causal proof. Full own-detail is a separate source-coverage gap, not a product failure. C95% observer gap /80% exact binary mechanism applying to historical runs.
+- Prescription: qualify018d in the already-proposed narrow read-only runtime scope; then use existing standalone returnToOwnDetail oracle to fulfill the full catalog, with verified maintained owner and readable completed take. Do not claim the narrow routing rerun closes Case15. F80% attribution fix;95% full adapter removes known coverage omission; actual product outcome unknown.
+- Owner: Jensen reader, Sam full-catalog selection/review.
+- Control/closure: missing continuation ACK, malformed body or wrong loader never becomes attributed; full14rows require exact path/query/hash, rendered saved-review and transcript digest matching owned stored take, unchanged history, mic off/no writes, bothsignouts. Account canStart HOLD is not automatically a failure of this read-only catalog. Human mic/phone observations are separate release rows.
+
+Concrete common repair packages and acceptance
+
+P0: stop losing causal evidence and successful independent observations
+
+At018d, source-adapters executes Stop→savedID→coaching capture→saved-once. Oracle capture can throw on unavailable saved inputs, readiness, rendered pairing or authority. Several diagnostics preserve only generic Error while the last stage still says start-recording-wait. The minimum repair is not raw-error dumping: set a stable phase/error enum before each boundary, record availability/count/status and safe HTTP class, emit durable save/final-state before dependent coaching capture, and preserve required coaching failure separately. Unknown source errors remain failures/unknown, never manufactured PASS. Prove with injected missing-input, wrong-pair, provider502, delayed-readiness and unavailable-authority controls. This benefits01–03 and makes11/12 diagnosable without repeated blind attempts.
+
+P0: close hosted caller/admission wiring once
+
+Use existing selected subset + full assertion depth, retaining all15 manifest rows and zero estimates for unselected cases. Exact request→environment→builder→catalog controls must pass. The hosted job must materialize genuine selected request/facts/account identity/evidence scope plus history index/counters/gap ledger/receipts/reservations/current proof. Secrets only reach fixed same-job producer parent. Checkout alone does not provide these inputs. Owner: Sam integration with Elon’s workflow boundary and Jensen caller boundary explicitly reconciled. A source pin or offline proof pass does not authorize a live run.
+
+P1: independent producers and telemetry contract
+
+Case08’s missing reader is direct proof. Case07’s successful UI/HTTP path still lacks local sequence and independent persisted association. Supply real producer output with current owner/run/window/idempotency binding; test missing/stale/wrong-owner refusal. Explicitly decide the governed local telemetry observation route under the existing egress policy. Do not quietly allow vendor traffic, broaden credentials, or credit blocked events as received. Narrow RWT producer qualification may be reused, not assumed portable to the full caller.
+
+P1: bounds, not retries
+
+Case10’s240 cutoff and12’s2-press stop are known. Prepare proposed revised limits from exact actions and existing counts; retain hard counters. Cases13/14 can be individually selected so12 does not consume their opportunity, but only in a valid admitted full-depth subset. User approval for these specific live effects/budgets remains separate. A larger cap cannot be sold as a fix for an unknown engine error.
+
+P2: server/provider root cause
+
+Retain the two actual502 observations. Existing logs—not a new paid call—should first establish invocation ID, admitted provider attempts, terminal class and timing. Durations42.8s/52.0s do not by themselves prove timeout. Do not increase retries, loosen coaching validators or assert quota exhaustion from these statuses. Correct the identified error path, then show exact failure negative and real successful output/save binding in the selected case.
+
+Closure definition and residual uncertainty
+
+- 15/15 means every case’s full required rows are established on the selected release and scope.83passing assertions, an offline mutation-suitePASS, source review or routing-only browserPASS are different denominators.
+-05/06/09 historical credit is preserved. To claim current-release all15, run/qualify them under the current release or obtain explicit acceptance of historical scope; never relabel old evidence.
+- Actual product root causes for generic02/03/11 interruptions and12initialization remain unproven from retained artifacts. Exact unredacted operational error text was intentionally not retained. The remedy is scoped closed diagnostics and one purposeful authorized execution—not confidence inflation.
+- No new live execution, account operation, provider call, code edit, merge/deploy or external coordination message was performed by this investigator. Report complete; no continuing monitoring or standing assignment is requested.

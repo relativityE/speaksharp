@@ -133,6 +133,9 @@ def read_binding_inputs(env, argv):
     binding = bind_inputs(env, FACTS)
     require(MODE == binding['mode'], 'mode-binding')
     request = binding['request']
+    # Before any phase output or browser launch, require the exact selected
+    # case10 schedule bound. The account file is private and never echoed.
+    case10_bound = caps_module.case10_execution_bound(request, FACTS, Path(UID_FILE).read_text(encoding='utf-8').strip())
     require(BP_EST == {int(row['case'][-2:]): row['plannedRequests'] for row in request['selection']}, 'estimate-binding')
     require(IDENT_CAP == caps_module.integer(request['estimate'].get('identityReads'), 'identity-estimate'), 'identity-binding')
     require(BP_CLEANUP == caps_module.integer(request['estimate']['requests'].get('cleanupReserve'), 'cleanup-estimate'), 'cleanup-binding')
@@ -244,6 +247,8 @@ def read_binding_inputs(env, argv):
             c['account'] = {'id': UID, 'mode': 'maintained-read-only' if n == 15 else 'existing-disposable',
                             'preprovisionReceipt': R['pre'], 'analyticsExclusionReceipt': R['analytics'],
                             'dispositionReceipt': R['disp'], 'effectiveFeatureAccessApproved': True}
+            if n == 10 and case10_bound is not None:
+                c['requestBound'] = case10_bound
             c['readback'] = {'origin': f'https://{HOST_DB}', 'projectRef': PROJECT_REF, 'anonKey': ANON,
                              'schemaSha256': schema_sha, 'ownerReadApproved': True, 'rlsReadQualificationReceipt': R['rls']}
             if n in (9, 10): c['readback']['immutableFenceMigrationQualificationReceipt'] = R['fence']

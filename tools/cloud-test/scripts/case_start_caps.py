@@ -158,6 +158,37 @@ def bind_inputs(env, facts):
             "requestSha256": request_sha, "reconciliationSha256": rc_sha, "approval": approval}
 
 
+def case10_execution_bound(request, facts, account_id):
+    """Admit the selected projection, never allocate more requests or infer missing facts.
+
+    This is a bound for the reviewed schedule, not a prediction of future traffic.
+    The runtime ledger still charges every actual attempt and stops at 240.
+    The projection digest is inside the approved request, so replacing only the
+    facts file cannot substitute a different account, schedule or component sum.
+    """
+    selected = [row for row in request["selection"] if row["case"] == "AHT-10"]
+    if not selected or request["sampleMode"] == "minimal":
+        return None
+    row = selected[0]
+    record = obj(facts.get("case10RequestBound"), "case10-bound-missing")
+    require(set(record) == {"schema", "runId", "sourceSha", "accountSubjectSha256", "evidenceRef", "projection"}, "case10-bound-shape")
+    require(record["schema"] == "speaksharp.cloud-test.case10-projection.v1", "case10-bound-schema")
+    require(record["runId"] == request["runId"] and record["sourceSha"] == request["release"]["testedSha"], "case10-bound-identity")
+    require(record["accountSubjectSha256"] == hashlib.sha256(account_id.encode("utf-8")).hexdigest(), "case10-bound-account")
+    require(type(record["evidenceRef"]) is str and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{1,199}", record["evidenceRef"]), "case10-bound-evidence")
+    encoded = json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    require(row.get("requestBoundSha256") == hashlib.sha256(encoded).hexdigest(), "case10-bound-digest")
+    from case10_request_bound import compute, BoundRefused, ALLOWANCE
+    try:
+        report = compute(record["projection"])
+    except BoundRefused:
+        raise InputValidationError("case10-bound-projection") from None
+    planned = integer(row.get("plannedRequests"), "case10-bound-planned")
+    require(report["transmittedBound"] <= planned <= ALLOWANCE and report["fitsAllowance"], "case10-bound-over-allowance")
+    return {"projectionSha256": row["requestBoundSha256"], "transmittedBound": report["transmittedBound"],
+            "allowance": ALLOWANCE, "evidenceRef": record["evidenceRef"]}
+
+
 def verified_contracts(value):
     rows = obj(value, "contracts-object").get("cases") if type(value) is dict else value
     require(type(rows) is list, "contracts-cases")

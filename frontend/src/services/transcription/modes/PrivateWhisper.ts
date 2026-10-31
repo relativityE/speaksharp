@@ -46,6 +46,7 @@ import { MicReadinessGate } from '../utils/micReadiness';
 import { publishTelemetry } from '../../telemetry/sessionTelemetryBus';
 import { isShadowMetricsEngineEnabled } from '../../telemetry/shadowMetricsEngine';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
+import { captureForPcm, inheritPcmSlice, inheritPcmConcat, type PcmBoundaryCapture } from '../pcmBoundaryReceipt';
 import { TranscriptUpdate, SttStatus } from '../../../types/transcription';
 import { ENV } from '../../../config/TestFlags';
 import { PauseDetector } from '../../audio/pauseDetector';
@@ -683,6 +684,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private onModelLoadProgress?: (progress: number | null) => void;
   public onReady?: () => void;
   private onAudioData?: (data: Float32Array) => void;
+  private pcmReceiptCapture?: PcmBoundaryCapture;
   private onStatusChange?: (status: SttStatus) => void;
   /** #1089: one-shot signal that the capture backstop was hit (see TranscriptionModeOptions). */
   private onCaptureLimitReached?: (info: { bufferedSeconds: number; limitSeconds: number }) => void;
@@ -1129,6 +1131,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     // Subscribe to microphone frames
     this.cleanupFrameListener(); // CRITICAL: Clean up previous listener before adding new one
+    this.pcmReceiptCapture = undefined;
 
     // #891 Phase 5.6 (SHADOW): resolve the dev-gate ONCE here, not per frame, so production does zero
     // per-frame work for the passive diagnostic.
@@ -1136,7 +1139,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     const listener = (frame: Float32Array) => {
       // Copy the frame to avoid buffer detachment issues
-      const clonedFrame = frame.slice(0);
+      const receiptCapture = captureForPcm(frame);
+      if (receiptCapture) {
+        if (this.pcmReceiptCapture && this.pcmReceiptCapture !== receiptCapture) this.pcmReceiptCapture.incomplete('capture-changed');
+        this.pcmReceiptCapture ??= receiptCapture;
+        receiptCapture.listener(frame);
+      }
+      const clonedFrame = inheritPcmSlice(frame, frame.slice(0), 0, 'listener-copy');
 
       // Track silence per-frame for accurate pause metrics (analytics only)
       this.pauseDetector.processAudioFrame(clonedFrame);
@@ -1216,9 +1225,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             0,
           );
           this.audioChunks = [
-            ...this.retainedPreonsetSpeechChunks.map((chunk) => chunk.slice(0)),
-            ...this.prerollAudioChunks.map((chunk) => chunk.slice(0)),
-            ...this.speechStartAudioChunks.map((chunk) => chunk.slice(0)),
+            ...this.retainedPreonsetSpeechChunks.map((chunk) => inheritPcmSlice(chunk, chunk.slice(0), 0, 'speech-confirm')),
+            ...this.prerollAudioChunks.map((chunk) => inheritPcmSlice(chunk, chunk.slice(0), 0, 'speech-confirm')),
+            ...this.speechStartAudioChunks.map((chunk) => inheritPcmSlice(chunk, chunk.slice(0), 0, 'speech-confirm')),
           ];
           this.bufferedSampleCount =
             this.retainedPreonsetSpeechSamples + this.prerollSampleCount + speechStartBufferedSamples;
@@ -1339,9 +1348,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     try {
       // Concatenate all chunks using shared utility
-      const liveAudio = concatenateFloat32Arrays(this.audioChunks);
+      const liveAudio = inheritPcmConcat(concatenateFloat32Arrays(this.audioChunks), this.audioChunks, 'live-concat');
       const concatenated = this.retryAudioBuffer
-        ? concatenateFloat32Arrays([this.retryAudioBuffer, liveAudio])
+        ? inheritPcmConcat(concatenateFloat32Arrays([this.retryAudioBuffer, liveAudio]), [this.retryAudioBuffer, liveAudio], 'retry-concat')
         : liveAudio;
       const processorEnergy = summarizeAudioEnergy(concatenated);
       pushPrivateTimeline('process_audio_ready', {
@@ -1547,6 +1556,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // `force` IS the finality signal: `processAudio({ force: true })` is the stop-commit and every
       // other call is a live window. Passing it through is what lets a streaming engine finalize once
       // instead of guessing -- and guessing closed the session stream on the first live decode.
+      this.pcmReceiptCapture?.decode(processedAudio, force);
       const result = await this.privateSTT.transcribe(processedAudio, { final: force });
       if (this.status !== 'transcribing') {
         pushPrivateTimeline('model_inference_result_ignored_after_stop', {
@@ -2131,6 +2141,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   }
 
   private cleanupFrameListener(): void {
+    this.pcmReceiptCapture?.closeListener();
     if (this.frameListenerDisposer) {
       this.frameListenerDisposer();
       this.frameListenerDisposer = null;
@@ -2157,7 +2168,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     if (audio.length <= maxLiveSamples) return audio;
 
-    const cappedAudio = audio.slice(audio.length - maxLiveSamples);
+    const cappedAudio = inheritPcmSlice(audio, audio.slice(audio.length - maxLiveSamples), audio.length - maxLiveSamples, 'live-cap');
     pushPrivateTimeline('live_decode_window_capped', {
       serviceId: this.serviceId,
       runId: this.instanceId,
@@ -2183,6 +2194,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   }
 
   private addPrerollFrame(frame: Float32Array): void {
+    inheritPcmSlice(frame, frame, 0, 'preroll');
     this.prerollAudioChunks.push(frame);
     this.prerollSampleCount += frame.length;
 
@@ -2194,7 +2206,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         this.prerollSampleCount -= first.length;
         this.prerollAudioChunks.shift();
       } else {
-        this.prerollAudioChunks[0] = first.slice(overflow);
+        this.prerollAudioChunks[0] = inheritPcmSlice(first, first.slice(overflow), overflow, 'preroll');
         this.prerollSampleCount -= overflow;
       }
     }
@@ -2203,6 +2215,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // #891: non-evicting retention of pre-onset SPEECH (vs the 300ms pre-roll which evicts). Bounded
   // at ~5s so pathological input can't grow unbounded; a normal opening clause is well under that.
   private retainPreonsetSpeechFrame(frame: Float32Array): void {
+    inheritPcmSlice(frame, frame, 0, 'preonset');
     const RETAINED_PREONSET_SPEECH_MAX_SAMPLES = PRIVATE_STT_SAMPLE_RATE * 5;
     this.retainedPreonsetSpeechChunks.push(frame);
     this.retainedPreonsetSpeechSamples += frame.length;
@@ -2217,7 +2230,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         this.retainedPreonsetSpeechSamples -= first.length;
         this.retainedPreonsetSpeechChunks.shift();
       } else {
-        this.retainedPreonsetSpeechChunks[0] = first.slice(overflow);
+        this.retainedPreonsetSpeechChunks[0] = inheritPcmSlice(first, first.slice(overflow), overflow, 'preonset');
         this.retainedPreonsetSpeechSamples -= overflow;
       }
     }
@@ -2281,7 +2294,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // 0/3/8-word loss). Over-retain and let the finalize trailing-silence trim + Whisper handle
       // genuine quiet — under-retaining loses words irrecoverably. The buffer is non-evicting
       // (retainPreonsetSpeechFrame) and bounded.
-      this.retainPreonsetSpeechFrame(chunk.slice(0));
+      this.retainPreonsetSpeechFrame(inheritPcmSlice(chunk, chunk.slice(0), 0, 'preonset'));
       preservedSamples += chunk.length;
     }
 
@@ -2328,7 +2341,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private appendUtteranceAudio(chunks: Float32Array[]): void {
     for (const chunk of chunks) {
       if (chunk.length === 0) continue;
-      this.utteranceAudioChunks.push(chunk.slice(0));
+      this.utteranceAudioChunks.push(inheritPcmSlice(chunk, chunk.slice(0), 0, 'utterance-copy'));
       this.utteranceSampleCount += chunk.length;
     }
   }
@@ -2381,7 +2394,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
     const crossesCap = frame.length > remainingCapacity;
     if (crossesCap) {
-      frame = frame.subarray(0, remainingCapacity); // accept at most the remaining samples — never exceed MAX
+      frame = inheritPcmSlice(frame, frame.subarray(0, remainingCapacity), 0, 'utterance-cap'); // accept at most the remaining samples — never exceed MAX
     }
     this.appendUtteranceAudio([frame]);
     // First non-pure-silence frame anchors the conservative leading-silence trim (under-trim bias:
@@ -2418,7 +2431,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // LEADING_SILENCE_TRIM_RMS anchor (~10x below FIRST_TRANSCRIPT_PARTIAL_MIN_RMS, below soft speech)
     // plus a 0.5s keep-margin, so opening WORDS are never trimmed (under-trim bias). Trailing uses the
     // existing real-speech bound. Mid-utterance soft speech is fully retained.
-    const fullUtteranceAudio = concatenateFloat32Arrays(this.utteranceAudioChunks);
+    const fullUtteranceAudio = inheritPcmConcat(concatenateFloat32Arrays(this.utteranceAudioChunks), this.utteranceAudioChunks, 'utterance-concat');
     const trailingCap = this.utteranceLastRealSpeechSamples > 0
       ? Math.min(fullUtteranceAudio.length, this.utteranceLastRealSpeechSamples + UTTERANCE_SILENCE_TAIL_SAMPLES)
       : fullUtteranceAudio.length;
@@ -2435,7 +2448,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Defensive: never let the leading trim cross the trailing bound.
     const leadStart = leadStartRaw < trailingCap ? leadStartRaw : 0;
     const audio = (leadStart > 0 || trailingCap < fullUtteranceAudio.length)
-      ? fullUtteranceAudio.slice(leadStart, trailingCap)
+      ? inheritPcmSlice(fullUtteranceAudio, fullUtteranceAudio.slice(leadStart, trailingCap), leadStart, 'utterance-trim')
       : fullUtteranceAudio;
     // #891 duration accounting: record the TRUE decoded-audio length (what Whisper transcribes) so
     // __PRIVATE_TIMING__.decodedUtteranceSeconds is an authoritative ruler independent of the raw accumulator.
@@ -2485,6 +2498,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Trailing speech stayed missing on every ordinary take.
     //
     // Finality is a property of THIS call, not of the `force` flag on an unrelated one.
+    this.pcmReceiptCapture?.decode(audio, true);
     const result = await this.privateSTT.transcribe(audio, { final: true });
     const decodeMs = Number((performance.now() - decodeStartedAtMs).toFixed(1));
     // Branch 3: the model decode itself.
@@ -2572,7 +2586,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
 
     const start = Math.max(0, audio.length - MAX_RETRY_SAMPLES);
-    this.retryAudioBuffer = audio.slice(start);
+    this.retryAudioBuffer = inheritPcmSlice(audio, audio.slice(start), start, 'retry-tail');
     pushPrivateTimeline('retain_audio_for_retry', {
       serviceId: this.serviceId,
       runId: this.instanceId,
