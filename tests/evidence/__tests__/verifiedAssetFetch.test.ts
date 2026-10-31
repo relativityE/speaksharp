@@ -1,3 +1,6 @@
+// @vitest-environment node
+// Node environment: under jsdom, Response.arrayBuffer() bodies cross into Node's webcrypto from another realm and
+// subtle.digest rejects them as not-an-ArrayBuffer, which masks the integrity refusal these controls assert.
 // Real response bodies and real SHA-256; no model/network/browser execution.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createHash, webcrypto } from 'node:crypto';

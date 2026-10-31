@@ -6,7 +6,7 @@ import { CANDIDATES, identityOf, isCompleteIdentity, type CandidateId } from '..
 import { fetchVerifiedAssets, pinnedAssetsFor } from '../moonshineAssetPins';
 
 /** Only the registered Moonshine candidates may back this engine. */
-export type MoonshineCandidateId = Extract<CandidateId, `moonshine:${string}`>;
+export type MoonshineCandidateId = `moonshine:${string}`;
 
 /**
  * #1263 — Moonshine Streaming as a PRODUCT engine.

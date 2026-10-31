@@ -59,7 +59,7 @@ describe('existing passive collector attached to the bounded product journey',()
   it('derives fourth-package authority/save attribution and rejects a stale incumbent projection',async()=>{
     vi.stubGlobal('crypto',webcrypto);const base=CANDIDATES['v2:base.en'];
     const pkg=await sealModelPackage({schemaVersion:1,kind:'speaksharp-model-package',id:'fourth:collector',engine:base.engine,
-      execution:{...base.execution,localModelId:'fourth-collector'},runtime:base.runtime,model:base.model,license:'fixture only',
+      execution:{...base.execution,localModelId:'fourth-collector'},runtime:base.runtime,model:{...base.model,device:'wasm'},license:'fixture only',
       assets:{servedFrom:'/models/fourth-collector',files:base.assets.files!.map(f=>({...f,url:'/models/fourth-collector/'+f.path}))}});
     const candidate=candidateFromPackage(pkg,'fixture.json');const metadata=productModelMetadata(candidate);
     const saved={engine:'private',engine_version:metadata.engineVersion,model_name:metadata.modelName,device_type:'browser'};

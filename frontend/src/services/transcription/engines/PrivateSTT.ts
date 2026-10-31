@@ -382,7 +382,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // Moonshine's model name comes from the registry entry the arch resolved to, never from a
         // constant: a hardcoded name here is the same defect as `PRIV_STT_V4_DEFAULT_VARIANT` was.
-        if (modelIdentity && this.selection?.candidate.id === candidateId) {
+        if (modelIdentity && this.selection && this.selection.candidate.id === candidateId) {
             return { ...productModelMetadata(this.selection.candidate), candidateId, modelIdentity };
         }
         const model = isV4

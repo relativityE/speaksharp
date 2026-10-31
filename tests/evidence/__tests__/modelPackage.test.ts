@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { CANDIDATES } from '../../../frontend/src/services/transcription/candidateRegistry';
-import { candidateFromPackage, sealModelPackage, verifyModelPackage, expectedModelIdentity, productModelMetadata, type ModelPackage } from '../../../frontend/src/services/transcription/modelPackage';
+import { candidateFromPackage, effectiveBackend, sealModelPackage, verifyModelPackage, expectedModelIdentity, productModelMetadata, type ModelPackage } from '../../../frontend/src/services/transcription/modelPackage';
 
 beforeAll(()=>{vi.stubGlobal('crypto',webcrypto);});
 afterAll(()=>vi.unstubAllGlobals());
 export async function fourthPackage() {
   const base=CANDIDATES['v2:base.en'];
   return sealModelPackage({schemaVersion:1,kind:'speaksharp-model-package',id:'justworks:compatible-whisper',
-    engine:base.engine,runtime:base.runtime,model:base.model,execution:{...base.execution,localModelId:'justworks-whisper'},
+    engine:base.engine,runtime:base.runtime,model:{...base.model,device:'wasm'},execution:{...base.execution,localModelId:'justworks-whisper'},
     assets:{servedFrom:'/models/justworks-whisper',files:base.assets.files!.map(f=>({...f,url:'/models/justworks-whisper/'+f.path}))},license:'MIT (fixture declaration; no new model copied)'});
 }
 describe('one serializable compatible package',()=>{
@@ -35,5 +35,15 @@ describe('one serializable compatible package',()=>{
       {...pkg,assets:{...pkg.assets,files:[...pkg.assets.files,{path:'run.mjs',url:'/models/justworks-whisper/run.mjs',bytes:1,sha256:'a'.repeat(64)}]}}]){
       await expect(verifyModelPackage(changed)).rejects.toThrow();
     }
+  });
+  it('derives the backend each registered candidate actually runs on, never guessing an undeclared one',()=>{
+    // The v2 worker's ONNX Runtime build is wasm-only, so the incumbent's undeclared device is wasm; declared devices pass through.
+    expect(effectiveBackend(CANDIDATES['v2:base.en'])).toBe('wasm');
+    expect(expectedModelIdentity(CANDIDATES['v2:base.en'])).toMatchObject({engine:'private-v2',backend:'wasm'});
+    expect(effectiveBackend(CANDIDATES['granite:turboctc-q4f16'])).toBe('webgpu');
+    expect(effectiveBackend(CANDIDATES['parakeet:tdt-v3:int8'])).toBe('wasm');
+    expect(CANDIDATES['v4:base:q4'].model.device).toBeNull();
+    expect(effectiveBackend(CANDIDATES['v4:base:q4'])).toBeNull();
+    expect(expectedModelIdentity(CANDIDATES['v4:base:q4']).backend).toBe('');
   });
 });

@@ -7,6 +7,9 @@ import type { IPrivateSTT } from '@/contracts/IPrivateSTT';
 import type { MicStream } from '../../utils/types';
 import { PRIV_STT, PRIV_STT_DERIVED } from '../../sttConstants';
 
+// frontend/tests/setup.ts mocks this strategy globally; this control must exercise the real product strategy.
+vi.unmock('@/services/transcription/modes/PrivateWhisper');
+
 afterEach(()=>vi.useRealTimers());
 describe('package evaluator uses product lifecycle semantics',()=>{
   it('drains an in-flight live decode, replaces it with the whole-utterance final and resets the second take',async()=>{

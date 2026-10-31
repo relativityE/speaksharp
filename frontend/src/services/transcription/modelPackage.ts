@@ -28,7 +28,8 @@ export class UnsupportedModelPackageError extends Error {
     readonly code: string;
     constructor(code: string) { super(code); this.name = 'UnsupportedModelPackageError'; this.code=code; }
 }
-const refuse = (code: string): never => { throw new UnsupportedModelPackageError(code); };
+// A function declaration (not a const arrow), so TypeScript narrows after a guarded refuse() call.
+function refuse(code: string): never { throw new UnsupportedModelPackageError(code); }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 /** Stable encoding is shared by import, execution verification and promotion. */
 export function canonicalPackageJson(value: unknown): string {
@@ -144,11 +145,17 @@ export function candidateFromPackage(input: unknown, sourcePath: string): Candid
     };
 }
 
+/** The backend a candidate actually runs on: its declared device, or wasm for the v2 worker, whose ONNX Runtime build is wasm-only
+ * (it reports wasm-default/single/multithread). Any other undeclared device stays unknown (null) and is never guessed. */
+export function effectiveBackend(candidate: Candidate): string | null {
+    return candidate.model.device ?? (candidate.engine === 'transformers-js' ? 'wasm' : null);
+}
+
 export function expectedModelIdentity(candidate: Candidate) {
     const engine = candidate.engine === 'transformers-js' ? 'private-v2' : candidate.engine === 'transformers-js-v4' ? 'private-v4' : candidate.engine;
     return { engine, modelId: candidate.model.id, revision: candidate.model.revision,
         assetDigest: candidate.assets.pinDigest ?? '', runtime: `${candidate.runtime.package}@${candidate.runtime.version}`,
-        backend: candidate.model.device ?? '' };
+        backend: effectiveBackend(candidate) ?? '' };
 }
 
 /** The product save and its evaluator derive the legacy projection from the SAME resolved candidate. */

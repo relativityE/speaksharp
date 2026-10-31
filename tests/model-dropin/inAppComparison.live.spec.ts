@@ -15,6 +15,8 @@ import {
 } from '../live/helpers/benchmark-utils';
 import { wordErrorRate } from '../evidence/werMetric';
 import { attachProductEvidence } from '../../scripts/model-evaluator/product-evidence';
+import { effectiveBackend } from '../../frontend/src/services/transcription/modelPackage';
+import { sanitizeSwitchOutcome } from './switchDiagnostics';
 import { readSourceBinding, assertSameSource, servedSourceFiles, viteRawSource } from '../../scripts/model-evaluator/source-binding';
 import { ComparisonBudget, elapsedMs, privateTimingMetrics, type ExecutionApproval } from './comparisonBounds';
 import { readProductCampaign, verifyCampaignPackages } from '../../scripts/model-evaluator/product-campaign';
@@ -246,7 +248,7 @@ for (let trial = 0; trial < corpus.trials; trial++) for (const clip of corpus.cl
             const switched = await page.evaluate(async id => (window as unknown as {
                 __SS_SWITCH_CANDIDATE__: (id: string, journey: string) => Promise<{ ok: boolean; code?: string }>;
             }).__SS_SWITCH_CANDIDATE__(id, 'open_mic'), candidate);
-            receipt.switchOutcome=switched;
+            receipt.switchOutcome=sanitizeSwitchOutcome(switched, candidate);
             expect(switched.ok, 'shared product candidate switch succeeds without fallback').toBe(true);
             receipt.selectionWallMs = elapsedMs(selectionStartedMs, performance.now());
             receipt.acquisitions = await acquisitions(page, candidate, selectionStartedEpochMs);
@@ -255,7 +257,7 @@ for (let trial = 0; trial < corpus.trials; trial++) for (const clip of corpus.cl
             receipt.selection = await identity(page);
             expect((receipt.selection as { matches: boolean }).matches, 'requested and resolved candidate agree').toBe(true);
             collector = await attachProductEvidence(page, { source, candidateId: candidate, candidate: definition,
-                backend: definition.model.device as 'webgpu' | 'wasm',
+                backend: effectiveBackend(definition) as 'webgpu' | 'wasm',
                 journey: 'open_mic', fixtureWavSha256: clip.wavSha256 }, apiOrigin);
             phase = 'recording';
             await resetFixtureAudioToStart(page);

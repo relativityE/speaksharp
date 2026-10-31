@@ -4,6 +4,8 @@ if (!baseURL || !['http://localhost:5173', 'http://127.0.0.1:5173', 'http://loca
   throw Error('bounded_loopback_app_required');
 }
 if (!process.env.EVAL_PRIVATE_OUTPUT) throw Error('bounded_private_output_required');
+// Without it a failure writes error-context.md, a page snapshot that can carry transcript text, into the output.
+if (process.env.PLAYWRIGHT_NO_COPY_PROMPT !== '1') throw Error('bounded_error_context_privacy_required');
 const endpoint=process.env.EVAL_BROWSER_WS_ENDPOINT;
 if(!endpoint||new URL(endpoint).protocol!=='ws:'||!['127.0.0.1','localhost'].includes(new URL(endpoint).hostname))throw Error('bounded_owned_browser_endpoint_required');
 export default defineConfig({

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { assertServedRelease, sha256, type SourceBinding } from './source-binding';
 import { LIVE_INTERIM, LIVE_TRANSCRIPT, SESSION_SHELL, SESSION_STATE_ATTR, MIC_CONTROL_BY_STATUS, RECORDER_STOP } from '../../tests/helpers/micControls';
 import { CANDIDATES, type Candidate } from '../../frontend/src/services/transcription/candidateRegistry';
-import { productModelMetadata, verifyModelPackage } from '../../frontend/src/services/transcription/modelPackage';
+import { effectiveBackend, productModelMetadata, verifyModelPackage } from '../../frontend/src/services/transcription/modelPackage';
 
 export interface ProductEvidenceBinding {
   source: SourceBinding;
@@ -93,7 +93,7 @@ export function evaluateProductEvidence(binding: ProductEvidenceBinding, evidenc
   const metadata = candidate ? productModelMetadata(candidate) : null;
   const modelName = metadata?.modelName;
   const engineVersion = metadata?.engineVersion;
-  if (candidate && (candidate.id !== binding.candidateId || candidate.model.device !== binding.backend)) failures.push('product_binding_identity_mismatch');
+  if (candidate && (candidate.id !== binding.candidateId || effectiveBackend(candidate) !== binding.backend)) failures.push('product_binding_identity_mismatch');
   if (!candidate || !engineVersion) failures.push('persisted_candidate_identity_unsupported');
   // The canonical, owner-readable authority records the terminal verdict. Legacy
   // sessions.attribution_status is not its projection and commonly remains pending.

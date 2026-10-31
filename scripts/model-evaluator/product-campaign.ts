@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, existsSync, realpathSync } from 'node:fs';
 import { join, resolve, relative, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { CANDIDATES, type Candidate } from '../../frontend/src/services/transcription/candidateRegistry';
-import { candidateFromPackage, expectedModelIdentity, verifyModelPackage } from '../../frontend/src/services/transcription/modelPackage';
+import { candidateFromPackage, effectiveBackend, expectedModelIdentity, verifyModelPackage } from '../../frontend/src/services/transcription/modelPackage';
 
 export const DEFAULT_CAMPAIGN = 'tests/evidence/fixtures/model-evaluator/product-campaign.json';
 export interface ProductCampaign {
@@ -54,7 +54,7 @@ export function readProductCampaign(root: string, file = DEFAULT_CAMPAIGN) {
     const catalog = readCandidateCatalog(root);
     const candidates = campaign.candidates.map(id => {
         const c = Object.hasOwn(catalog,id) ? catalog[id] : null;
-        if (!c || !c.execution.implemented || !c.browser.ok || !['wasm','webgpu'].includes(c.model.device??'')) throw Error('campaign_candidate_unsupported');
+        if (!c || !c.execution.implemented || !c.browser.ok || !['wasm','webgpu'].includes(effectiveBackend(c)??'')) throw Error('campaign_candidate_unsupported');
         return c;
     });
     return { campaign, candidates, corpus, corpusPath, corpusBytes, takes,

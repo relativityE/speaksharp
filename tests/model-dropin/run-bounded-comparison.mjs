@@ -58,7 +58,8 @@ const output = resolve(process.env.EVAL_PRIVATE_OUTPUT);
 if (output.startsWith(root + '/') || output === root) throw Error('bounded_output_must_be_private_outside_source');
 await mkdir(output, { mode: 0o700 }); // fresh path required; no overwrite
 const childOutput = join(output, 'playwright');
-const env = {...process.env, EVAL_PRIVATE_OUTPUT: childOutput};
+// PLAYWRIGHT_NO_COPY_PROMPT: a failing test must not write error-context.md, a page snapshot that can carry transcript text.
+const env = {...process.env, EVAL_PRIVATE_OUTPUT: childOutput, PLAYWRIGHT_NO_COPY_PROMPT: '1'};
 const app=new URL(approval.appOrigin);
 const reservation=createServer();
 await new Promise((resolve,reject)=>{reservation.once('error',()=>reject(Error('bounded_app_port_occupied')));reservation.listen(Number(app.port),app.hostname,resolve);});

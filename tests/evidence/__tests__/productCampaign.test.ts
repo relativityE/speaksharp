@@ -14,7 +14,7 @@ describe('configuration-only product campaign',()=>{
       const dir=join(root,'frontend/src/services/transcription/model-packages');mkdirSync(dir,{recursive:true});
       const base=CANDIDATES['v2:base.en'];
       const pkg=await sealModelPackage({schemaVersion:1,kind:'speaksharp-model-package',id:'fourth:whisper',engine:base.engine,
-        execution:base.execution,runtime:base.runtime,model:base.model,license:'fixture only',assets:{servedFrom:base.assets.servedFrom,
+        execution:base.execution,runtime:base.runtime,model:{...base.model,device:'wasm'},license:'fixture only',assets:{servedFrom:base.assets.servedFrom,
           files:base.assets.files!.map(f=>({...f,url:base.assets.servedFrom+'/'+f.path}))}});
       writeFileSync(join(dir,'fourth.json'),JSON.stringify(pkg));
       writeFileSync(join(dir,'invalid.json'),'{bad json');
@@ -33,6 +33,9 @@ describe('configuration-only product campaign',()=>{
       expect(()=>readProductCampaign(root,'campaign.json')).toThrow('campaign_invalid');
       writeFileSync(join(root,'campaign.json'),JSON.stringify(campaign));writeFileSync(join(root,'audio.wav'),'changed');
       expect(()=>readProductCampaign(root,'campaign.json')).toThrow('campaign_audio_hash_mismatch');
+      writeFileSync(join(root,'audio.wav'),'fixture bytes');
+      writeFileSync(join(root,'campaign.json'),JSON.stringify({...campaign,candidates:['v2:base.en','v4:base:q4'],maximumTakes:4}));
+      expect(()=>readProductCampaign(root,'campaign.json')).toThrow('campaign_candidate_unsupported');
     }finally{rmSync(root,{recursive:true,force:true});vi.unstubAllGlobals();}
   });
 });
