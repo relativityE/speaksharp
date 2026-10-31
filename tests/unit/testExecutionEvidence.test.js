@@ -314,10 +314,14 @@ test('consumer rejects a stale otherwise-green output before trusting coverage c
 test('explicit child environment excludes host secrets, loaders, proxies and package hooks',()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quality-env-'));
   try {
-    const env=testEnvironment(dir,{phaseId:'synthetic'},path.join(dir,'raw.json'));
+    const proofCases=path.join(dir,'proof-cases'),pdfjs=path.join(dir,'pdfjs');fs.mkdirSync(proofCases);fs.mkdirSync(pdfjs);
+    const env=testEnvironment(dir,{phaseId:'synthetic'},path.join(dir,'raw.json'),{
+      CT_PROOF_CASES_DIR:proofCases,CT_EXISTING_PDFJS_DIR:pdfjs,GITHUB_TOKEN:'not-forwarded',NODE_OPTIONS:'--import=bad'});
     for (const key of ['GITHUB_TOKEN','SUPABASE_SERVICE_ROLE_KEY','NODE_OPTIONS','NODE_PATH','HTTP_PROXY','HTTPS_PROXY','npm_config_registry']) assert.equal(Object.hasOwn(env,key),false);
     assert.equal(env.NODE_ENV,'test');assert.equal(env.VITE_SUPABASE_ANON_KEY,'test-anon-key');
     assert.equal(env.HOME,path.join(dir,'.efficacy-home'));
+    assert.equal(env.CT_PROOF_CASES_DIR,proofCases);assert.equal(env.CT_EXISTING_PDFJS_DIR,pdfjs);
+    assert.throws(()=>testEnvironment(dir,null,'',{CT_EXISTING_PDFJS_DIR:path.join(dir,'missing')}),/Invalid CT_EXISTING_PDFJS_DIR/);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
 

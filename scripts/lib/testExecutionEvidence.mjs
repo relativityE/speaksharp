@@ -82,14 +82,14 @@ export function assertProvenance(actual, expected) {
 
 // No inherited tokens, proxy settings, NODE_OPTIONS/NODE_PATH, package-manager hooks or PATH.
 // Fixed mock values match frontend/tests/setup.ts; they are not credentials.
-export function testEnvironment(directory, binding, envelopeFile) {
+export function testEnvironment(directory, binding, envelopeFile, sourceEnvironment=process.env) {
   const home=path.join(directory,'.efficacy-home');
   const temp=path.join(directory,'.efficacy-tmp');
   fs.mkdirSync(home,{recursive:true});fs.mkdirSync(temp,{recursive:true});
-  const proofCases=process.env.CT_PROOF_CASES_DIR;
+  const proofCases=sourceEnvironment.CT_PROOF_CASES_DIR;
   if(proofCases&&(!path.isAbsolute(proofCases)||fs.realpathSync(proofCases)!==proofCases||!fs.statSync(proofCases).isDirectory()))
     throw new Error('Invalid CT_PROOF_CASES_DIR');
-  const pdfjs=process.env.CT_EXISTING_PDFJS_DIR;
+  const pdfjs=sourceEnvironment.CT_EXISTING_PDFJS_DIR;
   if(pdfjs&&(!path.isAbsolute(pdfjs)||fs.realpathSync(pdfjs)!==pdfjs||!fs.statSync(pdfjs).isDirectory()))
     throw new Error('Invalid CT_EXISTING_PDFJS_DIR');
   return {PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(path.delimiter),
