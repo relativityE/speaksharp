@@ -9,7 +9,7 @@ import {createRequire} from 'node:module';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
-  PROOF_CASES_TEST,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  PROOF_CASES_TEST,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
@@ -650,4 +650,35 @@ test('r15 proof control requires an exact phase-owned 15-case inventory',()=>{
     fs.renameSync(first,outside);fs.symlinkSync(outside,first);
     assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/Aliased proof-case/);
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+test('default proof generation owns both children and deletes inputs only after verified drains',()=>{
+  const calls=[];let retained;
+  const children={
+    run(command,options) {
+      calls.push({command,options});
+      if(calls.length===1)return {result:{status:0,signal:null,error:null,stderr:'',stdout:JSON.stringify({
+        path:command[0],version:'3.12.0',sha256:hash(fs.readFileSync(command[0]))})}};
+      const output=command[command.indexOf('--out')+1],cases=path.join(output,'cases');fs.mkdirSync(cases,{recursive:true});
+      for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
+      return {result:{status:0,signal:null,error:null,stdout:'',stderr:''}};
+    },
+    assertDrained(directory){retained=directory;assert.ok(fs.existsSync(directory));},
+  };
+  const result=generatedProofCases(root,{CT_EXISTING_PDFJS_DIR:root},{children});
+  assert.equal(result.files.length,15);assert.equal(calls.length,2);
+  assert.ok(calls.every(call=>call.options.detached===true&&call.options.killSignal==='SIGKILL'));
+  assert.ok(!fs.existsSync(retained),'verified proof-generation inputs are removed after both drains');
+});
+
+test('proof-generation timeout with an undrained descendant retains its owned inputs',()=>{
+  const children=nativeChildTracker(()=>{throw new Error('controlled descendant remains');},{spawn:()=>({
+    pid:987654,status:null,signal:'SIGKILL',error:Object.assign(new Error('controlled timeout'),{code:'ETIMEDOUT'}),stdout:'',stderr:''})});
+  let retained;
+  try {
+    assert.throws(()=>generatedProofCases(root,{CT_EXISTING_PDFJS_DIR:root},{children,identityTimeoutMs:1}),error=>{
+      retained=error.retainedCopy;assert.match(error.message,/cleanup unverified/);return true;
+    });
+    assert.ok(retained&&fs.existsSync(retained),'unverified descendant ownership must retain the generated-input directory');
+  } finally {if(retained)fs.rmSync(retained,{recursive:true,force:true});}
 });

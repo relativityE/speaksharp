@@ -224,28 +224,64 @@ function proofGenerationSources(root) {
     'tools/cloud-test/harness','tools/cloud-test/harness-adapter'])add(relative);
   return entries;
 }
-function generatedProofCases(root,environment) {
+function drainGeneratedProofChild(result) {
+  if(process.platform==='win32')fail('Owned proof-generation drain requires POSIX process groups');
+  const group=result.pid;
+  if(!Number.isInteger(group)||group<=1||group===process.pid) {
+    if(result.error&&!group)return {status:'not-started'};
+    fail('Missing owned proof-generation process-group identity');
+  }
+  try{process.kill(-group,0);}
+  catch(error){
+    if(error.code==='ESRCH')return {status:'drained',group,signalled:false,zombies:[]};
+    throw new Error('Cannot inspect owned proof-generation process group',{cause:error});
+  }
+  try{process.kill(-group,'SIGKILL');}
+  catch(error){if(error.code!=='ESRCH')throw new Error('Cannot stop owned proof-generation process group',{cause:error});}
+  const deadline=Date.now()+1000;
+  do {
+    const observed=spawnSync('/bin/ps',['-axo','pid=,pgid=,stat='],
+      {encoding:'utf8',timeout:1000,maxBuffer:2*1024*1024});
+    if(observed.status!==0||observed.signal||observed.error)fail('Cannot observe owned proof-generation process group');
+    const members=observed.stdout.trim().split('\n').filter(Boolean).map(line=>{
+      const match=/^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/.exec(line);
+      if(!match)fail('Unparseable proof-generation process-group observation');
+      return {pid:Number(match[1]),group:Number(match[2]),state:match[3]};
+    }).filter(item=>item.group===group);
+    if(members.every(item=>/^[ZX]/.test(item.state)))
+      return {status:'drained',group,signalled:true,zombies:members.map(item=>item.pid)};
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);
+  }while(Date.now()<deadline);
+  fail('Owned proof-generation process group did not drain within 1000ms');
+}
+export function generatedProofCases(root,environment,{children=nativeChildTracker(drainGeneratedProofChild),
+  identityTimeoutMs=5000,generatorTimeoutMs=120000}={}) {
   const pdf=environment?.CT_EXISTING_PDFJS_DIR;
   if(typeof pdf!=='string'||!path.isAbsolute(pdf)||fs.realpathSync(pdf)!==pdf)fail('NOT RUN: bound CT_EXISTING_PDFJS_DIR is required for proof generation');
   const parent=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'speaksharp-r15-expected-'))),out=path.join(parent,'generated');
   try {
-    const launcher=binary('python3'),identity=spawnSync(launcher,['-I','-c',
+    const launcher=binary('python3'),{result:identity}=children.run([launcher,'-I','-c',
       'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.executable).resolve(); print(json.dumps({"path":str(p),"version":".".join(map(str,sys.version_info[:3])),"sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'],
-    {encoding:'utf8',timeout:5000,env:{PATH:path.dirname(launcher),LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
+    {encoding:'utf8',timeout:identityTimeoutMs,killSignal:'SIGKILL',detached:true,
+      env:{PATH:path.dirname(launcher),LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
     let runtime;try{runtime=JSON.parse(identity.stdout);}catch{fail('NOT RUN: malformed proof-generation Python identity');}
     if(identity.status!==0||identity.signal||identity.error||!/^3\.12\.\d+$/.test(runtime.version)
       ||fs.realpathSync(runtime.path)!==runtime.path||hash(fs.readFileSync(runtime.path))!==runtime.sha256)
       fail('NOT RUN: bound Python 3.12 proof-generation runtime unavailable');
     const python=runtime.path,generator=regular(root,'tools/cloud-test/scripts/proof_prep_cases.py');
     const command=[python,'-I',generator,'--out',out,'--packet',path.join(root,'tools/cloud-test/harness')];
-    const result=spawnSync(command[0],command.slice(1),{cwd:path.join(root,'tools/cloud-test'),encoding:'utf8',timeout:120000,
+    const {result}=children.run(command,{cwd:path.join(root,'tools/cloud-test'),encoding:'utf8',timeout:generatorTimeoutMs,
+      killSignal:'SIGKILL',detached:true,
       env:{PATH:[path.dirname(python),'/usr/bin','/bin'].join(path.delimiter),HOME:parent,CT_EXISTING_PDFJS_DIR:pdf,
         LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true'}});
     if(result.status!==0||result.signal||result.error)fail('NOT RUN: independent r15 proof generation failed');
     return {runtime,command:['<BOUND_PYTHON>','-I','tools/cloud-test/scripts/proof_prep_cases.py','--out','<OWNED_OUTPUT>',
       '--packet','tools/cloud-test/harness'],sources:proofGenerationSources(root),
       files:proofCasesInventory(out,'independently generated proof-cases').files};
-  } finally {fs.rmSync(parent,{recursive:true,force:true});}
+  } finally {
+    children.assertDrained(parent);
+    fs.rmSync(parent,{recursive:true,force:true});
+  }
 }
 export function proofCasesBinding(contract,environment,root,{generate=generatedProofCases}={}) {
   if(contract.testFile!==PROOF_CASES_TEST)return null;
