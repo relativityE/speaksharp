@@ -208,28 +208,62 @@ function proofCasesInventory(directory,label='proof-cases') {
     return {name,sha256:hash(fs.readFileSync(file))};
   })};
 }
-export function proofCasesBinding(contract,environment) {
+function proofGenerationSources(root) {
+  const entries=[];
+  const add=(relative)=>{
+    const target=path.join(root,relative),stat=fs.lstatSync(target);
+    if(stat.isSymbolicLink())fail('Aliased proof-generation source');
+    if(stat.isDirectory())for(const name of fs.readdirSync(target).sort())add(`${relative}/${name}`);
+    else if(stat.isFile())entries.push({file:relative,sha256:hash(fs.readFileSync(target))});
+    else fail('Unsupported proof-generation source');
+    if(entries.length>4096)fail('Proof-generation source inventory is unbounded');
+  };
+  for(const relative of ['tools/cloud-test/scripts/proof_prep_cases.py','tools/cloud-test/scripts/install_pdfjs.py',
+    'tools/cloud-test/scripts/_netguard.py','tools/cloud-test/scripts/run_env.py','tools/cloud-test/config/test-config.v1.json',
+    'tools/cloud-test/tests/fixtures/full-request.json','tools/cloud-test/tests/fixtures/plan-facts.PLACEHOLDER.json',
+    'tools/cloud-test/harness','tools/cloud-test/harness-adapter'])add(relative);
+  return entries;
+}
+function generatedProofCases(root,environment) {
+  const pdf=environment?.CT_EXISTING_PDFJS_DIR;
+  if(typeof pdf!=='string'||!path.isAbsolute(pdf)||fs.realpathSync(pdf)!==pdf)fail('NOT RUN: bound CT_EXISTING_PDFJS_DIR is required for proof generation');
+  const parent=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'speaksharp-r15-expected-'))),out=path.join(parent,'generated');
+  const python=binary('python3'),generator=regular(root,'tools/cloud-test/scripts/proof_prep_cases.py');
+  const command=[python,'-I',generator,'--out',out,'--packet',path.join(root,'tools/cloud-test/harness')];
+  try {
+    const result=spawnSync(command[0],command.slice(1),{cwd:path.join(root,'tools/cloud-test'),encoding:'utf8',timeout:120000,
+      env:{PATH:[path.dirname(python),'/usr/bin','/bin'].join(path.delimiter),HOME:parent,CT_EXISTING_PDFJS_DIR:pdf,
+        LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true'}});
+    if(result.status!==0||result.signal||result.error)fail('NOT RUN: independent r15 proof generation failed');
+    return {sources:proofGenerationSources(root),files:proofCasesInventory(out,'independently generated proof-cases').files};
+  } finally {fs.rmSync(parent,{recursive:true,force:true});}
+}
+export function proofCasesBinding(contract,environment,root,{generate=generatedProofCases}={}) {
   if(contract.testFile!==PROOF_CASES_TEST)return null;
   const directory=environment?.CT_PROOF_CASES_DIR;
   if(typeof directory!=='string'||!path.isAbsolute(directory))fail('NOT RUN: CT_PROOF_CASES_DIR is required for the r15 proof control');
-  return proofCasesInventory(directory,'source proof-cases');
+  if(!root)fail('NOT RUN: current source root is required for the r15 proof control');
+  const source=proofCasesInventory(directory,'source proof-cases'),generation=generate(root,environment);
+  if(JSON.stringify(source.files)!==JSON.stringify(generation.files))fail('Supplied proof-cases differ from current independent generation');
+  return {...source,generation};
 }
-export function phaseProofCasesBinding(contract,environment,phaseId) {
-  const source=proofCasesBinding(contract,environment);if(!source)return null;
+export function phaseProofCasesBinding(contract,environment,phaseId,root,options) {
+  const source=proofCasesBinding(contract,environment,root,options);if(!source)return null;
   const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),`speaksharp-r15-${phaseId}-`))),cases=path.join(directory,'cases');
   fs.mkdirSync(cases);
   for(const item of source.files)fs.copyFileSync(path.join(source.directory,'cases',item.name),path.join(cases,item.name),fs.constants.COPYFILE_EXCL);
   const phase=proofCasesInventory(directory,'phase proof-cases');
   if(JSON.stringify(phase.files)!==JSON.stringify(source.files))fail('Phase proof-cases differ from their bound source');
-  return {sourceDirectory:source.directory,sourceFiles:source.files,...phase};
+  return {sourceDirectory:source.directory,sourceFiles:source.files,generation:source.generation,...phase};
 }
-export function validatePhaseProofCases(contract,binding) {
+export function validatePhaseProofCases(contract,binding,root,environment,options) {
   if(contract.testFile!==PROOF_CASES_TEST)return null;
   if(!binding)fail('Missing phase-owned proof-cases binding');
-  const source=proofCasesBinding(contract,{CT_PROOF_CASES_DIR:binding.sourceDirectory});
+  const source=proofCasesBinding(contract,environment,root,options);
   const phase=proofCasesInventory(binding.directory,'phase proof-cases');
-  const expected={sourceDirectory:source.directory,sourceFiles:source.files,...phase};
+  const expected={sourceDirectory:source.directory,sourceFiles:source.files,generation:source.generation,...phase};
   if(JSON.stringify(source.files)!==JSON.stringify(phase.files))fail('Phase proof-cases differ from their bound source');
+  if(JSON.stringify(binding)!==JSON.stringify(expected))fail('Wrong proof-cases generation/source binding');
   return expected;
 }
 // Runs in Node's real test reporter, observing the runner's raw event stream.
@@ -384,7 +418,7 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
     binding.syntheticSource=validateSyntheticSource(root,contract.testFile);
     binding.permissionPolicy=nativeDenoPolicy(contract.testFile);
   }
-  const proofCases=phaseProofCasesBinding(contract,environment,binding.phaseId);if(proofCases)binding.proofCases=proofCases;
+  const proofCases=phaseProofCasesBinding(contract,environment,binding.phaseId,root);if(proofCases)binding.proofCases=proofCases;
   binding.command=nativeCommand(binding);
   const env={...nativeEnvironment(cwd,environment),...(proofCases?{CT_PROOF_CASES_DIR:proofCases.directory}:{}),
     TEST_EFFICACY_BINDING:JSON.stringify(binding),NODE_V8_COVERAGE:contract.runner==='node-test'?coverageDirectory:''};
@@ -411,11 +445,11 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
     .map(report=>({...report,result:report.result.filter(script=>contract.helpers.some(file=>script.url===pathToFileURL(path.join(cwd,file)).href))})):[];
   const phase={binding,execution,stdout:result.stdout??'',stderr:result.stderr??'',coverage,...(warmup?{warmup}:{})};
   if(JSON.stringify(nativeRuntime(root,contract.runner))!==JSON.stringify(runtime))fail('Native runtime changed during execution');
-  try{validateNativePhase(phase,{root,provenance,inputSha256,runId,contract});}
+  try{validateNativePhase(phase,{root,provenance,inputSha256,runId,contract,environment});}
   catch(error){error.diagnostics=phase;throw error;}
   return phase;
 }
-export function validateNativePhase(phase,{root,provenance,inputSha256,runId,contract}) {
+export function validateNativePhase(phase,{root,provenance,inputSha256,runId,contract,environment=process.env}) {
   const b=phase?.binding;
   if(!b||b.phase!=='native-execution'||!b.phaseId||b.runId!==runId||!path.isAbsolute(b.cwd??'')
     ||JSON.stringify(b.provenance)!==JSON.stringify(provenance)||b.testFile!==contract.testFile||b.batch!==contract.batch
@@ -423,7 +457,7 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
     ||b.inputSha256!==inputSha256||b.repoLockSha256!==hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))
     ||JSON.stringify(b.runtime)!==JSON.stringify(nativeRuntime(root,contract.runner))
     ||JSON.stringify(b.command)!==JSON.stringify(nativeCommand(b)))fail('Wrong native source/runtime/provenance/command binding');
-  const expectedProof=validatePhaseProofCases(contract,b.proofCases);
+  const expectedProof=validatePhaseProofCases(contract,b.proofCases,root,environment);
   if(JSON.stringify(b.proofCases??null)!==JSON.stringify(expectedProof))fail('Wrong or changed proof-cases binding');
   if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null
     ||phase.execution.processCleanup?.status!=='drained')fail('Native execution failed or did not drain');

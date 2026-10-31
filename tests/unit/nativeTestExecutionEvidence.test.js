@@ -617,22 +617,37 @@ test('r15 proof control requires an exact phase-owned 15-case inventory',()=>{
   const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'proof-cases-'))),cases=path.join(directory,'cases');
   fs.mkdirSync(cases);
   for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
-  const contract={testFile:PROOF_CASES_TEST};
+  const contract={testFile:PROOF_CASES_TEST},generator=path.join(directory,'generator.py'),request=path.join(directory,'request.json');
+  fs.writeFileSync(generator,'reviewed generator v1');fs.writeFileSync(request,'reviewed request v1');
+  const files=Array.from({length:15},(_,n)=>{const name=`AHT-${String(n+1).padStart(2,'0')}.json`;
+    return {name,sha256:hash(fs.readFileSync(path.join(cases,name)))};});
+  const generate=()=>({sources:[{file:'generator.py',sha256:hash(fs.readFileSync(generator))},
+    {file:'request.json',sha256:hash(fs.readFileSync(request))}],files}),options={generate},environment={CT_PROOF_CASES_DIR:directory};
   try {
-    const binding=proofCasesBinding(contract,{CT_PROOF_CASES_DIR:directory});
+    const binding=proofCasesBinding(contract,environment,directory,options);
     assert.equal(binding.files.length,15);assert.equal(binding.directory,directory);
-    const phase=phaseProofCasesBinding(contract,{CT_PROOF_CASES_DIR:directory},randomUUID());
+    const phase=phaseProofCasesBinding(contract,environment,randomUUID(),directory,options);
     assert.equal(phase.files.length,15);assert.equal(phase.sourceDirectory,directory);assert.notEqual(phase.directory,directory);
+    assert.deepEqual(validatePhaseProofCases(contract,phase,directory,environment,options),phase);
     fs.writeFileSync(path.join(phase.directory,'cases','AHT-01.json'),'changed');
-    assert.throws(()=>validatePhaseProofCases(contract,phase),/differ/);
+    assert.throws(()=>validatePhaseProofCases(contract,phase,directory,environment,options),/differ/);
+    fs.writeFileSync(path.join(phase.directory,'cases','AHT-01.json'),fs.readFileSync(path.join(cases,'AHT-01.json')));
+    fs.writeFileSync(generator,'stale generator');
+    assert.throws(()=>validatePhaseProofCases(contract,phase,directory,environment,options),/binding/);
+    fs.writeFileSync(generator,'reviewed generator v1');fs.writeFileSync(request,'substituted request');
+    assert.throws(()=>validatePhaseProofCases(contract,phase,directory,environment,options),/binding/);
+    fs.writeFileSync(request,'reviewed request v1');
     fs.rmSync(phase.directory,{recursive:true,force:true});
     assert.equal(proofCasesBinding({testFile:'tools/cloud-test/tests/other.test.cjs'},{}),null);
     assert.throws(()=>proofCasesBinding(contract,{}),/CT_PROOF_CASES_DIR/);
     fs.writeFileSync(path.join(cases,'unexpected.json'),'{}');
-    assert.throws(()=>proofCasesBinding(contract,{CT_PROOF_CASES_DIR:directory}),/inventory/);
+    assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/inventory/);
     fs.rmSync(path.join(cases,'unexpected.json'));
+    fs.writeFileSync(path.join(cases,'AHT-02.json'),'arbitrary caller source');
+    assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/independent generation/);
+    fs.writeFileSync(path.join(cases,'AHT-02.json'),JSON.stringify({caseId:2}));
     const first=path.join(cases,'AHT-01.json'),outside=path.join(directory,'outside.json');
     fs.renameSync(first,outside);fs.symlinkSync(outside,first);
-    assert.throws(()=>proofCasesBinding(contract,{CT_PROOF_CASES_DIR:directory}),/Aliased proof-case/);
+    assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/Aliased proof-case/);
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });
