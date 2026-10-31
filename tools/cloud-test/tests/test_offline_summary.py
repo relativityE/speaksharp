@@ -28,7 +28,16 @@ def identity():
             "pins": {"code": "c" * 64, "packet": "d" * 64},
             "externalInputs": [{"name": "cloud-test-yml", "source": "env", "path": ".github/workflows/cloud-test.yml", "sha256": "e" * 64, "state": "BOUND"},
                                {"name": "chrome", "source": "env", "path": "outside-repo", "sha256": "f" * 64, "state": "BOUND"},
-                               {"name": "test-repo", "source": "default", "path": None, "sha256": None, "state": "DECLARED"}],
+                               {"name": "test-repo", "source": "default", "path": None, "sha256": None, "state": "DECLARED"}]
+            + [{"name": n, "source": "default", "path": p, "sha256": h * 64, "state": "BOUND"} for n, p, h in (
+                ("github-workflow-cloud-test", ".github/workflows/cloud-test.yml", "e"), ("rc-gates-yml", ".github/workflows/rc-gates.yml", "1"),
+                ("checkout-lock", "pnpm-lock.yaml", "2"), ("speech-open_mic_tts.wav", "tests/fixtures/rwt/open_mic_tts.wav", "3"),
+                ("speech-focus_points_tts.wav", "tests/fixtures/rwt/focus_points_tts.wav", "4"),
+                ("speech-focus_points_partial_tts.wav", "tests/fixtures/rwt/focus_points_partial_tts.wav", "5"),
+                ("speech-rwt-fixtures.manifest.json", "tests/fixtures/rwt/rwt-fixtures.manifest.json", "6"),
+                ("pdfjs-pdf-mjs", "tools/cloud-test/runner/node_modules/pdfjs-dist/legacy/build/pdf.mjs", "7"))]
+            + [{"name": "override-" + n, "source": "unset", "path": None, "sha256": None, "state": "UNSET"} for n in (
+                "focus_oracle", "presentation_controls", "coaching_failure_policy", "ct_proof_packet", "ct_proof_cases_dir")],
             "environment": {"python": "3.12.11", "implementation": "CPython", "system": "Linux", "machine": "x86_64", "pyyaml": "6.0.2",
                             "node": "22.11.0", "pdfjs": "5.4.296"},
             "git": {"headTree": "1" * 40, "packageClean": True}}
@@ -308,7 +317,13 @@ class Equivalence(unittest.TestCase):
 
     def test_c4_an_unrelated_repository_change_or_no_git_can_still_match(self):
         b = self.summary(lambda d: d["identity"].update(git={"headTree": None, "packageClean": None}))
-        self.assertEqual(s.compare(self.summary(), b)["state"], "MATCHED")
+        cmp = s.compare(self.summary(), b)
+        self.assertEqual((cmp["state"], cmp["diagnostics"]), ("MATCHED", {"gitHeadTreeEqual": None}))
+        # Tree equality is a diagnostic for an external check (Sam 1793448573): it is reported, never decisive.
+        b = self.summary(lambda d: d["identity"]["git"].update(headTree="2" * 40))
+        cmp = s.compare(self.summary(), b)
+        self.assertEqual((cmp["state"], cmp["diagnostics"]), ("MATCHED", {"gitHeadTreeEqual": False}))
+        self.assertEqual(s.compare(self.summary(), self.summary())["diagnostics"], {"gitHeadTreeEqual": True})
 
     def test_c5_equal_counts_with_a_different_failing_test_is_different(self):
         first, second = REQUIRED["package-unit-tests"][:2]
@@ -388,7 +403,9 @@ class Equivalence(unittest.TestCase):
         self.assertEqual(s.compare(self.summary(), b)["state"], "INCOMPLETE", "an edited row without its digest")
         b = self.summary()
         b["equivalence"]["inventory"]["manifestSha256"] = "0" * 64
-        self.assertEqual(s.compare(self.summary(), b)["codes"], ["MANIFEST_DIFFERS"])
+        cmp = s.compare(self.summary(), b)
+        self.assertEqual(cmp["state"], "INCOMPLETE")
+        self.assertIn("b:MANIFEST_UNVERIFIED", cmp["codes"], "a side's manifest hash is verified against the comparer's own manifest")
 
     def test_c10_an_environment_difference_is_listed_and_an_unbound_input_is_unknown(self):
         b = self.summary(lambda d: d["identity"]["environment"].update(system="Darwin", machine="arm64"))
@@ -495,6 +512,136 @@ class Equivalence(unittest.TestCase):
         clean = self.summary()
         clean.update(delivered=False)
         self.assertIn("b:DELIVERED_FLAG_CONTRADICTED", s.compare(self.summary(), clean)["codes"], "a clean run cannot be presented as undelivered")
+
+    def forge_coverage(self, mutate):
+        """A summary whose executed records are edited and whose digests, row counts and verdict are all recomputed to match the edit."""
+        b = self.summary()
+        inv = b["equivalence"]["inventory"]
+        mutate(inv["executed"])
+        inv["executed"].sort(key=lambda e: e[0])
+        unit = by_id(b, "package-unit-tests")
+        unit["tests"]["ran"] = sum(1 for e in inv["executed"] if e[0].startswith("package-unit-tests::"))
+        inv["executedDigest"] = s.digest(inv["executed"])
+        b["equivalence"]["resultDigest"] = s._result_digest(b["checks"], inv, {"delivered": b["delivered"], "refusals": sorted(b["deliveryRefusals"]),
+                                                                                "proofSource": b["proofSource"]})
+        return b
+
+    def test_coverage_is_verified_against_the_comparers_own_manifest(self):
+        # Sam 1793448573 P1: removal, substitution and equally truncated peers, each with every digest recomputed, never pass or MATCH.
+        removed = self.forge_coverage(lambda ex: ex.pop(3))
+        cmp = s.compare(self.summary(), removed)
+        self.assertEqual(cmp["state"], "INCOMPLETE")
+        self.assertIn("b:COVERAGE_MISMATCH", cmp["codes"])
+        self.assertIn("b:DELIVERED_FLAG_CONTRADICTED", cmp["codes"], "a delivered verdict over missing coverage is contradicted")
+        substituted = self.forge_coverage(lambda ex: ex.__setitem__(3, ["package-unit-tests::test_fake.Fabricated.test_x", "success", {}, {"success": 1}]))
+        self.assertIn("b:COVERAGE_MISMATCH", s.compare(self.summary(), substituted)["codes"])
+        a, b = self.forge_coverage(lambda ex: ex.pop(3)), self.forge_coverage(lambda ex: ex.pop(3))
+        cmp = s.compare(a, b)
+        self.assertEqual(cmp["state"], "INCOMPLETE", "equally truncated peers never MATCH")
+        self.assertTrue({"a:COVERAGE_MISMATCH", "b:COVERAGE_MISMATCH"} <= set(cmp["codes"]), cmp["codes"])
+        claims = self.summary()
+        claims["equivalence"]["inventory"]["codes"] = ["MANIFEST_IDS_NOT_EXECUTED:package-unit-tests:1"]
+        self.assertEqual(s.compare(self.summary(), claims)["codes"], ["b:SUMMARY_INVALID"], "COMPLETE with codes is contradictory")
+
+    def test_file_set_and_input_state_relationships_hold_or_the_identity_is_refused(self):
+        # Sam 1793448573 P2: contradictory, missing-input and hashless-BOUND shapes.
+        for mutate in (lambda i: i["fileSet"].update(symlinks=1),
+                       lambda i: i["fileSet"].update(scanErrors=2),
+                       lambda i: i["fileSet"].update(missing=["scripts/x.py"]),
+                       lambda i: i["fileSet"].update(unexpected={"source": 1}),
+                       lambda i: i["fileSet"].update(status="INCOMPLETE", codes=["SYMLINK"]),
+                       lambda i: i["fileSet"].update(status="INCOMPLETE", codes=["UNEXPECTED", "MISSING"], unexpected={"other": 1}, missing=["a.py"]),
+                       lambda i: i["fileSet"].update(status="INCOMPLETE", codes=["FILE_SET_UNREADABLE"]),
+                       lambda i: i["externalInputs"].pop(2),
+                       lambda i: i["externalInputs"].append({"name": "unreviewed-input", "source": "env", "path": None, "sha256": None, "state": "UNKNOWN"}),
+                       lambda i: i["externalInputs"][0].update(sha256=None),
+                       lambda i: i["externalInputs"][2].update(sha256="a" * 64),
+                       lambda i: i["externalInputs"][0].update(state="DECLARED", sha256=None),
+                       lambda i: i["externalInputs"][1].update(state="UNSET", sha256=None)):
+            self.assertRefusedIdentity(mutate)
+        import run_offline_checks
+        self.assertEqual({x["name"] for x in run_offline_checks.external_inputs()}, s.REQUIRED_INPUTS, "the required set is exactly what the runner emits")
+
+    def test_a_malformed_nested_identity_is_incomplete_never_an_exception(self):
+        # Sam 1793448573 P3.
+        for bad in ({}, {"fileSet": []}, {"fileSet": {}, "pins": {}}, "identity", ["fileSet"], 7):
+            b = self.summary()
+            b["equivalence"]["identity"] = bad
+            cmp = s.compare(self.summary(), b)
+            self.assertEqual(cmp["state"], "INCOMPLETE", bad)
+            self.assertIn("b:IDENTITY_MALFORMED", cmp["codes"], bad)
+
+    def test_a_malformed_manifest_is_classified_never_an_exception(self):
+        # Sam 1793448849: unreadable, non-JSON, wrong-shaped, mixed-type and undecodable manifests are classified on both paths.
+        import tempfile
+        from unittest import mock
+        a_good, b_good = self.summary(), self.summary()
+        d = Path(tempfile.mkdtemp())
+        bad = {"missing": None, "not-json": b"{not json", "ids-not-list": b'{"ids": "x"}', "mixed-types": b'{"ids": [1, "a::b"]}',
+               "list-root": b"[]", "unsorted": b'{"ids": ["b::x", "a::x"]}', "no-suite": b'{"ids": ["plain"]}', "undecodable": b"\xff\xfe\x00"}
+        for name, content in bad.items():
+            path = d / name
+            if content is not None:
+                path.write_bytes(content)
+            with mock.patch.object(s, "MANIFEST", str(path)):
+                out = self.summary()
+                self.assertEqual(out["equivalence"]["inventory"]["codes"], ["MANIFEST_UNREADABLE"], name)
+                self.assertIn("INVENTORY_INCOMPLETE", out["deliveryRefusals"], name)
+                cmp = s.compare(a_good, b_good)
+                self.assertEqual(cmp["state"], "INCOMPLETE", name)
+                self.assertTrue({"a:MANIFEST_UNVERIFIED", "b:MANIFEST_UNVERIFIED"} <= set(cmp["codes"]), (name, cmp["codes"]))
+
+    def input_named(self, inputs, name):
+        return next(x for x in inputs if x["name"] == name)
+
+    def test_external_inputs_keep_the_families_the_runner_emits(self):
+        # Sam 1793449337: relabelled families are refused; equally relabelled peers with recomputed digests never MATCH; valid shapes still pass.
+        relabel = (("override-focus_oracle", dict(state="BOUND", source="env", path=".github/x.yml", sha256="a" * 64)),
+                   ("override-focus_oracle", dict(state="UNKNOWN", source="default")),
+                   ("override-focus_oracle", dict(state="UNSET", source="env")),
+                   ("override-focus_oracle", dict(path="tools/x.cjs")),
+                   ("test-repo", dict(state="BOUND", sha256="a" * 64, path="tools")),
+                   ("test-repo", dict(state="UNKNOWN")),
+                   ("checkout-lock", dict(state="DECLARED", sha256=None)),
+                   ("checkout-lock", dict(state="UNSET", source="unset", sha256=None, path=None)),
+                   ("checkout-lock", dict(source="unset")),
+                   ("checkout-lock", dict(path=None)),
+                   ("checkout-lock", dict(state="UNKNOWN", sha256=None, source="env", path=None)))
+        for name, change in relabel:
+            self.assertRefusedIdentity(lambda i, name=name, change=change: self.input_named(i["externalInputs"], name).update(change))
+        # Equally relabelled peers: the identity is altered after summarizing and its digest recomputed on both sides.
+        def relabelled():
+            b = self.summary()
+            ident = b["equivalence"]["identity"]
+            self.input_named(ident["externalInputs"], "override-ct_proof_packet").update(state="BOUND", source="env", path="tools/x", sha256="b" * 64)
+            ident["inputsDigest"] = s.digest([[x["name"], x["sha256"]] for x in ident["externalInputs"]])
+            return b
+        cmp = s.compare(relabelled(), relabelled())
+        self.assertEqual(cmp["state"], "INCOMPLETE")
+        self.assertTrue({"a:IDENTITY_DIGEST_MISMATCH", "b:IDENTITY_DIGEST_MISMATCH"} <= set(cmp["codes"]), cmp["codes"])
+        # Valid positives: a preset override, an unset browser and an unreadable file input are accepted and make the comparison UNKNOWN.
+        def unbound(d):
+            self.input_named(d["identity"]["externalInputs"], "override-ct_proof_packet").update(state="UNKNOWN", source="env")
+            self.input_named(d["identity"]["externalInputs"], "chrome").update(state="UNKNOWN", source="unset", path=None, sha256=None)
+            self.input_named(d["identity"]["externalInputs"], "checkout-lock").update(state="UNKNOWN", sha256=None)
+        a, b = self.summary(unbound), self.summary(unbound)
+        self.assertIsNotNone(a["equivalence"]["identity"])
+        self.assertEqual(s.compare(a, b)["state"], "UNKNOWN")
+
+    def test_the_verdict_fields_are_validated_before_any_sort(self):
+        # Sam 1793449337: wrong containers and mixed elements are classified; valid empty and non-empty refusal lists still compare.
+        for bad in ([1, "x"], ["x", None], "INVENTORY_INCOMPLETE", {"x": 1}, None, 7):
+            b = self.summary()
+            b["deliveryRefusals"] = bad
+            self.assertEqual(s.compare(self.summary(), b)["codes"], ["b:SUMMARY_INVALID"], bad)
+        for key, bad in (("delivered", "yes"), ("delivered", None), ("overallPassed", 1)):
+            b = self.summary()
+            b[key] = bad
+            self.assertEqual(s.compare(self.summary(), b)["codes"], ["b:SUMMARY_INVALID"], (key, bad))
+        self.assertEqual(s.compare(self.summary(), self.summary())["state"], "MATCHED", "an empty refusal list")
+        failing = lambda: self.summary(lambda d: self.fail_test(d, REQUIRED["package-unit-tests"][0]))
+        self.assertTrue(failing()["deliveryRefusals"])
+        self.assertEqual(s.compare(failing(), failing())["state"], "MATCHED", "a non-empty refusal list")
 
     def test_aggregation_precedence_keeps_every_unsuccessful_state(self):
         order = ["success", "expectedFailure", "skipped", "unexpectedSuccess", "failure", "error"]

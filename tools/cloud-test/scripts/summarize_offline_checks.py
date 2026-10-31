@@ -120,6 +120,11 @@ CALLBACK_KEYS = ("ran",) + tuple(sorted(COUNT_KEYS))
 ENVIRONMENT_KEYS = ("python", "implementation", "system", "machine", "pyyaml", "node", "pdfjs")
 UNEXPECTED_CATEGORIES = ("source", "config", "other")
 FILE_SET_CODES = ("MISSING", "SCAN_ERROR", "SYMLINK", "UNEXPECTED", "FILE_SET_UNREADABLE")
+# The exact external inputs run_offline_checks.py records (Sam 1793448573 P2): a summary missing one, or naming another, has no valid identity.
+REQUIRED_INPUTS = frozenset(("cloud-test-yml", "github-workflow-cloud-test", "rc-gates-yml", "checkout-lock", "speech-open_mic_tts.wav",
+                             "speech-focus_points_tts.wav", "speech-focus_points_partial_tts.wav", "speech-rwt-fixtures.manifest.json", "chrome",
+                             "pdfjs-pdf-mjs", "test-repo", "override-focus_oracle", "override-presentation_controls", "override-coaching_failure_policy",
+                             "override-ct_proof_packet", "override-ct_proof_cases_dir"))
 
 
 def digest(value):
@@ -136,13 +141,35 @@ def _hex_or_none(v):
     return v is None or (isinstance(v, str) and bool(HEX64.match(v)))
 
 
+def _input_family_ok(x):
+    """Each external input has only the shapes run_offline_checks.py emits for its family (Sam 1793449337): relabelled inputs are never valid, so
+    equally relabelled peers cannot MATCH."""
+    name, state, source, path, sha = x["name"], x["state"], x["source"], x["path"], x["sha256"]
+    if name.startswith("override-"):
+        return path is None and sha is None and (state, source) in (("UNSET", "unset"), ("UNKNOWN", "env"))
+    if name == "test-repo":
+        return state == "DECLARED" and source in ("env", "default") and path is None and sha is None
+    if state == "BOUND":
+        return sha is not None and source in ("env", "default") and path is not None
+    if state == "UNKNOWN":
+        return sha is None and ((source == "unset" and path is None) or (source in ("env", "default") and path is not None))
+    return False
+
+
 def _identity(doc):
     """The validated identity block (closed shapes only), or None when it is absent or any field falls outside its allowlist."""
     i = doc.get("identity") if isinstance(doc, dict) else None
     try:
         fs, pins, inputs, env, git = i["fileSet"], i["pins"], i["externalInputs"], i["environment"], i["git"]
         files = [[p, h] for p, h in fs["files"]]
-        ok = (fs["status"] in ("COMPLETE", "INCOMPLETE") and set(fs["codes"]) <= set(FILE_SET_CODES) and (fs["status"] == "COMPLETE") == (not fs["codes"])
+        # Every state relationship holds (Sam 1793448573 P2): each code is present exactly when its count or list is non-empty, COMPLETE means none,
+        # and an unreadable file set carries no hashed files.
+        derived = ({"MISSING"} if fs["missing"] else set()) | ({"SCAN_ERROR"} if fs["scanErrors"] else set()) | \
+                  ({"SYMLINK"} if fs["symlinks"] else set()) | ({"UNEXPECTED"} if fs["unexpected"] else set())
+        ok = (fs["status"] in ("COMPLETE", "INCOMPLETE") and isinstance(fs["codes"], list) and fs["codes"] == sorted(set(fs["codes"]))
+              and set(fs["codes"]) <= set(FILE_SET_CODES) and (fs["status"] == "COMPLETE") == (not fs["codes"])
+              and set(fs["codes"]) - {"FILE_SET_UNREADABLE"} == derived
+              and ("FILE_SET_UNREADABLE" not in fs["codes"] or not fs["files"])
               and all(isinstance(p, str) and PACKAGE_PATH.match(p) and isinstance(h, str) and HEX64.match(h) for p, h in files)
               and [p for p, _ in files] == sorted({p for p, _ in files})
               and all(isinstance(p, str) and PACKAGE_PATH.match(p) for p in fs["missing"])
@@ -151,9 +178,10 @@ def _identity(doc):
               and set(pins) == {"code", "packet"} and all(_hex_or_none(v) for v in pins.values())
               and all(set(x) == {"name", "source", "path", "sha256", "state"} and isinstance(x["name"], str) and TEST_ID.match(x["name"].replace("-", "_"))
                       and x["source"] in INPUT_SOURCES and x["state"] in INPUT_STATES and _hex_or_none(x["sha256"])
+                      and _input_family_ok(x)
                       and (x["path"] is None or x["path"] == "outside-repo" or (isinstance(x["path"], str) and PACKAGE_PATH.match(x["path"])))
                       for x in inputs)
-              and len({x["name"] for x in inputs}) == len(inputs)
+              and len({x["name"] for x in inputs}) == len(inputs) and {x["name"] for x in inputs} == REQUIRED_INPUTS
               and set(env) == set(ENVIRONMENT_KEYS) and all(v is None or (isinstance(v, str) and VERSION.match(v)) for v in env.values())
               and set(git) == {"headTree", "packageClean"} and (git["headTree"] is None or re.fullmatch(r"[0-9a-f]{40}", str(git["headTree"])))
               and git["packageClean"] in (None, True, False))
@@ -215,16 +243,24 @@ def _suite_records(c):
     return rows, sorted(set(codes))
 
 
-def _inventory(checks):
-    """Exact manifest coverage per suite (Sam 1793406198): every required id executed exactly once with a terminal outcome, nothing unlisted."""
+def _load_manifest():
+    """(raw bytes, ids) of the required-test manifest, or (None, None) when it is unreadable or malformed: ids must be a sorted, unique list of
+    suite-qualified strings. A malformed manifest is always a classified result, never an exception (Sam 1793448849)."""
     try:
         with open(MANIFEST, "rb") as f:
             raw = f.read()
-        manifest = json.loads(raw)
-        ids = manifest["ids"]
-        if not (isinstance(ids, list) and ids == sorted(set(ids)) and all(isinstance(i, str) and "::" in i for i in ids)):
-            raise ValueError("manifest ids")
-    except (OSError, ValueError, KeyError, TypeError):
+        ids = json.loads(raw)["ids"]
+        if not (isinstance(ids, list) and all(isinstance(i, str) and "::" in i for i in ids) and ids == sorted(set(ids))):
+            return None, None
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        return None, None
+    return raw, ids
+
+
+def _inventory(checks):
+    """Exact manifest coverage per suite (Sam 1793406198): every required id executed exactly once with a terminal outcome, nothing unlisted."""
+    raw, ids = _load_manifest()
+    if raw is None:
         return {"status": "INCOMPLETE", "codes": ["MANIFEST_UNREADABLE"], "manifestSha256": None, "executed": [], "executedDigest": None}
     codes, executed = [], []
     for c in checks:
@@ -324,6 +360,12 @@ def _side(summary):
     try:
         if summary.get("schema") != "speaksharp.cloud-test.offline-checks-summary.v4" or summary.get("resultValid") is not True:
             return None, ["SUMMARY_INVALID"]
+        # The verdict fields are validated before any sort or digest reconstruction (Sam 1793449337): a wrong container or mixed elements is
+        # classified, never an exception.
+        refusals = summary["deliveryRefusals"]
+        if not isinstance(refusals, list) or not all(isinstance(r, str) for r in refusals) or not all(
+                isinstance(summary.get(k), bool) for k in ("delivered", "overallPassed")):
+            return None, ["SUMMARY_INVALID"]
         rows = summary["checks"]
         if sorted(r["id"] for r in rows) != sorted(CHECKS) or not all(r["status"] in ("PASS", "FAIL") for r in rows):
             return None, ["SUMMARY_INVALID"]
@@ -340,18 +382,31 @@ def _side(summary):
                                                                and all(k in OUTCOMES and _count(n, 1)
                                                                        for j in (2, 3) for k, n in e[j].items()) for e in executed)
                           and [e[0] for e in executed] == sorted({e[0] for e in executed}))
-        if not valid_executed or inv["status"] not in ("COMPLETE", "INCOMPLETE") or not _hex_or_none(inv["manifestSha256"]):
+        if (not valid_executed or inv["status"] not in ("COMPLETE", "INCOMPLETE") or not _hex_or_none(inv["manifestSha256"])
+                or not isinstance(inv["codes"], list) or not all(isinstance(c, str) for c in inv["codes"])
+                or (inv["status"] == "COMPLETE") != (not inv["codes"])):
             return None, ["SUMMARY_INVALID"]
     except (KeyError, TypeError, AttributeError):
         return None, ["SUMMARY_INVALID"]
     codes = []
+    # The nested identity shape is checked before any dereference (Sam 1793448573 P3): an empty, partial or wrong-typed identity is a code, never an error.
     if ident is None:
         codes.append("IDENTITY_MISSING")
+    elif (not isinstance(ident, dict) or set(ident) != {"fileSet", "pins", "externalInputs", "inputsDigest", "environment", "git"}
+          or not isinstance(ident["fileSet"], dict)):
+        codes.append("IDENTITY_MALFORMED")
     else:
         raw = {"fileSet": {k: ident["fileSet"].get(k) for k in ("status", "codes", "files", "missing", "symlinks", "unexpected", "scanErrors")},
                **{k: ident.get(k) for k in ("pins", "externalInputs", "environment", "git")}}
         if _identity({"identity": raw}) != ident:
             codes.append("IDENTITY_DIGEST_MISMATCH")
+    # Coverage is verified against the comparer's own required-test manifest, never the side's assertion (Sam 1793448573 P1): the manifest hash must
+    # match and the executed ids must be exactly the required ids, so a removed, substituted or equally truncated record set cannot pass or MATCH.
+    raw_manifest, required = _load_manifest()
+    if raw_manifest is None or hashlib.sha256(raw_manifest).hexdigest() != inv["manifestSha256"]:
+        codes.append("MANIFEST_UNVERIFIED")
+    elif [e[0] for e in executed] != required:
+        codes.append("COVERAGE_MISMATCH")
     delivery = {"delivered": summary.get("delivered"), "refusals": sorted(summary.get("deliveryRefusals") or []), "proofSource": summary.get("proofSource")}
     if inv.get("executedDigest") != digest(executed) or eq.get("resultDigest") != _result_digest(rows, inv, delivery):
         codes.append("RESULT_DIGEST_MISMATCH")
@@ -372,7 +427,8 @@ def _side(summary):
                 codes.append("ROW_COUNTS_CONTRADICTED")
                 break
     # The delivered flag is never trusted: it must equal the eligibility recomputed from the validated content, and agree with its refusals.
-    eligible = (ident is not None and not {"IDENTITY_DIGEST_MISMATCH", "AGGREGATE_CONTRADICTED", "ROW_COUNTS_CONTRADICTED"} & set(codes)
+    eligible = (not {"IDENTITY_MISSING", "IDENTITY_MALFORMED", "IDENTITY_DIGEST_MISMATCH", "AGGREGATE_CONTRADICTED", "ROW_COUNTS_CONTRADICTED",
+                     "MANIFEST_UNVERIFIED", "COVERAGE_MISMATCH"} & set(codes)
                 and _eligible(rows, summary.get("proofSource"), ident, inv))
     if (summary.get("delivered") is not eligible or summary.get("overallPassed") is not eligible
             or (not summary.get("deliveryRefusals")) is not eligible or not isinstance(summary.get("deliveryRefusals"), list)):
@@ -384,7 +440,7 @@ def compare(a, b):
     """Equivalence of two summaries (normally one GitHub run and one Cloud Test run of the same commit). MATCHED means equal observations of equal
     inputs only: each run keeps its own delivery gate, so identical failures are MATCHED and still not delivered."""
     out = {"schema": "speaksharp.cloud-test.equivalence-comparison.v1", "state": "INCOMPLETE", "codes": [], "differences": {},
-           "environmentDifferences": [], "declaredInputDifferences": [], "delivered": [None, None]}
+           "environmentDifferences": [], "declaredInputDifferences": [], "diagnostics": {}, "delivered": [None, None]}
     sides = []
     for label, summary in (("a", a), ("b", b)):
         side, codes = _side(summary if isinstance(summary, dict) else {})
@@ -406,6 +462,9 @@ def compare(a, b):
     if out["codes"]:
         return out
     out["environmentDifferences"] = sorted(k for k in ENVIRONMENT_KEYS if ia["environment"][k] != ib["environment"][k])
+    # Whole-repository tree equality is reported for an external check only (Sam 1793448573): it never changes the state.
+    ta, tb = ia["git"]["headTree"], ib["git"]["headTree"]
+    out["diagnostics"] = {"gitHeadTreeEqual": None if ta is None or tb is None else ta == tb}
     inputs_a, inputs_b = ({x["name"]: x for x in i["externalInputs"]} for i in (ia, ib))
     out["declaredInputDifferences"] = sorted(n for n in set(inputs_a) | set(inputs_b)
                                              if n in inputs_a and n in inputs_b and (inputs_a[n]["source"], inputs_a[n]["path"]) != (inputs_b[n]["source"], inputs_b[n]["path"]))
