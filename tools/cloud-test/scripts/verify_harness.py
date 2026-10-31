@@ -39,7 +39,17 @@ def check(cfg, root):
         line = line.rstrip("\n")
         if line:
             hh, p = line.split("  ", 1)
+            if p in listed:
+                errs.append("duplicate file in the reviewed packet manifest: " + p)
             listed[p] = hh
+    for rel, hh in listed.items():
+        if not rel.startswith(("bundle/", "draft-adapters/")):
+            continue
+        full = os.path.join(packet, *rel.split("/"))
+        if not os.path.isfile(full) or os.path.islink(full):
+            errs.append("reviewed packet file is missing or not a regular file: " + rel)
+        elif sha256_file(full) != hh:
+            errs.append("vendored file differs from the reviewed packet: " + rel)
     for sub in ("bundle", "draft-adapters"):
         for r, _, files in os.walk(os.path.join(packet, sub)):
             for fn in files:

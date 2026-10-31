@@ -467,6 +467,7 @@
   "package-unit-tests::test_runnable_package.SecretFreeCleanRoom.test_no_network_namespace",
   "package-unit-tests::test_runnable_package.VendoredHarness.test_a_changed_adapter_is_refused",
   "package-unit-tests::test_runnable_package.VendoredHarness.test_a_changed_runner_file_listed_in_the_code_manifest_is_refused",
+  "package-unit-tests::test_runnable_package.VendoredHarness.test_a_manifest_listed_adapter_that_is_missing_is_refused",
   "package-unit-tests::test_runnable_package.VendoredHarness.test_a_missing_packet_is_blocked_setup",
   "package-unit-tests::test_runnable_package.VendoredHarness.test_an_extra_unreviewed_file_is_refused",
   "package-unit-tests::test_runnable_package.VendoredHarness.test_original_reviewed_r15_pins_are_preserved_and_not_claimed_as_receiving_bytes",

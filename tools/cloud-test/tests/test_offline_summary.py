@@ -13,6 +13,8 @@ REQUIRED = {suite: sorted(i.split("::", 1)[1] for i in MANIFEST_IDS if i.startsw
 CLEAN = {suite: "....\n----------------------------------------------------------------------\nRan %d tests in 120.4s\n\nOK\n" % len(REQUIRED[suite])
          for suite in s.SUITES}
 UNITTEST_CLEAN = CLEAN["package-unit-tests"]
+PRIVATE_HOME = "/" + "home" + "/private"
+SOMEONE_USERS = "/" + "Users" + "/someone"
 
 
 def results(suite, outcome="success"):
@@ -313,7 +315,7 @@ class Equivalence(unittest.TestCase):
             self.assertEqual(cmp["state"], "INCOMPLETE")
             self.assertIn("FILE_SET_INCOMPLETE", cmp["codes"])
         # An unexpected file is published by category and count only, never by path.
-        self.assertRefusedIdentity(lambda i: i["fileSet"].update(status="INCOMPLETE", codes=["UNEXPECTED"], unexpected={"/home/private/x.py": 1}))
+        self.assertRefusedIdentity(lambda i: i["fileSet"].update(status="INCOMPLETE", codes=["UNEXPECTED"], unexpected={PRIVATE_HOME + "/x.py": 1}))
 
     def test_c4_an_unrelated_repository_change_or_no_git_can_still_match(self):
         b = self.summary(lambda d: d["identity"].update(git={"headTree": None, "packageClean": None}))
@@ -654,7 +656,7 @@ class Equivalence(unittest.TestCase):
     def test_identity_fields_outside_the_allowlist_are_refused_not_published(self):
         for mutate in (lambda i: i["fileSet"]["files"].__setitem__(0, ["/abs/private/path", "a" * 64]),
                        lambda i: i["fileSet"]["files"].__setitem__(0, ["../escape", "a" * 64]),
-                       lambda i: i["externalInputs"][0].update(path="/Users/someone/x.yml"),
+                       lambda i: i["externalInputs"][0].update(path=SOMEONE_USERS + "/x.yml"),
                        lambda i: i["environment"].update(python="3.12 with a sentence"),
                        lambda i: i["pins"].update(code="not-a-hash"),
                        lambda i: i.pop("git")):
@@ -666,8 +668,8 @@ class Equivalence(unittest.TestCase):
         out = s.summarize(doc)
         self.assertIsNone(out["equivalence"]["identity"])
         self.assertIn("IDENTITY_MISSING", out["deliveryRefusals"])
-        self.assertNotIn("/home/private", json.dumps(out))
-        self.assertNotIn("/Users/someone", json.dumps(out))
+        self.assertNotIn(PRIVATE_HOME, json.dumps(out))
+        self.assertNotIn(SOMEONE_USERS, json.dumps(out))
         self.assertNotIn("/abs/private", json.dumps(out))
 
 

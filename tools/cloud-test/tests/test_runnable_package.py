@@ -53,6 +53,12 @@ class VendoredHarness(unittest.TestCase):
         errs, _ = VH.check(J("config", "test-config.v1.json"), d)
         self.assertTrue(any("AHT-12.cjs" in e for e in errs), errs)
 
+    def test_a_manifest_listed_adapter_that_is_missing_is_refused(self):
+        d = self.tree()
+        os.unlink(os.path.join(d, "tools/cloud-test/harness/draft-adapters/AHT-04.cjs"))
+        errs, _ = VH.check(J("config", "test-config.v1.json"), d)
+        self.assertTrue(any("AHT-04.cjs" in e and "missing" in e for e in errs), errs)
+
     def test_a_changed_runner_file_listed_in_the_code_manifest_is_refused(self):
         d = self.tree()
         with open(os.path.join(d, "tools/cloud-test/harness/bundle/harness/campaign-runner.cjs"), "a") as f:
