@@ -26,6 +26,17 @@ const MAX_BYTES = 1024 * 1024;
 const matches = (pattern, value) => typeof value === 'string' && pattern.test(value);
 const validAttemptIds = (ids) => Array.isArray(ids) && ids.length > 0
   && ids.every((id) => matches(ID, id)) && new Set(ids).size === ids.length;
+// The known stages of completenessGate.ts that are not recording stages (a unit test pins the two together).
+export const NON_RECORDING_STAGES = Object.freeze(['analytics_inventory', 'session_pdf_export', 'share_feedback', 'practice_again']);
+// A feedback/PDF-only journey has no recording attempt, so its profile and receipt both declare none. Any recording,
+// empty or unknown stage declaration keeps the non-empty, unique attempt identity.
+const boundAttempts = (expected, received, stages) => {
+  if (Array.isArray(expected) && expected.length === 0 && Array.isArray(received) && received.length === 0) {
+    return Array.isArray(stages) && stages.length > 0 && stages.every((stage) => NON_RECORDING_STAGES.includes(stage));
+  }
+  return validAttemptIds(expected) && validAttemptIds(received) && received.length === expected.length
+    && expected.every((id) => received.includes(id));
+};
 // Date.parse normalizes impossible calendar values (February 30, hour 24), so the parsed fields must round-trip.
 const timestamp = (s) => {
   const parts = typeof s === 'string' ? UTC.exec(s) : null;
@@ -59,9 +70,7 @@ function observedOperation(component, producer, data, expectedBinding) {
       || !matches(ID, expectedBinding?.bootId) || !matches(ID, expectedBinding?.journeyId)
       || !expectedBinding || data.boot_id !== expectedBinding.bootId
       || data.journey_id !== expectedBinding.journeyId
-      || !validAttemptIds(expectedBinding.attemptIds) || !validAttemptIds(data.attempts_declared)
-      || data.attempts_declared.length !== expectedBinding.attemptIds.length
-      || !expectedBinding.attemptIds.every((id) => data.attempts_declared.includes(id))
+      || !boundAttempts(expectedBinding.attemptIds, data.attempts_declared, data.stages_declared)
       || !Array.isArray(data.required_families) || data.required_families.length === 0
       || new Set(data.required_families).size !== data.required_families.length) {
       return { reason: 'UNBOUND_RECEIVED_EVIDENCE' };

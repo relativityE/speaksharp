@@ -4,7 +4,8 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { collectStackStatus, COMPONENTS, writeStackStatus } from '../../scripts/human-test/stackCheckalive.mjs';
+import { collectStackStatus, COMPONENTS, NON_RECORDING_STAGES, writeStackStatus } from '../../scripts/human-test/stackCheckalive.mjs';
+import { declaresRecordingStage, QUALIFICATION_STAGES } from '../../frontend/src/services/telemetry/completenessGate';
 
 const NOW = '2026-10-29T23:00:00.000Z';
 const RELEASE = 'a'.repeat(40);
@@ -99,13 +100,49 @@ describe('per-run stack status from retained evidence, without probes', () => {
     ['duplicate expected IDs', ['attempt-1', 'attempt-1'], ['attempt-1', 'attempt-2']],
     ['duplicate received IDs', ['attempt-1', 'attempt-2'], ['attempt-1', 'attempt-1']],
     ['duplicates on both sides', ['attempt-1', 'attempt-1'], ['attempt-1', 'attempt-1']],
-    ['empty attempt sets', [], []],
+    ['empty attempt sets with no declared stage', [], []],
     ['malformed received ID', ['attempt-1'], [{ toString: null }]],
   ])('rejects %s instead of treating list length/includes as exact identity', async (_, expected, received) => {
     const f = await fixture();
     const row = await f.receipt('posthog-ingestion', 'telemetry-readback', { ...readback(), attempts_declared: received });
     row.binding = { ...binding, attemptIds: expected };
     expect(await f.component('posthog-ingestion')).toMatchObject({ status: 'BLOCKED', reason: 'UNBOUND_RECEIVED_EVIDENCE' });
+  });
+
+  // Codex P2 on #1761: rc-gates.yml passes `-` for a journey with no attemptIds, so a feedback/PDF-only readback
+  // declares `attempts_declared: []`. That is bound evidence only when both sides declare none and no stage records.
+  const noAttempt = (data) => ({ ...readback(), attempts_declared: [], stages_declared: ['share_feedback', 'session_pdf_export'],
+    required_families: ['telemetry_positive_control'], observed_families: ['telemetry_positive_control'],
+    received_counts: { telemetry_positive_control: 1 }, ...data });
+
+  it.each([
+    ['QUALIFIED', {}, 'PASS', null],
+    ['an observed FAIL', { verdict: 'FAIL' }, 'FAIL', 'PRODUCER_NON_SUCCESS'],
+  ])('binds a non-recording journey with no attempts on either side and reports %s', async (_, delta, status, reason) => {
+    const f = await fixture();
+    const row = await f.receipt('posthog-ingestion', 'telemetry-readback', noAttempt(delta));
+    row.binding = { ...binding, attemptIds: [] };
+    expect(await f.component('posthog-ingestion')).toMatchObject({ status, operation: 'RECEIVED_EVENT', reason });
+  });
+
+  it.each([
+    ['a recording stage', [], { stages_declared: ['share_feedback', 'session_during'] }],
+    ['an empty stage declaration', [], { stages_declared: [] }],
+    ['no stage declaration', [], { stages_declared: undefined }],
+    ['an unknown stage', [], { stages_declared: ['share_feedback', 'not_a_stage'] }],
+    ['an expected attempt the receipt omits', ['attempt-1'], {}],
+    ['a received attempt the binding did not declare', [], { attempts_declared: ['attempt-1'] }],
+    ['a missing binding attempt set', undefined, {}],
+  ])('keeps an empty attempt set unbound with %s', async (_, expected, delta) => {
+    const f = await fixture();
+    const row = await f.receipt('posthog-ingestion', 'telemetry-readback', noAttempt(delta));
+    row.binding = { ...binding, attemptIds: expected };
+    expect(await f.component('posthog-ingestion')).toMatchObject({ status: 'BLOCKED', reason: 'UNBOUND_RECEIVED_EVIDENCE' });
+  });
+
+  it('names exactly the known stages the completeness gate treats as non-recording', () => {
+    const nonRecording = QUALIFICATION_STAGES.map((s) => s.stage).filter((stage) => !declaresRecordingStage([stage]));
+    expect([...NON_RECORDING_STAGES].sort()).toEqual(nonRecording.sort());
   });
 
   it('accepts two unique matching attempt sets in a different order', async () => {
