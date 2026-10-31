@@ -2,9 +2,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CANDIDATES } from '../../candidateRegistry';
 import { buildWhisperDecodeOptions } from '../../decodeOptions';
+import { modelResponsePins } from '../../candidateAssetRequests';
 
 const candidate = CANDIDATES['v4:base:q4'];
-const identity = { model: candidate.model.id, dtype: candidate.model.dtype };
+// A non-E2E load must carry the engine's own committed response pins (the worker refuses an unpinned load).
+const responsePins = modelResponsePins(candidate);
+const identity = { model: candidate.model.id, dtype: candidate.model.dtype, responsePins };
+const pinsFor = (model: string) => modelResponsePins(Object.values(CANDIDATES)
+    .find((c) => c.engine === 'transformers-js-v4' && c.execution.implemented && c.model.id === model)!);
 function decodeOptions(overrides?: Record<string, unknown>): Record<string, unknown> {
     const profile = candidate.execution.decode;
     if (profile.kind !== 'whisper') throw new Error('Expected Whisper test descriptor');
@@ -72,7 +77,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
             vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
             try {
                 await loadWorkerModule();
-                dispatchWorkerMessage({ id: 20, type: 'init', isE2E: false, ...identity, model, device: 'wasm' });
+                dispatchWorkerMessage({ id: 20, type: 'init', isE2E: false, ...identity, model, responsePins: pinsFor(model), device: 'wasm' });
                 await vi.waitFor(() => expect(postedMessages).toContainEqual(
                     expect.objectContaining({ id: 20, type: 'loaded', device: 'wasm-default' }),
                 ));
@@ -151,7 +156,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
 
         await loadWorkerModule();
         const dtype = { encoder_model: 'fp32', decoder_model_merged: 'q4' };
-        dispatchWorkerMessage({ id: 4, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype });
+        dispatchWorkerMessage({ id: 4, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype, responsePins });
 
         await vi.waitFor(() => {
             expect(postedMessages).toContainEqual(expect.objectContaining({
@@ -174,7 +179,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
         vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
 
         await loadWorkerModule();
-        dispatchWorkerMessage({ id: 5, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' } });
+        dispatchWorkerMessage({ id: 5, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, responsePins });
         await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 5, type: 'ready' })));
 
         dispatchWorkerMessage({ id: 6, type: 'transcribe', audio: new Float32Array(16000), decodeOptions: decodeOptions() });
@@ -193,7 +198,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
         vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
 
         await loadWorkerModule();
-        dispatchWorkerMessage({ id: 7, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' } });
+        dispatchWorkerMessage({ id: 7, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' }, responsePins });
         await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 7, type: 'ready' })));
 
         // Proof hook sets no_repeat_ngram_size=3; the worker receives it via the message's decodeOptions.
@@ -206,6 +211,17 @@ describe('transformers-js-v4.worker protocol contract', () => {
             expect.objectContaining({ no_repeat_ngram_size: 3, condition_on_previous_text: false }),
         );
     });
+    it.each([[], undefined])('contract: an unpinned model load is refused before pipeline loading (pins %j)', async (pins) => {
+        const pipeline = vi.fn();
+        vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 31, type: 'init', isE2E: false, ...identity, responsePins: pins });
+        await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({
+            id: 31, type: 'error', errorMessage: 'MODEL_RESPONSE_PINS_INVALID',
+        })));
+        expect(pipeline).not.toHaveBeenCalled();
+    });
+
     it.each([
         {},
         { model: identity.model },

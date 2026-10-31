@@ -142,8 +142,12 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
     throw new Error(`PREREQUISITE_CANDIDATE_UNAVAILABLE: ${candidate.browser.reason}`);
   }
   const backend = context.expected.backend;
+  if (candidate.engine === 'granite-ctc' && backend !== candidate.model.device) {
+    throw new Error('Granite product backend mismatch: use the registered WebGPU arm');
+  }
+  // A WASM-pinned descriptor admits only WASM; an unpinned (null) device admits either declared backend.
   if ((backend !== 'wasm' && backend !== 'webgpu') ||
-      backend !== candidate.model.device) {
+      (candidate.model.device === 'wasm' && backend !== 'wasm')) {
     throw new Error('candidate-browser needs a supported declared backend');
   }
   let browser: Browser | null = null;

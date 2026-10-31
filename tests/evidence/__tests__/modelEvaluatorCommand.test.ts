@@ -34,7 +34,8 @@ function runControl(options:Record<string,unknown>={}, degraded=false){
         ...(degraded?{control:{kind:'mute',sourcePcmSha256:pcmHash}}:{})}))},
       device:{version:1,baseUrl:'http://unused.invalid',label:'offline command control',backend:'wasm'},
     };
-    const args=['--import','tsx','scripts/model-evaluator/run.mts'];
+    // Product lifecycle is run.mts's canonical default; this control exercises the explicitly selected raw-decode diagnostic.
+    const args=['--import','tsx','scripts/model-evaluator/run.mts','--mode','raw-decode'];
     for(const [name,value]of Object.entries(files)){
       const path=join(directory,`${name}.json`);writeFileSync(path,JSON.stringify(value));args.push(`--${name}`,relative(process.cwd(),path));
     }
