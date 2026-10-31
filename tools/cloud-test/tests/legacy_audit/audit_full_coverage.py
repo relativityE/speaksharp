@@ -1,4 +1,5 @@
-"""HISTORICAL AUDIT of the retained Cloud Test campaigns R4C/R5 (moved unchanged from tests/test_full_coverage.py at 96af08e7).
+"""HISTORICAL AUDIT of the retained Cloud Test campaigns R4C/R5 (moved unchanged from tests/test_full_coverage.py at 96af08e7, except that the
+tampered-guard-log test now tampers a writable copy).
 
 These tests verify the real sealed receipts and the figures derived from them. They are NOT part of the current suite (the current
 `unittest discover -p test_*.py` never collects this directory), never earn current-execution credit and run only through
@@ -78,6 +79,9 @@ class CaseCostsFromGuardLogs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             import shutil
             shutil.copytree(os.path.join(RECEIPTS, "R5"), os.path.join(d, "R5"))
+            # The one correction to a moved body (Sam 1793404914): tamper an isolated writable COPY; the retained sealed set is never changed.
+            from test_comparison_automation import writable
+            writable(d)
             led = os.path.join(d, "R5", "campaign-ledger.json")
             j = json.load(open(led)); j["used"]["total"] += 7; wjson(led, j)
             self.assertFalse(DC.derive_run(d, "R5")["reconciliation"]["ok"])

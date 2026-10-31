@@ -15,11 +15,17 @@ import run_offline_checks as runner
 import summarize_offline_checks as summarizer
 
 
-def full_proof(manifest, **row_overrides):
-    """A proof row per expected correction, every test and control passing."""
+JOB = {"GITHUB_SHA": "f" * 40, "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "control-plane"}
+
+
+def full_proof(manifest, bound=True, **row_overrides):
+    """A proof row per expected correction, every test and control passing, stamped with this fixture job's identity (as the generator does)."""
     rows = [dict({"id": i, "result": "PASS", "tests": [{"title": i, "result": "PASS"}], "mutationControls": [{"control": "M-" + i, "caught": True}]},
                  **row_overrides.get(i, {})) for i in runner.PROOF_CORRECTIONS]
-    return {"result": "PASS", "corrections": rows, "codeManifestSha256": manifest}
+    doc = {"result": "PASS", "corrections": rows, "codeManifestSha256": manifest}
+    if bound:
+        doc["generatedIn"] = {"sha": "f" * 40, "runId": "123", "runAttempt": "1", "job": "control-plane", "codeManifestSha256": manifest}
+    return doc
 
 
 class OfflineReportRetention(unittest.TestCase):
@@ -34,7 +40,7 @@ class OfflineReportRetention(unittest.TestCase):
         self.out = self.root / "offline-checks.json"
         self.proof = self.root / "in-job-proof.json"
 
-    def invoke(self, failure=False, write_failure=False, history="", proof=None, catalog=(True, "fixture catalog")):
+    def invoke(self, failure=False, write_failure=False, history="", proof=None, catalog=(True, "fixture catalog"), job=JOB):
         """proof: a document (dict) or raw text written as this job's proof, or None for no in-job proof."""
         count = 0
 
@@ -49,10 +55,11 @@ class OfflineReportRetention(unittest.TestCase):
             self.proof.write_text(proof if isinstance(proof, str) else json.dumps(proof))
         stdout, stderr = io.StringIO(), io.StringIO()
         with mock.patch.object(runner, "ROOT", str(self.root)), \
-                mock.patch.dict(runner.os.environ, {"CT_HISTORY": history, "CT_PROOF_FILE": str(self.proof) if proof is not None else ""}), \
+                mock.patch.dict(runner.os.environ, dict({k: "" for k in JOB}, CT_HISTORY=history, CT_PROOF_FILE=str(self.proof) if proof is not None else "", **job)), \
                 mock.patch.object(sys, "argv", ["run_offline_checks.py", "--out", str(self.out)]), \
                 mock.patch.object(runner.subprocess, "run", side_effect=child), \
                 mock.patch.object(runner, "catalog_matches_harness", return_value=catalog), \
+                mock.patch.object(runner, "catalog_history_additive", return_value=(True, "fixture catalog history")), \
                 contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             with contextlib.ExitStack() as stack:
                 if write_failure:
@@ -85,7 +92,7 @@ class OfflineReportRetention(unittest.TestCase):
         proof = self.by_id()["offline-proof-index"]
         self.assertFalse(proof["passed"])
         self.assertIn("CT_PROOF_FILE", proof["detail"])
-        self.assertEqual(len([c for c in report["checks"] if "returncode" in c]), 5)
+        self.assertEqual(len([c for c in report["checks"] if "returncode" in c]), 4)
 
     def test_no_check_is_ever_not_applicable(self):
         self.invoke(proof=full_proof("a" * 64))
@@ -223,6 +230,33 @@ class OfflineReportRetention(unittest.TestCase):
         self.assertIs(check["passed"], False)
         self.assertIn("correction ids differ", check["detail"])
         self.assertIs(json.loads(self.out.read_text())["passed"], False)
+
+    def test_a_proof_not_bound_to_this_job_is_never_in_job(self):
+        # Generator-to-consumer binding (Sam 1793405092): a valid proof without this job's stamp, from another run or attempt, or read outside a
+        # GitHub job is refused, and the report never labels it in-job.
+        other = full_proof("a" * 64); other["generatedIn"]["runId"] = "999"
+        retry = full_proof("a" * 64); retry["generatedIn"]["runAttempt"] = "2"
+        wrong = full_proof("a" * 64); wrong["generatedIn"]["codeManifestSha256"] = "b" * 64
+        for label, doc, job in (("unstamped", full_proof("a" * 64, bound=False), JOB), ("another run", other, JOB), ("another attempt", retry, JOB),
+                                ("another harness", wrong, JOB), ("outside a job", full_proof("a" * 64), {})):
+            code, _, _ = self.invoke(proof=doc, job=job)
+            self.assertNotEqual(code, 0, label)
+            report = json.loads(self.out.read_text())
+            self.assertFalse(self.by_id()["offline-proof-index"]["passed"], label)
+            self.assertIsNone(report["proofSource"], label)
+
+    def test_the_real_catalog_history_check_reads_no_campaign_index(self):
+        # Not mocked. Even with an index file present it is never opened: the current check passes no index to the verifier.
+        import builtins
+        real_open = builtins.open
+        opened = []
+        def spy(path, *a, **k):
+            opened.append(str(path))
+            return real_open(path, *a, **k)
+        with mock.patch.object(builtins, "open", side_effect=spy):
+            passed, detail = runner.catalog_history_additive()
+        self.assertTrue(passed, detail)
+        self.assertFalse([p for p in opened if p.endswith("index.json") or "/receipts/" in p], opened)
 
     def test_the_real_catalog_check_matches_the_tracked_catalog(self):
         # Not mocked: the tracked catalog equals the one derived from the vendored harness contract alone.

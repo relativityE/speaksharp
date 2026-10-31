@@ -72,6 +72,22 @@ def input_check(name, evaluate):
         return {"id": name, "passed": False, "detail": "%s: %s" % (type(error).__name__, error)}
 
 
+def catalog_history_additive():
+    """The catalog snapshots only ever add rows and the current catalog is the configured version's snapshot. Run in-process with NO index:
+    verify_catalog_history.py's command line loads the retained campaign index whenever one exists, and that index belongs to the legacy audit."""
+    import verify_catalog_history as VC
+    cfg = load(os.path.join(ROOT, "config", "test-config.v1.json"))
+    errs = VC.verify(VC.load_snapshots(os.path.join(ROOT, "config", "history", "catalogs")), load(os.path.join(ROOT, "config", "assertion-catalog.json")),
+                     cfg["modes"]["full"]["assertionCatalog"]["version"], None)
+    return not errs, "; ".join(errs) or "catalog history additive only (snapshots and current version; no campaign index read)"
+
+
+def job_identity(env):
+    """This GitHub job's run identity, which the in-job proof generator stamps and the consumer requires; None outside a GitHub job."""
+    ident = {k: env.get(v) for k, v in (("sha", "GITHUB_SHA"), ("runId", "GITHUB_RUN_ID"), ("runAttempt", "GITHUB_RUN_ATTEMPT"), ("job", "GITHUB_JOB"))}
+    return ident if all(ident.values()) else None
+
+
 def catalog_matches_harness():
     """The tracked assertion catalog equals the one derived from the hash-verified harness contract alone (no compared runs)."""
     import derive_assertion_catalog as CAT
@@ -103,8 +119,8 @@ def main():
     for name, cmd in (("package-unit-tests", [sys.executable, "-I", "-W", "ignore::ResourceWarning", "-m", "unittest", "discover", "-s", os.path.join(ROOT, "tests"), "-p", "test_*.py"]),
                       ("report-builder-tests", [sys.executable, "-I", "-W", "ignore::ResourceWarning", "-m", "unittest", "discover", "-s", os.path.join(ROOT, "report", "tests"), "-p", "test_*.py"])):
         checks.append(command_check(name, cmd, env))
-    for name, script, extra in (("reservation-ledger-verified", "reservations.py", ["verify"]), ("catalog-history-additive", "verify_catalog_history.py", [])):
-        checks.append(command_check(name, [sys.executable, "-I", os.path.join(HERE, script)] + extra, env))
+    checks.append(command_check("reservation-ledger-verified", [sys.executable, "-I", os.path.join(HERE, "reservations.py"), "verify"], env))
+    checks.append(input_check("catalog-history-additive", catalog_history_additive))
     checks.append(command_check("harness-verified", [sys.executable, "-I", os.path.join(HERE, "verify_harness.py"), "--config", os.path.join(ROOT, "config", "test-config.v1.json")], env))
     checks.append(input_check("assertion-catalog-matches-harness", catalog_matches_harness))
 
@@ -123,13 +139,23 @@ def main():
             return False, "the pinned harness manifest is not a sha256"
         if not proof_file:
             return False, "no offline proof was generated in this job (CT_PROOF_FILE is not set)"
-        problem = proof_problem(load(proof_file), pinned)
-        return problem is None, "in-job proof: %s" % (problem or "all %d corrections PASS; hash matches config" % len(PROOF_CORRECTIONS))
+        proof = load(proof_file)
+        problem = proof_problem(proof, pinned)
+        if problem:
+            return False, "in-job proof: " + problem
+        # Generator-to-consumer binding (Sam 1793405092): the proof must carry THIS job's run identity, stamped by generate_offline_proof.py.
+        here = job_identity(os.environ)
+        if here is None:
+            return False, "not in a GitHub job, so the proof cannot be bound to this job"
+        if proof.get("generatedIn") != dict(here, codeManifestSha256=pinned):
+            return False, "the proof is not bound to this job (generatedIn differs from this run's identity and pinned harness)"
+        return True, "in-job proof: all %d corrections PASS; bound to this job; hash matches config" % len(PROOF_CORRECTIONS)
 
     checks.append(input_check("config-matches-workflow", versions))
     checks.append(input_check("offline-proof-index", proof_index))
     out = {"schema": "speaksharp.cloud-test.offline-checks.v2", "ranUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"), "workflowVersion": wf.get("version") if isinstance(wf, dict) else None,
-           "proofSource": "in-job" if proof_file else None, "checks": checks, "passed": all(c["passed"] is True for c in checks)}
+           "proofSource": "in-job" if next(c for c in checks if c["id"] == "offline-proof-index")["passed"] is True else None,
+           "checks": checks, "passed": all(c["passed"] is True for c in checks)}
     # The job log of this public repository shows only check names and statuses; child output and details stay in the
     # written report on the runner. A report that cannot be written is a failure, and its diagnostics are not printed.
     written = True

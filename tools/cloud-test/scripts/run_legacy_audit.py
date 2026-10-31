@@ -16,13 +16,36 @@ sys.path.insert(0, HERE)
 from _common import ROOT, dump, now_utc  # noqa: E402
 
 HISTORY = os.path.join(ROOT, "config", "history")
+# The historical-audit suite holds exactly this many test methods (moved unchanged from 96af08e7, one tamper copy made writable); a discovery
+# that runs fewer, skips any, or finds none is never a PASS (Sam 1793405092).
+AUDIT_TESTS = 49
 AUDITS = ("history-index-verified", "sealed-receipts-verified", "case-costs-reconcile-to-sealed-ledgers", "assertion-catalog-matches-sealed-runs",
-          "legacy-audit-tests")
+          "indexed-runs-name-a-catalog-snapshot", "legacy-audit-tests")
 
 
 def present():
     """The retained history the audit reads: the receipt sets, the index and the owner counters."""
     return all(os.path.exists(os.path.join(HISTORY, p)) for p in ("receipts", "index.json", "owner-counters.json"))
+
+
+def analyst_inputs_missing():
+    """The analyst inputs the config pins for compared pairs (config/history/analysis); without them the audit is INCOMPLETE, never PASS."""
+    import json
+    with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:
+        pairs = json.load(f)["history"].get("analysis", {})
+    return sorted(p[k] for p in pairs.values() for k in ("facts", "overlay") if p.get(k) and not os.path.isfile(os.path.join(ROOT, p[k])))
+
+
+def audit_suite_judgement(check):
+    """PASS only when the suite ran exactly AUDIT_TESTS tests with one complete, clean unittest result (the current gate's strict parser)."""
+    import summarize_offline_checks as S
+    suite = S._suite(check)
+    if not suite:
+        return False, "no single complete unittest result"
+    if suite["ran"] != AUDIT_TESTS:
+        return False, "ran %d of the %d historical-audit tests" % (suite["ran"], AUDIT_TESTS)
+    unclean = [k for k in sorted(S.COUNT_KEYS) if suite[k]]
+    return not unclean, "unclean: " + ", ".join(unclean) if unclean else "%d tests, none skipped" % AUDIT_TESTS
 
 
 def run(name, cmd, env):
@@ -56,10 +79,16 @@ def main():
                                                        "--run", "R4C", "--run", "R5", "--out", os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", "legacy-case-costs.json")], env),
         run("assertion-catalog-matches-sealed-runs", [sys.executable, "-I", os.path.join(HERE, "derive_assertion_catalog.py"), "--out",
                                                       os.path.join(ROOT, "config", "assertion-catalog.json"), "--check"], env),
+        run("indexed-runs-name-a-catalog-snapshot", [sys.executable, "-I", os.path.join(HERE, "verify_catalog_history.py"), "--index",
+                                                     os.path.join(HISTORY, "index.json")], env),
         run("legacy-audit-tests", [sys.executable, "-I", "-W", "ignore::ResourceWarning", "-m", "unittest", "discover", "-s", os.path.join(ROOT, "tests", "legacy_audit"),
                                    "-p", "audit_*.py"], env),
     ]
-    out.update(executed=True, checks=checks, passed=all(c["passed"] for c in checks))
+    suite = checks[-1]
+    suite["passed"], suite["judgement"] = audit_suite_judgement(suite) if suite["passed"] else (False, "the suite failed")
+    missing = analyst_inputs_missing()
+    out.update(executed=True, checks=checks, analystInputsMissing=missing, passed=all(c["passed"] for c in checks) and not missing,
+               status="INCOMPLETE: analyst inputs missing" if missing else ("PASS" if all(c["passed"] for c in checks) else "FAIL"))
     try:
         dump(out, x.out)
     except (OSError, TypeError, ValueError) as error:
@@ -68,7 +97,8 @@ def main():
     print(out["header"])
     for c in checks:
         print(("PASS " if c["passed"] else "FAIL ") + c["id"])
-    return 0 if out["passed"] else 1
+    print("historical audit: " + out["status"])
+    return 0 if out["passed"] else (3 if missing else 1)
 
 
 if __name__ == "__main__":
