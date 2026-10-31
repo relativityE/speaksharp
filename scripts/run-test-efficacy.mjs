@@ -327,7 +327,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         const inputHashes=before.entries.filter(([,digest])=>digest!=='deleted').map(([file])=>
           [file,hash(fs.readFileSync(path.join(temporary,file)))]);
         const phase=produceNativePhase({root,cwd:temporary,contract,provenance,sourceCopyCommit,runId:receipt.runId,
-          inputSha256:hash(JSON.stringify(inputHashes)),environment:testEnvironment(temporary,null,''),
+          inputSha256:hash(JSON.stringify(inputHashes)),environment:{...testEnvironment(temporary,null,''),
+            ...(process.env.CT_CHROME?{CT_CHROME:process.env.CT_CHROME}:{})},
           children:nativeChildren});
         for(const [file,digest] of inputHashes)if(hash(fs.readFileSync(path.join(temporary,file)))!==digest)throw new Error(`Input changed during native execution: ${file}`);
         receipt.tests.push({testFile:contract.testFile,testSha256:hash(fs.readFileSync(path.join(root,contract.testFile))),phase});

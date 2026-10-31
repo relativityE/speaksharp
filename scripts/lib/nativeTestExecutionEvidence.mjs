@@ -10,6 +10,7 @@ import {spawnSync} from 'node:child_process';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 export const NATIVE_REPORTER='scripts/lib/nativeTestExecutionEvidence.mjs';
 export const PROOF_CASES_TEST='tools/cloud-test/tests/node/proof/harness-fixes-r15.offline.test.cjs';
+export const REAL_BROWSER_TEST='tools/cloud-test/tests/node/proof/real-browser-r15.test.cjs';
 export const SQL_CONSUMER='tests/unit/accountCompletionBillingSettlement.test.ts';
 export const SQL_INPUTS=Object.freeze([
   'backend/supabase/migrations/20261027192550_account_completion_billing_settlement.sql',
@@ -194,6 +195,15 @@ export function nativeEnvironment(cwd,environment) {
   fs.mkdirSync(home,{recursive:true});fs.mkdirSync(temporary,{recursive:true});
   return {PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(path.delimiter),HOME:home,USERPROFILE:home,
     TMPDIR:temporary,TMP:temporary,TEMP:temporary,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true',NODE_ENV:'test'};
+}
+export function nativeBrowserBinding(contract,environment) {
+  if(contract.testFile!==REAL_BROWSER_TEST)return null;
+  const file=environment?.CT_CHROME;
+  try {
+    if(typeof file!=='string'||!path.isAbsolute(file)||fs.realpathSync(file)!==file||!fs.lstatSync(file).isFile())throw new Error();
+    fs.accessSync(file,fs.constants.X_OK);
+  } catch {fail('NOT RUN: bound CT_CHROME is required for the real-browser proof');}
+  return {path:file,sha256:hash(fs.readFileSync(file))};
 }
 function proofCasesInventory(directory,label='proof-cases') {
   if(typeof directory!=='string'||!path.isAbsolute(directory))fail(`NOT RUN: ${label} directory is required`);
@@ -464,8 +474,10 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
     binding.permissionPolicy=nativeDenoPolicy(contract.testFile);
   }
   const proofCases=phaseProofCasesBinding(contract,environment,binding.phaseId,root);if(proofCases)binding.proofCases=proofCases;
+  const browser=nativeBrowserBinding(contract,environment);if(browser)binding.browser=browser;
   binding.command=nativeCommand(binding);
   const env={...nativeEnvironment(cwd,environment),...(proofCases?{CT_PROOF_CASES_DIR:proofCases.directory}:{}),
+    ...(browser?{CT_CHROME:browser.path}:{}),
     TEST_EFFICACY_BINDING:JSON.stringify(binding),NODE_V8_COVERAGE:contract.runner==='node-test'?coverageDirectory:''};
   let warmup;
   if(contract.runner==='deno') {
@@ -504,6 +516,8 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
     ||JSON.stringify(b.command)!==JSON.stringify(nativeCommand(b)))fail('Wrong native source/runtime/provenance/command binding');
   const expectedProof=validatePhaseProofCases(contract,b.proofCases,root,environment);
   if(JSON.stringify(b.proofCases??null)!==JSON.stringify(expectedProof))fail('Wrong or changed proof-cases binding');
+  const expectedBrowser=nativeBrowserBinding(contract,environment);
+  if(JSON.stringify(b.browser??null)!==JSON.stringify(expectedBrowser))fail('Wrong or changed native browser binding');
   if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null
     ||phase.execution.processCleanup?.status!=='drained')fail('Native execution failed or did not drain');
   if(contract.runner==='deno') {

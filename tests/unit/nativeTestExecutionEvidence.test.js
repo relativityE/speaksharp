@@ -9,7 +9,7 @@ import {createRequire} from 'node:module';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
-  PROOF_CASES_TEST,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  PROOF_CASES_TEST,REAL_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
@@ -218,6 +218,30 @@ test('INSTALLED Node reporter observes actual collection/assertion/drain and rej
       assert.throws(()=>validateNativeReceipt(changed,{root:f.dir,provenance,inputSha256,files:[f.file]}));
     }
   }finally{f.clean();}
+});
+
+test('real-browser native phase binds and forwards only the exact executable identity',()=>{
+  const f=fixture(),chrome=path.join(f.dir,'installed-chrome');
+  fs.writeFileSync(chrome,'synthetic reviewed browser bytes');fs.chmodSync(chrome,0o700);
+  const environment={...testEnvironment(f.dir,null,''),CT_CHROME:chrome};
+  f.contract.testFile=REAL_BROWSER_TEST;
+  f.write(REAL_BROWSER_TEST,`const test=require('node:test'),assert=require('node:assert/strict');
+    test('bound browser reaches the exact consumer',()=>assert.equal(process.env.CT_CHROME,${JSON.stringify(chrome)}));`);
+  try {
+    const expected={path:chrome,sha256:hash(fs.readFileSync(chrome))};
+    assert.deepEqual(nativeBrowserBinding(f.contract,environment),expected);
+    let phase;
+    try {phase=produceNativePhase({root:f.dir,cwd:f.dir,contract:f.contract,provenance,inputSha256,runId,
+      sourceCopyCommit:'e'.repeat(40),environment,drain:drainOwnedPhase});}
+    catch(error){assert.fail(`${error.message}: ${JSON.stringify(error.diagnostics)}`);}
+    assert.deepEqual(phase.binding.browser,expected);
+    assert.equal(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract,environment}).counts.assertions,1);
+    const changed=structuredClone(phase);changed.binding.browser.sha256='0'.repeat(64);
+    assert.throws(()=>validateNativePhase(changed,{root:f.dir,provenance,inputSha256,runId,contract:f.contract,environment}),/browser binding/);
+    fs.writeFileSync(chrome,'changed browser bytes');
+    assert.throws(()=>validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract,environment}),/browser binding/);
+    assert.throws(()=>nativeBrowserBinding(f.contract,{}),/bound CT_CHROME/);
+  } finally {f.clean();}
 });
 for(const [name,source] of [
   ['zero',"import 'node:test';"],

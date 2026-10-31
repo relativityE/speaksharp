@@ -1,7 +1,7 @@
 'use strict';
 // A workflow-only diagnostic may test a separately pinned deployed ancestor only
-// when product/dependency blobs are identical and tests are unchanged or match
-// the three explicitly reviewed diagnostic postimages below.
+// when product/dependency blobs are identical and tests/workflow inputs are
+// unchanged or match the explicitly reviewed diagnostic postimages below.
 // This is source compatibility, never permission to run a live case.
 const {spawnSync}=require('node:child_process'),{createHash}=require('node:crypto');
 // Exact diagnostic postimages; never a broad live-test exception.
@@ -10,6 +10,14 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtWatchdog1593.test.ts':'14fe0f998d9ef1f9b5c3bd7e8d26fc264c980687c7f7eeabf166efbd77fb2162',
  'tests/unit/rwtDocumentBinaryTransport.test.js':'e4722993a0e008cf6ead7fe1e092cdc50f3d8b75df0ff29066f35dd95d2bda80',
 });
+// These two non-product inputs are part of this diagnostic integration itself.
+// Pin their exact reviewed postimages rather than treating every workflow or
+// authority-test change as proof-only source.
+const INTEGRATION_PINS=Object.freeze({
+ '.github/workflows/cloud-test.yml':'33a0d4ee002f59946ee3e09c1b3cad9c30e26741ae3ea5a841c7f55a97c5c285',
+ 'tests/unit/modelComparisonRunAuthority.test.js':'95262458ac364c96c13a2a6d7c1164a4008914a04d626078a3ef57a2588088d6',
+});
+const SOURCE_PINS=Object.freeze({...TEST_PINS,...INTEGRATION_PINS});
 const SPECS=Object.freeze([
  'rwt-open-mic-first-session.live.spec.ts','rwt-focus-points-session.live.spec.ts',
  'rwt-focus-points-partial.live.spec.ts','rwt-pending-start-navigation.live.spec.ts',
@@ -29,10 +37,10 @@ function verify(env=process.env,cwd=process.cwd()){
  const paths=git(['diff','--no-renames','--name-only','-z',release,env.GITHUB_SHA,'--']).split('\0').filter(Boolean);
  for(const p of paths){
   if(p==='.github/workflows/rc-gates.yml'||p.startsWith('tools/cloud-test/'))continue;
-  if(!Object.hasOwn(TEST_PINS,p))throw Error('PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS');
-  if(createHash('sha256').update(git(['show',env.GITHUB_SHA+':'+p],true)).digest('hex')!==TEST_PINS[p])throw Error('DIAGNOSTIC_TEST_SOURCE_PIN_DIFFERS');
+  if(!Object.hasOwn(SOURCE_PINS,p))throw Error('PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS');
+  if(createHash('sha256').update(git(['show',env.GITHUB_SHA+':'+p],true)).digest('hex')!==SOURCE_PINS[p])throw Error('DIAGNOSTIC_TEST_SOURCE_PIN_DIFFERS');
  }
  return {kind:'rwt-diagnostic-source-compatible-not-release-qualification',workflowSha:env.GITHUB_SHA,servedSha:release,changedProofPaths:paths.length};
 }
 if(require.main===module){try{console.log(JSON.stringify(verify()));}catch(e){console.error('HOLD: '+e.message);process.exitCode=1;}}
-module.exports={SPECS,TEST_PINS,verify};
+module.exports={SPECS,TEST_PINS,INTEGRATION_PINS,verify};
