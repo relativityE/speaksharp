@@ -1,0 +1,47 @@
+{
+  "status": "INCOMPLETE_NOT_MERGE_READY",
+  "validProductMeasurements": 0,
+  "actualRecordingStarts": 1,
+  "verifiedSavedTranscripts": 0,
+  "lastObservedBackendSessions": 1,
+  "chargedUsageSeconds": 30,
+  "usageSecondsAreNotAudioDuration": true,
+  "retainedModelOutcomeRows": 3,
+  "additionalSourceVerificationPreflightFailures": 1,
+  "originalExpiry": "2026-10-31T14:02:19.005Z",
+  "futureLiveWork": "REQUIRES_NEW_AUTHORIZATION",
+  "reservedCumulative": {
+    "api": 390,
+    "mutation": 240,
+    "local": 19380,
+    "cache": 316,
+    "appWebSockets": 16
+  },
+  "failedCases": [
+    {
+      "key": "v2:base.en:1:fixture-001",
+      "phase": "recording",
+      "reason": "operator_interrupted_no_final_measurement"
+    },
+    {
+      "key": "parakeet:tdt-v3:int8:1:fixture-001",
+      "phase": "candidate-selection",
+      "reason": "selection_failure_no_recording"
+    },
+    {
+      "key": "granite:turboctc-q4f16:1:fixture-001",
+      "phase": "candidate-selection",
+      "reason": "selection_failure_no_recording"
+    }
+  ],
+  "historicalSource": "921376f49454bf9a90c014f246af8bb05f17b152",
+  "historicalTree": "dd96f1f0375064f739ac9c769c22a2ad0f466cd4",
+  "historicalPassed": {
+    "unitControls": 114,
+    "browserTransportControls": 2,
+    "driverTypeCheck": true
+  },
+  "integratedCandidateTests": "NOT RUN",
+  "ownedProcessesAtStop": 0,
+  "hostLocksAtStop": 0
+}

@@ -1,0 +1,72 @@
+{
+  "repo": "ibm-granite/granite-speech-streaming-webgpu",
+  "revision": "b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1",
+  "upstreamDeclaredModel": "ibm-granite/granite-speech-5.0-470m-turboctc",
+  "lineageEvidence": "Pinned official Space README models field and body explicitly identify standard 5.0 model, not -nc; original checkpoint revision used for export is not recorded in deployed Space",
+  "runtime": "Vendored ONNX Runtime Web1.26.0, MIT; version matches README and bundled JS; legal notices bundled",
+  "files": [
+    {
+      "path": "onnx-ctc/ctc_conformer_q4f16.onnx",
+      "bytes": 514020,
+      "sha256": "544d8e12475d13de2de6a65b84556b1379a0c3b4a840a8db183e033f94f1d797",
+      "url": "https://huggingface.co/spaces/ibm-granite/granite-speech-streaming-webgpu/resolve/b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1/onnx-ctc/ctc_conformer_q4f16.onnx",
+      "classification": "model"
+    },
+    {
+      "path": "onnx-ctc/ctc_conformer_q4f16.onnx.data",
+      "bytes": 311533568,
+      "sha256": "dc9443a7d76afb0f7e4b3344ba78d7d14333eaa3bd67f5f1c84b19ee8483e779",
+      "url": "https://huggingface.co/spaces/ibm-granite/granite-speech-streaming-webgpu/resolve/b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1/onnx-ctc/ctc_conformer_q4f16.onnx.data",
+      "classification": "model"
+    },
+    {
+      "path": "onnx-ctc/frontend_config.json",
+      "bytes": 305,
+      "sha256": "a3ee355ace6b898cb2a9976e9b1dde8994f21c8faf5a7b7f1a620f80f4448074",
+      "url": "https://huggingface.co/spaces/ibm-granite/granite-speech-streaming-webgpu/resolve/b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1/onnx-ctc/frontend_config.json",
+      "classification": "model"
+    },
+    {
+      "path": "onnx-ctc/mel_filters.bin",
+      "bytes": 82240,
+      "sha256": "3e5145f681dd30339bb9ea60b366d78ff971de6aa0d210b45b4adcf859bb177d",
+      "url": "https://huggingface.co/spaces/ibm-granite/granite-speech-streaming-webgpu/resolve/b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1/onnx-ctc/mel_filters.bin",
+      "classification": "model"
+    },
+    {
+      "path": "onnx-ctc/stft_window.bin",
+      "bytes": 2048,
+      "sha256": "b318e8ace5febc3997eb190be755063577693ed06da87629172c9b6913448e41",
+      "url": "https://huggingface.co/spaces/ibm-granite/granite-speech-streaming-webgpu/resolve/b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1/onnx-ctc/stft_window.bin",
+      "classification": "model"
+    },
+    {
+      "path": "onnx-ctc/vocab.json",
+      "bytes": 160953,
+      "sha256": "174b8f7769e5097bf15255570e9f6ea86e2da3c44ac5f4a9001d0c3a3893af3d",
+      "url": "https://huggingface.co/spaces/ibm-granite/granite-speech-streaming-webgpu/resolve/b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1/onnx-ctc/vocab.json",
+      "classification": "model"
+    },
+    {
+      "path": "ort/ort-wasm-simd-threaded.jsep.mjs",
+      "bytes": 46489,
+      "sha256": "33949a3310b723a3ee14dc2da989e55060de26a75e2346095a150a042c9aad4e",
+      "url": "https://huggingface.co/spaces/ibm-granite/granite-speech-streaming-webgpu/resolve/b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1/ort/ort-wasm-simd-threaded.jsep.mjs",
+      "classification": "runtime"
+    },
+    {
+      "path": "ort/ort-wasm-simd-threaded.jsep.wasm",
+      "bytes": 26239907,
+      "sha256": "411b39a77bb006ce0cf17b30c978c66a130ebb2ba39c8dfdbdc9c1c5a251ae76",
+      "url": "https://huggingface.co/spaces/ibm-granite/granite-speech-streaming-webgpu/resolve/b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1/ort/ort-wasm-simd-threaded.jsep.wasm",
+      "classification": "runtime"
+    },
+    {
+      "path": "ort/ort.all.min.js",
+      "bytes": 794664,
+      "sha256": "989436054af15f2243b7b8dbd1cdf2a3d980eccb6ea93acfd402499cb9e60fbd",
+      "url": "https://huggingface.co/spaces/ibm-granite/granite-speech-streaming-webgpu/resolve/b347f5c68221aaef9cc4b6b8f85f71b8b61cc1e1/ort/ort.all.min.js",
+      "classification": "runtime"
+    }
+  ]
+}

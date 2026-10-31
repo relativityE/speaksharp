@@ -3,7 +3,7 @@ import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPoli
 import PrivateWhisper from './modes/PrivateWhisper';
 import logger from '../../lib/logger';
 import { getDefaultProviderEntry } from './providers/sttProviderConfig';
-import type { PrivateSttProvider, SttMode, SttProviderEntry } from './providers/types';
+import type { SttMode, SttProviderEntry } from './providers/types';
 
 /**
  * EngineFactory:
@@ -35,9 +35,8 @@ export class EngineFactory {
     const registryKey = EngineFactory.assertProviderAvailable(mode as SttMode, provider);
     logger.info({ mode, provider: providerId, registryKey }, '[EngineFactory] Constructing production engine');
 
-    return new PrivateWhisper({
-      ...options,
-      forceEngine: providerId as PrivateSttProvider,
-    } as TranscriptionModeOptions);
+    // The facade resolves the configured candidate/provider itself. Turning the
+    // provider default into an explicit override bypasses candidate selection.
+    return new PrivateWhisper({ ...options });
   }
 }

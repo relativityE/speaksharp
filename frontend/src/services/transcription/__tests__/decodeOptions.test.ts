@@ -64,11 +64,11 @@ describe('shipping decode options', () => {
         const here = dirname(fileURLToPath(import.meta.url));
         const engines = resolve(here, '..', 'engines');
         for (const [name, file] of [
-            ['v2 worker', 'transformers-js.worker.ts'],
+            ['v2 engine', 'TransformersJSEngine.ts'],
             ['v4 engine', 'TransformersJSV4Engine.ts'],
         ] as const) {
             const source = readFileSync(resolve(engines, file), 'utf8');
-            expect(source, `${name} must import the shared builder`).toMatch(/buildShippingDecodeOptions/);
+            expect(source, `${name} must import the shared builder`).toMatch(/buildWhisperDecodeOptions/);
         }
     });
 

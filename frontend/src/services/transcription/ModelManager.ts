@@ -1,6 +1,7 @@
 import logger from '@/lib/logger';
 import { PRIV_STT_V4, PRIV_STT_MODELS } from './sttConstants';
 import { resolvePrivateModel } from './utils/privateModelFlag';
+import { CANDIDATES } from './candidateRegistry';
 
 /**
  * ModelManager
@@ -20,21 +21,6 @@ export class ModelManager {
     private static get TRANSFORMERS_MODEL_PATH(): string {
         return PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].localId;
     }
-    // Derive from the canonical v4 model id (base_q4 rollout floor) — v4 has no tiny variant.
-    private static readonly TRANSFORMERS_REQUIRED_CACHE_FILES = [
-        'config.json',
-        'tokenizer.json',
-        'preprocessor_config.json',
-        'onnx/encoder_model_quantized.onnx',
-        'onnx/decoder_model_merged_quantized.onnx',
-    ] as const;
-    private static readonly TRANSFORMERS_V4_REQUIRED_CACHE_FILES = [
-        'config.json',
-        'tokenizer.json',
-        'preprocessor_config.json',
-        'onnx/encoder_model.onnx',
-        'onnx/decoder_model_merged_q4.onnx',
-    ] as const;
 
     /**
      * Check if the specific model for an engine type is likely present in the cache.
@@ -51,7 +37,8 @@ export class ModelManager {
      */
     public static async isModelDownloaded(
         engineType: 'transformers-js' | 'transformers-js-v4',
-        modelPath: string = PRIV_STT_V4.MODEL_ID,
+        modelPath?: string,
+        requiredFiles?: readonly string[],
     ): Promise<boolean> {
         // Browser Environment Check
         if (typeof window === 'undefined') {
@@ -59,11 +46,22 @@ export class ModelManager {
         }
 
         try {
+            const selectedPath = modelPath ?? (engineType === 'transformers-js-v4'
+                ? PRIV_STT_V4.MODEL_ID : this.TRANSFORMERS_MODEL_PATH);
+            if (!requiredFiles) {
+                const matches = Object.values(CANDIDATES).filter(candidate =>
+                    candidate.engine === engineType && candidate.execution.implemented &&
+                    (candidate.execution.localModelId ?? candidate.model.id) === selectedPath);
+                // A repository shared by different exports cannot identify its cache requirements.
+                if (matches.length !== 1) return false;
+                requiredFiles = matches[0].execution.cacheFiles;
+            }
+            if (!requiredFiles?.length) return false;
             if (engineType === 'transformers-js-v4') {
-                return await this.isTransformersV4ModelDownloaded(modelPath);
+                return await this.isTransformersV4ModelDownloaded(selectedPath, requiredFiles);
             }
 
-            return await this.isTransformersModelDownloaded();
+            return await this.isTransformersModelDownloaded(selectedPath, requiredFiles);
         } catch (error) {
             logger.error({ error, engineType }, '[ModelManager] Error probing cache storage');
             // Fail-safe: Assume not downloaded if cache probing fails
@@ -85,7 +83,7 @@ export class ModelManager {
         return PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB;
     }
 
-    private static async isTransformersModelDownloaded(): Promise<boolean> {
+    private static async isTransformersModelDownloaded(modelPath: string, requiredFiles: readonly string[]): Promise<boolean> {
         if (typeof caches === 'undefined') {
             logger.info({ engineType: 'transformers-js' }, '[ModelManager] CacheStorage unavailable');
             return false;
@@ -107,8 +105,8 @@ export class ModelManager {
         }
 
         const cachedUrls = keys.map((request) => request.url);
-        const missingFiles = this.TRANSFORMERS_REQUIRED_CACHE_FILES.filter(
-            (requiredFile) => !cachedUrls.some((url) => this.isTransformersModelAsset(url, requiredFile)),
+        const missingFiles = requiredFiles.filter(
+            (requiredFile) => !cachedUrls.some((url) => this.isTransformersModelAsset(url, requiredFile, modelPath)),
         );
 
         if (missingFiles.length > 0) {
@@ -125,22 +123,22 @@ export class ModelManager {
         return true;
     }
 
-    private static isTransformersModelAsset(url: string, requiredFile: string): boolean {
+    private static isTransformersModelAsset(url: string, requiredFile: string, modelPath: string): boolean {
         try {
             const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
             const pathname = decodeURIComponent(parsed.pathname);
-            return pathname.includes(this.TRANSFORMERS_MODEL_PATH) && pathname.endsWith(requiredFile);
+            return pathname.includes(modelPath) && pathname.endsWith(requiredFile);
         } catch (error) {
             logger.debug({
                 error,
                 url,
                 requiredFile,
             }, '[ModelManager] Cache URL parse failed; falling back to string asset matching');
-            return url.includes(this.TRANSFORMERS_MODEL_PATH) && url.split('?')[0]?.endsWith(requiredFile);
+            return url.includes(modelPath) && url.split('?')[0]?.endsWith(requiredFile);
         }
     }
 
-    private static async isTransformersV4ModelDownloaded(modelPath: string): Promise<boolean> {
+    private static async isTransformersV4ModelDownloaded(modelPath: string, requiredFiles: readonly string[]): Promise<boolean> {
         if (typeof caches === 'undefined') {
             logger.info({ engineType: 'transformers-js-v4' }, '[ModelManager] CacheStorage unavailable');
             return false;
@@ -162,7 +160,7 @@ export class ModelManager {
         }
 
         const cachedUrls = keys.map((request) => request.url);
-        const missingFiles = this.TRANSFORMERS_V4_REQUIRED_CACHE_FILES.filter(
+        const missingFiles = requiredFiles.filter(
             (requiredFile) => !cachedUrls.some((url) => this.isTransformersV4ModelAsset(url, requiredFile, modelPath)),
         );
 

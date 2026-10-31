@@ -33,7 +33,7 @@
 
 import { TranscriptionModeOptions, Result, ITranscriptionEngine } from '@/services/transcription/modes/types';
 import { IPrivateSTTEngine, EngineType } from '@/contracts/IPrivateSTTEngine';
-import type { LiveResultKind } from '@/contracts/IPrivateSTTEngine';
+import type { LiveResultKind, PrivateRuntimeEvidence } from '@/contracts/IPrivateSTTEngine';
 import { STTEngine, validateEngine, assertEngineCanDecode } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
@@ -46,10 +46,9 @@ import {
     type CandidateId, type SessionModelIdentity,
 } from '../candidateRegistry';
 import { recordResolvedEngine } from '@/services/telemetry/runtimeAttribution';
-import { effectiveCandidate, assertDeviceAvailable, v4VariantFor } from '../candidateSelection';
+import { effectiveCandidate, assertDeviceAvailable, v4VariantFor, type EffectiveSelection } from '../candidateSelection';
 import { consentCopy, consentDecision, consentTermsFor, readReceipt, recordConsent, reducedDataRequested } from '../modelConsent';
 import type { MoonshineArch, MoonshineCandidateId } from './MoonshineStreamingEngine';
-import { MOONSHINE_ARCH_BY_CANDIDATE } from './MoonshineStreamingEngine';
 import { runtimeCandidateOverride } from '../runtimeCandidateSwitch';
 import { captureCapabilities } from '../capabilitySnapshot';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
@@ -62,7 +61,8 @@ import {
     classifyAcquisitionError, type AcquisitionSubject, type PinnedAssetRef,
 } from '../modelAcquisitionTelemetry';
 import type { Candidate } from '../candidateRegistry';
-import { acquisitionComponentGroupsFor, assetRequestsFor, acquisitionScopeFor } from '../candidateAssetRequests';
+import { acquisitionComponentGroupsFor, assetRequestsFor, acquisitionScopeFor, resolveCandidateAssetUrl } from '../candidateAssetRequests';
+import { verifyModelPackage, productModelMetadata } from '../modelPackage';
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
 import { receiptMatches, type AcquisitionAttempt, type AcquisitionReceipt } from '../acquisitionAttempt';
 import type { AcquisitionTrigger } from '../modelAcquisitionTelemetry';
@@ -91,11 +91,89 @@ function publishPrivateRuntimeDebug(decision: PrivateRuntimeDecision): void {
 type PrivateEngineType = Extract<EngineType, PrivateSttProvider>;
 type SelectedPrivateEngine = PrivateEngineType | 'mock';
 
+/** One constructor seam for product and evaluator; registry injection keeps priority. */
+async function constructPrivateEngine(
+    kind: Candidate['engine'], candidate: Candidate, options: TranscriptionModeOptions,
+): Promise<IPrivateSTTEngine> {
+    const factory = getEngine(kind);
+    if (factory) {
+        const injected = factory(options);
+        validateEngine(injected);
+        return injected;
+    }
+    if (candidate.engine !== kind || !candidate.execution.implemented) {
+        throw new Error(`Descriptor ${candidate.id} cannot initialize ${kind}`);
+    }
+    const input = candidate.execution.preprocessing;
+    if (input.input !== 'float32-pcm' || input.channels !== 1 || input.sampleRateHz !== 16_000 ||
+        candidate.model.sampleRateHz !== input.sampleRateHz || input.features !== 'runtime') {
+        throw new Error(`Descriptor ${candidate.id} requires unsupported audio preprocessing`);
+    }
+    let engine: unknown;
+    switch (kind) {
+        case 'parakeet-tdt': {
+            const profile = candidate.execution.decode;
+            const backend = (options as PrivateSTTInitOptions).evaluatorBackend ?? candidate.model.device;
+            const { package: packageName, version } = candidate.runtime;
+            const ortVersion = candidate.runtime.dependencies?.['onnxruntime-web'];
+            if (profile.kind !== 'parakeet-tdt' || backend !== 'wasm' ||
+                packageName !== 'parakeet.js' || version !== '1.4.4' || ortVersion !== '1.24.1') {
+                throw new Error(`Invalid pinned Parakeet WASM/int8 profile for ${candidate.id}`);
+            }
+            const assets = candidate.assets.files?.map(file => {
+                if (!file.url) throw new Error(`Missing pinned URL for ${file.path}`);
+                return { file: file.path.split('/').pop()!, url: resolveCandidateAssetUrl(file.url), bytes: file.bytes, sha256: file.sha256 };
+            });
+            if (!assets?.length) throw new Error(`Missing Parakeet asset inventory for ${candidate.id}`);
+            engine = new (await import('./ParakeetTdtEngine')).ParakeetTdtEngine({
+                profile, runtime: { package: packageName, version, ortVersion }, assets,
+                onDownloadProgress: fraction => options.onModelLoadProgress?.(Math.round(fraction * 100)),
+            });
+            break;
+        }
+        case 'granite-ctc': {
+            const profile = candidate.execution.decode;
+            const backend = (options as PrivateSTTInitOptions).evaluatorBackend ?? candidate.model.device;
+            if (profile.kind !== 'granite-ctc' || (backend !== 'wasm' && backend !== 'webgpu')) {
+                throw new Error(`Invalid Granite execution profile for ${candidate.id}`);
+            }
+            const assets = candidate.assets.files?.map(file => {
+                if (!file.url) throw new Error(`Missing pinned URL for ${file.path}`);
+                return { file: file.path.split('/').pop()!, url: file.url, bytes: file.bytes, sha256: file.sha256 };
+            });
+            if (!assets?.length) throw new Error(`Missing asset inventory for ${candidate.id}`);
+            engine = new (await import('./GraniteCtcEngine')).GraniteCtcEngine({
+                modelFile: profile.modelFile, backend, applyAgc: profile.applyAgc, assets,
+                onDownloadProgress: fraction => options.onModelLoadProgress?.(Math.round(fraction * 100)),
+            });
+            break;
+        }
+        case 'transformers-js':
+            engine = new (await import('./TransformersJSEngine')).TransformersJSEngine(options);
+            break;
+        case 'transformers-js-v4':
+            engine = new (await import('./TransformersJSV4Engine')).TransformersJSV4Engine(options);
+            break;
+        case 'moonshine-streaming': {
+            const modelArch = candidate.execution.modelArch;
+            if (!modelArch) throw new Error(`Descriptor ${candidate.id} has no Moonshine architecture`);
+            engine = new (await import('./MoonshineStreamingEngine')).MoonshineStreamingEngine({
+                candidateId: candidate.id as MoonshineCandidateId, modelArch,
+                onDownloadProgress: (fraction) => options.onModelLoadProgress?.(Math.round(fraction * 100)),
+            });
+            break;
+        }
+    }
+    validateEngine(engine);
+    return engine;
+}
+
 const getPrivateProviderIds = (): PrivateEngineType[] =>
     getProviderIdsForMode('private')
         .filter((provider): provider is PrivateEngineType =>
             provider === 'transformers-js' ||
-            provider === 'transformers-js-v4');
+            provider === 'transformers-js-v4' ||
+            provider === 'parakeet-tdt');
 
 const isPrivateEngineProvider = (value: string | null): value is PrivateEngineType =>
     Boolean(value && getPrivateProviderIds().includes(value as PrivateEngineType));
@@ -116,6 +194,13 @@ function getConfiguredPrivateEngine(): PrivateEngineType {
  *  app-path proof's first-text window so the v2 re-transcribe still fits inside it. */
 const V4_AUTO_DECODE_TIMEOUT_MS = 40_000;
 
+interface EngineLifetime {
+    generation: number;
+    release?: Promise<Error | null>;
+    /** Undefined while release is unconfirmed; null only after successful termination. */
+    outcome?: Error | null;
+}
+
 export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscriptionEngine {
     public readonly type: EngineType = 'transformers-js'; // Primary type for this facade
 
@@ -124,6 +209,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     protected serviceId: string = 'unknown';
     protected runId: string = 'unknown';
     private runtimePath: PrivateRuntimeDecision | null = null;
+    private selection: EffectiveSelection | null = null;
+    /** Init owns these before adoption; teardown must reach their acquisition cancellation now. */
+    private readonly acquiringEngines = new Set<IPrivateSTTEngine>();
+    private readonly engineReleases = new WeakMap<IPrivateSTTEngine, EngineLifetime>();
     // True ONLY when the AUTO (flag) path successfully initialized v4. Gates the
     // decode-time fallback to v2-base; the strict explicit-override path never sets it.
 
@@ -131,9 +220,43 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * PrivateSTT manages the dual-engine strategy for on-device transcription.
      * It coordinates between WhisperTurbo (GPU) and TransformersJS (CPU/WASM) engines.
      */
-    constructor(options: Partial<TranscriptionModeOptions> = {}, mockEngine?: IPrivateSTTEngine) {
+    constructor(options: Partial<PrivateSTTInitOptions> = {}, mockEngine?: IPrivateSTTEngine) {
         super(options as TranscriptionModeOptions);
         this.engine = mockEngine || null;
+    }
+
+    /** One immutable selection for this facade's consent, acquisition and recording lifetime. */
+    private resolvedSelection(freeze = true): EffectiveSelection {
+        if (this.selection) return this.selection;
+        const options = this.options as PrivateSTTInitOptions;
+        const id = options.evaluatorCandidateId;
+        if (id && import.meta.env.VITE_INTERNAL_BUILD !== 'true') {
+            throw new Error('Explicit evaluator selection requires an internal build');
+        }
+        const selected = id
+            ? effectiveCandidate({ candidate: id, acknowledgeNotProductionReady: true }, undefined, undefined, null)
+            : effectiveCandidate();
+        if (id && (selected.candidate.id !== id || selected.fallbackCause)) {
+            throw new Error('Evaluator selection differs from effective safety selection');
+        }
+        if (options.evaluatorBackend && (!id ||
+            (selected.candidate.model.device === 'wasm' && options.evaluatorBackend !== 'wasm'))) {
+            throw new Error('Backend override requires an explicit compatible evaluator selection');
+        }
+        const resolved = Object.freeze(selected);
+        if (freeze) this.selection = resolved;
+        return resolved;
+    }
+
+    /** Model-only harness evidence from the adopted instance, never a previous window-global run. */
+    public getExecutionEvidence(): { runtime: PrivateRuntimeEvidence | null; workerAcquisition: AcquisitionReceipt | null } {
+        const engine = this.engine as (IPrivateSTTEngine & {
+            getAcquisitionReceipt?: () => AcquisitionReceipt | null;
+        }) | null;
+        return {
+            runtime: engine?.getRuntimeEvidence?.() ?? null,
+            workerAcquisition: engine?.getAcquisitionReceipt?.() ?? null,
+        };
     }
 
     /**
@@ -200,7 +323,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         //
         // An unresolvable candidate is a real failure too: it means we cannot say WHAT was consented to,
         // and a receipt that does not name its subject is not one.
-        const candidate = effectiveCandidate().candidate;
+        const candidate = this.resolvedSelection().candidate;
         recordConsent(consentTermsFor(candidate), new Date().toISOString());
     }
 
@@ -216,9 +339,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // directly and an unknown engine is left unattributed rather than defaulted.
         const isV4 = this._engineType === 'transformers-js-v4';
         const isMoonshine = this._engineType === 'moonshine-streaming';
+        const isGranite = this._engineType === 'granite-ctc';
+        const isParakeet = this._engineType === 'parakeet-tdt';
         const variant: EngineVariant = isV4
             ? 'private_v4'
-            : isMoonshine ? 'private_moonshine' : 'private_v2';
+            : isMoonshine ? 'private_moonshine' : isGranite ? 'private_granite'
+                : isParakeet ? 'private_parakeet' : 'private_v2';
 
         // THE RESOLVED variant, not the default constant. `PRIV_STT_V4_DEFAULT_VARIANT` is base_q4, so
         // a session that actually resolved distil_q4 was recorded as base_q4 — the model name in the
@@ -234,7 +360,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // encoder and differ only here, so a mapping keyed on the variant name alone cannot tell
             // them apart — and an int8 session recorded as q4 is the same defect in a new place.
             const variantCfg = resolvedVariant ? PRIV_STT_V4_VARIANTS[resolvedVariant] : null;
-            candidateId = candidateForRuntime({
+            candidateId = this.selection?.candidate.engine === this._engineType
+                ? this.selection.candidate.id : candidateForRuntime({
                 engineType: this._engineType,
                 // The Moonshine arch IS its variant for identity purposes; `v4Variant` is null on that
                 // path and passing it would send the registry a provider with no model.
@@ -245,7 +372,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 // inventing one would put a guessed value into a session's identity.
                 device: this.runtimePath?.acceleration ?? null,
             });
-            modelIdentity = identityOf(CANDIDATES[candidateId]);
+            modelIdentity = identityOf(this.selection?.candidate.id === candidateId
+                ? this.selection.candidate : CANDIDATES[candidateId]);
         } catch {
             // An unrecognised combination is left ABSENT, never defaulted. A row with no identity is
             // honestly unattributable; a row carrying a guessed identity is evidence for a claim that
@@ -254,10 +382,13 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // Moonshine's model name comes from the registry entry the arch resolved to, never from a
         // constant: a hardcoded name here is the same defect as `PRIV_STT_V4_DEFAULT_VARIANT` was.
+        if (modelIdentity && this.selection?.candidate.id === candidateId) {
+            return { ...productModelMetadata(this.selection.candidate), candidateId, modelIdentity };
+        }
         const model = isV4
             ? (resolvedVariant ?? PRIV_STT_V4_DEFAULT_VARIANT)
-            : isMoonshine ? (modelIdentity?.configuredModel.id ?? 'unknown')
-                : 'whisper-base.en';
+            : (isMoonshine || isGranite || isParakeet) ? (modelIdentity?.configuredModel.id ?? 'unknown')
+                : (modelIdentity?.configuredExecution?.localModelId ?? 'whisper-base.en');
         return {
             engineVersion: buildEngineVersion(variant, model),
             modelName: model,
@@ -272,6 +403,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected override async onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+        try {
+            const descriptor = this.resolvedSelection(false).candidate.modelPackage?.descriptor;
+            if (descriptor) await verifyModelPackage(descriptor);
+        } catch (error) {
+            return { isOk: false, error: error instanceof Error ? error : new Error('Model package refused') };
+        }
         // #1635: captured synchronously at entry, i.e. the generation of the init() that called us. Every engine
         // this init acquires is adopted only while that generation still owns the facade.
         const generation = this.lifecycleGeneration;
@@ -295,26 +432,31 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // #1635: a destroy during this await nulls `this.engine` (and disposes it); keep our own reference.
             const injected = this.engine;
             validateEngine(injected);
-            const initResult = await injected.init(timeoutMs, isMock);
-            // #1635: the teardown that cancelled us owns this engine's release and reports its outcome; it may still
-            // be pending or fail, so this init never claims the engine was released.
-            if (this.acquisitionCancelled(generation)) return Result.err(this.cancelledInitError(false));
-            const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
-            if (!isOk) {
-                const error = (initResult ? (initResult as { error?: Error }).error : undefined)
-                    || new Error('Injected private engine failed to initialize');
-                logger.warn({ error }, '[PrivateSTT] Injected engine failed to initialize.');
-                // #1635: released through the recording path. An injected child is not assumed to carry its own sticky
-                // protection: a failed release is recorded on THIS facade, and the uncertain engine is never re-invoked.
-                const releaseFailure = await this.releaseEngine(injected);
-                if (releaseFailure) {
-                    if (this.engine === injected) this.engine = null;
-                    return Result.err(new Error(`${error.message}; releasing the injected engine FAILED (release uncertain): ${releaseFailure.message}`));
+            const lifetime = this.beginEngineAcquisition(injected, generation);
+            try {
+                const initResult = await injected.init(timeoutMs, isMock);
+                // #1635: the teardown that cancelled us owns this engine's release and reports its outcome; it may still
+                // be pending or fail, so this init never claims the engine was released.
+                if (this.acquisitionCancelled(generation)) return Result.err(this.cancelledInitError(false));
+                const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
+                if (!isOk) {
+                    const error = (initResult ? (initResult as { error?: Error }).error : undefined)
+                        || new Error('Injected private engine failed to initialize');
+                    logger.warn({ error }, '[PrivateSTT] Injected engine failed to initialize.');
+                    // #1635: released through the recording path. An injected child is not assumed to carry its own sticky
+                    // protection: a failed release is recorded on THIS facade, and the uncertain engine is never re-invoked.
+                    const releaseFailure = await this.releaseEngine(injected, lifetime);
+                    if (releaseFailure) {
+                        if (this.engine === injected) this.engine = null;
+                        return Result.err(new Error(`${error.message}; releasing the injected engine FAILED (release uncertain): ${releaseFailure.message}`));
+                    }
+                    return { isOk: false, error };
                 }
-                return { isOk: false, error };
+                this._engineType = injected.type;
+                return Result.ok(undefined);
+            } finally {
+                if (this.engineReleases.get(injected) === lifetime) this.acquiringEngines.delete(injected);
             }
-            this._engineType = injected.type;
-            return Result.ok(undefined);
         }
 
         // EXPLICIT OVERRIDE PATH (programmatic forceEngine only):
@@ -412,7 +554,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // comes from a checked-in file. `effectiveCandidate()` applies the one-way safety kill and
         // nothing else: no URL parameter, no localStorage key, no flag payload and no cohort reaches
         // this decision, and the kill can only ever force the v2 floor.
-        const { candidate, fallbackCause } = effectiveCandidate();
+        const { candidate, fallbackCause } = this.resolvedSelection();
 
         // A candidate that REQUIRES an accelerator is refused HERE, visibly, rather than being quietly
         // downgraded to WASM further down. A slow run recorded under the same candidate id would be
@@ -422,24 +564,31 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // when they disagreed the gate admitted a WebGPU-only candidate and the resolver quietly
         // returned the v2 floor, so the session ran Whisper while the switch reported success for the
         // model that was asked for. The snapshot is taken once here and threaded onward.
-        const capabilities = await captureCapabilities();
-        if (candidate.model.device === 'webgpu') {
+        const evaluatorBackend = (this.options as PrivateSTTInitOptions).evaluatorBackend;
+        const observedCapabilities = await captureCapabilities();
+        // Scientific backend controls stay internal/model-only. They do not change the descriptor or
+        // product eligibility, and the engine must later report the explicitly requested backend.
+        const capabilities = evaluatorBackend === 'wasm'
+            ? { ...observedCapabilities, webgpuAvailable: false } : observedCapabilities;
+        if (evaluatorBackend === 'webgpu' && !capabilities.webgpuAvailable) {
+            throw new Error('Requested evaluator WebGPU backend is unavailable');
+        }
+        if (candidate.model.device === 'webgpu' && evaluatorBackend !== 'wasm') {
             assertDeviceAvailable(candidate, capabilities.webgpuAvailable);
         }
 
-        // MOONSHINE SHORT-CIRCUITS THE v4 RESOLVER. That resolver reasons about WebGPU promotion and
-        // v4 variants, neither of which describes Moonshine; routing it through would force a v4-shaped
-        // decision onto an engine that is not one, and the recorded provenance would describe the wrong
-        // machinery. Its runtime decision is stated directly instead.
-        if (candidate.engine === 'moonshine-streaming') {
+        // Explicit adapter backends do not pass through Whisper promotion/fallback policy.
+        if (candidate.engine === 'moonshine-streaming' || candidate.engine === 'granite-ctc' || candidate.engine === 'parakeet-tdt') {
+            const useGpu = candidate.engine === 'granite-ctc' &&
+                (evaluatorBackend ?? candidate.model.device) === 'webgpu';
             const decision: PrivateRuntimeDecision = {
-                runtime: 'wasm-singlethread',
-                provider: 'moonshine-streaming',
+                runtime: useGpu ? 'webgpu' : 'wasm-singlethread',
+                provider: candidate.engine,
                 v4Variant: null,
-                acceleration: 'cpu',
-                reason: 'no_webgpu_or_isolation',
+                acceleration: useGpu ? 'gpu' : 'cpu',
+                reason: candidate.engine === 'moonshine-streaming' ? 'no_webgpu_or_isolation' : 'descriptor_backend',
                 selectionSource: fallbackCause ? 'remote_safety_kill' : (runtimeCandidateOverride() ? 'runtime_switch' : 'config'),
-                webgpuAvailable: false,
+                webgpuAvailable: capabilities.webgpuAvailable,
                 turboCached: false,
                 crossOriginIsolated: typeof globalThis.crossOriginIsolated === 'boolean' ? globalThis.crossOriginIsolated : false,
                 wasmThreadCount: 1,
@@ -450,8 +599,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             publishPrivateRuntimeDebug(decision);
             logger.info({
                 sId: this.serviceId, rId: this.runId, candidateId: candidate.id, fallbackCause,
-            }, '[PrivateSTT] Resolved Moonshine runtime decision from config');
-            return 'moonshine-streaming';
+            }, '[PrivateSTT] Resolved adapter runtime decision from config');
+            return candidate.engine;
         }
 
         const wantsV4 = candidate.engine === 'transformers-js-v4';
@@ -467,8 +616,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     variant: v4VariantFor(candidate),
                     // WASM-capable variants are honoured without WebGPU: a checked-in selection is a
                     // deliberate choice, not a percentage rollout that should stay conservative.
-                    allowWithoutWebGPU: candidate.model.device !== 'webgpu',
-                    distilEnabled: false,
+                    allowWithoutWebGPU: evaluatorBackend === 'wasm' || candidate.model.device !== 'webgpu',
                     forceAuto: false,
                     // A session decoded under an internal runtime switch must NOT be recorded as a
                     // normal config selection: it was chosen in-page for a comparison, on a build a
@@ -596,36 +744,59 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected async onDestroy(): Promise<void> {
+        const acquiring = [...this.acquiringEngines];
+        this.acquiringEngines.clear();
         // #1635: detach before awaiting, so nothing adopted or read during the teardown sees a dying engine.
         const engine = this.engine;
         const engineType = this._engineType;
         this.engine = null;
         this._engineType = null;
-        if (engine) {
-            // #1635: the SUPPORTED release is terminate(). Moonshine implements only terminate(); its destroy()
-            // is validateEngine's no-op, which would report a release while leaving the transcriber open.
-            const failure = await this.releaseEngine(engine);
-            if (failure) {
-                // #1635: the shared teardown rejects, so public destroy() and every concurrent waiter see it.
-                logger.warn({ error: failure, engineType }, '[PrivateSTT] Engine release failed during Private STT teardown');
-                throw new Error(`[PrivateSTT] engine release FAILED during teardown (release uncertain): ${failure.message}`);
-            }
+        const failures = await Promise.all([...new Set([...acquiring, ...(engine ? [engine] : [])])]
+            .map(child => this.releaseEngine(child)));
+        const failure = failures.find(value => value !== null);
+        if (failure) {
+            // The shared teardown rejects, so public destroy() and every concurrent waiter see it.
+            logger.warn({ error: failure, engineType }, '[PrivateSTT] Engine release failed during Private STT teardown');
+            throw new Error(`[PrivateSTT] engine release FAILED during teardown (release uncertain): ${failure.message}`);
         }
+        this.selection = null;
     }
 
-    /**
-     * #1635: release an engine through its supported teardown contract; returns the failure, never swallows it.
-     * A failed release is also STICKY: whichever path it happened on, the facade refuses every later init.
-     */
-    private async releaseEngine(engine: IPrivateSTTEngine): Promise<Error | null> {
-        try {
-            await engine.terminate();
-            return null;
-        } catch (error) {
-            const failure = error instanceof Error ? error : new Error(String(error));
-            this.recordReleaseFailure(failure);
-            return failure;
+    /** Open a new ownership lifetime, including static registry objects returned after successful cleanup. */
+    private beginEngineAcquisition(engine: IPrivateSTTEngine, generation: number): EngineLifetime {
+        const previous = this.engineReleases.get(engine);
+        if (previous?.release && previous.outcome !== null) {
+            throw new Error('[PrivateSTT] previous child release is unconfirmed; refusing reinitialization');
         }
+        // A static registry may return the same object for a NEW lifetime. Its previous successful
+        // release is not proof that the newly initialized worker is off. Old continuations retain
+        // their own lifetime below, so they cannot terminate or untrack this replacement.
+        const lifetime: EngineLifetime = { generation };
+        this.engineReleases.set(engine, lifetime);
+        this.acquiringEngines.add(engine);
+        return lifetime;
+    }
+
+    /** Share cleanup within this lifetime. Failed or pending cleanup never authorizes reacquisition. */
+    private async releaseEngine(engine: IPrivateSTTEngine,
+        lifetime: EngineLifetime = this.engineReleases.get(engine) ?? { generation: this.lifecycleGeneration },
+    ): Promise<Error | null> {
+        if (!this.engineReleases.has(engine)) this.engineReleases.set(engine, lifetime);
+        if (lifetime.release) return lifetime.release;
+        const release = Promise.resolve().then(async () => {
+            try {
+                await engine.terminate();
+                lifetime.outcome = null;
+                return null;
+            } catch (error) {
+                const failure = error instanceof Error ? error : new Error(String(error));
+                lifetime.outcome = failure;
+                this.recordReleaseFailure(failure);
+                return failure;
+            }
+        });
+        lifetime.release = release;
+        return release;
     }
 
     /** #1635: the init that started in `generation` no longer owns this facade. */
@@ -645,10 +816,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * A different previous engine is retired first; ownership is rechecked after that await, and an engine
      * adopted meanwhile by a newer owner is never destroyed here.
      */
-    private async adoptEngine(engine: IPrivateSTTEngine, generation: number): Promise<Result<void, Error>> {
+    private async adoptEngine(engine: IPrivateSTTEngine, generation: number,
+        lifetime: EngineLifetime = this.engineReleases.get(engine) ?? { generation },
+    ): Promise<Result<void, Error>> {
         // A failed cleanup is never reported as a release: the error says the release is UNCERTAIN.
         const release = async (): Promise<Result<void, Error>> => {
-            const failure = await this.releaseEngine(engine);
+            const failure = await this.releaseEngine(engine, lifetime);
             return Result.err(failure
                 ? new Error(`[PrivateSTT] init cancelled, and releasing the acquired engine FAILED (release uncertain): ${failure.message}`)
                 : this.cancelledInitError(true));
@@ -658,7 +831,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // cleanup failed): refuse to adopt, and dispose only this init's own candidate.
         const retained = this.retainedReleaseFailure();
         if (retained) {
-            const candidateFailure = await this.releaseEngine(engine);
+            const candidateFailure = await this.releaseEngine(engine, lifetime);
             return Result.err(new Error(`[PrivateSTT] a previous engine release FAILED (release uncertain): ${retained.message}`
                 + (candidateFailure ? `; releasing the new engine also FAILED: ${candidateFailure.message}` : '; the new engine was released')));
         }
@@ -673,7 +846,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             if (retireFailure) {
                 // The replacement is refused: the facade cannot claim a clean hand-over from an engine whose
                 // release failed. The new candidate is released too, and both outcomes are reported.
-                const candidateFailure = await this.releaseEngine(engine);
+                const candidateFailure = await this.releaseEngine(engine, lifetime);
                 // Readiness was already cleared when the retirement began; only the init that still OWNS the facade
                 // could change it, and after these awaits a destroy and a newer, successful init may have taken over.
                 // Both failures are sticky (releaseEngine), so no later init can acquire an engine on this facade.
@@ -757,9 +930,15 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // build configured for distil reported base_q4's ~142 MB while distil needs ~251 MB, and probed
         // the wrong model for cache presence. The user was told a number for a model they were not
         // getting — a download-consent prompt has to be about the thing being downloaded.
-        const selected = (() => {
-            try { return effectiveCandidate().candidate; } catch { return null; }
-        })();
+        let selected: Candidate;
+        try {
+            selected = this.resolvedSelection(false).candidate;
+            if (selected.modelPackage) await verifyModelPackage(selected.modelPackage.descriptor);
+        } catch (error) {
+            logger.warn('[PrivateSTT] Selected candidate is unavailable');
+            return { isAvailable: false, reason: 'UNSUPPORTED',
+                message: error instanceof Error ? error.message : String(error) };
+        }
         const preferredEngine = (selected?.engine ?? getConfiguredPrivateEngine()) as EngineType;
 
         // MOONSHINE IS A CONSENT QUESTION, NOT A CACHE QUESTION.
@@ -774,7 +953,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // and does not require seeing the disk. A valid receipt means initialization may proceed without
         // nagging; it never means the assets are present, and it never means READY — only the real
         // engine publishing a matching identity does that.
-        if (selected?.engine === 'moonshine-streaming') {
+        if (selected?.engine === 'moonshine-streaming' || selected?.engine === 'granite-ctc' || selected?.engine === 'parakeet-tdt') {
             const decision = consentDecision(
                 selected,
                 readReceipt(selected.id),
@@ -806,13 +985,14 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // missing — the number was corrected while the answer it accompanied was not.
         const isDownloaded = await ModelManager.isModelDownloaded(
             cacheEngine,
-            selectedVariant?.MODEL_ID ?? PRIV_STT_V4.MODEL_ID,
+            selected?.execution.localModelId ?? selectedVariant?.MODEL_ID ?? PRIV_STT_V4.MODEL_ID,
+            selected?.execution.cacheFiles,
         );
 
         if (!isDownloaded) {
             const sizeMB = preferredEngine === 'transformers-js-v4'
                 ? (selectedVariant?.EXPECTED_SPLIT_DOWNLOAD_MB ?? PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB)
-                : ModelManager.getModelSizeMB(cacheEngine);
+                : (selected?.execution.expectedDownloadMb ?? ModelManager.getModelSizeMB(cacheEngine));
             return {
                 isAvailable: false,
                 reason: 'CACHE_MISS',
@@ -981,7 +1161,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      */
     private resolveAcquisitionCandidate(): Candidate | null {
         try {
-            return effectiveCandidate().candidate;
+            return this.resolvedSelection().candidate;
         } catch {
             return null;
         }
@@ -1028,62 +1208,70 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         }
         if (engineType === 'transformers-js') return this.initSafeEngine(timeoutMs, isMock, generation);
         if (engineType === 'transformers-js-v4') return this.initV4Engine(timeoutMs, isMock, generation);
-        if (engineType === 'moonshine-streaming') return this.initMoonshineEngine(timeoutMs, isMock, generation);
+        if (engineType === 'moonshine-streaming' || engineType === 'granite-ctc' || engineType === 'parakeet-tdt') {
+            return this.initDescriptorEngine(engineType, timeoutMs, isMock, generation);
+        }
         return { isOk: false as const, error: new Error(`Unknown private provider: ${engineType}`) };
     }
 
     /**
-     * Initialize the Moonshine streaming engine.
-     *
-     * NO SUBSTITUTION, by the same rule as v4: Moonshine is only ever reached because the config or an
-     * internal switch named it, so a failure here is surfaced rather than quietly becoming v2. A
-     * comparison recording that silently ran a different model is worse than a missing one.
-     *
-     * The arch is derived from the CANDIDATE ID rather than passed in, so the running weights and the
-     * reported identity cannot disagree.
+     * Initialize an explicitly selected adapter without substitution. The frozen descriptor supplies
+     * its load profile; only successful initialization may adopt and publish the engine.
      */
-    private async initMoonshineEngine(timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
+    private async initDescriptorEngine(kind: 'moonshine-streaming' | 'granite-ctc' | 'parakeet-tdt', timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
         const options = this.options as TranscriptionModeOptions;
+        let engine: IPrivateSTTEngine | undefined;
+        let lifetime: EngineLifetime | undefined;
         try {
-            const candidate = effectiveCandidate().candidate;
-            if (candidate.engine !== 'moonshine-streaming') {
-                return { isOk: false, error: new Error(`Moonshine requested but config names ${candidate.id}`) };
+            const candidate = this.resolvedSelection().candidate;
+            if (candidate.engine !== kind) {
+                return { isOk: false, error: new Error(`${kind} requested but config names ${candidate.id}`) };
             }
-            const arch = MOONSHINE_ARCH_BY_CANDIDATE[candidate.id as MoonshineCandidateId];
-            if (!arch) {
+            const arch = candidate.execution.modelArch;
+            if (kind === 'moonshine-streaming' && !arch) {
                 // Absent, never guessed: an unmapped Moonshine candidate would otherwise load whichever
                 // arch happened to be first and report the configured id over it.
                 return { isOk: false, error: new Error(`no Moonshine arch registered for ${candidate.id}`) };
             }
 
             // Registry lookup first, so tests drive the real facade without a 318 MB download.
-            const factory = getEngine('moonshine-streaming');
-            const engine = factory
-                ? factory(options)
-                : new (await import('./MoonshineStreamingEngine')).MoonshineStreamingEngine({
-                    candidateId: candidate.id as MoonshineCandidateId,
-                    modelArch: arch,
-                    onDownloadProgress: (f) => options.onModelLoadProgress?.(Math.round(f * 100)),
-                }) as unknown as IPrivateSTTEngine;
+            engine = await constructPrivateEngine(kind, candidate, options);
+            if (this.acquisitionCancelled(generation)) {
+                const current = this.engineReleases.get(engine);
+                if (current && current.generation > generation) return { isOk: false, error: this.cancelledInitError(false) };
+                const failure = await this.releaseEngine(engine);
+                return { isOk: false, error: failure ?? this.cancelledInitError(true) };
+            }
+            lifetime = this.beginEngineAcquisition(engine, generation);
 
             validateEngine(engine as unknown as IPrivateSTTEngine);
-            assertEngineCanDecode(engine, 'moonshine-streaming');
+            assertEngineCanDecode(engine, kind);
             const result = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
             if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
+                const releaseFailure = await this.releaseEngine(engine, lifetime);
+                if (releaseFailure) return { isOk: false, error: new Error(
+                    `${result.error.message}; releasing ${kind} failed (release uncertain): ${releaseFailure.message}`,
+                ) };
                 return { isOk: false, error: (result as { error: Error }).error };
             }
-            const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation);
+            const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation, lifetime);
             if (!adopted.isOk) return { isOk: false, error: adopted.error };
             // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
             if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
-            this._engineType = 'moonshine-streaming';
+            this._engineType = kind;
             // Recorded only after a successful init, and recorded as the ARCH that was actually loaded
             // rather than the candidate that was requested, so metadata cannot describe a model the
             // session never ran.
-            this.moonshineArch = arch;
-            return { isOk: true, data: 'moonshine-streaming' as EngineType };
+            if (kind === 'moonshine-streaming' && arch) this.moonshineArch = arch;
+            return { isOk: true, data: kind };
         } catch (error) {
+            if (engine) {
+                const failure = await this.releaseEngine(engine, lifetime);
+                if (failure) return { isOk: false, error: new Error(`Descriptor init failed; release uncertain: ${failure.message}`) };
+            }
             return { isOk: false, error: error instanceof Error ? error : new Error(String(error)) };
+        } finally {
+            if (engine && this.engineReleases.get(engine) === lifetime) this.acquiringEngines.delete(engine);
         }
     }
 
@@ -1091,91 +1279,58 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * Initialize the safe (transformers-js) engine
      */
     private async initSafeEngine(timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
-        const options = this.options as TranscriptionModeOptions;
-        try {
-            // 1. Registry Lookup (Mocks)
-            const factory = getEngine('transformers-js');
-            if (factory) {
-                logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ TransformersJS resolved via Registry');
-                const engine = factory(options);
-                validateEngine(engine);
-                const result = await engine.init(timeoutMs, isMock);
-                if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
-                    return { isOk: false, error: (result as { error: Error }).error };
-                }
-                const adopted = await this.adoptEngine(engine, generation);
-                if (!adopted.isOk) return { isOk: false, error: adopted.error };
-                // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
-                if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
-                this._engineType = 'transformers-js';
-                return { isOk: true, data: 'transformers-js' as EngineType };
-            }
-
-            // 2. Production Fallback
-            logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production TransformersJS module...');
-            const { TransformersJSEngine } = await import('./TransformersJSEngine');
-            const engine = new TransformersJSEngine(options);
-            validateEngine(engine);
-            const resultRaw = await engine.init(timeoutMs, isMock);
-            const result = resultRaw as unknown as Record<string, unknown>;
-            if (result && 'isOk' in result && result.isOk === false) {
-                return { isOk: false, error: result.error as Error };
-            }
-
-            const adopted = await this.adoptEngine(engine, generation);
-            if (!adopted.isOk) return { isOk: false, error: adopted.error };
-            // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
-            if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
-            this._engineType = 'transformers-js';
-            return { isOk: true, data: 'transformers-js' as EngineType };
-        } catch (error) {
-            const e = error instanceof Error ? error : new Error(String(error));
-            return { isOk: false, error: e };
-        }
+        return this.initWhisperEngine('transformers-js', timeoutMs, isMock, generation);
     }
 
     private async initV4Engine(timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
-        // Thread the resolver-chosen v4 model variant (base_q4 floor / distil_q4 tier)
-        // into the engine via options. Override path (no resolver) defaults to base_q4.
-        const variant = this.runtimePath?.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT;
-        const options = { ...(this.options as TranscriptionModeOptions), v4Variant: variant } as TranscriptionModeOptions;
+        return this.initWhisperEngine('transformers-js-v4', timeoutMs, isMock, generation);
+    }
+
+    private async initWhisperEngine(
+        kind: 'transformers-js' | 'transformers-js-v4', timeoutMs: number | undefined,
+        isMock: boolean | undefined, generation: number,
+    ): Promise<Result<EngineType, Error>> {
+        const candidate = this.resolvedSelection().candidate;
+        const options: TranscriptionModeOptions & { resolvedCandidate: Candidate } = { ...(this.options as TranscriptionModeOptions), resolvedCandidate: candidate,
+            ...(kind === 'transformers-js-v4'
+                ? { v4Variant: this.runtimePath?.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT } : {}),
+        };
+        let engine: IPrivateSTTEngine | undefined;
+        let lifetime: EngineLifetime | undefined;
         try {
-            const factory = getEngine('transformers-js-v4');
-            if (factory) {
-                logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🧪 TransformersJSV4 resolved via Registry');
-                const engine = factory(options);
-                validateEngine(engine);
-                const result = await engine.init(timeoutMs, isMock);
-                if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
-                    return { isOk: false, error: (result as { error: Error }).error };
-                }
-                const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation);
-                if (!adopted.isOk) return { isOk: false, error: adopted.error };
-                // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
-                if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
-                this._engineType = 'transformers-js-v4';
-                return { isOk: true, data: 'transformers-js-v4' as EngineType };
+            engine = await constructPrivateEngine(kind, candidate, options);
+            if (this.acquisitionCancelled(generation)) {
+                const current = this.engineReleases.get(engine);
+                if (current && current.generation > generation) return { isOk: false, error: this.cancelledInitError(false) };
+                const failure = await this.releaseEngine(engine);
+                return { isOk: false, error: failure
+                    ? new Error(`Whisper init cancelled; release uncertain: ${failure.message}`)
+                    : this.cancelledInitError(true) };
             }
-
-            logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production TransformersJSV4 module...');
-            const { TransformersJSV4Engine } = await import('./TransformersJSV4Engine');
-            const engine = new TransformersJSV4Engine(options);
-            validateEngine(engine);
-            const resultRaw = await engine.init(timeoutMs, isMock);
-            const result = resultRaw as unknown as Record<string, unknown>;
-            if (result && 'isOk' in result && result.isOk === false) {
-                return { isOk: false, error: result.error as Error };
+            // Teardown must reach a child whose worker is still loading, before adoption.
+            lifetime = this.beginEngineAcquisition(engine, generation);
+            const result = await engine.init(timeoutMs, isMock);
+            if (result && result.isOk === false) {
+                const failure = await this.releaseEngine(engine, lifetime);
+                return { isOk: false, error: failure
+                    ? new Error(`${result.error.message}; releasing ${kind} failed (release uncertain): ${failure.message}`)
+                    : result.error };
             }
-
-            const adopted = await this.adoptEngine(engine, generation);
+            const adopted = await this.adoptEngine(engine, generation, lifetime);
             if (!adopted.isOk) return { isOk: false, error: adopted.error };
-            // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
             if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
-            this._engineType = 'transformers-js-v4';
-            return { isOk: true, data: 'transformers-js-v4' as EngineType };
+            this._engineType = kind;
+            return { isOk: true, data: kind };
         } catch (error) {
-            const e = error instanceof Error ? error : new Error(String(error));
-            return { isOk: false, error: e };
+            if (engine) {
+                const failure = await this.releaseEngine(engine, lifetime);
+                if (failure) return { isOk: false, error: new Error(
+                    `Whisper init failed: ${error instanceof Error ? error.message : String(error)}; release uncertain: ${failure.message}`,
+                ) };
+            }
+            return { isOk: false, error: error instanceof Error ? error : new Error(String(error)) };
+        } finally {
+            if (engine && this.engineReleases.get(engine) === lifetime) this.acquiringEngines.delete(engine);
         }
     }
 
@@ -1200,20 +1355,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // The child failure is raised INSIDE the shared teardown, so its promise itself rejects: every concurrent
         // or later terminate/destroy waiter sees the same failure, never a success for the same failed release.
         await this.runTeardown(async () => {
-            const engine = this.engine;
-            const engineType = this._engineType;
-            this.engine = null;
-            this._engineType = null;
-            let engineFailure: Error | null = null;
-            if (engine) {
-                try { await engine.terminate(); } catch (error) {
-                    logger.warn({ error, engineType }, '[PrivateSTT] Engine terminate failed during forced termination');
-                    engineFailure = error instanceof Error ? error : new Error(String(error));
-                }
-            }
-            await this.stop();
+            // onDestroy detaches active and acquiring children synchronously, then awaits all releases.
             await this.onDestroy();
-            if (engineFailure) throw engineFailure;
+            await this.stop();
         });
     }
 }

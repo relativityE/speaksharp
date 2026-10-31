@@ -1,0 +1,13 @@
+{
+  "LICENSE": "524eeafb9e58a1e139032aa3c327b1a1d38e58f4ef2253329dc2c0a4279cef78",
+  "package.json": "ad99f599939f6ee43c99a0793a29ed2c220ecdce34db8649b0f9029314901189",
+  "src/backend.js": "533a6a710eb78ddacbdb717651b410dea821fea2c773cbe7bfeb5743a8ce079b",
+  "src/hub.js": "867e5750016c6ff8d23cd6def18287076382353f0efc51d9e04c9400847b7c35",
+  "src/index.js": "97a1b4f85764f27b705853b06be3962f4e835cd3b15e2c87514d744cc3abc8ed",
+  "src/long_audio.js": "6123800dc5e75357bac355f9ca4a27ac14df9d81254ca3356ef0560adfbc6040",
+  "src/mel.js": "5a1bdcbf1025bb16d7c792ffb485d0e739f3862aa2bf4f96b1339989336ea211",
+  "src/models.js": "5dbd11534f05790eaac9e2545531530aa300f4669db7cfe16c0fdacf5c2e7817",
+  "src/parakeet.js": "74e175f9e4d6adbcd77572cb84aba79570f1f80cc76e4deb6c34c12286b9b636",
+  "src/preprocessor.js": "a0d2d7b4d6ad1937271e158bf764eecdc7a1eae6784e16f0cb3e5f56dd419b18",
+  "src/tokenizer.js": "f166b9fd5c65be9ca63c45df01ec059e6766e1f31cf80dff5bfa03ac312f5857"
+}

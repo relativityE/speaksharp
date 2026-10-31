@@ -44,7 +44,7 @@ import { analyticsBuffer } from '../AnalyticsBuffer';
  * Moonshine joined this list once it was registered on the real provider path (#1381).
  */
 export const PRODUCT_ENGINES: readonly EngineKind[] = Object.freeze([
-    'transformers-js', 'transformers-js-v4', 'moonshine-streaming',
+    'transformers-js', 'transformers-js-v4', 'moonshine-streaming', 'granite-ctc', 'parakeet-tdt',
 ]);
 
 /** The complete PO-approved comparison slate. Registry membership alone is not permission to run. */
@@ -81,7 +81,7 @@ export type SwitchOutcome =
 
 /** Exported so the facade-integration guard remains provable even while every comparison arm works. */
 export function engineIntegrationRefusal(candidate: Candidate): SwitchOutcome | null {
-    if (PRODUCT_ENGINES.includes(candidate.engine)) return null;
+    if (PRODUCT_ENGINES.includes(candidate.engine) && candidate.execution.implemented && candidate.browser.ok) return null;
     return {
         ok: false,
         code: 'engine_not_integrated',
@@ -171,7 +171,7 @@ export async function switchCandidate(
             reason: new UnknownCandidateError(`unknown candidate "${id}"`).message,
         };
     }
-    if (!(COMPARISON_CANDIDATE_IDS as readonly string[]).includes(id)) {
+    if (!internalBuild && !(COMPARISON_CANDIDATE_IDS as readonly string[]).includes(id)) {
         return {
             ok: false, code: 'not_comparison_candidate',
             reason: `candidate "${id}" is registered but is not in the three-model comparison`,

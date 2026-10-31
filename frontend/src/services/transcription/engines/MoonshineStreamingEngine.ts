@@ -1,8 +1,9 @@
 import type { MicStream } from '../utils/types';
+import type { PrivateRuntimeEvidence } from '@/contracts/IPrivateSTTEngine';
 import type { Result } from '../modes/types';
 import type { AvailabilityResult, STTStrategy } from '../STTStrategy';
 import { CANDIDATES, identityOf, isCompleteIdentity, type CandidateId } from '../candidateRegistry';
-import { fetchVerifiedAssets, pinnedAssetsFor, pinnedTotalBytes } from '../moonshineAssetPins';
+import { fetchVerifiedAssets, pinnedAssetsFor } from '../moonshineAssetPins';
 
 /** Only the registered Moonshine candidates may back this engine. */
 export type MoonshineCandidateId = Extract<CandidateId, `moonshine:${string}`>;
@@ -245,8 +246,17 @@ export class MoonshineStreamingEngine implements STTStrategy {
                     + 'refusing to start a session whose model bytes cannot be identified',
                 );
             }
+            const { preprocessing, decode, modelArch } = candidate.execution;
+            if (preprocessing.input !== 'float32-pcm' || preprocessing.channels !== 1
+                || preprocessing.sampleRateHz !== TARGET_SAMPLE_RATE
+                || candidate.model.sampleRateHz !== TARGET_SAMPLE_RATE
+                || decode.kind !== 'moonshine-streaming' || decode.streamingConfig !== 'pinned-assets'
+                || decode.finalization !== 'force-update' || modelArch !== this.options.modelArch) {
+                throw new Error('Moonshine descriptor is incompatible with this adapter');
+            }
             const load = this.options.loadTranscriber
-                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress, candidate.model.id));
+                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress,
+                    candidate.model.id, candidate.assets.pinKeyPrefix));
 
             // THE ABANDONED LOADER. `Promise.race` only decides which promise this function waits for —
             // it does not cancel the loser. When the timeout won, `load()` kept running: it finished
@@ -474,6 +484,8 @@ export class MoonshineStreamingEngine implements STTStrategy {
         try { closeOnce(this.transcriber); } finally { this.transcriber = null; }
     }
 
+    async destroy(): Promise<void> { await this.terminate(); }
+
     /**
      * THE FACADE METHOD A REAL RECORDING USES.
      *
@@ -567,6 +579,16 @@ export class MoonshineStreamingEngine implements STTStrategy {
     async getTranscript(): Promise<string> { return this.committed || this.interim; }
     getInterimTranscript(): string { return this.interim; }
 
+    getRuntimeEvidence(): PrivateRuntimeEvidence {
+        return {
+            initSucceeded: this.transcriber !== null,
+            backend: this.transcriber ? 'wasm' : null,
+            // The runtime does not introspect model identity; configured pins stay separate.
+            modelId: null,
+            fallbackOccurred: false,
+        };
+    }
+
     getMetadata(): MoonshineEngineMetadata {
         // NEVER THROWS. An unregistered candidate is exactly the case where init failed, and this is the
         // object a caller reads to find out why — a diagnostic that crashes on the failure it describes
@@ -625,7 +647,9 @@ function textOf(result: { lines?: { text?: string }[]; text?: string }): string 
  * first and report the configured id over it.
  */
 export const MOONSHINE_ARCH_BY_CANDIDATE: Readonly<Partial<Record<MoonshineCandidateId, MoonshineArch>>> = Object.freeze({
-    'moonshine:streaming-medium': 'MOONSHINE_STREAMING_MEDIUM',
+    ...Object.fromEntries(Object.values(CANDIDATES)
+        .filter((candidate) => candidate.engine === 'moonshine-streaming' && candidate.execution.modelArch)
+        .map((candidate) => [candidate.id, candidate.execution.modelArch])),
 });
 
 export const RUNTIME_ARCH_MEMBER: Readonly<Record<MoonshineArch, string>> = Object.freeze({
@@ -650,6 +674,7 @@ async function defaultLoadTranscriber(
     arch: MoonshineArch,
     onDownloadProgress?: (fraction: number) => void,
     modelId?: string,
+    pinKeyPrefix?: string,
 ): Promise<MoonshineTranscriber> {
     const g = globalThis as unknown as { __name?: (t: unknown, v?: unknown) => unknown };
     g.__name ??= (target) => target;
@@ -672,8 +697,9 @@ async function defaultLoadTranscriber(
     // Every component is fetched from its pinned URL and refused unless its length and SHA-256 match, and
     // only verified buffers reach the runtime. `language` is not passed at all: it is what triggers
     // catalog resolution, and leaving it in would let the runtime fall back to fetching its own copy.
-    const assets = pinnedAssetsFor(modelId);
-    const expectedTotal = pinnedTotalBytes(modelId);
+    if (!pinKeyPrefix) throw new Error('Moonshine descriptor must pin its model/revision asset scope');
+    const assets = pinnedAssetsFor(modelId, pinKeyPrefix);
+    const expectedTotal = assets.reduce((sum, asset) => sum + asset.bytes, 0);
     const loadedByFile = new Map<string, number>();
     const files = await fetchVerifiedAssets(assets, fetch, (file, loaded) => {
         // BYTE-BASED, NORMALISED ONCE. The runtime's own callback is

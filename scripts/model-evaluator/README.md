@@ -1,26 +1,212 @@
 # Model evaluator (#1565)
 
+> PR #1760 draft checkpoint: start with the [self-contained handover](../../docs/model-evaluation-handover/README.md)
+> for current source, commands, evidence limits and open Code/Security findings. The integrated
+> package/lifecycle changes are unvalidated and the three-model in-app comparison is incomplete.
+> Earlier results below retain their historical source and do not qualify this head.
+
+## Shared candidate adoption
+
+The application and `candidate-browser.ts` construct the same `PrivateSTT` facade.
+The existing registry carries model/runtime/revision/pins/backend/precision and
+typed profiles; algorithms live in the Whisper, Granite CTC and Parakeet TDT adapters.
+Once an internal comparison build is configured with
+`acknowledgeNotProductionReady: true`, model selection is the single `candidate`
+line in `frontend/src/config/private-stt.config.json`. The checked-in production
+default remains `v2:base.en` and unqualified candidates still fail production boot.
+
+The literal selection diff in that file is one line:
+
+```diff
+-  "candidate": "v2:base.en"
++  "candidate": "granite:turboctc-q4f16"
+```
+
+Or replace the same line with `"candidate": "parakeet:tdt-v3:int8"`.
+The internal-build acknowledgement is a prerequisite, not permission to promote
+a candidate. This change selects a **registered compatible** candidate; a new
+architecture can require a new typed adapter. Keep the production configuration
+at `v2:base.en` until the owner separately approves promotion.
+
+| Candidate | Configured runtime | Evaluation backend |
+| --- | --- | --- |
+| `v2:base.en` | Xenova Transformers.js 2.17.2 | WASM |
+| `v4:base:q4` | Hugging Face Transformers.js 4.3.0 | Explicit WASM or WebGPU |
+| `granite:turboctc-q4f16` | Pinned IBM export / ORT Web 1.26.0 | WebGPU, matching the app descriptor |
+| `parakeet:tdt-v3:int8` | Published parakeet.js 1.4.4 / ORT Web 1.24.1 | WASM/int8 |
+
+For the account-free model-only page, start the existing test server with
+`VITE_INTERNAL_BUILD=true` in addition to the disposable mock configuration below,
+then open `/model-evaluator.local.html`. Its one-line acquisition call is:
+
+```js
+await window.__MODEL_EVALUATOR__.initialize('parakeet:tdt-v3:int8', 'wasm', true);
+```
+
+The final `true` explicitly consents to the descriptor's possible download.
+The evaluator calls the same `checkAvailability` and `grantModelConsent` facade
+methods as the product. In a `candidate-browser` adapter manifest set
+`adapterOptions.candidateId` to the selected registry ID and `adapterOptions.consentToDownload`
+to `true` after approving that acquisition. Changing the candidate ID then uses
+the same path. Missing consent fails before acquisition when consent is required.
+An uncached Whisper `CACHE_MISS` also requires explicit consent before initialization;
+verified available cache hits can initialize without granting new consent.
+Parakeet's full pinned inventory is 682,972,569 bytes; Granite's is 339,374,194 bytes.
+
+The checked-in `baseline-shared-v2.json`, `candidate-granite-turboctc.json` and
+`candidate-parakeet-tdt-v3.json` manifests all use this shared facade adapter.
+They keep `consentToDownload: false`: setting it to true requires specific prior
+approval of acquisition, including source, size, destination and cost. Consent
+is not an offline-network guarantee; only run with an already verified cache or
+an approved acquisition. Missing cached assets must not trigger an unannounced
+download. The adapter explicitly launches **installed Google Chrome** in a fresh
+automation context, with sandboxing enabled. It does not install Chrome, use a
+personal profile, or fall back to a bundled browser. Browser changes require
+separate approval.
+
+## Command-line and shared SpeakSharp modes
+
+Use the existing frozen dependency tree matching `pnpm-lock.yaml`, Node 22.12.0,
+pnpm 10.29.1 and installed Chrome. A clean checkout alone does not include ignored
+speech weights or dependencies. Obtain approval before installing dependencies
+(including offline linking) or downloading missing models/runtimes; verify each
+registered inventory's SHA-256 and bytes. Preserve the separate pinned runtimes
+in the table below. No account, credential, paid provider or UI login is needed
+for the model-only CLI/page. Product Start/Stop/save/Focus proof is a separate
+journey and must use the approved Track A campaign and source/model binding.
+
+After setup, start the existing server with disposable mock values:
+
+```sh
+BUILD_ID="$(git rev-parse HEAD)" VITE_INTERNAL_BUILD=true VITE_SUPABASE_URL=https://localhost.invalid \
+VITE_SUPABASE_ANON_KEY=mock_eval VITE_AUTH_MODE=mock pnpm dev:test
+```
+
+Invoke the existing command-line runner (fresh output paths are required):
+
+```sh
+pnpm model:evaluate \
+  --baseline tests/evidence/fixtures/model-evaluator/baseline-shared-v2.json \
+  --candidate tests/evidence/fixtures/model-evaluator/candidate-granite-turboctc.json \
+  --corpus tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json \
+  --device tests/evidence/fixtures/model-evaluator/device-local-registered.json \
+  --out /tmp/granite-shared-report.json
+```
+
+Change only the candidate manifest argument to `candidate-parakeet-tdt-v3.json`
+for Parakeet or to `baseline-shared-v2.json` for baseline-versus-baseline, with a
+different `--out` each time. This CLI launches the internal SpeakSharp page and
+calls its shared `PrivateSTT` path; it is not a second decoder implementation.
+The same initialized page can be inspected directly at
+`/model-evaluator.local.html` with the call documented below. No authenticated
+product journey is implied by that model-only page.
+
+`device-local-registered.json` keeps each frozen arm's declared backend, so changing
+the candidate manifest is one argument: Whisper/Parakeet use WASM and Granite uses
+the app's registered WebGPU path. GPU runs require a headed installed Chrome and
+the actual expected hardware vendor; the checked-in device names Apple and refuses
+other hardware or software adapters. This is a declared device prerequisite, not
+an observed GPU claim. The shared Granite adapter rejects a WASM arm; historical
+WASM reports do not qualify the app's WebGPU configuration. Runtime/weight pins
+and the production selector are unchanged.
+
+Before acquisition, the adapter compares `window.__APP_RELEASE__` with the CLI's
+Git head and hashes Vite `?raw` frontend source against the same checkout's source
+inventory. An absent/stale release, fallback HTML or changed source refuses the
+run before model initialization. Reports bind Git head/tree, lock SHA-256 and
+the declared source inventory, and recheck that binding after disposal. Dirty
+and untracked scoped source files are included; ignored environment files and
+private/global stores are excluded. Source receipts describe the actual working
+tree, not a claim that `HEAD` alone describes uncommitted changes.
+
+For destructive audio controls, repeat the same command with
+`--corpus tests/evidence/fixtures/model-evaluator/corpus-synthetic-degraded.json`.
+The runner verifies the original WAV and source PCM, then applies the declared
+mute or 250 ms prefix operation and checks the resulting PCM hash before sending
+identical samples to both arms. Original written references remain explicit,
+synthetic and acoustically unverified. Inspect actual WER/empty outputs/failures
+against the clean report; these controls neither inject transcripts nor promise
+a particular decoder result. The offline unit adapter is a test double only.
+
+For actual SpeakSharp drop-in proof, `attachProductEvidence` from
+`scripts/model-evaluator/product-evidence.ts` attaches passively to one existing,
+separately authorized Track A take. Supply its source binding, candidate/backend,
+journey, fixture WAV hash and (for Focus) the approved per-point audio windows.
+Attach before Start; the existing journey owns Start/audio/Stop. Call
+`freezeTake()` after final save and before navigation, let that same journey
+reopen the saved session, call `observeReopened()`, then `finish()` and attach the
+returned JSON to its normal report. The collector observes partials before Stop,
+capture/session identity, requested runtime backend, successful completion RPC,
+persisted transcript/product and reopened content. Focus additionally requires
+live per-point timing and matching final statuses. Missing evidence holds and
+contradictions fail; only hashes/lengths/statuses leave the observer. It creates
+no account, navigation, microphone, provider call or parallel live campaign.
+The model-only CLI always reports product proof NOT_RUN; the collector's result
+is separate and cannot turn that into product acceptance by configuration.
+No existing Track A receipt is claimed reused without matching source/model binding.
+
+On a shared host, the server **and** evaluator must run within the existing
+host-wide interlock from the coordinator's absolute cwd. The child explicitly
+targets this checkout (for example, `pnpm --dir <checkout> model:evaluate ...`).
+Do not acquire a worktree-local lock and call it host-wide. Coordinate the slot
+with Track A; if the coordinator is inaccessible or occupied, hold execution.
+
+Each report retains the manifest and WAV/PCM hash bindings, complete trial rows,
+per-input corpus scores, raw runtime observations, observed Chrome version, and
+configured identity provenance. `observed` is a compatibility identity;
+`adapterExecutionEvidence.runtimeObservation` preserves the facade's actual
+observations, including an unknown model ID. Pinned metadata is not introspected
+weight identity. `adapterInitializeMs` covers the whole attempt;
+`adapterExecutionEvidence.timings` separates completed pin verification, browser
+launch, page readiness and facade initialization. Facade initialization includes
+acquisition and warmup, so it is not pure model loading. Decode/final latency is
+separate on each input. Unavailable measurements stay null/unavailable.
+
+WER uses the existing Track A normalizer and `(S + D + I) / N`, pooled by reference
+word count. Track A removes fillers; the separate raw-text filler counts do not
+prove acoustically annotated filler accuracy. Complete failure rows remain in
+the population; an adapter/retirement failure makes the run FAIL even after good
+decodes. Without approved policy and full product/metric proof, a successful
+synthetic smoke remains HOLD (exit 2), never model promotion. FAIL exits 1.
+
+The frozen package lock is unchanged. Parakeet's unchanged published MIT source
+and exact ORT browser inputs are retained under
+`frontend/public/models/parakeet-runtime/1.4.4-ort1.24.1/source/`.
+Reproduce its single-module binding with
+`node scripts/model-evaluator/build-parakeet-runtime.mjs`; verify the real native
+worker/runtime with `node scripts/model-evaluator/parakeet-runtime.smoke.mjs`.
+That smoke uses a tiny Identity graph and proves runtime loading, the same ORT
+singleton and the real 128-bin frontend. It does not qualify speech recognition.
+The Parakeet worker requires real recurrent TDT tensor/duration/state warmups
+before publishing READY; Granite requires its CTC warmup. Both reject fallback.
+
+Full candidate-weight/corpus and product journey qualification belong to Eval.
+`activationReady` and production `comparisonReady` remain false for Granite and
+Parakeet. Consolidating Whisper onto one runtime follows successful shared-path
+qualification; both current locked Whisper runtimes remain until that evidence.
+
 `pnpm model:evaluate` runs a **model-only corpus lane**. It does not change the product selector, activate a model, or prove an Open Mic/Focus journey. The old `benchmark-v4.live.spec.ts` remains disabled because its retired selector and fake microphone timing cannot qualify a candidate. Today the checked-in product default is v2; v4 is optional, with a roadmap toward v4 primary and v2 backup. The evaluator does not encode that roadmap as an activation decision.
 
 The command accepts versioned baseline, candidate, corpus, and device manifests. A model-specific adapter implements `initialize`, `decode`, `finalize`, and `dispose` in `adapter.ts`. The runner reads each WAV once, verifies WAV and Float32 PCM SHA256, gives the same PCM samples and boundaries to each arm, and alternates AB/BA order across trials. It writes one JSON report with manifest hashes and refuses to overwrite an existing path. Missing policy yields HOLD. A candidate's observed model/runtime/assets/backend must match its manifest; a silent v4→v2 fallback fails.
 
 The corpus manifest must explicitly declare integer `trials >= 2`. Before adapter execution, the runner freezes the independent corpus × trials population with raw-reference SHA256, Track-A reference-word count and speaker cluster. It attaches that identity at dispatch and calls the accepted paired-evidence validator before comparison. Missing/duplicate/substituted rows, including the same omitted final trial in both arms, leave statistics unavailable and acceptance HOLD. Complete failed-trial rows and observed identities remain in the immutable report; disposal rejections are retained in `inputFailures`. Completeness is separate from quality, acoustic annotation, trial adequacy and policy approval.
 
-For a local execution smoke using the current v2 browser worker, first start the mock test server with disposable mock config, then run:
+**Retained legacy smoke manifests are outside the current qualification route.**
+`baseline-v2-smoke.json` and `candidate-v2-smoke.json` select the unchanged
+`private-v2-browser.ts` adapter. It uses the bare-runtime `/private-dropin.html`
+page and bundled Playwright Chromium, rather than the shared `PrivateSTT` facade
+and explicitly installed Chrome. These historical artifacts do not qualify the
+current shared path and are not the permitted current-task run. Their presence
+does not authorize that browser or execution.
 
-```sh
-VITE_SUPABASE_URL=https://localhost.invalid VITE_SUPABASE_ANON_KEY=mock_eval VITE_AUTH_MODE=mock pnpm dev:test
-node scripts/host-interlock.mjs hold local -- pnpm model:evaluate \
-  --baseline tests/evidence/fixtures/model-evaluator/baseline-v2-smoke.json \
-  --candidate tests/evidence/fixtures/model-evaluator/candidate-v2-smoke.json \
-  --corpus tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json \
-  --device tests/evidence/fixtures/model-evaluator/device-local-wasm.json \
-  --out /private/tmp/model-evaluator-smoke.json
-```
+For the current shared-facade baseline-versus-baseline smoke, use
+`baseline-shared-v2.json` for **both** arm arguments in the command documented
+under "Command-line and shared SpeakSharp modes", with a fresh output path and
+the documented setup, consent and shared-host interlock prerequisites.
 
-The two v2 manifests intentionally name the **same model**. This proves adapter execution and baseline-vs-baseline mechanics, not candidate non-inferiority. The three synthetic WAVs are one speaker cluster, lack required noisy/accented/long-take/Focus slices, and have no approved numeric policy; a successful smoke therefore returns HOLD (exit code 2). FAIL exits 1. This first increment never emits an overall PASS: even if its model-only comparison passes, missing product-path and required metrics hold acceptance. A report's transcript content is from public synthetic fixtures only; do not publish private recordings or user transcripts.
+Using the same shared baseline manifest in both arms proves adapter execution and baseline-vs-baseline mechanics, not candidate non-inferiority. The three synthetic WAVs are one speaker cluster, lack required noisy/accented/long-take/Focus slices, and have no approved numeric policy; a successful smoke therefore returns HOLD (exit code 2). FAIL exits 1. This first increment never emits an overall PASS: even if its model-only comparison passes, missing product-path and required metrics hold acceptance. A report's transcript content is from public synthetic fixtures only; do not publish private recordings or user transcripts.
 
-The requested first comparison is v2 BASE against explicitly pinned v4 BASE q4 on WASM. Retained manifests also cover distil and Moonshine; retaining them does not select those alternatives. WebGPU is a separate real-device run. A mixed-backend device manifest names each arm's backend and requires a headed browser plus a checked GPU vendor for WebGPU. Their local browser adapter uses `model-evaluator.local.html`, a dev-server-only page excluded from Vite's production build input; it requires `VITE_INTERNAL_BUILD=true`. Current main already pins `@huggingface/transformers@4.3.0` through merged #1592; the adapter still verifies the actual running package rather than treating the source pin as runtime evidence. The adapter recomputes v4's committed pin-set digest but does not yet verify each downloaded response body, so that proof remains outstanding. V4 activation remains separate. Moonshine's runtime does not introspect model ID or revision: those fields come from checked-in pins, while init/decode/backend are observed. Its pinned asset loader hashes downloaded files before giving them to the runtime.
+The current bounded slate is incumbent Whisper, Granite TurboCTC and Parakeet TDT. Retained v4, distil and Moonshine manifests belong to earlier comparisons; retaining them does not select those alternatives. WebGPU needs a real-device run with a headed browser and checked GPU vendor. The local browser adapter uses `model-evaluator.local.html`, a dev-server-only page excluded from Vite's production build input; it requires `VITE_INTERNAL_BUILD=true`. The unchanged lock retains `@huggingface/transformers@4.3.0`; configured package pins are not introspected weight identity. The adapter recomputes v4's committed pin-set digest but does not yet verify each downloaded response body, so that historical proof remains outstanding. V4 activation remains separate. Moonshine's model/revision also come from configured pins because its runtime does not introspect them; its pinned loader verifies downloaded bytes.
 
 Current scope: pooled and per-slice WER, paired cluster-bootstrap upper bounds, model/input identity, finalized decode latency, audio duration and real-time factor. Each completed transcript records the shipping coachable-filler regex count, the same count on its human reference, and detected keys. This is **final-transcript detection**, not a human-annotated contextual filler score or the product's interim/final counting path.
 

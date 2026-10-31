@@ -7,6 +7,7 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 import { sentryVitePlugin } from '@sentry/vite-plugin';
 
 import { PORTS, resolveAppModeMeta } from '../scripts/build.config.js';
+import { runtimeBindingsPlugin } from '../scripts/model-evaluator/runtime-bindings.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,6 +83,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
+      runtimeBindingsPlugin(path.resolve(__dirname, '..')),
       tsconfigPaths(),
       react(),
       // Inject the release id into index.html (regenerated every build) as a global, so the SHA is

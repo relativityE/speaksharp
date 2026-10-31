@@ -1,5 +1,15 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CANDIDATES } from '../../candidateRegistry';
+import { buildWhisperDecodeOptions } from '../../decodeOptions';
+
+const candidate = CANDIDATES['v4:base:q4'];
+const identity = { model: candidate.model.id, dtype: candidate.model.dtype };
+function decodeOptions(overrides?: Record<string, unknown>): Record<string, unknown> {
+    const profile = candidate.execution.decode;
+    if (profile.kind !== 'whisper') throw new Error('Expected Whisper test descriptor');
+    return buildWhisperDecodeOptions(profile, 1, overrides);
+}
 
 type WorkerMessage = {
     id: number;
@@ -47,7 +57,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
     it('contract: E2E init responds with ready without loading the model', async () => {
         await loadWorkerModule();
 
-        dispatchWorkerMessage({ id: 1, type: 'init', isE2E: true });
+        dispatchWorkerMessage({ id: 1, type: 'init', isE2E: true, ...identity });
 
         await vi.waitFor(() => {
             expect(postedMessages).toContainEqual({ id: 1, type: 'ready' });
@@ -62,7 +72,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
             vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
             try {
                 await loadWorkerModule();
-                dispatchWorkerMessage({ id: 20, type: 'init', isE2E: false, model, device: 'wasm' });
+                dispatchWorkerMessage({ id: 20, type: 'init', isE2E: false, ...identity, model, device: 'wasm' });
                 await vi.waitFor(() => expect(postedMessages).toContainEqual(
                     expect.objectContaining({ id: 20, type: 'loaded', device: 'wasm-default' }),
                 ));
@@ -88,7 +98,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
         }));
 
         await loadWorkerModule();
-        dispatchWorkerMessage({ id: 2, type: 'init', isE2E: false });
+        dispatchWorkerMessage({ id: 2, type: 'init', isE2E: false, ...identity });
 
         await vi.waitFor(() => {
             expect(postedMessages).toContainEqual(expect.objectContaining({
@@ -116,7 +126,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
         }));
 
         await loadWorkerModule();
-        dispatchWorkerMessage({ id: 3, type: 'init', isE2E: false });
+        dispatchWorkerMessage({ id: 3, type: 'init', isE2E: false, ...identity });
 
         await vi.waitFor(() => {
             expect(postedMessages).toEqual([
@@ -158,7 +168,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
         );
     });
 
-    it('contract: transcribe applies the conservative anti-loop decode defaults (F2)', async () => {
+    it('contract: transcribe preserves descriptor-resolved anti-loop decode options (F2)', async () => {
         const transcriber = vi.fn(async () => ({ text: 'hello world' }));
         const pipeline = vi.fn(async () => transcriber);
         vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
@@ -167,7 +177,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
         dispatchWorkerMessage({ id: 5, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' } });
         await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 5, type: 'ready' })));
 
-        dispatchWorkerMessage({ id: 6, type: 'transcribe', audio: new Float32Array(16000) });
+        dispatchWorkerMessage({ id: 6, type: 'transcribe', audio: new Float32Array(16000), decodeOptions: decodeOptions() });
         await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 6, type: 'result' })));
 
         // The real transcribe call (not the warm-up) carries the anti-loop defaults.
@@ -187,7 +197,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
         await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 7, type: 'ready' })));
 
         // Proof hook sets no_repeat_ngram_size=3; the worker receives it via the message's decodeOptions.
-        dispatchWorkerMessage({ id: 8, type: 'transcribe', audio: new Float32Array(16000), decodeOptions: { no_repeat_ngram_size: 3 } });
+        dispatchWorkerMessage({ id: 8, type: 'transcribe', audio: new Float32Array(16000), decodeOptions: decodeOptions({ no_repeat_ngram_size: 3 }) });
         await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 8, type: 'result' })));
 
         expect(transcriber).toHaveBeenCalledWith(
@@ -195,5 +205,21 @@ describe('transformers-js-v4.worker protocol contract', () => {
             // override wins for the overridden key; the other default is preserved
             expect.objectContaining({ no_repeat_ngram_size: 3, condition_on_previous_text: false }),
         );
+    });
+    it.each([
+        {},
+        { model: identity.model },
+        { dtype: identity.dtype },
+        { model: identity.model, dtype: {} },
+    ])('contract: incomplete init identity fails before pipeline loading: %j', async (payload) => {
+        const pipeline = vi.fn();
+        vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 30, type: 'init', isE2E: false, ...payload });
+        await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({
+            id: 30, type: 'error', errorMessage: expect.stringContaining('MODEL_DESCRIPTOR_REQUIRED'),
+        })));
+        expect(pipeline).not.toHaveBeenCalled();
+        expect(postedMessages.some(message => message.type === 'loaded' || message.type === 'ready')).toBe(false);
     });
 });

@@ -32,6 +32,7 @@
 
 import logger from '../../../lib/logger';
 import { redactTranscript } from '../../../lib/logRedaction';
+import { createCaptureReceipt, type CaptureReceipt } from '../captureReceipt';
 import { sanitizeTranscriptText } from '../transcriptSanitizer';
 import { recordFinalizeRate, toFinalizeEngineKey } from '../finalizeRateStore';
 import { detectRepetitionRisk } from '../../../utils/repetitionRisk';
@@ -69,6 +70,8 @@ declare global {
      * Diagnostics only — never gates product behavior. See PrivateTimingSummary.
      */
     __PRIVATE_TIMING__?: PrivateTimingSummary;
+    /** Latest listener receipt. Includes replayed mic frames; contains no audio or transcript. */
+    __PRIVATE_CAPTURE_RECEIPT__?: () => CaptureReceipt;
   }
 }
 
@@ -679,6 +682,7 @@ import { STTEngine } from '../../../contracts/STTEngine';
  */
 export default class PrivateWhisper extends STTEngine implements ITranscriptionEngine {
   private frameListenerDisposer: (() => void) | null = null;
+  private captureReceipt: ReturnType<typeof createCaptureReceipt> | null = null;
   private onTranscriptUpdate?: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number | null) => void;
   public onReady?: () => void;
@@ -1129,12 +1133,20 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     // Subscribe to microphone frames
     this.cleanupFrameListener(); // CRITICAL: Clean up previous listener before adding new one
+    const captureReceipt = createCaptureReceipt({
+      captureId: crypto.randomUUID(),
+      candidateId: this.getMetadata().candidateId ?? null,
+      sampleRateHz: this.mic.sampleRate,
+    });
+    this.captureReceipt = captureReceipt;
+    if (typeof window !== 'undefined') window.__PRIVATE_CAPTURE_RECEIPT__ = captureReceipt.read;
 
     // #891 Phase 5.6 (SHADOW): resolve the dev-gate ONCE here, not per frame, so production does zero
     // per-frame work for the passive diagnostic.
     const publishShadowFrames = isShadowMetricsEngineEnabled();
 
     const listener = (frame: Float32Array) => {
+      captureReceipt.receive(frame.length, performance.now());
       // Copy the frame to avoid buffer detachment issues
       const clonedFrame = frame.slice(0);
 
@@ -2131,6 +2143,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   }
 
   private cleanupFrameListener(): void {
+    this.captureReceipt?.stop();
     if (this.frameListenerDisposer) {
       this.frameListenerDisposer();
       this.frameListenerDisposer = null;
