@@ -228,14 +228,23 @@ function generatedProofCases(root,environment) {
   const pdf=environment?.CT_EXISTING_PDFJS_DIR;
   if(typeof pdf!=='string'||!path.isAbsolute(pdf)||fs.realpathSync(pdf)!==pdf)fail('NOT RUN: bound CT_EXISTING_PDFJS_DIR is required for proof generation');
   const parent=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'speaksharp-r15-expected-'))),out=path.join(parent,'generated');
-  const python=binary('python3'),generator=regular(root,'tools/cloud-test/scripts/proof_prep_cases.py');
-  const command=[python,'-I',generator,'--out',out,'--packet',path.join(root,'tools/cloud-test/harness')];
   try {
+    const launcher=binary('python3'),identity=spawnSync(launcher,['-I','-c',
+      'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.executable).resolve(); print(json.dumps({"path":str(p),"version":".".join(map(str,sys.version_info[:3])),"sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'],
+    {encoding:'utf8',timeout:5000,env:{PATH:path.dirname(launcher),LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
+    let runtime;try{runtime=JSON.parse(identity.stdout);}catch{fail('NOT RUN: malformed proof-generation Python identity');}
+    if(identity.status!==0||identity.signal||identity.error||!/^3\.12\.\d+$/.test(runtime.version)
+      ||fs.realpathSync(runtime.path)!==runtime.path||hash(fs.readFileSync(runtime.path))!==runtime.sha256)
+      fail('NOT RUN: bound Python 3.12 proof-generation runtime unavailable');
+    const python=runtime.path,generator=regular(root,'tools/cloud-test/scripts/proof_prep_cases.py');
+    const command=[python,'-I',generator,'--out',out,'--packet',path.join(root,'tools/cloud-test/harness')];
     const result=spawnSync(command[0],command.slice(1),{cwd:path.join(root,'tools/cloud-test'),encoding:'utf8',timeout:120000,
       env:{PATH:[path.dirname(python),'/usr/bin','/bin'].join(path.delimiter),HOME:parent,CT_EXISTING_PDFJS_DIR:pdf,
         LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true'}});
     if(result.status!==0||result.signal||result.error)fail('NOT RUN: independent r15 proof generation failed');
-    return {sources:proofGenerationSources(root),files:proofCasesInventory(out,'independently generated proof-cases').files};
+    return {runtime,command:['<BOUND_PYTHON>','-I','tools/cloud-test/scripts/proof_prep_cases.py','--out','<OWNED_OUTPUT>',
+      '--packet','tools/cloud-test/harness'],sources:proofGenerationSources(root),
+      files:proofCasesInventory(out,'independently generated proof-cases').files};
   } finally {fs.rmSync(parent,{recursive:true,force:true});}
 }
 export function proofCasesBinding(contract,environment,root,{generate=generatedProofCases}={}) {
