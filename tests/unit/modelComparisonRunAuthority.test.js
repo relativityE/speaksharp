@@ -313,9 +313,10 @@ describe('#1432 PM decisions 5651830241 / 5651842972 — workflow contracts: one
     const inputNames = [...inputsBlock.matchAll(/^ {6}([a-z_]+):\s*$/gm)].map((match) => match[1]);
     expect(inputNames.filter((name) => name.startsWith('comparison'))).toEqual(['comparison_cell', 'comparison_release_sha', 'comparison_evidence_document_id']);
     // #1258 PO 2026-10-12 added rwt_human_reflex_ms (a closed 500/1000 choice). The exact list, not a count, so any
-    // run-id, key, pin or envelope input still fails here.
+    // run-id, key, pin or envelope input still fails here. diagnostic_release_sha is the closed single-test diagnostic's
+    // exact deployed SHA, validated by validate_rwt_release_binding.cjs before any other step.
     expect(inputNames).toEqual([
-      'base_url', 'gate', 'diagnostic_dast_spec', 'diagnostic_dast_grep', 'comparison_cell', 'rwt_writes_ack',
+      'base_url', 'gate', 'diagnostic_dast_spec', 'diagnostic_dast_grep', 'diagnostic_release_sha', 'comparison_cell', 'rwt_writes_ack',
       'rwt_canary_claim_ack', 'comparison_release_sha', 'comparison_evidence_document_id', 'paid_launch', 'rwt_human_reflex_ms',
     ]);
     const cellBlock = inputsBlock.slice(inputsBlock.indexOf('comparison_cell:'), inputsBlock.indexOf('comparison_release_sha:'));
