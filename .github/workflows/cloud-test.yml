@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       run_request:
-        description: Path of the run request inside this repository (tools/cloud-test/config/runs/<id>.json)
+        description: The labelled SYNTHETIC request fixture the control-plane pipeline runs on (current-code qualification, never campaign evidence); no other request is accepted
         required: true
-        default: tools/cloud-test/config/runs/R6-aht12-prove-1744.json
+        default: tools/cloud-test/tests/fixtures/partial-request.json
       mode:
         description: preflight evaluates gates and reports with Latest pending; report compares a sealed latest run automatically
         required: true
@@ -43,11 +43,8 @@ jobs:
     name: Offline checks, gates, comparison and report (no secrets, no product traffic)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      # PO 2026-10-30: no retained evidence is supplied to GitHub. The package's no-history mode reports the evidence-bound
-      # checks and tests NOT APPLICABLE (never passed); every other check gates. The history-bound pipeline steps below are
-      # skipped in this mode. "required" restores them and needs the sealed history in the checkout.
-      CT_HISTORY: none
+    # PO 2026-10-30 redesign: every check and test here is a current-run check on current code and versioned synthetic fixtures; nothing reads
+    # retained campaign history and nothing is N/A. The retained campaigns are audited separately (scripts/run_legacy_audit.py), never here.
     steps:
       - uses: actions/checkout@v6
         with:
@@ -68,8 +65,9 @@ jobs:
           python3 -I - <<'PY'
           import os, re, sys
           p, mode, lab = os.environ["RUN_REQUEST"], os.environ["MODE"], os.environ["LATEST_LABEL"]
-          if not re.fullmatch(r"tools/cloud-test/config/runs/[A-Za-z0-9._-]+\.json", p) or ".." in p:
-              sys.exit("invalid run_request path")
+          # Explicit fixture selection (Sam 1793404770): any other or real/private request is refused, never reinterpreted.
+          if p != "tools/cloud-test/tests/fixtures/partial-request.json":
+              sys.exit("run_request must be the synthetic fixture tools/cloud-test/tests/fixtures/partial-request.json")
           if mode == "report" and not re.fullmatch(r"[A-Za-z0-9._-]{1,32}", lab):
               sys.exit("mode=report needs latest_label")
           if mode == "preflight" and lab:
@@ -125,20 +123,24 @@ jobs:
         run: python3 -I tools/cloud-test/scripts/summarize_offline_checks.py --in "$RUNNER_TEMP/offline-checks.json" --out "$RUNNER_TEMP/offline-checks-summary.json"
       - name: Record job end (usage account)
         run: python3 -I tools/cloud-test/scripts/record_timing.py end --job control-plane --dir "$RUNNER_TEMP/timings"
-      - name: Control-plane pipeline (secret-free; stops if a credential-like variable is present)
-        if: env.CT_HISTORY != 'none'
-        working-directory: tools/cloud-test
+      # The real pipeline over a labelled SYNTHETIC sealed history and the selected synthetic request fixture, with this job's own offline proof:
+      # current-code qualification of the control plane (Sam 1793404770), never campaign evidence and never live credit.
+      - name: Build the synthetic sealed history for the control-plane pipeline (labelled fixtures, no live credit)
         env:
           RUN_REQUEST: ${{ inputs.run_request }}
+        run: python3 -I tools/cloud-test/tests/_synthetic_history.py --out "$RUNNER_TEMP/synthetic-history" --request "$RUN_REQUEST" --proof "$RUNNER_TEMP/offline-proof.json"
+      - name: Control-plane pipeline (secret-free; stops if a credential-like variable is present)
+        working-directory: tools/cloud-test
+        env:
           MODE: ${{ inputs.mode }}
           LATEST_LABEL: ${{ inputs.latest_label }}
         run: |
           set -euo pipefail
-          ARGS=(--request "../../$RUN_REQUEST" --out-dir "$RUNNER_TEMP/control-plane" --offline-checks "$RUNNER_TEMP/offline-checks.json" --timings "$RUNNER_TEMP/timings" --require-secret-free)
+          mapfile -t FIXTURE < "$RUNNER_TEMP/synthetic-history/pipeline-args.txt"
+          ARGS=("${FIXTURE[@]}" --out-dir "$RUNNER_TEMP/control-plane" --offline-checks "$RUNNER_TEMP/offline-checks.json" --timings "$RUNNER_TEMP/timings" --require-secret-free)
           if [ "$MODE" = "report" ]; then ARGS+=(--latest-label "$LATEST_LABEL"); fi
           python3 -I scripts/pipeline.py "${ARGS[@]}"
       - name: Assert the attestation (secret-free, no network attempts, no product host)
-        if: env.CT_HISTORY != 'none'
         run: |
           python3 -I - <<'PY'
           import json, os, sys

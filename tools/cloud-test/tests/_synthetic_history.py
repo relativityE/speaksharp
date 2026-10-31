@@ -5,19 +5,22 @@ Every number comes from tests/fixtures/synthetic-history/inputs.v1.json. Nothing
 retained private campaign history is read. It still depends on public, tracked inputs: the repository's Git history (servedSha values are public
 commits), config/history/catalogs and the tracked request and comparison fixtures. When the migration is complete, the historical-audit suite
 (tests/legacy_audit) is the only place the real retained campaigns are read."""
+import argparse
 import copy
 import datetime
 import json
 import os
+import sys
 import tempfile
 
-from _fixtures import ROOT, J, wjson
-from _synthetic_receipts import seal_in_place
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # also when run directly as the workflow's fixture builder
+from _fixtures import NOW, ROOT, J, wjson  # noqa: E402
+from _synthetic_receipts import seal_in_place  # noqa: E402
 
-from _common import sha256_file
-import history_index as HI
-import reservations as R
-from run_offline_checks import PROOF_CORRECTIONS
+from _common import sha256_file  # noqa: E402
+import history_index as HI  # noqa: E402
+import reservations as R  # noqa: E402
+from run_offline_checks import PROOF_CORRECTIONS  # noqa: E402
 
 INPUTS = os.path.join(ROOT, "tests", "fixtures", "synthetic-history", "inputs.v1.json")
 CATS = ("public", "navigations", "preflight", "auth", "signed-in", "model", "coaching")
@@ -143,9 +146,11 @@ class SyntheticHistory:
     Pass these paths to the scripts (--config, --receipts-root, --history-index, --counters, --reservations); no retained private campaign history
     is used (the public config/history/catalogs snapshots still are)."""
 
-    def __init__(self):
+    def __init__(self, root=None):
         spec = inputs()
-        self.root = tempfile.mkdtemp(prefix="ct-synthetic-history-")
+        if root is not None:
+            os.makedirs(root)    # a NEW directory only; an existing one is refused by makedirs
+        self.root = root or tempfile.mkdtemp(prefix="ct-synthetic-history-")
         self.receipts = os.path.join(self.root, "receipts")
         os.makedirs(self.receipts)
         catalog = J("config", "assertion-catalog.json")
@@ -204,12 +209,13 @@ class SyntheticHistory:
             self.bindings[run["label"]] = path
         self.inputs = spec
 
-    def request(self, path):
-        """A copy of a tracked request fixture whose harness proof and prior-run bindings point at this history's synthetic documents
-        (absolute paths, so the scripts' os.path.join(ROOT, ...) keeps them); returns the new file's path."""
+    def request(self, path, proof=None):
+        """A copy of a tracked request fixture whose harness proof and prior-run bindings point at this history's documents (absolute paths,
+        so the scripts' os.path.join(ROOT, ...) keeps them); returns the new file's path. proof: a real offline proof to use instead of the
+        synthetic stand-in (the workflow passes the proof generated in its own job)."""
         with open(path, encoding="utf-8") as f:
             req = json.load(f)
-        req["harness"]["offlineProofFile"] = self.proof
+        req["harness"]["offlineProofFile"] = proof or self.proof
         for prior in req.get("priorRuns") or []:
             if prior.get("label") in self.bindings:
                 prior["bindingFile"] = self.bindings[prior["label"]]
@@ -232,3 +238,34 @@ def shared():
     if _SHARED is None:
         _SHARED = SyntheticHistory()
     return _SHARED
+
+
+# The workflow's control-plane pipeline runs on exactly this fixture (Sam 1793404770): current-code qualification on labelled SYNTHETIC inputs,
+# never campaign evidence and never live credit. Any other request is refused, never reinterpreted as a synthetic success.
+WORKFLOW_FIXTURE = "tools/cloud-test/tests/fixtures/partial-request.json"
+
+
+def main():
+    a = argparse.ArgumentParser(description="Build the SYNTHETIC sealed history and the pipeline arguments for the workflow's control-plane step.")
+    a.add_argument("--out", required=True, help="a NEW directory")
+    a.add_argument("--request", required=True, help="must be " + WORKFLOW_FIXTURE)
+    a.add_argument("--proof", required=True, help="the offline proof generated in this job")
+    x = a.parse_args()
+    repo = os.path.abspath(os.path.join(ROOT, "..", ".."))
+    if os.path.relpath(os.path.abspath(x.request), repo) != WORKFLOW_FIXTURE:
+        print("SYNTHETIC_FIXTURE_REFUSED: the control-plane pipeline runs only on %s" % WORKFLOW_FIXTURE, file=sys.stderr)
+        return 2
+    if not os.path.isfile(x.proof):
+        print("SYNTHETIC_FIXTURE_REFUSED: no offline proof was generated in this job", file=sys.stderr)
+        return 2
+    h = SyntheticHistory(os.path.abspath(x.out))
+    request = h.request(x.request, proof=os.path.abspath(x.proof))
+    # One argument per line for the workflow; the fixed evaluation time is the fixture's own (_fixtures.NOW), so the result is reproducible.
+    with open(os.path.join(h.root, "pipeline-args.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(["--request", request, *h.args(), "--now", NOW, "--generated-at", NOW]) + "\n")
+    print("SYNTHETIC history built for the control-plane pipeline (current-code qualification, not campaign evidence)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

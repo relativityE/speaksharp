@@ -273,5 +273,36 @@ class SummaryRules(unittest.TestCase):
         self.assertTrue(any("READY contradicts the readiness basis" in e for e in errs), errs)
 
 
+class WorkflowFixtureBuilder(unittest.TestCase):
+    """The workflow's control-plane step builds its SYNTHETIC history only for the one selected fixture and only with this job's proof
+    (Sam 1793404770): any other request, or a missing proof, is refused, never reinterpreted as a synthetic success."""
+    def build(self, request, proof=True):
+        d = tempfile.mkdtemp(prefix="ct-wf-fixture-")
+        p = os.path.join(d, "offline-proof.json")
+        if proof:
+            wjson(p, {"result": "PASS"})
+        cmd = [sys.executable, "-I", os.path.join(ROOT, "tests", "_synthetic_history.py"), "--out", os.path.join(d, "history"), "--request", request, "--proof", p]
+        return subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.abspath(os.path.join(ROOT, "..", ".."))), d, p
+
+    def test_only_the_selected_fixture_with_this_jobs_proof_is_built(self):
+        r, d, proof = self.build("tools/cloud-test/tests/fixtures/partial-request.json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        args = open(os.path.join(d, "history", "pipeline-args.txt"), encoding="utf-8").read().splitlines()
+        req = json.load(open(args[args.index("--request") + 1]))
+        self.assertEqual(req["harness"]["offlineProofFile"], proof)          # the job's own proof, never the synthetic stand-in
+        self.assertEqual(args[args.index("--now") + 1], NOW)
+
+    def test_any_other_request_or_a_missing_proof_is_refused(self):
+        for request in ("tools/cloud-test/tests/fixtures/full-request.json", "tools/cloud-test/config/runs/R6-aht12-prove-1744.json",
+                        "tools/cloud-test/tests/fixtures/../fixtures/full-request.json"):
+            r, d, _ = self.build(request)
+            self.assertEqual(r.returncode, 2, request)
+            self.assertIn("SYNTHETIC_FIXTURE_REFUSED", r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(d, "history")))
+        r, d, _ = self.build("tools/cloud-test/tests/fixtures/partial-request.json", proof=False)
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse(os.path.exists(os.path.join(d, "history")))
+
+
 if __name__ == "__main__":
     unittest.main()
