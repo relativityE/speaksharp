@@ -17,9 +17,10 @@ function fixture() {
   fs.copyFileSync(path.join(repo,'scripts/lib/python-unittest-reporter.py'),path.join(root,'scripts/lib/python-unittest-reporter.py'));
   const testFile='tools/cloud-test/tests/test_example.py';fs.writeFileSync(path.join(root,testFile),'import unittest\nclass Example(unittest.TestCase):\n def test_ok(self): self.assertTrue(True)\n');
   const yamlFile=path.join(root,'yaml','__init__.py');fs.writeFileSync(yamlFile,"__version__ = '6.0.2'\n");
-  const executable=path.join(root,'bin','python3');
+  const executable=path.join(root,'bin','python3.cjs');
   fs.writeFileSync(executable,`#!${process.execPath}\nconst fs=require('fs'),crypto=require('crypto');\nconst hash=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');\nconst yaml=${JSON.stringify(yamlFile)};\nif(process.argv.includes('-c')){console.log(JSON.stringify({execPath:process.argv[1],executableSha256:hash(process.argv[1]),version:'3.12.11',yamlVersion:'6.0.2',yamlFile:yaml,yamlSha256:hash(yaml)}));process.exit(0);}\nconst b=JSON.parse(process.env.PYTHON_TEST_EVIDENCE_BINDING);\nfs.writeFileSync(b.receiptFile,JSON.stringify({schemaVersion:1,binding:b,runtime:b.runtime,collected:['_evidence.test_ok'],outcomes:[{id:'_evidence.test_ok',status:'passed'}]}));\n`);
   fs.chmodSync(executable,0o755);
+  fs.symlinkSync(path.basename(executable),path.join(root,'bin','python3'));
   const environment={CT_REQUIRE_INTEGRATION:'1'};
   for(const name of ['CLOUD_TEST_YML','CT_PROOF_FILE','CT_BROWSER_RECEIPT']) {
     const file=path.join(root,name.toLowerCase());fs.writeFileSync(file,name);environment[name]=file;
