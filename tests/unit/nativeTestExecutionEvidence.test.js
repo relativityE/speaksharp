@@ -8,7 +8,8 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
-  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
+  PROOF_CASES_TEST,proofCasesBinding} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
@@ -79,6 +80,7 @@ test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS
     f.contract.testFile=helper.consumer;
     f.contract.helpers=[helper.file];
     const phase=f.run();
+    assert.ok(phase.binding.command.includes('--experimental-strip-types'),'typed helper execution must work at the supported Node 22.12 floor');
     assert.ok(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract}).counts.assertions>0);
     assert.deepEqual(validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),[helper.file]);
     // Witness of the hosted runtime's executed bytes: the module range ends exactly after Node's sourceURL suffix.
@@ -604,4 +606,23 @@ test('batch reconciliation requires every batch once with exactly its contracts'
     assert.throws(()=>reconcileExecutionBatches([],[],'native'),/batch inventory/);
     assert.doesNotThrow(()=>reconcileExecutionBatches([{batch:executionBatchIdentity([],0),tests:[]}],[],'native'));
   } finally {f.clean();}
+});
+
+test('r15 proof control requires an exact phase-owned 15-case inventory',()=>{
+  const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'proof-cases-'))),cases=path.join(directory,'cases');
+  fs.mkdirSync(cases);
+  for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
+  const contract={testFile:PROOF_CASES_TEST};
+  try {
+    const binding=proofCasesBinding(contract,{CT_PROOF_CASES_DIR:directory});
+    assert.equal(binding.files.length,15);assert.equal(binding.directory,directory);
+    assert.equal(proofCasesBinding({testFile:'tools/cloud-test/tests/other.test.cjs'},{}),null);
+    assert.throws(()=>proofCasesBinding(contract,{}),/CT_PROOF_CASES_DIR/);
+    fs.writeFileSync(path.join(cases,'unexpected.json'),'{}');
+    assert.throws(()=>proofCasesBinding(contract,{CT_PROOF_CASES_DIR:directory}),/inventory/);
+    fs.rmSync(path.join(cases,'unexpected.json'));
+    const first=path.join(cases,'AHT-01.json'),outside=path.join(directory,'outside.json');
+    fs.renameSync(first,outside);fs.symlinkSync(outside,first);
+    assert.throws(()=>proofCasesBinding(contract,{CT_PROOF_CASES_DIR:directory}),/Aliased proof-case/);
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
 });

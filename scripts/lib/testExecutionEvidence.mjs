@@ -10,6 +10,7 @@ import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,val
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
 import {nativeTestRoute,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
+import {pythonTestRoute,validatePythonReceipt} from './pythonTestExecutionEvidence.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (root, args) => execFileSync('git', args, {cwd:root,encoding:'utf8',maxBuffer:16*1024*1024}).trim();
@@ -85,11 +86,15 @@ export function testEnvironment(directory, binding, envelopeFile) {
   const home=path.join(directory,'.efficacy-home');
   const temp=path.join(directory,'.efficacy-tmp');
   fs.mkdirSync(home,{recursive:true});fs.mkdirSync(temp,{recursive:true});
+  const proofCases=process.env.CT_PROOF_CASES_DIR;
+  if(proofCases&&(!path.isAbsolute(proofCases)||fs.realpathSync(proofCases)!==proofCases||!fs.statSync(proofCases).isDirectory()))
+    throw new Error('Invalid CT_PROOF_CASES_DIR');
   return {PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(path.delimiter),
     HOME:home,USERPROFILE:home,TMPDIR:temp,TMP:temp,TEMP:temp,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',
     CI:'true',NODE_ENV:'test',NODE_V8_COVERAGE:'',VITEST_MAX_FORKS:'1',
     VITE_SUPABASE_URL:'https://test.supabase.co',VITE_SUPABASE_ANON_KEY:'test-anon-key',
-    TEST_EFFICACY_BINDING:JSON.stringify(binding),TEST_EFFICACY_ENVELOPE:envelopeFile};
+    TEST_EFFICACY_BINDING:JSON.stringify(binding),TEST_EFFICACY_ENVELOPE:envelopeFile,
+    ...(proofCases?{CT_PROOF_CASES_DIR:proofCases}:{})};
 }
 
 // One immutable data input, not a generic exemption for fixtures. Its consumer must actually
@@ -222,10 +227,7 @@ export function executionRoute(file, root) {
   if (/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file)) {
     return {runner:'deno',consumer:file,config:'backend/supabase/functions/deno.json'};
   }
-  // The cloud-test package's Python controls have a runner but no approved CI runtime yet: routed, never credited.
-  if (/^tools\/cloud-test\/(?:.*\/)?test_[^/]+\.py$/.test(file)) {
-    return {runner:'python-unittest',consumer:file,applicable:false,unavailableReason:'NOT RUN: no approved Python runtime binding'};
-  }
+  const python=pythonTestRoute(file);if(python)return python;
   if (/^tests\/e2e\/.*\.spec\.[jt]s$/.test(file)) return {runner:'playwright',consumer:file,config:'playwright.config.ts'};
   if (/^tests\/live\/.*\.spec\.[jt]s$/.test(file)) return {runner:'playwright-live',consumer:file,config:'playwright.live.config.ts'};
   if (/\.test\.mjs$/.test(file) && fs.existsSync(path.join(root,file))
@@ -458,7 +460,7 @@ export function validateVitestBatches(receipts,expected,root,{base,kind}={}) {
   return files;
 }
 
-export function executionCoverage(files, {root,expected,pilot,execution,native,playwright,base}={}) {
+export function executionCoverage(files, {root,expected,pilot,execution,native,python,playwright,base}={}) {
   const changes=changedPaths(root,base);
   const required=pilotAffectedByPaths(!base || base==='0'.repeat(40)?null:changes);
   let proven=null;
@@ -480,12 +482,13 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
     nativeFiles=validateNativeReceipt(native,{root,provenance:expected,files,
       inputSha256:hash(JSON.stringify(entries.filter(([,digest])=>digest!=='deleted').map(([file,digest])=>[file,digest])))});
   }
+  const pythonFiles=python?validatePythonReceipt(python,{root,base:base||null,provenance:expected,files}):new Set();
   if ([...executed].some(file=>!files.includes(file))) throw new Error('Unexpected execution outside changed test selection');
   const rows=files.map(file=> {
     const route=executionRoute(file,root);
-    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':file===proven || executed.has(file) || browser.has(file)||nativeFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
+    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':file===proven || executed.has(file) || browser.has(file)||nativeFiles.has(file)||pythonFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
       ...(registeredSourceContract(file)?{liveExecution:'NOT RUN'}:{}),
-      claim:file===proven?'registered analytics-truth faults only':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
+      claim:file===proven?'registered analytics-truth faults only':pythonFiles.has(file)?'actual Python unittest collection and execution only; not browser/database/live acceptance':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
         ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
           :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
           :SQL_INPUTS.includes(file)?'actual SQL consumed in PGlite fixture; native database NOT RUN':registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
@@ -498,7 +501,7 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
 export function readCurrentQuality(file, expected, root=process.cwd(), base=process.env.TEST_EFFICACY_BASE) {
   const evidence=JSON.parse(fs.readFileSync(file,'utf8'));
   assertProvenance(evidence.provenance,expected);
-  const actualCoverage=executionCoverage(changedEvidencePaths(root,base),{root,expected,pilot:evidence.testEfficacy,execution:evidence.testExecution,native:evidence.nativeTestExecution,playwright:evidence.playwrightExecution,base});
+  const actualCoverage=executionCoverage(changedEvidencePaths(root,base),{root,expected,pilot:evidence.testEfficacy,execution:evidence.testExecution,native:evidence.nativeTestExecution,python:evidence.pythonTestExecution,playwright:evidence.playwrightExecution,base});
   if (evidence.overallStatus!=='QUALIFIED' || actualCoverage.status!=='COMPLETE'
     || JSON.stringify(actualCoverage)!==JSON.stringify(evidence.executionCoverage)) {
     throw new Error('Quality execution coverage is UNCOVERED/NOT RUN');

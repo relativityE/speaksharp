@@ -459,7 +459,7 @@ function executionFixture(installed=false) {
   const dir=canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(),'quality-vitest-execution-')));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),bytes);};
   for(const file of ['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
-    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
+    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
     'scripts/lib/softwareQualityEvidenceQualification.mjs',...dependencyPaths(root,contract.testFile)]) {
     write(file,fs.readFileSync(path.join(root,file)));
   }
@@ -1093,7 +1093,7 @@ test('CI-invoked writer fails incomplete coverage and succeeds after valid evide
     assert.ok(command,'exercise the writer command actually invoked by CI');
     const files=['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
       'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs',
-      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
       ...dependencyPaths(root,contract.testFile)];
     for (const file of files) {
       fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});
@@ -1154,10 +1154,9 @@ test('Python unittest modules are inventoried and routed NOT RUN; none is omitte
     // Every test_*.py is an evidence path, including outside tests/; ordinary scripts stay out.
     for(const file of Object.keys(python).filter(file=>/\/test_[^/]+\.py$/.test(file)))assert.ok(inventory.includes(file),file);
     assert.ok(!inventory.includes('tools/cloud-test/scripts/verify_harness.py'));
-    // Package modules have a runner but no approved runtime: routed, unavailable, never executed.
+    // Package modules have an approved, independently validated Python receipt route.
     for(const file of ['tools/cloud-test/tests/test_full_plan.py','tools/cloud-test/report/tests/test_run_report.py']) {
-      assert.deepEqual(executionRoute(file,f.dir),{runner:'python-unittest',consumer:file,applicable:false,
-        unavailableReason:'NOT RUN: no approved Python runtime binding'});
+      assert.deepEqual(executionRoute(file,f.dir),{runner:'python-unittest',consumer:file,applicable:true});
     }
     // Outside the reviewed package there is no runner at all: UNCOVERED, not routed.
     assert.equal(executionRoute('tests/unit/test_outside_package.py',f.dir),null);
