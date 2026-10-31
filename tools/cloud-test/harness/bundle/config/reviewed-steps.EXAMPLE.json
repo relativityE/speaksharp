@@ -48,7 +48,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -92,7 +92,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -196,7 +196,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -246,7 +246,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -290,7 +290,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -394,7 +394,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -444,7 +444,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -488,7 +488,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -592,7 +592,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -642,7 +642,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -686,7 +686,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -790,7 +790,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -840,7 +840,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -884,7 +884,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -988,7 +988,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1038,7 +1038,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1082,7 +1082,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1186,7 +1186,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1236,7 +1236,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1280,7 +1280,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1384,7 +1384,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1434,7 +1434,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1478,7 +1478,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1582,7 +1582,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1632,7 +1632,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1676,7 +1676,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1780,7 +1780,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1830,7 +1830,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1874,7 +1874,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1978,7 +1978,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2028,7 +2028,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2072,7 +2072,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2176,7 +2176,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2226,7 +2226,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2270,7 +2270,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2374,7 +2374,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2424,7 +2424,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2468,7 +2468,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2572,7 +2572,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2622,7 +2622,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2666,7 +2666,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2770,7 +2770,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2820,7 +2820,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "d5820dd3eee1890a4e3583d6c5a17c61d9cc4c966a6852554ff43b63bb00e1b3"
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2864,7 +2864,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161"
+          "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2968,7 +2968,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "922a23ce13a6522e432627ccab9070fa3de5804a7d3246520fc15d1136ad09db"
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2978,7 +2978,7 @@
     },
     {
       "path": "draft-adapters/oracles/index.cjs",
-      "sha256": "1e1380f08441913b0c2189a020cb7fe5decea000e2060cdda7366e1c01466161",
+      "sha256": "a8fb332e18ac95bd20706f658cfd1efbc486ed00bfe5b23c616206b68ec58ce3",
       "dependencies": [
         {
           "path": "draft-adapters/browser-observers.cjs",
