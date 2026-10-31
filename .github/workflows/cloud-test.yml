@@ -9,7 +9,7 @@ name: Cloud Test control plane (manual, secret-free)
 #   mode=report: after a run's receipts were sealed into config/history/receipts/<latest_label>/ (and pinned in the config), compares Latest against the
 #                previous run automatically and derives gap status, spend and the summary from that evidence.
 #
-# Network use: setup downloads only (PyPI pyyaml pinned, the npm lockfile, the pinned browser archive verified by sha256). The control-plane scripts run
+# Network use: setup downloads only (PyPI pyyaml pinned, the npm lockfile); no browser is downloaded or installed. The control-plane scripts run
 # under a network guard; the attestation artifact records secret-free: true, network attempts: 0 and product hosts contacted: 0.
 on:
   workflow_dispatch:
@@ -79,18 +79,18 @@ jobs:
         run: python -m pip install --quiet pyyaml==6.0.2
       - name: Install runner dependencies from the lockfile
         run: npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund
-      # No separate browser archive (PO 10-30): the same Playwright 1.57.0 chromium install the existing CI job performs,
-      # then the binary must equal the package's pinned hash. A missing or different binary fails; nothing is substituted.
-      - name: Install the pinned browser (existing CI Playwright 1.57.0 chromium; package no-fetch --existing verifier; any mismatch fails the job)
+      # No browser download or install (PO 2026-10-31): the runner must already hold the pinned Playwright 1.57.0 chromium, and the binary
+      # must equal the package's pinned hash. An absent or different binary is SETUP-BLOCKED; nothing is fetched or substituted.
+      - name: Verify the preinstalled pinned browser (no download or install; absent or mismatched is setup-blocked)
         working-directory: tools/cloud-test
         run: |
           set -euo pipefail
-          runner/node_modules/.bin/playwright install chromium
           CT_CHROME="$(python3 -I -c 'import json, os; b = json.load(open("config/test-config.v1.json"))["tools"]["browser"]; print(os.path.expanduser("~/.cache/ms-playwright/%s/chrome-linux64/chrome" % b["playwrightRevision"]))')"
           EXPECTED="$(python3 -I -c 'import json; print(json.load(open("config/test-config.v1.json"))["tools"]["browser"]["chromeBinarySha256"])')"
           ACTUAL=missing
           if [ -f "$CT_CHROME" ]; then ACTUAL="$(sha256sum "$CT_CHROME" | cut -d' ' -f1)"; fi
           echo "chromium identity: expected_sha256=$EXPECTED actual_sha256=$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then echo "SETUP-BLOCKED: the pinned browser is absent or different on this runner at $CT_CHROME; no download or install is permitted"; exit 1; fi
           python3 -I scripts/install_browser.py --config config/test-config.v1.json --existing "$CT_CHROME" --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT" --receipt "$RUNNER_TEMP/cloud-browser-identity.json"
           echo "CT_CHROME=$CT_CHROME" >> "$GITHUB_ENV"
       - name: Verify the vendored reviewed harness against the approved hashes
