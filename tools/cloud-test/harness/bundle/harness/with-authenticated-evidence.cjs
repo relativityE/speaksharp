@@ -32,6 +32,10 @@ async function probeBroker(bindingSha256,socketPath,{now=Date.now,probe=probeTra
  if(!receipt||Object.keys(receipt).sort().join(',')!=='bindingSha256,configured,kind,nonce,producedAt,remoteReadProven'||receipt.kind!=='same-job-capability-receipt'||receipt.nonce!==request.nonce||receipt.bindingSha256!==bindingSha256||receipt.configured!==true||receipt.remoteReadProven!==false||!Number.isFinite(Date.parse(receipt.producedAt))||Date.parse(receipt.producedAt)<Date.parse(request.requestedAt)||Date.parse(receipt.producedAt)>now())throw new Error('NOT_RUN: PRODUCER_PROBE_RECEIPT_DIFFERS');
  return receipt;
 }
+async function spawnAfterProducerProbe(bindingSha256,socketPath,spawnCampaign,options){
+ await probeBroker(bindingSha256,socketPath,options);
+ return spawnCampaign();
+}
 function privateJson(file,expected){
  const absolute=path.resolve(file),st=fs.lstatSync(absolute),parent=path.dirname(absolute),ps=fs.lstatSync(parent);
  if(!st.isFile()||st.isSymbolicLink()||st.uid!==process.getuid()||(st.mode&0o777)!==0o600||fs.realpathSync(absolute)!==absolute||!ps.isDirectory()||(ps.mode&0o777)!==0o700||ps.uid!==process.getuid())throw new Error('NOT_RUN: PRIVATE_BOUND_INPUT_REQUIRED');
@@ -55,8 +59,7 @@ async function main(argv){
   require('./runtime-selection.cjs').validateGitHubSelection(attestation,admission,Date.now());assertJobReceipt(attestation,producer.job);
   const bindingSha256=validatePlanProducers(plan,scope,configs,producer);
   const directory=fs.realpathSync(path.dirname(args['--scope']));broker=await startBroker({directory,producer});
-  await probeBroker(bindingSha256,broker.socketPath);
-  child=spawn(process.execPath,[path.join(__dirname,'campaign-runner.cjs'),'--plan',path.resolve(args['--plan']),'--plan-sha256',args['--plan-sha256'],'--execute-r0','true'],{stdio:'inherit',env:driverEnvironment(process.env,broker.socketPath)});
+  child=await spawnAfterProducerProbe(bindingSha256,broker.socketPath,()=>spawn(process.execPath,[path.join(__dirname,'campaign-runner.cjs'),'--plan',path.resolve(args['--plan']),'--plan-sha256',args['--plan-sha256'],'--execute-r0','true'],{stdio:'inherit',env:driverEnvironment(process.env,broker.socketPath)}));
   for(const signal of ['SIGINT','SIGTERM']){const fn=()=>child.kill(signal);process.on(signal,fn);signals.push([signal,fn]);}
   timer=setTimeout(()=>child.kill('SIGTERM'),Math.max(1,Date.parse(scope.deadlineAt)-Date.now()));timer.unref();
   const exit=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',(code)=>resolve(Number.isInteger(code)?code:78));});
@@ -65,4 +68,4 @@ async function main(argv){
  finally{if(timer)clearTimeout(timer);for(const [signal,fn]of signals)process.off(signal,fn);if(broker)await broker.close();}
 }
 if(require.main===module)main(process.argv.slice(2)).then(code=>{process.exitCode=code;});
-module.exports={main,privateJson,driverEnvironment,validatePlanProducers,probeBroker};
+module.exports={main,privateJson,driverEnvironment,validatePlanProducers,probeBroker,spawnAfterProducerProbe};

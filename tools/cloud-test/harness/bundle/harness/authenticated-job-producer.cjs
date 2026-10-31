@@ -74,6 +74,8 @@ function createProducer({scope,env=process.env,fetchImpl=globalThis.fetch,teleme
   if(probeNonces.has(request.nonce)||capabilityProbes>=8)fail('PRODUCER_PROBE_REPLAY_OR_LIMIT');
   probeNonces.add(request.nonce);capabilityProbes++;
   if(s.caseIds.some(id=>ROLES[id].includes('feedback-received'))&&(!env.POSTHOG_PROJECT_ID||!env.POSTHOG_PERSONAL_API_KEY))fail('TELEMETRY_CAPABILITY_UNAVAILABLE');
+  const requiredTelemetryReads=s.caseIds.filter(id=>ROLES[id].includes('feedback-received')).length;
+  if(s.maxTelemetryReads-telemetryReads<requiredTelemetryReads)fail('PRODUCER_TELEMETRY_HEADROOM_UNAVAILABLE');
   // Local readiness only. It neither queries a remote service nor establishes
   // valid credentials, a stored report, received telemetry or a model result.
   return {kind:'same-job-capability-receipt',nonce:request.nonce,bindingSha256,configured:true,remoteReadProven:false,producedAt:new Date(t).toISOString()};

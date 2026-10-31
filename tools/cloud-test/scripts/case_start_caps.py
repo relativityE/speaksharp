@@ -5,8 +5,13 @@ Errors are closed codes so malformed private input never becomes diagnostic text
 """
 import hashlib
 import json
+import os
 import re
+import sys
 from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _netguard  # noqa: E402,F401 -- every control-plane script keeps the existing fail-closed network guard
 
 
 class InputValidationError(ValueError):
