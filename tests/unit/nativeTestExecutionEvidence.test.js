@@ -9,7 +9,7 @@ import {createRequire} from 'node:module';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
-  PROOF_CASES_TEST,proofCasesBinding} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  PROOF_CASES_TEST,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
@@ -70,6 +70,11 @@ test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS
   assert.match(helper.claim,/fake browser objects in node:vm; browser\/audio\/model NOT RUN/);
   assert.equal(nativeTestRoute(helper.file,root).runner,'node-test-helper');
   assert.equal(nativeTestRoute('tests/live/helpers/otherAudioStream.ts',root),null);
+  const selected=selectNativeContracts(root,[helper.file]);
+  assert.equal(selected[0].runner,'node-test');
+  assert.ok(nativeCommand({...selected[0],runtime:{runner:'node-test',execPath:process.execPath}}).includes('--experimental-strip-types'));
+  assert.equal(nativeCommand({testFile:helper.consumer,helpers:[],runtime:{runner:'node-test',execPath:process.execPath}})
+    .includes('--experimental-strip-types'),false);
   const names=helper.callables;
   assert.deepEqual(names,['injectAlignedFixtureAudio','resetFixtureAudioToStart','getFixtureGetUserMediaCalls']);
   const f=fixture();
@@ -616,6 +621,11 @@ test('r15 proof control requires an exact phase-owned 15-case inventory',()=>{
   try {
     const binding=proofCasesBinding(contract,{CT_PROOF_CASES_DIR:directory});
     assert.equal(binding.files.length,15);assert.equal(binding.directory,directory);
+    const phase=phaseProofCasesBinding(contract,{CT_PROOF_CASES_DIR:directory},randomUUID());
+    assert.equal(phase.files.length,15);assert.equal(phase.sourceDirectory,directory);assert.notEqual(phase.directory,directory);
+    fs.writeFileSync(path.join(phase.directory,'cases','AHT-01.json'),'changed');
+    assert.throws(()=>validatePhaseProofCases(contract,phase),/differ/);
+    fs.rmSync(phase.directory,{recursive:true,force:true});
     assert.equal(proofCasesBinding({testFile:'tools/cloud-test/tests/other.test.cjs'},{}),null);
     assert.throws(()=>proofCasesBinding(contract,{}),/CT_PROOF_CASES_DIR/);
     fs.writeFileSync(path.join(cases,'unexpected.json'),'{}');

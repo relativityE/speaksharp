@@ -601,6 +601,36 @@ jobs:
       - name: Install pinned Python execution-evidence dependency
         run: python3 -m pip install --quiet pyyaml==6.0.2
 
+      - name: Install cloud-test runner dependencies from the lockfile
+        run: npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund
+
+      - name: Bind the preinstalled browser for Python package evidence
+        working-directory: tools/cloud-test
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/software-quality-browser.json"
+          chrome="$(python3 -I scripts/install_browser.py --config config/test-config.v1.json \
+            --installed --baselines config/browser-baselines.v1.json --environment github-hosted \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT" --receipt "$receipt")"
+          echo "CT_CHROME=$chrome" >> "$GITHUB_ENV"
+          echo "CT_BROWSER_RECEIPT=$receipt" >> "$GITHUB_ENV"
+
+      - name: Allow the owned offline-proof network namespace
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -rn true
+
+      - name: Generate same-job package proof for Python execution evidence
+        working-directory: tools/cloud-test
+        run: python3 -I scripts/generate_offline_proof.py --work "$RUNNER_TEMP/software-quality-proof-work" --proof-out "$RUNNER_TEMP/software-quality-proof.json"
+
+      - name: Bind package inputs for Python execution evidence
+        run: |
+          echo "CT_REQUIRE_INTEGRATION=1" >> "$GITHUB_ENV"
+          echo "CLOUD_TEST_YML=$GITHUB_WORKSPACE/.github/workflows/cloud-test.yml" >> "$GITHUB_ENV"
+          echo "CT_PROOF_FILE=$RUNNER_TEMP/software-quality-proof.json" >> "$GITHUB_ENV"
+          echo "CT_EXISTING_PDFJS_DIR=$GITHUB_WORKSPACE/tools/cloud-test/runner/node_modules/pdfjs-dist" >> "$GITHUB_ENV"
+
       - name: Prepare synthetic r15 proof cases when the package is present
         if: ${{ hashFiles('tools/cloud-test/scripts/proof_prep_cases.py') != '' }}
         env:

@@ -16,6 +16,22 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _directory_manifest(root: Path):
+    rows = []
+    for item in sorted(root.rglob("*")):
+        if item.is_symlink():
+            raise RuntimeError("Aliased Python environment directory entry")
+        if item.is_file():
+            rows.append({"name": item.relative_to(root).as_posix(), "sha256": _sha256(item)})
+        elif not item.is_dir():
+            raise RuntimeError("Unsupported Python environment directory entry")
+        if len(rows) > 4096:
+            raise RuntimeError("Python environment directory is unbounded")
+    if not rows:
+        raise RuntimeError("Empty Python environment directory")
+    return rows
+
+
 def _tests(suite: unittest.TestSuite):
     for item in suite:
         if isinstance(item, unittest.TestSuite):
@@ -64,6 +80,17 @@ def main() -> int:
     root = Path(binding["root"]).resolve(strict=True)
     if Path.cwd().resolve(strict=True) != root:
         raise RuntimeError("Wrong Python evidence working directory")
+    environment = binding.get("environment")
+    if not isinstance(environment, dict) or environment.get("literal") != {"CT_REQUIRE_INTEGRATION": "1"}:
+        raise RuntimeError("Missing Python package environment binding")
+    for name, expected in environment.get("files", {}).items():
+        observed = Path(os.environ.get(name, "")).resolve(strict=True)
+        if str(observed) != expected["path"] or _sha256(observed) != expected["sha256"]:
+            raise RuntimeError("Changed Python environment file: " + name)
+    for name, expected in environment.get("directories", {}).items():
+        observed = Path(os.environ.get(name, "")).resolve(strict=True)
+        if str(observed) != expected["path"] or _directory_manifest(observed) != expected["files"]:
+            raise RuntimeError("Changed Python environment directory: " + name)
     relative = binding["testFile"]
     target = (root / relative).resolve(strict=True)
     if target != root / relative or not target.is_file():
@@ -71,7 +98,9 @@ def main() -> int:
 
     # Package tests import `scripts` and `report` from tools/cloud-test.
     package_root = root / "tools" / "cloud-test"
-    sys.path[:] = [str(package_root), str(root)] + [p for p in sys.path if p]
+    # Isolated mode removes the script directory.  Real package tests use sibling
+    # helpers (for example `_fixtures`), so bind the selected test directory too.
+    sys.path[:] = [str(target.parent), str(package_root), str(root)] + [p for p in sys.path if p]
     module_name = "_evidence_" + hashlib.sha256(relative.encode()).hexdigest()
     spec = importlib.util.spec_from_file_location(module_name, target)
     if spec is None or spec.loader is None:
