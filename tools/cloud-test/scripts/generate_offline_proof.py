@@ -26,10 +26,23 @@ def config():
         return json.load(f)
 
 
-def pinned_chrome(path, cfg):
+def pinned_chrome(path, cfg, receipt=None):
+    """With this run's discovery receipt (install_browser.py --installed, PO 2026-10-31), the browser must be exactly the recorded
+    preinstalled one (same path and sha256); without a receipt, the exact legacy pin."""
     with open(path, "rb") as f:
-        if hashlib.sha256(f.read()).hexdigest() != cfg["tools"]["browser"]["chromeBinarySha256"]:
-            raise SystemExit("BLOCKED_SETUP: the browser is not the pinned, hash-verified Chrome for Testing")
+        actual = hashlib.sha256(f.read()).hexdigest()
+    if receipt is not None:
+        try:
+            with open(receipt, encoding="utf-8") as f:
+                rec = json.load(f)
+        except (OSError, ValueError):
+            raise SystemExit("BLOCKED_SETUP: the browser discovery receipt is missing or unreadable")
+        if not isinstance(rec, dict) or rec.get("schema") != "speaksharp.cloud-test.installed-browser.v1" \
+                or rec.get("path") != os.path.realpath(path) or rec.get("observedBinarySha256") != actual:
+            raise SystemExit("BLOCKED_SETUP: the browser differs from this run's recorded preinstalled browser")
+        return path
+    if actual != cfg["tools"]["browser"]["chromeBinarySha256"]:
+        raise SystemExit("BLOCKED_SETUP: the browser is not the pinned, hash-verified Chrome for Testing")
     return path
 
 
@@ -83,6 +96,7 @@ def main():
     a.add_argument("--work", required=True)
     a.add_argument("--proof-out", required=True)
     a.add_argument("--chrome", default=os.environ.get("CT_CHROME"))
+    a.add_argument("--browser-receipt", default=os.environ.get("CT_BROWSER_RECEIPT") or None)
     a.add_argument("--playwright-cwd", default=os.path.join(ROOT, "runner"))
     x = a.parse_args()
     work, proof_out = os.path.abspath(x.work), os.path.abspath(x.proof_out)
@@ -90,8 +104,8 @@ def main():
         raise SystemExit("BLOCKED_SETUP: --proof-out or --work already exists; a previous run's output can never satisfy this run")
     cfg = config()
     if not x.chrome:
-        raise SystemExit("BLOCKED_SETUP: --chrome or CT_CHROME (the pinned chromium-1200 binary) is required")
-    chrome, pw = pinned_chrome(x.chrome, cfg), os.path.abspath(x.playwright_cwd)
+        raise SystemExit("BLOCKED_SETUP: --chrome or CT_CHROME (the discovered preinstalled browser) is required")
+    chrome, pw = pinned_chrome(x.chrome, cfg, x.browser_receipt), os.path.abspath(x.playwright_cwd)
     os.makedirs(work)
     base = {"PATH": os.environ["PATH"], "HOME": work}
 

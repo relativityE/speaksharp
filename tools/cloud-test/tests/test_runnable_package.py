@@ -197,6 +197,13 @@ def node_ok():
 
 
 def chrome_path():
+    # This run's discovered preinstalled browser (PO 2026-10-31): exactly the path and sha256 its discovery receipt recorded.
+    rec_path, chrome = os.environ.get("CT_BROWSER_RECEIPT"), os.environ.get("CT_CHROME")
+    if rec_path and chrome and os.path.isfile(rec_path) and os.path.isfile(chrome):
+        rec = json.load(open(rec_path, encoding="utf-8"))
+        if rec.get("path") == os.path.realpath(chrome) and rec.get("observedBinarySha256") == sha(open(chrome, "rb").read()):
+            return chrome
+        return None
     cand = [os.environ.get("CT_CHROME"), os.path.join(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", ""), "chromium-1200", "chrome-linux64", "chrome"), os.path.expanduser("~/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome")]
     for c in cand:
         if c and os.path.isfile(c) and sha(open(c, "rb").read()) == J("config", "test-config.v1.json")["tools"]["browser"]["chromeBinarySha256"]:

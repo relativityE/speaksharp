@@ -79,20 +79,21 @@ jobs:
         run: python -m pip install --quiet pyyaml==6.0.2
       - name: Install runner dependencies from the lockfile
         run: npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund
-      # No browser download or install (PO 2026-10-31): the runner must already hold the pinned Playwright 1.57.0 chromium, and the binary
-      # must equal the package's pinned hash. An absent or different binary is SETUP-BLOCKED; nothing is fetched or substituted.
-      - name: Verify the preinstalled pinned browser (no download or install; absent or mismatched is setup-blocked)
+      # No browser download or install (PO 2026-10-31): use the runner's preinstalled Chrome/Chromium at or above this environment's
+      # established baseline (config/browser-baselines.v1.json; GitHub-hosted = 156). The observed path, version and sha256 are recorded and
+      # every later step must use exactly that binary. A missing, older or unrecognised browser is SETUP-BLOCKED; nothing is fetched.
+      # A runner may name its environment (CT_BROWSER_ENVIRONMENT) and browser (CT_CHROME); an environment without a baseline is blocked.
+      - name: Discover the preinstalled browser (no download or install; missing or below the baseline is setup-blocked)
         working-directory: tools/cloud-test
         run: |
           set -euo pipefail
-          CT_CHROME="$(python3 -I -c 'import json, os; b = json.load(open("config/test-config.v1.json"))["tools"]["browser"]; print(os.path.expanduser("~/.cache/ms-playwright/%s/chrome-linux64/chrome" % b["playwrightRevision"]))')"
-          EXPECTED="$(python3 -I -c 'import json; print(json.load(open("config/test-config.v1.json"))["tools"]["browser"]["chromeBinarySha256"])')"
-          ACTUAL=missing
-          if [ -f "$CT_CHROME" ]; then ACTUAL="$(sha256sum "$CT_CHROME" | cut -d' ' -f1)"; fi
-          echo "chromium identity: expected_sha256=$EXPECTED actual_sha256=$ACTUAL"
-          if [ "$ACTUAL" != "$EXPECTED" ]; then echo "SETUP-BLOCKED: the pinned browser is absent or different on this runner at $CT_CHROME; no download or install is permitted"; exit 1; fi
-          python3 -I scripts/install_browser.py --config config/test-config.v1.json --existing "$CT_CHROME" --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT" --receipt "$RUNNER_TEMP/cloud-browser-identity.json"
-          echo "CT_CHROME=$CT_CHROME" >> "$GITHUB_ENV"
+          ARGS=(--installed --baselines config/browser-baselines.v1.json --environment "${CT_BROWSER_ENVIRONMENT:-github-hosted}")
+          if [ -n "${CT_CHROME:-}" ]; then ARGS+=(--candidate "$CT_CHROME"); fi
+          RECEIPT="$RUNNER_TEMP/cloud-browser-identity.json"
+          CHROME="$(python3 -I scripts/install_browser.py --config config/test-config.v1.json "${ARGS[@]}" --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT" --receipt "$RECEIPT")"
+          python3 -I -c 'import json, sys; r = json.load(open(sys.argv[1])); print("browser identity: environment=%(environment)s minimumMajor=%(minimumMajor)s product=%(product)s version=%(version)s sha256=%(observedBinarySha256)s path=%(path)s" % r)' "$RECEIPT"
+          echo "CT_CHROME=$CHROME" >> "$GITHUB_ENV"
+          echo "CT_BROWSER_RECEIPT=$RECEIPT" >> "$GITHUB_ENV"
       - name: Verify the vendored reviewed harness against the approved hashes
         run: python3 -I tools/cloud-test/scripts/verify_harness.py --config tools/cloud-test/config/test-config.v1.json
       # PO 2026-10-30 (option A): ubuntu-24.04 blocks unprivileged user namespaces through AppArmor, so the package's strict
@@ -101,9 +102,9 @@ jobs:
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           unshare -rn true
-      # Proof v2: the offline proof is generated HERE from the vendored harness, the pinned Chrome and the tracked fixtures, so its TAP,
+      # Proof v2: the offline proof is generated HERE from the vendored harness, the discovered Chrome and the tracked fixtures, so its TAP,
       # mutation and plan-control inputs have same-job provenance and need no retained history. TAP, plans and the proof stay on the runner.
-      - name: Generate the offline proof in this job (pinned harness and Chrome)
+      - name: Generate the offline proof in this job (pinned harness, discovered Chrome)
         working-directory: tools/cloud-test
         run: python3 -I scripts/generate_offline_proof.py --work "$RUNNER_TEMP/proof" --proof-out "$RUNNER_TEMP/offline-proof.json"
       - name: Offline checks (package tests, report tests, workflow policy, integration proof on loopback)
