@@ -119,7 +119,8 @@ export function nativeCommand(binding) {
       ...(nativeDenoPolicy(file).environment.names.length?['--allow-env=GEMINI_API_KEY']:['--deny-env']),
       '--deny-read','--deny-write','--deny-run',
       '--reporter=junit',file]
-    :[binding.runtime.execPath,'--test','--test-concurrency=1',`--test-reporter=./${NATIVE_REPORTER}`,file];
+    :[binding.runtime.execPath,...(binding.runtime.runner==='node-test-helper'?['--experimental-strip-types']:[]),
+      '--test','--test-concurrency=1',`--test-reporter=./${NATIVE_REPORTER}`,file];
 }
 export function nativeWarmupCommand(binding) {
   if(binding.runtime.runner!=='deno')fail('Only Deno has an import warmup');

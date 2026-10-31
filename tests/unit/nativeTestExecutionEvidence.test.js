@@ -80,6 +80,7 @@ test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS
     f.contract.testFile=helper.consumer;
     f.contract.helpers=[helper.file];
     const phase=f.run();
+    assert.ok(phase.binding.command.includes('--experimental-strip-types'),'typed helper execution must work at the supported Node 22.12 floor');
     assert.ok(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract}).counts.assertions>0);
     assert.deepEqual(validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),[helper.file]);
     // Witness of the hosted runtime's executed bytes: the module range ends exactly after Node's sourceURL suffix.
