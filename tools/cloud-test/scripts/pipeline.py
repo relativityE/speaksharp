@@ -209,6 +209,8 @@ def main():
         sm += ["--alerts", alerts]
     if iso_result:
         sm += ["--isolation", iso_result]
+    if os.path.exists(O("nightly-baselines.json")):
+        sm += ["--nightly-baselines", O("nightly-baselines.json")]
     run("derive_summary.py", *sm)
     # 10. report
     rp = [os.path.join(ROOT, "report", "workflow_report.py"), "--request", x.request, "--ledger-derived", O("ledger-derived.json"), "--release-verification", O("release-verification.json"), "--reconciliation", O("reconciliation.json"),

@@ -96,6 +96,57 @@ class Pipeline(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
 
 
+class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
+    """G7 (Sam 1793576632.959179): the verified carried-forward history drives the REAL pipeline's derived summary and rendered report. A
+    row whose last comparable verdict is FAIL is reported as carried; once a later night PASSES it, the real outputs change."""
+    @classmethod
+    def setUpClass(cls):
+        prerequisite(os.system("git -C %s cat-file -e %s 2>/dev/null" % (REPO, TESTED)) == 0, "git history of the repository")
+
+    def prior_state(self, d, nights):
+        import publish_latest_record as P
+        import select_baselines as SB
+        h = synthetic_history()
+        req = json.load(open(h.request(REQ)))
+        current = SB.current_identities(req)
+        self.assertIsNotNone(current)
+        width = len(J("config", "assertion-catalog.json")["cases"]["AHT-05"]["requiredAssertions"])
+        state = P.parse_body("")
+        for i, first in enumerate(nights):
+            v = first + "P" * (width - 1)
+            ok = first == "P"
+            day = "2026-11-%02dT08:00:00Z" % (i + 1)
+            rec = {"runId": str(700 + i), "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40,
+                   "campaignId": "nightly-%d" % i, "coverage": "batch" if ok else "incomplete", "requestSha256": "1" * 64,
+                   "catalogSha256": "2" * 64, "startedUtc": day.replace("08:", "03:"), "endedUtc": day, "outcome": "passed" if ok else "failed",
+                   "cases": [{"caseId": "AHT-05", "result": "PASS" if ok else "FAIL",
+                              "rows": {"pass": v.count("P"), "fail": v.count("F"), "notRun": 0}, "codes": []}], "codes": [],
+                   "rowVerdicts": {"AHT-05": v}, "comparability": current,
+                   "evidence": {"planSha256": "7" * 64, "caseResultsSha256": "8" * 64}}
+            state = P.complete(P.begin(state, str(700 + i), 1, "a" * 40, day.replace("08:", "03:")), rec)
+        path = os.path.join(d, "prior-state.json")
+        wjson(path, state)
+        return path
+
+    def outputs(self, nights):
+        d = tempfile.mkdtemp(prefix="ct-nh-")
+        r, out = pipeline(["--prior-state", self.prior_state(d, nights)])
+        self.assertTrue(os.path.exists(os.path.join(out, "summary.json")), r.stdout[-1500:] + r.stderr[-1500:])
+        summary = json.load(open(os.path.join(out, "summary.json")))["fields"]
+        html = open(os.path.join(out, "report", "REPORT.html"), encoding="utf-8").read()
+        return summary, html, json.load(open(os.path.join(out, "nightly-baselines.json")))
+
+    def test_a_retained_fail_is_carried_and_a_later_pass_changes_the_real_summary_and_report(self):
+        failing, html_f, baselines = self.outputs(["P", "F"])      # night 2 failed row 0 (a regression from night 1)
+        self.assertEqual(len(baselines["rows"]), 204)
+        self.assertEqual((failing["nightlyHistory"]["carriedFailRows"], failing["nightlyHistory"]["carriedFailCases"]), (1, ["AHT-05"]))
+        self.assertIn("1 comparable row(s) still FAIL", html_f)
+        fixed, html_p, _ = self.outputs(["P", "F", "P"])             # night 3 passed it: the FAIL is no longer carried
+        self.assertEqual((fixed["nightlyHistory"]["carriedFailRows"], fixed["nightlyHistory"]["carriedFailCases"]), (0, []))
+        self.assertIn("0 comparable row(s) still FAIL", html_p)
+        self.assertNotIn("Cases carrying a comparable FAIL", html_p)
+
+
 class ReportRefusals(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
