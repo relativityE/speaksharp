@@ -1,6 +1,6 @@
 'use strict';
-const test=require('node:test'),assert=require('node:assert/strict');
-const {classifyFailureResponse}=require('../coaching-failure-policy.cjs');
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const policy=require('../coaching-failure-policy.cjs'),{classifyFailureResponse}=policy;
 const oracleModule=require('../oracles/index.cjs'),source=require('../oracles/pure/coachingCollectorSelected.cjs');
 const {sanitizeEvidence}=require('../../bundle/harness/evidence-sanitizer.cjs');
 for(const reason of ['provider_timeout','provider_http_5xx'])test('actual Edge failure envelope retains closed reason '+reason,()=>{
@@ -14,6 +14,16 @@ test('reason takes precedence over a generic code, while arbitrary reason text n
 });
 test('malformed and non-object JSON cannot invent a reason or HTTP status',()=>{
  for(const body of ['{','[]','null','"provider_timeout"']){const value=classifyFailureResponse({contentType:'application/json',body});assert.equal(value.errorCode,null);assert.equal(value.upstreamStatus,null);}
+});
+test('actual adapter response path attaches the bounded request/response correlation before evidence settles',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../source-adapters.cjs'),'utf8');
+ assert.ok(source.includes('a.correlation=coachingPolicy.classifyResponseCorrelation(a,{contentType:h[\'content-type\'],body,status})'));
+ assert.ok(source.includes('await Promise.all(coachingAttempts.map(a=>a.diagPromise).filter(Boolean))'));
+ const request='11111111-1111-4111-8111-111111111111',attemptId='22222222-2222-4222-8222-222222222222',release='c'.repeat(40);
+ const a=policy.newAttempt(1,{sessionId:'33333333-3333-4333-8333-333333333333',diagnostic_request_id:request,diagnostic_attempt_id:attemptId,client_attempt:1,client_release_id:release});
+ const body=JSON.stringify({diagnostics:{schema_version:'coaching_diagnostic_v1',request_id:request,attempt_id:attemptId,client_attempt:1,client_release_id:release,status:503,outcome:'failure'}});
+ const result=policy.classifyResponseCorrelation(a,{contentType:'application/json',body,status:503});
+ assert.equal(result.state,'matched');assert.equal(result.authority,'browser-correlation-only');
 });
 function captureFixture(t,{inputs='available',terminal=false,reader,throwInputs=false}={}){
  const A='22222222-2222-4222-8222-222222222222',uid='11111111-1111-4111-8111-111111111111',sha='a'.repeat(40),written=[];

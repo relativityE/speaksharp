@@ -48,7 +48,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -196,7 +196,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -246,7 +246,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -394,7 +394,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -444,7 +444,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -592,7 +592,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -642,7 +642,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -790,7 +790,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -840,7 +840,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -988,7 +988,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1038,7 +1038,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1186,7 +1186,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1236,7 +1236,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1384,7 +1384,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1434,7 +1434,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1582,7 +1582,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1632,7 +1632,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1780,7 +1780,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1830,7 +1830,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1978,7 +1978,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2028,7 +2028,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2176,7 +2176,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2226,7 +2226,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2374,7 +2374,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2424,7 +2424,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2572,7 +2572,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2622,7 +2622,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2770,7 +2770,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2820,7 +2820,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "af8414aec99be481e1db1cb12fbd07dbeb47db7fc0fa06b88dcd53955fa483e1"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2968,7 +2968,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "66dcf2d8f3e802b381c36f464725e1aaa7f92f88692f937cfc5dcea6d821ddbb"
+          "sha256": "fd878f945d72118881ef21d4cde21784705721e4d66c6d57a5a98fc71c10c05d"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
