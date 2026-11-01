@@ -86,17 +86,23 @@ test('real Python reporter credits only the exact input actually consumed by its
   } finally {fs.rmSync(f.root,{recursive:true,force:true});}
 });
 
-test('real Python reporter refuses non-consumption and substituted input reads',()=>{
+test('real Python reporter refuses non-consumption, open-only, failed-open, zero-read and substituted input reads',()=>{
   const contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
-  for(const mode of ['non-consumption','substitution']) {
+  for(const mode of ['non-consumption','open-only','failed-open','zero-read','substitution']) {
     const f=fixture();
     try {
       fs.mkdirSync(path.dirname(path.join(f.root,contract.inputFile)),{recursive:true});
       fs.mkdirSync(path.dirname(path.join(f.root,contract.testFile)),{recursive:true});
       fs.writeFileSync(path.join(f.root,contract.inputFile),'{"fixture":true}\n');
       fs.writeFileSync(path.join(f.root,'substitute.json'),'{"fixture":true}\n');
-      const operation=mode==='non-consumption'?'self.assertTrue(True)':"self.assertEqual((Path(__file__).resolve().parents[3]/'substitute.json').read_text(), '{\\\"fixture\\\":true}\\n')";
-      fs.writeFileSync(path.join(f.root,contract.testFile),`import unittest\nfrom pathlib import Path\nclass Input(unittest.TestCase):\n def test_operation(self): ${operation}\n`);
+      const operations={
+        'non-consumption':'self.assertTrue(True)',
+        'open-only':`(Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}).open().close()`,
+        'failed-open':`source=Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}; original=builtins.open; builtins.open=lambda *args, **kwargs: (_ for _ in ()).throw(OSError('expected')); self.assertRaises(OSError, builtins.open, source); builtins.open=original`,
+        'zero-read':`source=Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}; handle=source.open(); self.assertEqual(handle.read(0), ''); handle.close()`,
+        substitution:"self.assertEqual((Path(__file__).resolve().parents[3]/'substitute.json').read_text(), '{\\\"fixture\\\":true}\\n')",
+      };
+      fs.writeFileSync(path.join(f.root,contract.testFile),`import builtins\nimport unittest\nfrom pathlib import Path\nclass Input(unittest.TestCase):\n def test_operation(self): ${operations[mode]}\n`);
       assert.throws(()=>producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[contract.inputFile],batch:0,
         environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:realRuntimeOptions(f)}),/consumption absent/);
     } finally {fs.rmSync(f.root,{recursive:true,force:true});}
@@ -192,22 +198,30 @@ test('Python diagnostics refuse malformed IDs, oversized inventories and arbitra
   const tooMany=pythonPhaseDiagnostics({report:{outcomes:Array.from({length:4097},()=>({id:'DO_NOT_LEAK',status:'failed'}))}},contract);
   assert.equal(tooMany.receiptShape,'oversized');assert.deepEqual(tooMany.failedTests,[]);
   assert.doesNotMatch(JSON.stringify(tooMany),/DO_NOT_LEAK/);
+  for(const phaseId of [['00000000-0000-4000-8000-000000000001'],[['00000000-0000-4000-8000-000000000001']]]) {
+    const diagnostic=pythonPhaseDiagnostics({binding:{phaseId},report:{outcomes:[]}},contract);
+    assert.equal(diagnostic.phaseId,null);assert.doesNotMatch(JSON.stringify(diagnostic),/00000000/);
+  }
 });
 
 test('valid JSON with invalid binding, collection or inventory keeps safe phase context',()=>{
   const f=fixture();process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
   try {
-    const invalidReports=[null,{schemaVersion:1},{schemaVersion:1,collected:['one'],outcomes:[]},
-      {schemaVersion:1,collected:['one'],outcomes:[{id:'two',status:'passed'}]}];
-    for(const report of invalidReports) {
+    const invalidReports=[
+      {report:()=>null,error:/reporter binding/},
+      {report:()=>({schemaVersion:1}),error:/reporter binding/},
+      {report:binding=>({schemaVersion:1,binding,runtime:binding.runtime,collected:['one'],outcomes:[],sourceReads:binding.sourceFiles??[]}),error:/collection absent/},
+      {report:binding=>({schemaVersion:1,binding,runtime:binding.runtime,collected:['one'],outcomes:[{id:'two',status:'passed'}],sourceReads:binding.sourceFiles??[]}),error:/inventory differs/},
+    ];
+    for(const invalid of invalidReports) {
       assert.throws(()=>producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[f.testFile],batch:0,
         environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:{execPath:f.executable},spawn:(_command,_args,options)=>{
           const binding=JSON.parse(options.env.PYTHON_TEST_EVIDENCE_BINDING);
-          fs.writeFileSync(binding.receiptFile,JSON.stringify(report));
+          fs.writeFileSync(binding.receiptFile,JSON.stringify(invalid.report(binding)));
           return {pid:4242,status:0,signal:null,error:null,stdout:'PRIVATE',stderr:'PRIVATE'};
         }}),error=>{
         assert.equal(error.diagnostics.testFile,f.testFile);assert.equal(error.diagnostics.batch,0);
-        assert.doesNotMatch(error.message,/PRIVATE|DO_NOT_LEAK/);return true;
+        assert.match(error.message,invalid.error);assert.doesNotMatch(error.message,/PRIVATE|DO_NOT_LEAK/);return true;
       });
     }
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}

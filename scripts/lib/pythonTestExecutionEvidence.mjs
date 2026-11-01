@@ -149,7 +149,7 @@ export function pythonPhaseDiagnostics(phase,contract) {
   return {
     testFile:contract.testFile,
     batch:Number.isInteger(contract.batch)&&contract.batch>=0&&contract.batch<NATIVE_MAX_BATCHES?contract.batch:null,
-    phaseId:PHASE_ID.test(phase?.binding?.phaseId??'')?phase.binding.phaseId:null,
+    phaseId:typeof phase?.binding?.phaseId==='string'&&PHASE_ID.test(phase.binding.phaseId)?phase.binding.phaseId:null,
     status:rawStatus===null?null:Number.isInteger(rawStatus)&&rawStatus>=0&&rawStatus<=255?rawStatus:'invalid',
     signal:rawSignal===null?null:PROCESS_SIGNALS.has(rawSignal)?rawSignal:'invalid',
     error:rawError===null?null:PROCESS_ERRORS.has(rawError)?rawError:'invalid',

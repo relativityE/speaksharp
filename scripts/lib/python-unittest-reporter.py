@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import builtins
+import io
 import json
 import os
 from pathlib import Path
@@ -109,31 +111,68 @@ def main() -> int:
         expected_sources[str(source)] = item
     observed_source_reads: set[str] = set()
 
-    def observe_open(event, args):
-        if event != "open" or not args:
-            return
-        raw = args[0]
-        if not isinstance(raw, (str, bytes, os.PathLike)):
-            return
+    class ObservedReader:
+        """Delegate a successful open and credit only nonempty returned bytes."""
+
+        def __init__(self, stream, source: str) -> None:
+            self._stream = stream
+            self._source = source
+
+        def _observe(self, value):
+            if value not in (b"", "", None):
+                observed_source_reads.add(self._source)
+            return value
+
+        def read(self, *args, **kwargs):
+            return self._observe(self._stream.read(*args, **kwargs))
+
+        def readline(self, *args, **kwargs):
+            return self._observe(self._stream.readline(*args, **kwargs))
+
+        def readlines(self, *args, **kwargs):
+            return self._observe(self._stream.readlines(*args, **kwargs))
+
+        def readinto(self, *args, **kwargs):
+            count = self._stream.readinto(*args, **kwargs)
+            if isinstance(count, int) and count > 0:
+                observed_source_reads.add(self._source)
+            return count
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return self._observe(next(self._stream))
+
+        def __enter__(self):
+            self._stream.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self._stream.__exit__(*args)
+
+        def __getattr__(self, name):
+            return getattr(self._stream, name)
+
+    original_builtin_open = builtins.open
+    original_io_open = io.open
+
+    def observed_open(original, file, *args, **kwargs):
+        stream = original(file, *args, **kwargs)
+        if not isinstance(file, (str, bytes, os.PathLike)):
+            return stream
         try:
-            supplied = Path(raw)
+            supplied = Path(file)
             lexical = str((supplied if supplied.is_absolute() else Path.cwd() / supplied).absolute())
-            if lexical not in expected_sources:
-                return
             candidate = str(supplied.resolve(strict=True))
         except (OSError, RuntimeError, TypeError, ValueError):
-            return
-        if candidate not in expected_sources:
-            return
-        mode = args[1] if len(args) > 1 else None
-        flags = args[2] if len(args) > 2 else None
-        readable = isinstance(mode, str) and "r" in mode
-        if mode is None and isinstance(flags, int):
-            readable = flags & os.O_ACCMODE == os.O_RDONLY
-        if readable:
-            observed_source_reads.add(candidate)
+            return stream
+        if lexical not in expected_sources or candidate not in expected_sources or not stream.readable():
+            return stream
+        return ObservedReader(stream, candidate)
 
-    sys.addaudithook(observe_open)
+    builtins.open = lambda file, *args, **kwargs: observed_open(original_builtin_open, file, *args, **kwargs)
+    io.open = lambda file, *args, **kwargs: observed_open(original_io_open, file, *args, **kwargs)
 
     # Package tests import `scripts` and `report` from tools/cloud-test.
     package_root = root / "tools" / "cloud-test"
@@ -141,18 +180,22 @@ def main() -> int:
     # helpers (for example `_fixtures`), so bind the selected test directory too.
     sys.path[:] = [str(target.parent), str(package_root), str(root)] + [p for p in sys.path if p]
     module_name = "_evidence_" + hashlib.sha256(relative.encode()).hexdigest()
-    spec = importlib.util.spec_from_file_location(module_name, target)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Python test module cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    suite = unittest.defaultTestLoader.loadTestsFromModule(module)
-    collected = [test.id() for test in _tests(suite)]
-    if not collected or len(collected) != len(set(collected)):
-        raise RuntimeError("Python unittest collection is empty or duplicated")
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, target)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Python test module cannot be loaded")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+        collected = [test.id() for test in _tests(suite)]
+        if not collected or len(collected) != len(set(collected)):
+            raise RuntimeError("Python unittest collection is empty or duplicated")
 
-    result = ReceiptResult()
-    suite.run(result)
+        result = ReceiptResult()
+        suite.run(result)
+    finally:
+        builtins.open = original_builtin_open
+        io.open = original_io_open
     import yaml  # Imported inside the bound runtime; version is independently checked.
     yaml_file = Path(yaml.__file__).resolve(strict=True)
     tools = {}
