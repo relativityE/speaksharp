@@ -119,6 +119,49 @@ describe('actual PCM boundary ledger', () => {
     const count = result.receipts.length; c.decode(new Float32Array([2]), false);
     expect((await snapshot(c)).receipts).toHaveLength(count);
   });
+  it('fails closed when queued digest bytes exceed the bounded pending-byte budget', async () => {
+    vi.useFakeTimers(); vi.stubGlobal('crypto', { subtle: { digest: () => new Promise<ArrayBuffer>(() => {}) } });
+    const frame = new Float32Array(262_144).fill(0.25), c = new PcmBoundaryCapture(ID, 8000);
+    c.worklet(frame, 0, 0);
+    // The worklet stream contributes one MiB. Repeated decode submissions remain pending;
+    // the first submission beyond 32 MiB must be refused instead of retaining another copy.
+    for (let i = 0; i < 33; i++) c.decode(frame, false);
+    c.listener(frame); c.decode(frame, true); c.closeWorklet(1, frame.length); c.closeListener();
+    await vi.advanceTimersByTimeAsync(5001); const result = await snapshot(c);
+    expect(result.complete).toBe(false); expect(result.problems).toContain('overflow');
+    expect(result.pendingHashes).toBe(0);
+  });
+  it('fails closed when lineage would require more than the bounded span count', async () => {
+    const c = new PcmBoundaryCapture(ID, 8000), parts: Float32Array[] = [];
+    for (let i = 0; i < 257; i++) {
+      const frame = new Float32Array([i]); c.worklet(frame, i, i); c.listener(frame); parts.push(frame);
+    }
+    const reversed = [...parts].reverse();
+    const joined = inheritPcmConcat(concatenateFloat32Arrays(reversed), reversed, 'live-concat');
+    c.decode(joined, false); c.decode(parts[0], true); c.closeWorklet(257, 257); c.closeListener();
+    const result = await snapshot(c);
+    expect(result.complete).toBe(false); expect(result.problems).toContain('missing-lineage');
+    const live = result.receipts.find(r => r.domain === 'live_decode_input');
+    expect(live?.spans.length).toBeLessThanOrEqual(256);
+  });
+  it('keeps only the two newest successor captures and closes displaced capture state', async () => {
+    window.__PRIVATE_PCM_RECEIPTS_ENABLED__ = true;
+    const ids = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+    ];
+    vi.stubGlobal('crypto', { subtle: webcrypto.subtle, randomUUID: vi.fn(() => ids.shift()!) });
+    const first = beginPcmBoundaryCapture(8000), second = beginPcmBoundaryCapture(8000), third = beginPcmBoundaryCapture(8000);
+    expect(first && second && third).toBeTruthy();
+    const retained = await window.__PRIVATE_PCM_RECEIPTS__?.read() as Array<{ captureId: string }>;
+    expect(retained.map(row => row.captureId)).toEqual([
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+    ]);
+    const displaced = await first?.read() as { workletClosed: boolean; listenerClosed: boolean; complete: boolean };
+    expect(displaced).toMatchObject({ workletClosed: true, listenerClosed: true, complete: false });
+  });
 });
 
 it('runs the actual worklet: default PCM unchanged, diagnostic transfer and final watermark truthful', async () => {
