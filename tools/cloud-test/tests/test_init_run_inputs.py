@@ -2057,6 +2057,25 @@ class Case10Bound(unittest.TestCase):
         self.assertNotIn("case10RequestBound", I.FACT_REQUIRED)
 
 
+class JournalReservationRecord(unittest.TestCase):
+    """I4' on the journal (RETURN 1793572741.370569): a nightly run's reservation record is the journal's own reserve event."""
+    def snapshot(self, *events):
+        return {"schema": "speaksharp.cloud-test.journal-snapshot.v1", "headSha": "a" * 40, "events": list(events)}
+
+    def reserve(self, campaign="nightly-c", provenance="request-sha256:" + "b" * 64):
+        return {"type": "reserve", "campaignId": campaign, "runId": "123", "attempt": 1, "allocation": {}, "provenance": provenance,
+                "atUtc": "2026-11-02T03:05:00Z"}
+
+    def test_the_reserve_event_is_the_reader_record_and_anything_else_refuses(self):
+        self.assertEqual(I.reservation_consumption(self.snapshot(self.reserve(), self.reserve("other")), "nightly-c"),
+                         {"campaignId": "nightly-c", "runId": "123", "attempt": 1, "consumer": "reservation", "requestSha256": "b" * 64,
+                          "consumedAtUtc": "2026-11-02T03:05:00Z"})
+        for events in ((), (self.reserve(), self.reserve()), (self.reserve(provenance="evidence-sha256:" + "b" * 64),),
+                       (dict(self.reserve(), type="settle"),)):
+            with self.subTest(events=len(events)):
+                refused(self, "request-reader-record:reservation", I.reservation_consumption, self.snapshot(*events), "nightly-c")
+
+
 class Case10ObservationAdmission(unittest.TestCase):
     """Design A in prepare (Sam 1793570217.800529): a nightly AHT-10 row pinning an observationContract admits only the placed fresh
     observation, through the builder's own validator, for this request digest, run and time; synthetic reader trusted by test override only."""

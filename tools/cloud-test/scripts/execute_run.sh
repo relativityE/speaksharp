@@ -232,7 +232,9 @@ case "$STAGE" in
     [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "reservation requires exact execution run and strict attempt 1"
     # a nightly run takes its reservation BEFORE it spends anything; any exhausted cap (requests, identity reads, Starts, takes, coaching, runner minutes, runs) refuses it
     run_stage reserve python3 -I "$ROOT/scripts/reservations.py" journal-reserve --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
-      --approval "$CT_APPROVAL" --repo "${CT_CHECKOUT:-$REPO}" --journal "$OUT/reserve-journal" --out "$OUT/reserve-receipt.json" ;;
+      --approval "$CT_APPROVAL" --repo "${CT_CHECKOUT:-$REPO}" --journal "$OUT/reserve-journal" --out "$OUT/reserve-receipt.json"
+    # the verified journal right after the reserve: the request reader record execution provenance (I4') checks
+    run_stage reserve python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-reserved.json" ;;
   run)
     if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
       require_runtime_inputs
