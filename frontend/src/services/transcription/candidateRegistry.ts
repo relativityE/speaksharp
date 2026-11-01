@@ -451,20 +451,33 @@ const packageFiles = typeof import.meta.env !== 'undefined'
 // catalogue is loaded explicitly by product-campaign under the existing tsx entry.
 const packageParsers = typeof import.meta.env !== 'undefined'
     ? import.meta.glob('./modelPackage.ts', { eager: true }) : {};
-const importedPackages: Record<string, Candidate> = {};
-export const MODEL_PACKAGE_REJECTIONS: Array<{ file: string; code: string }> = [];
-for (const [path, value] of Object.entries(packageFiles)) {
-    try {
-        if (String(value).length > 1_048_576) throw new Error('PACKAGE_DESCRIPTOR_TOO_LARGE');
-        const parser = packageParsers['./modelPackage.ts'] as typeof import('./modelPackage');
-        const candidate = parser.candidateFromPackage(JSON.parse(String(value)), 'frontend/src/services/transcription/' + path.slice(2));
-        if (Object.prototype.hasOwnProperty.call(CANDIDATE_DEFINITIONS, candidate.id) || Object.prototype.hasOwnProperty.call(importedPackages, candidate.id)) throw new Error('PACKAGE_DUPLICATE_ID');
-        importedPackages[candidate.id] = candidate;
-    } catch (error) {
-        // A refused import never replaces the incumbent or prevents its catalogue from loading.
-        MODEL_PACKAGE_REJECTIONS.push({ file: path, code: error instanceof Error && /^[A-Z_]+$/.test(error.message) ? error.message : 'PACKAGE_INVALID' });
+/**
+ * The product's admission of imported descriptors, by glob path and raw text. Exported so the exact
+ * path the bundle takes can be driven with a real descriptor; the catalogue below is built by it.
+ */
+export function admitPackageDescriptors(
+    files: Readonly<Record<string, unknown>>, parser: Pick<typeof import('./modelPackage'), 'candidateFromPackage'>,
+): { imported: Record<string, Candidate>; rejections: Array<{ file: string; code: string }> } {
+    const imported: Record<string, Candidate> = {};
+    const rejections: Array<{ file: string; code: string }> = [];
+    for (const [path, value] of Object.entries(files)) {
+        try {
+            if (String(value).length > 1_048_576) throw new Error('PACKAGE_DESCRIPTOR_TOO_LARGE');
+            const candidate = parser.candidateFromPackage(JSON.parse(String(value)), 'frontend/src/services/transcription/' + path.slice(2));
+            if (Object.prototype.hasOwnProperty.call(CANDIDATE_DEFINITIONS, candidate.id) || Object.prototype.hasOwnProperty.call(imported, candidate.id)) throw new Error('PACKAGE_DUPLICATE_ID');
+            imported[candidate.id] = candidate;
+        } catch (error) {
+            // A refused import never replaces the incumbent or prevents its catalogue from loading.
+            rejections.push({ file: path, code: error instanceof Error && /^[A-Z_]+$/.test(error.message) ? error.message : 'PACKAGE_INVALID' });
+        }
     }
+    return { imported, rejections };
 }
+const admitted = Object.keys(packageFiles).length
+    ? admitPackageDescriptors(packageFiles, packageParsers['./modelPackage.ts'] as typeof import('./modelPackage'))
+    : { imported: {}, rejections: [] };
+const importedPackages: Record<string, Candidate> = admitted.imported;
+export const MODEL_PACKAGE_REJECTIONS: Array<{ file: string; code: string }> = admitted.rejections;
 Object.freeze(MODEL_PACKAGE_REJECTIONS);
 export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({ ...CANDIDATE_DEFINITIONS, ...importedPackages });
 

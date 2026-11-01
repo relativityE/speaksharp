@@ -92,7 +92,8 @@ type PrivateEngineType = Extract<EngineType, PrivateSttProvider>;
 type SelectedPrivateEngine = PrivateEngineType | 'mock';
 
 /** One constructor seam for product and evaluator; registry injection keeps priority. */
-async function constructPrivateEngine(
+/** The facade's single engine factory; exported so an admitted package can be driven through it in test. */
+export async function constructPrivateEngine(
     kind: Candidate['engine'], candidate: Candidate, options: TranscriptionModeOptions,
 ): Promise<IPrivateSTTEngine> {
     const factory = getEngine(kind);
