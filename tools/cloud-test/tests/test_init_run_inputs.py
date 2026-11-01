@@ -69,6 +69,16 @@ def facts(**over):
     return f
 
 
+def action_approval(req, request_sha256, reconciliation_bytes, **over):
+    """A synthetic stand-in for the approver-supplied builder action approval (never constructed by prepare)."""
+    a = {"schema": I.ACTION_APPROVAL_SCHEMA, "requestSha256": request_sha256,
+         "reconciliationSha256": hashlib.sha256(reconciliation_bytes).hexdigest(),
+         "approvalRef": req["approvedLimits"]["approvalRef"], "approvedBy": req["approvedLimits"]["approvedBy"],
+         "selectionApprovalRef": req["selectionApprovalRef"]}
+    a.update(over)
+    return a
+
+
 def put(path, doc):
     with open(path, "w", encoding="utf-8") as f:
         f.write(doc if isinstance(doc, str) else json.dumps(doc))
@@ -455,6 +465,8 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
                 RUNS + "r6.json", "--facts", json.dumps(facts()), "--run-id", "123", "--attempt", "1", "--source-sha", head,
                 "--job-timeout-minutes", "150", "--out", out, "--env-file", env, "--outputs", outputs]
         rc_bytes = b'{"ceilings":{"starts":120},"starts":{"ownerCounted":0}}\n'
+        committed_sha = hashlib.sha256(repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()).hexdigest()
+        argv[argv.index("--facts") + 1] = json.dumps(facts(actionApproval=action_approval(req, committed_sha, rc_bytes)))
         with mock.patch.object(I, "verified_checkpoint", lambda repo_dir, request: rc_bytes), \
                 mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": bundle_with(ACCOUNT_ID), "SUPABASE_URL": SUPABASE_URL_OK}):
             self.assertEqual(I.main(argv), 0)
@@ -1360,8 +1372,9 @@ class ContinuityCheckpoint(Journal):
         now = datetime.now(timezone.utc).replace(microsecond=0)
         self.req = live_request(["AHT-07"])
         self.req["window"].update(startUtc=utc(now - timedelta(hours=1)), endUtc=utc(now + timedelta(hours=3)))
-        self.scope_doc = rollup_scope(approvalRef=self.APPROVAL, ceilings={"requests": 12000, "protectedReserveRequests": 300,
-                                                                            "identityReads": 126, "starts": 120, "takes": 80})
+        self.now = now
+        self.scope_doc = rollup_scope(approvalRef=self.APPROVAL, periodStartUtc=utc(now - timedelta(days=1)), periodEndUtc=utc(now + timedelta(days=30)),
+                                      ceilings={"requests": 12000, "protectedReserveRequests": 300, "identityReads": 126, "starts": 120, "takes": 80})
         self.write(self.raw, json.dumps(self.scope_doc, sort_keys=True).encode())
 
     def write(self, bootstrap_raw, scope_raw):
@@ -1422,7 +1435,7 @@ class ContinuityCheckpoint(Journal):
 
     def test_outstanding_reservations_count_toward_the_checkpoint(self):
         self.append("reserve", "41400000001", {"requests": 4342, "identityReads": 32, "starts": 3, "takes": 2, "coachingRequests": 1,
-                                               "runnerMinutes": 30}, at="2026-11-02T04:00:00Z")
+                                               "runnerMinutes": 30}, at=utc(self.now))
         rc = json.loads(self.check())
         self.assertEqual((rc["outstandingReservations"], rc["requests"]["conservativeUsed"], rc["starts"]["ownerCounted"]), (1, 4342, 3))
 
@@ -1437,6 +1450,110 @@ class ContinuityCheckpoint(Journal):
                 stated = dict(self.req, approvedLimits=dict(self.req["approvedLimits"], **{limit: ok}))
                 self.check(req=stated)
                 self.refused("continuity-ceiling-not-the-request:" + ceiling, req=dict(stated, approvedLimits=dict(stated["approvedLimits"], **{limit: ok + 1})))
+
+    def rescope(self, **over):
+        doc = dict(self.scope_doc, **over)
+        raw = json.dumps(doc, sort_keys=True).encode()
+        self.write(self.raw, raw)
+        return self.all_pins(accepted_scope_sha256=hashlib.sha256(raw).hexdigest())
+
+    def test_the_execution_window_must_lie_inside_the_accepted_period(self):
+        w = self.req["window"]
+        start, end = I._utc(w["startUtc"]), I._utc(w["endUtc"])
+        for label, period in (("future period", (start + timedelta(minutes=1), end + timedelta(days=1))),
+                              ("expired period", (start - timedelta(days=1), end - timedelta(minutes=1))),
+                              ("crossing the start", (start + timedelta(seconds=1), end + timedelta(days=1))),
+                              ("crossing the end", (start - timedelta(days=1), end - timedelta(seconds=1)))):
+            with self.subTest(label):
+                self.refused("continuity-window-outside-period", pins=self.rescope(periodStartUtc=utc(period[0]), periodEndUtc=utc(period[1])))
+        self.check(pins=self.rescope(periodStartUtc=w["startUtc"], periodEndUtc=w["endUtc"]))  # exactly the window is inside
+
+    def test_a_nightly_identity_cap_is_per_run_and_must_fit_the_period_headroom(self):
+        nightly = dict(self.req, priority="nightly-regression", approvedLimits=dict(self.req["approvedLimits"], identityCap=32))
+        self.check(req=nightly)  # a valid per-run cap that differs from the 126 period ceiling
+        self.refused("continuity-ceiling-not-the-request:identityReads", req=dict(nightly, priority="full-coverage"))
+        over = dict(nightly, approvedLimits=dict(nightly["approvedLimits"], identityCap=127))
+        self.refused("continuity-run-identity-exceeds-period", req=over)
+        self.append("reserve", "41400000001", {"requests": 100, "identityReads": 100, "starts": 1, "takes": 1, "coachingRequests": 0,
+                                               "runnerMinutes": 1}, at=utc(self.now))
+        self.refused("continuity-run-identity-exceeds-period", req=nightly)  # 126 - 100 = 26 left < 32
+
+    def test_prepare_admits_only_the_supplied_envelope_and_the_real_builder_binding_accepts_the_placed_bytes(self):
+        # RETURN 1793567352.685309 #1: prepare -> placement -> the real case_start_caps.bind_inputs, with substitution refusals.
+        import contextlib
+        import io
+        import case_start_caps as CS
+        repo = GitRepo()
+        self.addCleanup(shutil.rmtree, repo.dir)
+        req = live_request(["AHT-05"])
+        req["window"] = dict(self.req["window"])
+        release = repo.commit({"tools/cloud-test/config/test-config.v1.json": CFG,
+                               I.CONTINUITY_DIR + "/" + I.CONTINUITY_BOOTSTRAP: self.raw.decode(),
+                               I.CONTINUITY_DIR + "/" + I.CONTINUITY_SCOPE: self.scope_raw.decode()})
+        req["release"]["testedSha"] = release
+        head = repo.commit({RUNS + "r6.json": req})
+        request_sha = hashlib.sha256(repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()).hexdigest()
+        pins = self.all_pins()
+        reader = lambda root: W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), root)
+        rc_bytes = I.verified_checkpoint(repo.dir, req, pins, reader)
+
+        def prepare(envelope):
+            out, env, outputs = (os.path.join(repo.dir, "%s-%d" % (n, len(os.listdir(repo.dir)))) for n in ("out", "env", "outputs"))
+            argv = ["init_run_inputs.py", "prepare", "--repo", repo.dir, "--config", "tools/cloud-test/config/test-config.v1.json", "--request",
+                    RUNS + "r6.json", "--facts", json.dumps(facts(**({"actionApproval": envelope} if envelope is not None else {}))),
+                    "--run-id", "123", "--attempt", "1", "--source-sha", head, "--job-timeout-minutes", "150", "--out", out,
+                    "--env-file", env, "--outputs", outputs]
+            err = io.StringIO()
+            with mock.patch.object(I, "continuity_pins", lambda: pins), mock.patch.object(I, "state_chain", reader), \
+                    mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": bundle_with(ACCOUNT_ID), "SUPABASE_URL": SUPABASE_URL_OK}), \
+                    contextlib.redirect_stderr(err):
+                code = I.main(argv)
+            return code, err.getvalue().strip(), out, outputs
+
+        good = action_approval(req, request_sha, rc_bytes)
+        for envelope, code in ((None, "action-approval-shape"), (dict(good, extra=1), "action-approval-shape"),
+                               (dict(good, schema="x"), "action-approval-shape"),
+                               (dict(good, requestSha256="0" * 64), "action-approval-not-the-request"),
+                               (dict(good, reconciliationSha256="0" * 64), "action-approval-not-the-checkpoint"),
+                               (dict(good, approvalRef="slack:1793566031.065709"), "action-approval-reference"),
+                               (dict(good, approvedBy="someone-else"), "action-approval-reference"),
+                               (dict(good, selectionApprovalRef="slack:1793566031.065709"), "action-approval-selection")):
+            with self.subTest(code=code, envelope=str(envelope)[:60]):
+                result = prepare(envelope)
+                self.assertEqual(result[:2], (78, "BLOCKED_SETUP: " + code))
+                self.assertFalse(os.path.exists(result[2]), "a refused prepare writes nothing")
+        code, err, out, outputs = prepare(good)
+        self.assertEqual(code, 0, err)
+        with open(outputs, encoding="utf-8") as f:
+            published = dict(line.split("=", 1) for line in f.read().splitlines())
+        self.assertEqual((published["request_sha256"], published["reconciliation_sha256"]), (request_sha, hashlib.sha256(rc_bytes).hexdigest()))
+        # Placement (the workflow step copies these exact bytes), then the runner's own reader, then the real builder binding.
+        ct_out = os.path.join(self.d, "ct-out")
+        os.mkdir(ct_out, 0o700)
+        placed = os.path.join(ct_out, "reconciliation.json")
+        shutil.copyfile(os.path.join(out, "reconciliation.json"), placed)
+
+        def bind():
+            env_file = os.path.join(ct_out, "plan-env-%d.txt" % len(os.listdir(ct_out)))
+            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
+                                "--request-sha256", published["request_sha256"], "--reconciliation", placed, "--out", env_file],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            import shlex
+            with open(env_file, encoding="utf-8") as f:  # execute_run.sh sources this file; values are shlex-quoted
+                bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.rstrip("\n").split("=", 1) for line in f if "=" in line)}
+            with open(os.path.join(out, "facts.json"), encoding="utf-8") as f:
+                return CS.bind_inputs(bp, json.load(f))
+        binding = bind()
+        self.assertEqual((binding["reconciliationSha256"], binding["requestSha256"], binding["approval"]),
+                         (published["reconciliation_sha256"], request_sha, good))
+        # Substituting the placed bytes after admission is refused by the real consumer against the supplied envelope.
+        os.chmod(placed, 0o600)
+        with open(placed, "wb") as f:
+            f.write(rc_bytes.replace(b'"outstandingReservations":0', b'"outstandingReservations":1'))
+        with self.assertRaises(CS.InputValidationError) as e:
+            bind()
+        self.assertEqual(str(e.exception), "action-digests")
 
     def test_unresolved_unapproved_and_unanchored_inputs_still_refuse(self):
         unresolved = rollup_bootstrap(unresolved=[{"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "UNRESOLVED", "usage": None}])
