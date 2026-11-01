@@ -68,9 +68,12 @@ def _attempt(run_id, attempt):
 
 def sanitize_record(rec):
     """The terminal record exactly as published; refuses anything outside the closed shape."""
-    _keys(rec, {"runId", "attempt", "sourceSha", "servedSha", "startedUtc", "endedUtc", "outcome", "cases", "codes"}, "record")
+    # Three identities, never conflated: the workflow source that ran the harness, the product release the request tested, and the release
+    # observed served at admission (Sam 1793539017 RETURN, finding 4).
+    _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "startedUtc", "endedUtc", "outcome", "cases", "codes"}, "record")
     _attempt(rec.get("runId"), rec.get("attempt"))
     _need(isinstance(rec.get("sourceSha"), str) and SHA40.match(rec["sourceSha"]), "source-sha")
+    _need(isinstance(rec.get("testedSha"), str) and SHA40.match(rec["testedSha"]), "tested-sha")
     _need(rec.get("servedSha") is None or (isinstance(rec["servedSha"], str) and SHA40.match(rec["servedSha"])), "served-sha")
     for k in ("startedUtc", "endedUtc"):
         _need(isinstance(rec.get(k), str) and UTC.match(rec[k]), k)
@@ -88,8 +91,10 @@ def sanitize_record(rec):
         _need(set(c["rows"]) == {"pass", "fail", "notRun"} and all(_count(v) for v in c["rows"].values()), "rows")
         _need((c["result"] == "PASS") == (c["rows"]["fail"] == 0 and c["rows"]["notRun"] == 0 and c["rows"]["pass"] > 0), "case-result-rows")
         out.append({"caseId": c["caseId"], "result": c["result"], "rows": dict(c["rows"]), "codes": _codes(c.get("codes", []), 8)})
-    _need((rec["outcome"] == "passed") == (bool(out) and all(c["result"] == "PASS" for c in out)), "outcome-cases")
-    return {"runId": rec["runId"], "attempt": rec["attempt"], "sourceSha": rec["sourceSha"], "servedSha": rec.get("servedSha"),
+    all_pass = bool(out) and all(c["result"] == "PASS" for c in out)
+    # `passed` needs every case PASS; an all-PASS record that was not qualified (binding verification + every required row) is `failed`.
+    _need(rec["outcome"] == "failed" if not all_pass else rec["outcome"] == "passed" or "not-qualified" in (rec.get("codes") or []), "outcome-cases")
+    return {"runId": rec["runId"], "attempt": rec["attempt"], "sourceSha": rec["sourceSha"], "testedSha": rec["testedSha"], "servedSha": rec.get("servedSha"),
             "startedUtc": rec["startedUtc"], "endedUtc": rec["endedUtc"], "outcome": rec["outcome"],
             "cases": sorted(out, key=lambda c: c["caseId"]), "codes": _codes(rec.get("codes", []), 16)}
 

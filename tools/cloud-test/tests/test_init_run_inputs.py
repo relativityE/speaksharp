@@ -37,7 +37,8 @@ def live_request(cases=None, **over):
     r["harness"]["ownerApprovalRef"] = "slack:1793538100.358869"
     r["window"] = {"startUtc": "2026-11-01T13:00:00Z", "endUtc": "2026-11-01T20:00:00Z", "approvalRef": "slack:1793538100.358869"}
     full = r["coverageMode"] == "full"
-    r["approvedLimits"] = {"cumulativeCeilingRequests": 12000, "identityCap": 32 if full else 20, "runCapRequests": 4310 if full else 800,
+    # identityCap and cumulativeCeilingRequests are cumulative owner approvals; runCapRequests is per run.
+    r["approvedLimits"] = {"cumulativeCeilingRequests": 12000, "identityCap": 126, "runCapRequests": 4310 if full else 800,
                            "approvalRef": "slack:1793538100.358869", "approvedBy": "sam"}
     r.update(over)
     return r
@@ -160,7 +161,71 @@ class Ceilings(unittest.TestCase):
         r = live_request(); r["approvedLimits"]["runCapRequests"] = 3610
         refused(self, "estimate-exceeds-approved-run-cap", I.check_ceilings, CFG, r, I.ALL_CASES, 329)
         r = live_request(); r["estimate"]["identityReads"] = 33
-        refused(self, "estimate-exceeds-approved-identity-cap", I.check_ceilings, CFG, r, I.ALL_CASES, 329)
+        refused(self, "estimate-exceeds-per-run-identity-cap", I.check_ceilings, CFG, r, I.ALL_CASES, 329)
+        six = ["AHT-04", "AHT-05", "AHT-06", "AHT-09", "AHT-10", "AHT-11"]
+        r = live_request(six); r["estimate"]["identityReads"] = 21
+        refused(self, "estimate-exceeds-per-run-identity-cap", I.check_ceilings, CFG, r, six, 329)
+
+    def test_the_whole_job_must_end_before_the_approved_window_closes(self):
+        r = live_request(["AHT-05"])  # 47 live minutes + 25 caller reserves = 72
+        r["window"]["endUtc"] = "2026-11-01T15:12:00Z"
+        I.check_window_fit(r, NOW, 47)
+        r["window"]["endUtc"] = "2026-11-01T15:11:59Z"
+        refused(self, "run-would-outlast-approved-window", I.check_window_fit, r, NOW, 47)
+
+
+class Cumulative(unittest.TestCase):
+    """identityCap and cumulativeCeilingRequests bound verified prior usage + open reservations + this run (Sam RETURN finding 2)."""
+
+    def prior(self, **over):
+        return dict({"requests": 7000, "identityReads": 90, "reservedRequests": 690, "reservedIdentityReads": 4}, **over)
+
+    def test_nonzero_prior_usage_and_reservations_count_against_the_cumulative_caps(self):
+        I.check_cumulative(live_request(), self.prior())  # 7000+690+4310 = 12000; 90+4+32 = 126
+        refused(self, "cumulative-request-ceiling-exceeded", I.check_cumulative, live_request(), self.prior(requests=7001))
+        refused(self, "cumulative-request-ceiling-exceeded", I.check_cumulative, live_request(), self.prior(reservedRequests=691))
+        refused(self, "cumulative-identity-cap-exceeded", I.check_cumulative, live_request(), self.prior(identityReads=91))
+        refused(self, "cumulative-identity-cap-exceeded", I.check_cumulative, live_request(), self.prior(reservedIdentityReads=5))
+
+    def test_unknown_prior_usage_is_refused_never_zero(self):
+        for prior in (None, {}, self.prior(requests=None), self.prior(identityReads=True), self.prior(reservedRequests=-1),
+                      {k: v for k, v in self.prior().items() if k != "reservedIdentityReads"}):
+            refused(self, "prior-usage-unknown", I.check_cumulative, live_request(), prior)
+
+
+class Lineage(unittest.TestCase):
+    """Workflow source vs tested product release (Sam RETURN finding 4): request-only descendants pass; product or dependency changes refuse
+    unless an explicit approved older-release diagnostic is named."""
+
+    def setUp(self):
+        self.repo = GitRepo()
+        self.addCleanup(shutil.rmtree, self.repo.dir)
+        self.release = self.repo.commit({"frontend/app.json": {"v": 1}, "package.json": {"v": 1}})
+
+    def req(self, **release):
+        r = live_request(["AHT-05"])
+        r["release"] = dict(r["release"], testedSha=self.release, **release)
+        return r
+
+    def test_a_request_only_descendant_is_accepted(self):
+        head = self.repo.commit({"runs/r6.json": self.req(), "runs/r6-notes.json": {}})
+        self.assertEqual(I.check_release_lineage(self.repo.dir, self.req(), "runs/r6.json", head), "request-only-descendant")
+
+    def test_product_or_dependency_changes_after_the_tested_release_are_refused(self):
+        for change in ({"frontend/app.json": {"v": 2}}, {"package.json": {"v": 2}}, {"runs/script.py": "x"}):
+            head = self.repo.commit(dict({"runs/r6.json": self.req()}, **change))
+            refused(self, "source-changes-product-beyond-request", I.check_release_lineage, self.repo.dir, self.req(), "runs/r6.json", head)
+
+    def test_an_older_release_diagnostic_must_be_explicit_and_approved(self):
+        head = self.repo.commit({"frontend/app.json": {"v": 2}, "runs/r6.json": self.req()})
+        r = self.req(olderReleaseDiagnosticApprovalRef="slack:1793539017.431059")
+        self.assertEqual(I.check_release_lineage(self.repo.dir, r, "runs/r6.json", head), "explicit-older-release-diagnostic")
+        refused(self, "source-changes-product-beyond-request", I.check_release_lineage, self.repo.dir, self.req(olderReleaseDiagnosticApprovalRef=""), "runs/r6.json", head)
+
+    def test_a_release_outside_the_source_history_is_refused(self):
+        head = self.repo.commit({"runs/r6.json": self.req()})
+        r = self.req(); r["release"]["testedSha"] = "b" * 40
+        refused(self, "request-release-not-in-source-history", I.check_release_lineage, self.repo.dir, r, "runs/r6.json", head)
         r = live_request(); r["estimate"]["paidActionsAuthorizedUsd"] = 1
         refused(self, "paid-actions-refused", I.check_ceilings, CFG, r, I.ALL_CASES, 329)
         r = live_request(); r["estimate"]["window"]["worstCaseMinutes"] = 305
@@ -169,20 +234,26 @@ class Ceilings(unittest.TestCase):
 
 class Account(unittest.TestCase):
     def test_one_role_bound_to_its_credential_names_id_and_history(self):
-        b = I.account_binding(["AHT-05"], facts()["account"], ACCOUNT_ID)
+        b = I.account_binding(CFG, ["AHT-05"], facts()["account"], ACCOUNT_ID)
         self.assertEqual(b["credentials"], {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD", "accountId": "THROWAWAY_TEST_ACCOUNT_ID"})
         a = dict(facts()["account"], role="maintained-read-only", historyRef="history:free@r5")
-        b = I.account_binding(["AHT-15"], a, ACCOUNT_ID)
+        # The reviewed run stage receives only the THROWAWAY names today, so AHT-15's maintained pair is refused, never renamed.
+        refused(self, "role-credentials-not-in-run-stage-allowlist", I.account_binding, CFG, ["AHT-15"], a, ACCOUNT_ID)
+        cfg = copy.deepcopy(CFG)
+        cfg["credentials"]["runEnvironment"]["stages"]["run"] += ["FREE_TEST_EMAIL", "FREE_TEST_PASSWORD"]
+        b = I.account_binding(cfg, ["AHT-15"], a, ACCOUNT_ID)
         self.assertEqual((b["role"], b["credentials"]["email"], b["credentials"]["password"], b["historyRef"]),
                          ("maintained-read-only", "FREE_TEST_EMAIL", "FREE_TEST_PASSWORD", "history:free@r5"))
         self.assertNotIn(ACCOUNT_ID, json.dumps(b))
 
     def test_mixed_roles_wrong_account_and_missing_sources_are_refused(self):
-        refused(self, "mixed-account-roles", I.account_binding, ["AHT-14", "AHT-15"], facts()["account"], ACCOUNT_ID)
-        refused(self, "account-role-not-for-these-cases", I.account_binding, ["AHT-15"], facts()["account"], ACCOUNT_ID)
-        refused(self, "account-id-not-the-approved-account", I.account_binding, ["AHT-05"], facts()["account"], ACCOUNT_ID.replace("1", "2"))
-        refused(self, "account-id-source-missing", I.account_binding, ["AHT-05"], facts()["account"], None)
-        refused(self, "account-history-reference", I.account_binding, ["AHT-05"], dict(facts()["account"], historyRef=""), ACCOUNT_ID)
+        refused(self, "mixed-account-roles", I.account_binding, CFG, ["AHT-14", "AHT-15"], facts()["account"], ACCOUNT_ID)
+        cfg = copy.deepcopy(CFG)
+        cfg["credentials"]["runEnvironment"]["stages"]["run"] += ["FREE_TEST_EMAIL", "FREE_TEST_PASSWORD"]
+        refused(self, "account-role-not-for-these-cases", I.account_binding, cfg, ["AHT-15"], facts()["account"], ACCOUNT_ID)
+        refused(self, "account-id-not-the-approved-account", I.account_binding, CFG, ["AHT-05"], facts()["account"], ACCOUNT_ID.replace("1", "2"))
+        refused(self, "account-id-source-missing", I.account_binding, CFG, ["AHT-05"], facts()["account"], None)
+        refused(self, "account-history-reference", I.account_binding, CFG, ["AHT-05"], dict(facts()["account"], historyRef=""), ACCOUNT_ID)
 
 
 class Facts(unittest.TestCase):
@@ -206,7 +277,7 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
         self.addCleanup(shutil.rmtree, repo.dir)
         req = live_request(["AHT-05"])
         now = datetime.now(timezone.utc)
-        req["window"].update(startUtc=(now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"), endUtc=(now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        req["window"].update(startUtc=(now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"), endUtc=(now + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ"))
         release = repo.commit({"tools/cloud-test/config/test-config.v1.json": CFG})
         req["release"]["testedSha"] = release
         stray = dict(req, release=dict(req["release"], testedSha="b" * 40))
@@ -228,66 +299,123 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
 
 
 class Qualify(unittest.TestCase):
-    """Composition: the REAL verify_run_binding.py writes --out for exactly this plan and these case results, then qualify decides."""
+    """Composition with the REAL verify_run_binding.py on the builder's selected-full plan shape: all 15 plan.cases rows (each with driver
+    and config bytes), the dispatch subset in plan.selection, and case results that mark the other rows notSelected (build_plan.py 345-368)."""
+
+    SELECTED = ["AHT-05", "AHT-09"]
 
     def setUp(self):
         self.d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.d)
-        os.makedirs(os.path.join(self.d, "packet", "draft-adapters"))
-        driver = os.path.join(self.d, "packet", "draft-adapters", "AHT-05.cjs")
-        put(driver, "// driver\n")
-        code = os.path.join(self.d, "packet", "CODE.sha256")
-        put(code, "%s  draft-adapters/AHT-05.cjs\n" % self.sha(driver))
-        self.config = os.path.join(self.d, "AHT-05.json")
-        put(self.config, {"requiredAssertions": ["a-1", "a-2"]})
-        self.plan = os.path.join(self.d, "plan.json")
-        put(self.plan, {"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "cases": [{"id": "AHT-05", "driverFile": driver, "driverSha256": self.sha(driver),
-                   "configFile": self.config, "configSha256": self.sha(self.config)}]})
-        self.approval = os.path.join(self.d, "approval.json")
-        put(self.approval, {"reviewedCodeManifestSha256": self.sha(code)})
+        adapters = os.path.join(self.d, "packet", "draft-adapters")
+        os.makedirs(adapters)
+        os.makedirs(os.path.join(self.d, "cfg"))
+        rows, manifest = [], []
+        for cid in I.ALL_CASES:
+            driver, config = os.path.join(adapters, cid + ".cjs"), os.path.join(self.d, "cfg", cid + ".json")
+            put(driver, "// %s driver\n" % cid)
+            put(config, {"caseId": cid, "requiredAssertions": ["%s-a" % cid.lower(), "%s-b" % cid.lower()]})
+            manifest.append("%s  draft-adapters/%s.cjs\n" % (self.sha(driver), cid))
+            rows.append({"id": cid, "driverFile": driver, "driverSha256": self.sha(driver), "configFile": config, "configSha256": self.sha(config)})
+        self.code = os.path.join(self.d, "packet", "CODE.sha256")
+        put(self.code, "".join(manifest))
+        self.plan = os.path.join(self.d, "campaign-plan.json")
+        put(self.plan, {"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "coverageMode": "partial", "assertionDepth": "full", "cases": rows,
+                        "selection": {"ids": list(self.SELECTED), "order": list(self.SELECTED), "ownerApprovalReference": "slack:1", "reason": "unit"}})
+        self.approval = os.path.join(self.d, "security-approval.json")
+        put(self.approval, {"reviewedCodeManifestSha256": self.sha(self.code)})
         self.cases = os.path.join(self.d, "cases")
-        os.makedirs(os.path.join(self.cases, "AHT-05"))
         self.results = os.path.join(self.d, "case-results.json")
-        self.code = code
+        self.write_results()
+        for cid in self.SELECTED:
+            self.write_case(cid, [("a", "PASS"), ("b", "PASS")])
 
     @staticmethod
     def sha(p):
         with open(p, "rb") as f:
             return hashlib.sha256(f.read()).hexdigest()
 
-    def run_case(self, rows, result="PASS", campaign=None):
-        put(os.path.join(self.cases, "AHT-05", "case-result.json"),
-            {"caseId": "AHT-05", "result": result, "assertions": [{"id": i, "result": r} for i, r in rows], "evidenceDigests": {}})
-        put(self.results, {"campaignId": campaign or "C1", "sourceSha": SHA, "servedSha": SHA, "cases": [{"caseId": "AHT-05"}]})
-        out = os.path.join(self.d, "verification-%d.json" % len(os.listdir(self.d)))
-        p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "verify_run_binding.py"), "--plan", self.plan, "--case-results", self.results,
-                            "--approval", self.approval, "--code-manifest", self.code, "--packet-root", os.path.join(self.d, "packet"), "--cases-dir", self.cases,
-                            "--out", out], capture_output=True, text=True)
-        return p.returncode, J(out)
+    def write_case(self, cid, rows, result="PASS", evidence=True):
+        os.makedirs(os.path.join(self.cases, cid), exist_ok=True)
+        ev = os.path.join(self.cases, cid, cid.lower() + "-1.json")
+        put(ev, {"contentSafe": True})
+        put(os.path.join(self.cases, cid, "case-result.json"),
+            {"caseId": cid, "result": result, "assertions": [{"id": "%s-%s" % (cid.lower(), i), "result": r} for i, r in rows],
+             "evidenceDigests": {cid.lower() + "-1.json": self.sha(ev)} if evidence else {}})
 
-    def test_verifier_pass_and_every_required_row_pass_qualifies(self):
-        rc, v = self.run_case([("a-1", "PASS"), ("a-2", "PASS")])
-        self.assertEqual(rc, 0)
-        self.assertEqual(I.qualify(v, self.plan, self.results, self.cases, ["AHT-05"]), {"qualified": True, "cases": ["AHT-05"]})
+    def write_results(self, **over):
+        cases = [{"caseId": c} if c in self.SELECTED else {"caseId": c, "notSelected": True} for c in I.ALL_CASES]
+        put(self.results, dict({"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "cases": cases}, **over))
 
-    def test_verifier_success_alone_never_qualifies_a_failed_or_missing_row(self):
-        for rows, result, code in [([("a-1", "PASS"), ("a-2", "FAIL")], "FAIL", "case-not-pass:AHT-05"),
-                                   ([("a-1", "PASS")], "PASS", "required-assertion-not-pass:AHT-05"),
-                                   ([("a-1", "PASS"), ("a-2", "NOT RUN")], "PASS", "required-assertion-not-pass:AHT-05")]:
-            rc, v = self.run_case(rows, result)
-            self.assertEqual(rc, 0, "the verifier itself passes these")
-            refused(self, code, I.qualify, v, self.plan, self.results, self.cases, ["AHT-05"])
+    def qualify(self, run_verifier=I._run_verifier, selected=None):
+        return I.qualify(self.plan, self.results, self.cases, selected or self.SELECTED, self.approval, self.code, os.path.join(self.d, "packet"),
+                         os.path.join(self.d, "verification.json"), run_verifier)
 
-    def test_undispatched_failed_verification_stale_output_and_other_selection_are_refused(self):
-        rc, v = self.run_case([("a-1", "PASS"), ("a-2", "PASS")], campaign="C2")
-        self.assertEqual(rc, 1)
-        refused(self, "binding-verification-failed", I.qualify, v, self.plan, self.results, self.cases, ["AHT-05"])
-        rc, v = self.run_case([("a-1", "PASS"), ("a-2", "PASS")])
-        put(self.results, {"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "cases": [{"caseId": "AHT-05", "reason": "not dispatched"}]})
-        refused(self, "binding-verification-stale", I.qualify, v, self.plan, self.results, self.cases, ["AHT-05"])
-        v = dict(v, caseResultsSha256=self.sha(self.results))
-        refused(self, "case-not-dispatched:AHT-05", I.qualify, v, self.plan, self.results, self.cases, ["AHT-05"])
-        refused(self, "plan-not-the-selected-cases", I.qualify, v, self.plan, self.results, self.cases, ["AHT-05", "AHT-06"])
+    def test_the_real_verifier_and_every_selected_required_row_pass_qualifies_with_the_denominator(self):
+        self.assertEqual(self.qualify(), {"qualified": True, "cases": self.SELECTED, "planCases": 15, "requiredRows": 4, "passRows": 4})
+        self.assertEqual(J(os.path.join(self.d, "verification.json"))["failed"], 0)
+
+    def test_verifier_success_alone_never_qualifies_a_failed_missing_or_duplicated_row(self):
+        for rows, result, code in [([("a", "PASS"), ("b", "FAIL")], "FAIL", "case-not-pass:AHT-09"),
+                                   ([("a", "PASS")], "PASS", "required-assertion-not-pass:AHT-09"),
+                                   ([("a", "PASS"), ("b", "NOT RUN")], "PASS", "required-assertion-not-pass:AHT-09"),
+                                   ([("a", "PASS"), ("b", "FAIL"), ("b", "PASS")], "PASS", "duplicate-assertion:AHT-09")]:
+            self.write_case("AHT-09", rows, result)
+            refused(self, code, self.qualify)
+            self.assertEqual(J(os.path.join(self.d, "verification.json"))["failed"], 0, "the verifier itself passes " + code)
+
+    def test_bytes_substituted_after_the_verifier_ran_are_refused(self):
+        targets = {"config": lambda: os.path.join(self.d, "cfg", "AHT-05.json"), "result": lambda: os.path.join(self.cases, "AHT-05", "case-result.json"),
+                   "evidence": lambda: os.path.join(self.cases, "AHT-05", "aht-05-1.json"), "plan": lambda: self.plan, "results": lambda: self.results}
+        for name, target in targets.items():
+            self.setUp()
+
+            def swap(*a, target=target):
+                v = I._run_verifier(*a)
+                with open(target(), "ab") as f:
+                    f.write(b" ")
+                return v
+            refused(self, "consumed-bytes-changed-during-verification", self.qualify, swap)
+
+    def test_undispatched_unselected_dispatched_failed_and_denominator_controls(self):
+        self.write_results(cases=[{"caseId": c, "reason": "not dispatched"} if c == "AHT-09" else {"caseId": c} if c in self.SELECTED
+                                  else {"caseId": c, "notSelected": True} for c in I.ALL_CASES])
+        refused(self, "case-not-dispatched:AHT-09", self.qualify)
+        self.setUp()
+        self.write_case("AHT-01", [("a", "PASS"), ("b", "PASS")])  # receipts present, so the verifier itself passes
+        self.write_results(cases=[{"caseId": c} if c in self.SELECTED + ["AHT-01"] else {"caseId": c, "notSelected": True} for c in I.ALL_CASES])
+        refused(self, "unselected-case-dispatched:AHT-01", self.qualify)
+        self.setUp()
+        self.write_results(campaignId="C2")
+        refused(self, "binding-verification-failed", self.qualify)
+        self.setUp()
+        refused(self, "plan-selection-not-the-selected-cases", self.qualify, I._run_verifier, ["AHT-05"])
+        plan = J(self.plan); plan["cases"] = [r for r in plan["cases"] if r["id"] in self.SELECTED]
+        put(self.plan, plan)
+        refused(self, "plan-denominator-not-fifteen", self.qualify)
+
+    def test_a_stale_verification_output_is_refused(self):
+        def stale(*a):
+            v = I._run_verifier(*a)
+            return dict(v, caseResultsSha256="0" * 64)
+        refused(self, "binding-verification-stale", self.qualify, stale)
+
+
+class Project(unittest.TestCase):
+    RECORD = {"schema": "speaksharp.cloud-test.run-record.v1", "release": {"testedSha": SHA, "servedShaAtAdmission": SHA},
+              "startedUtc": "2026-11-01T14:00:00Z", "endedUtc": "2026-11-01T14:30:00Z",
+              "cases": [{"case": "AHT-05", "result": "PASS", "assertions": {"PASS": 2, "FAIL": 0, "NOT RUN": 0}}]}
+
+    def test_passed_needs_the_qualification_of_exactly_the_recorded_cases(self):
+        q = {"qualified": True, "cases": ["AHT-05"], "planCases": 15, "requiredRows": 2, "passRows": 2}
+        self.assertEqual(I.project(self.RECORD, "123", 1, "c" * 40, SHA, q)["outcome"], "passed")
+        for other in (None, {"qualified": True, "cases": ["AHT-05", "AHT-06"]}, {"qualified": False, "cases": ["AHT-05"]}):
+            rec = I.project(self.RECORD, "123", 1, "c" * 40, SHA, other)
+            self.assertEqual((rec["outcome"], rec["codes"]), ("failed", ["not-qualified"]), other)
+        rec = I.project(self.RECORD, "123", 1, "c" * 40, SHA, q)
+        self.assertEqual((rec["sourceSha"], rec["testedSha"], rec["servedSha"]), ("c" * 40, SHA, SHA))
+        self.assertEqual(I.project(self.RECORD, "123", 1, "c" * 40, SHA, None)["codes"], ["not-qualified"])
+        refused(self, "run-record-for-another-release", I.project, self.RECORD, "123", 1, "c" * 40, "b" * 40, q)
 
 
 if __name__ == "__main__":
