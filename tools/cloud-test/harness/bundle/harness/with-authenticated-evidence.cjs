@@ -24,7 +24,9 @@ async function main(argv){
   if(plan.campaignId!==scope.campaignId||plan.sourceSha!==scope.sourceSha||plan.servedSha!==scope.servedSha||plan.deadlineAt!==scope.deadlineAt)throw new Error('NOT_RUN: CAMPAIGN_PRODUCER_SCOPE_DIFFERS');
   const cases=plan.cases.filter(c=>scope.caseIds.includes(c.id));if(cases.length!==scope.caseIds.length)throw new Error('NOT_RUN: PRODUCER_CASE_BINDING_MISSING');
   for(const c of cases){const config=privateJson(c.configFile,c.configSha256);if(config.account?.id!==scope.ownerAccountId)throw new Error('NOT_RUN: PRODUCER_ACCOUNT_DIFFERS');}
-  const producer=createProducer({scope}),admission=privateJson(plan.admissionConfigFile,plan.admissionConfigSha256),attestation=privateJson(admission.runtimeAttestationFile,admission.runtimeAttestationSha256);
+  const admission=privateJson(plan.admissionConfigFile,plan.admissionConfigSha256),checkout=path.resolve(admission.checkoutDir||''),checkoutStat=fs.lstatSync(checkout);
+  if(typeof admission.checkoutDir!=='string'||!path.isAbsolute(admission.checkoutDir)||!checkoutStat.isDirectory()||checkoutStat.isSymbolicLink()||fs.realpathSync(checkout)!==checkout)throw new Error('NOT_RUN: BOUND_ADMISSION_CHECKOUT_REQUIRED');
+  const producer=createProducer({scope,checkout}),attestation=privateJson(admission.runtimeAttestationFile,admission.runtimeAttestationSha256);
   require('./runtime-selection.cjs').validateGitHubSelection(attestation,admission,Date.now());assertJobReceipt(attestation,producer.job);
   const directory=fs.realpathSync(path.dirname(args['--scope']));broker=await startBroker({directory,producer});
   child=spawn(process.execPath,[path.join(__dirname,'campaign-runner.cjs'),'--plan',path.resolve(args['--plan']),'--plan-sha256',args['--plan-sha256'],'--execute-r0','true'],{stdio:'inherit',env:driverEnvironment(process.env,broker.socketPath)});
