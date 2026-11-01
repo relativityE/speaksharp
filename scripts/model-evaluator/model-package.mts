@@ -1,4 +1,5 @@
-import { readFile, writeFile, mkdir, realpath, stat, link, unlink } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { readFile, writeFile, mkdir, realpath, stat, link, unlink, open } from 'node:fs/promises';
 import { resolve, dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,24 @@ async function refuseSymlinkedAncestors(root: string, start: string) {
         if(ancestor===resolve(root))return;
         const parent=dirname(ancestor);if(parent===ancestor)throw Error('PACKAGE_IMPORT_DESTINATION_INVALID');ancestor=parent;
     }
+}
+/**
+ * The bytes of an existing destination, read only if it is a regular file reached without following a
+ * final symlink. Absent is null; a link or anything else is refused, so an alias cannot pass as a match.
+ */
+async function readExistingRegular(path: string): Promise<Buffer | null> {
+    let handle;
+    try { handle = await open(path,constants.O_RDONLY|constants.O_NOFOLLOW); }
+    catch (error) {
+        const code=(error as NodeJS.ErrnoException).code;
+        if (code==='ENOENT') return null;
+        if (code==='ELOOP') throw Error('PACKAGE_IMPORT_SYMLINK_DESTINATION');
+        throw error;
+    }
+    try {
+        if (!(await handle.stat()).isFile()) throw Error('PACKAGE_IMPORT_SYMLINK_DESTINATION');
+        return await handle.readFile();
+    } finally { await handle.close(); }
 }
 export async function importModelPackage(root: string, descriptorPath: string) {
     const source = await realpath(resolve(descriptorPath));
@@ -40,9 +59,7 @@ export async function importModelPackage(root: string, descriptorPath: string) {
         if (!destination.startsWith(resolve(root,'frontend/public/models')+'/')) throw Error('PACKAGE_IMPORT_DESTINATION_INVALID');
         await refuseSymlinkedAncestors(root,dirname(destination));
         // A conflicting file already in place is refused now, before any other component is copied.
-        const existing = await readFile(destination).catch((error: NodeJS.ErrnoException) => {
-            if (error.code==='ENOENT') return null; throw error;
-        });
+        const existing = await readExistingRegular(destination);
         if (existing && createHash('sha256').update(existing).digest('hex')!==asset.sha256) throw Error('PACKAGE_IMPORT_DESTINATION_CONFLICT');
         copies.push({destination,bytes,sha256:asset.sha256});
     }
@@ -52,19 +69,29 @@ export async function importModelPackage(root: string, descriptorPath: string) {
         await mkdir(dirname(destination),{recursive:true});
         try { await writeFile(destination,bytes,{flag:'wx'}); }
         catch (error) {
-            if ((error as NodeJS.ErrnoException).code!=='EEXIST' || createHash('sha256').update(await readFile(destination)).digest('hex')!==sha256) throw error;
+            if ((error as NodeJS.ErrnoException).code!=='EEXIST') throw error;
+            const raced = await readExistingRegular(destination);
+            if (!raced || createHash('sha256').update(raced).digest('hex')!==sha256) throw error;
         }
     }
     await mkdir(dirname(target),{recursive:true});
     // Publish a fully written descriptor with an exclusive link: readers never see partial JSON, and an
-    // existing candidate is never overwritten. Only an identical package may already be there.
+    // existing candidate is never overwritten. Only an identical package may already be there. The
+    // staging file is this invocation's own exclusive creation, and only that file is ever removed.
     const staging = `${target}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(staging,JSON.stringify(pkg,null,2)+'\n',{flag:'wx'});
-    try { await link(staging,target); }
-    catch (error) {
-        if ((error as NodeJS.ErrnoException).code!=='EEXIST' || (await verifyModelPackage(JSON.parse(await readFile(target,'utf8')))).packageDigest!==pkg.packageDigest) throw error;
+    let created = false;
+    try {
+        const handle = await open(staging,'wx');
+        created = true;
+        try { await handle.writeFile(JSON.stringify(pkg,null,2)+'\n'); } finally { await handle.close(); }
+        try { await link(staging,target); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code!=='EEXIST') throw error;
+            const existing = await readExistingRegular(target);
+            if (!existing || (await verifyModelPackage(JSON.parse(existing.toString('utf8')))).packageDigest!==pkg.packageDigest) throw error;
+        }
     }
-    finally { await unlink(staging); }
+    finally { if (created) await unlink(staging); }
     return {candidateId:pkg.id,packageDigest:pkg.packageDigest,descriptor:target,
         identity:expectedModelIdentity(candidateFromPackage(pkg,target))};
 }

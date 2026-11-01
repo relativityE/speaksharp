@@ -10,6 +10,21 @@ import { CANDIDATES } from '../../../frontend/src/services/transcription/candida
 import { MOONSHINE_PACKAGE_FILES } from '../../../frontend/src/services/transcription/modelPackage';
 
 vi.mock('../../../scripts/model-evaluator/runtime-bindings.mjs', () => ({ verifyProjectRuntimeBindings: vi.fn(async () => undefined) }));
+// `open` passes through to the real implementation unless a test arms a partial staging-write failure.
+const stagingFault = vi.hoisted(() => ({ armed: false, opened: 0 }));
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  const open = async (...args: Parameters<typeof actual.open>) => {
+    const handle = await actual.open(...args);
+    if (!stagingFault.armed || !String(args[0]).endsWith('.tmp')) return handle;
+    stagingFault.opened += 1;
+    return Object.assign(Object.create(handle), {
+      writeFile: async (data: string) => { await handle.writeFile(data.slice(0, 12)); throw new Error('simulated partial write'); },
+      close: () => handle.close(),
+    });
+  };
+  return { ...actual, open, default: { ...actual, open } };
+});
 const loadSpy = vi.fn();
 vi.mock('@moonshine-ai/moonshine-wasm', () => ({
   ModelArch: { SmallStreaming: 4, MediumStreaming: 5 },
@@ -158,20 +173,69 @@ describe('import refusals leave nothing behind', () => {
   });
 });
 
+/** A self-hosted Whisper package with small local component files under the source directory. */
+function whisperDescriptor() {
+  const base = CANDIDATES['v2:base.en'];
+  const files = base.assets.files!.map(f => {
+    const body = new TextEncoder().encode(`whisper ${f.path}`);
+    mkdirSync(join(source, f.path, '..'), { recursive: true });
+    writeFileSync(join(source, f.path), body);
+    return { path: f.path, url: `/models/dropin-whisper/${f.path}`, bytes: body.byteLength, sha256: sha(body) };
+  });
+  const descriptor = join(source, 'whisper.json');
+  writeFileSync(descriptor, JSON.stringify({ schemaVersion: 1, kind: 'speaksharp-model-package', id: 'dropin:whisper',
+    engine: base.engine, runtime: base.runtime, model: { ...base.model, device: 'wasm' },
+    execution: { ...base.execution, localModelId: 'dropin-whisper' },
+    assets: { servedFrom: '/models/dropin-whisper', files }, license: 'fixture only' }));
+  return { descriptor, files };
+}
+
+// An existing final destination counts only as a regular file reached without following a link.
+// Matching CONTENT behind a symlink is the dangerous case: it would otherwise pass as identical.
+describe('existing destinations are never read through a symlink', () => {
+  it('refuses a matching-content descriptor that is a symlink out of the catalog', async () => {
+    const run = await importer();
+    const { descriptor } = moonshineDescriptor();
+    await run(root, descriptor);
+    const published = join(root, CATALOG, 'dropin_moonshine.json');
+    const outside = join(source, 'outside-descriptor.json');
+    writeFileSync(outside, readFileSync(published));
+    rmSync(published);
+    symlinkSync(outside, published);
+    await expect(run(root, descriptor)).rejects.toThrow('PACKAGE_IMPORT_SYMLINK_DESTINATION');
+    expect(catalogFiles(), 'no staging residue beside the link').toEqual(['dropin_moonshine.json']);
+  });
+
+  it('refuses a matching-content asset file that is a symlink, copying and publishing nothing', async () => {
+    const { descriptor, files } = whisperDescriptor();
+    const [first] = files;
+    const destination = join(root, 'frontend/public', first.url.slice(1));
+    const outside = join(source, 'outside-asset');
+    writeFileSync(outside, readFileSync(join(source, first.path)));
+    mkdirSync(join(destination, '..'), { recursive: true });
+    symlinkSync(outside, destination);
+    await expect((await importer())(root, descriptor)).rejects.toThrow('PACKAGE_IMPORT_SYMLINK_DESTINATION');
+    expect(catalogFiles()).toEqual([]);
+    // No other component was copied: the refusal happened during verification, before any write.
+    for (const f of files.slice(1)) expect(existsSync(join(root, 'frontend/public', f.url.slice(1)))).toBe(false);
+  });
+});
+
+describe('a failed staging write leaves no descriptor and no residue', () => {
+  it('removes only its own partially written staging file', async () => {
+    const { descriptor } = moonshineDescriptor();
+    stagingFault.armed = true; stagingFault.opened = 0;
+    try {
+      await expect((await importer())(root, descriptor)).rejects.toThrow('simulated partial write');
+    } finally { stagingFault.armed = false; }
+    expect(stagingFault.opened, 'the fault reached the staging write').toBe(1);
+    expect(catalogFiles(), 'neither a descriptor nor a .tmp file remains').toEqual([]);
+  });
+});
+
 describe('self-hosted Whisper import is unchanged', () => {
   it('still verifies and copies every /models component before publishing', async () => {
-    const base = CANDIDATES['v2:base.en'];
-    const files = base.assets.files!.map(f => {
-      const body = new TextEncoder().encode(`whisper ${f.path}`);
-      mkdirSync(join(source, f.path, '..'), { recursive: true });
-      writeFileSync(join(source, f.path), body);
-      return { path: f.path, url: `/models/dropin-whisper/${f.path}`, bytes: body.byteLength, sha256: sha(body) };
-    });
-    const descriptor = join(source, 'whisper.json');
-    writeFileSync(descriptor, JSON.stringify({ schemaVersion: 1, kind: 'speaksharp-model-package', id: 'dropin:whisper',
-      engine: base.engine, runtime: base.runtime, model: { ...base.model, device: 'wasm' },
-      execution: { ...base.execution, localModelId: 'dropin-whisper' },
-      assets: { servedFrom: '/models/dropin-whisper', files }, license: 'fixture only' }));
+    const { descriptor, files } = whisperDescriptor();
     await (await importer())(root, descriptor);
     for (const f of files) {
       expect(sha(readFileSync(join(root, 'frontend/public', f.url.slice(1))))).toBe(f.sha256);
