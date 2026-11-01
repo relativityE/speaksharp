@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  verifyLiveJourneyAccounts, LIVE_JOURNEY_ROLES, liveJourneyMaskValues, maskCommands, parseLiveAccountsBundle,
+  verifyLiveJourneyAccounts, LIVE_JOURNEY_ROLES, liveJourneyMaskValues, maskCommands, parseLiveAccountsBundle, isProjectOrigin,
 } from '../../scripts/verify-test-users.mjs';
 
 /**
@@ -13,7 +13,7 @@ import {
  */
 // SHARED with tools/cloud-test/tests/test_init_run_inputs.py: the identical vector text, pinned by the same sha256 in both suites, so
 // the two consumers of the bundle agree on every accepted and refused shape and its code.
-const VECTORS_TEXT = String.raw`[
+const VECTORS_TEXT = String.raw`{"bundles": [
 ["valid", "ok", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["missing", "bundle-missing", ""],
 ["whitespace only", "bundle-missing", "   \n"],
@@ -41,10 +41,36 @@ const VECTORS_TEXT = String.raw`[
 ["account id v1", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-1111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["account id not string", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": 1}}}"],
 ["same email any case", "bundle-duplicate", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"THROWAWAY.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
-["same account id", "bundle-duplicate", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}}}"]
-]`;
-const VECTORS_SHA256 = 'd84dd0ab4602f1c1324567c9427d609994a99325c2b92610b3f72b6000db2c12';
-const VECTORS = JSON.parse(VECTORS_TEXT);
+["same account id", "bundle-duplicate", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}}}"],
+["email U+0085", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"a\\u0085@x.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email supplementary character", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"a\\ud83d\\ude00@x.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email non-ASCII letter", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"caf\\u00e9@x.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email NBSP", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"a\\u00a0b@x.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email 255 characters", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@x.invalid12\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email 254 characters", "ok", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@x.invalid12\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"]
+],
+"urls": [
+["origin", "ok", "https://abcdefghijklmnopqrst.supabase.co"],
+["origin with slash", "ok", "https://abcdefghijklmnopqrst.supabase.co/"],
+["default port", "ok", "https://abcdefghijklmnopqrst.supabase.co:443"],
+["upper-case host", "ok", "https://ABCDEFGHIJKLMNOPQRST.supabase.co"],
+["http", "bundle-project-mismatch", "http://abcdefghijklmnopqrst.supabase.co"],
+["other project", "bundle-project-mismatch", "https://zzzzzzzzzzzzzzzzzzzz.supabase.co"],
+["suffixed domain", "bundle-project-mismatch", "https://abcdefghijklmnopqrst.supabase.co.evil.example"],
+["wrong domain", "bundle-project-mismatch", "https://abcdefghijklmnopqrst.evil.example"],
+["userinfo", "bundle-project-mismatch", "https://user:pw@abcdefghijklmnopqrst.supabase.co"],
+["empty userinfo", "bundle-project-mismatch", "https://@abcdefghijklmnopqrst.supabase.co"],
+["unexpected port", "bundle-project-mismatch", "https://abcdefghijklmnopqrst.supabase.co:8443"],
+["path", "bundle-project-mismatch", "https://abcdefghijklmnopqrst.supabase.co/rest/v1"],
+["query", "bundle-project-mismatch", "https://abcdefghijklmnopqrst.supabase.co?x=1"],
+["fragment", "bundle-project-mismatch", "https://abcdefghijklmnopqrst.supabase.co#f"],
+["not a URL", "bundle-project-mismatch", "not a url"],
+["empty", "bundle-project-mismatch", ""]
+]}`;
+const VECTORS_SHA256 = 'ca05b324277e3c5318a6bd398204bb5e9fbc21941141b396161171f837108d58';
+const VECTOR_DOC = JSON.parse(VECTORS_TEXT);
+const VECTORS = VECTOR_DOC.bundles;
+const URL_VECTORS = VECTOR_DOC.urls;
 
 const PROJECT = 'abcdefghijklmnopqrst';
 const URL_OK = `https://${PROJECT}.supabase.co`;
@@ -93,6 +119,16 @@ describe('the private CLOUD_TEST_LIVE_ACCOUNTS bundle', () => {
     try { parseLiveAccountsBundle(raw); } catch (e) { err = e; }
     // The exact fixed code is the whole message: no part of the bundle is ever echoed.
     expect(err?.message).toBe(`LIVE_JOURNEY_ACCOUNTS_CONFIG: ${code}`);
+  });
+
+  it.each(URL_VECTORS)('origin vector "%s" gives %s', async (_name, code, url) => {
+    expect(isProjectOrigin(url, PROJECT)).toBe(code === 'ok');
+    if (code !== 'ok') {
+      const w = world();
+      await expect(verifyLiveJourneyAccounts({ supabase: w.supabase, raw: RAW, supabaseUrl: url, listUsers: w.listUsers }))
+        .rejects.toThrow(`LIVE_JOURNEY_ACCOUNTS_CONFIG: ${code}`);
+      expect(w.queries).toEqual([]);
+    }
   });
 
   it('masks the whole bundle even when it is malformed, and every extracted email and id once it parses', () => {

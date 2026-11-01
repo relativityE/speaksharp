@@ -135,10 +135,11 @@ export const LIVE_JOURNEY_ROLES = Object.freeze([
   { role: 'maintained-read-only', expectedTier: 'free' },
 ]);
 export const LIVE_ACCOUNTS_BUNDLE_LIMIT = 4096;
-const CONTROL = /[\u0000-\u001f\u007f]/;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const PROJECT_REF = /^[a-z0-9]{20}$/;
-const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+$/;
+// One explicit shared email contract (Sam 1793545693.919369): printable ASCII without space or "@" on both sides of exactly one "@", at
+// most 254 characters. No control, whitespace or non-ASCII character can pass, so both consumers agree on every input.
+const EMAIL_ASCII = /^[\x21-\x3f\x41-\x7e]+@[\x21-\x3f\x41-\x7e]+$/;
 
 /**
  * The private CLOUD_TEST_LIVE_ACCOUNTS bundle (Sam 1793544453.003099), validated exactly as tools/cloud-test/scripts/init_run_inputs.py
@@ -160,12 +161,24 @@ export function parseLiveAccountsBundle(raw) {
   if (typeof doc.projectRef !== 'string' || !PROJECT_REF.test(doc.projectRef)) fail('bundle-project');
   for (const role of roles) {
     const { email } = doc.accounts[role];
-    if (typeof email !== 'string' || email.length > 254 || CONTROL.test(email) || email !== email.trim() || !EMAIL_SHAPE.test(email)) fail('bundle-email');
+    if (typeof email !== 'string' || email.length > 254 || !EMAIL_ASCII.test(email)) fail('bundle-email');
   }
   for (const role of roles) if (typeof doc.accounts[role].accountId !== 'string' || !UUID_V4.test(doc.accounts[role].accountId)) fail('bundle-account-id');
   const [a, b] = roles.map((role) => doc.accounts[role]);
   if (a.email.toLowerCase() === b.email.toLowerCase() || a.accountId === b.accountId) fail('bundle-duplicate');
   return { projectRef: doc.projectRef, accounts: Object.fromEntries(roles.map((role) => [role, { email: doc.accounts[role].email, accountId: doc.accounts[role].accountId }])) };
+}
+
+/**
+ * The approved Supabase project origin, exactly: https://<projectRef>.supabase.co (a trailing "/" and the default port are the same
+ * origin). HTTP, any userinfo or "@", another port, another or suffixed domain, any path, query or fragment, and unparseable input refuse.
+ */
+export function isProjectOrigin(supabaseUrl, projectRef) {
+  if (typeof supabaseUrl !== 'string' || supabaseUrl.includes('@')) return false;
+  let u;
+  try { u = new URL(supabaseUrl); } catch { return false; }
+  return u.protocol === 'https:' && !u.username && !u.password && u.port === '' && u.hostname === `${projectRef}.supabase.co`
+    && u.pathname === '/' && !u.search && !u.hash;
 }
 
 /**
@@ -198,15 +211,13 @@ export function maskCommands(values) {
 
 /**
  * Role-only verification of the live run's two required accounts from the private bundle. Read-only: the existing auth-user listing and
- * one user_profiles select. The bundle's project must be the SUPABASE_URL project. Any read failure becomes one fixed code, so no SDK
+ * one user_profiles select. SUPABASE_URL must be exactly the bundle project's HTTPS origin. Any read failure becomes one fixed code, so no SDK
  * message can carry an email or id. Returns { target, results, allPass } and nothing else: per role { role, authUserExists, tierMatches,
  * idMatches, pass }, where idMatches compares the found account's id with the bundle's accountId and pass needs all three.
  */
 export async function verifyLiveJourneyAccounts({ supabase, raw, supabaseUrl, listUsers = listAllAuthUsers }) {
   const bundle = parseLiveAccountsBundle(raw);
-  let project = '';
-  try { project = new URL(supabaseUrl).hostname.split('.')[0]; } catch { /* refused below */ }
-  if (bundle.projectRef !== project) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: bundle-project-mismatch');
+  if (!isProjectOrigin(supabaseUrl, bundle.projectRef)) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: bundle-project-mismatch');
   const wanted = LIVE_JOURNEY_ROLES.map((r) => ({ ...r, email: bundle.accounts[r.role].email.toLowerCase(), accountId: bundle.accounts[r.role].accountId }));
   let byEmail, profiles;
   try {
