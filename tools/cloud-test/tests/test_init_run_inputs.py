@@ -467,7 +467,7 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
         rc_bytes = b'{"ceilings":{"starts":120},"starts":{"ownerCounted":0}}\n'
         committed_sha = hashlib.sha256(repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()).hexdigest()
         argv[argv.index("--facts") + 1] = json.dumps(facts(actionApproval=action_approval(req, committed_sha, rc_bytes)))
-        with mock.patch.object(I, "verified_checkpoint", lambda repo_dir, request, **_: rc_bytes), \
+        with mock.patch.object(I, "checkpoint_and_scope", lambda repo_dir, request, **_: (rc_bytes, None)), \
                 mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": bundle_with(ACCOUNT_ID), "SUPABASE_URL": SUPABASE_URL_OK}):
             self.assertEqual(I.main(argv), 0)
         committed = repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()
@@ -1671,13 +1671,7 @@ class StandingEnvelope(Journal):
         self.now = SLOT + timedelta(minutes=1)
         self.checkout = os.path.join(self.d, "checkout")
         # A real verified checkpoint over this journal, for the same approval and period as the synthetic standing approval.
-        self.scope_raw = json.dumps(rollup_scope(approvalRef=self.REF, periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z",
-                                                 ceilings={"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960,
-                                                           "starts": 1200, "takes": 1200}), sort_keys=True).encode()
-        os.makedirs(os.path.join(self.checkout, I.CONTINUITY_DIR))
-        for name, raw in ((I.CONTINUITY_BOOTSTRAP, self.raw), (I.CONTINUITY_SCOPE, self.scope_raw)):
-            with open(os.path.join(self.checkout, I.CONTINUITY_DIR, name), "wb") as f:
-                f.write(raw)
+        self.scoped()
         self.use(self.nightly_approval(startTakeGrant=self.GRANT))
 
     def use(self, approval_raw, derive_from=None):
@@ -1690,14 +1684,29 @@ class StandingEnvelope(Journal):
         self.req_raw = self.nightly_derive(ap=derive_from or approval_raw, run_id="101")
         self.req = json.loads(self.req_raw)
 
-    def checkpoint(self, req=None):
+    def scoped(self, **over):
+        """Writes the accepted period scope (the standing approval's own period and ceilings unless overridden)."""
+        doc = rollup_scope(approvalRef=self.REF, periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z",
+                           ceilings={"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1200, "takes": 1200})
+        doc.update(over)
+        self.scope_raw = json.dumps(doc, sort_keys=True).encode()
+        os.makedirs(os.path.join(self.checkout, I.CONTINUITY_DIR), exist_ok=True)
+        for name, raw in ((I.CONTINUITY_BOOTSTRAP, self.raw), (I.CONTINUITY_SCOPE, self.scope_raw)):
+            with open(os.path.join(self.checkout, I.CONTINUITY_DIR, name), "wb") as f:
+                f.write(raw)
+
+    def checkpoint_and_scope(self, req=None):
         pins = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope_raw).hexdigest(), reviewed_root=self.root)
-        return I.verified_checkpoint(self.checkout, req or self.req, pins, lambda root: self.chain())
+        return I.checkpoint_and_scope(self.checkout, req or self.req, pins, lambda root: self.chain())
+
+    def checkpoint(self, req=None):
+        return self.checkpoint_and_scope(req)[0]
 
     def derive(self, req=None, cases=None, now=None, attempt=1, prior=frozenset(), pin=""):
         req = self.req if req is None else req
         raw = self.req_raw if req is self.req else json.dumps(req, sort_keys=True).encode()
-        return I.standing_envelope(self.checkout, req, hashlib.sha256(raw).hexdigest(), self.checkpoint(), cases or I.ALL_CASES, self.cfg,
+        rc_bytes, scope = self.checkpoint_and_scope()
+        return I.standing_envelope(self.checkout, req, hashlib.sha256(raw).hexdigest(), rc_bytes, scope, cases or I.ALL_CASES, self.cfg,
                                    now or self.now, attempt, prior, pin=self.pin if pin == "" else pin)
 
     def changed(self, mutate):
@@ -1714,7 +1723,7 @@ class StandingEnvelope(Journal):
         self.use(self.nightly_approval(startTakeGrant=self.GRANT))
         nxt_raw = self.nightly_derive(ap=self.nightly_approval(startTakeGrant=self.GRANT), run_id="102", slot=self.slot + timedelta(days=1))
         nxt = json.loads(nxt_raw)
-        other = I.standing_envelope(self.checkout, nxt, hashlib.sha256(nxt_raw).hexdigest(), rc_bytes, I.ALL_CASES, self.cfg,
+        other = I.standing_envelope(self.checkout, nxt, hashlib.sha256(nxt_raw).hexdigest(), rc_bytes, self.checkpoint_and_scope()[1], I.ALL_CASES, self.cfg,
                                     self.now + timedelta(days=1), 1, frozenset({self.req["runId"]}), pin=self.pin)
         self.assertNotEqual(other["requestSha256"], self.derive()["requestSha256"])
 
@@ -1776,6 +1785,37 @@ class StandingEnvelope(Journal):
                 ("standing ref", {"req": self.changed(lambda r: r["nightly"].update(standingApprovalRef="slack:1793566031.065709"))}, "reference")):
             with self.subTest(label):
                 refused(self, "action-approval-standing-" + code, self.derive, **kw)
+
+    def test_the_checkpoint_period_and_every_period_ceiling_must_be_the_standing_approvals_own(self):
+        # RETURN 1793570165.380389: a different accounting scope can never extend the standing grant.
+        self.assertTrue(self.derive())
+        ceilings = {"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1200, "takes": 1200}
+        for label, over in (("period starts later", {"periodStartUtc": "2026-11-02T00:00:00Z"}),
+                            ("period ends later", {"periodEndUtc": "2026-12-02T00:00:00Z"}),
+                            ("higher accounting Starts ceiling", {"ceilings": dict(ceilings, starts=2000)}),
+                            ("higher takes ceiling", {"ceilings": dict(ceilings, takes=1300)}),
+                            ("higher identity ceiling", {"ceilings": dict(ceilings, identityReads=999)})):
+            with self.subTest(label):
+                self.scoped(**over)
+                refused(self, "action-approval-standing-period", self.derive)
+        self.scoped()
+        self.assertTrue(self.derive())
+
+    def test_an_exhausted_standing_limit_refuses_in_every_dimension(self):
+        need = {"requests": 4400, "identityReads": 32, "starts": self.req["estimate"]["starts"], "takes": self.req["estimate"]["takes"]}
+        self.assertTrue(self.derive())  # bootstrap + no period usage leaves headroom in every dimension
+        for k in I.STANDING_PERIOD_DIMENSIONS:
+            with self.subTest(k):
+                rc = json.loads(self.checkpoint())
+                left = rc["currentHeadroom"][k]
+                use = {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 0}
+                use[k] = left - need[k] + 1  # leaves exactly one less than this run needs
+                self.append("reserve", "4140000000%d" % I.STANDING_PERIOD_DIMENSIONS.index(k), use, at="2026-11-01T12:00:00Z")
+                # Identity exhaustion is already refused by the checkpoint's own per-run identity headroom check (RETURN #3), first.
+                refused(self, "continuity-run-identity-exceeds-period" if k == "identityReads" else "action-approval-standing-exhausted:" + k,
+                        self.derive)
+                self.append("release", "4140000000%d" % I.STANDING_PERIOD_DIMENSIONS.index(k), use, at="2026-11-01T12:00:01Z")
+                self.assertTrue(self.derive())
 
     def test_prepare_derives_only_without_a_supplied_envelope_and_refuses_two_sources(self):
         # The prepare branch itself: the admission steps before it are stubbed to a nightly result; the checkpoint, the derivation and the

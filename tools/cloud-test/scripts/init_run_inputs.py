@@ -54,6 +54,7 @@ RECURRING_APPROVAL_PATH = "tools/cloud-test/config/recurring-approval.json"
 RECURRING_APPROVAL_SHA256 = None
 STANDING_GRANT_KEYS = {"scope", "cases", "grantRef"}
 STANDING_GRANT_SCOPE = "per-occurrence-start-take"
+STANDING_PERIOD_DIMENSIONS = ("requests", "identityReads", "starts", "takes")
 ALL_CASES = ["AHT-%02d" % n for n in range(1, 16)]
 # build_plan.py binds ONE account id for the whole plan and labels AHT-15 maintained-read-only (line 179), so roles never mix in one run.
 ROLE = {**{c: "existing-disposable" for c in ALL_CASES[:14]}, "AHT-15": "maintained-read-only"}
@@ -511,7 +512,7 @@ def standing_grant_in_force(repo, pin=None):
     return isinstance(doc, dict) and "startTakeGrant" in doc
 
 
-def standing_envelope(repo, req, request_sha256, reconciliation_bytes, cases, cfg, now, attempt, prior, pin=None):
+def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, cases, cfg, now, attempt, prior, pin=None):
     """Option A (Sam 1793568947.054419): a nightly occurrence's action envelope, DERIVED only under the owner's explicit standing grant in the
     pinned recurring approval, never from data equality alone. The approval, attempt, occurrence (and its replay), cases, window, per-run
     and period limits and references are all checked BEFORE the envelope exists; the unchanged check_action_approval then admits it, and
@@ -550,8 +551,16 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, cases, cf
           and _int(run_cap) and run_cap <= caps["runCapRequests"] and _int(est.get("identityReads")) and est["identityReads"] <= caps["identityReads"]
           and _int(est.get("starts")) and est["starts"] <= caps["starts"] and _int(est.get("takes")) and est["takes"] <= caps["takes"],
           "action-approval-standing-per-run")
-    # The checkpoint's own period ceiling and remaining headroom checks already ran in verified_checkpoint.
-    _need(lim.get("cumulativeCeilingRequests") == period["requests"], "action-approval-standing-period")
+    # RETURN 1793570165.380389: the verified checkpoint's accounting period and every period ceiling are the standing approval's own, and
+    # the remaining headroom in each dimension still holds this run, so a different accounting scope can never extend the standing grant.
+    rc = json.loads(reconciliation_bytes)
+    _need(lim.get("cumulativeCeilingRequests") == period["requests"] and isinstance(scope, dict)
+          and _utc(scope.get("periodStartUtc")) == p_start and _utc(scope.get("periodEndUtc")) == p_end
+          and rc.get("scopeApprovalRef") == ap["approvalRef"]
+          and all(rc["ceilings"].get(k) == period[k] for k in STANDING_PERIOD_DIMENSIONS), "action-approval-standing-period")
+    need = {"requests": lim["runCapRequests"], "identityReads": lim["identityCap"], "starts": est["starts"], "takes": est["takes"]}
+    for k in STANDING_PERIOD_DIMENSIONS:
+        _need(_int(rc["currentHeadroom"].get(k)) and rc["currentHeadroom"][k] >= need[k], "action-approval-standing-exhausted:" + k)
     _need(lim.get("approvalRef") == ap["approvalRef"] and lim.get("approvedBy") == ap["approvedBy"]
           and req.get("selectionApprovalRef") == ap["approvalRef"] and n.get("standingApprovalRef") == ap["approvalRef"],
           "action-approval-standing-reference")
@@ -561,8 +570,9 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, cases, cf
     return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
 
 
-def verified_checkpoint(repo, req, pins=None, chain_reader=None):
-    """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, or a continuity-* refusal. `pins` and
+def checkpoint_and_scope(repo, req, pins=None, chain_reader=None):
+    """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, with the accepted period scope they were
+    received under (the standing derivation binds its period), or a continuity-* refusal. `pins` and
     `chain_reader` are TEST-ONLY overrides; production uses continuity_pins() (all None today) and the real state-ref journal."""
     pins = continuity_pins() if pins is None else pins
     _need(pins.get("accepted_sha256") is not None and pins.get("accepted_root") is not None, "continuity-rollup-not-accepted")
@@ -595,7 +605,12 @@ def verified_checkpoint(repo, req, pins=None, chain_reader=None):
         # Applicable = stated by the admitted request; the cumulative request and identity ceilings are always stated (check_request).
         if lim.get(limit) is not None or limit in ("cumulativeCeilingRequests", "identityCap"):
             _need(_int(lim.get(limit)) and rc["ceilings"][ceiling] == lim[limit], "continuity-ceiling-not-the-request:" + ceiling)
-    return (json.dumps(rc, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+    return (json.dumps(rc, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii"), scope
+
+
+def verified_checkpoint(repo, req, pins=None, chain_reader=None):
+    """The checkpoint bytes alone (see checkpoint_and_scope); `pins` and `chain_reader` are TEST-ONLY overrides."""
+    return checkpoint_and_scope(repo, req, pins, chain_reader)[0]
 
 
 def prepare(x, now):
@@ -632,12 +647,12 @@ def prepare(x, now):
     def read_chain(root):
         chains.append(state_chain(root))
         return chains[-1]
-    reconciliation = verified_checkpoint(repo, req, chain_reader=read_chain)
+    reconciliation, accepted_scope = checkpoint_and_scope(repo, req, chain_reader=read_chain)
     request_sha256, supplied = hashlib.sha256(req_raw).hexdigest(), facts.get("actionApproval")
     if nightly and supplied is None:
         # Option A: derived for THIS occurrence under the pinned standing grant (refuses while the production pin is unset).
-        builder_facts = dict(builder_facts, actionApproval=standing_envelope(repo, req, request_sha256, reconciliation, cases, cfg, now,
-                                                                             x.attempt, reserved_occurrences(chains[-1])))
+        builder_facts = dict(builder_facts, actionApproval=standing_envelope(repo, req, request_sha256, reconciliation, accepted_scope, cases,
+                                                                             cfg, now, x.attempt, reserved_occurrences(chains[-1])))
     else:
         _need(not (nightly and standing_grant_in_force(repo)), "action-approval-two-sources")
         check_action_approval(supplied, request_sha256, reconciliation, req)
