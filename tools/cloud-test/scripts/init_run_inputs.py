@@ -37,6 +37,10 @@ import publish_latest_record as LR  # noqa: E402
 
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
+# NIGHTLY facts (Elon 1793560137.871769, pending Sam's content/pin decision): a scheduled run has no operator facts input, so its facts are
+# the committed file below, admitted only when its bytes hash to the reviewed pin. None today: every nightly prepare refuses.
+NIGHTLY_FACTS_PATH = "tools/cloud-test/config/nightly/facts.json"
+NIGHTLY_FACTS_SHA256 = None
 ALL_CASES = ["AHT-%02d" % n for n in range(1, 16)]
 # build_plan.py binds ONE account id for the whole plan and labels AHT-15 maintained-read-only (line 179), so roles never mix in one run.
 ROLE = {**{c: "existing-disposable" for c in ALL_CASES[:14]}, "AHT-15": "maintained-read-only"}
@@ -145,6 +149,21 @@ def nightly_request(path, gate_sha256, run_id, source_sha):
     _need(n.get("runId") == run_id and type(n.get("attempt")) is int and n["attempt"] == 1, "nightly-request-not-this-run")
     _need((req.get("release") or {}).get("testedSha") == source_sha, "nightly-request-not-this-source")
     return path, hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest(), raw
+
+
+def nightly_facts(repo, pin=None):
+    """The scheduled run's facts: exactly the committed facts file whose bytes hash to the reviewed pin (`pin` is a TEST-ONLY override of
+    NIGHTLY_FACTS_SHA256). Validated afterwards by the same translate_facts/account checks as a dispatch's facts."""
+    pinned = NIGHTLY_FACTS_SHA256 if pin is None else pin
+    _need(pinned is not None, "nightly-facts-not-pinned")
+    path = os.path.join(repo, NIGHTLY_FACTS_PATH)
+    _need(os.path.isfile(path) and not os.path.islink(path), "nightly-facts-unreadable")
+    raw = _read(path)
+    _need(hashlib.sha256(raw).hexdigest() == pinned, "nightly-facts-not-the-pinned-bytes")
+    try:
+        return json.loads(raw)
+    except ValueError:
+        raise Refused("nightly-facts-unreadable")
 
 
 def admitted_request(path, admitted_sha256):
@@ -419,7 +438,8 @@ def prepare(x, now):
     route = "github-producer" if set(cases) & PRODUCER_CASES else "github-direct"
     live_minutes = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
     check_window_fit(req, now, live_minutes)
-    facts = json.loads(x.facts or "null")
+    _need(not (nightly and x.facts), "nightly-facts-input-refused")
+    facts = nightly_facts(repo) if nightly else json.loads(x.facts or "null")
     _need(isinstance(facts, dict), "facts-shape")
     lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys)
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))

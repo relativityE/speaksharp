@@ -1273,6 +1273,28 @@ class NightlyMode(unittest.TestCase):
                       nightly_request_file=self.path, nightly_request_sha256=self.digest)
         refused(self, "request-source-ambiguous", I.prepare, x, self.slot)
 
+    def test_nightly_facts_are_only_the_committed_file_with_the_pinned_bytes(self):
+        repo = os.path.join(self.d, "repo")
+        refused(self, "nightly-facts-not-pinned", I.nightly_facts, repo)
+        self.assertIsNone(I.NIGHTLY_FACTS_SHA256)
+        refused(self, "nightly-facts-unreadable", I.nightly_facts, repo, "0" * 64)
+        raw = json.dumps(facts(ownerApprovalReference="slack:1793553158.013909")).encode()
+        os.makedirs(os.path.join(repo, os.path.dirname(I.NIGHTLY_FACTS_PATH)))
+        with open(os.path.join(repo, I.NIGHTLY_FACTS_PATH), "wb") as f:
+            f.write(raw)
+        self.assertEqual(I.nightly_facts(repo, hashlib.sha256(raw).hexdigest()), json.loads(raw))
+        refused(self, "nightly-facts-not-the-pinned-bytes", I.nightly_facts, repo, hashlib.sha256(raw + b" ").hexdigest())
+
+    def test_a_scheduled_prepare_refuses_a_facts_input_and_reads_only_the_pinned_file(self):
+        from _fixtures import REPO
+        x = mock.Mock(repo=REPO, run_id="101", attempt=1, source_sha=self.sha, request=None, nightly_request_file=self.path,
+                      nightly_request_sha256=self.digest, config="tools/cloud-test/config/test-config.v1.json", job_timeout_minutes=340,
+                      facts=json.dumps(facts()))
+        with mock.patch.object(I, "_git", return_value=self.sha):
+            refused(self, "nightly-facts-input-refused", I.prepare, x, self.slot + timedelta(minutes=1))
+            x.facts = None
+            refused(self, "nightly-facts-not-pinned", I.prepare, x, self.slot + timedelta(minutes=1))
+
 
 class WindowAtAdmission(unittest.TestCase):
     def test_the_remaining_window_must_hold_live_and_collect_and_is_never_reset(self):

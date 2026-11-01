@@ -59,8 +59,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n'
                       '  (umask 077; printf \'%s\' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")\n'
                       '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n'
-                      'else\n  SRC=(--request "$REQUEST")\nfi\n', init["run"])
-        self.assertIn('init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}"', init["run"])
+                      'else\n  SRC=(--request "$REQUEST" --facts "$FACTS")\nfi\n', init["run"])
+        self.assertIn('init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \\\n  --checkpoint', init["run"])
+        self.assertEqual(init["run"].count("--facts"), 1, "a scheduled run never passes a facts input")
         self.assertEqual(begin["needs"], "nightly-gate")
         self.assertEqual(begin["if"], "${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && "
                                       "needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}")

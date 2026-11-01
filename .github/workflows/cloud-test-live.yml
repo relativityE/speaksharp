@@ -206,15 +206,16 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$PRIOR_STATE" > "$RUNNER_TEMP/prior-state.json"
-          # A dispatch names its committed request; a scheduled run admits exactly the gate's derived bytes (prepare checks their digest).
+          # A dispatch names its committed request and facts; a scheduled run admits exactly the gate's derived bytes (prepare checks their
+          # digest) and reads its facts only from the pinned committed file (prepare refuses a facts input there).
           if [ "$GITHUB_EVENT_NAME" = schedule ]; then
             (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
             SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")
           else
-            SRC=(--request "$REQUEST")
+            SRC=(--request "$REQUEST" --facts "$FACTS")
           fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \
-            --facts "$FACTS" --checkpoint "$RUNNER_TEMP/prior-state.json" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --checkpoint "$RUNNER_TEMP/prior-state.json" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --source-sha "$GITHUB_SHA" --job-timeout-minutes 340 --out "$RUNNER_TEMP/run-inputs" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
       - name: Stage runner (install-tools, plans, stimulus preflight, gates)
         env:
