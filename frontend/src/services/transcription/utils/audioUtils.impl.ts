@@ -3,6 +3,7 @@ import { MicStream, MicStreamOptions } from './types';
 import { ENV } from '../../../config/TestFlags';
 import { PRIV_CLOUD_AUDIO } from '../sttConstants';
 import { FrameReplayBuffer } from './frameReplayBuffer';
+import { beginPcmBoundaryCapture, inheritPcmSlice } from '../pcmBoundaryReceipt';
 
 // This file contains the actual implementation for creating a microphone stream
 // and is dynamically imported by the 'safe' wrapper file (audioUtils.ts).
@@ -167,8 +168,9 @@ export async function createMicStreamImpl(
   await audioCtx.audioWorklet.addModule(workletUrl);
 
   const source = audioCtx.createMediaStreamSource(mediaStream);
+  const pcmReceipt = beginPcmBoundaryCapture(sampleRate);
   const node = new AudioWorkletNode(audioCtx, 'pcm-downsampler', {
-    processorOptions: { targetSampleRate: sampleRate, frameSize }
+    processorOptions: { targetSampleRate: sampleRate, frameSize, ...(pcmReceipt ? { pcmReceipt: true } : {}) }
   });
 
   const listeners = new Set<(frame: Float32Array) => void>();
@@ -178,11 +180,27 @@ export async function createMicStreamImpl(
   // opening on slow-startup environments (measured 28.3s buffer on a 34.5s fixture, no trim). Bounded to
   // REPLAY_BUFFER_SECONDS so long sessions never grow unbounded; well beyond the observed ~6-9s gap.
   const replayBuffer = new FrameReplayBuffer(Math.round(sampleRate * REPLAY_BUFFER_SECONDS));
-  node.port.onmessage = (e: MessageEvent<Float32Array>) => {
-    // e.data is Float32Array at 16kHz mono
-    const frame = e.data;
+  let receiptStopRequested = false, receiptCloseTimer: ReturnType<typeof setTimeout> | undefined;
+  const closeContext = () => audioCtx.close().catch(err => {
+    logger.debug({ err }, '[audioUtils] Best-effort context close failed');
+  });
+  node.port.onmessage = (e: MessageEvent<unknown>) => {
+    const message = e.data !== null && typeof e.data === 'object' ? e.data as Record<string, unknown> : undefined;
+    if (pcmReceipt && message?.kind === 'speaksharp-pcm-closed-v1') {
+      if (!receiptStopRequested) { pcmReceipt.incomplete('worklet-metadata'); return; }
+      clearTimeout(receiptCloseTimer);
+      pcmReceipt.closeWorklet(typeof message.frames === 'number' ? message.frames : undefined, typeof message.samples === 'number' ? message.samples : undefined);
+      void closeContext(); return;
+    }
+    const frame = e.data instanceof Float32Array ? e.data : message?.pcm;
+    if (!(frame instanceof Float32Array)) { pcmReceipt?.incomplete('worklet-metadata'); return; }
+    if (pcmReceipt) {
+      if (message?.kind === 'speaksharp-pcm-frame-v1' && typeof message.sequence === 'number' && typeof message.sourceStart === 'number') {
+        pcmReceipt.worklet(frame, message.sequence, message.sourceStart);
+      } else pcmReceipt.incomplete('worklet-metadata');
+    }
     // Store a copy so a listener that transfers/mutates the live frame cannot corrupt the replay ring.
-    replayBuffer.push(frame.slice(0));
+    replayBuffer.push(inheritPcmSlice(frame, frame.slice(0), 0, 'replay'));
     for (const cb of listeners) cb(frame);
   };
 
@@ -191,6 +209,15 @@ export async function createMicStreamImpl(
   source.connect(node).connect(gainNode).connect(audioCtx.destination); // destination keeps graph alive
 
   const stopAndClose = () => {
+    if (pcmReceipt) {
+      if (receiptStopRequested) return;
+      receiptStopRequested = true;
+      // Only diagnostic mode keeps the silent context briefly alive for the
+      // worklet's final sequence watermark. Tracks/disconnections stop immediately.
+      receiptCloseTimer = setTimeout(() => { pcmReceipt.closeWorklet(); void closeContext(); }, 1000);
+      try { node.port.postMessage({ kind: 'speaksharp-pcm-finish-v1' }); }
+      catch { clearTimeout(receiptCloseTimer); pcmReceipt.closeWorklet(); void closeContext(); }
+    }
     replayBuffer.clear(); // #960: release retained frames on teardown
     try {
       source.disconnect();
@@ -198,9 +225,7 @@ export async function createMicStreamImpl(
     } catch (err) {
       logger.debug({ err }, '[audioUtils] Best-effort disconnect failed');
     }
-    audioCtx.close().catch((err) => {
-      logger.debug({ err }, '[audioUtils] Best-effort context close failed');
-    });
+    if (!pcmReceipt) void closeContext();
     mediaStream.getTracks().forEach(t => t.stop());
   };
 
