@@ -17,19 +17,31 @@ const ROOT = '/var/tmp/ss-harness';
 function fail(msg) { console.error('browser-setup: BLOCKED_SETUP: ' + msg); process.exit(2); }
 const sha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 
+function ensureSecureRoot(root,expectedUid=typeof process.getuid==='function'?process.getuid():0,
+  expectedGid=typeof process.getgid==='function'?process.getgid():0) {
+ if(!path.isAbsolute(root))throw new Error('browser root must be absolute');
+ try{fs.mkdirSync(root,{mode:0o755});}catch(e){if(e.code!=='EEXIST')throw e;}
+ const st=fs.lstatSync(root);
+ if(!st.isDirectory()||st.isSymbolicLink()||fs.realpathSync(root)!==path.resolve(root))throw new Error('browser root must be a canonical directory');
+ if(st.uid!==expectedUid||st.gid!==expectedGid)throw new Error('browser root has foreign ownership');
+ if((st.mode&0o022)!==0)throw new Error('browser root is writable by group or other users');
+ fs.chmodSync(root,0o755);
+}
+
 function copyBoundBrowser({sourceExecutable,expectedSha256,root=ROOT,
   copyDirectory=(source,destination)=>execFileSync('cp',['-a','--no-preserve=ownership',source+'/.',destination+'/'],{stdio:'inherit'}),
-  preparePrivateDirectory=(target)=>{fs.mkdirSync(target,{recursive:true});fs.chownSync(target,65534,65534);fs.chmodSync(target,0o700);},
+  preparePrivateDirectory=(target)=>{fs.rmSync(target,{recursive:true,force:true});fs.mkdirSync(target,{mode:0o700});fs.chownSync(target,65534,65534);fs.chmodSync(target,0o700);},
   setOwnership=(target)=>execFileSync('chown',['-R','0:0',target]),
   setPermissions=(target)=>execFileSync('chmod',['-R','a+rX,go-w',target]),
-  setWrapperOwnership=(target)=>fs.chownSync(target,0,0)}) {
+  setWrapperOwnership=(target)=>fs.chownSync(target,0,0),
+  expectedRootUid=typeof process.getuid==='function'?process.getuid():0,
+  expectedRootGid=typeof process.getgid==='function'?process.getgid():0}) {
  if (!path.isAbsolute(sourceExecutable) || !fs.existsSync(sourceExecutable)) throw new Error('bound existing browser is missing or not absolute');
  const st=fs.lstatSync(sourceExecutable);
  if (!st.isFile() || st.isSymbolicLink() || fs.realpathSync(sourceExecutable)!==path.resolve(sourceExecutable)) throw new Error('bound existing browser must be a canonical regular file');
  if (!/^[a-f0-9]{64}$/.test(expectedSha256||'') || sha(sourceExecutable)!==expectedSha256) throw new Error('bound existing browser bytes changed after outer setup');
  const srcDir=path.dirname(sourceExecutable);
- fs.mkdirSync(root,{recursive:true,mode:0o755});
- fs.chmodSync(root,0o755);
+ ensureSecureRoot(root,expectedRootUid,expectedRootGid);
  for (const d of ['profiles','home','downloads']) {
   const p=path.join(root,d);
   preparePrivateDirectory(p);
@@ -43,8 +55,15 @@ function copyBoundBrowser({sourceExecutable,expectedSha256,root=ROOT,
  if(sha(path.join(dst,'chrome'))!==expectedSha256)throw new Error('copied chrome binary differs from the source');
  const wrapperSrc=path.join(__dirname,'chrome-wrapper.sh');
  const wrapper=path.join(root,'chrome-wrapper.sh');
- fs.copyFileSync(wrapperSrc,wrapper);setWrapperOwnership(wrapper);fs.chmodSync(wrapper,0o755);
- if(sha(wrapper)!==sha(wrapperSrc))throw new Error('installed wrapper differs from the bundle copy');
+ const wrapperTmp=path.join(root,`.chrome-wrapper.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`);
+ try{
+  fs.copyFileSync(wrapperSrc,wrapperTmp,fs.constants.COPYFILE_EXCL);setWrapperOwnership(wrapperTmp);fs.chmodSync(wrapperTmp,0o755);
+  const tmp=fs.lstatSync(wrapperTmp);
+  if(!tmp.isFile()||tmp.isSymbolicLink()||tmp.uid!==expectedRootUid||tmp.gid!==expectedRootGid||sha(wrapperTmp)!==sha(wrapperSrc))throw new Error('staged wrapper differs from the root-owned bundle copy');
+  fs.renameSync(wrapperTmp,wrapper);
+ }finally{fs.rmSync(wrapperTmp,{force:true});}
+ const installed=fs.lstatSync(wrapper);
+ if(!installed.isFile()||installed.isSymbolicLink()||installed.uid!==expectedRootUid||installed.gid!==expectedRootGid||sha(wrapper)!==sha(wrapperSrc))throw new Error('installed wrapper differs from the root-owned bundle copy');
  return{dst,wrapper,sourceExecutable,copiedExecutable:path.join(dst,'chrome'),profilesRoot:path.join(root,'profiles'),downloadsPath:path.join(root,'downloads')};
 }
 
@@ -62,4 +81,4 @@ function main(){
 }
 
 if(require.main===module)main();
-module.exports={copyBoundBrowser};
+module.exports={copyBoundBrowser,ensureSecureRoot};

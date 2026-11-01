@@ -391,15 +391,26 @@ class RealBrowserSetupCopyBoundary(unittest.TestCase):
         self.module = Path(__file__).resolve().parents[1] / "harness" / "bundle" / "harness" / "browser-setup.cjs"
 
     def invoke(self, mode="clean"):
+        if self.root.is_symlink():
+            self.root.unlink()
+            self.root.mkdir()
+        elif not self.root.exists():
+            self.root.mkdir()
+        self.root.chmod(0o755)
         script = r"""
 const fs=require('fs'),path=require('path');
 const [mod,source,root,expected,mode]=process.argv.slice(1);
 const {copyBoundBrowser}=require(mod);
 const copyDirectory=(src,dst)=>{fs.cpSync(src,dst,{recursive:true});if(mode==='copied-tamper')fs.writeFileSync(path.join(dst,path.basename(source)),'tampered copied bytes');if(mode==='source-during-copy')fs.writeFileSync(source,'tampered source bytes');};
 try{
+ if(mode==='writable-root')fs.chmodSync(root,0o777);
+ if(mode==='root-symlink'){const target=root+'-target';fs.rmSync(root,{recursive:true,force:true});fs.mkdirSync(target);fs.symlinkSync(target,root);}
+ const actual=fs.statSync(mode==='root-symlink'?root+'-target':root);
  const out=copyBoundBrowser({sourceExecutable:source,expectedSha256:expected,root,copyDirectory,
   preparePrivateDirectory:p=>{fs.mkdirSync(p,{recursive:true});fs.chmodSync(p,0o700);},
-  setOwnership:()=>{},setPermissions:()=>{},setWrapperOwnership:()=>{}});
+  setOwnership:()=>{},setPermissions:()=>{},
+  setWrapperOwnership:p=>{if(mode==='wrapper-tamper')fs.writeFileSync(p,'replaced wrapper bytes');},
+  expectedRootUid:mode==='foreign-owner'?actual.uid+1:actual.uid,expectedRootGid:actual.gid});
  console.log(JSON.stringify(out));
 }catch(e){console.error(String(e.message||e));process.exit(78);}
 """
@@ -435,6 +446,20 @@ try{
                 result = self.invoke(mode)
                 self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
                 self.assertRegex(result.stderr, r"copied chrome binary differs|changed during copy")
+
+    def test_real_copy_refuses_foreign_writable_or_symlink_browser_roots(self):
+        for mode, message in (("foreign-owner", "foreign ownership"),
+                              ("writable-root", "writable by group or other users"),
+                              ("root-symlink", "canonical directory")):
+            with self.subTest(mode=mode):
+                result = self.invoke(mode)
+                self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+                self.assertIn(message, result.stderr)
+
+    def test_real_copy_stages_and_verifies_wrapper_before_atomic_install(self):
+        result = self.invoke("wrapper-tamper")
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("staged wrapper differs", result.stderr)
 
 
 if __name__ == "__main__":

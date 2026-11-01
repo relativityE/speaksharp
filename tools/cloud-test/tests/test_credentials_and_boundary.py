@@ -43,7 +43,8 @@ class Credentials(unittest.TestCase):
         self.assertEqual(st["build-plan"], ["VITE_SUPABASE_ANON_KEY"])
         for s in ("install-tools", "stimulus-preflight", "gate-and-validate", "collect"):
             self.assertEqual(st[s], [], s)
-        self.assertEqual(set(st["run"]), {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_ANON_KEY"})
+        self.assertEqual(set(st["run"]), {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL",
+                                          "VITE_SUPABASE_ANON_KEY"})
         for s, names in st.items():
             if s != "run":
                 self.assertNotIn("THROWAWAY_TEST_PASSWORD", names, s)
@@ -115,13 +116,14 @@ class Credentials(unittest.TestCase):
             return subprocess.run(["bash", "-c", harness], capture_output=True, text=True, env={**JOB, **env, "PATH": path})
 
     def test_a_stage_receives_only_its_allowlisted_credentials(self):
-        env = {"THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_ANON_KEY": "k", "SUPABASE_SERVICE_ROLE_KEY": "s", "STRIPE_SECRET_KEY": "x", "AWS_SECRET_ACCESS_KEY": "a", "GH_TOKEN": "g"}
+        env = {"THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co",
+               "VITE_SUPABASE_ANON_KEY": "k", "SUPABASE_SERVICE_ROLE_KEY": "s", "STRIPE_SECRET_KEY": "x", "AWS_SECRET_ACCESS_KEY": "a", "GH_TOKEN": "g"}
         for stage, expected in (("build-plan", {"VITE_SUPABASE_ANON_KEY"}), ("install-tools", set()), ("stimulus-preflight", set()), ("gate-and-validate", set()),
-                                ("run", {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_ANON_KEY"})):
+                                ("run", {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"})):
             r = self.run_stage_env(stage, env)
             self.assertEqual(r.returncode, 0, r.stderr)
             names = set(r.stdout.split())
-            leaked = names & {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "STRIPE_SECRET_KEY", "AWS_SECRET_ACCESS_KEY", "GH_TOKEN"}
+            leaked = names & {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "STRIPE_SECRET_KEY", "AWS_SECRET_ACCESS_KEY", "GH_TOKEN"}
             self.assertEqual(leaked, expected, stage)
 
     def test_a_stage_that_needs_a_credential_fails_when_it_is_missing(self):
@@ -129,7 +131,7 @@ class Credentials(unittest.TestCase):
         self.assertEqual(r.returncode, 78)
 
     def test_even_producer_route_arbitrary_children_receive_no_broker_keys(self):
-        env = {"THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_ANON_KEY": "k",
+        env = {"THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co", "VITE_SUPABASE_ANON_KEY": "k",
                "SUPABASE_SERVICE_ROLE_KEY": "not-exported-service", "POSTHOG_PERSONAL_API_KEY": "not-exported-telemetry",
                "ss_broker_service_role": "not-exported-service", "ss_broker_telemetry_key": "not-exported-telemetry"}
         for route in ("claude", "github-direct", "github-producer"):
@@ -143,7 +145,7 @@ class Credentials(unittest.TestCase):
                 self.assertNotIn("not-exported-", r.stdout + r.stderr)
 
     def test_only_fixed_producer_run_command_receives_broker_keys(self):
-        env = {"THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_ANON_KEY": "k",
+        env = {"THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co", "VITE_SUPABASE_ANON_KEY": "k",
                "SUPABASE_SERVICE_ROLE_KEY": "not-printed-service", "POSTHOG_PERSONAL_API_KEY": "not-printed-telemetry",
                "AWS_SECRET_ACCESS_KEY": "not-printed-aws", "GH_TOKEN": "not-printed-github"}
         r = self.run_stage_env("run", env, route="github-producer", fixed_parent=True)
