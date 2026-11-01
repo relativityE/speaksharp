@@ -163,7 +163,9 @@ def canon(doc):
 
 
 def _occurrence(rec, identity):
-    qualified_rows = bool(rec.get("rowVerdicts")) and rec["coverage"] != "unqualified" and rec.get("evidence") is not None
+    # usable row evidence needs at least one EXECUTED row (PASS or FAIL): an all-NOT-RUN map is not evidence (RETURN 1793576632.959179)
+    executed = any(ch in "PF" for v in (rec.get("rowVerdicts") or {}).values() for ch in v)
+    qualified_rows = executed and rec["coverage"] != "unqualified" and rec.get("evidence") is not None
     return dict({k: rec.get(k) for k in OCCURRENCE_KEYS - {"identity", "evidence", "rowEvidence"}}, identity=identity,
                 evidence=rec.get("evidence"), rowEvidence=qualified_rows)
 
