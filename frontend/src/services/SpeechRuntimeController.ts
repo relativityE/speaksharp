@@ -149,7 +149,10 @@ type ObjectivePublicationWitness = {
     missingCount: number;
 };
 const objectivePublicationWitnesses: ObjectivePublicationWitness[] = [];
-const pendingObjectivePublicationWitnesses = new Set<Promise<void>>();
+type PendingObjectivePublicationWitness = { sequence: number; active: boolean; job: Promise<void> };
+const pendingObjectivePublicationWitnesses = new Map<number, PendingObjectivePublicationWitness>();
+const OBJECTIVE_PUBLICATION_PENDING_LIMIT = 2;
+const OBJECTIVE_PUBLICATION_READ_DEADLINE_MS = 100;
 let objectivePublicationSequence = 0;
 const objectiveWitnessSha256 = async (value: string): Promise<string> => {
     const bytes = new TextEncoder().encode(value);
@@ -165,19 +168,35 @@ const recordObjectivePublicationWitness = (
     if (!sessionId || !statuses.length || statuses.some((status) => !['covered', 'partial', 'missing'].includes(status))) return;
     window.__PRIVATE_OBJECTIVE_PUBLICATIONS__ = {
         read: async () => {
-            await Promise.all([...pendingObjectivePublicationWitnesses]);
-            return objectivePublicationWitnesses.map((row) => ({ ...row }));
+            await Promise.race([
+                Promise.all([...pendingObjectivePublicationWitnesses.values()].map((entry) => entry.job)),
+                new Promise<void>((resolve) => setTimeout(resolve, OBJECTIVE_PUBLICATION_READ_DEADLINE_MS)),
+            ]);
+            return objectivePublicationWitnesses
+                .slice()
+                .sort((a, b) => a.sequence - b.sequence)
+                .map((row) => ({ ...row }));
         },
     };
-    let job: Promise<void>;
-    job = Promise.all([
+    // Publication identity is assigned synchronously at the owned store write. Hash completion may
+    // arrive out of order; it must never redefine publication order or the observed publication time.
+    const sequence = ++objectivePublicationSequence;
+    const createdAtMs = performance.now();
+    while (pendingObjectivePublicationWitnesses.size >= OBJECTIVE_PUBLICATION_PENDING_LIMIT) {
+        const oldest = [...pendingObjectivePublicationWitnesses.values()].sort((a, b) => a.sequence - b.sequence)[0];
+        oldest.active = false;
+        pendingObjectivePublicationWitnesses.delete(oldest.sequence);
+    }
+    const entry: PendingObjectivePublicationWitness = { sequence, active: true, job: Promise.resolve() };
+    const job = Promise.all([
         objectiveWitnessSha256(sessionId),
         objectiveWitnessSha256(JSON.stringify(['speaksharp.objective-publication.statuses.v1', statuses])),
     ]).then(([sessionSha256, statusChainSha256]) => {
+        if (!entry.active) return;
         const witness: ObjectivePublicationWitness = {
             schema: 'speaksharp.objective-publication.v1',
-            sequence: ++objectivePublicationSequence,
-            createdAtMs: performance.now(),
+            sequence,
+            createdAtMs,
             sessionSha256,
             statusChainSha256,
             pointCount: statuses.length,
@@ -186,11 +205,17 @@ const recordObjectivePublicationWitness = (
             missingCount: statuses.filter((status) => status === 'missing').length,
         };
         objectivePublicationWitnesses.push(witness);
+        objectivePublicationWitnesses.sort((a, b) => a.sequence - b.sequence);
         while (objectivePublicationWitnesses.length > 2) objectivePublicationWitnesses.shift();
     }).catch(() => {
         pushNativeRuntimeTrace('controller_objective_publication_witness_unavailable');
-    }).finally(() => pendingObjectivePublicationWitnesses.delete(job));
-    pendingObjectivePublicationWitnesses.add(job);
+    }).finally(() => {
+        if (pendingObjectivePublicationWitnesses.get(sequence) === entry) {
+            pendingObjectivePublicationWitnesses.delete(sequence);
+        }
+    });
+    entry.job = job;
+    pendingObjectivePublicationWitnesses.set(sequence, entry);
 };
 
 const getVisibleTranscriptText = (transcript: { transcript: string; partial: string }): string =>

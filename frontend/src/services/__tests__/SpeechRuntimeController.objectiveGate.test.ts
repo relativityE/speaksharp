@@ -12,13 +12,51 @@
 // '#1045: the completed-save journey wires the Progress evaluation seam' in SpeechRuntimeController.test.ts
 // (a private session with no objective brief invokes wireProgressEvaluationOnSave directly).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import React from 'react';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { render, screen } from '../../../tests/support/test-utils';
+import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
+import type { SttStatus } from '@/types/transcription';
 
-// The controller dynamically imports the objective finalize seam; vi.mock intercepts the dynamic import too.
-const finalizeObjectiveSessionOnSave = vi.fn();
-vi.mock('@/services/objective/finalizeObjectiveSessionOnSave', () => ({
-    finalizeObjectiveSessionOnSave: (...a: unknown[]) => finalizeObjectiveSessionOnSave(...a),
+// Most controller-gate cases isolate the seam. The composed cases below switch the same wrapper to the
+// REAL finalizer while keeping only its transport/persistence boundaries deterministic.
+const objectiveHarness = vi.hoisted(() => ({
+    useRealFinalizer: false,
+    finalizeOverride: vi.fn(),
+    registerObjectiveSource: vi.fn(),
+    startObjectiveSession: vi.fn(),
+    finalizeObjectiveEvidence: vi.fn(),
+    pointsRows: [] as Array<{ id: string; label: string; cue: string | null; sort_order: number }>,
+    pointsError: null as unknown,
+}));
+const finalizeObjectiveSessionOnSave = objectiveHarness.finalizeOverride;
+vi.mock('@/services/objective/finalizeObjectiveSessionOnSave', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/services/objective/finalizeObjectiveSessionOnSave')>();
+    return {
+        ...actual,
+        finalizeObjectiveSessionOnSave: (...args: Parameters<typeof actual.finalizeObjectiveSessionOnSave>) => (
+            objectiveHarness.useRealFinalizer
+                ? actual.finalizeObjectiveSessionOnSave(...args)
+                : objectiveHarness.finalizeOverride(...args)
+        ),
+    };
+});
+vi.mock('@/services/objective/objectiveSessionService', () => ({
+    registerObjectiveSource: (...args: unknown[]) => objectiveHarness.registerObjectiveSource(...args),
+    startObjectiveSession: (...args: unknown[]) => objectiveHarness.startObjectiveSession(...args),
+    finalizeObjectiveEvidence: (...args: unknown[]) => objectiveHarness.finalizeObjectiveEvidence(...args),
+}));
+vi.mock('@/lib/supabaseClient', () => ({
+    getSupabaseClient: () => ({
+        from: () => ({
+            select: () => ({
+                eq: () => ({
+                    order: async () => ({ data: objectiveHarness.pointsRows, error: objectiveHarness.pointsError }),
+                }),
+            }),
+        }),
+    }),
 }));
 vi.mock('../../lib/logger', () => ({
     default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), trace: vi.fn() },
@@ -46,7 +84,13 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
     let runProgressEval: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
+        objectiveHarness.useRealFinalizer = false;
         finalizeObjectiveSessionOnSave.mockReset();
+        objectiveHarness.registerObjectiveSource.mockReset();
+        objectiveHarness.startObjectiveSession.mockReset();
+        objectiveHarness.finalizeObjectiveEvidence.mockReset();
+        objectiveHarness.pointsRows = [];
+        objectiveHarness.pointsError = null;
         runProgressEval = vi.fn();
         useSessionStore.getState().setObjectiveCoverageResult(null);
         delete window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__;
@@ -119,6 +163,73 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         expect(useSessionStore.getState().objectiveCoverageResult).toEqual([{ id: 'p1', label: 'pricing', status: 'covered' }]);
     });
 
+    it('composes controller → real finalizer → store → rendered terminal rail', async () => {
+        objectiveHarness.useRealFinalizer = true;
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        objectiveHarness.registerObjectiveSource.mockResolvedValue({ ok: true });
+        objectiveHarness.startObjectiveSession.mockResolvedValue({ ok: true, sessionId: 'objective-session' });
+        objectiveHarness.pointsRows = [
+            { id: 'p1', label: 'pricing cost', cue: null, sort_order: 0 },
+            { id: 'p2', label: 'support guarantee', cue: null, sort_order: 1 },
+        ];
+        objectiveHarness.finalizeObjectiveEvidence.mockResolvedValue(2);
+        await gate(
+            BRIEF,
+            'composed-take',
+            [{ text: 'our pricing cost is predictable', startSec: 8 }],
+            60,
+            runProgressEval,
+            () => true,
+        );
+        const authority = useSessionStore.getState().objectiveCoverageResult;
+        expect(authority).toEqual([
+            { id: 'p1', label: 'pricing cost', status: 'covered' },
+            { id: 'p2', label: 'support guarantee', status: 'missing' },
+        ]);
+        expect(objectiveHarness.finalizeObjectiveEvidence).toHaveBeenCalledWith('objective-session', [
+            { brief_point_id: 'p1', detected_at_seconds: 8 },
+            { brief_point_id: 'p2', detected_at_seconds: null },
+        ]);
+        useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'viewer', captureLive: false });
+        render(React.createElement(SessionOverhaulView, {
+            authUserId: 'viewer',
+            isListening: false,
+            sttStatus: { type: 'idle' } as SttStatus,
+            elapsedTime: 0,
+            scoringElapsedSeconds: 60,
+            micLevel: 0,
+            transcriptContent: '',
+            reviewTranscript: { kind: 'available', text: 'our pricing cost is predictable' },
+            showAnalyticsPrompt: true,
+            metricsFillerCount: 0,
+            onStartStop: vi.fn(),
+            history: [],
+            completedObjectivePoints: ['pricing cost', 'support guarantee'],
+            objectiveCoverage: authority,
+        }));
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'missing');
+        const witness = (await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? []).at(-1);
+        expect(witness).toMatchObject({ pointCount: 2, coveredCount: 1, missingCount: 1 });
+    });
+
+    it.each([
+        ['registration transport refuses', { register: { ok: false, reason: 'ineligible' }, start: null, finalize: null }],
+        ['session persistence refuses', { register: { ok: true }, start: { ok: false, reason: 'persistence' }, finalize: null }],
+        ['evidence persistence refuses', { register: { ok: true }, start: { ok: true, sessionId: 'objective-session' }, finalize: null }],
+    ])('real finalizer keeps %s separate and publishes neither store authority nor witness', async (_label, setup) => {
+        objectiveHarness.useRealFinalizer = true;
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        objectiveHarness.pointsRows = [{ id: 'p1', label: 'pricing cost', cue: null, sort_order: 0 }];
+        objectiveHarness.registerObjectiveSource.mockResolvedValue(setup.register);
+        if (setup.start) objectiveHarness.startObjectiveSession.mockResolvedValue(setup.start);
+        if (setup.finalize !== undefined) objectiveHarness.finalizeObjectiveEvidence.mockResolvedValue(setup.finalize);
+        const before = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+        await gate(BRIEF, 'failed-composed-take', [{ text: 'pricing cost', startSec: 2 }], 30, runProgressEval, () => true);
+        expect(useSessionStore.getState().objectiveCoverageResult).toBeNull();
+        expect(await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? []).toHaveLength(before.length);
+    });
+
     it('emits one opt-in content-free witness only after the current take publishes', async () => {
         window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
         finalizeObjectiveSessionOnSave.mockResolvedValue({
@@ -143,11 +254,11 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         }
     });
 
-    it('does not witness failed, stale/suppressed, or empty-recognizer finalization', async () => {
+    it('does not witness failed or stale/suppressed finalization envelopes', async () => {
         window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
         const before = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
         finalizeObjectiveSessionOnSave.mockResolvedValue({
-            ok: false, stage: 'finalize', reason: 'empty-recognizer-output', registered: true,
+            ok: false, stage: 'finalize', reason: 'error', registered: true,
         });
         await gate(BRIEF, 'empty-session', [], 0, runProgressEval, () => true);
         finalizeObjectiveSessionOnSave.mockResolvedValue({
@@ -171,6 +282,61 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         await pending;
         const rows = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
         expect(rows.at(-1)).toMatchObject({ pointCount: 1, missingCount: 1 });
+    });
+
+    it('keeps publication order fixed when asynchronous hashes resolve out of order', async () => {
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        finalizeObjectiveSessionOnSave.mockResolvedValue({
+            ok: true, registered: true,
+            coverage: [{ briefPointId: 'p1', point: 'point', status: 'covered' }],
+        });
+        const resolvers: Array<(value: ArrayBuffer) => void> = [];
+        const digest = vi.spyOn(globalThis.crypto.subtle, 'digest').mockImplementation(
+            () => new Promise<ArrayBuffer>((resolve) => resolvers.push(resolve)),
+        );
+        try {
+            await gate(BRIEF, 'ordered-first', [], 60, runProgressEval, () => true);
+            await gate(BRIEF, 'ordered-second', [], 60, runProgressEval, () => true);
+            resolvers[2](new Uint8Array(32).fill(3).buffer);
+            resolvers[3](new Uint8Array(32).fill(4).buffer);
+            await Promise.resolve();
+            resolvers[0](new Uint8Array(32).fill(1).buffer);
+            resolvers[1](new Uint8Array(32).fill(2).buffer);
+            const rows = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+            const [first, second] = rows.slice(-2) as Array<Record<string, unknown>>;
+            expect(first.sequence as number).toBeLessThan(second.sequence as number);
+            expect(first.createdAtMs as number).toBeLessThanOrEqual(second.createdAtMs as number);
+            expect(first.sessionSha256).toBe('01'.repeat(32));
+            expect(second.sessionSha256).toBe('03'.repeat(32));
+        } finally {
+            digest.mockRestore();
+        }
+    });
+
+    it('bounds nonsettling hashes and returns witness reads by a deadline', async () => {
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        finalizeObjectiveSessionOnSave.mockResolvedValue({
+            ok: true, registered: true,
+            coverage: [{ briefPointId: 'p1', point: 'point', status: 'missing' }],
+        });
+        const digest = vi.spyOn(globalThis.crypto.subtle, 'digest').mockImplementation(
+            () => new Promise<ArrayBuffer>(() => undefined),
+        );
+        try {
+            await gate(BRIEF, 'stuck-one', [], 60, runProgressEval, () => true);
+            const before = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+            await gate(BRIEF, 'stuck-two', [], 60, runProgressEval, () => true);
+            await gate(BRIEF, 'stuck-three-evicts-oldest', [], 60, runProgressEval, () => true);
+            const started = performance.now();
+            const rows = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+            expect(performance.now() - started).toBeLessThan(500);
+            expect(rows).toHaveLength(before.length);
+        } finally {
+            digest.mockRestore();
+        }
+        await gate(BRIEF, 'hashing-recovers', [], 60, runProgressEval, () => true);
+        const recovered = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+        expect(recovered.at(-1)?.sequence).toBeGreaterThan(0);
     });
 });
 
