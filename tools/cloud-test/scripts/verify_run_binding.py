@@ -22,7 +22,11 @@ for line in open(x.code_manifest):
     f=os.path.join(os.path.dirname(x.code_manifest),p)
     if not os.path.exists(f) or sha(f)!=h: bad.append(p)
 chk('code-files','every file in CODE.sha256 still has its recorded bytes',not bad,','.join(bad[:4]))
-chk('campaign','campaign id and aligned source/served SHA',plan['sourceSha']==plan['servedSha']==cr.get('sourceSha'),plan['campaignId'])
+campaign_bound = plan.get('campaignId') == cr.get('campaignId')
+source_bound = plan.get('sourceSha') == cr.get('sourceSha')
+served_bound = plan.get('servedSha') == cr.get('servedSha')
+chk('campaign','campaign id and source/served SHA match the plan',campaign_bound and source_bound and served_bound,
+    f"plan={plan.get('campaignId')} result={cr.get('campaignId')} source={cr.get('sourceSha')} served={cr.get('servedSha')}")
 rows={c['id']:c for c in plan['cases']}
 res={c['caseId']:c for c in cr['cases']}
 for cid,row in sorted(rows.items()):

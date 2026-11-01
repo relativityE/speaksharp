@@ -473,6 +473,42 @@ class Completeness(unittest.TestCase):
         res = self.results(req); res["sourceSha"] = "1" * 40
         self.assertFalse(CC.assess(req, catalog(), res)["fullLiveRun"])
 
+        # The retained binding verifier is an independent boundary: artifacts from a
+        # different campaign or served release must fail even when sourceSha matches.
+        with tempfile.TemporaryDirectory(prefix="run-binding-") as td:
+            root = os.path.realpath(td)
+            plan_path = os.path.join(root, "plan.json")
+            result_path = os.path.join(root, "results.json")
+            approval_path = os.path.join(root, "approval.json")
+            manifest_path = os.path.join(root, "CODE.sha256")
+            cases_dir = os.path.join(root, "cases")
+            os.mkdir(cases_dir)
+            open(manifest_path, "w", encoding="utf-8").close()
+            plan = {"campaignId": "R7", "sourceSha": "a" * 40, "servedSha": "b" * 40, "cases": []}
+            approval = {"reviewedCodeManifestSha256": sha256_file(manifest_path)}
+            wjson(plan_path, plan); wjson(approval_path, approval)
+
+            def verify(result):
+                wjson(result_path, result)
+                out = os.path.join(root, "binding.json")
+                proc = subprocess.run([
+                    sys.executable, "-I", os.path.join(ROOT, "scripts", "verify_run_binding.py"),
+                    "--plan", plan_path, "--case-results", result_path,
+                    "--approval", approval_path, "--code-manifest", manifest_path,
+                    "--packet-root", root, "--cases-dir", cases_dir, "--out", out,
+                ], capture_output=True, text=True, timeout=15)
+                return proc, json.load(open(out, encoding="utf-8"))
+
+            matching = {"campaignId": "R7", "sourceSha": "a" * 40, "servedSha": "b" * 40, "cases": []}
+            proc, receipt = verify(matching)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "PASS")
+            for field, value in (("campaignId", "R7-other"), ("servedSha", "c" * 40)):
+                foreign = dict(matching); foreign[field] = value
+                proc, receipt = verify(foreign)
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "FAIL")
+
     def test_a_partial_run_is_never_the_full_live_run_even_with_every_row_executed(self):
         req = sample()["req"]
         out = CC.assess(req, catalog(), self.results(req))
