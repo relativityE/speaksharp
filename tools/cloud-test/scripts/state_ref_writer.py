@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -239,22 +240,59 @@ def _landed(chain, new, expected):
     return new in shas and shas.index(new) >= 1 and shas[shas.index(new) - 1] == expected
 
 
-def write_journal(path, receipt):
-    """Preflight record written BEFORE the push (O_EXCL). An identical journal is an exact retry; any other is a different operation."""
-    body = canon(receipt)
+def check_output_path(path):
+    """A nonempty, absolute, normalized path in an existing writable directory (not a link), naming a regular file or nothing."""
+    _need(isinstance(path, str) and path and "\0" not in path and os.path.isabs(path) and os.path.normpath(path) == path, "unsafe-output-path")
+    d = os.path.dirname(path)
+    _need(os.path.isdir(d) and not os.path.islink(d) and os.access(d, os.W_OK | os.X_OK), "output-directory-unwritable")
+    _need(not os.path.islink(path) and (not os.path.lexists(path) or os.path.isfile(path)), "unsafe-output-path")
+
+
+def _fsync_dir(d):
+    fd = os.open(d, os.O_RDONLY)
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        with open(path, "rb") as f:
-            _need(f.read() == body, "journal-conflict")
-        return
-    with os.fdopen(fd, "wb") as f:
-        f.write(body)
-        f.flush()
-        os.fsync(f.fileno())
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
-def propose(repo, url, expected, event, root, approved_url=APPROVED_URL, journal=None):
+def _same_bytes(path, body):
+    with open(path, "rb") as f:
+        return f.read() == body
+
+
+def publish_atomic(path, body, conflict):
+    """The final name only ever holds complete, fsynced bytes: a uniquely named private temporary in the same directory is written and
+    fsynced, linked into place (never overwriting), removed, and the directory fsynced. An existing file must already hold exactly these
+    bytes. A temporary left by an interruption is never read and never blocks a retry."""
+    d = os.path.dirname(path)
+    fd, tmp = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".", suffix=".partial", dir=d)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(body)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            _need(_same_bytes(path, body), conflict)
+    finally:
+        os.unlink(tmp)
+    _fsync_dir(d)
+
+
+def prepare_outputs(journal, out, receipt):
+    """Everything that can fail locally fails BEFORE the remote changes: an existing receipt must already be this receipt, the receipt
+    directory must accept a new file now, and the journal is durably published (an identical journal is an exact retry)."""
+    body = canon(receipt)
+    _need(not os.path.lexists(out) or _same_bytes(out, body), "receipt-conflict")
+    fd, probe = tempfile.mkstemp(prefix="." + os.path.basename(out) + ".", suffix=".probe", dir=os.path.dirname(out))
+    os.close(fd)
+    os.unlink(probe)
+    publish_atomic(journal, body, "journal-conflict")
+
+
+def propose(repo, url, expected, event, root, approved_url=APPROVED_URL, before_push=None):
     check_repo(repo)
     scheme = _transport(url, approved_url)
     _need(_full(SHA40, expected), "expected-head")
@@ -270,8 +308,8 @@ def propose(repo, url, expected, event, root, approved_url=APPROVED_URL, journal
         # Only an exact earlier landing of THIS proposal on THIS expected head is recoverable; anything else is stale.
         _need(_landed(chain, new, expected), "stale-head")
         return receipt
-    if journal:
-        write_journal(journal, receipt)
+    if before_push is not None:
+        before_push(receipt)
     rc = _push(repo, url, new, expected, scheme)
     # Reconcile against persisted history whatever the push reported (a lost response, a timeout, a crash on the remote side).
     if _landed(validate_chain(repo, fetch_head(repo, url, approved_url), root), new, expected):
@@ -297,30 +335,15 @@ def verify(repo, url, receipt, event, root, approved_url=APPROVED_URL):
     return {"verified": True, "ref": STATE_REF, "newSha": receipt["newSha"], "events": len(chain[i][1])}
 
 
-def publish_receipt(path, receipt):
-    """Atomic, never overwriting: a private temp file linked into place; an existing identical receipt is the same operation."""
-    body = canon(receipt)
-    tmp = "%s.tmp-%d" % (path, os.getpid())
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(body)
-            f.flush()
-            os.fsync(f.fileno())
-        try:
-            os.link(tmp, path)
-        except FileExistsError:
-            with open(path, "rb") as f:
-                _need(f.read() == body, "receipt-conflict")
-    finally:
-        os.unlink(tmp)
-
-
 def propose_to_files(repo, url, expected, event, root, journal, out, approved_url=APPROVED_URL):
-    """The CLI's propose: journal before the push, receipt after reconciliation. Re-running the identical command after a crash at any
-    point recovers the identical receipt and appends nothing more."""
-    _need(isinstance(journal, str) and isinstance(out, str) and journal != out, "journal-and-receipt-paths")
-    publish_receipt(out, propose(repo, url, expected, event, root, approved_url, journal))
+    """The CLI's propose: nonempty, safe, distinct paths checked first; existing receipt, receipt directory and journal prepared before the
+    push; the receipt published atomically after reconciliation. Re-running the identical command after an interruption at any point
+    recovers the identical receipt and appends nothing more; a failure after the push is settled by the persisted history on retry."""
+    check_output_path(journal)
+    check_output_path(out)
+    _need(os.path.realpath(journal) != os.path.realpath(out), "journal-and-receipt-paths")
+    receipt = propose(repo, url, expected, event, root, approved_url, lambda r: prepare_outputs(journal, out, r))
+    publish_atomic(out, canon(receipt), "receipt-conflict")
 
 
 def main(argv):

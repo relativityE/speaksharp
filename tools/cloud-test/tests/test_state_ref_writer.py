@@ -182,7 +182,13 @@ class StateRef(unittest.TestCase):
         journal, out = os.path.join(self.d, "journal.json"), os.path.join(self.d, "receipt.json")
         run = lambda e=event(), expected=None: W.propose_to_files(self.repo, self.remote, expected or self.root, e, self.root, journal, out,  # noqa: E731
                                                                    self.remote)
-        with mock.patch.object(W, "publish_receipt", side_effect=RuntimeError("crash after push")):
+        real = W.publish_atomic
+
+        def crash_on_receipt(path, body, conflict):
+            if path == out:
+                raise RuntimeError("crash after push")
+            return real(path, body, conflict)
+        with mock.patch.object(W, "publish_atomic", crash_on_receipt):
             with self.assertRaises(RuntimeError):
                 run()
         self.assertFalse(os.path.exists(out))
@@ -195,10 +201,57 @@ class StateRef(unittest.TestCase):
         run()  # a further identical retry changes nothing
         self.assertEqual((len(self.events()), self.verify(receipt, event())["events"]), (1, 1))
         # A different operation never reuses the journal, and a new transition for the same key is a duplicate, not a recovery.
-        self.refused("journal-conflict", run, event(run="102"), receipt["newSha"])
+        # (the existing receipt is checked first, then the journal; both refuse before any push)
+        self.refused("receipt-conflict", run, event(run="102"), receipt["newSha"])
+        self.refused("journal-conflict", W.propose_to_files, self.repo, self.remote, receipt["newSha"], event(run="102"), self.root, journal,
+                     os.path.join(self.d, "receipt-2.json"), self.remote)
         self.refused("duplicate-transition", run, event(at="2026-11-01T16:05:00Z"), receipt["newSha"])
         self.assertEqual(len(self.events()), 1)
         self.refused("journal-and-receipt-paths", W.propose_to_files, self.repo, self.remote, self.root, event(), self.root, out, out, self.remote)
+
+    def test_local_output_failures_are_found_before_the_remote_changes_and_never_block_an_identical_retry(self):
+        d = os.path.join(self.d, "out")
+        os.mkdir(d)
+        journal, out = os.path.join(d, "journal.json"), os.path.join(d, "receipt.json")
+        run = lambda j=journal, o=out: W.propose_to_files(self.repo, self.remote, self.root, event(), self.root, j, o, self.remote)  # noqa: E731
+        # Empty, relative, unnormalized, identical, linked, missing-directory and unwritable paths refuse before any fetch or push.
+        ro = os.path.join(self.d, "ro")
+        os.mkdir(ro, 0o500)
+        self.addCleanup(os.chmod, ro, 0o700)
+        os.symlink(os.path.join(d, "elsewhere.json"), os.path.join(d, "link.json"))
+        for j, o, code in (("", out, "unsafe-output-path"), (journal, "", "unsafe-output-path"), (None, out, "unsafe-output-path"),
+                           ("journal.json", out, "unsafe-output-path"), (journal, d + "/./receipt.json", "unsafe-output-path"),
+                           (journal, os.path.join(d, "link.json"), "unsafe-output-path"), (journal, d, "unsafe-output-path"),
+                           (journal, journal, "journal-and-receipt-paths"),
+                           (journal, os.path.join(self.d, "missing", "r.json"), "output-directory-unwritable"),
+                           (journal, os.path.join(ro, "r.json"), "output-directory-unwritable"),
+                           (os.path.join(ro, "j.json"), out, "output-directory-unwritable")):
+            with self.subTest(j=j, o=o):
+                self.refused(code, run, j, o)
+        self.assertEqual((self.head(), os.path.exists(journal)), (self.root, False))
+        # An existing receipt that is not this operation's refuses before the journal or the push.
+        with open(out, "w") as f:
+            f.write('{"other":true}')
+        self.refused("receipt-conflict", run)
+        self.assertEqual((self.head(), os.path.exists(journal)), (self.root, False))
+        os.remove(out)
+        # Interrupted while publishing the journal: nothing reaches the final name and the remote is unchanged.
+        with mock.patch.object(W.os, "link", side_effect=RuntimeError("interrupted")):
+            with self.assertRaises(RuntimeError):
+                run()
+        self.assertEqual((self.head(), os.path.exists(journal)), (self.root, False))
+        # Stale and partial temporaries from earlier interruptions (ours or a planted one) never block the identical retry.
+        with open(os.path.join(d, ".journal.json.stale.partial"), "wb") as f:
+            f.write(b'{"ref":"refs/heads/cloud-te')
+        run()
+        with open(out, "rb") as f, open(journal, "rb") as g:
+            self.assertEqual(f.read(), g.read())
+        self.assertEqual(len(self.events()), 1)
+        run()  # identical retry: same receipt, no second append
+        self.assertEqual(len(self.events()), 1)
+        self.assertEqual(sorted(n for n in os.listdir(d) if n.endswith((".partial", ".probe"))),
+                         [".journal.json.stale.partial"], "every temporary this writer created is removed")
+        self.assertEqual({stat.S_IMODE(os.stat(p).st_mode) for p in (journal, out)}, {0o600})
 
     def test_an_uncertain_push_outcome_is_settled_by_the_persisted_history(self):
         real = W._push
