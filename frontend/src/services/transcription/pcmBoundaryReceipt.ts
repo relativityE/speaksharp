@@ -108,7 +108,7 @@ export class PcmBoundaryCapture {
     this.problems.add(reason);
   }
   worklet(frame: Float32Array, sequence: number, start: number): void {
-    if (this.workletClosed) this.incomplete('late-frame');
+    if (this.workletClosed) { this.incomplete('late-frame'); return; }
     if (!Number.isSafeInteger(sequence) || sequence < 0 || !Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(start + frame.length)) {
       this.incomplete('worklet-metadata'); return;
     }
@@ -118,7 +118,7 @@ export class PcmBoundaryCapture {
     this.stream('worklet_output', frame);
   }
   listener(frame: Float32Array): void {
-    if (this.listenerClosed) this.incomplete('late-frame');
+    if (this.listenerClosed) { this.incomplete('late-frame'); return; }
     this.stream('listener_delivery', frame);
   }
   private metadata(frame: Float32Array): Lineage {

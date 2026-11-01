@@ -61,6 +61,21 @@ describe('actual PCM boundary ledger', () => {
     c.closeWorklet(3, 3); c.closeListener(); const result = await snapshot(c);
     expect(result.complete).toBe(false); expect(result.problems).toEqual(expect.arrayContaining(['worklet-gap', 'worklet-metadata']));
   });
+  it('rejects frames after closure without retaining bytes, emitting receipts or advancing counters', async () => {
+    const c = new PcmBoundaryCapture(ID, 8000), frame = new Float32Array([1]);
+    c.worklet(frame, 0, 0); c.listener(frame); c.closeWorklet(1, 1); c.closeListener();
+    const before = await snapshot(c);
+    const counters = c as unknown as { sequence: number; sourceSamples: number };
+    const beforeCounters = { sequence: counters.sequence, sourceSamples: counters.sourceSamples };
+
+    const late = new Float32Array(8000).fill(2);
+    c.worklet(late, 1, 1); c.listener(late);
+    const after = await snapshot(c);
+
+    expect(after.problems).toContain('late-frame');
+    expect(after.receipts).toEqual(before.receipts);
+    expect({ sequence: counters.sequence, sourceSamples: counters.sourceSamples }).toEqual(beforeCounters);
+  });
   it('missing watermark cannot become proof even with all hashes', async () => {
     const c = new PcmBoundaryCapture(ID, 8000), frame = new Float32Array([1]);
     c.worklet(frame, 0, 0); c.listener(frame); c.decode(frame, false); c.decode(frame, true);
