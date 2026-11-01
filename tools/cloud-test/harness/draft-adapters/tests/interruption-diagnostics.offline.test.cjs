@@ -46,6 +46,25 @@ test('interleaved pages retain their own phase and the failing page, not the pri
  assert.equal(ui.failurePage(b.error,a),b);assert.equal(ui.failureStage(b.error,a),'products-trigger-click');
 });
 
+test('Products click failure retains code-owned hit-target states without DOM text or caller error properties',async()=>{
+ const page=fakePage('products-trigger-click');let reads=0;
+ page.locator=()=>({evaluate:async()=>({triggerVisible:true,triggerEnabled:true,inViewport:true,triggerIsHitTarget:reads++===0,focusDialogVisible:false,focusIntent:false,privateText:'private transcript token=secret',pointerEventsEnabled:'private token'})});
+ await assert.rejects(ui.products(page,'open-mic'),error=>error===page.error);
+ const diag=ui.productsDiagnostic(page.error);assert.equal(reads,2);
+ assert.equal(diag.before.triggerIsHitTarget,true);assert.equal(diag.after.triggerIsHitTarget,false);
+ assert.equal(diag.before.pointerEventsEnabled,null);
+ assert.equal(ui.productsDiagnostic(Object.assign(Error('private'),{products:diag})),null);
+ const json=JSON.stringify(diag);assert(!json.includes('private'));assert(!json.includes('token'));assert(!json.includes('transcript'));
+ const safe=sanitizeEvidence({products:diag});assert.equal(safe.stats.blockedStrings,0);assert.deepEqual(safe.value.products,diag);
+ assert.equal(ui.failureStage(page.error,page),'products-trigger-click');
+});
+test('unavailable hit-target diagnostics do not replace the actual click error or extend its timeout',async()=>{
+ const page=fakePage('products-trigger-click');page.locator=()=>({evaluate:async()=>{throw Error('private');}});
+ await assert.rejects(ui.products(page,'open-mic'),error=>error===page.error);
+ assert.deepEqual(ui.productsDiagnostic(page.error),{before:null,after:null});
+ assert.equal(ui.safeErrorSummary(page.error).timeoutMs,20000);
+});
+
 test('successful save returns the same private ID without putting it in diagnostic phase',async()=>{
  const page=fakePage(null);assert.equal(await ui.saved(page),'private-persisted-id');assert.equal(ui.currentStage(page),'save-complete');
 });

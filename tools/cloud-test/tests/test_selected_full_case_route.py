@@ -65,12 +65,15 @@ class SelectedFullCaseRoute(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return directory, json.loads((directory / "cfg/campaign-plan.json").read_text())
 
-    def stage(self, request, stage, extra=None, capture=False, mislabel_reservation=False, substitute_plan=False):
-        temporary = tempfile.TemporaryDirectory(prefix="selected-stage-")
-        self.addCleanup(temporary.cleanup)
-        root = Path(temporary.name).resolve()
+    def stage(self, request, stage, extra=None, capture=False, mislabel_reservation=False, substitute_plan=False, shared_root=None):
+        if shared_root is None:
+            temporary = tempfile.TemporaryDirectory(prefix="selected-stage-")
+            self.addCleanup(temporary.cleanup)
+            root = Path(temporary.name).resolve()
+        else:
+            root = Path(shared_root).resolve()
         output = root / "out"
-        output.mkdir(mode=0o700)
+        output.mkdir(mode=0o700, exist_ok=True)
         req, facts, accounts = root / "request.json", root / "facts.json", root / "live-accounts.json"
         req.write_text(json.dumps(request)); req.chmod(0o600)
         facts.write_text(json.dumps(J("tests", "fixtures", "plan-facts.PLACEHOLDER.json"))); facts.chmod(0o600)
@@ -79,7 +82,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
             "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001", "email": "unit@example.invalid"},
             "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002", "email": "maintained@example.invalid"}}}, sort_keys=True, separators=(",", ":")) + "\n")
         accounts.chmod(0o600)
-        (root / "run-inputs").mkdir(mode=0o700)
+        (root / "run-inputs").mkdir(mode=0o700, exist_ok=True)
         browser = root / "synthetic-browser"
         browser.write_bytes(b"synthetic browser identity; never executed\n")
         browser_identity = output / "browser-identity.json"
@@ -221,6 +224,23 @@ class SelectedFullCaseRoute(unittest.TestCase):
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
         self.assertIn("prebuilt or replayed bindings are refused", result.stderr)
         self.assertFalse((plan / "cfg/campaign-plan.json").exists())
+
+    def test_sequential_plan_builds_use_exclusive_bindings_from_the_same_bundle(self):
+        _, request = self.request()
+        with tempfile.TemporaryDirectory(prefix="sequential-plan-builds-") as directory:
+            root = Path(directory).resolve()
+            plan0, first, _ = self.stage(request, "build-plan", shared_root=root)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            plan, second, _ = self.stage(request, "build-plan-with-receipt", shared_root=root)
+            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+            bindings = sorted((root / "run-inputs").glob("account-bindings.*.json"))
+            self.assertEqual([path.name for path in bindings], [
+                "account-bindings.build-plan-with-receipt.json",
+                "account-bindings.build-plan.json",
+            ])
+            self.assertEqual(json.loads(bindings[0].read_text()), json.loads(bindings[1].read_text()))
+            self.assertTrue((plan0 / "cfg/campaign-plan.json").is_file())
+            self.assertTrue((plan / "cfg/campaign-plan.json").is_file())
 
     def test_run_stage_chooses_fixed_broker_only_for_evidence_cases_and_never_other_secrets(self):
         for producer in (False, True):

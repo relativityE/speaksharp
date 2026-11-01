@@ -127,7 +127,13 @@ ensure_account_bindings() {
   [ -n "$bundle_sha" ] || blocked "CT_LIVE_ACCOUNTS_SHA256 is required"
   local private_inputs="${CT_PRIVATE_INPUT_DIR:-${RUNNER_TEMP:?RUNNER_TEMP is required}/run-inputs}"
   CT_PRIVATE_INPUT_DIR="$private_inputs"
-  CT_ACCOUNT_BINDINGS_FILE="${CT_ACCOUNT_BINDINGS_FILE:-$private_inputs/account-bindings.json}"
+  local bindings_base="${CT_ACCOUNT_BINDINGS_FILE:-$private_inputs/account-bindings.json}"
+  [ ! -e "$bindings_base" ] || blocked "account bindings output already exists; prebuilt or replayed bindings are refused"
+  case "$STAGE" in
+    build-plan) CT_ACCOUNT_BINDINGS_FILE="${bindings_base%.json}.build-plan.json" ;;
+    build-plan-with-receipt) CT_ACCOUNT_BINDINGS_FILE="${bindings_base%.json}.build-plan-with-receipt.json" ;;
+    *) blocked "account bindings may only be produced by a plan-build phase" ;;
+  esac
   export CT_ACCOUNT_BINDINGS_FILE
   [ ! -e "$CT_ACCOUNT_BINDINGS_FILE" ] || blocked "account bindings output already exists; prebuilt or replayed bindings are refused"
   run_stage build-plan node "$ROOT/scripts/resolve_live_account_bindings.cjs" \
