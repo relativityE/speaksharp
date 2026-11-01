@@ -28,7 +28,6 @@ import os
 import re
 import subprocess
 import sys
-import urllib.parse
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -329,16 +328,12 @@ def mask_commands(values):
 
 def is_project_origin(url, project_ref):
     """The approved Supabase project origin, exactly: https://<projectRef>.supabase.co (a trailing "/" and the default port are the same
-    origin). HTTP, any userinfo or "@", another port, another or suffixed domain, any path, query or fragment, and unparseable input refuse."""
-    if not isinstance(url, str) or "@" in url:
+    origin; scheme and host compare case-insensitively, as URL origins do). One full-string match bound to THIS project's reference, with
+    literal dots and no URL parser (Sam 1793564538.998609): HTTP, any userinfo or "@", another port, another or suffixed domain, any path,
+    query or fragment, trailing junk, and anything else refuse."""
+    if not isinstance(url, str) or not isinstance(project_ref, str) or not PROJECT_REF.match(project_ref):
         return False
-    try:
-        p = urllib.parse.urlsplit(url)
-        port = p.port
-    except ValueError:
-        return False
-    return (p.scheme == "https" and p.username is None and p.password is None and port in (None, 443) and
-            p.hostname == project_ref + ".supabase.co" and p.path in ("", "/") and not p.query and not p.fragment)
+    return re.fullmatch(r"https://" + re.escape(project_ref) + r"\.supabase\.co(?::443)?/?", url, re.IGNORECASE) is not None
 
 
 def role_account(bundle, role, supabase_url):

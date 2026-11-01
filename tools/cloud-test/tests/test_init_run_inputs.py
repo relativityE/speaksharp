@@ -1368,6 +1368,20 @@ class LiveAccountsBundle(unittest.TestCase):
             else:
                 refused(self, code, I.parse_live_accounts_bundle, raw)
 
+    def test_the_origin_is_one_full_string_match_with_no_url_parser(self):
+        # Sam 1793564538.998609: the caller imports no network-capable module, and the origin is matched in full, bound to the project.
+        with open(os.path.join(ROOT, "scripts", "init_run_inputs.py"), encoding="utf-8") as f:
+            self.assertNotRegex(f.read(), r"(?m)^\s*(import|from)\s+(socket|urllib|http|requests|ssl)\b")
+        for url in ("https://%s.supabase.co:0443" % PROJECT, "https://%s.supabase.co:" % PROJECT, "https://%s.supabase.co\n" % PROJECT,
+                    "https://%s.supabase.co/ " % PROJECT, " https://%s.supabase.co" % PROJECT, "https://%sXsupabaseXco" % PROJECT,
+                    "https://%s.supabase.co//" % PROJECT, "https://%s.supabase.co:443:443" % PROJECT):
+            with self.subTest(url=url):
+                self.assertFalse(I.is_project_origin(url, PROJECT))
+        self.assertTrue(I.is_project_origin("HTTPS://%s.SUPABASE.CO:443/" % PROJECT.upper(), PROJECT))
+        for ref in (PROJECT + ".supabase.co", "a.c", "", None):
+            with self.subTest(ref=ref):
+                self.assertFalse(I.is_project_origin("https://%s.supabase.co" % ref, ref))
+
     def test_the_shared_origin_vectors_agree(self):
         for name, code, url in URL_VECTORS:
             self.assertEqual(I.is_project_origin(url, PROJECT), code == "ok", name)
