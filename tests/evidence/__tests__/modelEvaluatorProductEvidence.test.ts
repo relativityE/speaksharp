@@ -114,10 +114,10 @@ describe('passive product evidence', () => {
     expect(evaluateProductEvidence(focus, evidence)).toMatchObject({ verdict: 'FAIL', reasons: ['persisted_product_mismatch'] });
   });
 
-  it('collects real jsdom mutations and response objects passively, hashes content and removes its listener', async () => {
+  async function collectTake(captureReceipt: boolean) {
     vi.stubGlobal('crypto', webcrypto); vi.stubGlobal('__APP_RELEASE__', source.head);
     vi.stubGlobal('__SPEECH_RUNTIME_DEBUG__', () => ({ sessionId: session }));
-    vi.stubGlobal('__PRIVATE_CAPTURE_RECEIPT__', () => ({ captureId: 'capture', candidateId: 'v2:base.en', active: true }));
+    if (captureReceipt) vi.stubGlobal('__PRIVATE_CAPTURE_RECEIPT__', () => ({ captureId: 'capture', candidateId: 'v2:base.en', active: true }));
     vi.stubGlobal('__PRIVATE_STT_RUNTIME_DEBUG__', { runtime: 'wasm-singlethread' });
     document.body.innerHTML = '<main data-testid="session-shell" data-session-state="before"><span data-testid="live-interim"></span></main>';
     const events = new EventEmitter();
@@ -147,7 +147,11 @@ describe('passive product evidence', () => {
     document.body.innerHTML = '<div data-testid="session-detail-transcript"></div>';
     Object.defineProperty(document.querySelector('[data-testid="session-detail-transcript"]'), 'innerText', { value: text });
     await collector.observeReopened();
-    const report = await collector.finish();
+    return { report: await collector.finish(), events, unrelatedHistory };
+  }
+
+  it('collects real jsdom mutations and response objects passively, hashes content and removes its listener', async () => {
+    const { report, events, unrelatedHistory } = await collectTake(true);
     expect(report.productProof.reasons).toEqual([]);
     expect(report.productProof.verdict).toBe('PASS');
     expect(report.evidence.persisted[0]).toMatchObject(attribution);
@@ -156,5 +160,14 @@ describe('passive product evidence', () => {
     expect(JSON.stringify(report)).not.toContain(text);
     expect(events.listenerCount('response')).toBe(0);
     expect(unrelatedHistory).not.toHaveBeenCalled();
+  });
+
+  // #1760 lands without the product capture receipt; until its successor wires one, an otherwise complete take holds.
+  // With no bound session the collector also admits no persisted or authority row for the take.
+  it('holds an otherwise complete take when the product publishes no capture receipt', async () => {
+    const { report } = await collectTake(false);
+    expect(report.evidence.timeline).toMatchObject({ sessions: [], captures: [], candidates: [], backends: ['wasm'] });
+    expect(report.productProof).toMatchObject({ verdict: 'HOLD', reasons: ['take_capture_binding_unavailable',
+      'product_runtime_identity_unavailable', 'persisted_transcript_unavailable', 'persisted_authority_unavailable'] });
   });
 });

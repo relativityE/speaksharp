@@ -217,6 +217,13 @@ the complete verified engine/version/model/device tuple cannot pass. Declared
 identity is not loaded-weight introspection. Tiny clips may lack required live
 partials; retain HOLD/failure rather than relaxing collector assertions.
 
+Evaluator binding is INCOMPLETE. The collector binds take, capture and candidate
+identity from the product's __PRIVATE_CAPTURE_RECEIPT__, which PrivateWhisper does
+not publish yet. Until a reviewed successor wires a gated, lifetime-safe receipt,
+no live take can pass product evidence; the missing-binding refusals stay in place.
+A non-PASS grade from a take without the receipt records that missing binding; it
+is not evidence of a product failure.
+
 Run the existing repository Vitest configuration over comparisonBounds.test.ts and
 productCollectorIntegration.test.ts, plus the existing product collector controls.
 Negative controls cover missing/wrong attribution, save/reopen substitution,
