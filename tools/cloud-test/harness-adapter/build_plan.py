@@ -539,9 +539,20 @@ def read_binding_inputs(env, argv):
                 plan['coverageMode'] = 'partial'
                 plan['assertionDepth'] = 'full'
             budget_estimates = {k: BP_EST.get(k, 0) for k in range(1, 16)} if SELECTED_FULL else BP_EST
+            budget_ceilings = {k: ((v * 125 + 99) // 100 + 9) // 10 * 10 for k, v in budget_estimates.items()}
+            # The admitted Case 10 projection is an execution ceiling, not merely
+            # a report field.  Its 240-request allowance must constrain the plan
+            # consumed by campaign-core even when pooled campaign slack would make
+            # the generic 125% ceiling larger.
+            if 10 in SELECTED:
+                case10_config = obj(jload(stored_cases['AHT-10']['config']), 'case10-config')
+                case10_request_bound = obj(case10_config.get('requestBound'), 'case10-request-bound')
+                case10_allowance = caps_module.integer(case10_request_bound.get('allowance'), 'case10-request-allowance')
+                require(case10_allowance > 0 and case10_allowance >= budget_estimates[10], 'case10-request-allowance')
+                budget_ceilings[10] = min(budget_ceilings[10], case10_allowance)
             plan['requestBudget'] = {'runCap': CAPS['total'], 'cleanupReserve': BP_CLEANUP,
                                      'estimates': {f'AHT-{k:02d}': v for k, v in budget_estimates.items()},
-                                     'ceilings': {f'AHT-{k:02d}': ((v * 125 + 99) // 100 + 9) // 10 * 10 for k, v in budget_estimates.items()}}
+                                     'ceilings': {f'AHT-{k:02d}': v for k, v in budget_ceilings.items()}}
         # r15: explicit case selection (ordered), stimulus gates, run identity binding, stimulus preflight receipt
         sel_env = env.get('BP_SELECT', '')
         if sel_env:

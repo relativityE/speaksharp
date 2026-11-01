@@ -190,6 +190,61 @@ class CaseStartContract(unittest.TestCase):
             "evidenceRef": "SYNTHETIC-NOT-A-RUN",
         })
 
+    def test_case10_phase_two_consumes_the_bound_allowance_as_the_runtime_ceiling(self):
+        self.f = SyntheticBuilder(self.temp.name, cases=(10,))
+        row = self.f.request["selection"][0]
+        row["plannedRequests"] = 240
+        self.f.request["estimate"]["requests"] = {
+            "planned": 240, "cleanupReserve": 50, "pooledSlack": 110, "runCap": 400,
+        }
+        self.f.request["approvedLimits"]["runCapRequests"] = 400
+        self.f.repin()
+        phase1 = self.f.run()
+        self.assertEqual(phase1.returncode, 0, phase1.stderr)
+        phase2 = self.f.run("phase2")
+        self.assertEqual(phase2.returncode, 0, phase2.stderr)
+        plan = json.loads((self.f.root / "private/cfg/campaign-plan.json").read_text())
+        config = json.loads((self.f.root / "private/cases/AHT-10.json").read_text())
+        self.assertEqual(plan["requestBudget"]["estimates"]["AHT-10"], 240)
+        self.assertEqual(plan["requestBudget"]["ceilings"]["AHT-10"], 240)
+        self.assertEqual(plan["requestBudget"]["ceilings"]["AHT-10"], config["requestBound"]["allowance"])
+        runtime = subprocess.run(["node", "-e", r"""
+const fs=require('node:fs'),path=require('node:path');
+const plan=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));
+const core=require(process.argv[2]),{Ledger}=require(process.argv[3]);
+const file=path.join(process.argv[4],'campaign-ledger.json');
+const ledger=new Ledger(file,{total:plan.requestBudget.runCap});let seen=null,r241=null;
+const io={
+ now:Date.now,save:async()=>{},verifyBudgetBinding:async()=>{},verifyRunIdentity:async()=>{},
+ preflightCase:async()=>{},admit:async()=>({result:'ADMISSION PASS'}),
+ identity:async()=>({result:'MATCH',servedSha:plan.servedSha}),
+ ledgerUsed:()=>Ledger.readUsedTotal(file),caseConfig:async c=>JSON.parse(fs.readFileSync(c.configFile,'utf8')),
+ runCase:async(_c,_p,_a,o)=>{seen=o.requestAllowance;ledger.setCaseAllowance(seen);
+   for(let i=0;i<240;i++){const denied=ledger.tryReserve(['total']);if(denied)throw new Error('early denial '+denied);}
+   r241=ledger.tryReserve(['total']);return{assertions:[],allowanceExhausted:r241==='case-allowance',allowanceCleanupVerified:true};}
+};
+core.runCampaign(plan,io,{executeR0:true}).then(result=>{
+ const row=result.report.cases.find(c=>c.caseId==='AHT-10');
+ console.log(JSON.stringify({seen,r241,rowAllowance:row.requestAllowance,requestsUsed:row.requestsUsed}));
+}).finally(()=>ledger.release());
+""", str(self.f.root / "private/cfg/campaign-plan.json"),
+            str(Path(ROOT) / "harness/bundle/harness/campaign-core.cjs"),
+            str(Path(ROOT) / "harness/bundle/harness/campaign-ledger.cjs"), str(self.f.root)],
+            capture_output=True, text=True, timeout=120)
+        self.assertEqual(runtime.returncode, 0, runtime.stderr)
+        self.assertEqual(json.loads(runtime.stdout), {
+            "seen": 240, "r241": "case-allowance", "rowAllowance": 240, "requestsUsed": 240,
+        })
+
+    def test_case10_changed_projection_refuses_phase_two_without_new_outputs(self):
+        self.f = SyntheticBuilder(self.temp.name, cases=(10,))
+        self.assertEqual(self.f.run().returncode, 0)
+        facts_path = Path(self.f.env["BP_FACTS"])
+        facts = json.loads(facts_path.read_text())
+        facts["case10RequestBound"]["projection"]["bootstrap"] += 1
+        facts_path.write_text(json.dumps(facts))
+        self.rejected("phase2")
+
     def test_case10_missing_changed_or_over_allowance_projection_refuses_before_output(self):
         mutations = ("missing", "account", "digest", "over-allowance")
         for mutation in mutations:
