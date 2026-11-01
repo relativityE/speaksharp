@@ -40,7 +40,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -196,7 +196,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -238,7 +238,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -394,7 +394,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -436,7 +436,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -592,7 +592,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -634,7 +634,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -790,7 +790,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -832,7 +832,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -988,7 +988,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1030,7 +1030,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1186,7 +1186,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1228,7 +1228,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1384,7 +1384,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1426,7 +1426,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1582,7 +1582,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1624,7 +1624,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1780,7 +1780,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1822,7 +1822,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1978,7 +1978,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2020,7 +2020,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2176,7 +2176,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2218,7 +2218,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2374,7 +2374,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2416,7 +2416,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2572,7 +2572,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2614,7 +2614,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2770,7 +2770,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2812,7 +2812,7 @@
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2968,7 +2968,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
+          "sha256": "74c2936b6f943d1130ca85cbc2312797934d7949cd28f3050c270694217d1a85"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2982,7 +2982,7 @@
       "dependencies": [
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "3c309015c0c13d85fa34400709b40e94d4dad997f1db86ded8d3204036a716fb"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",

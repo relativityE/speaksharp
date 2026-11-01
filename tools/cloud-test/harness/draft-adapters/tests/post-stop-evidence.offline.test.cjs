@@ -9,7 +9,7 @@ const ui=require(path.join(root,'browser-actions.cjs')),readback=require(path.jo
 const observer=require(path.join(root,'browser-observers.cjs')),presentation=require(path.join(root,'presentation-controls.cjs'));
 const focusControls=require(path.join(root,'focus-controls.cjs'));
 const manifest=require(path.join(root,'oracles/pure/fixture-manifest.json')).fixtures;
-async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false}={}){
+async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false,pcmReceipt=null}={}){
  const fixtureName=caseId==='AHT-01'?'open_mic_tts':caseId==='AHT-02'?'focus_points_tts':'focus_points_partial_tts';
  const fixture=manifest[fixtureName],contract=adapters.CONTRACTS[caseId],seen=[],writes=[],recorded=[];
  const c={caseId,campaignId:'UNIT-ONLY',sourceSha:adapters.SOURCE_SHA,servedSha:adapters.SOURCE_SHA,targetUrl:'https://unit.invalid',requiredAssertions:contract.rows,
@@ -28,7 +28,7 @@ async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,
  patch(ui,'login',async()=>true);patch(ui,'openMic',async()=>{});patch(ui,'products',async()=>{});patch(ui,'setupFocus',async()=>{});
  let delayedResponse=null;patch(ui,'start',async()=>seen.push('start'));patch(ui,'stop',async()=>{seen.push('stop');if(coaching502){const request={url:()=>c.readback.origin+'/functions/v1/get-ai-suggestions',method:()=> 'POST',postDataJSON:()=>({sessionId:'take-A',client_attempt:1}),timing:()=>({responseEnd:40})};page.emit('request',request);const response=()=>page.emit('response',{request:()=>request,status:()=>502,headers:()=>({'content-type':'application/json'}),text:async()=>JSON.stringify({error:'AI coaching could not be generated. Please try again.',reason:'provider_timeout'})});if(late502)delayedResponse=response;else response();}});patch(ui,'saved',async()=>{saved=true;return 'take-A';});
  patch(ui,'reopen',async()=>{seen.push('reopen');delayedResponse?.();return{before:'d'.repeat(64),after:(wrongReopen?'e':'d').repeat(64)};});
- patch(observer,'install',async()=>{});patch(observer,'mic',async()=>({acquisitions:0,liveTracks:0,recording:false,recorderVisible:false}));
+ patch(observer,'install',async()=>{});patch(observer,'mic',async()=>({acquisitions:0,liveTracks:0,recording:false,recorderVisible:false}));patch(observer,'pcmBoundaries',async()=>pcmReceipt);
  patch(readback,'sessions',async()=>[...(staleOwner?Array.from({length:24},(_,i)=>({id:'old-'+i,status:'completed'})):[]),...(saved?[{id:wrongSavedTake?'take-B':'take-A',status:'completed',hasIdempotencyKey:true,transcriptState:'available',transcriptLength:20,transcriptSha256:'d'.repeat(64)}]:[])]);
  for(const method of ['openMicReview','beforeFocus','afterFocus'])patch(presentation,method,async()=>[]);
  patch(presentation,'beginFocusLive',async()=>({}));patch(presentation,'freezeFocusLiveDetailed',async()=>({rows:[],observed:null}));patch(presentation,'disposeFocusLive',async()=>{});
@@ -73,4 +73,38 @@ test('AHT-01 stale 24-session fixture stops before recording intent',async()=>{
  const f=await execute('AHT-01',{staleOwner:true});
  assert.equal(f.recorded.find(r=>r.id==='fresh-first-session')?.result,'NOT RUN');
  assert.equal(f.seen.includes('start'),false,'a known nonfresh owner must not consume a recording attempt');
+});
+
+const pcmCapture=()=>({schema:'speaksharp.pcm-boundaries.v1',captureId:'11111111-1111-4111-8111-111111111111',sampleRateHz:16000,
+ format:'Float32LE',meaning:'observed-boundary-inputs-not-proof-of-recognizer-output-or-accepted-focus-points',complete:true,
+ workletClosed:true,listenerClosed:true,pendingHashes:0,problems:[],receipts:['worklet_output','listener_delivery','live_decode_input','final_decode_input'].map((domain,ordinal)=>({
+  domain,ordinal,samples:4,bytes:16,atMs:ordinal+1,sha256:String(ordinal+1).repeat(64),status:'hashed',lineageComplete:true,
+  spans:[{captureId:'11111111-1111-4111-8111-111111111111',start:ordinal*4,samples:4,operations:[domain==='worklet_output'?'worklet':domain==='listener_delivery'?'listener-copy':'utterance-copy']}]
+ }))});
+
+test('PCM receipt sanitizer retains only the closed four-domain diagnostic and rejects false completeness',()=>{
+ const input=pcmCapture();input.privateTranscript='must-not-escape';input.receipts[0].privateAudio='must-not-escape';
+ const clean=observer.sanitizePcmBoundaryReceipts([input]);assert.equal(clean.captures[0].complete,true);assert.equal(clean.captures[0].receipts.length,4);
+ assert.equal(JSON.stringify(clean).includes('must-not-escape'),false);assert.equal(clean.diagnosticOnly,true);
+ const missing=pcmCapture();missing.receipts.pop();assert.equal(observer.sanitizePcmBoundaryReceipts([missing]),null);
+ const wrongHash=pcmCapture();wrongHash.receipts[0].sha256='not-a-hash';assert.equal(observer.sanitizePcmBoundaryReceipts([wrongHash]),null);
+});
+
+test('PCM receipt capture is opt-in and only the selected Focus path enables it',async()=>{
+ const args=[];const page={addInitScript:async(_fn,arg)=>args.push(arg)};
+ await observer.install(page);await observer.install(page,{pcmBoundaries:true});assert.deepEqual(args,[false,true]);
+});
+
+for(const caseId of ['AHT-02','AHT-03'])test(caseId+' attaches the sanitized PCM diagnostic to focus-final without making the verdict',async()=>{
+ const sanitized=observer.sanitizePcmBoundaryReceipts([pcmCapture()]);const f=await execute(caseId,{pcmReceipt:sanitized});
+ const row=f.recorded.find(r=>r.id==='focus-final');assert.equal(row.result,'PASS');assert.ok(row.evidenceRefs.includes(caseId.toLowerCase()+'-pcm-boundaries.json'));
+ const evidence=f.writes.find(x=>x.kind==='pcm-boundary-diagnostic');assert.equal(evidence.diagnosticOnly,true);assert.match(evidence.meaning,/not-proof-of-recognizer-output/);
+});
+
+test('missing or malformed PCM diagnostics neither create evidence nor change the independent Focus verdict',async()=>{
+ const malformed=observer.sanitizePcmBoundaryReceipts([{schema:'not-accepted',privateAudio:'must-not-escape'}]);
+ for(const pcmReceipt of [null,malformed]){
+  const f=await execute('AHT-03',{pcmReceipt});const row=f.recorded.find(r=>r.id==='focus-final');assert.equal(row.result,'PASS');
+  assert.equal(f.writes.some(x=>x.kind==='pcm-boundary-diagnostic'),false);
+ }
 });
