@@ -30,11 +30,19 @@ function fakeWorld(s,events){
   // comes from received() before offline (473). Either refusal leaves the fault unfired and harness-limited.
   async 'mic-download'(){
    if(s.fires!==false){modelRequests++;const f=faults[0];
-    for(const [method,params] of s.cdp??ESTABLISHED_CDP)prefix.event('page-session',method,params);
+    // A guard without a browser-prefix observer still fires (guard-proxy.cjs 473–476) and its summary omits the receipt (598).
+    if(s.noObserver){Object.assign(f,{fired:true,browserOfflineApplied:true,bytesForwarded:65536,...(s.noObserver==='null'?{browserPrefixReceipt:null}:{})});setStatus('error');return;}
+    const deliver=list=>{for(const item of list)if(item==='close')prefix.close();else prefix.event('page-session',item[0],item[1]);};
+    deliver(s.cdp??ESTABLISHED_CDP);
     if(s.closePrefix)prefix.close();
     try{
-     const binding=await prefix.bind(f.id,{timeoutMs:25});
-     const receipt=await prefix.received(binding,{timeoutMs:25});
+     // bind() and received() register their waiter synchronously, so events delivered after the call arrive while it is pending.
+     const pendingBind=prefix.bind(f.id,{timeoutMs:25});
+     if(s.duringBind){s.journal?.push({kind:'test-bind-pending',waiters:prefix.listenerCount('change')});deliver(s.duringBind);}
+     const binding=await pendingBind;
+     const pendingReceived=prefix.received(binding,{timeoutMs:25});
+     if(s.duringReceived){s.journal?.push({kind:'test-received-pending',waiters:prefix.listenerCount('change')});deliver(s.duringReceived);}
+     const receipt=await pendingReceived;
      Object.assign(f,{fired:true,browserOfflineApplied:s.offlineApplied!==false,bytesForwarded:s.bytesForwarded??65536,
       browserPrefixReceipt:s.defenseReceipt?{...receipt,...s.defenseReceipt}:receipt});
     }catch{s.journal?.push({kind:'test-guard-harness-limited',reason:'browser-prefix-receipt-not-established'});}
@@ -58,7 +66,7 @@ function fakeWorld(s,events){
  });
  const guard={
   armDownloadFault(f){faults.push({id:'synthetic-fault-14',mode:f.mode,fired:false,browserOfflineApplied:false,bytesForwarded:0});
-   if(f.mode==='offline-mid-download')prefix.arm({id:'synthetic-fault-14',url:f.url});return 'synthetic-fault-14';},
+   if(f.mode==='offline-mid-download'&&!s.noObserver)prefix.arm({id:'synthetic-fault-14',url:f.url});return 'synthetic-fault-14';},
   // The guard's summary projection (guard-proxy.cjs 598): the receipt is carried only when one was established.
   summary:()=>({ledgerUsed:{model:modelRequests},downloadFaults:faults.map(f=>({...f}))}),
   async resumeDownloadNetwork(id){events.push('restore');if(s.restoreThrows)throw new Error('HARNESS_LIMITED: synthetic restoration failure');const f=faults.find(x=>x.id===id);f.networkRestored=true;return true;},
@@ -150,6 +158,50 @@ for(const [name,overlay] of [['not observed',{observed:false}],['received after 
  test('Case14 (c) adapter gate refuses a receipt '+name+': NOT QUALIFIED, never PASS, and no recovery is attempted',async()=>{
   const f=await runWithFacts({defenseReceipt:overlay});
   assert.equal(f.row('download-fault-exercised')?.result,'NOT RUN');
+  assert.equal(f.result.blocker,'browser-prefix-receipt-not-established');
+  assert.deepEqual(f.presses,['mic-download']);assert.ok(!f.events.includes('restore'));
+  for(const id of ['download-failure-truthful','deliberate-recovery-saved','review-reopen'])assert.equal(f.row(id)?.result,'NOT RUN',id);
+ });
+
+// (g) Events that arrive WHILE bind() or received() is pending. The marker proves exactly one waiter was registered before delivery.
+const LATE=[req('r1'),resp('r1'),data('r1')];
+test('Case14 (g) real correlator: the request arrives during bind() and the bytes during received(): PASS, in journal order',async()=>{
+ const journal=[];const f=await runWithFacts({journal,cdp:[],duringBind:[LATE[0]],duringReceived:LATE.slice(1)});
+ assert.equal(f.row('download-fault-exercised')?.result,'PASS');
+ assert.equal(f.facts('download-fault-exercised')?.prefixEvidence,'correlated-browser-network-event');
+ assert.equal(f.facts('download-fault-exercised')?.modelConsumption,'NOT_ESTABLISHED');
+ assert.deepEqual(journal.map(e=>e.kind),['browser-prefix-armed','test-bind-pending','browser-prefix-request','test-received-pending','browser-prefix-received','browser-offline-invoking']);
+ assert.deepEqual(journal.filter(e=>e.kind.startsWith('test-')).map(e=>e.waiters),[1,1],'both waits were pending when the events arrived');
+});
+for(const [name,s] of [
+ ['a second matching request arrives while bind() is pending (late ambiguity)',{cdp:[],duringBind:[req('r1'),req('r2')]}],
+ ['a second matching request arrives while received() is pending (late ambiguity)',{cdp:[req('r1')],duringReceived:[req('r2'),resp('r1'),data('r1')]}],
+ ['the load fails while received() is pending',{cdp:[req('r1'),resp('r1')],duringReceived:[['Network.loadingFailed',{requestId:'r1'}]]}],
+ ['a cached response arrives while received() is pending',{cdp:[req('r1')],duringReceived:[resp('r1',{from:'fromDiskCache'}),data('r1')]}],
+ ['the observer closes while bind() is pending',{cdp:[],duringBind:['close']}],
+ ['the observer closes while received() is pending',{cdp:[req('r1'),resp('r1')],duringReceived:['close']}],
+ ['bind() times out with nothing delivered',{cdp:[],duringBind:[]}],
+ ['received() times out with no bytes delivered',{cdp:[req('r1'),resp('r1')],duringReceived:[]}],
+])
+ test('Case14 (g) real correlator refuses when '+name+': NOT RUN, nothing further spent',async()=>{
+  const journal=[];const f=await runWithFacts({...s,journal});
+  const markers=journal.filter(e=>e.kind.startsWith('test-')&&e.kind.endsWith('-pending'));
+  assert.ok(markers.length>=1&&markers.at(-1).waiters===1,'the refusing wait was pending when the events arrived');
+  assert.equal(f.row('download-fault-exercised')?.result,'NOT RUN');
+  assert.equal(f.facts('download-fault-exercised')?.fired,false);
+  assert.equal(f.result.blocker,'download fault not fired at reviewed asset boundary');
+  assert.ok(!journal.some(e=>e.kind==='browser-offline-invoking'),'the browser was never taken offline');
+  assert.ok(journal.some(e=>e.kind==='test-guard-harness-limited'),'the refusal came from the correlator');
+  assert.deepEqual(f.presses,['mic-download']);assert.ok(!f.events.includes('restore'));
+ });
+
+// (h) fired:true with the receipt omitted or null reaches the adapter's missing-prefix branch (source-adapters.cjs 291).
+// 'omitted' is what a guard without a prefix observer reports; 'null' is a shape the summary projection never emits (598).
+for(const shape of ['omitted','null'])
+ test('Case14 (h) adapter refuses fired:true with the receipt '+shape+': NOT RUN with NOT_ESTABLISHED, never PASS, no recovery',async()=>{
+  const f=await runWithFacts({noObserver:shape});
+  assert.equal(f.row('download-fault-exercised')?.result,'NOT RUN');
+  assert.deepEqual(f.facts('download-fault-exercised'),{fired:true,browserPrefixReceipt:'NOT_ESTABLISHED',modelConsumption:'NOT_ESTABLISHED'});
   assert.equal(f.result.blocker,'browser-prefix-receipt-not-established');
   assert.deepEqual(f.presses,['mic-download']);assert.ok(!f.events.includes('restore'));
   for(const id of ['download-failure-truthful','deliberate-recovery-saved','review-reopen'])assert.equal(f.row(id)?.result,'NOT RUN',id);
