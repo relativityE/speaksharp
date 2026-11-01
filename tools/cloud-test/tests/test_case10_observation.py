@@ -1,0 +1,108 @@
+"""Case 10 nightly current-state observation (Sam 1793570217.800529, design A), offline only. Every reader here is SYNTHETIC and trusted only
+through the test-only override; production trusts no reader, so every record refuses."""
+import copy
+import hashlib
+import unittest
+from datetime import datetime, timedelta, timezone
+
+import _fixtures  # noqa: F401  (puts the scripts directory on the import path)
+import case10_observation as O
+from case10_request_bound import INPUTS
+from test_case10_request_bound import projection
+
+READER = "synthetic:case10-current-state@1"
+ACCOUNT = "00000000-0000-4000-8000-000000000001"
+REQUEST_SHA = "a" * 64
+START = datetime(2026, 11, 2, 3, 0, tzinfo=timezone.utc)
+NOW = START + timedelta(minutes=2)
+
+
+def request(**contract_over):
+    contract = {"schema": O.CONTRACT_SCHEMA, "reader": READER, "recordSchema": O.RECORD_SCHEMA, "projectionKeys": sorted(INPUTS),
+                "maxAgeSeconds": 600}
+    contract.update(contract_over)
+    return {"runId": "nightly-20261101T0000Z-20261102T0300Z", "release": {"testedSha": "4" * 40},
+            "window": {"startUtc": "2026-11-02T03:00:00Z", "endUtc": "2026-11-02T08:30:00Z"},
+            "selection": [{"case": "AHT-09", "plannedRequests": 100},
+                          {"case": "AHT-10", "plannedRequests": 190, "observationContract": contract}]}
+
+
+def reader(keys, **over):
+    p = projection(**over)
+    return {k: p[k] for k in keys}
+
+
+def refused(test, code, fn, *a, **k):
+    with test.assertRaises(O.Refused) as e:
+        fn(*a, **k)
+    test.assertEqual(str(e.exception), code)
+
+
+class Observation(unittest.TestCase):
+    def setUp(self):
+        self.req = request()
+        self.record = O.observe(reader, self.req, REQUEST_SHA, "101", 1, ACCOUNT, NOW - timedelta(minutes=1))
+
+    def admit(self, record=None, req=None, now=NOW, trusted=frozenset({READER}), run_id="101", attempt=1, account=ACCOUNT, sha=REQUEST_SHA):
+        return O.admit(self.record if record is None else record, req or self.req, sha, run_id, attempt, account, now, trusted=trusted)
+
+    def changed(self, **over):
+        r = copy.deepcopy(self.record)
+        r.update(over)
+        return r
+
+    def test_a_fresh_read_bound_to_this_request_and_attempt_is_admitted(self):
+        report = self.admit()
+        self.assertEqual(report["recordSha256"], hashlib.sha256(O.canon(self.record)).hexdigest())
+        self.assertLessEqual(report["transmittedBound"], 190)
+        self.assertEqual(report["allowance"], 240)
+        self.assertEqual((self.record["campaignId"], self.record["runId"], self.record["attempt"], self.record["reader"]),
+                         (self.req["runId"], "101", 1, READER))
+
+    def test_production_trusts_no_reader_so_every_record_refuses(self):
+        self.assertEqual(O.TRUSTED_READERS, frozenset())
+        refused(self, "case10-observation-reader-not-trusted", self.admit, trusted=None)
+        refused(self, "case10-observation-reader-not-trusted", self.admit, trusted=frozenset({"synthetic:other@1"}))
+
+    def test_the_request_must_pin_the_exact_contract(self):
+        for over in ({"schema": "x"}, {"recordSchema": "x"}, {"reader": "Bad Reader"}, {"projectionKeys": sorted(INPUTS)[:-1]},
+                     {"projectionKeys": sorted(INPUTS) + ["extra"]}, {"maxAgeSeconds": 0}, {"maxAgeSeconds": 3601}, {"maxAgeSeconds": True}):
+            with self.subTest(over=over):
+                refused(self, "case10-observation-contract", self.admit, req=request(**over))
+        no_row = copy.deepcopy(self.req)
+        no_row["selection"] = no_row["selection"][:1]
+        refused(self, "case10-observation-not-selected", self.admit, req=no_row)
+
+    def test_another_request_run_attempt_campaign_source_account_or_reader_refuses(self):
+        refused(self, "case10-observation-not-this-request", self.admit, sha="b" * 64)
+        refused(self, "case10-observation-replayed", self.admit, run_id="100")  # an earlier run's record, relabelled
+        refused(self, "case10-observation-replayed", self.admit, record=self.changed(attempt=2), attempt=2)
+        refused(self, "case10-observation-replayed", self.admit, record=self.changed(attempt=True))
+        refused(self, "case10-observation-replayed", self.admit, record=self.changed(campaignId="nightly-20261101T0000Z-20261101T0300Z"))
+        refused(self, "case10-observation-foreign", self.admit, record=self.changed(sourceSha="5" * 40))
+        refused(self, "case10-observation-foreign", self.admit, account="00000000-0000-4000-8000-000000000002")
+        refused(self, "case10-observation-foreign", self.admit, record=self.changed(reader="synthetic:other@1"))
+        refused(self, "case10-observation-shape", self.admit, record=self.changed(extra=1))
+        refused(self, "case10-observation-shape", self.admit, record=self.changed(schema="speaksharp.cloud-test.case10-projection.v1"))
+
+    def test_a_historical_or_stale_observation_refuses(self):
+        refused(self, "case10-observation-stale", self.admit, record=self.changed(observedAtUtc="2026-11-02T02:59:59Z"))  # before the window
+        refused(self, "case10-observation-stale", self.admit, now=NOW + timedelta(minutes=10))  # older than the 600 s freshness
+        refused(self, "case10-observation-stale", self.admit, record=self.changed(observedAtUtc="2026-11-02T03:05:00Z"))  # after now
+        refused(self, "case10-observation-time", self.admit, record=self.changed(observedAtUtc="2026-11-02 03:01:00"))
+
+    def test_the_projection_must_be_exactly_the_allowed_inputs_and_fit_the_row_and_allowance(self):
+        extra = dict(self.record["projection"], unexpected=1)
+        refused(self, "case10-observation-projection", self.admit, record=self.changed(projection=extra))
+        missing = {k: v for k, v in self.record["projection"].items() if k != "bootstrap"}
+        refused(self, "case10-observation-projection", self.admit, record=self.changed(projection=missing))
+        refused(self, "case10-observation-projection", self.admit, record=self.changed(projection=dict(self.record["projection"], auth=-1)))
+        heavy = O.observe(lambda keys: reader(keys, successorSave=200), self.req, REQUEST_SHA, "101", 1, ACCOUNT, NOW)  # bound 281 > 240
+        refused(self, "case10-observation-over-allowance", self.admit, record=heavy)
+        tight = copy.deepcopy(self.req)
+        tight["selection"][1]["plannedRequests"] = 80  # the fresh bound (84) exceeds this row's plan, though it fits 240
+        refused(self, "case10-observation-over-allowance", self.admit, req=tight)
+
+
+if __name__ == "__main__":
+    unittest.main()
