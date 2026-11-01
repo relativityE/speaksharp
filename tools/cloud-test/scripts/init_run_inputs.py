@@ -441,11 +441,15 @@ def _freeze(snap, plan_path, case_results_path, cases_dir, approval, code_manife
 
 
 def identities(request_path, config_path):
-    """The request blob and the pinned assertion catalog this run claims coverage against; the catalog file must still be the pinned bytes."""
+    """The committed request and the pinned assertion catalog this run claims coverage against: the catalog file must still be the pinned
+    bytes, and its exact per-case required-assertion sets are what qualification checks every case config against."""
     pin = _load(config_path)["modes"]["full"]["assertionCatalog"]
     catalog = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(config_path))), pin["file"])
-    _need(_sha(catalog) == pin["sha256"], "assertion-catalog-not-pinned")
-    return {"requestSha256": _sha(request_path), "catalogSha256": pin["sha256"]}
+    raw = _read(catalog)
+    _need(hashlib.sha256(raw).hexdigest() == pin["sha256"], "assertion-catalog-not-pinned")
+    cases = json.loads(raw)["cases"]
+    return {"requestSha256": _sha(request_path), "request": _load(request_path), "catalogSha256": pin["sha256"],
+            "catalog": {cid: list(c["requiredAssertions"]) for cid, c in cases.items()}}
 
 
 def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_manifest, snapshot_dir, coverage_mode, ids,
@@ -476,6 +480,14 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     checks = verification.get("checks")
     _need(isinstance(checks, list) and checks and verification.get("failed") == 0 and all(c.get("result") == "PASS" for c in checks), "binding-verification-failed")
     plan, results = json.loads(original_plan), json.loads(frozen["case-results.json"])
+    # The committed request is THIS campaign's: its runId, selection, tested release, mode and harness CODE pin are what ran (Sam RETURN
+    # 546429c4 #2). A substituted request refuses before any row is read.
+    req = ids["request"]
+    _need(req.get("runId") == plan.get("campaignId"), "request-campaign-mismatch")
+    _need(sorted(s.get("case") for s in req.get("selection") or []) == selected, "request-selection-mismatch")
+    _need((req.get("release") or {}).get("testedSha") == plan.get("sourceSha"), "request-release-mismatch")
+    _need(req.get("coverageMode") == coverage_mode, "request-mode-mismatch")
+    _need((req.get("harness") or {}).get("codeManifestSha256") == digest(frozen["packet/CODE.sha256"]), "request-harness-mismatch")
     rows, res = _unique(plan.get("cases"), "id", "duplicate-plan-case"), _unique(results.get("cases"), "caseId", "duplicate-case-result")
     _need(sorted(rows) == ALL_CASES, "plan-denominator-not-fifteen")
     # Every planned driver/config/media byte is checked against the plan's own digest here too: the verifier skips undispatched rows.
@@ -506,6 +518,8 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
         _need(digest(config) == rows[cid].get("configSha256"), "case-config-not-the-planned-bytes:" + cid)
         required = json.loads(config).get("requiredAssertions")
         _need(isinstance(required, list) and required and len(set(required)) == len(required), "case-required-assertions-missing:" + cid)
+        # Exact catalog membership (RETURN 546429c4 #1): the case's required set IS the pinned catalog's set for that case.
+        _need(sorted(required) == sorted(ids["catalog"].get(cid) or []), "required-assertions-not-the-catalog:" + cid)
         raw = frozen.get("cases/%s/case-result.json" % cid)
         _need(raw is not None, "case-result-missing:" + cid)
         out_case = json.loads(raw)
@@ -520,6 +534,11 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
         rows_all = [a["result"] for a in got.values()]
         expect = "FAIL" if "FAIL" in rows_all else "PASS" if rows_all and all(r == "PASS" for r in rows_all) else "NOT RUN"
         _need(out_case.get("result") == expect, "case-result-inconsistent:" + cid)
+        # The campaign case-results row must say exactly what the per-case result says (RETURN 546429c4 #3): the same case result and the
+        # same assertion ids with the same statuses, whatever the overall outcome.
+        row = _unique(r.get("assertions"), "id", "campaign-row-disagrees:" + cid)
+        _need(r.get("result") == out_case["result"] and {k: v.get("result") for k, v in row.items()} == {k: v["result"] for k, v in got.items()},
+              "campaign-row-disagrees:" + cid)
         for a in required:
             counts[got[a]["result"] if a in got else "NOT RUN"] += 1
         case_outcomes.append(out_case["result"])

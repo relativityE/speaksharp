@@ -427,29 +427,51 @@ class Qualify(unittest.TestCase):
         with open(p, "rb") as f:
             return hashlib.sha256(f.read()).hexdigest()
 
-    def write_case(self, cid, rows, result="PASS"):
+    def write_case(self, cid, rows, result="PASS", refresh=True):
         os.makedirs(os.path.join(self.cases, cid), exist_ok=True)
         ev = os.path.join(self.cases, cid, cid.lower() + "-1.json")
         put(ev, {"contentSafe": True})
         put(os.path.join(self.cases, cid, "summary.json"), {"caseId": cid})
         put(os.path.join(self.cases, cid, "case-result.json"),
-            {"caseId": cid, "result": result, "assertions": [{"id": "%s-%s" % (cid.lower(), i), "result": r} for i, r in rows],
+            {"caseId": cid, "sourceSha": SHA, "servedSha": SHA, "result": result,  # per-case receipt identities, as the stricter verifier requires
+             "assertions": [{"id": "%s-%s" % (cid.lower(), i), "result": r} for i, r in rows],
              "evidenceDigests": {cid.lower() + "-1.json": self.sha(ev)}})
+        if refresh and cid in self.SELECTED and os.path.exists(self.results):
+            self.write_results()  # the campaign row follows its case, as the real runner writes both
 
-    def write_results(self, rows=None, **over):
+    def write_results(self, rows=None, patch=None, **over):
+        """The campaign case-results as the real runner writes them: each dispatched row carries the case's own result and assertions
+        (campaign-core.cjs); unselected rows are notSelected. `patch` replaces or edits single rows for negative controls."""
         def row(c):
             if c in self.SELECTED:
-                return {"caseId": c, "executionReceipt": {"summarySha256": self.sha(os.path.join(self.cases, c, "summary.json"))}}
+                case = J(os.path.join(self.cases, c, "case-result.json"))
+                return {"caseId": c, "result": case["result"], "assertions": case["assertions"],
+                        "executionReceipt": {"summarySha256": self.sha(os.path.join(self.cases, c, "summary.json"))}}
             return {"caseId": c, "result": "NOT RUN", "notSelected": True, "requestsUsed": 0, "reason": "Not selected by the approved case selection"}
-        put(self.results, dict({"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "cases": rows or [row(c) for c in I.ALL_CASES]}, **over))
+        built = rows or [row(c) for c in I.ALL_CASES]
+        for c, change in (patch or {}).items():
+            built = [change(dict(r)) if r["caseId"] == c else r for r in built]
+        put(self.results, dict({"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "cases": built}, **over))
 
     def qualify(self, run_verifier=I._run_verifier, selected=None, mode="partial"):
         self.runs += 1
-        request = os.path.join(self.d, "request-%d.json" % self.runs)
-        put(request, live_request(runId="C1"))
-        ids = I.identities(request, os.path.join(ROOT, "config", "test-config.v1.json"))
+        request_file = os.path.join(self.d, "request-%d.json" % self.runs)
+        put(request_file, self.request(selected, mode))
+        ids = self.ids(request_file)
         return I.qualify(self.plan, self.results, self.cases, selected or self.SELECTED, self.approval, self.code,
                          os.path.join(self.d, "snapshot-%d" % self.runs), mode, ids, run_verifier)
+
+    def request(self, selected=None, mode="partial"):
+        """The committed request this campaign ran: runId = campaignId, the selection, the tested release and the harness CODE pin."""
+        req = live_request(None if mode == "full" else list(selected or self.SELECTED), runId="C1")
+        req["release"]["testedSha"] = SHA
+        req["harness"]["codeManifestSha256"] = self.sha(self.code)
+        return req
+
+    def ids(self, request_file, catalog=None):
+        """identities() shape over a synthetic catalog whose per-case sets are exactly this fixture's required assertions."""
+        return {"requestSha256": self.sha(request_file), "request": J(request_file), "catalogSha256": "c" * 64,
+                "catalog": catalog or {c: ["%s-a" % c.lower(), "%s-b" % c.lower()] for c in I.ALL_CASES}}
 
     def make_full(self):
         """The real full builder's shape: no partial markers, an explicit all-15 selection, every case dispatched with its receipts."""
@@ -459,7 +481,7 @@ class Qualify(unittest.TestCase):
         put(self.plan, plan)
         self.SELECTED = list(I.ALL_CASES)
         for cid in I.ALL_CASES:
-            self.write_case(cid, [("a", "PASS"), ("b", "PASS")])
+            self.write_case(cid, [("a", "PASS"), ("b", "PASS")], refresh=False)
         self.write_results()
 
     def collect(self, request):
@@ -502,7 +524,8 @@ class Qualify(unittest.TestCase):
             if mode == "full":
                 refused(self, "plan-not-a-selected-full-plan", self.qualify, mode="partial")
             else:
-                refused(self, "plan-not-a-full-coverage-plan", self.qualify, mode="full")
+                # A "full" claim on a selected-full campaign is refused at the request binding, before any plan inspection.
+                refused(self, "request-selection-mismatch", self.qualify, mode="full")
             # the collector's campaign is the request runId; a qualification for another campaign never passes
             other = I.project(dict(record, runId="C2"), "123", 1, "c" * 40, SHA, q)
             self.assertEqual((other["outcome"], other["coverage"]), ("failed", "unqualified"), mode)
@@ -547,6 +570,53 @@ class Qualify(unittest.TestCase):
         self.write_case("AHT-09", [("a", "PASS"), ("b", "MAYBE")], "PASS")
         refused(self, "assertion-result-unknown:AHT-09", self.qualify)
 
+    def test_required_assertions_must_be_exactly_the_catalog_set(self):
+        # Remove a required assertion from AHT-09's config and refresh the plan's config digest: every hash stays coherent, the case can
+        # even PASS, but it no longer covers the catalog (Sam RETURN 546429c4 #1).
+        config = os.path.join(self.d, "cfg", "AHT-09.json")
+        put(config, {"caseId": "AHT-09", "requiredAssertions": ["aht-09-a"]})
+        plan = J(self.plan)
+        for row in plan["cases"]:
+            if row["id"] == "AHT-09":
+                row["configSha256"] = self.sha(config)
+        put(self.plan, plan)
+        self.write_case("AHT-09", [("a", "PASS")], "PASS")
+        refused(self, "required-assertions-not-the-catalog:AHT-09", self.qualify)
+        # And a catalog that requires more than the config declares refuses the same way.
+        self.setUp()
+        catalog = {c: ["%s-a" % c.lower(), "%s-b" % c.lower()] for c in I.ALL_CASES}
+        catalog["AHT-05"].append("aht-05-c")
+        put(os.path.join(self.d, "req.json"), self.request())
+        refused(self, "required-assertions-not-the-catalog:AHT-05", I.qualify, self.plan, self.results, self.cases, self.SELECTED, self.approval,
+                self.code, os.path.join(self.d, "snapshot-cat"), "partial", self.ids(os.path.join(self.d, "req.json"), catalog))
+
+    def test_a_substituted_request_refuses(self):
+        for code, mutate in (("request-campaign-mismatch", lambda r: r.update(runId="C2")),
+                             ("request-selection-mismatch", lambda r: r.update(selection=r["selection"][:1])),
+                             ("request-release-mismatch", lambda r: r["release"].update(testedSha="b" * 40)),
+                             ("request-mode-mismatch", lambda r: r.update(coverageMode="full")),
+                             ("request-harness-mismatch", lambda r: r["harness"].update(codeManifestSha256="0" * 64))):
+            self.runs += 1
+            req = self.request()
+            mutate(req)
+            path = os.path.join(self.d, "sub-%d.json" % self.runs)
+            put(path, req)
+            refused(self, code, I.qualify, self.plan, self.results, self.cases, self.SELECTED, self.approval, self.code,
+                    os.path.join(self.d, "snapshot-sub-%d" % self.runs), "partial", self.ids(path))
+
+    def test_a_campaign_row_that_contradicts_its_case_file_refuses_even_when_the_outcome_is_failed(self):
+        # AHT-09 genuinely FAILs (overall outcome failed either way); the campaign row reports a different status for one assertion.
+        self.write_case("AHT-09", [("a", "PASS"), ("b", "FAIL")], "FAIL")
+        self.write_results(patch={"AHT-09": lambda r: {**r, "assertions": [{"id": "aht-09-a", "result": "FAIL"}, {"id": "aht-09-b", "result": "FAIL"}]}})
+        refused(self, "campaign-row-disagrees:AHT-09", self.qualify)
+        for change in (lambda r: {**r, "result": "PASS"}, lambda r: {**r, "assertions": r["assertions"][:1]},
+                       lambda r: {**r, "assertions": r["assertions"] + [{"id": "aht-09-z", "result": "FAIL"}]},
+                       lambda r: {k: v for k, v in r.items() if k != "assertions"}):
+            self.write_results(patch={"AHT-09": change})
+            refused(self, "campaign-row-disagrees:AHT-09", self.qualify)
+        self.write_results()
+        self.assertEqual(self.qualify()["outcome"], "failed", "the agreeing artifacts qualify as failed")
+
     def test_the_assertion_catalog_must_be_the_pinned_bytes(self):
         cfg = copy.deepcopy(CFG)
         cfg["modes"]["full"]["assertionCatalog"]["sha256"] = "0" * 64
@@ -564,7 +634,7 @@ class Qualify(unittest.TestCase):
                          {"qualified": True, "campaignId": "C1", "testedSha": SHA, "servedSha": SHA, "cases": self.SELECTED, "coverage": "batch",
                           "outcome": "passed", "planCases": 15, "requiredRows": 4, "passRows": 4, "failRows": 0, "notRunRows": 0})
         self.assertEqual(q["codeManifestSha256"], self.sha(self.code))
-        self.assertEqual(q["catalogSha256"], CFG["modes"]["full"]["assertionCatalog"]["sha256"])
+        self.assertEqual(q["catalogSha256"], "c" * 64, "the fixture's synthetic catalog; identities() pins the real one")
         self.assertEqual((q["planSha256"], q["caseResultsSha256"]), (self.sha(self.plan), self.sha(self.results)))
         snap = os.path.join(self.d, "snapshot-1")
         self.assertEqual(J(os.path.join(snap, "verification.json"))["failed"], 0)
@@ -641,14 +711,11 @@ class Qualify(unittest.TestCase):
         refused(self, "snapshot-changed-during-verification", self.qualify, tamper)
 
     def test_undispatched_unselected_dispatched_denominator_and_selection_controls(self):
-        self.write_results(rows=[{"caseId": c, "reason": "not dispatched"} if c == "AHT-09" else
-                                 {"caseId": c, "executionReceipt": {"summarySha256": self.sha(os.path.join(self.cases, c, "summary.json"))}} if c in self.SELECTED
-                                 else {"caseId": c, "notSelected": True, "requestsUsed": 0} for c in I.ALL_CASES])
+        self.write_results(patch={"AHT-09": lambda r: {**r, "reason": "not dispatched"}})
         refused(self, "case-not-dispatched:AHT-09", self.qualify)
         self.setUp()
         self.write_case("AHT-01", [("a", "PASS"), ("b", "PASS")])  # receipts present, so the verifier itself passes
-        self.write_results(rows=[{"caseId": c} if c in self.SELECTED + ["AHT-01"] else {"caseId": c, "notSelected": True, "requestsUsed": 0}
-                                 for c in I.ALL_CASES])
+        self.write_results(patch={"AHT-01": lambda r: {"caseId": "AHT-01"}})
         refused(self, "unselected-case-dispatched:AHT-01", self.qualify)
         self.setUp()
         self.write_results(campaignId="C2")
