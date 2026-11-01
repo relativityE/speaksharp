@@ -1,7 +1,7 @@
 'use strict';
 // Executes the unchanged real adapter with synthetic external browser/readback/oracle I/O.
 // No browser, account, provider, network, credential or admission operation occurs.
-const test=require('node:test'),assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs'),os=require('node:os');
+const test=require('node:test'),assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs'),os=require('node:os'),crypto=require('node:crypto');
 const {EventEmitter}=require('node:events');
 const root=path.join(__dirname,'..');
 const adapters=require(path.join(root,'source-adapters.cjs'));
@@ -10,7 +10,7 @@ const observer=require(path.join(root,'browser-observers.cjs')),presentation=req
 const focusControls=require(path.join(root,'focus-controls.cjs'));
 const {createCaseRecorder}=require('../../bundle/harness/case-results.cjs');
 const manifest=require(path.join(root,'oracles/pure/fixture-manifest.json')).fixtures;
-async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false,pcmReceipt=null,saveFailure=false,finalWaitFailure=false}={}){
+async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false,pcmReceipt=null,objectiveReceipt=null,saveFailure=false,finalWaitFailure=false}={}){
  const fixtureName=caseId==='AHT-01'?'open_mic_tts':caseId==='AHT-02'?'focus_points_tts':'focus_points_partial_tts';
  const fixture=manifest[fixtureName],contract=adapters.CONTRACTS[caseId],seen=[],writes=[],recorded=[];
  const c={caseId,campaignId:'UNIT-ONLY',sourceSha:adapters.SOURCE_SHA,servedSha:adapters.SOURCE_SHA,targetUrl:'https://unit.invalid',requiredAssertions:contract.rows,
@@ -29,7 +29,7 @@ async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,
  patch(ui,'login',async()=>true);patch(ui,'openMic',async()=>{});patch(ui,'products',async()=>{});patch(ui,'setupFocus',async()=>{});
  let delayedResponse=null;patch(ui,'start',async()=>seen.push('start'));patch(ui,'stop',async()=>{seen.push('stop');if(coaching502){const request={url:()=>c.readback.origin+'/functions/v1/get-ai-suggestions',method:()=> 'POST',postDataJSON:()=>({sessionId:'take-A',client_attempt:1}),timing:()=>({responseEnd:40})};page.emit('request',request);const response=()=>page.emit('response',{request:()=>request,status:()=>502,headers:()=>({'content-type':'application/json'}),text:async()=>JSON.stringify({error:'AI coaching could not be generated. Please try again.',reason:'provider_timeout'})});if(late502)delayedResponse=response;else response();}});patch(ui,'saved',async()=>{if(saveFailure)throw new Error('synthetic save failure');saved=true;return 'take-A';});
  patch(ui,'reopen',async()=>{seen.push('reopen');delayedResponse?.();return{before:'d'.repeat(64),after:(wrongReopen?'e':'d').repeat(64)};});
- patch(observer,'install',async()=>{});patch(observer,'mic',async()=>({acquisitions:0,liveTracks:0,recording:false,recorderVisible:false}));patch(observer,'pcmBoundaryBaseline',async()=>({observedAtMs:10,captureIds:[]}));patch(observer,'pcmBoundaries',async()=>pcmReceipt);
+ patch(observer,'install',async()=>{});patch(observer,'mic',async()=>({acquisitions:0,liveTracks:0,recording:false,recorderVisible:false}));patch(observer,'pcmBoundaryBaseline',async()=>({observedAtMs:10,captureIds:[]}));patch(observer,'pcmBoundaries',async()=>pcmReceipt);patch(observer,'objectivePublicationBaseline',async()=>({observedAtMs:10,sequence:0}));patch(observer,'objectivePublication',async()=>objectiveReceipt??{schema:'objective-publication-diagnostic.v1',diagnosticOnly:true,selectionStatus:'passed',selectionCode:'OBJECTIVE_CURRENT_PUBLICATION_SELECTED',validated:true,currentTakeMatched:true,fixtureStatusMatched:true,domStatusMatched:true,countMatched:true,selected:{sequence:1,createdAtMs:20,pointCount:c.focus?.expectedFinal.length??0,coveredCount:0,partialCount:0,missingCount:0,witnessSha256:'a'.repeat(64)}});
  patch(readback,'sessions',async()=>[...(staleOwner?Array.from({length:24},(_,i)=>({id:'old-'+i,status:'completed'})):[]),...(saved?[{id:wrongSavedTake?'take-B':'take-A',status:'completed',hasIdempotencyKey:true,transcriptState:'available',transcriptLength:20,transcriptSha256:'d'.repeat(64)}]:[])]);
  for(const method of ['openMicReview','beforeFocus','afterFocus'])patch(presentation,method,async()=>[]);
  patch(presentation,'beginFocusLive',async()=>({}));patch(presentation,'freezeFocusLiveDetailed',async()=>({rows:[],observed:null}));patch(presentation,'disposeFocusLive',async()=>{});
@@ -128,7 +128,28 @@ test('real evidence writer never receives an invalid nested sample-rate payload'
 
 test('PCM receipt capture is opt-in and only the selected Focus path enables it',async()=>{
  const args=[];const page={addInitScript:async(_fn,arg)=>args.push(arg)};
- await observer.install(page);await observer.install(page,{pcmBoundaries:true});assert.deepEqual(args,[false,true]);
+ await observer.install(page);await observer.install(page,{pcmBoundaries:true,objectivePublications:true});assert.deepEqual(args,[{pcmBoundaries:false,objectivePublications:false},{pcmBoundaries:true,objectivePublications:true}]);
+});
+
+const sha=value=>crypto.createHash('sha256').update(String(value)).digest('hex');
+const objectiveWitness=(sessionId,statuses,sequence=1,createdAtMs=20)=>({schema:'speaksharp.objective-publication.v1',sequence,createdAtMs,sessionSha256:sha(sessionId),statusChainSha256:sha(JSON.stringify(['speaksharp.objective-publication.statuses.v1',statuses])),pointCount:statuses.length,coveredCount:statuses.filter(x=>x==='covered').length,partialCount:statuses.filter(x=>x==='partial').length,missingCount:statuses.filter(x=>x==='missing').length});
+test('objective publication sanitizer binds one post-Start current take to fixture and DOM independently',()=>{
+ const statuses=['covered','partial','missing'],baseline={observedAtMs:10,sequence:0},sessionId='take-A';
+ const good=observer.sanitizeObjectivePublications([objectiveWitness(sessionId,statuses)],{baseline,sessionId,expectedStatuses:statuses,domStatuses:statuses});
+ assert.equal(good.validated,true);assert.equal(good.currentTakeMatched,true);assert.equal(good.fixtureStatusMatched,true);assert.equal(good.domStatusMatched,true);assert.equal(JSON.stringify(good).includes(sessionId),false);
+ const wrongTake=observer.sanitizeObjectivePublications([objectiveWitness('other-take',statuses)],{baseline,sessionId,expectedStatuses:statuses,domStatuses:statuses});assert.equal(wrongTake.validated,false);assert.equal(wrongTake.currentTakeMatched,false);
+ const wrongFixture=observer.sanitizeObjectivePublications([objectiveWitness(sessionId,statuses)],{baseline,sessionId,expectedStatuses:['covered','covered','missing'],domStatuses:statuses});assert.equal(wrongFixture.validated,false);assert.equal(wrongFixture.fixtureStatusMatched,false);assert.equal(wrongFixture.domStatusMatched,true);
+ const wrongDom=observer.sanitizeObjectivePublications([objectiveWitness(sessionId,statuses)],{baseline,sessionId,expectedStatuses:statuses,domStatuses:['covered','covered','missing']});assert.equal(wrongDom.validated,false);assert.equal(wrongDom.fixtureStatusMatched,true);assert.equal(wrongDom.domStatusMatched,false);
+});
+test('objective publication sanitizer refuses stale, successor-ambiguous and malformed witnesses',()=>{
+ const statuses=['covered'],sessionId='take-A',baseline={observedAtMs:10,sequence:1},stale=objectiveWitness(sessionId,statuses,1,5),current=objectiveWitness(sessionId,statuses,2,20),successor=objectiveWitness('take-B',statuses,3,30);
+ assert.equal(observer.sanitizeObjectivePublications([stale],{baseline,sessionId,expectedStatuses:statuses,domStatuses:statuses}).selectionCode,'OBJECTIVE_CURRENT_PUBLICATION_MISSING');
+ assert.equal(observer.sanitizeObjectivePublications([current,successor],{baseline,sessionId,expectedStatuses:statuses,domStatuses:statuses}).selectionCode,'OBJECTIVE_CURRENT_PUBLICATION_AMBIGUOUS');
+ const malicious={...current,pointCount:{nested:['must-not-escape']}};const failed=observer.sanitizeObjectivePublications([malicious],{baseline,sessionId,expectedStatuses:statuses,domStatuses:statuses});assert.equal(failed.selectionCode,'OBJECTIVE_WITNESS_INVALID');assert.equal(JSON.stringify(failed).includes('must-not-escape'),false);
+});
+test('Focus final fails closed when current-take objective publication authority is absent',async()=>{
+ const f=await execute('AHT-02',{objectiveReceipt:{schema:'objective-publication-diagnostic.v1',diagnosticOnly:true,selectionStatus:'failed',selectionCode:'OBJECTIVE_CURRENT_PUBLICATION_MISSING',witnessCountObserved:0,validated:false}});
+ const row=f.recorded.find(r=>r.id==='focus-final');assert.equal(row.result,'FAIL');assert.ok(row.evidenceRefs.includes('aht-02-objective-publication.json'));const evidence=f.writes.find(x=>x.kind==='objective-publication-diagnostic');assert.equal(evidence.validated,false);
 });
 
 for(const caseId of ['AHT-02','AHT-03'])test(caseId+' attaches the sanitized PCM diagnostic to focus-final without making the verdict',async()=>{

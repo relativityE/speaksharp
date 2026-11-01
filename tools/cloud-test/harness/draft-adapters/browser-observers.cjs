@@ -2,9 +2,10 @@
 const crypto=require('node:crypto');
 // Passive browser observers ported from rwtJourney:526 and rwtAdverse:89 at main70e.
 // No microphone acquisition, request, route mutation, transcript capture, or provider access is initiated here.
-async function install(page,{pcmBoundaries=false}={}) {
-  await page.addInitScript(pcmBoundariesEnabled => {
-    if(pcmBoundariesEnabled===true)window.__PRIVATE_PCM_RECEIPTS_ENABLED__=true;
+async function install(page,{pcmBoundaries=false,objectivePublications=false}={}) {
+  await page.addInitScript(options => {
+    if(options.pcmBoundaries===true)window.__PRIVATE_PCM_RECEIPTS_ENABLED__=true;
+    if(options.objectivePublications===true)window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__=true;
     const log=[],streams=[],marks=[]; const documentToken=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
     const media=navigator.mediaDevices;
     const observation={log,streams,documentToken,installed:!!media?.getUserMedia};
@@ -45,7 +46,7 @@ async function install(page,{pcmBoundaries=false}={}) {
         throw error;
       });
     };
-  },pcmBoundaries===true);
+  },{pcmBoundaries:pcmBoundaries===true,objectivePublications:objectivePublications===true});
 }
 async function mic(page) {
   return page.evaluate(()=>{
@@ -117,4 +118,31 @@ async function pcmBoundaries(page,baseline){
  try{value=await page.evaluate(async()=>typeof window.__PRIVATE_PCM_RECEIPTS__?.read==='function'?await window.__PRIVATE_PCM_RECEIPTS__.read():null);}catch{return null;}
  return sanitizePcmBoundaryReceipts(value,{baseline});
 }
-module.exports={install,mic,armStates,states,audioTiming,pcmBoundaryBaseline,pcmBoundaries,sanitizePcmBoundaryReceipts};
+const OBJECTIVE_STATUSES=new Set(['covered','partial','missing']);
+function objectiveStatusSha256(statuses){return pcmHash(JSON.stringify(['speaksharp.objective-publication.statuses.v1',statuses]));}
+function failedObjectiveSelection(code,count){return {schema:'objective-publication-diagnostic.v1',diagnosticOnly:true,selectionStatus:'failed',selectionCode:code,witnessCountObserved:count,validated:false};}
+function sanitizeObjectivePublications(value,{baseline,sessionId,expectedStatuses,domStatuses}={}){
+ if(!Array.isArray(value)||value.length>2)return null;
+ const baselineSequence=baseline?.sequence,observedAtMs=baseline?.observedAtMs;
+ if(!Number.isSafeInteger(baselineSequence)||baselineSequence<0||!Number.isFinite(observedAtMs)||observedAtMs<0)return failedObjectiveSelection('OBJECTIVE_PRESTART_BASELINE_INVALID',value.length);
+ const normalized=[];
+ for(const row of value){
+  if(!row||typeof row!=='object'||Array.isArray(row)||row.schema!=='speaksharp.objective-publication.v1'||!Number.isSafeInteger(row.sequence)||row.sequence<1||!Number.isFinite(row.createdAtMs)||row.createdAtMs<0||!PCM_SHA.test(row.sessionSha256||'')||!PCM_SHA.test(row.statusChainSha256||'')||!Number.isSafeInteger(row.pointCount)||row.pointCount<1||!Number.isSafeInteger(row.coveredCount)||row.coveredCount<0||!Number.isSafeInteger(row.partialCount)||row.partialCount<0||!Number.isSafeInteger(row.missingCount)||row.missingCount<0||row.coveredCount+row.partialCount+row.missingCount!==row.pointCount)return failedObjectiveSelection('OBJECTIVE_WITNESS_INVALID',value.length);
+  normalized.push({sequence:row.sequence,createdAtMs:row.createdAtMs,sessionSha256:row.sessionSha256,statusChainSha256:row.statusChainSha256,pointCount:row.pointCount,coveredCount:row.coveredCount,partialCount:row.partialCount,missingCount:row.missingCount});
+ }
+ const candidates=normalized.filter(row=>row.sequence>baselineSequence&&row.createdAtMs>=observedAtMs);
+ if(candidates.length!==1)return failedObjectiveSelection(candidates.length?'OBJECTIVE_CURRENT_PUBLICATION_AMBIGUOUS':'OBJECTIVE_CURRENT_PUBLICATION_MISSING',value.length);
+ const selected=candidates[0],expected=Array.isArray(expectedStatuses)&&expectedStatuses.length&&expectedStatuses.every(s=>OBJECTIVE_STATUSES.has(s))?expectedStatuses:null,dom=Array.isArray(domStatuses)&&domStatuses.length&&domStatuses.every(s=>OBJECTIVE_STATUSES.has(s))?domStatuses:null;
+ if(typeof sessionId!=='string'||!sessionId||!expected||!dom)return failedObjectiveSelection('OBJECTIVE_COMPARISON_INPUT_INVALID',value.length);
+ const currentTakeMatched=selected.sessionSha256===pcmHash(sessionId),fixtureStatusMatched=selected.statusChainSha256===objectiveStatusSha256(expected),domStatusMatched=selected.statusChainSha256===objectiveStatusSha256(dom),countMatched=selected.pointCount===expected.length&&selected.pointCount===dom.length;
+ const validated=currentTakeMatched&&fixtureStatusMatched&&domStatusMatched&&countMatched;
+ return {schema:'objective-publication-diagnostic.v1',diagnosticOnly:true,selectionStatus:'passed',selectionCode:'OBJECTIVE_CURRENT_PUBLICATION_SELECTED',witnessCountObserved:value.length,validated,currentTakeMatched,fixtureStatusMatched,domStatusMatched,countMatched,selected:{sequence:selected.sequence,createdAtMs:selected.createdAtMs,pointCount:selected.pointCount,coveredCount:selected.coveredCount,partialCount:selected.partialCount,missingCount:selected.missingCount,witnessSha256:pcmHash(JSON.stringify(selected))}};
+}
+async function objectivePublicationBaseline(page){
+ try{return await page.evaluate(async()=>{const read=window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read,rows=typeof read==='function'?await read():[];return {observedAtMs:performance.now(),sequence:Array.isArray(rows)?Math.max(0,...rows.map(row=>Number.isSafeInteger(row?.sequence)?row.sequence:0)):0};});}catch{return null;}
+}
+async function objectivePublication(page,baseline,sessionId,expectedStatuses,domStatuses){
+ let value;try{value=await page.evaluate(async()=>typeof window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read==='function'?await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__.read():[]);}catch{return null;}
+ return sanitizeObjectivePublications(value,{baseline,sessionId,expectedStatuses,domStatuses});
+}
+module.exports={install,mic,armStates,states,audioTiming,pcmBoundaryBaseline,pcmBoundaries,sanitizePcmBoundaryReceipts,objectivePublicationBaseline,objectivePublication,sanitizeObjectivePublications};

@@ -97,6 +97,8 @@ declare global {
         __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>>;
         __SS_TRANSCRIPT_TRACE__?: Array<Record<string, unknown>>;
         __SS_TRANSCRIPT_TRACE_SEQ__?: number;
+        __PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__?: boolean;
+        __PRIVATE_OBJECTIVE_PUBLICATIONS__?: { read: () => Promise<Array<Record<string, unknown>>> };
     }
 }
 
@@ -132,6 +134,63 @@ const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unk
     if (window.__SS_TRANSCRIPT_TRACE__.length > 1000) {
         window.__SS_TRANSCRIPT_TRACE__.shift();
     }
+};
+
+type ObjectivePublicationStatus = 'covered' | 'partial' | 'missing';
+type ObjectivePublicationWitness = {
+    schema: 'speaksharp.objective-publication.v1';
+    sequence: number;
+    createdAtMs: number;
+    sessionSha256: string;
+    statusChainSha256: string;
+    pointCount: number;
+    coveredCount: number;
+    partialCount: number;
+    missingCount: number;
+};
+const objectivePublicationWitnesses: ObjectivePublicationWitness[] = [];
+const pendingObjectivePublicationWitnesses = new Set<Promise<void>>();
+let objectivePublicationSequence = 0;
+const objectiveWitnessSha256 = async (value: string): Promise<string> => {
+    const bytes = new TextEncoder().encode(value);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+const recordObjectivePublicationWitness = (
+    sessionId: string,
+    coverage: Array<{ status: ObjectivePublicationStatus }>,
+): void => {
+    if (typeof window === 'undefined' || window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ !== true) return;
+    const statuses = coverage.map((row) => row.status);
+    if (!sessionId || !statuses.length || statuses.some((status) => !['covered', 'partial', 'missing'].includes(status))) return;
+    window.__PRIVATE_OBJECTIVE_PUBLICATIONS__ = {
+        read: async () => {
+            await Promise.all([...pendingObjectivePublicationWitnesses]);
+            return objectivePublicationWitnesses.map((row) => ({ ...row }));
+        },
+    };
+    let job: Promise<void>;
+    job = Promise.all([
+        objectiveWitnessSha256(sessionId),
+        objectiveWitnessSha256(JSON.stringify(['speaksharp.objective-publication.statuses.v1', statuses])),
+    ]).then(([sessionSha256, statusChainSha256]) => {
+        const witness: ObjectivePublicationWitness = {
+            schema: 'speaksharp.objective-publication.v1',
+            sequence: ++objectivePublicationSequence,
+            createdAtMs: performance.now(),
+            sessionSha256,
+            statusChainSha256,
+            pointCount: statuses.length,
+            coveredCount: statuses.filter((status) => status === 'covered').length,
+            partialCount: statuses.filter((status) => status === 'partial').length,
+            missingCount: statuses.filter((status) => status === 'missing').length,
+        };
+        objectivePublicationWitnesses.push(witness);
+        while (objectivePublicationWitnesses.length > 2) objectivePublicationWitnesses.shift();
+    }).catch(() => {
+        pushNativeRuntimeTrace('controller_objective_publication_witness_unavailable');
+    }).finally(() => pendingObjectivePublicationWitnesses.delete(job));
+    pendingObjectivePublicationWitnesses.add(job);
 };
 
 const getVisibleTranscriptText = (transcript: { transcript: string; partial: string }): string =>
@@ -6780,6 +6839,9 @@ export class SpeechRuntimeController {
                     useSessionStore.getState().setObjectiveCoverageResult(
                         objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
                     );
+                    // R5 diagnostic: content-free proof that this owned take published this exact
+                    // terminal status chain. Disabled in normal sessions and never delays save/finalization.
+                    recordObjectivePublicationWitness(sessionId, objResult.coverage);
                     // #1258 item 5 (PM 6216341052) — `evaluation_complete` is produced HERE: the take's successful, settled
                     // Focus evaluation, still owned by this take (`canPublishShared`). Stop awaits this before it resolves,
                     // and the hook marks `session_saved` only after Stop resolves, so the chain order holds without

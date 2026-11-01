@@ -49,6 +49,8 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         finalizeObjectiveSessionOnSave.mockReset();
         runProgressEval = vi.fn();
         useSessionStore.getState().setObjectiveCoverageResult(null);
+        delete window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__;
+        delete window.__PRIVATE_OBJECTIVE_PUBLICATIONS__;
         const controller = SpeechRuntimeController.getInstance();
         gate = (controller as unknown as { finalizeObjectiveAndGateProgress: Gate })
             .finalizeObjectiveAndGateProgress.bind(controller);
@@ -115,6 +117,60 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         await gate(BRIEF, 'sess-ok', [], 60, runProgressEval, () => true);
         expect(runProgressEval).toHaveBeenCalledTimes(1);
         expect(useSessionStore.getState().objectiveCoverageResult).toEqual([{ id: 'p1', label: 'pricing', status: 'covered' }]);
+    });
+
+    it('emits one opt-in content-free witness only after the current take publishes', async () => {
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        finalizeObjectiveSessionOnSave.mockResolvedValue({
+            ok: true, registered: true, objectiveSessionId: 'o-private', evidenceCount: 2,
+            coverage: [
+                { briefPointId: 'private-point-1', point: 'private label one', status: 'covered' },
+                { briefPointId: 'private-point-2', point: 'private label two', status: 'partial' },
+            ],
+        });
+        await gate(BRIEF, 'private-session-id', [], 60, runProgressEval, () => true);
+        const rows = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+        const witness = rows.at(-1) as Record<string, unknown>;
+        expect(witness).toMatchObject({
+            schema: 'speaksharp.objective-publication.v1', pointCount: 2,
+            coveredCount: 1, partialCount: 1, missingCount: 0,
+        });
+        expect(witness.sessionSha256).toMatch(/^[a-f0-9]{64}$/);
+        expect(witness.statusChainSha256).toMatch(/^[a-f0-9]{64}$/);
+        const serialized = JSON.stringify(witness);
+        for (const privateValue of ['private-session-id', 'private-point-1', 'private-point-2', 'private label one', 'private label two']) {
+            expect(serialized).not.toContain(privateValue);
+        }
+    });
+
+    it('does not witness failed, stale/suppressed, or empty-recognizer finalization', async () => {
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        const before = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+        finalizeObjectiveSessionOnSave.mockResolvedValue({
+            ok: false, stage: 'finalize', reason: 'empty-recognizer-output', registered: true,
+        });
+        await gate(BRIEF, 'empty-session', [], 0, runProgressEval, () => true);
+        finalizeObjectiveSessionOnSave.mockResolvedValue({
+            ok: true, registered: true,
+            coverage: [{ briefPointId: 'stale', point: 'must not publish', status: 'covered' }],
+        });
+        useSessionStore.getState().setObjectiveCoverageResult([{ id: 'newer', label: 'newer take', status: 'missing' }]);
+        await gate(BRIEF, 'stale-session', [], 60, runProgressEval, () => false);
+        expect(useSessionStore.getState().objectiveCoverageResult).toEqual([{ id: 'newer', label: 'newer take', status: 'missing' }]);
+        expect(await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? []).toHaveLength(before.length);
+    });
+
+    it('does not publish before delayed registration/finalization settles', async () => {
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        let release!: (value: unknown) => void;
+        finalizeObjectiveSessionOnSave.mockReturnValue(new Promise((resolve) => { release = resolve; }));
+        const pending = gate(BRIEF, 'delayed-session', [], 60, runProgressEval, () => true);
+        await Promise.resolve();
+        expect(window.__PRIVATE_OBJECTIVE_PUBLICATIONS__).toBeUndefined();
+        release({ ok: true, registered: true, coverage: [{ briefPointId: 'p1', point: 'point', status: 'missing' }] });
+        await pending;
+        const rows = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+        expect(rows.at(-1)).toMatchObject({ pointCount: 1, missingCount: 1 });
     });
 });
 
