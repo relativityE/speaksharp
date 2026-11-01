@@ -95,7 +95,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_secret_values_come_only_from_secrets_and_account_identifiers_only_from_the_private_bundle(self):
         # Sam 1793544453.003099: passwords, tokens and keys are Secrets; account emails and ids travel only in CLOUD_TEST_LIVE_ACCOUNTS.
-        for name in ("THROWAWAY_TEST_PASSWORD", "SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY", "SUPABASE_ANON_KEY"):
+        for name in ("THROWAWAY_TEST_PASSWORD", "SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY", "POSTHOG_PROJECT_ID", "SUPABASE_ANON_KEY"):
             self.assertNotRegex(self.text, r"vars\.%s\b" % name, name)
         self.assertNotRegex(self.text, r"vars\.[A-Z_]*(_EMAIL|_ACCOUNT_ID)\b")
         self.assertNotIn("secrets.THROWAWAY_TEST_EMAIL", self.text)
@@ -114,9 +114,13 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('--comment-id "$COMMENT_ID"', self.text)
 
     def test_producer_keys_reach_only_the_producer_route(self):
-        for name in ("SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY"):
+        for name in ("SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY", "POSTHOG_PROJECT_ID"):
             refs = [line.strip() for line in self.text.splitlines() if ("secrets.%s" % name) in line]
             self.assertEqual(refs, ["%s: ${{ steps.init.outputs.route == 'github-producer' && secrets.%s || '' }}" % (name, name)])
+        # Only the producer run step receives the project identifier; no other step or job mentions it.
+        steps = [s for job in self.jobs.values() for s in job["steps"] if "POSTHOG_PROJECT_ID" in (s.get("env") or {})]
+        self.assertEqual([s["run"].strip() for s in steps], ["bash tools/cloud-test/scripts/execute_run.sh run"])
+        self.assertEqual(self.text.count("POSTHOG_PROJECT_ID"), 2, "exactly the env name and its Secret reference")
 
     def test_no_dispatch_input_or_context_value_is_interpolated_into_a_command(self):
         for job in self.jobs.values():
