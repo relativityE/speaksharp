@@ -19,6 +19,7 @@ Usage:
 Exit 78 (BLOCKED_SETUP) on every refusal.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -117,6 +118,76 @@ def sanitize_record(rec):
             "cases": sorted(out, key=lambda c: c["caseId"]), "codes": _codes(rec.get("codes", []), 16)}
 
 
+# G7 durable carry-forward (Sam 1793573813.598689): the bounded history every completed run folds into this same record. Per case: the last
+# EXECUTED verdict (PASS/FAIL) and the last-known-good, each bound to the occurrence that produced it; NOT RUN and NOT SELECTED never erase
+# them. Each fold binds the expected predecessor (its digest and sequence), refuses a replayed run and an out-of-order occurrence, and fails
+# closed when the serialized history would exceed its bound rather than drop required history.
+HISTORY_KEYS = {"sequence", "predecessorSha256", "occurrences", "rows"}
+OCCURRENCE_KEYS = {"runId", "attempt", "campaignId", "requestSha256", "catalogSha256", "sourceSha", "testedSha", "servedSha", "endedUtc",
+                   "outcome", "coverage"}
+MAX_OCCURRENCES = 62          # two 31-day periods of nightly occurrences, retained in order
+MAX_HISTORY_BYTES = 32768     # serialized-size bound; the GitHub comment body limit is 65536 characters
+
+
+def canon(doc):
+    return json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _occurrence(rec):
+    return {k: rec.get(k) for k in OCCURRENCE_KEYS}
+
+
+def sanitize_history(h):
+    """The retained history exactly as published; anything outside the closed shape or its bounds refuses."""
+    if h is None:
+        return None
+    _keys(h, HISTORY_KEYS, "history")
+    _need(type(h.get("sequence")) is int and h["sequence"] >= 1, "history-sequence")
+    _need(h.get("predecessorSha256") is None or (isinstance(h["predecessorSha256"], str) and SHA64.match(h["predecessorSha256"])), "history-predecessor")
+    occ = h.get("occurrences")
+    _need(isinstance(occ, list) and 1 <= len(occ) <= MAX_OCCURRENCES, "history-occurrences")
+    for o in occ:
+        _keys(o, OCCURRENCE_KEYS, "history-occurrence")
+        _attempt(o.get("runId"), o.get("attempt"))
+        _need(isinstance(o.get("endedUtc"), str) and UTC.match(o["endedUtc"]) and o.get("outcome") in ("passed", "failed"), "history-occurrence")
+    _need(all(a["endedUtc"] < b["endedUtc"] for a, b in zip(occ, occ[1:])) and len({o["runId"] for o in occ}) == len(occ), "history-order")
+    rows, run_ids = h.get("rows"), {o["runId"] for o in occ}
+    _need(isinstance(rows, dict) and set(rows) <= {"AHT-%02d" % n for n in range(1, 16)}, "history-rows")
+    for r in rows.values():
+        _keys(r, {"last", "lastKnownGood"}, "history-row")
+        for k in ("last", "lastKnownGood"):
+            v = r.get(k)
+            # every retained verdict is bound to a retained occurrence
+            _need(v is None or (isinstance(v, dict) and set(v) == {"result", "runId", "endedUtc"} and v["result"] in ("PASS", "FAIL")
+                                and v["runId"] in run_ids), "history-row")
+        _need(r.get("lastKnownGood") is None or r["lastKnownGood"]["result"] == "PASS", "history-row")
+    _need(len(canon(h)) <= MAX_HISTORY_BYTES, "history-overflow")
+    return h
+
+
+def fold_history(history, rec, expected_predecessor):
+    """The next history after the completed record `rec`. `expected_predecessor` is the digest of the history the publisher read (None on the
+    first fold): a fold on any other predecessor refuses, so two writers can never both extend the same history."""
+    prior = sanitize_history(history)
+    _need((None if prior is None else hashlib.sha256(canon(prior)).hexdigest()) == expected_predecessor, "history-predecessor-moved")
+    occ = list(prior["occurrences"]) if prior else []
+    _need(all(o["runId"] != rec["runId"] for o in occ), "history-replay")
+    _need(not occ or occ[-1]["endedUtc"] < rec["endedUtc"], "history-out-of-order")
+    occ.append(_occurrence(rec))
+    _need(len(occ) <= MAX_OCCURRENCES, "history-overflow")
+    rows = {cid: dict(r) for cid, r in (prior["rows"] if prior else {}).items()}
+    for c in rec["cases"]:
+        if c["result"] not in ("PASS", "FAIL"):
+            continue  # NOT RUN / NOT SELECTED never erase prior evidence
+        entry = {"result": c["result"], "runId": rec["runId"], "endedUtc": rec["endedUtc"]}
+        row = rows.setdefault(c["caseId"], {"last": None, "lastKnownGood": None})
+        row["last"] = entry
+        if c["result"] == "PASS":
+            row["lastKnownGood"] = entry
+    nxt = {"sequence": (prior["sequence"] + 1) if prior else 1, "predecessorSha256": expected_predecessor, "occurrences": occ, "rows": rows}
+    return sanitize_history(nxt)
+
+
 def parse_body(body):
     """The state held by an existing comment; an empty body is the never-published state. Anything unreadable refuses."""
     if body == "":
@@ -128,10 +199,14 @@ def parse_body(body):
         state = json.loads(blocks[0])
     except ValueError:
         raise Refused("latest-record-unreadable")
-    _keys(state, {"schema", "latestCompleted", "inProgress"}, "latest-record-unreadable")
+    _need(isinstance(state, dict) and {"schema", "latestCompleted", "inProgress"} <= set(state) <= {"schema", "latestCompleted", "inProgress", "history"},
+          "latest-record-unreadable")
     _need(state.get("schema") == SCHEMA, "latest-record-unreadable")
     if state.get("latestCompleted") is not None:
         state["latestCompleted"] = sanitize_record(state["latestCompleted"])
+    if "history" in state:
+        state["history"] = sanitize_history(state["history"])
+        _need(state["history"] is not None, "latest-record-unreadable")
     return state
 
 
@@ -184,7 +259,10 @@ def complete(state, record):
     live = state["inProgress"]
     _need(live is not None and live["status"] == "running" and (live["runId"], live["attempt"], live["sourceSha"]) ==
           (rec["runId"], rec["attempt"], rec["sourceSha"]), "record-not-the-running-attempt")
-    return {"schema": SCHEMA, "latestCompleted": rec, "inProgress": None}
+    prior = state.get("history")
+    # the carry-forward folds on exactly the history this publication read; interruption leaves it (and latestCompleted) untouched
+    history = fold_history(prior, rec, None if prior is None else hashlib.sha256(canon(prior)).hexdigest())
+    return {"schema": SCHEMA, "latestCompleted": rec, "inProgress": None, "history": history}
 
 
 def interrupt(state, run_id, attempt, status):
