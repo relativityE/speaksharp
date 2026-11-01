@@ -141,9 +141,9 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         reconcile_caps(req, rc)
     except (ValueError, TypeError, KeyError):
         need.append("exact per-case Start allocations are missing, invalid or unreconciled")
-    if appr.get("startPressCaps") is None:
-        owner_missing.append("approvedLimits.startPressCaps not approved")
     recurring = req.get("priority") == "nightly-regression"
+    if appr.get("startPressCaps") is None and not recurring:
+        owner_missing.append("approvedLimits.startPressCaps not approved")
     for k in ("cumulativeCeilingRequests", "identityCap", "runCapRequests"):
         if appr.get(k) is None and not recurring:
             owner_missing.append("approvedLimits.%s not approved" % k)

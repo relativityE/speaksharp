@@ -380,7 +380,12 @@ class SyntheticHistoryRules(unittest.TestCase):
         b = V.derive_budget(s["cfg"], reconciliation(), self.h.receipts)
         errs, _ = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation(), b)
         self.assertEqual(errs, [])
+        from test_case_start_caps import synthetic_allocation
         bad = J("config", "runs", "R8-nightly-regression-proposal.json"); bad["coverageMode"] = "partial"; bad["sampleMode"] = "minimal"
+        bad["selection"] = bad["selection"][:6]
+        for order, row in enumerate(bad["selection"], 1):
+            row["order"] = order
+        synthetic_allocation(bad)
         errs, _ = V.validate(bad, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation(), None)
         self.assertTrue(any("only for coverageMode full" in e for e in errs), errs)
 
