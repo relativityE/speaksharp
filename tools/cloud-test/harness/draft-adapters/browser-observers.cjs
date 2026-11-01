@@ -1,4 +1,5 @@
 'use strict';
+const crypto=require('node:crypto');
 // Passive browser observers ported from rwtJourney:526 and rwtAdverse:89 at main70e.
 // No microphone acquisition, request, route mutation, transcript capture, or provider access is initiated here.
 async function install(page,{pcmBoundaries=false}={}) {
@@ -77,31 +78,42 @@ const PCM_OPERATIONS=new Set(['worklet','replay','listener-copy','speech-confirm
 const PCM_PROBLEMS=new Set(['worklet-gap','worklet-metadata','late-frame','capture-changed','overflow','missing-lineage','hash-unavailable']);
 const PCM_UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const PCM_SHA=/^[a-f0-9]{64}$/;
-function sanitizePcmBoundaryReceipts(value){
- if(!Array.isArray(value)||value.length<1||value.length>2)return null;
- const captures=[];
- for(const capture of value){
-  if(!capture||typeof capture!=='object'||Array.isArray(capture)||capture.schema!=='speaksharp.pcm-boundaries.v1'||!PCM_UUID.test(capture.captureId||'')||!Number.isSafeInteger(capture.sampleRateHz)||capture.sampleRateHz<8000||capture.sampleRateHz>96000||capture.format!=='Float32LE'||capture.meaning!=='observed-boundary-inputs-not-proof-of-recognizer-output-or-accepted-focus-points'||typeof capture.complete!=='boolean'||typeof capture.workletClosed!=='boolean'||typeof capture.listenerClosed!=='boolean'||!Number.isSafeInteger(capture.pendingHashes)||capture.pendingHashes<0||!Array.isArray(capture.problems)||capture.problems.some(x=>!PCM_PROBLEMS.has(x))||!Array.isArray(capture.receipts)||capture.receipts.length>2048)return null;
-  const receipts=[];
-  for(let i=0;i<capture.receipts.length;i++){
-   const row=capture.receipts[i];
-   if(!row||typeof row!=='object'||Array.isArray(row)||!PCM_DOMAINS.includes(row.domain)||row.ordinal!==i||!Number.isSafeInteger(row.samples)||row.samples<1||row.bytes!==row.samples*4||typeof row.atMs!=='number'||!Number.isFinite(row.atMs)||row.atMs<0||!['pending','hashed','unavailable'].includes(row.status)||!(row.sha256===null||PCM_SHA.test(row.sha256||''))||typeof row.lineageComplete!=='boolean'||!Array.isArray(row.spans)||row.spans.length>256)return null;
-   const spans=[];
-   for(const span of row.spans){
-    if(!span||typeof span!=='object'||Array.isArray(span)||!(span.captureId===null||PCM_UUID.test(span.captureId||''))||!(span.start===null||(Number.isSafeInteger(span.start)&&span.start>=0))||!Number.isSafeInteger(span.samples)||span.samples<1||!Array.isArray(span.operations)||span.operations.length>32||span.operations.some(x=>!PCM_OPERATIONS.has(x)))return null;
-    spans.push({captureId:span.captureId,start:span.start,samples:span.samples,operations:[...span.operations]});
-   }
-   if(spans.reduce((n,s)=>n+s.samples,0)!==row.samples)return null;
-   receipts.push({domain:row.domain,ordinal:row.ordinal,samples:row.samples,bytes:row.bytes,atMs:row.atMs,sha256:row.sha256,status:row.status,spans,lineageComplete:row.lineageComplete});
-  }
-  if(capture.complete&&(!capture.workletClosed||!capture.listenerClosed||capture.pendingHashes!==0||capture.problems.length||PCM_DOMAINS.some(domain=>!receipts.some(r=>r.domain===domain&&r.status==='hashed'&&r.sha256&&r.lineageComplete))))return null;
-  captures.push({schema:capture.schema,captureId:capture.captureId,sampleRateHz:capture.sampleRateHz,format:capture.format,meaning:capture.meaning,complete:capture.complete,workletClosed:capture.workletClosed,listenerClosed:capture.listenerClosed,pendingHashes:capture.pendingHashes,problems:[...capture.problems],receipts});
- }
- return {schema:'speaksharp.pcm-boundary-diagnostics.v1',diagnosticOnly:true,meaning:'observed-boundary-inputs-not-proof-of-recognizer-output-or-accepted-focus-points',captures};
+const pcmHash=value=>crypto.createHash('sha256').update(String(value)).digest('hex');
+function identityOf(capture){
+ if(!capture||typeof capture!=='object'||Array.isArray(capture)||capture.schema!=='speaksharp.pcm-boundaries.v1'||!PCM_UUID.test(capture.captureId||'')||typeof capture.createdAtMs!=='number'||!Number.isFinite(capture.createdAtMs)||capture.createdAtMs<0)return null;
+ return {captureId:capture.captureId,createdAtMs:capture.createdAtMs};
 }
-async function pcmBoundaries(page){
+function failedPcmSelection(code,count){return {schema:'pcm-boundary-diagnostics.v2',diagnosticOnly:true,selectionStatus:'failed',selectionCode:code,captureCountObserved:count};}
+function sanitizePcmBoundaryReceipts(value,{baseline}={}){
+ if(!Array.isArray(value)||value.length<1||value.length>2)return null;
+ const identities=value.map(identityOf);if(identities.some(x=>!x))return failedPcmSelection('PCM_CAPTURE_IDENTITY_INVALID',value.length);
+ const baselineIds=new Set(Array.isArray(baseline?.captureIds)?baseline.captureIds:[]),observedAtMs=baseline?.observedAtMs;
+ if(!Number.isFinite(observedAtMs)||[...baselineIds].some(id=>!PCM_UUID.test(id)))return failedPcmSelection('PCM_PRESTART_BASELINE_INVALID',value.length);
+ const candidates=value.filter((capture,i)=>!baselineIds.has(identities[i].captureId)&&identities[i].createdAtMs>=observedAtMs);
+ if(candidates.length!==1)return failedPcmSelection(candidates.length?'PCM_CURRENT_CAPTURE_AMBIGUOUS':'PCM_CURRENT_CAPTURE_MISSING',value.length);
+ const capture=candidates[0],identity=identityOf(capture),domainRows=Object.fromEntries(PCM_DOMAINS.map(domain=>[domain,[]]));let structureValid=true,allReceiptsHashed=true,allLineageComplete=true,allSpansCurrentCapture=true;
+ if(!Number.isSafeInteger(capture.sampleRateHz)||capture.sampleRateHz<8000||capture.sampleRateHz>96000||capture.format!=='Float32LE'||capture.meaning!=='observed-boundary-inputs-not-proof-of-recognizer-output-or-accepted-focus-points'||typeof capture.complete!=='boolean'||typeof capture.workletClosed!=='boolean'||typeof capture.listenerClosed!=='boolean'||!Number.isSafeInteger(capture.pendingHashes)||capture.pendingHashes<0||!Array.isArray(capture.problems)||capture.problems.some(x=>!PCM_PROBLEMS.has(x))||!Array.isArray(capture.receipts)||capture.receipts.length>2048)structureValid=false;
+ const normalized=[];
+ if(Array.isArray(capture.receipts)&&capture.receipts.length<=2048)for(let i=0;i<capture.receipts.length;i++){
+  const row=capture.receipts[i];let rowValid=!!row&&typeof row==='object'&&!Array.isArray(row)&&PCM_DOMAINS.includes(row.domain)&&row.ordinal===i&&Number.isSafeInteger(row.samples)&&row.samples>0&&row.bytes===row.samples*4&&typeof row.atMs==='number'&&Number.isFinite(row.atMs)&&row.atMs>=0&&['pending','hashed','unavailable'].includes(row.status)&&(row.sha256===null||PCM_SHA.test(row.sha256||''))&&typeof row.lineageComplete==='boolean'&&Array.isArray(row.spans)&&row.spans.length<=256;
+  let spanSamples=0;const spans=[];
+  if(rowValid)for(const span of row.spans){const spanValid=!!span&&typeof span==='object'&&!Array.isArray(span)&&(span.captureId===null||PCM_UUID.test(span.captureId||''))&&(span.start===null||(Number.isSafeInteger(span.start)&&span.start>=0))&&Number.isSafeInteger(span.samples)&&span.samples>0&&Array.isArray(span.operations)&&span.operations.length<=32&&span.operations.every(x=>PCM_OPERATIONS.has(x));if(!spanValid){rowValid=false;break;}spanSamples+=span.samples;if(span.captureId!==identity.captureId)allSpansCurrentCapture=false;spans.push([span.captureId,span.start,span.samples,span.operations]);}
+  if(rowValid&&spanSamples!==row.samples)rowValid=false;
+  if(!rowValid){structureValid=false;continue;}
+  allReceiptsHashed&&=row.status==='hashed'&&PCM_SHA.test(row.sha256||'');allLineageComplete&&=row.lineageComplete===true;domainRows[row.domain].push(row);normalized.push([row.domain,row.ordinal,row.samples,row.bytes,row.atMs,row.sha256,row.status,row.lineageComplete,spans]);
+ }
+ const allDomainsPresent=PCM_DOMAINS.every(domain=>domainRows[domain].length>0),problemMask=Array.isArray(capture.problems)?capture.problems.reduce((mask,problem)=>mask|(1<<[...PCM_PROBLEMS].indexOf(problem)),0):0;
+ const validatedComplete=structureValid&&capture.workletClosed===true&&capture.listenerClosed===true&&capture.pendingHashes===0&&problemMask===0&&allDomainsPresent&&allReceiptsHashed&&allLineageComplete&&allSpansCurrentCapture&&normalized.length===capture.receipts.length;
+ const contradiction=capture.complete===true&&!validatedComplete;
+ const summaries=PCM_DOMAINS.map(domain=>{const rows=domainRows[domain];return {domain,receiptCount:rows.length,sampleCount:rows.reduce((n,r)=>n+r.samples,0),byteCount:rows.reduce((n,r)=>n+r.bytes,0),firstAtMs:rows.length?Math.min(...rows.map(r=>r.atMs)):null,lastAtMs:rows.length?Math.max(...rows.map(r=>r.atMs)):null};});
+ return {schema:'pcm-boundary-diagnostics.v2',diagnosticOnly:true,selectionStatus:'passed',selectionCode:'PCM_CURRENT_CAPTURE_SELECTED',captureCountObserved:value.length,selectedCapture:{captureDigest:pcmHash(identity.captureId),createdAtMs:identity.createdAtMs,sampleRateHz:capture.sampleRateHz,declaredComplete:capture.complete===true,validatedComplete,contradiction,workletClosed:capture.workletClosed===true,listenerClosed:capture.listenerClosed===true,pendingHashes:Number.isSafeInteger(capture.pendingHashes)?capture.pendingHashes:null,problemMask,receiptCount:Array.isArray(capture.receipts)?capture.receipts.length:null,validatedReceiptCount:normalized.length,allDomainsPresent,allReceiptsHashed,allLineageComplete,allSpansCurrentCapture,receiptChainSha256:pcmHash(JSON.stringify(normalized)),domains:summaries}};
+}
+async function pcmBoundaryBaseline(page){
+ try{return await page.evaluate(async()=>{const read=window.__PRIVATE_PCM_RECEIPTS__?.read;if(typeof read!=='function')return {observedAtMs:performance.now(),captureIds:[]};const rows=await read();return {observedAtMs:performance.now(),captureIds:Array.isArray(rows)?rows.map(row=>row?.captureId).filter(id=>typeof id==='string'):[]};});}catch{return null;}
+}
+async function pcmBoundaries(page,baseline){
  let value;
  try{value=await page.evaluate(async()=>typeof window.__PRIVATE_PCM_RECEIPTS__?.read==='function'?await window.__PRIVATE_PCM_RECEIPTS__.read():null);}catch{return null;}
- return sanitizePcmBoundaryReceipts(value);
+ return sanitizePcmBoundaryReceipts(value,{baseline});
 }
-module.exports={install,mic,armStates,states,audioTiming,pcmBoundaries,sanitizePcmBoundaryReceipts};
+module.exports={install,mic,armStates,states,audioTiming,pcmBoundaryBaseline,pcmBoundaries,sanitizePcmBoundaryReceipts};
