@@ -16,6 +16,26 @@ import sys
 import time
 
 
+POSTHOG_DELIVERY_HOSTS = ('us-assets.i.posthog.com', 'us.i.posthog.com')
+
+
+def select_feedback_delivery(policy, selected, same_job):
+    """Return a campaign policy with telemetry delivery present only for a bound 07/08 producer."""
+    needs_delivery = bool(set(selected).intersection({7, 8}))
+    if needs_delivery and not same_job:
+        raise ValueError('feedback-delivery-producer-unavailable')
+    if not needs_delivery:
+        for host in POSTHOG_DELIVERY_HOSTS:
+            if policy['hosts'].pop(host, None) is None:
+                raise ValueError('posthog-template-host')
+        policy['caps']['telemetry'] = 0
+    else:
+        if any(host not in policy['hosts'] for host in POSTHOG_DELIVERY_HOSTS):
+            raise ValueError('posthog-template-host')
+        policy['caps']['telemetry'] = 20
+    return policy
+
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -97,8 +117,12 @@ def read_binding_inputs(env, argv):
     OWNER_REF = FACTS['ownerApprovalReference']
     APPROVED_BY = FACTS['approvedBy']
     REVIEWER = FACTS['reviewer']
+    feedback_delivery_selected = bool(set(SELECTED).intersection({7, 8}))
     CAPS = {'total': 5200, 'navigations': 150, 'public': 2400, 'preflight': 1500, 'auth': 200, 'signed-in': 2400,
-            'coaching': 40, 'account-closure': 0, 'model': 400}
+            'coaching': 40, 'account-closure': 0, 'model': 400,
+            # R9 measured 12 SDK-asset attempts plus 8 ingestion attempts. This category consumes the
+            # unchanged total cap and exists only when the selected 07/08 route has an actual producer.
+            'telemetry': 20 if feedback_delivery_selected else 0}
     MAXMS = {1: 1500000, 2: 2400000, 3: 1500000, 4: 1200000, 5: 900000, 6: 900000, 7: 1200000, 8: 300000,
              9: 900000, 10: 900000, 11: 900000, 12: 1500000, 13: 900000, 14: 900000, 15: 420000}
     require(not env.get('BP_PRESS_EXTRA'), 'press-extra-forbidden')
@@ -224,6 +248,7 @@ def read_binding_inputs(env, argv):
         # merely to run in GitHub. Evidence-dependent cases still refuse before build.
         producer_cases_selected = set(SELECTED).intersection({1, 2, 3, 7, 8})
         require(RUNTIME != 'GitHub Actions SpeakSharp' or same_job or not producer_cases_selected, 'input-binding')
+        require(not feedback_delivery_selected or same_job, 'input-binding')
         receiver_rel = 'draft-adapters/receivers/' + ('github-job-evidence-reader.cjs' if same_job else 'unavailable-evidence-reader.cjs')
         receiver_path = f'{PACKET}/{receiver_rel}'
         receiver_sha = shaf(receiver_path)
@@ -328,6 +353,13 @@ def read_binding_inputs(env, argv):
         pol = obj(jload(f'{PACKET}/bundle/config/policy.production.TEMPLATE.json'), 'policy')
         pol = {k: v for k, v in pol.items() if not k.startswith('_')}
         pol['sourceSha'] = B; pol['deadlineAt'] = T1; pol['caps'] = dict(CAPS); pol['requestTimeoutMs'] = 180000
+        # A same-job producer for an unrelated case does not acquire telemetry egress. These hosts are
+        # present in the reviewed template so their exact route bytes are manifest-bound, but they enter
+        # a generated campaign only for selected 07/08 evidence.
+        try:
+            select_feedback_delivery(pol, SELECTED, same_job)
+        except ValueError:
+            raise InputValidationError('input-binding')
         for h_, cfg in obj(pol.get('hosts'), 'policy-hosts').items():
             obj(cfg, 'policy-host')
             require(type(cfg.get('rules')) is list, 'policy-rules')
@@ -351,7 +383,7 @@ def read_binding_inputs(env, argv):
         # security approval
         sa = {'version': 1, 'runtime': RUNTIME, 'action': 'ephemeral-browser-spki-exception', 'ownerApprovalReference': OWNER_REF,
               'approvedBy': APPROVED_BY, 'approvalSource': 'explicit-user-message', 'reviewedCodeManifestSha256': shaf(f'{PACKET}/bundle/CODE.sha256'),
-              'notBefore': T0, 'expiresAt': T1, 'allowedHosts': [HOST_APP, HOST_DB, 'a.test', 'c.test', 'd.test'],
+              'notBefore': T0, 'expiresAt': T1, 'allowedHosts': [*pol['hosts'], 'a.test', 'c.test', 'd.test'],
               'installTrustRoot': False, 'globalCertificateBypass': False, 'environmentSecurityChanges': False,
               'capabilities': {'lighthouse': {'selected': False, 'ownerApprovalReference': OWNER_REF}}}
         sa_sha = put(f'{PRIVATE}/cfg/security-approval.json', sa)

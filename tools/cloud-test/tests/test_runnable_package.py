@@ -2,6 +2,7 @@
 plans the REAL vendored runner accepts; nothing ignores a failure; the control plane runs secret-free with no product traffic."""
 import datetime
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -21,6 +22,10 @@ import verify_harness as VH
 CFG = os.path.join(ROOT, "config", "test-config.v1.json")
 RECEIVING_SOURCE = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
 PROJECT_REF = "yxlapjuovrsvjswkwnrk"
+
+_builder_spec = importlib.util.spec_from_file_location("cloud_test_build_plan", os.path.join(ROOT, "harness-adapter", "build_plan.py"))
+_builder = importlib.util.module_from_spec(_builder_spec)
+_builder_spec.loader.exec_module(_builder)
 
 
 def write_account_bindings(path, campaign_id):
@@ -106,6 +111,37 @@ class VendoredHarness(unittest.TestCase):
 
     def test_the_cli_exit_code_on_success(self):
         self.assertEqual(run_py("scripts/verify_harness.py", "--config", CFG).returncode, 0)
+
+
+class FeedbackDeliveryPolicy(unittest.TestCase):
+    def policy(self):
+        value = J("harness", "bundle", "config", "policy.production.TEMPLATE.json")
+        value["caps"] = {**value["caps"], "telemetry": None}
+        return value
+
+    def test_selected_07_or_08_gets_only_the_exact_reviewed_delivery_hosts_and_measured_cap(self):
+        for selected in ([7], [8], [7, 8]):
+            with self.subTest(selected=selected):
+                policy = _builder.select_feedback_delivery(self.policy(), selected, True)
+                self.assertEqual(policy["caps"]["telemetry"], 20)
+                self.assertEqual(policy["hosts"]["us-assets.i.posthog.com"]["rules"], [{
+                    "id": "posthog-sdk-array", "methods": ["GET"], "path": "^/static/array\\.js$", "cap": "telemetry",
+                    "effect": "read the exact PostHog array SDK asset observed on the reviewed production route",
+                    "review": True, "reviewedSourceSha": None,
+                }])
+                self.assertEqual(policy["hosts"]["us.i.posthog.com"]["rules"], [{
+                    "id": "posthog-event-ingest", "methods": ["POST"], "path": "^/(e|i/v0/e)/$", "cap": "telemetry",
+                    "effect": "send bounded non-PII product telemetry to either exact reviewed PostHog ingestion route",
+                    "review": True, "reviewedSourceSha": None,
+                }])
+
+    def test_unselected_or_unbound_delivery_never_widens_the_policy(self):
+        policy = _builder.select_feedback_delivery(self.policy(), [4, 13, 14], True)
+        self.assertEqual(policy["caps"]["telemetry"], 0)
+        for host in _builder.POSTHOG_DELIVERY_HOSTS:
+            self.assertNotIn(host, policy["hosts"])
+        with self.assertRaisesRegex(ValueError, "producer-unavailable"):
+            _builder.select_feedback_delivery(self.policy(), [7], False)
 
 
 class BrowserPin(unittest.TestCase):
@@ -352,6 +388,9 @@ class PlanBuilderProof(unittest.TestCase):
         self.assertEqual((plan["requestBudget"]["runCap"], plan["requestBudget"]["cleanupReserve"], plan["identityCap"]), (180, 50, 4))
         pol = json.load(open(os.path.join(private, "cfg", "policy.json")))
         self.assertEqual((pol["caps"]["total"], pol["caps"]["coaching"], pol["caps"]["account-closure"]), (180, 0, 0))
+        self.assertEqual(pol["caps"]["telemetry"], 0)
+        self.assertNotIn("us-assets.i.posthog.com", pol["hosts"])
+        self.assertNotIn("us.i.posthog.com", pol["hosts"])
         self.assertEqual(plan["sourceSha"], RECEIVING_SOURCE)
         consumption = json.load(open(os.path.join(private, "cfg/build-plan-consumption.json")))
         self.assertEqual(consumption["schema"], "speaksharp.cloud-test.build-plan-consumption.v1")
