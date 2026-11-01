@@ -1015,7 +1015,8 @@ def _unique(items, key, code):
     return out
 
 
-def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None, provenance=None):
+def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None, provenance=None, case_results_raw=None,
+            catalog=None):
     """run-record.json (the real collector keeps all 15 rows) -> the closed latest record. Qualification counts only when it is bound to THIS
     record and THIS admission: the same case-results digest, tested release, observed served release and admitted request digest. Then the selected rows keep their results, the others
     are NOT SELECTED, and coverage says batch or full truthfully. `passed` needs that binding and every selected row PASS; anything else is
@@ -1053,12 +1054,24 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
                       "rows": {"pass": 0, "fail": 0, "notRun": 0} if unselected else {"pass": a.get("PASS"), "fail": a.get("FAIL"), "notRun": a.get("NOT RUN")},
                       "codes": [c["outcomeClass"]] if not unselected and isinstance(c.get("outcomeClass"), str) and LR.CODE.match(c["outcomeClass"]) else []})
     selected = [c for c in cases if c["result"] != "NOT SELECTED"]
+    row_verdicts = None
+    if qualified and case_results_raw is not None and catalog is not None:
+        # G7 rows: per-row verdicts in catalog order, only from the case results the qualification bound by digest
+        _need(hashlib.sha256(case_results_raw).hexdigest() == q.get("caseResultsSha256"), "case-results-not-the-qualified-bytes")
+        results = {c.get("caseId"): {a.get("id"): a.get("result") for a in c.get("assertions") or [] if isinstance(a, dict)}
+                   for c in (json.loads(case_results_raw).get("cases") or []) if isinstance(c, dict)}
+        code = {"PASS": "P", "FAIL": "F"}
+        row_verdicts = {c["caseId"]: "".join(code.get(results.get(c["caseId"], {}).get(aid), "N")
+                                             for aid in catalog["cases"][c["caseId"]]["requiredAssertions"])
+                        for c in selected if c["caseId"] in catalog.get("cases", {})}
     rec = {"runId": run_id, "attempt": attempt, "sourceSha": source_sha, "testedSha": tested_sha, "servedSha": rel.get("servedShaAtAdmission"),
            "campaignId": q.get("campaignId") if qualified else None, "coverage": q["coverage"] if qualified else "unqualified",
            "startedUtc": run_record.get("startedUtc"), "endedUtc": run_record.get("endedUtc"),
            "requestSha256": q.get("requestSha256") if qualified else None, "catalogSha256": q.get("catalogSha256") if qualified else None,
            "outcome": "passed" if qualified and q["outcome"] == "passed" and selected and all(c["result"] == "PASS" for c in selected) else "failed",
            "cases": cases, "codes": [] if qualified else ["not-qualified"]}
+    if row_verdicts:
+        rec["rowVerdicts"] = row_verdicts
     try:
         return LR.sanitize_record(rec)
     except LR.Refused as e:
@@ -1100,7 +1113,9 @@ def main(argv):
         if x.command == "project":
             q = _load(x.qualification) if x.qualification and os.path.exists(x.qualification) else None
             prov = _load(x.provenance) if x.provenance and os.path.exists(x.provenance) else None
-            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov))
+            cr = _read(x.case_results) if x.case_results and os.path.exists(x.case_results) else None
+            catalog = _load(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "assertion-catalog.json"))
+            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov, cr, catalog))
             return 0
         if x.command == "provenance":
             _write_private(x.out, provenance_from_files(x.request, x.request_sha256, x.run_id, x.plan, x.build_receipt, x.reservations,
