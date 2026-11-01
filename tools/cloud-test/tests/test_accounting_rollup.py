@@ -43,7 +43,8 @@ def refused(test, code, fn, *a, **k):
     test.assertEqual(str(e.exception), code)
 
 
-class Rollup(unittest.TestCase):
+class Journal(unittest.TestCase):
+    """A genesis-rooted state ref on a temporary bare repository, with the synthetic bootstrap accepted through test-only pins."""
     def setUp(self):
         self.d = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.d)
@@ -75,6 +76,8 @@ class Rollup(unittest.TestCase):
     def receive(self, sc=None, chain=None, raw=None):
         return R.receive(raw or self.raw, sc or scope(), chain if chain is not None else self.chain(), **self.pins)
 
+
+class Rollup(Journal):
     def test_historical_usage_stays_distinct_and_is_counted_only_under_an_approved_carryover(self):
         none = self.receive()
         self.assertEqual((none["requests"]["conservativeUsed"], none["period"]["requests"], none["historical"]["requests"]), (0, 0, 7996))
