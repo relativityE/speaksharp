@@ -6,7 +6,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {PYTHON_INPUT_CONTRACTS,producePythonReceipt,selectPythonContracts,validatePythonReceipt} from '../../scripts/lib/pythonTestExecutionEvidence.mjs';
+import {PYTHON_INPUT_CONTRACTS,producePythonReceipt,pythonPhaseDiagnostics,selectPythonContracts,validatePythonReceipt} from '../../scripts/lib/pythonTestExecutionEvidence.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const here=path.dirname(fileURLToPath(import.meta.url)),repo=path.resolve(here,'../..');
@@ -140,11 +140,11 @@ test('Python package environment is exact, bounded and revalidated before credit
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
 });
 
-test('Python execution failures retain only bounded selected-phase diagnostics',()=>{
+test('Python execution failures hash untrusted IDs and retain only bounded selected-phase diagnostics',()=>{
   const f=fixture();process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
   try {
     const source=fs.readFileSync(f.executable,'utf8')
-      .replace("status:'passed'","status:'failed'")
+      .replace("id:'_evidence.test_ok',status:'passed'","id:'DO_NOT_LEAK',status:'failed'")
       .concat("\nconsole.error('DO-NOT-LEAK-CHILD-OUTPUT'); process.exit(7);\n");
     fs.writeFileSync(f.executable,source);fs.chmodSync(f.executable,0o755);
     assert.throws(()=>producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[f.testFile],batch:0,
@@ -154,8 +154,8 @@ test('Python execution failures retain only bounded selected-phase diagnostics',
       assert.equal(error.diagnostics.batch,0);
       assert.equal(error.diagnostics.status,7);
       assert.equal(error.diagnostics.cleanupStatus,'drained');
-      assert.deepEqual(error.diagnostics.failedTestIds,['_evidence.test_ok']);
-      assert.doesNotMatch(error.message,/DO-NOT-LEAK|PATH|HOME/);
+      assert.deepEqual(error.diagnostics.failedTests,[{index:0,status:'failed',idSha256:hash('DO_NOT_LEAK')}]);
+      assert.doesNotMatch(error.message,/DO[_-]NOT[_-]LEAK|PATH|HOME/);
       return true;
     });
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
@@ -173,9 +173,57 @@ test('missing Python receipts preserve exit and cleanup state without child outp
       assert.equal(error.diagnostics.signal,'SIGKILL');
       assert.equal(error.diagnostics.error,'ETIMEDOUT');
       assert.equal(error.diagnostics.cleanupStatus,'drained');
-      assert.deepEqual(error.diagnostics.failedTestIds,[]);
+      assert.deepEqual(error.diagnostics.failedTests,[]);
       assert.doesNotMatch(error.message,/DO-NOT-LEAK|PRIVATE/);
       return true;
+    });
+  } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('Python diagnostics refuse malformed IDs, oversized inventories and arbitrary process fields',()=>{
+  const contract={testFile:'tools/cloud-test/tests/test_example.py',batch:0};
+  const oversized='DO_NOT_LEAK'.repeat(1000);
+  const malformed=pythonPhaseDiagnostics({binding:{phaseId:'DO_NOT_LEAK'},execution:{status:999,signal:'DO_NOT_LEAK',error:'DO_NOT_LEAK',processCleanup:{status:'DO_NOT_LEAK'}},
+    report:{outcomes:[{id:{secret:'DO_NOT_LEAK'},status:'failed'},{id:oversized,status:'error'}]}},contract);
+  assert.equal(malformed.phaseId,null);assert.equal(malformed.status,'invalid');assert.equal(malformed.signal,'invalid');assert.equal(malformed.error,'invalid');
+  assert.equal(malformed.cleanupStatus,'invalid');
+  assert.deepEqual(malformed.failedTests,[{index:0,status:'failed',idSha256:null},{index:1,status:'error',idSha256:null}]);
+  assert.doesNotMatch(JSON.stringify(malformed),/DO_NOT_LEAK/);
+  const tooMany=pythonPhaseDiagnostics({report:{outcomes:Array.from({length:4097},()=>({id:'DO_NOT_LEAK',status:'failed'}))}},contract);
+  assert.equal(tooMany.receiptShape,'oversized');assert.deepEqual(tooMany.failedTests,[]);
+  assert.doesNotMatch(JSON.stringify(tooMany),/DO_NOT_LEAK/);
+});
+
+test('valid JSON with invalid binding, collection or inventory keeps safe phase context',()=>{
+  const f=fixture();process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
+  try {
+    const invalidReports=[null,{schemaVersion:1},{schemaVersion:1,collected:['one'],outcomes:[]},
+      {schemaVersion:1,collected:['one'],outcomes:[{id:'two',status:'passed'}]}];
+    for(const report of invalidReports) {
+      assert.throws(()=>producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[f.testFile],batch:0,
+        environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:{execPath:f.executable},spawn:(_command,_args,options)=>{
+          const binding=JSON.parse(options.env.PYTHON_TEST_EVIDENCE_BINDING);
+          fs.writeFileSync(binding.receiptFile,JSON.stringify(report));
+          return {pid:4242,status:0,signal:null,error:null,stdout:'PRIVATE',stderr:'PRIVATE'};
+        }}),error=>{
+        assert.equal(error.diagnostics.testFile,f.testFile);assert.equal(error.diagnostics.batch,0);
+        assert.doesNotMatch(error.message,/PRIVATE|DO_NOT_LEAK/);return true;
+      });
+    }
+  } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('oversized Python receipt is refused before JSON processing with bounded context',()=>{
+  const f=fixture();process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
+  try {
+    assert.throws(()=>producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[f.testFile],batch:0,
+      environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:{execPath:f.executable},spawn:(_command,_args,options)=>{
+        const binding=JSON.parse(options.env.PYTHON_TEST_EVIDENCE_BINDING);
+        fs.writeFileSync(binding.receiptFile,Buffer.alloc(2*1024*1024+1,65));
+        return {pid:4242,status:0,signal:null,error:null,stdout:'PRIVATE',stderr:'PRIVATE'};
+      }}),error=>{
+      assert.match(error.message,/receipt too large/);assert.equal(error.diagnostics.receiptShape,'oversized');
+      assert.deepEqual(error.diagnostics.failedTests,[]);assert.doesNotMatch(error.message,/PRIVATE/);return true;
     });
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
 });

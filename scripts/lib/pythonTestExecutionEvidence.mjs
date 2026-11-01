@@ -8,7 +8,12 @@ import {NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,executionBatchIdentity,reconcileExe
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fail=message=>{throw new Error(message);};
-const DIAGNOSTIC_ID=/^[A-Za-z0-9_.\[\]-]{1,300}$/;
+const MAX_RECEIPT_BYTES=2*1024*1024,MAX_RECEIPT_ITEMS=4096,MAX_DIAGNOSTIC_FAILURES=64;
+const PHASE_ID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const PROCESS_SIGNALS=new Set(['SIGHUP','SIGINT','SIGQUIT','SIGILL','SIGTRAP','SIGABRT','SIGBUS','SIGFPE','SIGKILL','SIGUSR1','SIGSEGV','SIGUSR2','SIGPIPE','SIGALRM','SIGTERM','SIGCHLD','SIGCONT','SIGSTOP','SIGTSTP','SIGTTIN','SIGTTOU','SIGURG','SIGXCPU','SIGXFSZ','SIGVTALRM','SIGPROF','SIGWINCH','SIGIO','SIGSYS']);
+const PROCESS_ERRORS=new Set(['EACCES','EAGAIN','EBADF','EINTR','EINVAL','EIO','EMFILE','ENFILE','ENOENT','ENOMEM','ENOSPC','ENOTDIR','EPERM','ETIMEDOUT']);
+const CLEANUP_STATES=new Set(['drained','not-started','error']);
+const OUTCOME_STATES=new Set(['passed','failed','error','skipped','expected-failure','unexpected-success']);
 export const PYTHON_REPORTER='scripts/lib/python-unittest-reporter.py';
 // Non-test inputs are credited only through the exact Python consumer that reads
 // or integrity-checks them.  This is deliberately a closed inventory: an
@@ -135,19 +140,27 @@ function fixedEnvironment(directory,binding) {
 // bound unittest inventory and are admitted only through a small printable
 // grammar; anything else is represented as malformed rather than echoed.
 export function pythonPhaseDiagnostics(phase,contract) {
-  const failed=(Array.isArray(phase?.report?.outcomes)?phase.report.outcomes:[])
-    .filter(item=>item?.status!=='passed')
-    .map(item=>DIAGNOSTIC_ID.test(item?.id??'')?item.id:'[invalid-test-id]');
+  const outcomes=Array.isArray(phase?.report?.outcomes)&&phase.report.outcomes.length<=MAX_RECEIPT_ITEMS
+    ?phase.report.outcomes:[];
+  const failed=outcomes.map((item,index)=>({item,index})).filter(({item})=>item?.status!=='passed');
+  const rawStatus=phase?.execution?.status,rawSignal=phase?.execution?.signal,rawError=phase?.execution?.error;
+  const receiptShape=phase?.report===null?'absent':!phase?.report||typeof phase.report!=='object'||Array.isArray(phase.report)
+    ||!Array.isArray(phase.report.outcomes)?'invalid':phase.report.outcomes.length>MAX_RECEIPT_ITEMS?'oversized':'bounded';
   return {
     testFile:contract.testFile,
-    batch:contract.batch,
-    phaseId:typeof phase?.binding?.phaseId==='string'?phase.binding.phaseId:null,
-    status:Number.isInteger(phase?.execution?.status)?phase.execution.status:null,
-    signal:typeof phase?.execution?.signal==='string'?phase.execution.signal:null,
-    error:typeof phase?.execution?.error==='string'?phase.execution.error:null,
-    cleanupStatus:typeof phase?.execution?.processCleanup?.status==='string'?phase.execution.processCleanup.status:null,
-    failedTestIds:failed.slice(0,256),
-    failedTestIdsTruncated:Math.max(0,failed.length-256),
+    batch:Number.isInteger(contract.batch)&&contract.batch>=0&&contract.batch<NATIVE_MAX_BATCHES?contract.batch:null,
+    phaseId:PHASE_ID.test(phase?.binding?.phaseId??'')?phase.binding.phaseId:null,
+    status:rawStatus===null?null:Number.isInteger(rawStatus)&&rawStatus>=0&&rawStatus<=255?rawStatus:'invalid',
+    signal:rawSignal===null?null:PROCESS_SIGNALS.has(rawSignal)?rawSignal:'invalid',
+    error:rawError===null?null:PROCESS_ERRORS.has(rawError)?rawError:'invalid',
+    cleanupStatus:CLEANUP_STATES.has(phase?.execution?.processCleanup?.status)?phase.execution.processCleanup.status:'invalid',
+    receiptShape,
+    failedTests:failed.slice(0,MAX_DIAGNOSTIC_FAILURES).map(({item,index})=>({
+      index,
+      status:OUTCOME_STATES.has(item?.status)?item.status:'invalid',
+      idSha256:typeof item?.id==='string'&&Buffer.byteLength(item.id,'utf8')<=300?hash(item.id):null,
+    })),
+    failedTestsTruncated:Math.max(0,failed.length-MAX_DIAGNOSTIC_FAILURES),
   };
 }
 
@@ -179,6 +192,7 @@ export function producePythonReceipt({root,base,provenance,files,batch=0,drain,s
       catch { processCleanup={status:'error'}; }
       const execution={status:result.status,signal:result.signal,error:result.error?.code??null,processCleanup};
       if(!fs.existsSync(receiptFile))failPhase('Python execution receipt missing',{binding,command,execution,report:null},contract);
+      if(fs.statSync(receiptFile).size>MAX_RECEIPT_BYTES)failPhase('Python execution receipt too large',{binding,command,execution,report:{outcomes:Array(MAX_RECEIPT_ITEMS+1)}},contract);
       let report;
       try { report=JSON.parse(fs.readFileSync(receiptFile,'utf8')); }
       catch { failPhase('Python execution receipt malformed',{binding,command,execution,report:null},contract); }
@@ -202,19 +216,24 @@ export function validatePythonPhase(phase,{root,base,provenance,runId,contract,r
     ||!isDeepStrictEqual(b.sourceFiles??[],(contract.sourceFiles??[]).map(file=>({file,sha256:hash(fs.readFileSync(regular(root,file)))})))
     ||!isDeepStrictEqual(b.provenance,provenance)||!isDeepStrictEqual(b.runtime,runtime)
     ||!isDeepStrictEqual(b.environment,pythonEnvironment(environment))
-    ||JSON.stringify(phase.command)!==JSON.stringify([runtime.execPath,'-I',regular(root,PYTHON_REPORTER)]))fail('Wrong Python source/runtime/provenance/command binding');
+    ||JSON.stringify(phase.command)!==JSON.stringify([runtime.execPath,'-I',regular(root,PYTHON_REPORTER)]))failPhase('Wrong Python source/runtime/provenance/command binding',phase,contract);
   if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null||phase.execution.processCleanup?.status!=='drained')failPhase('Python execution failed or did not drain',phase,contract);
-  if(report?.schemaVersion!==1||!isDeepStrictEqual(report.binding,b))fail('Python reporter binding is absent or stale');
-  if(!isDeepStrictEqual(report.runtime,runtime))fail('Python reporter runtime is absent or stale');
-  if(!Array.isArray(report.collected)||!report.collected.length||new Set(report.collected).size!==report.collected.length
-    ||!Array.isArray(report.outcomes)||report.outcomes.length!==report.collected.length)fail('Python collection absent, duplicated or stale');
-  if(!isDeepStrictEqual(report.sourceReads??[],b.sourceFiles??[]))fail('Python input consumption absent, substituted or stale');
+  if(report?.schemaVersion!==1||!isDeepStrictEqual(report.binding,b))failPhase('Python reporter binding is absent or stale',phase,contract);
+  if(!isDeepStrictEqual(report.runtime,runtime))failPhase('Python reporter runtime is absent or stale',phase,contract);
+  const boundedInventory=Array.isArray(report.collected)&&report.collected.length>0&&report.collected.length<=MAX_RECEIPT_ITEMS
+    &&report.collected.every(id=>typeof id==='string'&&Buffer.byteLength(id,'utf8')<=300)
+    &&Array.isArray(report.outcomes)&&report.outcomes.length<=MAX_RECEIPT_ITEMS
+    &&report.outcomes.every(item=>item&&typeof item==='object'&&typeof item.id==='string'&&Buffer.byteLength(item.id,'utf8')<=300&&OUTCOME_STATES.has(item.status));
+  if(!boundedInventory||new Set(report.collected).size!==report.collected.length
+    ||report.collected.length>MAX_RECEIPT_ITEMS||!Array.isArray(report.outcomes)||report.outcomes.length>MAX_RECEIPT_ITEMS
+    ||report.outcomes.length!==report.collected.length)failPhase('Python collection absent, duplicated or stale',phase,contract);
+  if(!isDeepStrictEqual(report.sourceReads??[],b.sourceFiles??[]))failPhase('Python input consumption absent, substituted or stale',phase,contract);
   const outcomes=new Map();
   for(const item of report.outcomes) {
     if(!item||typeof item.id!=='string'||item.status!=='passed'||outcomes.has(item.id))failPhase('Python tests failed, skipped, duplicated or malformed',phase,contract);
     outcomes.set(item.id,item.status);
   }
-  if(report.collected.some(id=>!outcomes.has(id))||[...outcomes].some(([id])=>!report.collected.includes(id)))fail('Python collected/result inventory differs');
+  if(report.collected.some(id=>!outcomes.has(id))||[...outcomes].some(([id])=>!report.collected.includes(id)))failPhase('Python collected/result inventory differs',phase,contract);
   return contract.testFile;
 }
 
