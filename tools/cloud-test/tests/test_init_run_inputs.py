@@ -1381,6 +1381,12 @@ class LiveAccountsBundle(unittest.TestCase):
         for ref in (PROJECT + ".supabase.co", "a.c", "", None):
             with self.subTest(ref=ref):
                 self.assertFalse(I.is_project_origin("https://%s.supabase.co" % ref, ref))
+        # Sam RETURN 1793565233.209949: a newline-terminated reference paired with its URL, and Unicode case-folding (long s).
+        self.assertFalse(I.is_project_origin("https://%s\n.supabase.co" % PROJECT, PROJECT + "\n"))
+        for url in ("https://%s.\u017fupabase.co" % PROJECT, "https://%s.supabase.\u0441o" % PROJECT, "https://%s.\u017fUPABASE.CO" % PROJECT):
+            with self.subTest(url=url):
+                self.assertFalse(I.is_project_origin(url, PROJECT))
+        self.assertTrue(I.is_project_origin("https://%s.SuPaBaSe.Co" % PROJECT, PROJECT))
 
     def test_the_shared_origin_vectors_agree(self):
         for name, code, url in URL_VECTORS:
