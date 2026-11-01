@@ -25,11 +25,17 @@ def usage(approval, index, ledger, now, exclude_run=None):
     sealed = set()
     for e in (index or {}).get("entries", []):
         s = e.get("summary") or {}
+        if s.get("kind") != "run":
+            continue  # non-run entries never replace an outstanding reservation
         te = parse_utc(s.get("endedUtc"))
-        sealed.add(e.get("label"))
-        sealed.add(e.get("campaignId"))
-        if s.get("kind") != "run" or not te or not ts or te < ts:
-            continue
+        if te is not None:
+            # Only usable sealed usage replaces that run's reservation.
+            sealed.add(e.get("label"))
+            sealed.add(e.get("campaignId"))
+            if ts is not None and te < ts:
+                continue
+        # Missing/invalid end time or period start never makes usage disappear:
+        # conservatively count the run in the active period.
         runs += 1
         for k in PERRUN:
             v = s.get(ENTRY[k])

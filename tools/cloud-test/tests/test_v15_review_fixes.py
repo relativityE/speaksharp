@@ -1,12 +1,15 @@
 """Workflow 1.5.0 review fixes: (1) every recurring cap is enforced from history and reservations; (2) the headline verdict includes the safety checks;
 (3) isolation evidence is account-bound, fresh and checks old-run residue; (4) reviewed features reach regression without a bug; plus the #1488/#1757 concern observations."""
 import copy
+import errno
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 from _fixtures import ROOT, J, run_py, sample, wjson, needs_history
@@ -38,6 +41,11 @@ def nightly_request(run_id="R9-N9"):
 
 def index_of(root, cfg):
     return HI.wrap(HI.derive(cfg, root, 1))
+
+
+def read_json(path):
+    with open(path, encoding="utf-8") as stream:
+        return json.load(stream)
 
 
 class EveryRecurringCapIsEnforced(unittest.TestCase):
@@ -150,6 +158,28 @@ class ReservationsHoldCapsUntilSealed(unittest.TestCase):
         u = RU.usage(self.ap, idx, led, self.NOW)
         self.assertEqual((u["runs"], u["used"]["starts"], u["openReservations"]), (1, 10, []))
 
+    def sealed(self, kind="run", ended="2026-11-05T02:00:00Z"):
+        return {"label": "R9-N1", "campaignId": "R9-N1", "summary": {"kind": kind, "endedUtc": ended,
+                "requests": 40, "identityReads": 1, "starts": 1, "takes": 1, "coachingRequests": 1, "runnerMinutes": 1}}
+
+    def test_only_usable_sealed_usage_replaces_an_outstanding_reservation(self):
+        led = self.reserve(RS.empty(), "R9-N1")
+        usable = RU.usage(self.ap, {"entries": [self.sealed()]}, led, self.NOW)
+        self.assertEqual((usable["runs"], usable["used"]["requests"], usable["openReservations"]), (1, 40, []))
+        for label, entry in (("ledger-only", self.sealed(kind="ledgers-only")),
+                             ("missing end", self.sealed(ended=None)),
+                             ("invalid end", self.sealed(ended="yesterday"))):
+            with self.subTest(label):
+                retained = RU.usage(self.ap, {"entries": [entry]}, led, self.NOW)
+                self.assertEqual(retained["openReservations"], ["R9-N1"])
+                self.assertGreaterEqual(retained["used"]["requests"], self.req["estimate"]["requests"]["runCap"])
+
+    def test_missing_period_start_counts_usage_instead_of_dropping_it(self):
+        without_start = copy.deepcopy(self.ap)
+        without_start["periodStartUtc"] = None
+        usage = RU.usage(without_start, {"entries": [self.sealed()]}, RS.empty(), self.NOW)
+        self.assertEqual((usage["runs"], usage["used"]["requests"]), (1, 40))
+
     def test_reserved_caps_can_exhaust_a_cap_with_nothing_sealed(self):
         led = self.reserve(self.led, "R9-A", scale=30)          # a reservation holding the whole period
         needs = RU.check_caps(self.req, self.ap, {"entries": []}, led, self.NOW)
@@ -169,11 +199,121 @@ class ReservationsHoldCapsUntilSealed(unittest.TestCase):
     def cli(self, *args, ledger=None):
         return subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "reservations.py")] + list(args), capture_output=True, text=True)
 
+    def popen(self, *args):
+        return subprocess.Popen([sys.executable, "-I", os.path.join(ROOT, "scripts", "reservations.py")] + list(args),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
     def files(self, scale_used=None):
         d = tempfile.mkdtemp()
         rq, ap, ix, lg = (os.path.join(d, n) for n in ("req.json", "ap.json", "idx.json", "led.json"))
         wjson(rq, self.req); wjson(ap, self.ap); wjson(ix, {"entries": []}); wjson(lg, RS.empty())
         return rq, ap, ix, lg
+
+    def concurrent_files(self, cadence):
+        d = tempfile.mkdtemp()
+        idx, ledger = os.path.join(d, "index.json"), os.path.join(d, "reservations.json")
+        wjson(idx, {"entries": []}); wjson(ledger, RS.empty())
+        ap = copy.deepcopy(self.ap); ap["cadence"]["runsPerPeriod"] = cadence
+        requests, approvals = [], []
+        for i in (1, 2):
+            req, approval_path = os.path.join(d, "request-%d.json" % i), os.path.join(d, "approval-%d.fifo" % i)
+            wjson(req, nightly_request("R9-C%d" % i)); os.mkfifo(approval_path)
+            requests.append(req); approvals.append(approval_path)
+        return d, idx, ledger, ap, requests, approvals
+
+    def fifo_writer(self, path, timeout=5):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                return os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+            except OSError as error:
+                if error.errno != errno.ENXIO:
+                    raise
+                time.sleep(0.01)
+        self.fail("the child never reached its gated approval read: " + path)
+
+    def feed(self, fd, document):
+        try:
+            os.write(fd, json.dumps(document).encode("utf-8"))
+        finally:
+            os.close(fd)
+
+    def concurrent_reservations(self, cadence):
+        _, idx, ledger, approval, requests, fifos = self.concurrent_files(cadence)
+        common = ["--index", idx, "--ledger", ledger, "--now", "2026-11-05T03:00:00Z"]
+        children = [self.popen("reserve", "--request", requests[i], "--approval", fifos[i], *common) for i in (0, 1)]
+        first = None
+        deadline = time.monotonic() + 5
+        while first is None and time.monotonic() < deadline:
+            for i, fifo in enumerate(fifos):
+                try:
+                    first = (i, os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+                    break
+                except OSError as error:
+                    if error.errno != errno.ENXIO:
+                        raise
+            if first is None:
+                time.sleep(0.01)
+        self.assertIsNotNone(first, "neither reservation reached the transaction")
+        first_i, first_fd = first
+        second_i = 1 - first_i
+        try:
+            second_fd = os.open(fifos[second_i], os.O_WRONLY | os.O_NONBLOCK)
+        except OSError as error:
+            if error.errno != errno.ENXIO:
+                raise
+            second_fd = None
+        self.feed(first_fd, approval)
+        if second_fd is None:
+            children[first_i].wait(timeout=5)
+            second_fd = self.fifo_writer(fifos[second_i])
+        self.feed(second_fd, approval)
+        results = []
+        for child in children:
+            out, err = child.communicate(timeout=5)
+            results.append((child.returncode, out, err))
+        return ledger, results
+
+    def test_concurrent_reservations_serialize_the_cadence_check_and_both_appends(self):
+        one_ledger, one = self.concurrent_reservations(1)
+        self.assertEqual(sorted(r[0] for r in one), [0, 78], one)
+        self.assertEqual(len(read_json(one_ledger)["events"]), 1)
+        two_ledger, two = self.concurrent_reservations(2)
+        self.assertEqual([r[0] for r in two], [0, 0], two)
+        events = read_json(two_ledger)["events"]
+        self.assertEqual((len(events), {e["runId"] for e in events}), (2, {"R9-C1", "R9-C2"}))
+
+    def test_waiting_release_observes_the_reserve_through_a_symlink_alias(self):
+        d, idx, ledger, approval, requests, fifos = self.concurrent_files(2)
+        alias = os.path.join(d, "ledger-alias.json"); os.symlink(ledger, alias)
+        reserve = self.popen("reserve", "--request", requests[0], "--approval", fifos[0], "--index", idx, "--ledger", ledger,
+                             "--now", "2026-11-05T03:00:00Z")
+        approval_fd = self.fifo_writer(fifos[0])  # reserve holds the lock while waiting here
+        release = self.popen("release", "--run-id", "R9-C1", "--reason", "never started", "--ref", "owner-1", "--ledger", alias,
+                             "--now", "2026-11-05T03:01:00Z")
+        time.sleep(0.1)
+        self.assertIsNone(release.poll(), "release read stale state instead of waiting for the reservation transaction")
+        self.feed(approval_fd, approval)
+        reserve_out, reserve_err = reserve.communicate(timeout=5)
+        self.assertEqual(reserve.returncode, 0, reserve_out + reserve_err)
+        release_out, release_err = release.communicate(timeout=5)
+        self.assertEqual(release.returncode, 0, release_out + release_err)
+        events = read_json(ledger)["events"]
+        self.assertEqual([e["event"] for e in events], ["reserve", "release"])
+
+    def test_process_death_releases_the_stable_lock_and_the_next_publish_is_complete(self):
+        d, idx, ledger, approval, requests, fifos = self.concurrent_files(2)
+        dying = self.popen("reserve", "--request", requests[0], "--approval", fifos[0], "--index", idx, "--ledger", ledger,
+                           "--now", "2026-11-05T03:00:00Z")
+        approval_fd = self.fifo_writer(fifos[0])
+        os.kill(dying.pid, signal.SIGKILL); dying.communicate(timeout=5); os.close(approval_fd)
+        approval_file = os.path.join(d, "approval.json"); wjson(approval_file, approval)
+        after = self.cli("reserve", "--request", requests[1], "--approval", approval_file, "--index", idx, "--ledger", ledger,
+                         "--now", "2026-11-05T03:01:00Z")
+        self.assertEqual(after.returncode, 0, after.stdout + after.stderr)
+        self.assertEqual(len(read_json(ledger)["events"]), 1)
+        self.assertTrue(os.path.isfile(os.path.realpath(ledger) + ".lock"))
+        self.assertEqual([n for n in os.listdir(d) if n.endswith(".partial")], [])
 
     def test_the_command_line_reserves_then_refuses_a_replay_and_requires_the_reservation(self):
         rq, ap, ix, lg = self.files()
