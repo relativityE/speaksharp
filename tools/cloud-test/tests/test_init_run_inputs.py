@@ -1936,6 +1936,47 @@ class Case10Bound(unittest.TestCase):
         self.assertNotIn("case10RequestBound", I.FACT_REQUIRED)
 
 
+class Case10ObservationAdmission(unittest.TestCase):
+    """Design A in prepare (Sam 1793570217.800529): a nightly AHT-10 row pinning an observationContract admits only the placed fresh
+    observation, through the builder's own validator, for this request digest, run and time; synthetic reader trusted by test override only."""
+    ENTRIES = {"existing-disposable": {"accountId": ACCOUNT_ID}}
+
+    def setUp(self):
+        import case10_observation as O
+        from test_case10_request_bound import projection
+        from test_nightly_request import SLOT, derive as nightly_derive
+        self.O = O
+        self.raw = nightly_derive(run_id="101")
+        self.req = json.loads(self.raw)
+        self.sha = hashlib.sha256(self.raw).hexdigest()
+        self.now = SLOT + timedelta(minutes=2)
+        self.record = O.observe(lambda keys: {k: projection()[k] for k in keys}, self.req, self.sha, "101", 1, ACCOUNT_ID, SLOT + timedelta(minutes=1))
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d)
+
+    def check(self, observation, facts_over=None, trusted=True, run_id="101"):
+        readers = frozenset({self.O.contract_of(self.req)["reader"]}) if trusted else frozenset()
+        with mock.patch.object(self.O, "TRUSTED_READERS", readers):
+            return I.check_case10_bound(self.req, facts(**(facts_over or {})), I.ALL_CASES, self.ENTRIES, self.sha, run_id, self.now, observation)
+
+    def test_the_placed_observation_is_admitted_and_read_from_a_private_regular_file(self):
+        self.assertEqual(self.check(self.record)["allowance"], 240)
+        path = os.path.join(self.d, "case10-observation.json")
+        put(path, self.record)
+        self.assertEqual(I.read_case10_observation(path), self.record)
+        self.assertIsNone(I.read_case10_observation(None))
+        refused(self, "case10-observation-unreadable", I.read_case10_observation, os.path.join(self.d, "absent.json"))
+        with open(path, "w") as f:
+            f.write("[]")
+        refused(self, "case10-observation-unreadable", I.read_case10_observation, path)
+
+    def test_missing_untrusted_replayed_or_two_source_observations_refuse(self):
+        refused(self, "case10-observation-missing", self.check, None)
+        refused(self, "case10-observation-reader-not-trusted", self.check, self.record, trusted=False)
+        refused(self, "case10-observation-replayed", self.check, self.record, run_id="102")
+        refused(self, "case10-observation-two-sources", self.check, self.record, {"case10RequestBound": {"schema": "x"}})
+
+
 class WindowAtAdmission(unittest.TestCase):
     def test_the_remaining_window_must_hold_live_and_collect_and_is_never_reset(self):
         r = live_request(["AHT-05"])
