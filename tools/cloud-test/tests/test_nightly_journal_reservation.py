@@ -159,5 +159,35 @@ class NightlyJournalReservation(Journal):
         W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote), event, self.root, self.remote)
 
 
+class SealedUsageNeverHidesAReservation(unittest.TestCase):
+    """Sam 1793574755.351569: an outstanding reservation is suppressed only by usable sealed usage; missing or invalid time stays counted."""
+    CAPS = {"requests": 100, "identityReads": 2, "starts": 3, "takes": 4, "coachingRequests": 5, "runnerMinutes": 6}
+
+    def fold(self, entries, approval_over=None):
+        from recurring_usage import usage
+        ledger = RES.append(RES.empty(), {"event": "reserve", "runId": "nightly-x", "atUtc": "2026-11-02T03:01:00Z", "caps": dict(self.CAPS),
+                                          "requestConsumption": {}, "ref": "slack:1793553158.013909"})
+        ap = dict(json.loads(approval()), **(approval_over or {}))
+        return usage(ap, {"entries": entries}, ledger, None)
+
+    def entry(self, kind="run", ended="2026-11-02T08:00:00Z"):
+        return {"label": "nightly-x", "campaignId": "nightly-x", "summary": {"kind": kind, "endedUtc": ended, "requests": 40, "identityReads": 1,
+                                                                             "starts": 1, "takes": 1, "coachingRequests": 1, "runnerMinutes": 1}}
+
+    def test_only_a_run_with_a_valid_end_time_replaces_its_reservation(self):
+        sealed = self.fold([self.entry()])
+        self.assertEqual((sealed["openReservations"], sealed["used"]["requests"]), ([], 40))
+        for label, entries in (("ledgers-only entry", [self.entry(kind="ledgers-only")]), ("missing endedUtc", [self.entry(ended=None)]),
+                               ("invalid endedUtc", [self.entry(ended="yesterday")])):
+            with self.subTest(label):
+                u = self.fold(entries)
+                self.assertEqual(u["openReservations"], ["nightly-x"])
+                self.assertGreaterEqual(u["used"]["requests"], 100)
+
+    def test_a_missing_period_start_counts_sealed_runs_instead_of_dropping_them(self):
+        u = self.fold([self.entry()], {"periodStartUtc": None})
+        self.assertEqual((u["runs"], u["used"]["requests"]), (1, 40))
+
+
 if __name__ == "__main__":
     unittest.main()
