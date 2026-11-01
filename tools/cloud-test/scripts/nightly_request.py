@@ -18,6 +18,7 @@ UNQUALIFIED until the writer is activated: admission is only atomic at the write
 Exit 78 on every refusal except a switched-off nightly (exit 0); no value is printed.
 """
 import argparse
+import base64
 import copy
 import hashlib
 import json
@@ -195,7 +196,7 @@ def fresh_repo():
 
 def admit(switch, attempt, cron, trigger, now, run_id, tested_sha, cfg, workflow_text):
     """The whole nightly admission, BEFORE any record mutation or credential-bearing job: gate, anchored inputs, replay from the verified
-    chain, the derivation and the fit from now. Returns (occurrence id, request sha256) or refuses."""
+    chain, the derivation and the fit from now. Returns (occurrence id, request sha256, request bytes) or refuses."""
     ap, slot = gate(switch, attempt, APPROVAL_PATH, cron, trigger, now, cfg)
     _need(TEMPLATE_PATH is not None, "nightly-template-not-received")
     _need(BUDGET_PATH is not None, "nightly-budget-not-accepted")
@@ -208,7 +209,7 @@ def admit(switch, attempt, cron, trigger, now, run_id, tested_sha, cfg, workflow
     prior = occurrences_from_chain(fresh_repo(), state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT)
     raw = derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, prior, cfg, workflow_text)
     check_fit(raw, now, cfg, workflow_text)
-    return json.loads(raw)["nightly"]["occurrenceId"], hashlib.sha256(raw).hexdigest()
+    return json.loads(raw)["nightly"]["occurrenceId"], hashlib.sha256(raw).hexdigest(), raw
 
 
 def load_anchored(raw, pinned, missing, mismatch):
@@ -297,7 +298,7 @@ def main(argv):
         a.add_argument(flag, default="")
     a.add_argument("--outputs", required=True)
     x = a.parse_args(argv[1:])
-    code, status, digest = "admitted", 0, ""
+    code, status, digest, raw = "admitted", 0, "", b""
     try:
         if x.switch != "true":
             raise Refused("nightly-switch-off")  # decided before reading anything else
@@ -305,13 +306,17 @@ def main(argv):
             cfg = json.load(f)
         with open(WORKFLOW_PATH, encoding="utf-8") as f:
             workflow_text = f.read()
-        _, digest = admit(x.switch, x.attempt, x.cron, _utc(x.trigger_utc), datetime.now(timezone.utc), x.run_id, x.tested_sha, cfg, workflow_text)
+        _, digest, raw = admit(x.switch, x.attempt, x.cron, _utc(x.trigger_utc), datetime.now(timezone.utc), x.run_id, x.tested_sha, cfg, workflow_text)
     except Refused as e:
         code, status = str(e), (0 if str(e) == "nightly-switch-off" else 78)
     except (OSError, ValueError, KeyError, TypeError):
         code, status = "nightly-inputs-unreadable", 78
+    # The admitted bytes travel beside their digest, from this one step (a step output cannot be rewritten later); prepare admits exactly
+    # these bytes only when they hash to request_sha256. Base64 keeps them on one output line.
+    ok = code == "admitted"
     with open(x.outputs, "a", encoding="utf-8") as f:
-        f.write("admitted=%s\ncode=%s\nrequest_sha256=%s\n" % ("true" if code == "admitted" else "false", code, digest if code == "admitted" else ""))
+        f.write("admitted=%s\ncode=%s\nrequest_sha256=%s\nrequest_b64=%s\n" % ("true" if ok else "false", code, digest if ok else "",
+                                                                                base64.b64encode(raw).decode("ascii") if ok else ""))
     if status:
         print("BLOCKED_SETUP: " + code, file=sys.stderr)
     return status

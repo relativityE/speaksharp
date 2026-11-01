@@ -46,8 +46,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('nightly_request.py gate --switch "$NIGHTLY_SWITCH" --attempt "$GITHUB_RUN_ATTEMPT"', step["run"])
         self.assertIn('--cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --run-id "$GITHUB_RUN_ID" --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"',
                       step["run"])
-        self.assertEqual(gate["outputs"], {"admitted": "${{ steps.gate.outputs.admitted }}", "request_sha256": "${{ steps.gate.outputs.request_sha256 }}"})
+        self.assertEqual(gate["outputs"], {"admitted": "${{ steps.gate.outputs.admitted }}", "request_sha256": "${{ steps.gate.outputs.request_sha256 }}",
+                                           "request_b64": "${{ steps.gate.outputs.request_b64 }}"})
         begin = self.jobs["record-begin"]
+        # The gate's admitted bytes and digest pass through record-begin unchanged; on schedule init admits exactly them, never inputs.request.
+        self.assertEqual({k: begin["outputs"][k] for k in ("nightly_request_sha256", "nightly_request_b64")},
+                         {"nightly_request_sha256": "${{ needs.nightly-gate.outputs.request_sha256 }}",
+                          "nightly_request_b64": "${{ needs.nightly-gate.outputs.request_b64 }}"})
+        init = next(s for s in self.jobs["live"]["steps"] if s.get("id") == "init")
+        self.assertEqual((init["env"]["NIGHTLY_REQUEST_SHA256"], init["env"]["NIGHTLY_REQUEST_B64"]),
+                         ("${{ needs.record-begin.outputs.nightly_request_sha256 }}", "${{ needs.record-begin.outputs.nightly_request_b64 }}"))
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n'
+                      '  (umask 077; printf \'%s\' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")\n'
+                      '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n'
+                      'else\n  SRC=(--request "$REQUEST")\nfi\n', init["run"])
+        self.assertIn('init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}"', init["run"])
         self.assertEqual(begin["needs"], "nightly-gate")
         self.assertEqual(begin["if"], "${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && "
                                       "needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}")

@@ -106,10 +106,11 @@ def _request_keys():
         return set(json.load(f))
 
 
-def request_shape_ok(req, template_keys):
-    """A run request is exactly the reviewed template's fields plus REQUEST_EXTRA_KEYS; the schema must be v2."""
+def request_shape_ok(req, template_keys, extra=frozenset()):
+    """A run request is exactly the reviewed template's fields plus REQUEST_EXTRA_KEYS (plus `extra`, only the gate-derived nightly request's
+    `nightly` block in nightly mode); the schema must be v2."""
     return (isinstance(req, dict) and req.get("schema") == "speaksharp.cloud-test.run-request.v2" and
-            template_keys <= set(req) <= template_keys | REQUEST_EXTRA_KEYS)
+            template_keys <= set(req) <= template_keys | REQUEST_EXTRA_KEYS | set(extra))
 
 
 def select_request(repo, rel, source_sha):
@@ -127,6 +128,25 @@ def select_request(repo, rel, source_sha):
     return path, blob, raw
 
 
+def nightly_request(path, gate_sha256, run_id, source_sha):
+    """NIGHTLY mode (Sam 1793557964.186059): the request is exactly the bytes the credential-free nightly gate derived and admitted, delivered
+    as its step outputs (request_b64 beside request_sha256), never a committed file. Read ONCE from a regular private file; their digest must
+    be the gate's; they must be a nightly-regression request for THIS run (attempt 1) testing exactly this source. Returns (path, blob, raw)."""
+    _need(isinstance(gate_sha256, str) and SHA64.match(gate_sha256) is not None, "nightly-gate-digest")
+    _need(isinstance(path, str) and os.path.isfile(path) and not os.path.islink(path), "nightly-request-unreadable")
+    raw = _read(path)
+    _need(hashlib.sha256(raw).hexdigest() == gate_sha256, "nightly-request-not-the-gate-admission")
+    try:
+        req = json.loads(raw)
+    except ValueError:
+        raise Refused("nightly-request-unreadable")
+    n = req.get("nightly") if isinstance(req, dict) else None
+    _need(isinstance(n, dict) and req.get("priority") == "nightly-regression", "nightly-request-not-nightly")
+    _need(n.get("runId") == run_id and type(n.get("attempt")) is int and n["attempt"] == 1, "nightly-request-not-this-run")
+    _need((req.get("release") or {}).get("testedSha") == source_sha, "nightly-request-not-this-source")
+    return path, hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest(), raw
+
+
 def admitted_request(path, admitted_sha256):
     """Every later reader of the request (window check, qualification) reads its bytes ONCE, hashes and parses those same bytes, and refuses
     unless they are exactly the bytes prepare admitted. The admitted digest travels only as the init step's output, which no later step can
@@ -137,9 +157,11 @@ def admitted_request(path, admitted_sha256):
     return json.loads(raw)
 
 
-def check_request(req, now, template_keys):
-    """Live, approved, for THIS source and window, complete-case sampling. Returns the sorted selected cases."""
-    _need(request_shape_ok(req, template_keys), "request-schema")
+def check_request(req, now, template_keys, nightly=False):
+    """Live, approved, for THIS source and window, complete-case sampling. Returns the sorted selected cases. A nightly-regression request
+    is admitted only in nightly mode (from the gate), and only there may it carry its `nightly` block."""
+    _need(request_shape_ok(req, template_keys, {"nightly"} if nightly else ()), "request-schema")
+    _need((req.get("priority") == "nightly-regression") == nightly, "nightly-request-needs-the-gate" if not nightly else "nightly-request-not-nightly")
     _need(req.get("synthetic") is False, "synthetic-request-refused")
     _need(req.get("executionRuntime") == RUNTIME, "request-not-for-github-runtime")
     # The request is committed AFTER the release it names, so its testedSha is never the commit holding it; prepare binds it to this history.
@@ -387,9 +409,13 @@ def prepare(x, now):
     repo = os.path.realpath(x.repo)
     _need(isinstance(x.run_id, str) and LR.RUN_ID.match(x.run_id) and x.attempt == 1, "run-identity")
     _need(isinstance(x.source_sha, str) and LR.SHA40.match(x.source_sha), "source-sha")
-    req_path, req_blob, req_raw = select_request(repo, x.request, x.source_sha)
+    nightly = bool(x.nightly_request_file or x.nightly_request_sha256)
+    _need(not (nightly and x.request), "request-source-ambiguous")
+    _need(_git(repo, "rev-parse", "HEAD") == x.source_sha, "checkout-not-at-source")
+    req_path, req_blob, req_raw = (nightly_request(x.nightly_request_file, x.nightly_request_sha256, x.run_id, x.source_sha) if nightly
+                                   else select_request(repo, x.request, x.source_sha))
     req, cfg, template_keys = json.loads(req_raw), _load(os.path.join(repo, x.config)), _request_keys()
-    cases = check_request(req, now, template_keys)
+    cases = check_request(req, now, template_keys, nightly)
     route = "github-producer" if set(cases) & PRODUCER_CASES else "github-direct"
     live_minutes = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
     check_window_fit(req, now, live_minutes)
@@ -813,7 +839,7 @@ def main(argv):
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
-                 "--reservations", "--provenance"):
+                 "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)

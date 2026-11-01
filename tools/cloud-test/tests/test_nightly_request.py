@@ -131,12 +131,25 @@ class Gate(unittest.TestCase):
             p = subprocess.run([sys.executable, "-I", script, "gate", *args, "--outputs", out], capture_output=True, text=True, timeout=60)
             with open(out, encoding="utf-8") as f:
                 return p.returncode, dict(line.split("=", 1) for line in f.read().splitlines()), p.stderr
-        self.assertEqual(run("--switch", "", "--attempt", "1")[:2], (0, {"admitted": "false", "code": "nightly-switch-off", "request_sha256": ""}))
-        self.assertEqual(run("--switch", "false")[:2], (0, {"admitted": "false", "code": "nightly-switch-off", "request_sha256": ""}))
+        self.assertEqual(run("--switch", "", "--attempt", "1")[:2], (0, {"admitted": "false", "code": "nightly-switch-off", "request_sha256": "", "request_b64": ""}))
+        self.assertEqual(run("--switch", "false")[:2], (0, {"admitted": "false", "code": "nightly-switch-off", "request_sha256": "", "request_b64": ""}))
         code, out, err = run("--switch", "true", "--attempt", "2", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")
         self.assertEqual((code, out["code"], err.strip()), (78, "nightly-attempt", "BLOCKED_SETUP: nightly-attempt"))
         self.assertEqual(run("--switch", "true", "--attempt", "1", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")[:2],
-                         (78, {"admitted": "false", "code": "state-writer-not-activated", "request_sha256": ""}))
+                         (78, {"admitted": "false", "code": "state-writer-not-activated", "request_sha256": "", "request_b64": ""}))
+
+    def test_an_admitted_gate_outputs_exactly_the_admitted_bytes_beside_their_digest(self):
+        import base64
+        from unittest import mock
+        raw = derive()
+        out = os.path.join(self.d, "admitted-outputs")
+        with mock.patch.object(N, "admit", return_value=(OCCURRENCE, hashlib.sha256(raw).hexdigest(), raw)):
+            self.assertEqual(N.main(["nightly_request.py", "gate", "--switch", "true", "--attempt", "1", "--cron", "0 3 * * *",
+                                     "--trigger-utc", "2026-11-02T03:01:00Z", "--run-id", "101", "--tested-sha", SHA, "--outputs", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            got = dict(line.split("=", 1) for line in f.read().splitlines())
+        self.assertEqual((got["admitted"], got["code"], got["request_sha256"]), ("true", "admitted", hashlib.sha256(raw).hexdigest()))
+        self.assertEqual(base64.b64decode(got["request_b64"], validate=True), raw)
 
 
 class Derivation(unittest.TestCase):

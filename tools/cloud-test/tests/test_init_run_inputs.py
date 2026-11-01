@@ -1220,6 +1220,60 @@ class ProvenanceFromFiles(unittest.TestCase):
         refused(self, "request-changed-since-admission", self.run_files, w, paths)
 
 
+class NightlyMode(unittest.TestCase):
+    """Sam 1793557964.186059: a scheduled run admits exactly the bytes the nightly gate derived and admitted (its request_b64 beside
+    request_sha256), never a committed file; a nightly-regression request is admitted only that way."""
+    def setUp(self):
+        from test_nightly_request import SHA as NSHA, SLOT as NSLOT, derive as nightly_derive
+        self.sha, self.slot = NSHA, NSLOT
+        self.raw = nightly_derive(run_id="101", sha=NSHA)
+        self.digest = hashlib.sha256(self.raw).hexdigest()
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d)
+        self.path = os.path.join(self.d, "nightly-request.json")
+        with open(self.path, "wb") as f:
+            f.write(self.raw)
+
+    def write(self, raw):
+        path = os.path.join(self.d, "other-%d.json" % len(os.listdir(self.d)))
+        with open(path, "wb") as f:
+            f.write(raw)
+        return path
+
+    def test_the_gate_admitted_bytes_are_this_runs_request_and_pass_the_unchanged_request_checks(self):
+        path, blob, raw = I.nightly_request(self.path, self.digest, "101", self.sha)
+        self.assertEqual((path, raw, blob), (self.path, self.raw, hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest()))
+        req = json.loads(raw)
+        self.assertEqual(I.check_request(req, self.slot + timedelta(minutes=1), KEYS, nightly=True), I.ALL_CASES)
+
+    def test_bytes_other_than_the_gate_admission_or_for_another_run_or_source_refuse(self):
+        refused(self, "nightly-request-not-the-gate-admission", I.nightly_request, self.path, "0" * 64, "101", self.sha)
+        refused(self, "nightly-request-not-the-gate-admission", I.nightly_request, self.write(self.raw + b"\n"), self.digest, "101", self.sha)
+        refused(self, "nightly-gate-digest", I.nightly_request, self.path, "", "101", self.sha)
+        refused(self, "nightly-gate-digest", I.nightly_request, self.path, self.digest.upper(), "101", self.sha)
+        refused(self, "nightly-request-unreadable", I.nightly_request, os.path.join(self.d, "absent.json"), self.digest, "101", self.sha)
+        refused(self, "nightly-request-not-this-run", I.nightly_request, self.path, self.digest, "102", self.sha)
+        refused(self, "nightly-request-not-this-source", I.nightly_request, self.path, self.digest, "101", "5" * 40)
+        manual = json.dumps(live_request()).encode()
+        refused(self, "nightly-request-not-nightly", I.nightly_request, self.write(manual), hashlib.sha256(manual).hexdigest(), "101", SHA)
+        doc = json.loads(self.raw)
+        doc["nightly"]["attempt"] = True
+        rerun = json.dumps(doc).encode()
+        refused(self, "nightly-request-not-this-run", I.nightly_request, self.write(rerun), hashlib.sha256(rerun).hexdigest(), "101", self.sha)
+
+    def test_a_nightly_request_is_admitted_only_in_nightly_mode_and_a_manual_one_never_there(self):
+        nightly = json.loads(self.raw)
+        refused(self, "request-schema", I.check_request, nightly, self.slot + timedelta(minutes=1), KEYS)
+        refused(self, "nightly-request-needs-the-gate", I.check_request, dict(live_request(), priority="nightly-regression"), NOW, KEYS)
+        refused(self, "nightly-request-not-nightly", I.check_request, dict(live_request(), nightly=nightly["nightly"]), NOW, KEYS, True)
+        self.assertEqual(I.check_request(live_request(), NOW, KEYS), I.ALL_CASES)
+
+    def test_prepare_takes_exactly_one_request_source(self):
+        x = mock.Mock(repo=self.d, run_id="101", attempt=1, source_sha=self.sha, request="tools/cloud-test/config/runs/r.json",
+                      nightly_request_file=self.path, nightly_request_sha256=self.digest)
+        refused(self, "request-source-ambiguous", I.prepare, x, self.slot)
+
+
 class WindowAtAdmission(unittest.TestCase):
     def test_the_remaining_window_must_hold_live_and_collect_and_is_never_reset(self):
         r = live_request(["AHT-05"])

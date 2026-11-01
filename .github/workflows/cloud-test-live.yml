@@ -64,6 +64,7 @@ jobs:
     outputs:
       admitted: ${{ steps.gate.outputs.admitted }}
       request_sha256: ${{ steps.gate.outputs.request_sha256 }}
+      request_b64: ${{ steps.gate.outputs.request_b64 }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -100,6 +101,9 @@ jobs:
     outputs:
       comment_id: ${{ steps.begin.outputs.comment_id }}
       prior_state: ${{ steps.begin.outputs.prior_state }}
+      # The gate's admitted nightly request (bytes and digest from its one step), passed through unchanged; empty for a dispatch.
+      nightly_request_sha256: ${{ needs.nightly-gate.outputs.request_sha256 }}
+      nightly_request_b64: ${{ needs.nightly-gate.outputs.request_b64 }}
     steps:
       - name: Refuse a re-run attempt and an unconfirmed or inactive dispatch
         env:
@@ -195,12 +199,21 @@ jobs:
           REQUEST: ${{ inputs.request }}
           FACTS: ${{ inputs.facts }}
           PRIOR_STATE: ${{ needs.record-begin.outputs.prior_state }}
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
           CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
         run: |
           set -euo pipefail
           printf '%s' "$PRIOR_STATE" > "$RUNNER_TEMP/prior-state.json"
-          python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" --request "$REQUEST" \
+          # A dispatch names its committed request; a scheduled run admits exactly the gate's derived bytes (prepare checks their digest).
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+            SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")
+          else
+            SRC=(--request "$REQUEST")
+          fi
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \
             --facts "$FACTS" --checkpoint "$RUNNER_TEMP/prior-state.json" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --source-sha "$GITHUB_SHA" --job-timeout-minutes 340 --out "$RUNNER_TEMP/run-inputs" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
       - name: Stage runner (install-tools, plans, stimulus preflight, gates)
