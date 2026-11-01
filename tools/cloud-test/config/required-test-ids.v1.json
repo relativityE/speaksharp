@@ -157,6 +157,7 @@
     "package-unit-tests::test_full_coverage.Completeness.test_an_unexpected_row_is_reported",
     "package-unit-tests::test_full_coverage.Completeness.test_each_case_receipt_binds_case_source_and_served_identities_to_the_plan",
     "package-unit-tests::test_full_coverage.Completeness.test_every_row_executed_in_full_mode_is_a_full_live_run",
+    "package-unit-tests::test_full_coverage.Completeness.test_missing_case_directory_requires_explicit_prestart_state_and_no_execution_receipt",
     "package-unit-tests::test_full_coverage.Completeness.test_no_results_is_no_run",
     "package-unit-tests::test_full_coverage.Completeness.test_the_sealed_synthetic_r5_results_are_reported_as_partial",
     "package-unit-tests::test_full_coverage.DerivedBudget.test_coaching_cap_comes_from_the_takes_and_the_sensitivity_is_monotone",

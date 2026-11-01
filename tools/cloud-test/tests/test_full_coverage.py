@@ -622,13 +622,25 @@ class Completeness(unittest.TestCase):
             open(manifest_path, "w", encoding="utf-8").close()
             source_sha, served_sha = "a" * 40, "b" * 40
             wjson(plan_path, {"campaignId": "R7", "sourceSha": source_sha, "servedSha": served_sha,
-                              "cases": [{"id": cid} for cid in ("AHT-01", "AHT-02", "AHT-03")]})
+                              "cases": [{"id": "AHT-%02d" % n} for n in range(1, 10)]})
             wjson(result_path, {"campaignId": "R7", "sourceSha": source_sha, "servedSha": served_sha, "cases": [
-                {"caseId": "AHT-01", "result": "FAIL", "reason": "driver failed", "executionReceipt": {}},
+                {"caseId": "AHT-01", "result": "FAIL", "reason": "driver failed", "executionReceipt": {}, "assertions": []},
                 {"caseId": "AHT-02", "result": "NOT RUN", "reason": "invalidated after execution",
-                 "executionInvalid": True, "executionReceipt": {"summarySha256": "1" * 64}},
+                 "executionInvalid": True, "executionReceipt": {"summarySha256": "1" * 64}, "assertions": []},
                 {"caseId": "AHT-03", "result": "NOT RUN", "reason": "not selected", "notSelected": True,
-                 "requestsUsed": 0},
+                 "requestsUsed": 0, "assertions": []},
+                {"caseId": "AHT-04", "result": "NOT RUN", "reason": "gate blocked", "gateBlocked": True,
+                 "requestsUsed": 0, "assertions": []},
+                {"caseId": "AHT-05", "result": "NOT RUN", "reason": "budget skipped", "requestBudgetSkipped": True,
+                 "assertions": []},
+                {"caseId": "AHT-06", "result": "NOT RUN", "notSelected": True, "gateBlocked": "true",
+                 "requestsUsed": 0, "assertions": []},
+                {"caseId": "AHT-07", "result": "NOT RUN", "notSelected": True, "requestsUsed": False,
+                 "assertions": []},
+                {"caseId": "AHT-08", "result": "NOT RUN", "notSelected": True, "requestsUsed": 0,
+                 "executionInvalid": True, "assertions": []},
+                {"caseId": "AHT-09", "result": "NOT RUN", "notSelected": True, "requestsUsed": 0,
+                 "assertions": [{"id": "executed", "result": "PASS"}]},
             ]})
             wjson(approval_path, {"reviewedCodeManifestSha256": sha256_file(manifest_path)})
             out = os.path.join(root, "binding.json")
@@ -641,6 +653,10 @@ class Completeness(unittest.TestCase):
             self.assertEqual(checks["case.AHT-01.dir"], "FAIL", "a reason plus even an empty execution receipt cannot bypass evidence")
             self.assertEqual(checks["case.AHT-02.dir"], "FAIL", "an invalidated dispatched case still needs its original evidence")
             self.assertEqual(checks["case.AHT-03.dir"], "PASS", "a selected-plan row explicitly marked pre-start and undispatched remains exempt")
+            self.assertEqual(checks["case.AHT-04.dir"], "PASS", "a genuine gate-blocked row remains exempt")
+            self.assertEqual(checks["case.AHT-05.dir"], "PASS", "a genuine budget-skipped row may omit requestsUsed")
+            for case_id in ("AHT-06", "AHT-07", "AHT-08", "AHT-09"):
+                self.assertEqual(checks["case." + case_id + ".dir"], "FAIL", case_id)
 
     def test_a_partial_run_is_never_the_full_live_run_even_with_every_row_executed(self):
         req = sample()["req"]

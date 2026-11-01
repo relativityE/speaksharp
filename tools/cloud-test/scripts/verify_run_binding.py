@@ -36,9 +36,15 @@ for cid,row in sorted(rows.items()):
     if not os.path.isdir(d):
         outcome=res.get(cid,{})
         receipt_present='executionReceipt' in outcome and outcome.get('executionReceipt') is not None
-        zero_requests=outcome.get('requestsUsed') in (None,0)
-        explicitly_prestart=(outcome.get('notSelected') is True or outcome.get('gateBlocked') is True or outcome.get('requestBudgetSkipped') is True)
-        undispatched=outcome.get('result')=='NOT RUN' and not receipt_present and zero_requests and explicitly_prestart
+        requests_used=outcome.get('requestsUsed')
+        zero_requests=requests_used is None or (type(requests_used) is int and requests_used==0)
+        flag_names=('notSelected','gateBlocked','requestBudgetSkipped')
+        flag_types_valid=all(name not in outcome or type(outcome[name]) is bool for name in flag_names)
+        explicitly_prestart=flag_types_valid and any(outcome.get(name) is True for name in flag_names)
+        execution_marker_valid=('executionInvalid' not in outcome or outcome.get('executionInvalid') is False) and type(outcome.get('executionInvalid',False)) is bool
+        assertions=outcome.get('assertions')
+        assertions_valid=assertions is None or (isinstance(assertions,list) and not any(isinstance(row,dict) and row.get('result') in ('PASS','FAIL') for row in assertions))
+        undispatched=outcome.get('result')=='NOT RUN' and not receipt_present and zero_requests and explicitly_prestart and execution_marker_valid and assertions_valid
         chk('case.'+cid+'.dir','case receipt directory present or an explicit pre-start state proves the case was not dispatched',undispatched,'no directory')
         continue
     drv=row['driverFile']
