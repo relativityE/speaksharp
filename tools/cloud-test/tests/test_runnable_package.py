@@ -353,6 +353,10 @@ class PlanBuilderProof(unittest.TestCase):
         pol = json.load(open(os.path.join(private, "cfg", "policy.json")))
         self.assertEqual((pol["caps"]["total"], pol["caps"]["coaching"], pol["caps"]["account-closure"]), (180, 0, 0))
         self.assertEqual(plan["sourceSha"], RECEIVING_SOURCE)
+        consumption = json.load(open(os.path.join(private, "cfg/build-plan-consumption.json")))
+        self.assertEqual(consumption["schema"], "speaksharp.cloud-test.build-plan-consumption.v1")
+        self.assertEqual(consumption["planSha256"], sha(open(os.path.join(private, "cfg/campaign-plan.json"), "rb").read()))
+        self.assertEqual(consumption["requestSha256"], sha(open(self.reqp, "rb").read()))
 
     def job_inputs(self, name):
         review = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"
@@ -390,6 +394,8 @@ class PlanBuilderProof(unittest.TestCase):
                 for producer in cfg["privateEvidenceProducers"].values():
                     self.assertEqual(producer["producerIdentity"], "github-actions:relativityE/speaksharp:123:1:live")
                     self.assertEqual(producer["deliveryKind"], "reviewed-authenticated-workflow-artifact")
+        case07 = json.load(open(next(c["configFile"] for c in plan["cases"] if c["id"] == "AHT-07")))
+        self.assertEqual(set(case07["privateEvidenceProducers"]), {"coaching-authority", "feedback-association", "feedback-received"})
         att = json.load(open(os.path.join(private, "cfg/runtime-attestation.json")))
         self.assertEqual(att["kind"], "github-actions-job-environment-receipt")
         self.assertEqual(att["immutableEnvironmentId"], "relativityE/speaksharp/123/1/live")

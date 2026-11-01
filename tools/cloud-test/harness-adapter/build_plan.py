@@ -307,7 +307,11 @@ def read_binding_inputs(env, argv):
                     c['focus']['editedPoints'] = [pts[i] for i in idx]
             if n == 1: c['pdfParser'] = {'package': 'pdfjs-dist', 'version': '4.10.38', 'sha256': pdf_sha or 'NOT-INSTALLED-AHT-01-NOT-SELECTED'}
             if n in (1, 2, 3): c['privateEvidenceProducers'] = {'coaching-authority': PROD['coaching-authority']}
-            if n in (7, 8): c['privateEvidenceProducers'] = {'feedback-association': PROD['feedback-association'], 'feedback-received': PROD['feedback-received']}
+            if n == 7:
+                c['privateEvidenceProducers'] = {'coaching-authority': PROD['coaching-authority'],
+                                                 'feedback-association': PROD['feedback-association'],
+                                                 'feedback-received': PROD['feedback-received']}
+            if n == 8: c['privateEvidenceProducers'] = {'feedback-association': PROD['feedback-association'], 'feedback-received': PROD['feedback-received']}
             if n == 7: c['feedbackAttemptCap'] = 7; c['feedbackNewReportCap'] = 4
             if n == 12: c['permissionQualification'] = {'denialThenGrantSameContext': True, 'receipt': R['perm']}
             if n in (13, 14):
@@ -520,6 +524,14 @@ def read_binding_inputs(env, argv):
         if env.get('BP_STIM'):
             plan['stimulusPreflight'] = {'file': env['BP_STIM'], 'sha256': shaf(env['BP_STIM'])}
         plan_sha = put(f'{PRIVATE}/cfg/campaign-plan.json', plan)
+        put(f'{PRIVATE}/cfg/build-plan-consumption.json', {
+            'schema': 'speaksharp.cloud-test.build-plan-consumption.v1',
+            'consumer': 'build-plan', 'campaignId': CAMPAIGN,
+            'runId': execution_run_id, 'attempt': 1,
+            'requestSha256': binding['requestSha256'], 'planSha256': plan_sha,
+            'admissionConfigSha256': adm_sha, 'sourceSha': B, 'servedSha': B,
+            'consumedAtUtc': now(),
+        })
 
     return {'private': PRIVATE, 'files': files, 'directories': directories, 'phase': phase}
 
