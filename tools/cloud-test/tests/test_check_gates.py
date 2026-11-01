@@ -1,4 +1,5 @@
 import copy
+import os
 import unittest
 
 from _fixtures import ROOT, approved as base_approved, fake_rv, receipt, reconciliation, sample
@@ -171,3 +172,47 @@ class CheckGates(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NightlyCarriedForwardG7(unittest.TestCase):
+    """G7 through its real consumers (Sam 1793575319.659179): the verified carried-forward history -> per-row baselines -> the G7 verdict.
+    Nights one and two fall back to the committed bootstrap receipts; a corrupt history is NOT READY, never ignored."""
+    def history(self, nights):
+        import json as _json
+        import publish_latest_record as P
+        catalog = _json.load(open(os.path.join(ROOT, "config", "assertion-catalog.json")))
+        self.width = len(catalog["cases"]["AHT-05"]["requiredAssertions"])
+        state = P.parse_body("")
+        for i, verdicts in enumerate(nights):
+            day = "2026-11-%02dT08:00:00Z" % (i + 1)
+            cases = [{"caseId": "AHT-05", "result": "PASS" if set(verdicts) == {"P"} else "FAIL",
+                      "rows": {"pass": verdicts.count("P"), "fail": verdicts.count("F"), "notRun": verdicts.count("N")}, "codes": []}]
+            st = P.begin(state, str(500 + i), 1, "a" * 40, day.replace("08:", "03:"))
+            state = P.complete(st, {"runId": str(500 + i), "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40,
+                                    "campaignId": "nightly-%d" % i, "coverage": "batch" if cases[0]["result"] == "PASS" else "incomplete",
+                                    "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": day.replace("08:", "03:"),
+                                    "endedUtc": day, "outcome": "passed" if cases[0]["result"] == "PASS" else "failed", "cases": cases,
+                                    "codes": [], "rowVerdicts": {"AHT-05": verdicts}})
+        return state
+
+    def test_g7_uses_the_verified_history_from_night_three_and_bootstrap_before(self):
+        import check_gates as G
+        import json as _json
+        import select_baselines as SB
+        nightly = {"priority": "nightly-regression"}
+        w = len(_json.load(open(os.path.join(ROOT, "config", "assertion-catalog.json")))["cases"]["AHT-05"]["requiredAssertions"])
+        one = self.history(["P" * w])
+        self.assertIsNone(G.nightly_history_gate(nightly, one))  # night two: bootstrap receipts decide
+        two = self.history(["P" * w, "F" + "N" * (w - 1)])
+        g7 = G.nightly_history_gate(nightly, two)
+        self.assertEqual(g7["status"], G.READY)
+        self.assertIsNone(G.nightly_history_gate({"priority": "full-coverage"}, two))
+        catalog = _json.load(open(os.path.join(ROOT, "config", "assertion-catalog.json")))
+        b = SB.history_baselines(two["history"], catalog)
+        rows = catalog["cases"]["AHT-05"]["requiredAssertions"]
+        self.assertEqual(len(b["rows"]), 204)
+        self.assertEqual(b["rows"]["AHT-05/%s" % rows[0]], {"baselineVerdict": "FAIL", "baseline": "501", "lastKnownGood": "500"})
+        self.assertEqual(b["rows"]["AHT-05/%s" % rows[1]], {"baselineVerdict": "PASS", "baseline": "500", "lastKnownGood": "500"})  # N kept it
+        self.assertEqual(b["journeys"]["AHT-05"], {"previousVerdictRun": "501", "previousVerdict": "FAIL", "lastKnownGood": "500"})
+        corrupt = dict(two, history=dict(two["history"], sequence=0))
+        self.assertEqual(G.nightly_history_gate(nightly, corrupt)["status"], G.NOTREADY)

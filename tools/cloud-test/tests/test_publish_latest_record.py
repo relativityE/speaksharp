@@ -255,6 +255,28 @@ class CarryForward(unittest.TestCase):
         self.assertEqual(str(e.exception), "history-overflow")  # never silently drops history
 
 
+class Readback(unittest.TestCase):
+    def test_the_stored_comment_must_be_exactly_the_rendered_record(self):
+        import io
+        from contextlib import redirect_stderr
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        body = P.render(P.complete(started(P.parse_body("")), record()))
+        exp = os.path.join(d, "body.md")
+        with open(exp, "w") as f:
+            f.write(body)
+
+        def verify(stored):
+            path = os.path.join(d, "readback-%d.json" % len(os.listdir(d)))
+            with open(path, "w") as f:
+                json.dump([comment(7, BOT, stored)], f)
+            with redirect_stderr(io.StringIO()):
+                return P.main(["publish_latest_record.py", "verify", "--previous", exp, "--comments", path, "--issue-url", URL, "--comment-id", "7"])
+        self.assertEqual(verify(body), 0)
+        self.assertEqual(verify(body.rstrip("\n")), 0)  # a trailing newline difference only
+        self.assertEqual(verify(body.replace('"runId":"101"', '"runId":"102"')), 78)  # any other change refuses
+
+
 class Cli(unittest.TestCase):
     def test_the_cli_writes_the_body_and_refuses_with_exit_78(self):
         d = tempfile.mkdtemp(prefix="ct-latest-record-")

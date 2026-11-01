@@ -243,6 +243,8 @@ jobs:
           [ "$(sha256sum < "$DST" | cut -d' ' -f1)" = "$RECONCILIATION_SHA256" ] || { echo "BLOCKED_SETUP: reconciliation-copy-differs"; exit 78; }
       - name: Stage runner (install-tools, plans, stimulus preflight, gates)
         env:
+          # the verified prior latest-record state (record-begin parsed it): G7's carried-forward history from the third night
+          CT_PRIOR_STATE: ${{ runner.temp }}/prior-state.json
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
@@ -372,3 +374,7 @@ jobs:
               --status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)" --out "$RUNNER_TEMP/body.md"
           fi
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
+          # readback: the stored record must be exactly what was rendered (the PATCH is not compare-and-swap; this job is the sole publisher)
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/readback.json"
+          python3 -I "$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/readback.json" \
+            --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID"
