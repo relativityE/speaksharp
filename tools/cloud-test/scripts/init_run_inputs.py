@@ -15,9 +15,12 @@ qualify   after collect: freezes EVERY verifier input into a new private snapsho
 project   run-record.json -> the closed latest record the publisher accepts; statuses and counts only. `passed` also needs the qualify
           output for exactly the recorded cases (passed as --qualification); without it the record is `failed` with code not-qualified.
 
-Continuity (Sam 1793538322.008999): the cumulative checkpoint is derived from actual retained inputs, independently reconciled and bound to
-the campaign and approval; its contract is Jensen's. Until it exists every prepare refuses with continuity-checkpoint-contract-pending. There
-is no zero seed, fixture baseline or hash-only substitute.
+Continuity (Sam 1793538322.008999; Increment I, Sam 1793566031.065709): the cumulative checkpoint is the ACCEPTED ROLLUP
+(accounting_rollup.receive) of the committed, content-free accepted bootstrap and approved period scope (each pinned by digest) over the
+state-ref journal verified from its reviewed root, bound to the admitted request's approval reference and every applicable cumulative
+ceiling. prepare writes its canonical bytes privately (reconciliation.json) and publishes their digest as a step output; those bytes are
+what the stage runner's plan construction consumes (run_env --reconciliation). Every pin is None today, so every prepare refuses with a
+continuity-* code naming the missing acceptance. There is no zero seed, fixture baseline, hash-only substitute or journal-less mode.
 Exit 78 (BLOCKED_SETUP) on every refusal.
 """
 import argparse
@@ -28,11 +31,15 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (offline)
+import accounting_rollup  # noqa: E402
+import manual_reservation  # noqa: E402
 import publish_latest_record as LR  # noqa: E402
+import state_ref_writer  # noqa: E402
 
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
@@ -415,9 +422,53 @@ def compose_scope(req, facts, account_id, cases, route):
             "producerReviewReference": facts["producerReviewReference"], **{k: lim[k] for k in SCOPE_LIMITS}}
 
 
-def verified_checkpoint(path):
-    """Jensen defines the verified continuity checkpoint contract (Sam 1793538322.008999). No contract exists yet, so nothing is accepted."""
-    raise Refused("continuity-checkpoint-contract-pending")
+# The committed, content-free continuity inputs (each admitted only by its reviewed digest pin; none is committed or pinned today).
+CONTINUITY_DIR = "tools/cloud-test/config/aggregate"
+CONTINUITY_BOOTSTRAP, CONTINUITY_SCOPE = "accounting-bootstrap.json", "period-scope.json"
+# Cumulative ceilings the accepted scope must state exactly as the admitted request approved them (scope key, approvedLimits key).
+CONTINUITY_CEILINGS = (("requests", "cumulativeCeilingRequests"), ("identityReads", "identityCap"), ("starts", "startsCap"), ("takes", "takesCap"))
+
+
+def continuity_pins():
+    """The production acceptance pins, all reviewed changes: the bootstrap digest and its root, the approved scope digest, the writer root."""
+    return {"accepted_sha256": accounting_rollup.ACCEPTED_BOOTSTRAP_SHA256, "accepted_root": accounting_rollup.ACCEPTED_ROOT,
+            "accepted_scope_sha256": manual_reservation.ACCEPTED_SCOPE_SHA256, "reviewed_root": state_ref_writer.REVIEWED_ROOT}
+
+
+def state_chain(root):
+    """The state-ref journal, fetched into an empty private repository and verified from the reviewed root through its head."""
+    path = tempfile.mkdtemp(prefix="continuity-ledger-")
+    _need(subprocess.run(["git", "init", "-q", path], capture_output=True, env={"PATH": os.environ.get("PATH", ""), "GIT_CONFIG_NOSYSTEM": "1",
+                         "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TEMPLATE_DIR": ""}).returncode == 0, "continuity-ledger-repo")
+    url = state_ref_writer.APPROVED_URL
+    return state_ref_writer.validate_chain(path, state_ref_writer.fetch_head(path, url, url), root)
+
+
+def verified_checkpoint(repo, req, pins=None, chain_reader=state_chain):
+    """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, or a continuity-* refusal. `pins` and
+    `chain_reader` are TEST-ONLY overrides; production uses continuity_pins() (all None today) and the real state-ref journal."""
+    pins = continuity_pins() if pins is None else pins
+    _need(pins.get("accepted_sha256") is not None and pins.get("accepted_root") is not None, "continuity-rollup-not-accepted")
+    _need(pins.get("reviewed_root") is not None and pins["reviewed_root"] == pins["accepted_root"], "continuity-state-root-not-pinned")
+    _need(pins.get("accepted_scope_sha256") is not None, "continuity-scope-not-accepted")
+    raws = {}
+    for name in (CONTINUITY_BOOTSTRAP, CONTINUITY_SCOPE):
+        path = os.path.join(repo, CONTINUITY_DIR, name)
+        _need(os.path.isfile(path) and not os.path.islink(path), "continuity-inputs-missing")
+        raws[name] = _read(path)
+    try:
+        scope = manual_reservation.accepted_scope(raws[CONTINUITY_SCOPE], pins["accepted_scope_sha256"])
+        rc = accounting_rollup.receive(raws[CONTINUITY_BOOTSTRAP], scope, chain_reader(pins["reviewed_root"]), pins["accepted_sha256"],
+                                       pins["accepted_root"])
+    except (accounting_rollup.Refused, manual_reservation.Refused, state_ref_writer.Refused) as e:
+        raise Refused("continuity-" + str(e))
+    lim = req.get("approvedLimits") or {}
+    _need(isinstance(lim.get("approvalRef"), str) and scope["approvalRef"] == lim["approvalRef"], "continuity-approval-not-the-request")
+    for ceiling, limit in CONTINUITY_CEILINGS:
+        # Applicable = stated by the admitted request; the cumulative request and identity ceilings are always stated (check_request).
+        if lim.get(limit) is not None or limit in ("cumulativeCeilingRequests", "identityCap"):
+            _need(_int(lim.get(limit)) and rc["ceilings"][ceiling] == lim[limit], "continuity-ceiling-not-the-request:" + ceiling)
+    return (json.dumps(rc, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
 
 
 def prepare(x, now):
@@ -448,8 +499,9 @@ def prepare(x, now):
     scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route)
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
-    verified_checkpoint(x.checkpoint)
-    return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle), "requestSha256": hashlib.sha256(req_raw).hexdigest(),
+    reconciliation = verified_checkpoint(repo, req)
+    return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
+            "reconciliationBytes": reconciliation, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
             "accountId": account_id, "emails": {b["credentials"]["email"]: entries[b["role"]]["email"] for b in accounts},
             "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes,
@@ -900,6 +952,12 @@ def main(argv):
         fd = os.open(bundle_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as f:
             f.write(p["bundleBytes"])
+        # The continuity checkpoint's exact bytes, private; the caller places these bytes (unchanged) as the stage runner's
+        # reconciliation.json, and their digest leaves only as a step output for the byte-identity check before plan construction.
+        reconciliation_file = os.path.join(x.out, "reconciliation.json")
+        fd = os.open(reconciliation_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(p["reconciliationBytes"])
         env = {"CT_REQUEST": request_file, "CT_FACTS_FILE": facts_file, "CT_ACCOUNT_ID_FILE": account_file, "CT_LIVE_ACCOUNTS_FILE": bundle_file,
                **p["emails"]}
         if p["scope"]:
@@ -908,9 +966,9 @@ def main(argv):
             env.update(CT_EVIDENCE_SCOPE_FILE=scope_file, CT_EVIDENCE_SCOPE_SHA256=_sha(scope_file))
         write_env_file(x.env_file, env)
         with open(x.outputs, "a", encoding="utf-8") as f:
-            f.write("route=%s\nroles=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\nlive_accounts_sha256=%s\n" % (
+            f.write("route=%s\nroles=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\nlive_accounts_sha256=%s\nreconciliation_sha256=%s\n" % (
                 p["route"], ",".join(b["role"] for b in p["accounts"]), p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"],
-                p["requestSha256"], hashlib.sha256(p["bundleBytes"]).hexdigest()))
+                p["requestSha256"], hashlib.sha256(p["bundleBytes"]).hexdigest(), hashlib.sha256(p["reconciliationBytes"]).hexdigest()))
         return 0
     except (Refused, LR.Refused) as e:
         print("BLOCKED_SETUP: " + str(e), file=sys.stderr)

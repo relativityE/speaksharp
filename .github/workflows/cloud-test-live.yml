@@ -217,6 +217,23 @@ jobs:
           python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \
             --checkpoint "$RUNNER_TEMP/prior-state.json" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --source-sha "$GITHUB_SHA" --job-timeout-minutes 340 --out "$RUNNER_TEMP/run-inputs" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
+      # Increment I (Sam 1793566031.065709): the continuity checkpoint prepare admitted becomes the stage runner's reconciliation.json, the
+      # exact bytes plan construction consumes (run_env --reconciliation). Copied once, never overwritten, and refused unless both the
+      # private source and the placed copy hash to init's reconciliation_sha256 step output.
+      - name: Place the admitted continuity checkpoint as the runner's reconciliation
+        env:
+          RECONCILIATION_SHA256: ${{ steps.init.outputs.reconciliation_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          SRC="$RUNNER_TEMP/run-inputs/reconciliation.json"
+          DST="$CT_OUT/reconciliation.json"
+          [ -n "$RECONCILIATION_SHA256" ] && [ -f "$SRC" ] && [ ! -L "$SRC" ] || { echo "BLOCKED_SETUP: reconciliation-not-admitted"; exit 78; }
+          [ "$(sha256sum < "$SRC" | cut -d' ' -f1)" = "$RECONCILIATION_SHA256" ] || { echo "BLOCKED_SETUP: reconciliation-not-the-admitted-bytes"; exit 78; }
+          mkdir -p -- "$CT_OUT"
+          [ ! -e "$DST" ] && [ ! -L "$DST" ] || { echo "BLOCKED_SETUP: reconciliation-already-present"; exit 78; }
+          cp -- "$SRC" "$DST"
+          [ "$(sha256sum < "$DST" | cut -d' ' -f1)" = "$RECONCILIATION_SHA256" ] || { echo "BLOCKED_SETUP: reconciliation-copy-differs"; exit 78; }
       - name: Stage runner (install-tools, plans, stimulus preflight, gates)
         env:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
