@@ -110,25 +110,25 @@ describe('the private CLOUD_TEST_LIVE_ACCOUNTS bundle', () => {
     expect(VECTORS.length).toBeGreaterThan(20);
   });
 
-  it.each(VECTORS)('vector "%s" gives %s', (_name, code, raw) => {
-    if (code === 'ok') {
-      expect(parseLiveAccountsBundle(raw).projectRef).toBe(PROJECT);
-      return;
-    }
-    let err;
-    try { parseLiveAccountsBundle(raw); } catch (e) { err = e; }
-    // The exact fixed code is the whole message: no part of the bundle is ever echoed.
-    expect(err?.message).toBe(`LIVE_JOURNEY_ACCOUNTS_CONFIG: ${code}`);
+  it.each(VECTORS.filter(([, code]) => code === 'ok'))('vector "%s" gives %s', (_name, _code, raw) => {
+    expect(parseLiveAccountsBundle(raw).projectRef).toBe(PROJECT);
   });
 
-  it.each(URL_VECTORS)('origin vector "%s" gives %s', async (_name, code, url) => {
-    expect(isProjectOrigin(url, PROJECT)).toBe(code === 'ok');
-    if (code !== 'ok') {
-      const w = world();
-      await expect(verifyLiveJourneyAccounts({ supabase: w.supabase, raw: RAW, supabaseUrl: url, listUsers: w.listUsers }))
-        .rejects.toThrow(`LIVE_JOURNEY_ACCOUNTS_CONFIG: ${code}`);
-      expect(w.queries).toEqual([]);
-    }
+  it.each(VECTORS.filter(([, code]) => code !== 'ok'))('vector "%s" gives %s', (_name, code, raw) => {
+    // The exact fixed code is the whole message: no part of the bundle is ever echoed.
+    expect(() => parseLiveAccountsBundle(raw)).toThrow(new Error(`LIVE_JOURNEY_ACCOUNTS_CONFIG: ${code}`));
+  });
+
+  it.each(URL_VECTORS.filter(([, code]) => code === 'ok'))('origin vector "%s" gives %s', (_name, _code, url) => {
+    expect(isProjectOrigin(url, PROJECT)).toBe(true);
+  });
+
+  it.each(URL_VECTORS.filter(([, code]) => code !== 'ok'))('origin vector "%s" gives %s', async (_name, code, url) => {
+    expect(isProjectOrigin(url, PROJECT)).toBe(false);
+    const w = world();
+    await expect(verifyLiveJourneyAccounts({ supabase: w.supabase, raw: RAW, supabaseUrl: url, listUsers: w.listUsers }))
+      .rejects.toThrow(`LIVE_JOURNEY_ACCOUNTS_CONFIG: ${code}`);
+    expect(w.queries).toEqual([]);
   });
 
   it('masks the whole bundle even when it is malformed, and every extracted email and id once it parses', () => {
