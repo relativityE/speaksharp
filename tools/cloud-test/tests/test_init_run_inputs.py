@@ -269,7 +269,8 @@ class Account(unittest.TestCase):
 
     def test_one_role_bound_to_its_credential_names_id_and_history(self):
         b = I.account_binding(CFG, ["AHT-05"], facts()["account"], ACCOUNT_ID)
-        self.assertEqual(b["credentials"], {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD", "accountId": "THROWAWAY_TEST_ACCOUNT_ID"})
+        # Credential NAMES only; the account id comes from the private bundle, never from a named Variable.
+        self.assertEqual(b["credentials"], {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"})
         a = dict(facts()["account"], role="maintained-read-only", historyRef="history:free@r5")
         # The reviewed run stage receives only the THROWAWAY names today, so AHT-15's maintained pair is refused, never renamed.
         refused(self, "role-credentials-not-in-run-stage-allowlist", I.account_binding, CFG, ["AHT-15"], a, ACCOUNT_ID)
@@ -555,7 +556,10 @@ class Qualify(unittest.TestCase):
                      os.path.join(self.d, "cfg", "AHT-09.json"), os.path.join(self.d, "packet", "draft-adapters", "AHT-09.cjs")]
 
         def swap_restore(*a):
-            saved = {p: open(p, "rb").read() for p in originals}
+            saved = {}
+            for p in originals:
+                with open(p, "rb") as f:
+                    saved[p] = f.read()
             for p in originals:
                 with open(p, "wb") as f:
                     f.write(b"garbage")
@@ -674,13 +678,13 @@ VECTORS_TEXT = r'''[
 ["email two at", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"a@b@x.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["email leading space", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \" a@x.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["email not string", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": 7, \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
-["account id uppercase", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["account id uppercase", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"AAAAAAAA-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["account id v1", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-1111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["account id not string", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": 1}}}"],
 ["same email any case", "bundle-duplicate", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"THROWAWAY.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["same account id", "bundle-duplicate", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}}}"]
 ]'''
-VECTORS_SHA256 = "c9a074ad1bfa047ab0991a68921f7af9dd6016883945c5da7968a0db0cab410d"
+VECTORS_SHA256 = "d84dd0ab4602f1c1324567c9427d609994a99325c2b92610b3f72b6000db2c12"
 VECTORS = json.loads(VECTORS_TEXT)
 PROJECT = "abcdefghijklmnopqrst"
 SUPABASE_URL_OK = "https://%s.supabase.co" % PROJECT

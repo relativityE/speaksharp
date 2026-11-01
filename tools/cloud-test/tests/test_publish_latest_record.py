@@ -165,7 +165,8 @@ class Cli(unittest.TestCase):
         ok = subprocess.run(["python3", "-I", script, "begin", "--previous", prev, "--run-id", "101", "--attempt", "1", "--source-sha", SHA,
                              "--started-utc", "2026-10-31T18:00:00Z", "--out", out], capture_output=True, text=True, timeout=60)
         self.assertEqual(ok.returncode, 0, ok.stderr)
-        self.assertEqual(P.parse_body(open(out).read())["inProgress"]["runId"], "101")
+        with open(out, encoding="utf-8") as f:
+            self.assertEqual(P.parse_body(f.read())["inProgress"]["runId"], "101")
         again = subprocess.run(["python3", "-I", script, "begin", "--previous", out, "--run-id", "102", "--attempt", "1", "--source-sha", SHA,
                                 "--started-utc", "2026-10-31T18:05:00Z", "--out", os.path.join(d, "x.md")], capture_output=True, text=True, timeout=60)
         self.assertEqual(again.returncode, 78)
