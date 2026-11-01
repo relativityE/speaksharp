@@ -227,6 +227,46 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("verify_run_binding.py --plan", collect, "the verifier runs inside qualify, on the bytes qualify snapshots")
         self.assertIn('--tested-sha "$TESTED_SHA"', collect)
 
+    def test_the_admitted_continuity_checkpoint_is_placed_byte_checked_immediately_before_plan_construction(self):
+        # Increment I (Sam 1793566031.065709): the bytes prepare admitted, digest-checked from init's step output, are the reconciliation
+        # the stage runner's plan construction reads; placed once, never overwritten, right before the setup stages.
+        steps = self.jobs["live"]["steps"]
+        init = next(i for i, s in enumerate(steps) if s.get("id") == "init")
+        place = next(i for i, s in enumerate(steps) if s.get("name") == "Place the admitted continuity checkpoint as the runner's reconciliation")
+        setup = next(i for i, s in enumerate(steps) if "for stage in install-tools build-plan" in s.get("run", ""))
+        self.assertEqual((init < place, place + 1), (True, setup))
+        step = steps[place]
+        self.assertEqual(step["env"], {"RECONCILIATION_SHA256": "${{ steps.init.outputs.reconciliation_sha256 }}"})
+        self.assertNotIn("if", step)
+        run = step["run"]
+        order = [run.index(k) for k in ('SRC="$RUNNER_TEMP/run-inputs/reconciliation.json"', 'reconciliation-not-the-admitted-bytes',
+                                         'reconciliation-already-present', 'cp -- "$SRC" "$DST"', 'reconciliation-copy-differs')]
+        self.assertEqual(order, sorted(order))
+        self.assertIn('DST="$CT_OUT/reconciliation.json"', run)
+        self.assertNotIn("ln ", run, "a copy, never a link (the runner requires one regular file)")
+        # Execute the step's own script: the admitted bytes land unchanged; other bytes, a missing digest or an existing target refuse.
+        import hashlib
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "run-inputs"))
+            body = b'{"ceilings":{"starts":120},"starts":{"ownerCounted":0}}\n'
+            with open(os.path.join(d, "run-inputs", "reconciliation.json"), "wb") as f:
+                f.write(body)
+
+            def place(digest, out):
+                return subprocess.run(["bash", "-c", run], capture_output=True, text=True,
+                                      env={"PATH": os.environ["PATH"], "RUNNER_TEMP": d, "CT_OUT": os.path.join(d, out), "RECONCILIATION_SHA256": digest})
+            good = hashlib.sha256(body).hexdigest()
+            self.assertEqual((place("0" * 64, "a").returncode, place("", "b").returncode), (78, 78))
+            self.assertFalse(os.path.exists(os.path.join(d, "a", "reconciliation.json")))
+            p = place(good, "out")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            with open(os.path.join(d, "out", "reconciliation.json"), "rb") as f:
+                self.assertEqual(f.read(), body)
+            self.assertEqual(os.stat(os.path.join(d, "out", "reconciliation.json")).st_nlink, 1)
+            self.assertEqual((place(good, "out").returncode, place(good, "out").stdout.strip()), (78, "BLOCKED_SETUP: reconciliation-already-present"))
+
     def test_the_runner_receives_the_admission_digests_only_from_init_step_outputs(self):
         want = {"CT_REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}",
                 "CT_LIVE_ACCOUNTS_SHA256": "${{ steps.init.outputs.live_accounts_sha256 }}"}
