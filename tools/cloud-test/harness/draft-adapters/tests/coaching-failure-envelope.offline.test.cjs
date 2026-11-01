@@ -1,8 +1,11 @@
 'use strict';
-const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {EventEmitter}=require('node:events');
 const policy=require('../coaching-failure-policy.cjs'),{classifyFailureResponse}=policy;
 const oracleModule=require('../oracles/index.cjs'),source=require('../oracles/pure/coachingCollectorSelected.cjs');
+const sourceAdapters=require('../source-adapters.cjs');
 const {sanitizeEvidence}=require('../../bundle/harness/evidence-sanitizer.cjs');
+const {createCaseRecorder}=require('../../bundle/harness/case-results.cjs');
 for(const reason of ['provider_timeout','provider_http_5xx'])test('actual Edge failure envelope retains closed reason '+reason,()=>{
  const value=classifyFailureResponse({contentType:'application/json',body:JSON.stringify({error:'AI coaching could not be generated. Please try again.',reason})});
  assert.equal(value.errorCode,'code-'+reason);
@@ -15,15 +18,32 @@ test('reason takes precedence over a generic code, while arbitrary reason text n
 test('malformed and non-object JSON cannot invent a reason or HTTP status',()=>{
  for(const body of ['{','[]','null','"provider_timeout"']){const value=classifyFailureResponse({contentType:'application/json',body});assert.equal(value.errorCode,null);assert.equal(value.upstreamStatus,null);}
 });
-test('actual adapter response path attaches the bounded request/response correlation before evidence settles',()=>{
- const source=fs.readFileSync(path.join(__dirname,'../source-adapters.cjs'),'utf8');
- assert.ok(source.includes('a.correlation=coachingPolicy.classifyResponseCorrelation(a,{contentType:h[\'content-type\'],body,status})'));
- assert.ok(source.includes('await Promise.all(coachingAttempts.map(a=>a.diagPromise).filter(Boolean))'));
- const request='11111111-1111-4111-8111-111111111111',attemptId='22222222-2222-4222-8222-222222222222',release='c'.repeat(40);
- const a=policy.newAttempt(1,{sessionId:'33333333-3333-4333-8333-333333333333',diagnostic_request_id:request,diagnostic_attempt_id:attemptId,client_attempt:1,client_release_id:release});
- const body=JSON.stringify({diagnostics:{schema_version:'coaching_diagnostic_v1',request_id:request,attempt_id:attemptId,client_attempt:1,client_release_id:release,status:503,outcome:'failure'}});
- const result=policy.classifyResponseCorrelation(a,{contentType:'application/json',body,status:503});
- assert.equal(result.state,'matched');assert.equal(result.authority,'browser-correlation-only');
+const REQUEST='11111111-1111-4111-8111-111111111111',ATTEMPT='22222222-2222-4222-8222-222222222222',SESSION='33333333-3333-4333-8333-333333333333',RELEASE='c'.repeat(40);
+const responseBody=()=>JSON.stringify({diagnostics:{schema_version:'coaching_diagnostic_v1',request_id:REQUEST,attempt_id:ATTEMPT,client_attempt:1,client_release_id:RELEASE,status:503,outcome:'failure'}});
+function installedHandler(t,text,{deadlineMs=3000}={}){
+ const page=new EventEmitter(),request={timing:()=>({responseEnd:17})},attempt=policy.newAttempt(1,{sessionId:SESSION,diagnostic_request_id:REQUEST,diagnostic_attempt_id:ATTEMPT,client_attempt:1,client_release_id:RELEASE});attempt.startedAt=Date.now();
+ const attempts=new WeakMap([[request,attempt]]),installed=sourceAdapters.installCoachingResponseHandler(page,attempts,{deadlineMs});t.after(()=>installed.dispose());
+ page.emit('response',{request:()=>request,headers:()=>({'content-type':'application/json'}),status:()=>503,text});return attempt;
+}
+function actualWriter(t){
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'coaching-correlation-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const sha='a'.repeat(40),recorder=createCaseRecorder({caseId:'AHT-01',requiredAssertions:['grounded-coaching'],sourceSha:sha,servedSha:sha,targetUrl:'https://speaksharp-public.vercel.app'},dir);
+ return {dir,write(name,attempt){const closed=policy.closed(attempt,{first:SESSION});const ref=recorder.writeEvidence(name,{contentSafe:true,caseId:'AHT-01',kind:'coaching-correlation',correlation:closed.correlation||null});return path.join(dir,ref);}};
+}
+test('actual writer retains an exact matched correlation with no blocked strings or raw identifiers',t=>{
+ const attempt=policy.newAttempt(1,{sessionId:SESSION,diagnostic_request_id:REQUEST,diagnostic_attempt_id:ATTEMPT,client_attempt:1,client_release_id:RELEASE});policy.finish(attempt,503);attempt.correlation=policy.classifyResponseCorrelation(attempt,{contentType:'application/json',body:responseBody(),status:503});
+ const file=actualWriter(t).write('matched-correlation.json',attempt),written=JSON.parse(fs.readFileSync(file,'utf8'));
+ assert.equal(written.sanitizer.blockedStrings,0);assert.equal(written.correlation.available,true);assert.equal(written.correlation.matched,true);assert.equal(written.correlation.authority,'browser-correlation-only');
+ const encoded=JSON.stringify(written);for(const raw of [REQUEST,ATTEMPT,SESSION])assert.ok(!encoded.includes(raw));
+});
+test('installed response handler closes a rejected body read without later changing persisted evidence',async t=>{
+ const attempt=installedHandler(t,async()=>{throw Error('private body read rejection');},{deadlineMs:50});await attempt.diagPromise;
+ assert.deepEqual([attempt.correlation.available,attempt.correlation.matched],[false,null]);const file=actualWriter(t).write('rejected-body.json',attempt),before=fs.readFileSync(file);await new Promise(r=>setTimeout(r,75));assert.deepEqual(fs.readFileSync(file),before);
+});
+test('installed response handler times out a nonsettling body at 3 seconds and ignores its late settlement',async t=>{
+ let release;const pending=new Promise(r=>{release=r;}),attempt=installedHandler(t,()=>pending);await attempt.diagPromise;
+ assert.equal(attempt.diagExpired,true);assert.equal(attempt.correlation,undefined);const file=actualWriter(t).write('body-deadline.json',attempt),before=fs.readFileSync(file),snapshot=JSON.stringify(policy.closed(attempt,{first:SESSION}));
+ release(responseBody());await new Promise(r=>setTimeout(r,25));assert.equal(JSON.stringify(policy.closed(attempt,{first:SESSION})),snapshot);assert.deepEqual(fs.readFileSync(file),before);
 });
 function captureFixture(t,{inputs='available',terminal=false,reader,throwInputs=false}={}){
  const A='22222222-2222-4222-8222-222222222222',uid='11111111-1111-4111-8111-111111111111',sha='a'.repeat(40),written=[];
