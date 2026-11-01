@@ -68,7 +68,7 @@ SHA64 = re.compile(r"^[0-9a-f]{64}$")
 RECEIPT_KEYS = {"pre", "rls", "analytics", "disp", "fence", "review"}  # build_plan.py 55
 BACKEND_KEYS = {"manifestRef", "generation", "completion", "migration129"}
 FACT_REQUIRED = {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "accounts"}
-FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic", "actionApproval"}
+FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic", "actionApproval", "case10RequestBound"}
 # The builder's Start/take action approval (case_start_caps.bind_inputs), supplied by its approver; prepare admits it, never builds it.
 ACTION_APPROVAL_SCHEMA = "speaksharp.case-start-approval.v1"
 ACTION_APPROVAL_KEYS = {"schema", "requestSha256", "reconciliationSha256", "approvalRef", "approvedBy", "selectionApprovalRef"}
@@ -447,6 +447,21 @@ def state_chain(root):
     return state_ref_writer.validate_chain(path, state_ref_writer.fetch_head(path, url, url), root)
 
 
+def check_case10_bound(req, facts, cases, entries):
+    """Sam 1793567664.474339 item 2: the Case 10 request-bound projection the builder consumes is admitted only when the builder's own
+    validator (case_start_caps.case10_execution_bound: shape, schema, run/source/account binding, evidence reference, the request row's
+    requestBoundSha256 over the exact record bytes, and the unchanged 240 allowance) accepts it for the admitted request and the Case 10
+    role's account. A record supplied when Case 10 needs none refuses. Returns the builder's bound report, or None."""
+    import case_start_caps as CS
+    account = entries[ROLE["AHT-10"]]["accountId"] if "AHT-10" in cases else ""
+    try:
+        bound = CS.case10_execution_bound(req, facts, account)
+    except CS.InputValidationError as e:
+        raise Refused(str(e))
+    _need(bound is not None or "case10RequestBound" not in facts, "case10-bound-not-applicable")
+    return bound
+
+
 def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
     """RETURN 1793567352.685309 #1: the builder's Start/take action approval, as SUPPLIED in the facts by its approver, admitted only when it
     names exactly the admitted request bytes, exactly the continuity checkpoint bytes, and the request's own approval and selection
@@ -520,6 +535,7 @@ def prepare(x, now):
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
     accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle)
     entries = {b["role"]: role_account(bundle, b["role"], os.environ.get("SUPABASE_URL")) for b in accounts}
+    check_case10_bound(req, facts, cases, entries)
     # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.
     primary = "existing-disposable" if "existing-disposable" in entries else "maintained-read-only"
     account_id = entries[primary]["accountId"]
