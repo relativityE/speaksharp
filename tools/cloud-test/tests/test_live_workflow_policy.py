@@ -70,10 +70,28 @@ class LiveWorkflowPolicy(unittest.TestCase):
             for step in job["steps"]:
                 self.assertNotRegex(step.get("run", ""), r"\$\{\{", step.get("name"))
 
-    def test_nothing_is_installed_or_downloaded(self):
-        low = self.text.lower()
+    B4_INSTALL = "npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund"
+
+    def test_the_only_install_is_the_reviewed_lockfile_on_the_ephemeral_runner(self):
+        # B4 (Sam 1793543299.974409): exactly one install, the runner lockfile, no lifecycle scripts, before the stage runner; nothing else.
+        runs = [(job, s) for job, j in self.jobs.items() for s in j["steps"] if "run" in s]
+        installer = re.compile(r"(^|[\s;&|(])(npm|npx|pnpm|yarn|pip3?|apt(-get)?|brew)\s")
+        installs = [(job, s) for job, s in runs if installer.search(s["run"])]
+        self.assertEqual([(job, s["run"].strip()) for job, s in installs], [("live", self.B4_INSTALL)])
+        steps = self.jobs["live"]["steps"]
+        at = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == self.B4_INSTALL)
+        first_stage = next(i for i, s in enumerate(steps) if "execute_run.sh" in s.get("run", ""))
+        self.assertLess(at, first_stage)
+        self.assertNotIn("env", steps[at], "the install step receives no credential or extra environment")
+        env = self.jobs["live"]["env"]
+        self.assertEqual(env["CT_EXISTING_DEPENDENCY_ROOT"], "${{ github.workspace }}/tools/cloud-test/runner")
+        self.assertEqual(env["CT_EXISTING_PDFJS_DIR"], "${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist")
+        self.assertEqual(env["CT_SETUP_MODE"], "existing-only")
+
+    def test_no_browser_or_other_package_is_installed_or_downloaded(self):
+        low = self.text.lower().replace(self.B4_INSTALL, "")
         for banned in ("playwright install", "install-deps", "apt-get", "setup-chrome", "browser-actions/", "--archive", "curl ", "wget ",
-                       "npm ci", "npm install", "pnpm install", "pip install"):
+                       "npm ci", "npm install", "pnpm install", "pip install", "npx "):
             self.assertNotIn(banned, low)
         self.assertIn("--installed --environment github-hosted", self.text)
         self.assertIn("--baselines config/browser-baselines.v1.json", self.text)
