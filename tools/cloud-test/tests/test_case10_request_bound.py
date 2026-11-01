@@ -218,6 +218,72 @@ class ObservationVariant(unittest.TestCase):
         self.assertEqual(str(e.exception), "case10-observation-not-applicable")
 
 
+class ObservationAtTheBuilder(unittest.TestCase):
+    """The released build_plan.py call site (Jensen 1793572039.059739) passes the bound request digest, GITHUB_RUN_ID and the builder's own
+    time, so the REAL phase-1 binding admits an observation-contract row only with a fresh observation for this request and run."""
+    ACCOUNT = "00000000-0000-4000-8000-000000000001"
+
+    def setUp(self):
+        import importlib.util
+        import case10_observation as O
+        from test_case_start_caps import BUILDER
+        self.O = O
+        spec = importlib.util.spec_from_file_location("build_plan_under_test", str(BUILDER))
+        self.BP = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.BP)
+        self.temp = tempfile.mkdtemp(prefix="ct-case10-builder-")
+        self.addCleanup(shutil.rmtree, self.temp, True)
+
+    def build(self, observe=True, run_id="123", trusted=True, mutate=None, legacy_too=False):
+        import copy
+        from datetime import datetime, timedelta, timezone
+        from pathlib import Path
+        from unittest import mock
+        from test_case_start_caps import SyntheticBuilder
+        root = os.path.join(self.temp, "b%d" % len(os.listdir(self.temp)))
+        os.mkdir(root, 0o700)
+        f = SyntheticBuilder(root, cases=(10,))
+        req = copy.deepcopy(f.request)
+        row = next(r for r in req["selection"] if r["case"] == "AHT-10")
+        row.pop("requestBoundSha256")
+        row["observationContract"] = {"schema": self.O.CONTRACT_SCHEMA, "reader": "synthetic:case10-current-state@1",
+                                      "recordSchema": self.O.RECORD_SCHEMA, "projectionKeys": sorted(B.INPUTS), "maxAgeSeconds": 600,
+                                      "readBudget": {"requests": 12, "identityReads": 1}}
+        reqp, factp = Path(f.env["BP_REQUEST_FILE"]), Path(f.env["BP_FACTS"])
+        reqp.write_text(json.dumps(req))
+        import hashlib
+        sha = hashlib.sha256(reqp.read_bytes()).hexdigest()
+        facts = json.loads(factp.read_text())
+        if not legacy_too:
+            facts.pop("case10RequestBound")
+        facts["actionApproval"]["requestSha256"] = sha
+        record = self.O.observe(lambda keys: {k: projection()[k] for k in keys}, req, sha, "123", 1, self.ACCOUNT,
+                                datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=1))
+        if mutate:
+            mutate(record)
+        if observe:
+            facts["case10Observation"] = record
+        factp.write_text(json.dumps(facts))
+        env = dict(f.env, BP_REQUEST_SHA256=sha, GITHUB_RUN_ID=run_id)
+        with mock.patch.object(self.O, "TRUSTED_READERS", frozenset({"synthetic:case10-current-state@1"}) if trusted else frozenset()):
+            return self.BP.read_binding_inputs(env, ["phase1"])
+
+    def refused(self, code, **k):
+        import case_start_caps  # the builder imports this same module by name, so its refusal class is this one
+        with self.assertRaises(case_start_caps.InputValidationError) as e:
+            self.build(**k)
+        self.assertEqual(str(e.exception), code)
+
+    def test_the_real_phase_one_binding_admits_only_a_fresh_observation_for_this_request_and_run(self):
+        self.assertTrue(self.build())
+        self.refused("case10-observation-missing", observe=False)
+        self.refused("case10-observation-reader-not-trusted", trusted=False)
+        self.refused("case10-observation-replayed", run_id="124")
+        self.refused("case10-observation-two-sources", legacy_too=True)
+        self.refused("case10-observation-stale", mutate=lambda r: r.update(observedAtUtc="2026-01-01T00:00:00Z"))
+        self.refused("case10-observation-not-this-request", mutate=lambda r: r.update(requestSha256="b" * 64))
+
+
 def hashlib_sha(raw):
     import hashlib
     return hashlib.sha256(raw).hexdigest()
