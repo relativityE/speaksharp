@@ -252,6 +252,8 @@ jobs:
           for stage in install-tools build-plan stimulus-preflight build-plan-with-receipt gate-and-validate; do
             bash tools/cloud-test/scripts/execute_run.sh "$stage"
           done
+          # A scheduled run reserves on the state-ref journal BEFORE it spends anything (the run stage then requires exactly that reserve).
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then bash tools/cloud-test/scripts/execute_run.sh reserve; fi
       # Immediately before admission: the approved window must still hold the live minutes plus the collect reserve (never reset), read from
       # exactly the request bytes prepare admitted (init's request_sha256 output; no later step can rewrite another step's outputs).
       - name: Approved window still fits the live run
@@ -292,6 +294,8 @@ jobs:
         run: |
           set -euo pipefail
           bash tools/cloud-test/scripts/execute_run.sh collect
+          # A scheduled run settles its journal reservation from the collector's record before any verdict is projected.
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then bash tools/cloud-test/scripts/execute_run.sh settle; fi
           HP="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$CT_CONFIG" harness.packetDir)"
           Q=()
           # qualify freezes every verifier input into a new private snapshot, runs the REAL verify_run_binding.py on that snapshot only (exit 0,

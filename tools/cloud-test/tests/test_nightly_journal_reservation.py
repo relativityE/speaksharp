@@ -96,6 +96,65 @@ class NightlyJournalReservation(Journal):
         self.refused("reservation-root-mismatch", RES.journal_execute, "reserve", {}, self.repo, self.remote, None,
                      os.path.join(self.d, "j"), os.path.join(self.d, "o"), self.pins_all, self.approval, self.remote)
 
+    def cli(self, command, **over):
+        import argparse
+        args = {"command": command, "request": None, "request_sha256": self.sha, "execution_run_id": "123", "attempt": 1, "approval": None,
+                "repo": None, "record": None, "out": None, "journal": os.path.join(self.d, "cli-journal-%s" % command)}
+        args.update(over)
+        return RES.journal_main(argparse.Namespace(**args), url=self.remote, root=self.root, pins=self.pins_all)
+
+    def test_the_cli_snapshots_reserves_requires_and_settles_on_one_journal_and_g11_reads_the_snapshot(self):
+        import check_gates as G
+        from _fixtures import ROOT
+        checkout = os.path.join(self.d, "checkout")
+        import init_run_inputs as I
+        os.makedirs(os.path.join(checkout, I.CONTINUITY_DIR))
+        for name, raw in ((I.CONTINUITY_BOOTSTRAP, self.raw), (I.CONTINUITY_SCOPE, self.scope_raw)):
+            with open(os.path.join(checkout, I.CONTINUITY_DIR, name), "wb") as f:
+                f.write(raw)
+        req_path, ap_path = os.path.join(self.d, "req.json"), os.path.join(self.d, "approval.json")
+        with open(req_path, "wb") as f:
+            f.write(self.req_raw)
+        # A self-consistent synthetic approval as G11 requires: cadence x per-run caps within the period caps, paid actions $0 in both.
+        consistent = approval(periodCaps={"starts": 1350, "githubRunnerMinutes": 10800, "paidActionsUsd": 0})
+        with open(ap_path, "wb") as f:
+            f.write(consistent)
+        snap = os.path.join(self.d, "snapshot.json")
+        self.assertEqual(self.cli("journal-snapshot", out=snap), 0)
+        cfg = json.load(open(os.path.join(ROOT, "config", "test-config.v1.json")))
+        from datetime import datetime, timezone
+        at = datetime(2026, 11, 2, 3, 1, tzinfo=timezone.utc)
+        g11 = G.recurring_gate(self.req, cfg, ROOT, {"entries": []}, at, json.load(open(snap)), ap_path)
+        self.assertEqual(g11["status"], G.READY, json.dumps(g11)[:900])
+        self.assertEqual(self.cli("journal-reserve", request=req_path, approval=ap_path, repo=checkout, out=os.path.join(self.d, "r.json")), 0)
+        self.assertEqual(self.cli("journal-require", request=req_path), 0)
+        self.assertEqual(self.cli("journal-require", request=req_path, execution_run_id="124"), 78)
+        record = os.path.join(self.d, "record.json")
+        with open(record, "w") as f:
+            json.dump({"schema": M.RUN_RECORD_SCHEMA, "runId": self.req["runId"],
+                       "executionProvenance": {"campaignId": self.req["runId"], "runId": "123", "attempt": 1, "requestSha256": self.sha},
+                       "spend": {"requests": 900, "identityReads": 20, "starts": 30, "takes": 25}}, f)
+        self.assertEqual(self.cli("journal-settle", request=req_path, approval=ap_path, repo=checkout, record=record,
+                                  out=os.path.join(self.d, "s.json")), 0)
+        self.assertEqual(self.cli("journal-require", request=req_path), 78)  # settled: no longer an open reservation
+        # G11 over a snapshot with the period cadence used up refuses before any run.
+        snap2 = os.path.join(self.d, "snapshot2.json")
+        self.cli("journal-snapshot", out=snap2)
+        one = dict(json.loads(consistent), cadence={"runsPerPeriod": 1, "period": "30 days"})
+        with open(ap_path, "w") as f:
+            json.dump(one, f)
+        other = dict(self.req, runId="nightly-20261101T0000Z-20261103T0300Z")
+        self.assertNotEqual(G.recurring_gate(other, cfg, ROOT, {"entries": []}, at, json.load(open(snap2)), ap_path)["status"], G.READY)
+
+    def test_production_cli_is_not_activated_and_reads_nothing(self):
+        import subprocess
+        import sys
+        from _fixtures import ROOT
+        p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "reservations.py"), "journal-snapshot", "--out",
+                            os.path.join(self.d, "never.json")], capture_output=True, text=True)
+        self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: reservation-journal-not-activated"))
+        self.assertFalse(os.path.exists(os.path.join(self.d, "never.json")))
+
     def append_event(self, event):
         W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote), event, self.root, self.remote)
 

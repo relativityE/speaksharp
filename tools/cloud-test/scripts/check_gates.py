@@ -53,13 +53,14 @@ def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=
     if pr.get("paidActionsUsd") != 0 or (ap["periodCaps"].get("paidActionsUsd") != 0):
         need.append("paid actions must stay at $0 in a recurring approval")
     # every cap, from history: sealed runs (measured actuals) and open reservations count, not just requests and identity reads
-    need += check_caps(req, ap, index, reservations, now)
-    from recurring_usage import usage, PERRUN, PERIOD
+    from recurring_usage import journal_usage, snapshot_chain, usage, PERRUN, PERIOD
+    chain = snapshot_chain(reservations)  # a nightly run's G11 reads the same state-ref journal its reservation is appended to
+    need += check_caps(req, ap, index, None if chain is not None else reservations, now, journal_chain=chain)
     if runs and ts:
         for k in PERRUN:
             if runs * pr[PERRUN[k]] > ap["periodCaps"][PERIOD[k]]:
                 need.append("the cadence (%d runs) at the per-run cap %s exceeds the period cap %s for %s: the approval contradicts itself" % (runs, pr[PERRUN[k]], ap["periodCaps"][PERIOD[k]], k))
-    u = usage(ap, index, reservations, now, exclude_run=req.get("runId"))
+    u = journal_usage(ap, chain, exclude_run=req.get("runId")) if chain is not None else usage(ap, index, reservations, now, exclude_run=req.get("runId"))
     used = u["used"]
     return gate("G11", READY if not need else NOTREADY, "within the standing approval of recurring cost (period usage so far: %d run(s), %s requests, %s Starts, %s takes, %s coaching calls, %s runner minutes; %d open reservation(s))" % (u["runs"], used["requests"], used["starts"], used["takes"], used["coachingRequests"], used["runnerMinutes"], len(u["openReservations"])) if not need else "outside the standing approval of recurring cost", need)
 

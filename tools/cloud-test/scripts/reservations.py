@@ -270,6 +270,50 @@ def journal_require(chain, campaign_id, github_run_id, admitted_sha256):
     return e
 
 
+def journal_main(x, url=None, root=None, pins=None):
+    """The nightly CLI on the state-ref journal. Refuses `reservation-journal-not-activated` (exit 78) before any read until the reviewed writer
+    root, the accepted bootstrap and the accepted scope are pinned to the same journal. `url`, `root`, `pins` are TEST-ONLY overrides."""
+    import tempfile
+    import init_run_inputs as I
+    import state_ref_writer as W
+    from recurring_usage import JOURNAL_SNAPSHOT_SCHEMA
+    pins = pins or I.continuity_pins()
+    root = root or W.REVIEWED_ROOT
+    url = url or W.APPROVED_URL
+    try:
+        _jneed(root is not None and all(pins.get(k) is not None for k in ("accepted_sha256", "accepted_root", "accepted_scope_sha256"))
+               and pins["accepted_root"] == root, "reservation-journal-not-activated")
+        repo = tempfile.mkdtemp(prefix="nightly-journal-")
+        import subprocess
+        _jneed(subprocess.run(["git", "init", "-q", repo], capture_output=True, env={"PATH": os.environ.get("PATH", ""), "GIT_CONFIG_NOSYSTEM": "1",
+               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TEMPLATE_DIR": ""}).returncode == 0, "reservation-journal-repo")
+        chain = W.validate_chain(repo, W.fetch_head(repo, url, url), root)
+        if x.command == "journal-snapshot":
+            _jneed(x.out and not os.path.lexists(x.out), "reservation-output")
+            dump({"schema": JOURNAL_SNAPSHOT_SCHEMA, "headSha": chain[-1][0], "events": chain[-1][1]}, x.out)
+            return 0
+        req_raw = open(x.request, "rb").read() if x.request else b""
+        if x.command == "journal-require":
+            req, _ = nightly_journal_request(req_raw, x.request_sha256)
+            journal_require(chain, req["runId"], x.execution_run_id, x.request_sha256)
+            return 0
+        aggregate = os.path.join(x.repo, I.CONTINUITY_DIR)
+        inputs = {"scope": open(os.path.join(aggregate, I.CONTINUITY_SCOPE), "rb").read(),
+                  "bootstrap": open(os.path.join(aggregate, I.CONTINUITY_BOOTSTRAP), "rb").read(),
+                  "atUtc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ")}
+        if x.command == "journal-reserve":
+            inputs.update(request=req_raw, admittedSha256=x.request_sha256, runId=x.execution_run_id, attempt=x.attempt)
+        else:
+            req, _ = nightly_journal_request(req_raw, x.request_sha256)
+            inputs.update(campaignId=req["runId"], runId=x.execution_run_id, record=open(x.record, "rb").read())
+        journal_execute(x.command[len("journal-"):], inputs, repo, url, root, x.journal, x.out, pins, load(x.approval), url)
+        return 0
+    except (JournalRefused, W.Refused, OSError, ValueError) as e:
+        code = str(e) if isinstance(e, JournalRefused) else "reservation-" + str(e) if isinstance(e, W.Refused) else "reservation-journal-input"
+        print("BLOCKED_SETUP: " + code, file=sys.stderr)
+        return 78
+
+
 def execute(x, now):
     led = load(x.ledger) if os.path.exists(x.ledger) else empty()
     errs = verify(led)
@@ -319,7 +363,12 @@ def execute(x, now):
 
 def main():
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=["reserve", "release", "verify", "require"])
+    a.add_argument("command", choices=["reserve", "release", "verify", "require", "journal-snapshot", "journal-reserve", "journal-require",
+                                       "journal-settle"])
+    a.add_argument("--repo")
+    a.add_argument("--record")
+    a.add_argument("--out")
+    a.add_argument("--journal")
     a.add_argument("--request")
     a.add_argument("--request-sha256")
     a.add_argument("--execution-run-id")
@@ -332,6 +381,8 @@ def main():
     a.add_argument("--ref")
     a.add_argument("--now")
     x = a.parse_args()
+    if x.command.startswith("journal-"):
+        sys.exit(journal_main(x))
     now = parse_utc(x.now) if x.now else now_utc()
     if x.command in ("reserve", "release"):
         with ledger_transaction(x.ledger) as ledger:
