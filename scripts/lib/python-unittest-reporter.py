@@ -119,7 +119,11 @@ def main() -> int:
             self._source = source
 
         def _observe(self, value):
-            if value not in (b"", "", None):
+            returned_bytes = isinstance(value, (str, bytes)) and len(value) > 0
+            returned_lines = isinstance(value, list) and any(
+                isinstance(line, (str, bytes)) and len(line) > 0 for line in value
+            )
+            if returned_bytes or returned_lines:
                 observed_source_reads.add(self._source)
             return value
 

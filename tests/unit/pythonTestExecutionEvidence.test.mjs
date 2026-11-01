@@ -86,9 +86,23 @@ test('real Python reporter credits only the exact input actually consumed by its
   } finally {fs.rmSync(f.root,{recursive:true,force:true});}
 });
 
-test('real Python reporter refuses non-consumption, open-only, failed-open, zero-read and substituted input reads',()=>{
+test('real Python reporter credits nonempty lines returned by readlines',()=>{
+  const f=fixture(),contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
+  try {
+    const consumer=`import unittest\nfrom pathlib import Path\nclass Input(unittest.TestCase):\n def test_reads_lines(self):\n  source=Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}\n  with source.open() as handle: self.assertEqual(handle.readlines(), ['{"fixture":true}\\n'])\n`;
+    for(const [file,bytes] of [[contract.inputFile,'{"fixture":true}\n'],[contract.testFile,consumer]]) {
+      fs.mkdirSync(path.dirname(path.join(f.root,file)),{recursive:true});fs.writeFileSync(path.join(f.root,file),bytes);
+    }
+    const receipt=producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[contract.inputFile],batch:0,
+      environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:realRuntimeOptions(f)});
+    assert.deepEqual([...validatePythonReceipt(receipt,{root:f.root,base:'d'.repeat(40),provenance:f.provenance,
+      files:[contract.inputFile],environment:f.environment,runtimeOptions:realRuntimeOptions(f)})],[contract.inputFile]);
+  } finally {fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('real Python reporter refuses non-consumption, open-only, failed-open, zero-read, EOF readlines and substituted input reads',()=>{
   const contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
-  for(const mode of ['non-consumption','open-only','failed-open','zero-read','substitution']) {
+  for(const mode of ['non-consumption','open-only','failed-open','zero-read','eof-readlines','substitution']) {
     const f=fixture();
     try {
       fs.mkdirSync(path.dirname(path.join(f.root,contract.inputFile)),{recursive:true});
@@ -98,11 +112,12 @@ test('real Python reporter refuses non-consumption, open-only, failed-open, zero
       const operations={
         'non-consumption':'self.assertTrue(True)',
         'open-only':`(Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}).open().close()`,
-        'failed-open':`source=Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}; original=builtins.open; builtins.open=lambda *args, **kwargs: (_ for _ in ()).throw(OSError('expected')); self.assertRaises(OSError, builtins.open, source); builtins.open=original`,
+        'failed-open':`source=Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}; moved=source.with_name(source.name+'.moved'); source.rename(moved); self.assertRaises(FileNotFoundError, source.open); moved.rename(source)`,
         'zero-read':`source=Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}; handle=source.open(); self.assertEqual(handle.read(0), ''); handle.close()`,
+        'eof-readlines':`source=Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}; handle=source.open(); handle.seek(0, 2); self.assertEqual(handle.readlines(), []); handle.close()`,
         substitution:"self.assertEqual((Path(__file__).resolve().parents[3]/'substitute.json').read_text(), '{\\\"fixture\\\":true}\\n')",
       };
-      fs.writeFileSync(path.join(f.root,contract.testFile),`import builtins\nimport unittest\nfrom pathlib import Path\nclass Input(unittest.TestCase):\n def test_operation(self): ${operations[mode]}\n`);
+      fs.writeFileSync(path.join(f.root,contract.testFile),`import unittest\nfrom pathlib import Path\nclass Input(unittest.TestCase):\n def test_operation(self): ${operations[mode]}\n`);
       assert.throws(()=>producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[contract.inputFile],batch:0,
         environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:realRuntimeOptions(f)}),/consumption absent/);
     } finally {fs.rmSync(f.root,{recursive:true,force:true});}
