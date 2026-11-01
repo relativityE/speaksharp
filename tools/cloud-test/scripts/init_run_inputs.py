@@ -49,7 +49,9 @@ BUNDLE_LIMIT = 4096
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 UUID_V4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 PROJECT_REF = re.compile(r"^[a-z0-9]{20}$")
-EMAIL_SHAPE = re.compile(r"^[^@\s]+@[^@\s]+$")
+# One explicit shared email contract (Sam 1793545693.919369): printable ASCII without space or "@" on both sides of exactly one "@", at
+# most 254 characters; CONTROL stays for the environment-file writer.
+EMAIL_ASCII = re.compile(r"^[\x21-\x3f\x41-\x7e]+@[\x21-\x3f\x41-\x7e]+$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/#-]{2,159}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
@@ -223,7 +225,7 @@ def parse_live_accounts_bundle(raw):
     _need(isinstance(doc["projectRef"], str) and PROJECT_REF.match(doc["projectRef"]), "bundle-project")
     for role in BUNDLE_ROLES:
         e = doc["accounts"][role]["email"]
-        _need(isinstance(e, str) and len(e) <= 254 and not CONTROL.search(e) and e == e.strip() and EMAIL_SHAPE.match(e), "bundle-email")
+        _need(isinstance(e, str) and len(e) <= 254 and EMAIL_ASCII.fullmatch(e), "bundle-email")
     for role in BUNDLE_ROLES:
         _need(isinstance(doc["accounts"][role]["accountId"], str) and UUID_V4.match(doc["accounts"][role]["accountId"]), "bundle-account-id")
     a, b = (doc["accounts"][r] for r in BUNDLE_ROLES)
@@ -256,11 +258,24 @@ def mask_commands(values):
     return out
 
 
+def is_project_origin(url, project_ref):
+    """The approved Supabase project origin, exactly: https://<projectRef>.supabase.co (a trailing "/" and the default port are the same
+    origin). HTTP, any userinfo or "@", another port, another or suffixed domain, any path, query or fragment, and unparseable input refuse."""
+    if not isinstance(url, str) or "@" in url:
+        return False
+    try:
+        p = urllib.parse.urlsplit(url)
+        port = p.port
+    except ValueError:
+        return False
+    return (p.scheme == "https" and p.username is None and p.password is None and port in (None, 443) and
+            p.hostname == project_ref + ".supabase.co" and p.path in ("", "/") and not p.query and not p.fragment)
+
+
 def role_account(bundle, role, supabase_url):
     """Role truth: only existing-disposable populates the THROWAWAY_* names. maintained-read-only live execution refuses until the separately
     reviewed FREE allowlist/config contract exists (B6); its data is never renamed into another role's names."""
-    host = urllib.parse.urlparse(supabase_url or "").hostname or ""
-    _need(bundle["projectRef"] == host.split(".")[0], "bundle-project-mismatch")
+    _need(is_project_origin(supabase_url, bundle["projectRef"]), "bundle-project-mismatch")
     _need(role == "existing-disposable", "maintained-read-only-live-execution-unavailable")
     return bundle["accounts"][role]
 
