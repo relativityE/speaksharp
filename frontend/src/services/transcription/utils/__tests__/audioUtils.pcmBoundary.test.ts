@@ -1,6 +1,6 @@
 /* @vitest-environment happy-dom */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 import { Result } from '../../modes/types';
 import { PRIV_STT, PRIV_STT_DERIVED } from '../../sttConstants';
 import { captureForPcm } from '../../pcmBoundaryReceipt';
@@ -59,9 +59,17 @@ const nextCaptureId = () => `00000000-0000-4000-8000-${String(captureOrdinal++).
 const latestReceipt = async () => {
   const records = await window.__PRIVATE_PCM_RECEIPTS__?.read() as Array<{
     captureId: string; complete: boolean; workletClosed: boolean; listenerClosed: boolean;
-    problems: string[]; receipts: Array<{ domain: string }>;
+    problems: string[]; receipts: Array<{
+      domain: string; samples: number; sha256: string;
+      spans: Array<{ start: number | null; samples: number }>;
+    }>;
   }>;
   return records[records.length - 1]!;
+};
+const pcmSha256 = (audio: Float32Array) => {
+  const bytes = new Uint8Array(audio.length * 4), view = new DataView(bytes.buffer);
+  audio.forEach((value, index) => view.setFloat32(index * 4, value, true));
+  return createHash('sha256').update(bytes).digest('hex');
 };
 
 beforeEach(() => {
@@ -90,6 +98,11 @@ afterEach(() => {
 });
 
 it('composes actual mic transport, queued worklet packet and PrivateWhisper facade into one complete receipt', async () => {
+  const decodeCalls: Array<{ audio: Float32Array; final: boolean }> = [];
+  engine.transcribe.mockImplementation(async (audio: Float32Array, options?: { final?: boolean }) => {
+    decodeCalls.push({ audio: audio.slice(), final: options?.final === true });
+    return Result.ok('A grounded synthetic sentence.');
+  });
   const stream = await createMicStreamImpl({ sampleRate: 16_000, frameSize: 1024 });
   const mode = new PrivateWhisper({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), onStatusChange: vi.fn() });
   await mode.init(); await mode.start(stream);
@@ -111,6 +124,22 @@ it('composes actual mic transport, queued worklet packet and PrivateWhisper faca
   node.emit({ kind: 'speaksharp-pcm-closed-v1', frames: 2, samples: frame.length + queued.length });
 
   const receipt = await latestReceipt();
+  const finalCall = decodeCalls.find(call => call.final);
+  expect(finalCall).toBeDefined();
+  expect(finalCall?.audio.length).toBe(frame.length + queued.length);
+  expect(finalCall?.audio.slice(0, frame.length)).toEqual(frame);
+  expect(finalCall?.audio.slice(frame.length)).toEqual(queued);
+
+  const listeners = receipt.receipts.filter(row => row.domain === 'listener_delivery');
+  const finalDecode = receipt.receipts.find(row => row.domain === 'final_decode_input');
+  expect(listeners.reduce((total, row) => total + row.samples, 0)).toBe(frame.length + queued.length);
+  expect(listeners.flatMap(row => row.spans).reduce((total, span) => total + span.samples, 0))
+    .toBe(frame.length + queued.length);
+  expect(listeners.flatMap(row => row.spans).map(span => span.start)).toEqual([0, frame.length]);
+  expect(listeners.map(row => row.sha256)).toEqual([pcmSha256(frame), pcmSha256(queued)]);
+  expect(finalDecode?.samples).toBe(finalCall?.audio.length);
+  expect(finalDecode?.spans.reduce((total, span) => total + span.samples, 0)).toBe(finalCall?.audio.length);
+  expect(finalDecode?.sha256).toBe(pcmSha256(finalCall!.audio));
   expect(receipt.complete).toBe(true); expect(receipt.problems).toEqual([]);
   expect(receipt.receipts.map(row => row.domain)).toEqual(expect.arrayContaining([
     'worklet_output', 'listener_delivery', 'live_decode_input', 'final_decode_input',
