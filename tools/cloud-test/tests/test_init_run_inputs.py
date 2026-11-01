@@ -416,6 +416,22 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
         with open(ct_request, "rb") as f:
             self.assertEqual(f.read(), committed)
         self.assertEqual(stat.S_IMODE(os.stat(ct_request).st_mode), 0o600)
+        # The validated bundle, canonical and private, for the per-case role consumers; only its digest is an output, never a value.
+        with open(env, encoding="utf-8") as f:
+            bundle_file = dict(line.split("=", 1) for line in f.read().splitlines())["CT_LIVE_ACCOUNTS_FILE"]
+        self.assertEqual(bundle_file, os.path.join(out, "live-accounts.json"))
+        self.assertEqual(stat.S_IMODE(os.stat(bundle_file).st_mode), 0o600)
+        with open(bundle_file, "rb") as f:
+            canonical = f.read()
+        parsed = I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))
+        self.assertEqual(canonical, json.dumps({"version": 1, "projectRef": parsed["projectRef"], "accounts": parsed["accounts"]},
+                                                sort_keys=True, separators=(",", ":")).encode())
+        self.assertEqual(published["live_accounts_sha256"], hashlib.sha256(canonical).hexdigest())
+        with open(outputs, encoding="utf-8") as f:
+            outputs_text = f.read()
+        self.assertNotIn("synthetic", outputs_text)
+        self.assertNotIn(ACCOUNT_ID, outputs_text)
+        self.assertEqual(I.canonical_bundle_bytes(I.parse_live_accounts_bundle(canonical.decode())), canonical, "canonical bytes are a fixed point")
         # The window check accepts exactly those bytes, and refuses them once the workspace-style copy is rewritten.
         check = lambda: subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "init_run_inputs.py"), "window-check", "--request",
                                         ct_request, "--live-minutes", "47", "--request-sha256", published["request_sha256"]],

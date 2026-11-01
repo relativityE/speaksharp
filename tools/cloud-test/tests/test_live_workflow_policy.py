@@ -166,7 +166,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("if", check, "a failed window check stops the job before admission")
 
     def test_pass_needs_qualify_which_runs_the_real_binding_verifier_then_every_selected_row(self):
-        collect = self.jobs["live"]["steps"][-2]["run"]
+        collect = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Collect, verify the binding"))["run"]
         order = [collect.index(k) for k in ("execute_run.sh collect", "init_run_inputs.py qualify", '--snapshot-dir "$CT_OUT/qualification-snapshot"',
                                              'Q=(--qualification "$CT_OUT/qualification.json")', "init_run_inputs.py project")]
         self.assertEqual(order, sorted(order))
@@ -176,9 +176,18 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("verify_run_binding.py --plan", collect, "the verifier runs inside qualify, on the bytes qualify snapshots")
         self.assertIn('--tested-sha "$TESTED_SHA"', collect)
 
+    def test_the_private_run_inputs_are_removed_last_and_never_uploaded(self):
+        steps = self.jobs["live"]["steps"]
+        self.assertEqual((steps[-1].get("name"), steps[-1].get("if"), steps[-1].get("run", "").strip()),
+                         ("Remove the private run inputs", "always()", 'rm -rf -- "$RUNNER_TEMP/run-inputs"'))
+        for job in self.jobs.values():
+            for step in job["steps"]:
+                if "upload-artifact" in str(step.get("uses", "")):
+                    self.assertNotIn("run-inputs", str((step.get("with") or {}).get("path", "")))
+
     def test_the_admitted_request_digest_reaches_qualify_and_project_only_from_the_init_step_output(self):
         # A step's outputs cannot be rewritten by a later step; $GITHUB_ENV can, so the digest never travels through it.
-        step = self.jobs["live"]["steps"][-2]
+        step = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Collect, verify the binding"))
         self.assertEqual(step["env"]["REQUEST_SHA256"], "${{ steps.init.outputs.request_sha256 }}")
         qualify, project = step["run"].split("init_run_inputs.py project", 1)
         self.assertIn('--request-sha256 "$REQUEST_SHA256"', qualify.split("init_run_inputs.py qualify", 1)[1])

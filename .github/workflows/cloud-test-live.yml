@@ -210,6 +210,11 @@ jobs:
           path: ${{ runner.temp }}/latest-record.json
           retention-days: 1
           if-no-files-found: ignore
+      # Last step: the private run inputs (admitted request copy, account id, the canonical live-accounts bundle) never outlive the job and
+      # are never uploaded; no artifact path covers this directory.
+      - name: Remove the private run inputs
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/run-inputs"
 
   record-complete:
     name: Complete or interrupt the attempt in the latest record (no live credentials)

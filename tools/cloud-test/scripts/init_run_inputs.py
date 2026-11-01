@@ -254,6 +254,13 @@ def parse_live_accounts_bundle(raw):
                                                           for r in BUNDLE_ROLES}}
 
 
+def canonical_bundle_bytes(bundle):
+    """The VALIDATED bundle as the one canonical representation both runtimes agree on (Elon 1793552234.767509): UTF-8 JSON, keys sorted at
+    every level, "," and ":" separators, no whitespace. Every value is ASCII by validation, so Python and a sorted-key JS stringify match."""
+    doc = {"version": 1, "projectRef": bundle["projectRef"], "accounts": bundle["accounts"]}
+    return json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+
+
 def mask_values(raw):
     """The whole raw bundle (even malformed) and, once it parses, every email (as given and lower-cased) and account id."""
     values = [raw]
@@ -391,7 +398,7 @@ def prepare(x, now):
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     verified_checkpoint(x.checkpoint)
-    return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
+    return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle), "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
             "accountId": account_id, "email": role_entry["email"],
             "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes,
@@ -766,7 +773,12 @@ def main(argv):
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(p["accountId"])
         # The role's email reaches the run stage under execute_run's allowlisted name only through the safe writer, after masking.
-        env = {"CT_REQUEST": request_file, "CT_FACTS_FILE": facts_file, "CT_ACCOUNT_ID_FILE": account_file,
+        # The validated bundle, canonical and private, for the per-case role consumers; its digest leaves only as an init step output.
+        bundle_file = os.path.join(x.out, "live-accounts.json")
+        fd = os.open(bundle_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(p["bundleBytes"])
+        env = {"CT_REQUEST": request_file, "CT_FACTS_FILE": facts_file, "CT_ACCOUNT_ID_FILE": account_file, "CT_LIVE_ACCOUNTS_FILE": bundle_file,
                p["account"]["credentials"]["email"]: p["email"]}
         if p["scope"]:
             scope_file = os.path.join(x.out, "evidence-scope.json")
@@ -774,9 +786,9 @@ def main(argv):
             env.update(CT_EVIDENCE_SCOPE_FILE=scope_file, CT_EVIDENCE_SCOPE_SHA256=_sha(scope_file))
         write_env_file(x.env_file, env)
         with open(x.outputs, "a", encoding="utf-8") as f:
-            f.write("route=%s\nrole=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\n" % (
+            f.write("route=%s\nrole=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\nlive_accounts_sha256=%s\n" % (
                 p["route"], p["account"]["role"], p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"],
-                p["requestSha256"]))
+                p["requestSha256"], hashlib.sha256(p["bundleBytes"]).hexdigest()))
         return 0
     except (Refused, LR.Refused) as e:
         print("BLOCKED_SETUP: " + str(e), file=sys.stderr)
