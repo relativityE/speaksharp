@@ -29,6 +29,12 @@ describe('bounded one-time product transport', () => {
     bounded.bindSession(session);bounded.finishTake();bounded.finishRun();
     expect(()=>bounded.beginTake()).toThrow('bounded_take_count_exceeded');
   });
+  it('binds a promotion policy only by an exact digest in the approval, never by its shape',()=>{
+    expect(()=>validateApproval({...approval(),promotionPolicySha256:'f'.repeat(64)},now)).not.toThrow();
+    expect(()=>validateApproval({...approval(),promotionPolicySha256:null},now)).not.toThrow();
+    for(const bad of ['', 'F'.repeat(64), 'f'.repeat(63), ['f'.repeat(64)], 1])
+      expect(()=>validateApproval({...approval(),promotionPolicySha256:bad} as unknown as ExecutionApproval,now)).toThrow('bounded_promotion_policy_binding_invalid');
+  });
   it('counts one canonical case plus its reporter copy once, eighteen unique cases eighteen, and rejects conflicting canonical duplicates',()=>{
     const one={candidate:MODELS[0],trial:1,clip:'fixture-001',measured:true};
     const canonical={path:'/case-one/attachments/independent-app-comparison.json',row:one};

@@ -36,6 +36,8 @@ export interface ExecutionApproval {
   assetReceiptSha256: string;
   backendContractSha256: string;
   campaignSha256: string;
+  /** Exact promotion-policy bytes this approval admits; absent or null means no policy may be used. */
+  promotionPolicySha256?: string | null;
   appOrigin: string; apiOrigin: string; expectedUserId: string;
   accountReference: string; expiresAt: string; takes: number;
   retention: 'EMPTY_EXISTING_TEST_ACCOUNT_NORMAL_NEWEST_ONE';
@@ -60,6 +62,10 @@ export function validateApproval(a: ExecutionApproval, now: number): void {
       const value=a.reservedBeforeRun![key as keyof NonNullable<ExecutionApproval['reservedBeforeRun']>]??(key==='loopbackWebSockets'?0:NaN);
       return !Number.isInteger(value)||value<0||value>limit;
     })) throw Error('bounded_prior_reservation_invalid');
+  if (a.promotionPolicySha256 != null
+    && (typeof a.promotionPolicySha256 !== 'string' || !/^[a-f0-9]{64}$/.test(a.promotionPolicySha256))) {
+    throw Error('bounded_promotion_policy_binding_invalid');
+  }
   if (a.schemaVersion !== 1 || a.decision !== 'APPROVED' || !/^[a-zA-Z0-9_-]{8,80}$/.test(a.runId)
     || !/^[a-f0-9]{40}$/.test(a.sourceHead) || !UUID.test(a.expectedUserId)
     || !/^[a-zA-Z0-9_-]{4,80}$/.test(a.accountReference)

@@ -13,7 +13,7 @@ import { LIMITS, validateApproval, requireCompatibleBackend, canonicalCaseReceip
 import { readProductCampaign, verifyCampaignPackages } from '../../scripts/model-evaluator/product-campaign.ts';
 import { verifyProjectRuntimeBindings } from '../../scripts/model-evaluator/runtime-bindings.mjs';
 import { createCleanupBarrier, awaitOwnedCleanup, signalOwnedGroups, groupState } from './ownedCleanup.mjs';
-import { qualifyComparison, validatePromotionPolicy } from './qualification.mjs';
+import { qualifyComparison, timingMetric as metric, validatePromotionPolicy } from './qualification.mjs';
 import { chromium } from 'playwright';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 if (process.version !== 'v22.12.0') throw Error('bounded_requires_frozen_node_22_12_0');
@@ -22,8 +22,11 @@ validateApproval(approval, Date.now());
 const campaign = readProductCampaign(root,process.env.EVAL_CAMPAIGN_FILE);
 if(campaign.sha256!==approval.campaignSha256||campaign.takes!==approval.takes)throw Error('bounded_campaign_binding_mismatch');
 await verifyCampaignPackages(campaign.candidates);
-// An owner-approved promotion policy is optional; an invalid one refuses before any take is spent.
+// An owner-approved promotion policy is optional, but only the exact bytes the execution approval binds
+// count. An invalid, unbound or substituted policy refuses before any take is spent.
 const policyBytes=process.env.EVAL_PROMOTION_POLICY_FILE?await readFile(process.env.EVAL_PROMOTION_POLICY_FILE):null;
+const policySha256=policyBytes?createHash('sha256').update(policyBytes).digest('hex'):null;
+if(policySha256!==(approval.promotionPolicySha256??null))throw Error('bounded_promotion_policy_binding_mismatch');
 const promotionPolicy=policyBytes?validatePromotionPolicy(JSON.parse(policyBytes.toString('utf8'))):null;
 const priorRows=[];
 if(approval.resume){
@@ -147,9 +150,6 @@ const summary={mode:'product-lifecycle',campaignSha256:campaign.sha256,runId:app
   limits:['single_synthetic_speaker','acoustic_labels_unverified',...(promotionPolicy?[]:['no_promotion_policy']),'Focus_NOT_RUN',
     'coaching_NOT_RUN','memory_NOT_RUN','isolated_cold_warm_NOT_RUN','weights_not_introspected',
     'init_includes_cache_probe_pinning_warmup','read_and_reopen_are_harness_observed_wall_time']};
-const median=values=>{const v=[...values].sort((a,b)=>a-b);return !v.length?null:v.length%2?v[(v.length-1)/2]:(v[v.length/2-1]+v[v.length/2])/2;};
-const metric=values=>{const measured=values.filter(v=>typeof v==='number'&&Number.isFinite(v)&&v>=0);
-  return {status:measured.length?'MEASURED':'NOT RUN',samples:measured.length,median:median(measured)};};
 for(const model of campaign.campaign.candidates){const all=rows.filter(r=>r.candidate===model);const valid=all.filter(r=>r.measured&&r.productEvidence?.productProof?.verdict==='PASS');
   const words=valid.reduce((n,r)=>n+r.trackA.referenceWords,0);const errors=valid.reduce((n,r)=>n+r.trackA.substitutions+r.trackA.deletions+r.trackA.insertions,0);
   summary.models[model]={attempted:all.length,verified:valid.length,failed:all.length-valid.length,
@@ -173,10 +173,12 @@ for(const model of campaign.campaign.candidates){const paired=verified.filter(ro
  const words=paired.reduce((n,row)=>n+row.trackA.referenceWords,0);const count=key=>paired.reduce((n,row)=>n+row.trackA[key],0);
  summary.commonMatchedPopulation.models[model]={samples:paired.length,N:words,S:count('substitutions'),D:count('deletions'),I:count('insertions'),wer:words?(count('substitutions')+count('deletions')+count('insertions'))/words:null};
 }
-const decision=qualifyComparison({summary,rows,candidates:campaign.campaign.candidates,policy:promotionPolicy});
+const population=[];for(let trial=1;trial<=campaign.corpus.trials;trial++)for(const clip of campaign.corpus.clips)population.push(`${trial}:${clip.id}`);
+const decision=qualifyComparison({summary,rows,candidates:campaign.campaign.candidates,policy:promotionPolicy,
+  policySha256,expectedPolicySha256:approval.promotionPolicySha256??null,population,
+  expectedPackages:Object.fromEntries(campaign.candidates.map(c=>[c.id,c.modelPackage?.digest??null]))});
 Object.assign(summary,{qualification:decision.qualification,qualifiedPackages:decision.qualifiedPackages,qualificationReasons:decision.reasons,
-  candidateQualification:decision.candidates,promotionPolicy:decision.policy??null,
-  promotionPolicySha256:policyBytes?createHash('sha256').update(policyBytes).digest('hex'):null});
+  candidateQualification:decision.candidates,promotionPolicy:decision.policy??null,promotionPolicySha256:policySha256});
 await writeFile(join(output,'comparison-summary.json'),JSON.stringify(summary,null,2)+'\n',{flag:'wx',mode:0o600});
 console.log(JSON.stringify({status:summary.status,verifiedRows:rows.filter(r=>r.measured).length,expectedRows:campaign.takes}));
 process.exitCode=summary.status==='MEASURED_PRODUCT_COMPARISON'?0:1;
