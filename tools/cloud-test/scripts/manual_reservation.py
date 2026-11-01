@@ -16,8 +16,9 @@ runs keep their own path (reservations.py); this module refuses them.
   release   returns exactly the reservation, under an owner approval reference, only for a run that never started. The integrated path
             refuses every release until a verifier of never-started evidence exists (`started=False` alone is not evidence).
   execute   the integrated path: accepted scope BYTES (pinned digest, not a nonempty approvalRef), the chain verified from the accepted root,
-            the rollup recomputed at that head, the reserve inside the approved period BEFORE it is appended, and settle/release finding
-            their reservation ON the chain; then the writer's journaled propose.
+            the rollup recomputed at that head, the reserve AND the settle inside the approved period BEFORE they are appended (a late
+            settle is refused and the reservation stays held until an explicit cross-period disposition), and settle finding its
+            reservation ON the chain; then the writer's journaled propose.
   CLI       refuses `manual-reservation-not-activated` before reading any input until the writer root, the accepted bootstrap and the
             accepted scope are pinned to the same journal.
 Exit 78 on every refusal; no value is printed.
@@ -163,6 +164,11 @@ def accepted_scope(scope_raw, accepted_scope_sha256):
         raise Refused("manual-reservation-scope-not-accepted")
 
 
+def _in_period(scope, at_utc, code):
+    """The transition's time is inside the accepted period, checked BEFORE the append (the rollup refuses any event outside it)."""
+    _need(accounting_rollup._utc(scope["periodStartUtc"]) <= accounting_rollup._utc(at_utc) < accounting_rollup._utc(scope["periodEndUtc"]), code)
+
+
 def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=state_ref_writer.APPROVED_URL):
     """One manual transition on the state ref; returns the appended event. `pins` holds the accepted bootstrap digest, its root and the
     accepted scope digest; `root` must be that accepted root, so the journal appended to is the one the rollup reads."""
@@ -171,14 +177,16 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
     try:
         head = state_ref_writer.fetch_head(repo, url, approved_url)
         chain = state_ref_writer.validate_chain(repo, head, root)
+        scope = accepted_scope(inputs["scope"], pins.get("accepted_scope_sha256"))
         if command == "reserve":
-            scope = accepted_scope(inputs["scope"], pins.get("accepted_scope_sha256"))
-            _need(accounting_rollup._utc(scope["periodStartUtc"]) <= accounting_rollup._utc(inputs["atUtc"])
-                  < accounting_rollup._utc(scope["periodEndUtc"]), "manual-reservation-outside-period")
+            _in_period(scope, inputs["atUtc"], "manual-reservation-outside-period")
             rollup = accounting_rollup.receive(inputs["bootstrap"], scope, chain, pins.get("accepted_sha256"), pins.get("accepted_root"))
             event = reserve(inputs["request"], inputs["admittedSha256"], inputs["runId"], rollup, head, inputs["atUtc"])
         else:
             _need(command == "settle", "manual-reservation-command")
+            # Sam 1793557361.926929: a late settle is refused before the append; the reservation stays held (counted at its caps) until an
+            # explicit cross-period disposition.
+            _in_period(scope, inputs["atUtc"], "manual-settle-outside-period")
             reserved = _reserved_on_chain(chain, inputs["campaignId"], inputs["runId"])
             usage, evidence = usage_from_record(inputs["record"], reserved)
             event = settle(reserved, usage, evidence, inputs["atUtc"])
@@ -214,7 +222,7 @@ def main(argv):
             inputs = {"request": _read(x.request), "admittedSha256": x.admitted_sha256, "runId": x.run_id, "bootstrap": _read(x.bootstrap),
                       "scope": _read(x.scope), "atUtc": at}
         elif x.command == "settle":
-            inputs = {"campaignId": x.campaign_id, "runId": x.run_id, "record": _read(x.record), "atUtc": at}
+            inputs = {"campaignId": x.campaign_id, "runId": x.run_id, "record": _read(x.record), "scope": _read(x.scope), "atUtc": at}
         else:
             inputs = {}
         pins = {"accepted_sha256": accounting_rollup.ACCEPTED_BOOTSTRAP_SHA256, "accepted_root": accounting_rollup.ACCEPTED_ROOT,

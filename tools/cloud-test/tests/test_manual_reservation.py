@@ -148,7 +148,7 @@ class ManualReservation(Journal):
         with open(os.path.join(self.d, "r1", "receipt.json"), encoding="utf-8") as f:
             self.assertTrue(W.verify(self.repo, self.remote, json.load(f), e, self.root, self.remote)["verified"])
         self.assertEqual((self.receive()["outstandingReservations"], self.receive()["requests"]["conservativeUsed"]), (1, 4342))
-        settle = {"campaignId": "R7-full-coverage", "runId": RUN, "record": self.record(), "atUtc": AT}
+        settle = {"campaignId": "R7-full-coverage", "runId": RUN, "record": self.record(), "scope": self.scope, "atUtc": AT}
         s = self.execute("settle", settle, "s1")
         self.assertEqual((s["allocation"]["requests"], s["provenance"]), (2900, "evidence-sha256:" + hashlib.sha256(self.record()).hexdigest()))
         self.assertEqual((self.receive()["outstandingReservations"], self.receive()["requests"]["conservativeUsed"]), (0, 2900))
@@ -170,6 +170,19 @@ class ManualReservation(Journal):
         self.execute("reserve", r, "x7")
         self.refused("manual-release-never-started-unverified", self.execute, "release", {"campaignId": "R7-full-coverage", "runId": RUN}, "x8")
         self.assertEqual(self.receive()["outstandingReservations"], 1)
+
+    def test_a_late_settle_is_refused_before_the_append_and_the_reservation_stays_held(self):
+        self.execute("reserve", self.reserve_inputs(), "r1")
+        head = self.head()
+        late = {"campaignId": "R7-full-coverage", "runId": RUN, "record": self.record(), "scope": self.scope, "atUtc": "2026-12-02T00:00:00Z"}
+        self.refused("manual-settle-outside-period", self.execute, "settle", late, "s1")
+        self.refused("manual-settle-outside-period", self.execute, "settle", dict(late, atUtc="2026-11-01T23:59:59Z"), "s2")
+        self.refused("manual-reservation-scope-not-accepted", self.execute, "settle", dict(late, scope=scope_raw(carryover="historical")), "s3")
+        self.assertEqual(self.head(), head, "nothing was appended")
+        out = self.receive()
+        self.assertEqual((out["outstandingReservations"], out["requests"]["conservativeUsed"]), (1, 4342), "the reservation stays held at its caps")
+        self.execute("settle", dict(late, atUtc="2026-12-01T23:59:59Z"), "s4")
+        self.assertEqual(self.receive()["outstandingReservations"], 0)
 
     def test_the_release_event_needs_never_started_and_an_approval(self):
         e = self.reserved()
