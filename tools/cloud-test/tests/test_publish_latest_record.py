@@ -234,6 +234,24 @@ class CarryForward(unittest.TestCase):
             P.sanitize_record(record("304", rowVerdicts={"AHT-05": "PPF"}))  # inconsistent with the case's row counts
         self.assertEqual(str(e.exception), "row-verdicts")
 
+    def test_the_fold_compares_each_row_only_under_the_same_identities(self):
+        same = {"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64, "mediaManifestSha256": "5" * 64, "backendSha": "6" * 40}
+
+        def night(state, run_id, ended, verdicts, comp):
+            ok = set(verdicts) == {"P"}
+            cases = [{"caseId": "AHT-05", "result": "PASS" if ok else "FAIL",
+                      "rows": {"pass": verdicts.count("P"), "fail": verdicts.count("F"), "notRun": verdicts.count("N")}, "codes": []}]
+            st = P.begin(state, run_id, 1, SHA, ended.replace("08:", "03:"))
+            return P.complete(st, record(run_id, outcome="passed" if ok else "failed", endedUtc=ended, startedUtc=ended.replace("08:", "03:"),
+                                         cases=cases, rowVerdicts={"AHT-05": verdicts}, comparability=comp,
+                                         coverage="batch" if ok else "incomplete"))
+        s1 = night(P.parse_body(""), "401", "2026-11-01T08:00:00Z", "PPF", same)
+        s2 = night(s1, "402", "2026-11-02T08:00:00Z", "FPP", same)
+        self.assertEqual(s2["history"]["lastComparison"], {"runId": "402", "regressions": {"AHT-05": 1}, "fixes": {"AHT-05": 1}, "notComparable": {}})
+        s3 = night(s2, "403", "2026-11-03T08:00:00Z", "PFP", dict(same, backendSha="7" * 40))
+        self.assertEqual(s3["history"]["lastComparison"]["notComparable"], {"AHT-05": 3})  # a different backend: no regression/fix claimed
+        self.assertEqual(P.parse_body(P.render(s3)), s3)
+
     def test_worst_case_history_fits_the_size_bound_and_a_larger_one_fails_closed(self):
         import json as _json
         catalog = _json.load(open(os.path.join(ROOT, "config", "assertion-catalog.json")))
@@ -245,7 +263,9 @@ class CarryForward(unittest.TestCase):
             st = P.begin(state, str(1000 + i), 1, SHA, day.replace("08:", "03:"))
             cases = [{"caseId": cid, "result": "PASS", "rows": {"pass": w, "fail": 0, "notRun": 0}, "codes": []} for cid, w in widths.items()]
             rec = record(str(1000 + i), endedUtc=day, startedUtc=day.replace("08:", "03:"), cases=cases, coverage="full",
-                         campaignId="nightly-20261101T0000Z-%08d" % i, rowVerdicts={cid: "P" * w for cid, w in widths.items()})
+                         campaignId="nightly-20261101T0000Z-%08d" % i, rowVerdicts={cid: "P" * w for cid, w in widths.items()},
+                         comparability={"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64, "mediaManifestSha256": "5" * 64,
+                                        "backendSha": "6" * 40})
             state = P.complete(st, rec)
         self.assertLessEqual(len(P.canon(state["history"])), P.MAX_HISTORY_BYTES)
         self.assertLessEqual(len(P.render(state)), P.MAX_BODY_CHARS)  # the whole comment stays under GitHub's body limit

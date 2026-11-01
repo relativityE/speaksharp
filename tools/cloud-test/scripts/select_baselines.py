@@ -65,7 +65,7 @@ def select(ledger, cfg, receipts_root, latest):
             "pairs": [l for l in order if l in needed]}
 
 
-def history_baselines(history, catalog):
+def history_baselines(history, catalog, current=None):
     """Nightly baselines (G7, Sam 1793573813.598689) from the VERIFIED carried-forward history in the latest record: every catalog row
     (all 15 cases, 204 rows) is compared with its last executed verdict and the occurrence that produced it, and each journey names its
     previous verdict and last-known-good. A row that has never executed has no baseline; NOT RUN never replaced an earlier verdict."""
@@ -83,8 +83,11 @@ def history_baselines(history, catalog):
             raise ValueError("history row width differs from the catalog for %s" % cid)
         for i, aid in enumerate(case["requiredAssertions"]):
             verdict = None if last is None or last[i] == "-" else {"P": "PASS", "F": "FAIL"}[last[i]]
+            from publish_latest_record import identity_of
+            base_comp = identity_of(h, h["occurrences"][at[i]]) if verdict else None
             rows["%s/%s" % (cid, aid)] = {"baselineVerdict": verdict, "baseline": occ[at[i]] if verdict else None,
-                                          "lastKnownGood": occ[good[i]] if good and good[i] >= 0 else None}
+                                          "lastKnownGood": occ[good[i]] if good and good[i] >= 0 else None,
+                                          "comparable": bool(verdict) and current is not None and base_comp == current}
         prev, lkg = r.get("last"), r.get("lastKnownGood")
         journeys[cid] = {"previousVerdictRun": prev["runId"] if prev else None, "previousVerdict": prev["result"] if prev else None,
                          "lastKnownGood": lkg["runId"] if lkg else None}
@@ -96,6 +99,7 @@ def history_baselines(history, catalog):
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--history-state")
+    a.add_argument("--request")  # the admitted request: the current run's comparability identities
     a.add_argument("--ledger")
     a.add_argument("--config", default=os.path.join(ROOT, "config", "test-config.v1.json"))
     a.add_argument("--receipts-root", default=os.path.join(ROOT, "config", "history", "receipts"))
@@ -103,7 +107,17 @@ def main():
     a.add_argument("--out", required=True)
     x = a.parse_args()
     if x.history_state:
-        out = history_baselines((load(x.history_state) or {}).get("history"), load(os.path.join(ROOT, "config", "assertion-catalog.json")))
+        current = None
+        if x.request:
+            import hashlib
+            req = load(x.request)
+            media = os.path.join(os.path.dirname(os.path.dirname(ROOT)), "tests", "fixtures", "rwt", "rwt-fixtures.manifest.json")
+            current = {"codeManifestSha256": (req.get("harness") or {}).get("codeManifestSha256"),
+                       "packetManifestSha256": (req.get("harness") or {}).get("packetManifestSha256"),
+                       "mediaManifestSha256": hashlib.sha256(open(media, "rb").read()).hexdigest() if os.path.isfile(media) else None,
+                       "backendSha": ((req.get("release") or {}).get("backend") or {}).get("sha")}
+            current = current if all(isinstance(v, str) for v in current.values()) else None
+        out = history_baselines((load(x.history_state) or {}).get("history"), load(os.path.join(ROOT, "config", "assertion-catalog.json")), current)
         dump(out, x.out)
         print("nightly baselines from %d carried-forward occurrence(s)" % len(out["occurrences"]))
         return

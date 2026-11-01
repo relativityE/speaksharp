@@ -1016,7 +1016,7 @@ def _unique(items, key, code):
 
 
 def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None, provenance=None, case_results_raw=None,
-            catalog=None):
+            catalog=None, request_raw=None, media_manifest_raw=None):
     """run-record.json (the real collector keeps all 15 rows) -> the closed latest record. Qualification counts only when it is bound to THIS
     record and THIS admission: the same case-results digest, tested release, observed served release and admitted request digest. Then the selected rows keep their results, the others
     are NOT SELECTED, and coverage says batch or full truthfully. `passed` needs that binding and every selected row PASS; anything else is
@@ -1072,6 +1072,16 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
            "cases": cases, "codes": [] if qualified else ["not-qualified"]}
     if row_verdicts:
         rec["rowVerdicts"] = row_verdicts
+    if row_verdicts and request_raw is not None and media_manifest_raw is not None:
+        # comparability: the identities this run's row verdicts were produced under, from the admitted request bytes (digest-checked)
+        _need(hashlib.sha256(request_raw).hexdigest() == request_sha256, "request-not-the-admitted-bytes")
+        admitted = json.loads(request_raw)
+        comp = {"codeManifestSha256": (admitted.get("harness") or {}).get("codeManifestSha256"),
+                "packetManifestSha256": (admitted.get("harness") or {}).get("packetManifestSha256"),
+                "mediaManifestSha256": hashlib.sha256(media_manifest_raw).hexdigest(),
+                "backendSha": ((admitted.get("release") or {}).get("backend") or {}).get("sha")}
+        if all(isinstance(v, str) for v in comp.values()):
+            rec["comparability"] = comp  # an identity that is not known leaves the rows not comparable, never a guessed match
     try:
         return LR.sanitize_record(rec)
     except LR.Refused as e:
@@ -1115,7 +1125,9 @@ def main(argv):
             prov = _load(x.provenance) if x.provenance and os.path.exists(x.provenance) else None
             cr = _read(x.case_results) if x.case_results and os.path.exists(x.case_results) else None
             catalog = _load(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "assertion-catalog.json"))
-            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov, cr, catalog))
+            media = os.path.join(x.repo or ".", "tests", "fixtures", "rwt", "rwt-fixtures.manifest.json")
+            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov, cr, catalog,
+                                          _read(x.request) if x.request else None, _read(media) if x.request and os.path.isfile(media) else None))
             return 0
         if x.command == "provenance":
             _write_private(x.out, provenance_from_files(x.request, x.request_sha256, x.run_id, x.plan, x.build_receipt, x.reservations,

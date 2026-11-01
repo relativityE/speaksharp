@@ -76,7 +76,7 @@ def sanitize_record(rec):
     # Three identities, never conflated: the workflow source that ran the harness, the product release the request tested, and the release
     # observed served at admission (Sam 1793539017 RETURN, finding 4).
     _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "campaignId", "coverage", "requestSha256", "catalogSha256",
-                "startedUtc", "endedUtc", "outcome", "cases", "codes", "rowVerdicts"}, "record")
+                "startedUtc", "endedUtc", "outcome", "cases", "codes", "rowVerdicts", "comparability"}, "record")
     _attempt(rec.get("runId"), rec.get("attempt"))
     _need(isinstance(rec.get("sourceSha"), str) and SHA40.match(rec["sourceSha"]), "source-sha")
     _need(isinstance(rec.get("testedSha"), str) and SHA40.match(rec["testedSha"]), "tested-sha")
@@ -129,6 +129,12 @@ def sanitize_record(rec):
             "cases": sorted(out, key=lambda c: c["caseId"]), "codes": _codes(rec.get("codes", []), 16)}
     if rv is not None:
         out_rec["rowVerdicts"] = dict(sorted(rv.items()))
+    comp = rec.get("comparability")
+    if comp is not None:
+        # the identities a row verdict is comparable under (Sam 1793573813.598689): harness/observer code, packet, media, backend
+        _keys(comp, COMPARABILITY_KEYS, "comparability")
+        _need(set(comp) == COMPARABILITY_KEYS and all(isinstance(v, str) and (SHA64.match(v) or SHA40.match(v)) for v in comp.values()), "comparability")
+        out_rec["comparability"] = dict(sorted(comp.items()))
     return out_rec
 
 
@@ -136,9 +142,11 @@ def sanitize_record(rec):
 # EXECUTED verdict (PASS/FAIL) and the last-known-good, each bound to the occurrence that produced it; NOT RUN and NOT SELECTED never erase
 # them. Each fold binds the expected predecessor (its digest and sequence), refuses a replayed run and an out-of-order occurrence, and fails
 # closed when the serialized history would exceed its bound rather than drop required history.
-HISTORY_KEYS = {"sequence", "predecessorSha256", "occurrences", "rows"}
+HISTORY_KEYS = {"sequence", "predecessorSha256", "occurrences", "rows", "lastComparison", "identities"}
+# each distinct comparability identity set is kept once (identities[]); an occurrence names it by index (identity), so the bound holds
 OCCURRENCE_KEYS = {"runId", "attempt", "campaignId", "requestSha256", "catalogSha256", "sourceSha", "testedSha", "servedSha", "endedUtc",
-                   "outcome", "coverage"}
+                   "outcome", "coverage", "identity"}
+COMPARABILITY_KEYS = {"codeManifestSha256", "packetManifestSha256", "mediaManifestSha256", "backendSha"}
 MAX_OCCURRENCES = 62          # two 31-day periods of nightly occurrences, retained in order
 MAX_HISTORY_BYTES = 48000     # serialized-size bound for the history block
 MAX_BODY_CHARS = 60000        # the whole rendered comment, under GitHub's 65536-character body limit
@@ -148,21 +156,35 @@ def canon(doc):
     return json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()
 
 
-def _occurrence(rec):
-    return {k: rec.get(k) for k in OCCURRENCE_KEYS}
+def _occurrence(rec, identity):
+    return dict({k: rec.get(k) for k in OCCURRENCE_KEYS - {"identity"}}, identity=identity)
+
+
+def identity_of(history, occurrence):
+    """The comparability identity set an occurrence's verdicts were produced under, or None when it was not known."""
+    i = occurrence.get("identity")
+    return None if i is None else history["identities"][i]
 
 
 def sanitize_history(h):
     """The retained history exactly as published; anything outside the closed shape or its bounds refuses."""
     if h is None:
         return None
-    _keys(h, HISTORY_KEYS, "history")
+    _need(isinstance(h, dict) and HISTORY_KEYS - {"lastComparison", "identities"} <= set(h) <= HISTORY_KEYS, "history")
+    ids = h.get("identities") or []
+    _need(isinstance(ids, list) and len(ids) <= MAX_OCCURRENCES and all(isinstance(i, dict) and set(i) == COMPARABILITY_KEYS for i in ids)
+          and len({json.dumps(i, sort_keys=True) for i in ids}) == len(ids), "history-identities")
+    lc = h.get("lastComparison")
+    _need(lc is None or (isinstance(lc, dict) and set(lc) == {"runId", "regressions", "fixes", "notComparable"}
+                         and all(isinstance(lc[k], dict) and all(CASE.match(c) and type(n) is int and n >= 0 for c, n in lc[k].items())
+                                 for k in ("regressions", "fixes", "notComparable"))), "history-comparison")
     _need(type(h.get("sequence")) is int and h["sequence"] >= 1, "history-sequence")
     _need(h.get("predecessorSha256") is None or (isinstance(h["predecessorSha256"], str) and SHA64.match(h["predecessorSha256"])), "history-predecessor")
     occ = h.get("occurrences")
     _need(isinstance(occ, list) and 1 <= len(occ) <= MAX_OCCURRENCES, "history-occurrences")
     for o in occ:
-        _keys(o, OCCURRENCE_KEYS, "history-occurrence")
+        _need(isinstance(o, dict) and OCCURRENCE_KEYS - {"identity"} <= set(o) <= OCCURRENCE_KEYS, "history-occurrence")
+        _need(o.get("identity") is None or (type(o["identity"]) is int and 0 <= o["identity"] < len(ids)), "history-occurrence")
         _attempt(o.get("runId"), o.get("attempt"))
         _need(isinstance(o.get("endedUtc"), str) and UTC.match(o["endedUtc"]) and o.get("outcome") in ("passed", "failed"), "history-occurrence")
     _need(all(a["endedUtc"] < b["endedUtc"] for a, b in zip(occ, occ[1:])) and len({o["runId"] for o in occ}) == len(occ), "history-order")
@@ -195,10 +217,15 @@ def fold_history(history, rec, expected_predecessor):
     occ = list(prior["occurrences"]) if prior else []
     _need(all(o["runId"] != rec["runId"] for o in occ), "history-replay")
     _need(not occ or occ[-1]["endedUtc"] < rec["endedUtc"], "history-out-of-order")
-    occ.append(_occurrence(rec))
+    identities = list((prior or {}).get("identities") or [])
+    comp = rec.get("comparability")
+    if comp is not None and comp not in identities:
+        identities.append(comp)
+    occ.append(_occurrence(rec, identities.index(comp) if comp is not None else None))
     _need(len(occ) <= MAX_OCCURRENCES, "history-overflow")
     rows = {cid: dict(r) for cid, r in (prior["rows"] if prior else {}).items()}
     index = len(occ) - 1
+    comparison = {"runId": rec["runId"], "regressions": {}, "fixes": {}, "notComparable": {}}
     if prior and rec.get("rowVerdicts"):
         # row positions are catalog positions: a different catalog makes them incomparable, so the fold refuses rather than mixing them
         _need(all(o.get("catalogSha256") in (None, rec.get("catalogSha256")) for o in prior["occurrences"]), "history-catalog-changed")
@@ -210,6 +237,13 @@ def fold_history(history, rec, expected_predecessor):
             at, good = list(row.get("rowLastAt") or [-1] * len(v)), list(row.get("rowGood") or [-1] * len(v))
             _need(len(last) == len(v), "history-catalog-changed")
             for i, ch in enumerate(v):
+                # the real per-row comparison: this verdict against the row's last executed verdict, only under the same identities
+                if ch in "PF" and last[i] in "PF":
+                    base = occ[at[i]].get("identity")
+                    same = base is not None and comp is not None and identities[base] == comp
+                    key = "notComparable" if not same else "regressions" if (last[i], ch) == ("P", "F") else "fixes" if (last[i], ch) == ("F", "P") else None
+                    if key:
+                        comparison[key][c["caseId"]] = comparison[key].get(c["caseId"], 0) + 1
                 if ch in "PF":  # N (NOT RUN) never erases a row's prior verdict
                     last[i], at[i] = ch, index
                     if ch == "P":
@@ -222,7 +256,8 @@ def fold_history(history, rec, expected_predecessor):
         row["last"] = entry
         if c["result"] == "PASS":
             row["lastKnownGood"] = entry
-    nxt = {"sequence": (prior["sequence"] + 1) if prior else 1, "predecessorSha256": expected_predecessor, "occurrences": occ, "rows": rows}
+    nxt = {"sequence": (prior["sequence"] + 1) if prior else 1, "predecessorSha256": expected_predecessor, "occurrences": occ, "rows": rows,
+           "lastComparison": comparison, "identities": identities}
     return sanitize_history(nxt)
 
 
