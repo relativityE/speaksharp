@@ -112,7 +112,7 @@ def main():
     run("check_gates.py", *g)
     if x.prior_state and (load(x.prior_state) or {}).get("history"):
         # nightly from the third night: every row's baseline comes from the verified carried-forward history
-        rh = run("select_baselines.py", "--history-state", x.prior_state, "--out", O("nightly-baselines.json"))
+        rh = run("select_baselines.py", "--history-state", x.prior_state, "--request", x.request, "--out", O("nightly-baselines.json"))
         if rh.returncode:
             print("STOP: the carried-forward history could not provide baselines")
             sys.exit(2)

@@ -211,8 +211,9 @@ class NightlyCarriedForwardG7(unittest.TestCase):
         b = SB.history_baselines(two["history"], catalog)
         rows = catalog["cases"]["AHT-05"]["requiredAssertions"]
         self.assertEqual(len(b["rows"]), 204)
-        self.assertEqual(b["rows"]["AHT-05/%s" % rows[0]], {"baselineVerdict": "FAIL", "baseline": "501", "lastKnownGood": "500"})
-        self.assertEqual(b["rows"]["AHT-05/%s" % rows[1]], {"baselineVerdict": "PASS", "baseline": "500", "lastKnownGood": "500"})  # N kept it
+        # these occurrences carry no comparability identities, so no row is claimed comparable
+        self.assertEqual(b["rows"]["AHT-05/%s" % rows[0]], {"baselineVerdict": "FAIL", "baseline": "501", "lastKnownGood": "500", "comparable": False})
+        self.assertEqual(b["rows"]["AHT-05/%s" % rows[1]], {"baselineVerdict": "PASS", "baseline": "500", "lastKnownGood": "500", "comparable": False})
         self.assertEqual(b["journeys"]["AHT-05"], {"previousVerdictRun": "501", "previousVerdict": "FAIL", "lastKnownGood": "500"})
         corrupt = dict(two, history=dict(two["history"], sequence=0))
         self.assertEqual(G.nightly_history_gate(nightly, corrupt)["status"], G.NOTREADY)
