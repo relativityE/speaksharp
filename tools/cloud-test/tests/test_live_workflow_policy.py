@@ -27,6 +27,31 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(list(on), ["workflow_dispatch"])
         self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
 
+    def test_a_scheduled_run_is_gated_before_any_record_secret_or_live_job_and_no_cron_is_registered(self):
+        # Sam 1793553158.013909: the cron stays a proposed artifact; nothing here is registered.
+        on = self.doc.get("on", self.doc.get(True))
+        self.assertNotIn("schedule", on)
+        with open(os.path.join(ROOT, "config", "nightly", "schedule.proposed.yml"), encoding="utf-8") as f:
+            self.assertIn("cron: '0 3 * * *'", f.read())
+        self.assertEqual(set(self.jobs), {"nightly-gate", "record-begin", "live", "record-complete"})
+        gate = self.jobs["nightly-gate"]
+        self.assertEqual((gate["if"], gate["permissions"]), ("github.event_name == 'schedule'", {"contents": "read"}))
+        self.assertIsNone(SECRET_REF.search(str(gate)), "the gate holds no credential")
+        step = gate["steps"][-1]
+        self.assertEqual(step["env"], {"NIGHTLY_SWITCH": "${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}"})
+        self.assertEqual(step["run"].strip(), 'python3 -I tools/cloud-test/scripts/nightly_request.py gate --switch "$NIGHTLY_SWITCH" '
+                                              '--attempt "$GITHUB_RUN_ATTEMPT" --outputs "$GITHUB_OUTPUT"')
+        begin = self.jobs["record-begin"]
+        self.assertEqual(begin["needs"], "nightly-gate")
+        self.assertEqual(begin["if"], "${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.nightly-gate.outputs.admitted == 'true') }}")
+        self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$ADMITTED" = true ] || { echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }',
+                      begin["steps"][0]["run"])
+        # Every later job, including the always() record job, runs only after record-begin succeeded.
+        self.assertEqual(self.jobs["live"]["needs"], "record-begin")
+        self.assertEqual(self.jobs["record-complete"]["if"], "always() && needs.record-begin.result == 'success'")
+        # Manual and nightly share ONE serialized group; an active run is never cancelled.
+        self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
+
     def test_no_default_permission_and_each_job_holds_only_its_own(self):
         self.assertEqual(self.doc["permissions"], {})
         self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write"})

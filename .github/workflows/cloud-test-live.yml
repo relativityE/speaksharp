@@ -18,6 +18,12 @@ name: Cloud Test live journeys (manual, GitHub-hosted)
 #    so later step headers show it masked; it is never written to the record or artifacts;
 #  - no evidence payload, transcript, account identifier or row content leaves the live job; only the closed latest record does.
 #
+# NIGHTLY (Sam 1793553158.013909 / 1793553275.772209): source only. No `schedule:` trigger is registered here; the proposed cron lives in
+# tools/cloud-test/config/nightly/schedule.proposed.yml. A scheduled run would first pass the credential-free nightly-gate job (switch,
+# attempt 1, activated state-ref writer, valid standing approval); record-begin, and through it every later job including the always()
+# record job, runs only when that gate admitted it, so an inactive nightly holds no secret, makes no live effect or reservation write and
+# never overwrites the latest record. Manual and nightly share the ONE serialized concurrency group below (cancel-in-progress: false).
+#
 # NOT ACTIVE: TRACKING_ISSUE is empty until activation. The selected record container is PR #1763's conversation (Sam 1793472499.701439); the record
 # jobs refuse while it is empty, and before every update they verify the comment's issue, author, marker and id.
 on:
@@ -46,8 +52,31 @@ env:
   TRACKING_ISSUE: ''
 
 jobs:
+  nightly-gate:
+    name: Nightly gate (switch, attempt, activated writer, standing approval; no credentials)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      admitted: ${{ steps.gate.outputs.admitted }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/cloud-test
+      - name: Evaluate the nightly gate (quiet when switched off; a visible failure for any other refusal)
+        id: gate
+        env:
+          NIGHTLY_SWITCH: ${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}
+        run: python3 -I tools/cloud-test/scripts/nightly_request.py gate --switch "$NIGHTLY_SWITCH" --attempt "$GITHUB_RUN_ATTEMPT" --outputs "$GITHUB_OUTPUT"
+
   record-begin:
     name: Record the attempt (latest-record comment; no live credentials)
+    needs: nightly-gate
+    # A dispatch skips the gate; a scheduled run proceeds only when the gate admitted it. Every later job needs this one to succeed.
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.nightly-gate.outputs.admitted == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -59,9 +88,15 @@ jobs:
       - name: Refuse a re-run attempt and an unconfirmed or inactive dispatch
         env:
           CONFIRM: ${{ inputs.confirm }}
+          ADMITTED: ${{ needs.nightly-gate.outputs.admitted }}
         run: |
           [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "BLOCKED_SETUP: rerun-attempt-refused"; exit 78; }
-          [ "$CONFIRM" = LIVE ] || { echo "BLOCKED_SETUP: live-run-not-confirmed"; exit 78; }
+          # A dispatch is confirmed by its operator; a scheduled run only by the nightly gate's admission.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            [ "$CONFIRM" = LIVE ] || { echo "BLOCKED_SETUP: live-run-not-confirmed"; exit 78; }
+          else
+            [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$ADMITTED" = true ] || { echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }
+          fi
           [ -n "$TRACKING_ISSUE" ] || { echo "BLOCKED_SETUP: tracking-issue-not-bound"; exit 78; }
       - uses: actions/checkout@v6
         with:
