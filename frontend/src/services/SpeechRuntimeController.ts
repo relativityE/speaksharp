@@ -178,15 +178,20 @@ const recordObjectivePublicationWitness = (
                 .map((row) => ({ ...row }));
         },
     };
+    // Promise metadata is not cancellation. Count every unresolved digest until it actually settles;
+    // when the bound is full, invalidate the oldest result but start NO additional hash work.
+    if (pendingObjectivePublicationWitnesses.size >= OBJECTIVE_PUBLICATION_PENDING_LIMIT) {
+        const oldestActive = [...pendingObjectivePublicationWitnesses.values()]
+            .filter((entry) => entry.active)
+            .sort((a, b) => a.sequence - b.sequence)[0];
+        if (oldestActive) oldestActive.active = false;
+        pushNativeRuntimeTrace('controller_objective_publication_witness_unavailable', { reason: 'hash_capacity' });
+        return;
+    }
     // Publication identity is assigned synchronously at the owned store write. Hash completion may
     // arrive out of order; it must never redefine publication order or the observed publication time.
     const sequence = ++objectivePublicationSequence;
     const createdAtMs = performance.now();
-    while (pendingObjectivePublicationWitnesses.size >= OBJECTIVE_PUBLICATION_PENDING_LIMIT) {
-        const oldest = [...pendingObjectivePublicationWitnesses.values()].sort((a, b) => a.sequence - b.sequence)[0];
-        oldest.active = false;
-        pendingObjectivePublicationWitnesses.delete(oldest.sequence);
-    }
     const entry: PendingObjectivePublicationWitness = { sequence, active: true, job: Promise.resolve() };
     const job = Promise.all([
         objectiveWitnessSha256(sessionId),

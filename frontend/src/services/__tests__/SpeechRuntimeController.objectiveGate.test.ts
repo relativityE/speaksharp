@@ -18,6 +18,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { render, screen } from '../../../tests/support/test-utils';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
+import fixtureManifest from '../../../../tools/cloud-test/harness/draft-adapters/oracles/pure/fixture-manifest.json';
 
 // Most controller-gate cases isolate the seam. The composed cases below switch the same wrapper to the
 // REAL finalizer while keeping only its transport/persistence boundaries deterministic.
@@ -78,6 +79,16 @@ type Gate = (
 ) => Promise<{ kind: string; reason?: string }>;
 
 const BRIEF = { projectId: 'proj', briefId: 'brief' };
+const PINNED_FULL = fixtureManifest.fixtures.focus_points_tts;
+const PINNED_PARTIAL = fixtureManifest.fixtures.focus_points_partial_tts;
+
+const configureRealFinalizer = (points: string[]) => {
+    objectiveHarness.useRealFinalizer = true;
+    objectiveHarness.registerObjectiveSource.mockResolvedValue({ ok: true });
+    objectiveHarness.startObjectiveSession.mockResolvedValue({ ok: true, sessionId: 'objective-session' });
+    objectiveHarness.pointsRows = points.map((label, index) => ({ id: `p${index + 1}`, label, cue: null, sort_order: index }));
+    objectiveHarness.finalizeObjectiveEvidence.mockResolvedValue(points.length);
+};
 
 describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct)', () => {
     let gate: Gate;
@@ -214,6 +225,114 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
     });
 
     it.each([
+        ['full', PINNED_FULL, PINNED_FULL.points.map((text, index) => ({ text, startSec: 3 + index * 9 }))],
+        ['partial', PINNED_PARTIAL, [
+            { text: PINNED_PARTIAL.points[0], startSec: 3 },
+            { text: PINNED_PARTIAL.points[1], startSec: 9 },
+            { text: 'pilot board team', startSec: 16 },
+        ]],
+    ])('real finalizer preserves the pinned %s fixture expectation', async (_label, fixture, segments) => {
+        configureRealFinalizer(fixture.points);
+        await gate(BRIEF, `pinned-${_label}`, segments, fixture.speechSeconds, runProgressEval, () => true);
+        expect(useSessionStore.getState().objectiveCoverageResult?.map((row) => row.status)).toEqual(fixture.expectedFinal);
+    });
+
+    it('real finalizer treats empty recognized segments as an explicit all-missing result', async () => {
+        configureRealFinalizer(PINNED_PARTIAL.points);
+        await gate(BRIEF, 'empty-recognized-segments', [], PINNED_PARTIAL.speechSeconds, runProgressEval, () => true);
+        expect(useSessionStore.getState().objectiveCoverageResult?.map((row) => row.status)).toEqual([
+            'missing', 'missing', 'missing', 'missing',
+        ]);
+        expect(objectiveHarness.finalizeObjectiveEvidence).toHaveBeenCalledWith(
+            'objective-session',
+            PINNED_PARTIAL.points.map((_, index) => ({ brief_point_id: `p${index + 1}`, detected_at_seconds: null })),
+        );
+    });
+
+    it('real finalizer cannot publish store or witness after ownership is suppressed', async () => {
+        configureRealFinalizer(PINNED_FULL.points);
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        const before = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+        await gate(
+            BRIEF,
+            'suppressed-real-finalizer',
+            PINNED_FULL.points.map((text, index) => ({ text, startSec: 3 + index * 9 })),
+            PINNED_FULL.speechSeconds,
+            runProgressEval,
+            () => false,
+        );
+        expect(useSessionStore.getState().objectiveCoverageResult).toBeNull();
+        expect(await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? []).toHaveLength(before.length);
+    });
+
+    it('rendered view refuses stale authority even after a real full finalization', async () => {
+        configureRealFinalizer(PINNED_FULL.points);
+        await gate(
+            BRIEF,
+            'stale-render-authority',
+            PINNED_FULL.points.map((text, index) => ({ text, startSec: 3 + index * 9 })),
+            PINNED_FULL.speechSeconds,
+            runProgressEval,
+            () => true,
+        );
+        const staleAuthority = (useSessionStore.getState().objectiveCoverageResult ?? []).map((row, index) => ({
+            ...row,
+            label: `stale point ${index + 1}`,
+        }));
+        useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'viewer', captureLive: false });
+        render(React.createElement(SessionOverhaulView, {
+            authUserId: 'viewer', isListening: false, sttStatus: { type: 'idle' } as SttStatus,
+            elapsedTime: 0, scoringElapsedSeconds: PINNED_FULL.speechSeconds, micLevel: 0,
+            transcriptContent: '', reviewTranscript: { kind: 'available', text: PINNED_FULL.points.join(' ') },
+            showAnalyticsPrompt: true, metricsFillerCount: 0, onStartStop: vi.fn(), history: [],
+            completedObjectivePoints: PINNED_FULL.points, objectiveCoverage: staleAuthority,
+        }));
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'pending');
+        expect(screen.getByTestId('focus-point-0-marker')).toHaveAttribute('data-marker', 'checking');
+        expect(screen.queryByText(/^Detected$/)).toBeNull();
+    });
+
+    it('real finalizer publishes only after delayed registration actually settles', async () => {
+        configureRealFinalizer(PINNED_FULL.points);
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        let release!: (value: { ok: boolean }) => void;
+        objectiveHarness.registerObjectiveSource.mockReturnValue(new Promise((resolve) => { release = resolve; }));
+        const pending = gate(
+            BRIEF,
+            'delayed-real-registration',
+            PINNED_FULL.points.map((text, index) => ({ text, startSec: 3 + index * 9 })),
+            PINNED_FULL.speechSeconds,
+            runProgressEval,
+            () => true,
+        );
+        await Promise.resolve();
+        expect(useSessionStore.getState().objectiveCoverageResult).toBeNull();
+        expect(window.__PRIVATE_OBJECTIVE_PUBLICATIONS__).toBeUndefined();
+        release({ ok: true });
+        await pending;
+        expect(useSessionStore.getState().objectiveCoverageResult?.map((row) => row.status)).toEqual(PINNED_FULL.expectedFinal);
+        expect((await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? []).at(-1)).toMatchObject({ pointCount: 4, coveredCount: 4 });
+    });
+
+    it('nonsettling registration inside the real finalizer never publishes authority', async () => {
+        configureRealFinalizer(PINNED_FULL.points);
+        window.__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__ = true;
+        objectiveHarness.registerObjectiveSource.mockReturnValue(new Promise(() => undefined));
+        void gate(
+            BRIEF,
+            'nonsettling-real-registration',
+            PINNED_FULL.points.map((text, index) => ({ text, startSec: 3 + index * 9 })),
+            PINNED_FULL.speechSeconds,
+            runProgressEval,
+            () => true,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(useSessionStore.getState().objectiveCoverageResult).toBeNull();
+        expect(window.__PRIVATE_OBJECTIVE_PUBLICATIONS__).toBeUndefined();
+    });
+
+    it.each([
         ['registration transport refuses', { register: { ok: false, reason: 'ineligible' }, start: null, finalize: null }],
         ['session persistence refuses', { register: { ok: true }, start: { ok: false, reason: 'persistence' }, finalize: null }],
         ['evidence persistence refuses', { register: { ok: true }, start: { ok: true, sessionId: 'objective-session' }, finalize: null }],
@@ -319,24 +438,38 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
             ok: true, registered: true,
             coverage: [{ briefPointId: 'p1', point: 'point', status: 'missing' }],
         });
+        const resolvers: Array<(value: ArrayBuffer) => void> = [];
         const digest = vi.spyOn(globalThis.crypto.subtle, 'digest').mockImplementation(
-            () => new Promise<ArrayBuffer>(() => undefined),
+            () => new Promise<ArrayBuffer>((resolve) => resolvers.push(resolve)),
         );
+        let baselineSequence = 0;
         try {
             await gate(BRIEF, 'stuck-one', [], 60, runProgressEval, () => true);
             const before = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
+            baselineSequence = Number(before.at(-1)?.sequence ?? 0);
             await gate(BRIEF, 'stuck-two', [], 60, runProgressEval, () => true);
             await gate(BRIEF, 'stuck-three-evicts-oldest', [], 60, runProgressEval, () => true);
+            expect(resolvers).toHaveLength(4); // the refused third publication started no extra digest work
+            resolvers[0](new Uint8Array(32).fill(7).buffer);
+            resolvers[1](new Uint8Array(32).fill(8).buffer);
+            await Promise.resolve();
+            await Promise.resolve();
             const started = performance.now();
             const rows = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
             expect(performance.now() - started).toBeLessThan(500);
             expect(rows).toHaveLength(before.length);
+            expect(Number(rows.at(-1)?.sequence ?? 0)).toBe(baselineSequence); // late evicted result did not resurrect
         } finally {
             digest.mockRestore();
         }
         await gate(BRIEF, 'hashing-recovers', [], 60, runProgressEval, () => true);
         const recovered = await window.__PRIVATE_OBJECTIVE_PUBLICATIONS__?.read() ?? [];
-        expect(recovered.at(-1)?.sequence).toBeGreaterThan(0);
+        const recoveredRow = recovered.at(-1) as { sequence?: number; sessionSha256?: string } | undefined;
+        const expectedHash = Array.from(new Uint8Array(await globalThis.crypto.subtle.digest(
+            'SHA-256', new TextEncoder().encode('hashing-recovers'),
+        )), (byte) => byte.toString(16).padStart(2, '0')).join('');
+        expect(recoveredRow?.sequence).toBeGreaterThan(baselineSequence);
+        expect(recoveredRow?.sessionSha256).toBe(expectedHash);
     });
 });
 
