@@ -8,6 +8,7 @@ import {NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,executionBatchIdentity,reconcileExe
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fail=message=>{throw new Error(message);};
+const DIAGNOSTIC_ID=/^[A-Za-z0-9_.\[\]-]{1,300}$/;
 export const PYTHON_REPORTER='scripts/lib/python-unittest-reporter.py';
 // Non-test inputs are credited only through the exact Python consumer that reads
 // or integrity-checks them.  This is deliberately a closed inventory: an
@@ -129,6 +130,34 @@ function fixedEnvironment(directory,binding) {
     PYTHON_TEST_EVIDENCE_BINDING:JSON.stringify(binding)};
 }
 
+// Keep failure receipts useful without forwarding arbitrary child output, paths
+// outside the selected contract, or environment values. Test IDs come from the
+// bound unittest inventory and are admitted only through a small printable
+// grammar; anything else is represented as malformed rather than echoed.
+export function pythonPhaseDiagnostics(phase,contract) {
+  const failed=(Array.isArray(phase?.report?.outcomes)?phase.report.outcomes:[])
+    .filter(item=>item?.status!=='passed')
+    .map(item=>DIAGNOSTIC_ID.test(item?.id??'')?item.id:'[invalid-test-id]');
+  return {
+    testFile:contract.testFile,
+    batch:contract.batch,
+    phaseId:typeof phase?.binding?.phaseId==='string'?phase.binding.phaseId:null,
+    status:Number.isInteger(phase?.execution?.status)?phase.execution.status:null,
+    signal:typeof phase?.execution?.signal==='string'?phase.execution.signal:null,
+    error:typeof phase?.execution?.error==='string'?phase.execution.error:null,
+    cleanupStatus:typeof phase?.execution?.processCleanup?.status==='string'?phase.execution.processCleanup.status:null,
+    failedTestIds:failed.slice(0,256),
+    failedTestIdsTruncated:Math.max(0,failed.length-256),
+  };
+}
+
+function failPhase(message,phase,contract) {
+  const diagnostics=pythonPhaseDiagnostics(phase,contract);
+  const error=new Error(`${message}: ${JSON.stringify(diagnostics)}`);
+  error.diagnostics=diagnostics;
+  throw error;
+}
+
 export function producePythonReceipt({root,base,provenance,files,batch=0,drain,spawn=spawnSync,runtimeOptions,environment=process.env}={}) {
   const contracts=selectPythonContracts(files),count=Math.ceil(contracts.length/NATIVE_BATCH_SIZE);
   if(!Number.isInteger(batch)||batch<0||batch>=Math.max(count,1))fail('NOT RUN: Python batch outside selection');
@@ -145,10 +174,15 @@ export function producePythonReceipt({root,base,provenance,files,batch=0,drain,s
       if(sourceFiles.length)binding.sourceFiles=sourceFiles;
       const command=[runtime.execPath,'-I',regular(root,PYTHON_REPORTER)],result=spawn(command[0],command.slice(1),{
         cwd:root,env:fixedEnvironment(receiptDirectory,binding),encoding:'utf8',timeout:120000,killSignal:'SIGKILL',detached:true,maxBuffer:4*1024*1024});
-      const processCleanup=drain(result);
-      if(!fs.existsSync(receiptFile))fail('Python execution receipt missing');
-      const report=JSON.parse(fs.readFileSync(receiptFile,'utf8'));
-      const phase={binding,command,execution:{status:result.status,signal:result.signal,error:result.error?.code??null,processCleanup},report};
+      let processCleanup;
+      try { processCleanup=drain(result); }
+      catch { processCleanup={status:'error'}; }
+      const execution={status:result.status,signal:result.signal,error:result.error?.code??null,processCleanup};
+      if(!fs.existsSync(receiptFile))failPhase('Python execution receipt missing',{binding,command,execution,report:null},contract);
+      let report;
+      try { report=JSON.parse(fs.readFileSync(receiptFile,'utf8')); }
+      catch { failPhase('Python execution receipt malformed',{binding,command,execution,report:null},contract); }
+      const phase={binding,command,execution,report};
       validatePythonPhase(phase,{root,base,provenance,runId,contract,runtime,environment});
       tests.push({testFile:contract.testFile,testSha256:binding.testSha256,
         ...(contract.sourceFiles?{sourceFiles:contract.sourceFiles}:{}),
@@ -169,7 +203,7 @@ export function validatePythonPhase(phase,{root,base,provenance,runId,contract,r
     ||!isDeepStrictEqual(b.provenance,provenance)||!isDeepStrictEqual(b.runtime,runtime)
     ||!isDeepStrictEqual(b.environment,pythonEnvironment(environment))
     ||JSON.stringify(phase.command)!==JSON.stringify([runtime.execPath,'-I',regular(root,PYTHON_REPORTER)]))fail('Wrong Python source/runtime/provenance/command binding');
-  if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null||phase.execution.processCleanup?.status!=='drained')fail('Python execution failed or did not drain');
+  if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null||phase.execution.processCleanup?.status!=='drained')failPhase('Python execution failed or did not drain',phase,contract);
   if(report?.schemaVersion!==1||!isDeepStrictEqual(report.binding,b))fail('Python reporter binding is absent or stale');
   if(!isDeepStrictEqual(report.runtime,runtime))fail('Python reporter runtime is absent or stale');
   if(!Array.isArray(report.collected)||!report.collected.length||new Set(report.collected).size!==report.collected.length
@@ -177,7 +211,7 @@ export function validatePythonPhase(phase,{root,base,provenance,runId,contract,r
   if(!isDeepStrictEqual(report.sourceReads??[],b.sourceFiles??[]))fail('Python input consumption absent, substituted or stale');
   const outcomes=new Map();
   for(const item of report.outcomes) {
-    if(!item||typeof item.id!=='string'||item.status!=='passed'||outcomes.has(item.id))fail('Python tests failed, skipped, duplicated or malformed');
+    if(!item||typeof item.id!=='string'||item.status!=='passed'||outcomes.has(item.id))failPhase('Python tests failed, skipped, duplicated or malformed',phase,contract);
     outcomes.set(item.id,item.status);
   }
   if(report.collected.some(id=>!outcomes.has(id))||[...outcomes].some(([id])=>!report.collected.includes(id)))fail('Python collected/result inventory differs');

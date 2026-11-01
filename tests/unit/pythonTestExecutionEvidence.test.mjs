@@ -139,3 +139,43 @@ test('Python package environment is exact, bounded and revalidated before credit
     assert.throws(()=>producePythonReceipt({...args,environment:{...f.environment,CT_REQUIRE_INTEGRATION:'0'}}),/CT_REQUIRE_INTEGRATION/);
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
 });
+
+test('Python execution failures retain only bounded selected-phase diagnostics',()=>{
+  const f=fixture();process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
+  try {
+    const source=fs.readFileSync(f.executable,'utf8')
+      .replace("status:'passed'","status:'failed'")
+      .concat("\nconsole.error('DO-NOT-LEAK-CHILD-OUTPUT'); process.exit(7);\n");
+    fs.writeFileSync(f.executable,source);fs.chmodSync(f.executable,0o755);
+    assert.throws(()=>producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[f.testFile],batch:0,
+      environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:{execPath:f.executable}}),error=>{
+      assert.match(error.message,/Python execution failed or did not drain/);
+      assert.equal(error.diagnostics.testFile,f.testFile);
+      assert.equal(error.diagnostics.batch,0);
+      assert.equal(error.diagnostics.status,7);
+      assert.equal(error.diagnostics.cleanupStatus,'drained');
+      assert.deepEqual(error.diagnostics.failedTestIds,['_evidence.test_ok']);
+      assert.doesNotMatch(error.message,/DO-NOT-LEAK|PATH|HOME/);
+      return true;
+    });
+  } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('missing Python receipts preserve exit and cleanup state without child output',()=>{
+  const f=fixture();process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
+  try {
+    assert.throws(()=>producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[f.testFile],batch:0,
+      environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:{execPath:f.executable},
+      spawn:()=>({pid:4242,status:null,signal:'SIGKILL',error:Object.assign(new Error('DO-NOT-LEAK'),{code:'ETIMEDOUT'}),stdout:'PRIVATE',stderr:'PRIVATE'})}),error=>{
+      assert.match(error.message,/Python execution receipt missing/);
+      assert.equal(error.diagnostics.testFile,f.testFile);
+      assert.equal(error.diagnostics.status,null);
+      assert.equal(error.diagnostics.signal,'SIGKILL');
+      assert.equal(error.diagnostics.error,'ETIMEDOUT');
+      assert.equal(error.diagnostics.cleanupStatus,'drained');
+      assert.deepEqual(error.diagnostics.failedTestIds,[]);
+      assert.doesNotMatch(error.message,/DO-NOT-LEAK|PRIVATE/);
+      return true;
+    });
+  } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
+});
