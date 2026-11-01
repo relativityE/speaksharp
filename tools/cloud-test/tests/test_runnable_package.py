@@ -17,6 +17,7 @@ import unittest
 import zipfile
 
 from _fixtures import NOW, REPO, REQUIRE, ROOT, TESTED, J, prerequisite, request_path, run_py, sample, wjson
+from test_case_start_caps import SyntheticBuilder
 import verify_harness as VH
 
 CFG = os.path.join(ROOT, "config", "test-config.v1.json")
@@ -142,6 +143,68 @@ class FeedbackDeliveryPolicy(unittest.TestCase):
             self.assertNotIn(host, policy["hosts"])
         with self.assertRaisesRegex(ValueError, "producer-unavailable"):
             _builder.select_feedback_delivery(self.policy(), [7], False)
+
+    def test_generated_policy_uses_real_guard_matcher_and_cumulative_caps(self):
+        def same_job(builder):
+            facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+            facts["producerReviewReference"] = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"
+            builder.request["executionRuntime"] = "GitHub Actions SpeakSharp"
+            builder.repin(facts=facts)
+            packet = Path(ROOT) / "harness"
+            receiver = "draft-adapters/receivers/github-job-evidence-reader.cjs"
+            descriptor = {
+                "producerIdentity": "github-actions:relativityE/speaksharp:123:1:live", "jobId": "live",
+                "producerCodeSha256": sha((packet / "bundle/harness/authenticated-job-producer.cjs").read_bytes()),
+                "receiverSourceSha256": sha((packet / receiver).read_bytes()), "receiverRelativePath": receiver,
+                "workflowSourceSha": "b" * 40, "reviewReference": facts["producerReviewReference"],
+            }
+            descriptor_path = builder.root / "producer-descriptor.json"
+            descriptor_path.write_text(json.dumps(descriptor)); descriptor_path.chmod(0o600)
+            builder.env.update(BP_PRODUCER_MODE="same-github-job", BP_PRODUCER_DESCRIPTOR=str(descriptor_path),
+                BP_PRODUCER_DESCRIPTOR_SHA256=sha(descriptor_path.read_bytes()),
+                GITHUB_ACTIONS="true", GITHUB_REPOSITORY="relativityE/speaksharp", GITHUB_RUN_ID="123",
+                GITHUB_RUN_ATTEMPT="1", GITHUB_JOB="live", GITHUB_SHA="b" * 40)
+
+        with tempfile.TemporaryDirectory(prefix="feedback-guard-generated-") as root:
+            selected_root = Path(root) / "selected"; selected_root.mkdir()
+            selected = SyntheticBuilder(selected_root, cases=(7,))
+            same_job(selected)
+            results = [selected.run("phase1"), selected.run("phase2")]
+            self.assertEqual([r.returncode for r in results], [0, 0], [r.stderr for r in results])
+            policy = selected.root / "private/cfg/policy.json"
+            control = r'''
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {matchPolicyRule,Ledger}=require(process.argv[1]);
+const policy=JSON.parse(fs.readFileSync(process.argv[2],'utf8')),dir=process.argv[3];
+const allowed=[['us-assets.i.posthog.com','GET','/static/array.js'],['us.i.posthog.com','POST','/e/'],['us.i.posthog.com','POST','/i/v0/e/']];
+for(const input of allowed){const rule=matchPolicyRule(policy,...input);assert(rule);assert.equal(rule.cap,'telemetry');}
+for(const input of [['other.invalid','GET','/static/array.js'],['us-assets.i.posthog.com','POST','/static/array.js'],['us-assets.i.posthog.com','GET','/static/other.js'],['us.i.posthog.com','GET','/e/'],['us.i.posthog.com','POST','/e/extra']])assert.equal(matchPolicyRule(policy,...input),null);
+const telemetry=new Ledger(path.join(dir,'telemetry-ledger.json'),policy.caps);
+for(let i=0;i<20;i++)assert.equal(telemetry.tryReserve(['total','telemetry']),null);
+assert.equal(telemetry.tryReserve(['total','telemetry']),'telemetry');telemetry.release();
+const total=new Ledger(path.join(dir,'total-ledger.json'),policy.caps);
+for(let i=0;i<policy.caps.total;i++)assert.equal(total.tryReserve(['total']),null);
+assert.equal(total.tryReserve(['total']),'total');total.release();
+'''
+            result = subprocess.run(["node", "-e", control,
+                str(Path(ROOT) / "harness/bundle/harness/guard-proxy.cjs"), str(policy), os.path.realpath(root)],
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            unselected_root = Path(root) / "unselected"; unselected_root.mkdir()
+            unselected = SyntheticBuilder(unselected_root, cases=(13,))
+            unselected_results = [unselected.run("phase1"), unselected.run("phase2")]
+            self.assertEqual([r.returncode for r in unselected_results], [0, 0], [r.stderr for r in unselected_results])
+            unselected_policy = json.loads((unselected.root / "private/cfg/policy.json").read_text())
+            self.assertEqual(unselected_policy["caps"]["telemetry"], 0)
+            for host in _builder.POSTHOG_DELIVERY_HOSTS:
+                self.assertNotIn(host, unselected_policy["hosts"])
+
+            missing_root = Path(root) / "missing-producer"; missing_root.mkdir()
+            missing = SyntheticBuilder(missing_root, cases=(7,))
+            missing_results = [missing.run("phase1"), missing.run("phase2")]
+            self.assertEqual(missing_results[-1].returncode, 78)
+            self.assertFalse((missing.root / "private/cfg/policy.json").exists())
 
 
 class BrowserPin(unittest.TestCase):

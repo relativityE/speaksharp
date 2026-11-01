@@ -464,6 +464,7 @@
     "package-unit-tests::test_runnable_package.BrowserPin.test_wrong_archive_hash_fails_closed",
     "package-unit-tests::test_runnable_package.BrowserPin.test_wrong_archive_size_fails_closed",
     "package-unit-tests::test_runnable_package.BrowserPin.test_wrong_binary_hash_fails_closed",
+    "package-unit-tests::test_runnable_package.FeedbackDeliveryPolicy.test_generated_policy_uses_real_guard_matcher_and_cumulative_caps",
     "package-unit-tests::test_runnable_package.NothingIsIgnored.test_no_failure_is_swallowed_in_the_shell_scripts",
     "package-unit-tests::test_runnable_package.NothingIsIgnored.test_the_install_stage_runs_the_pinned_installer_and_the_lockfile_install",
     "package-unit-tests::test_runnable_package.NothingIsIgnored.test_the_runner_dependencies_are_locked_to_playwright_1_57_0",

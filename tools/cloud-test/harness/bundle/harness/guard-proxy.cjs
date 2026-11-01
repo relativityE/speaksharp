@@ -72,6 +72,14 @@ function validatePolicy(p) {
 // ---------- integrity-bound cumulative ledger (pre-send fsync reservations) ----------
 const {Ledger,plain,safeKey}=require('./campaign-ledger.cjs');
 
+// Keep route matching in one production-owned function so offline controls can
+// exercise the exact decision used by onRequest without opening a socket.
+function matchPolicyRule(policy,host,method,pathname) {
+  const rules=policy?.hosts?.[host]?.rules;
+  if(!Array.isArray(rules))return null;
+  return rules.find(r=>r.methods.includes(method)&&new RegExp(r.path).test(pathname))||null;
+}
+
 // ---------- ephemeral TLS identity: one key, one self-signed cert per allowed host ----------
 function makeTlsIdentity(hosts, dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -343,7 +351,7 @@ class Guard {
     if (this.closing) return this.deny(res, 'closing', ev);
     if (Date.now() >= this.deadline) return this.deny(res, 'deadline-passed', ev);
     if(!Object.hasOwn(this.policy.hosts,host))return this.deny(res,'unknown-host',ev);
-    const rule = this.policy.hosts[host].rules.find((r) => r.methods.includes(req.method) && new RegExp(r.path).test(u.pathname));
+    const rule = matchPolicyRule(this.policy,host,req.method,u.pathname);
     if (!rule) return this.deny(res, 'policy', ev);
     ev.rule = rule.id;
     if (!(await this.slot())) return this.deny(res, 'concurrency-wait', ev);
@@ -660,4 +668,4 @@ function listenOwned(server,{signal,timeoutMs}={}) {
     try{server.listen(0,'127.0.0.1',()=>{if(settled){close();return;}settled=true;cleanup();resolve();});}catch{failed();}
   });
 }
-module.exports = { startGuard, validatePolicy, Ledger, Guard, failConnection, listenOwned };
+module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned };
