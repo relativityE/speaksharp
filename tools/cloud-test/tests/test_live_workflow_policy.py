@@ -122,7 +122,8 @@ class LiveWorkflowPolicy(unittest.TestCase):
         order = [collect.index(k) for k in ("execute_run.sh collect", "init_run_inputs.py qualify", '--snapshot-dir "$CT_OUT/qualification-snapshot"',
                                              'Q=(--qualification "$CT_OUT/qualification.json")', "init_run_inputs.py project")]
         self.assertEqual(order, sorted(order))
-        for arg in ('--approval "$CT_OUT/plan/cfg/security-approval.json"', '--code-manifest "$HP/bundle/CODE.sha256"', '--cases "$CASES"'):
+        for arg in ('--approval "$CT_OUT/plan/cfg/security-approval.json"', '--code-manifest "$HP/bundle/CODE.sha256"', '--cases "$CASES"',
+                    '--coverage-mode "$COVERAGE_MODE"'):
             self.assertIn(arg, collect)
         self.assertNotIn("verify_run_binding.py --plan", collect, "the verifier runs inside qualify, on the bytes qualify snapshots")
         self.assertIn('--tested-sha "$TESTED_SHA"', collect)

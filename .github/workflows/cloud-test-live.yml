@@ -161,6 +161,7 @@ jobs:
         env:
           CASES: ${{ steps.init.outputs.cases }}
           TESTED_SHA: ${{ steps.init.outputs.tested_sha }}
+          COVERAGE_MODE: ${{ steps.init.outputs.coverage_mode }}
         run: |
           set -euo pipefail
           bash tools/cloud-test/scripts/execute_run.sh collect
@@ -171,7 +172,7 @@ jobs:
           if python3 -I tools/cloud-test/scripts/init_run_inputs.py qualify --plan "$CT_OUT/plan/cfg/campaign-plan.json" \
                --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" \
                --approval "$CT_OUT/plan/cfg/security-approval.json" --code-manifest "$HP/bundle/CODE.sha256" \
-               --snapshot-dir "$CT_OUT/qualification-snapshot" --out "$CT_OUT/qualification.json"; then
+               --snapshot-dir "$CT_OUT/qualification-snapshot" --coverage-mode "$COVERAGE_MODE" --out "$CT_OUT/qualification.json"; then
             Q=(--qualification "$CT_OUT/qualification.json")
           fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py project --run-record "$CT_OUT/run-record.json" --run-id "$GITHUB_RUN_ID" \

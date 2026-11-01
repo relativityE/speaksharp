@@ -274,7 +274,8 @@ def prepare(x, now):
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     verified_checkpoint(x.checkpoint)
-    return {"request": req_path, "requestBlob": req_blob, "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases, "route": route, "liveMinutes": live_minutes,
+    return {"request": req_path, "requestBlob": req_blob, "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
+            "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes,
             "account": account, "facts": builder_facts, "scope": scope}
 
 
@@ -333,13 +334,14 @@ def _freeze(snap, plan_path, case_results_path, cases_dir, approval, code_manife
     return frozen, original_plan, plan_file
 
 
-def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_manifest, snapshot_dir, run_verifier=_run_verifier):
+def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_manifest, snapshot_dir, coverage_mode, run_verifier=_run_verifier):
     """Freeze every verifier input, run the REAL verifier on the frozen snapshot only (fresh --out, exit 0, zero failures for exactly the
     frozen plan and results), then decide from the same frozen bytes: the builder's 15-row denominator with the dispatch subset in
     plan.selection, every selected case dispatched, every required assertion PASS exactly once, and every evidence digest and summary
     matching the frozen bytes. The result is bound to the campaign, the tested and served release, and the plan and results digests."""
     selected = sorted(selected)
     _need(selected and all(c in ROLE for c in selected) and len(set(selected)) == len(selected), "case-selection")
+    _need(coverage_mode in ("partial", "full"), "coverage-mode")
     frozen, original_plan, plan_file = _freeze(snapshot_dir, plan_path, case_results_path, cases_dir, approval, code_manifest)
     out = os.path.join(snapshot_dir, "verification.json")
     status = run_verifier(plan_file, os.path.join(snapshot_dir, "case-results.json"), os.path.join(snapshot_dir, "approval.json"),
@@ -367,6 +369,12 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     sel = plan.get("selection")
     _need(sorted(sel["ids"]) == selected and sel.get("order") == sel["ids"] if isinstance(sel, dict) and isinstance(sel.get("ids"), list) else selected == ALL_CASES,
           "plan-selection-not-the-selected-cases")
+    # Coverage comes from the request's validated mode and the builder's own markers (build_plan.py 345-353, run_env.py 45): selected-full
+    # marks coverageMode partial + assertionDepth full; full mode adds no marker and selects all 15 (an explicit selection object is allowed).
+    if coverage_mode == "full":
+        _need(selected == ALL_CASES and "coverageMode" not in plan and "assertionDepth" not in plan, "plan-not-a-full-coverage-plan")
+    else:
+        _need(plan.get("coverageMode") == "partial" and plan.get("assertionDepth") == "full", "plan-not-a-selected-full-plan")
     required_rows = 0
     for cid in ALL_CASES:
         r = res.get(cid)
@@ -392,7 +400,7 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
         required_rows += len(required)
     return {"qualified": True, "campaignId": plan["campaignId"], "testedSha": plan["sourceSha"], "servedSha": results.get("servedSha"),
             "planSha256": digest(original_plan), "caseResultsSha256": digest(frozen["case-results.json"]), "cases": selected,
-            "coverage": "full" if selected == ALL_CASES and not isinstance(sel, dict) else "batch",
+            "coverage": "full" if coverage_mode == "full" else "batch",
             "planCases": len(rows), "requiredRows": required_rows, "passRows": required_rows}
 
 
@@ -414,7 +422,9 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
     rel = run_record.get("release") or {}
     _need(isinstance(tested_sha, str) and LR.SHA40.match(tested_sha) and rel.get("testedSha") == tested_sha, "run-record-for-another-release")
     q = qualification if isinstance(qualification, dict) else {}
-    qualified = (q.get("qualified") is True and q.get("caseResultsSha256") == (run_record.get("artifactDigests") or {}).get("case-results.json") and
+    campaign = run_record.get("runId")
+    qualified = (q.get("qualified") is True and isinstance(campaign, str) and campaign.strip() and q.get("campaignId") == campaign and
+                 q.get("caseResultsSha256") == (run_record.get("artifactDigests") or {}).get("case-results.json") and
                  q.get("testedSha") == tested_sha and q.get("servedSha") == rel.get("servedShaAtAdmission") and
                  (q.get("coverage") == "batch" or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
                  isinstance(q.get("cases"), list) and set(q["cases"]) <= {c.get("case") for c in run_record.get("cases") or [] if isinstance(c, dict)})
@@ -462,7 +472,7 @@ def main(argv):
     a.add_argument("command", choices=("prepare", "qualify", "project"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
-                 "--code-manifest", "--snapshot-dir"):
+                 "--code-manifest", "--snapshot-dir", "--coverage-mode"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -474,7 +484,7 @@ def main(argv):
             return 0
         if x.command == "qualify":
             _write_private(x.out, qualify(x.plan, x.case_results, x.cases_dir, (x.cases or "").split(","), x.approval, x.code_manifest,
-                                          x.snapshot_dir))
+                                          x.snapshot_dir, x.coverage_mode))
             return 0
         p = prepare(x, datetime.now(timezone.utc))
         os.makedirs(x.out, mode=0o700)
@@ -491,8 +501,8 @@ def main(argv):
         with open(x.env_file, "a", encoding="utf-8") as f:
             f.writelines("%s=%s\n" % kv for kv in sorted(env.items()))
         with open(x.outputs, "a", encoding="utf-8") as f:
-            f.write("route=%s\nrole=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\n" % (p["route"], p["account"]["role"], p["liveMinutes"],
-                                                                                         ",".join(p["cases"]), p["testedSha"], p["lineage"]))
+            f.write("route=%s\nrole=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\n" % (
+                p["route"], p["account"]["role"], p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"]))
         return 0
     except (Refused, LR.Refused) as e:
         print("BLOCKED_SETUP: " + str(e), file=sys.stderr)

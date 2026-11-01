@@ -437,13 +437,66 @@ class Qualify(unittest.TestCase):
         def row(c):
             if c in self.SELECTED:
                 return {"caseId": c, "executionReceipt": {"summarySha256": self.sha(os.path.join(self.cases, c, "summary.json"))}}
-            return {"caseId": c, "notSelected": True, "requestsUsed": 0, "reason": "Not selected by the approved case selection"}
+            return {"caseId": c, "result": "NOT RUN", "notSelected": True, "requestsUsed": 0, "reason": "Not selected by the approved case selection"}
         put(self.results, dict({"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "cases": rows or [row(c) for c in I.ALL_CASES]}, **over))
 
-    def qualify(self, run_verifier=I._run_verifier, selected=None):
+    def qualify(self, run_verifier=I._run_verifier, selected=None, mode="partial"):
         self.runs += 1
         return I.qualify(self.plan, self.results, self.cases, selected or self.SELECTED, self.approval, self.code,
-                         os.path.join(self.d, "snapshot-%d" % self.runs), run_verifier)
+                         os.path.join(self.d, "snapshot-%d" % self.runs), mode, run_verifier)
+
+    def make_full(self):
+        """The real full builder's shape: no partial markers, an explicit all-15 selection, every case dispatched with its receipts."""
+        plan = J(self.plan)
+        plan.pop("coverageMode"); plan.pop("assertionDepth")
+        plan["selection"] = {"ids": list(I.ALL_CASES), "order": list(I.ALL_CASES), "ownerApprovalReference": "slack:1", "reason": "unit"}
+        put(self.plan, plan)
+        self.SELECTED = list(I.ALL_CASES)
+        for cid in I.ALL_CASES:
+            self.write_case(cid, [("a", "PASS"), ("b", "PASS")])
+        self.write_results()
+
+    def collect(self, request):
+        """The REAL collector over the same case results (collect_run_record.py; campaign-runner rows carry their assertions)."""
+        results = J(self.results)
+        for row in results["cases"]:
+            if row["caseId"] in self.SELECTED:
+                row.update(result="PASS", assertions=J(os.path.join(self.cases, row["caseId"], "case-result.json"))["assertions"])
+        put(self.results, results)
+        ledgers = os.path.join(self.d, "ledgers"); os.makedirs(ledgers, exist_ok=True)
+        put(os.path.join(ledgers, "campaign-ledger.json"), {"used": {"total": 1}})
+        put(os.path.join(ledgers, "identity-ledger.json"), {"identityGets": 1})
+        for name, doc in (("request.json", request), ("gate-status.json", {"decision": "GO"}), ("runner.json", {})):
+            put(os.path.join(self.d, name), doc)
+        out = os.path.join(self.d, "run-record.json")
+        p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "collect_run_record.py"), "--request", os.path.join(self.d, "request.json"),
+                            "--case-results", self.results, "--cases-dir", self.cases, "--ledger-dir", ledgers,
+                            "--gate-status", os.path.join(self.d, "gate-status.json"), "--workflow", os.path.join(ROOT, "workflow.json"),
+                            "--runner-json", os.path.join(self.d, "runner.json"), "--started-utc", "2026-11-01T14:00:00Z",
+                            "--ended-utc", "2026-11-01T14:30:00Z", "--out", out], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return J(out)
+
+    def test_real_qualifier_collector_and_projection_compose_for_full_and_batch(self):
+        for mode in ("partial", "full"):
+            self.setUp()
+            if mode == "full":
+                self.make_full()
+            request = live_request(None if mode == "full" else list(self.SELECTED), runId="C1")
+            record = self.collect(request)
+            q = self.qualify(mode=mode)
+            rec = I.project(record, "123", 1, "c" * 40, SHA, q)
+            self.assertEqual((rec["outcome"], rec["coverage"], rec["campaignId"], len(rec["cases"])),
+                             ("passed", "full" if mode == "full" else "batch", "C1", 15), mode)
+            self.assertEqual(sum(c["result"] == "NOT SELECTED" for c in rec["cases"]), 0 if mode == "full" else 13)
+            # a full claim against a selected-full plan, and the reverse, are refused by the qualifier itself
+            if mode == "full":
+                refused(self, "plan-not-a-selected-full-plan", self.qualify, mode="partial")
+            else:
+                refused(self, "plan-not-a-full-coverage-plan", self.qualify, mode="full")
+            # the collector's campaign is the request runId; a qualification for another campaign never passes
+            other = I.project(dict(record, runId="C2"), "123", 1, "c" * 40, SHA, q)
+            self.assertEqual((other["outcome"], other["coverage"]), ("failed", "unqualified"), mode)
 
     def test_the_real_verifier_on_the_frozen_snapshot_and_every_selected_row_pass_qualifies_with_bindings(self):
         q = self.qualify()
@@ -553,7 +606,7 @@ class Project(unittest.TestCase):
         rows = [{"case": c, "result": "PASS" if c in ("AHT-05", "AHT-09") else "NOT RUN", "reason": None if c in ("AHT-05", "AHT-09") else "Not selected",
                  "assertions": {"PASS": 2, "FAIL": 0, "NOT RUN": 0} if c in ("AHT-05", "AHT-09") else {"PASS": 0, "FAIL": 0, "NOT RUN": 0}}
                 for c in I.ALL_CASES]
-        return {"schema": "speaksharp.cloud-test.run-record.v1", "release": {"testedSha": SHA, "servedShaAtAdmission": SHA},
+        return {"schema": "speaksharp.cloud-test.run-record.v1", "runId": "R6-unit", "release": {"testedSha": SHA, "servedShaAtAdmission": SHA},
                 "startedUtc": "2026-11-01T14:00:00Z", "endedUtc": "2026-11-01T14:30:00Z", "cases": rows, "artifactDigests": {"case-results.json": "d" * 64}}
 
     def q(self, **over):
@@ -566,6 +619,12 @@ class Project(unittest.TestCase):
         self.assertEqual(sorted(c["caseId"] for c in rec["cases"] if c["result"] == "PASS"), ["AHT-05", "AHT-09"])
         self.assertEqual({c["result"] for c in rec["cases"] if c["caseId"] not in ("AHT-05", "AHT-09")}, {"NOT SELECTED"})
         self.assertEqual((rec["sourceSha"], rec["testedSha"], rec["servedSha"]), ("c" * 40, SHA, SHA))
+
+    def test_the_campaign_must_match_exactly_on_both_sides(self):
+        for record_run, q_campaign in (("R6-other", "R6-unit"), ("R6-unit", "R6-other"), ("", ""), (None, None), ("R6-unit", None)):
+            rec = I.project(dict(self.record(), runId=record_run), "123", 1, "c" * 40, SHA, self.q(campaignId=q_campaign))
+            self.assertEqual((rec["outcome"], rec["coverage"], rec["campaignId"]), ("failed", "unqualified", None), (record_run, q_campaign))
+        self.assertEqual(I.project(self.record(), "123", 1, "c" * 40, SHA, self.q())["campaignId"], "R6-unit")
 
     def test_a_qualification_for_another_record_campaign_or_release_never_passes(self):
         for over in ({"caseResultsSha256": "f" * 64}, {"servedSha": "b" * 40}, {"testedSha": "b" * 40}, {"qualified": False},
