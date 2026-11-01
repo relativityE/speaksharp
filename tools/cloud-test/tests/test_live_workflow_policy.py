@@ -225,6 +225,15 @@ class LiveWorkflowPolicy(unittest.TestCase):
                 if "upload-artifact" in str(step.get("uses", "")):
                     self.assertNotIn("run-inputs", str((step.get("with") or {}).get("path", "")))
 
+    def test_the_record_is_qualified_only_with_an_execution_provenance_verdict_from_the_producers_records(self):
+        collect = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Collect, verify the binding"))["run"]
+        order = [collect.index(k) for k in ("execute_run.sh collect", "init_run_inputs.py provenance", 'P=(--provenance "$CT_OUT/provenance.json")',
+                                             "init_run_inputs.py project")]
+        self.assertEqual(order, sorted(order))
+        for arg in ('--build-receipt "$CT_OUT/plan/cfg/build-plan-consumption.json"', '--run-record "$CT_OUT/run-record.json"',
+                    '--cases-dir "$CT_OUT/plan/run/cases"', '--run-id "$GITHUB_RUN_ID"', '"${Q[@]}" "${P[@]}"'):
+            self.assertIn(arg, collect)
+
     def test_the_admitted_request_digest_reaches_qualify_and_project_only_from_the_init_step_output(self):
         # A step's outputs cannot be rewritten by a later step; $GITHUB_ENV can, so the digest never travels through it.
         step = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Collect, verify the binding"))

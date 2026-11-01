@@ -575,17 +575,27 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
             "notRunRows": counts["NOT RUN"]}
 
 
-# I4' receiving contract (Sam 1793550229.086469; fields per Jensen's I4' checkpoint). Every request reader records the digest of the ONE
-# buffer it hashed, parsed and compared with the admitted digest before any effect. Source only: not yet called by qualify; it is wired, and
-# becomes mandatory, when the I4' producers land. build-plan's produced planSha256 and the plan's own requestSha256 are the receiver's
-# open asks (Elon 1793550885.166339).
+# I4' receiving contract, bound to Jensen's producers at 75b47b2c (Sam 1793550229.086469 / 1793554840.089039). Every request reader records
+# the digest of the ONE buffer it hashed, parsed and compared with the admitted digest before any effect:
+#   build-plan     plan/cfg/build-plan-consumption.json: {consumer, campaignId, runId, attempt, requestSha256, planSha256, sourceSha, ...}
+#   reservation    the reserve ledger event's requestConsumption (nightly-regression requests only; reservations.py refuses others)
+#   runtime-start  run/cases/<case>/runtime-start-consumption.json, bound by the case execution receipt's runtimeStartReceiptSha256
+#   collector      run-record.json executionProvenance: {consumer, ..., caseResultsSha256, runtimeReceiptDigests{case: execution receipt}}
+# The execution identity is {campaignId: the request runId, runId: GITHUB_RUN_ID, attempt: 1}.
 READER_KEYS = {"requestSha256", "campaignId", "runId", "attempt", "consumer", "consumedAtUtc"}
-REQUIRED_READERS = ("reservation", "build-plan", "collector")
-RUNTIME_KEYS = {"caseId", "planSha256", "configSha256", "requestSha256", "sourceSha", "servedSha", "campaignId", "runId", "attempt"}
+EXECUTION_KEYS = {"campaignId", "runId", "attempt", "caseId", "requestSha256", "planSha256", "configSha256", "sourceSha", "servedSha",
+                  "runtimeStartReceiptSha256"}
+
+
+def required_readers(priority):
+    """Nightly runs reserve before any spend, so their reservation record is required. A manual run has no reservation record until the
+    manual/accepted-rollup reservation design lands (Sam 1793554840.089039); then it becomes required here too."""
+    return ("reservation", "build-plan", "collector") if priority == "nightly-regression" else ("build-plan", "collector")
 
 
 def _canon_digest(doc):
-    return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    """The collector's canonical digest (collect_run_record.canonical_digest): sorted keys, compact separators, no trailing LF."""
+    return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _is64(v):
@@ -601,20 +611,35 @@ def _same(record, identity):
     return all(type(record.get(k)) is type(v) and record.get(k) == v for k, v in identity.items())
 
 
-def check_execution_provenance(admitted, identity, readers, plan_raw, runtime, collection, case_results_raw, selected):
+def _json_object(raw, code):
+    _need(isinstance(raw, bytes), code)
+    try:
+        doc = json.loads(raw)
+    except ValueError:
+        raise Refused(code)
+    _need(isinstance(doc, dict), code)
+    return doc
+
+
+def _reader(record, consumer, admitted, identity):
+    _need(isinstance(record, dict) and READER_KEYS <= set(record) and record.get("consumer") == consumer, "request-reader-record:" + consumer)
+    _need(_is64(record["requestSha256"]) and record["requestSha256"] == admitted, "request-not-the-admitted-request:" + consumer)
+    _need(_same(record, identity), "reader-not-this-attempt:" + consumer)
+
+
+def check_execution_provenance(admitted, identity, priority, plan_raw, build_receipt_raw, reservation_record, case_results_raw,
+                               runtime_start_raws, run_record, selected):
     """Execution provenance from what each consumer RECORDED when it read its input, never a rehash of a file at the end. Every expectation
-    about the run comes from the FROZEN PLAN BYTES themselves (campaign, source and served release, each case's config digest), never from a
-    caller-supplied map, so a coherent substitution of expectations and receipts cannot pass against an unchanged plan. Every input's shape
-    is validated before any lookup or hash, and every refusal is a deliberate code, never an incidental exception.
-    - the admission identity is checked on its own first: campaignId, a run id, and attempt exactly 1 (reruns are refused upstream);
-    - exactly one record per required reader, each naming the admitted digest and THIS identity (same types and values);
-    - build-plan's produced planSha256 is the executed plan, whose own bytes name the admitted request and this campaign;
-    - every selected case's runtime start receipt names that plan, the plan's config digest for the case, the admitted digest, this
-      identity, and exactly the plan's source and served releases (compared separately);
-    - the collection record names the admitted digest, the frozen case results and each runtime receipt's canonical digest.
-    A request swapped for the run and restored before collection, with reserve and collector both honestly reporting the admitted digest,
-    fails at build-plan (it read the swapped bytes); a misreporting builder fails on the executed plan's bytes.
-    Not wired into qualify until the I4' producers land."""
+    (campaign, releases, config digests) comes from the FROZEN PLAN BYTES; every input's shape is validated before any lookup or hash, and
+    every refusal is a deliberate code.
+    - the admission identity is checked on its own first: campaignId, a numeric GitHub run id, and attempt exactly 1;
+    - build-plan's record names the admitted digest, this identity, the executed plan's exact bytes and the plan's releases, and the plan's
+      own bytes name the admitted request (a misreporting builder is caught by the plan);
+    - for a nightly run, the reservation's request-consumption record names the admitted digest and this identity;
+    - every selected case's execution receipt names this identity, the admitted digest, the plan, the plan's config digest for the case and
+      the plan's releases, and binds its runtime-start record by its file bytes; that record says the same;
+    - the collector's record names the admitted digest, this identity, the frozen case results and each execution receipt's canonical digest.
+    A request swapped for the run and restored before collection fails at build-plan (it read the swapped bytes)."""
     _need(_is64(admitted), "admitted-request-digest")
     _need(isinstance(identity, dict) and set(identity) == {"campaignId", "runId", "attempt"} and
           isinstance(identity["campaignId"], str) and identity["campaignId"].strip() == identity["campaignId"] and identity["campaignId"] and
@@ -623,45 +648,75 @@ def check_execution_provenance(admitted, identity, readers, plan_raw, runtime, c
     _need(isinstance(selected, list) and selected and all(isinstance(c, str) and c in ROLE for c in selected) and
           len(set(selected)) == len(selected), "case-selection")
     _need(isinstance(plan_raw, bytes) and isinstance(case_results_raw, bytes), "provenance-inputs")
-    try:
-        plan = json.loads(plan_raw)
-    except ValueError:
-        raise Refused("runtime-plan-unreadable")
-    _need(isinstance(plan, dict), "runtime-plan-unreadable")
+    plan = _json_object(plan_raw, "runtime-plan-unreadable")
     _need(type(plan.get("campaignId")) is str and plan["campaignId"] == identity["campaignId"], "plan-not-this-campaign")
     _need(_is40(plan.get("sourceSha")) and _is40(plan.get("servedSha")), "plan-release")
     _need(isinstance(plan.get("cases"), list) and all(isinstance(c, dict) and isinstance(c.get("id"), str) for c in plan["cases"]), "plan-cases")
     planned = _unique(plan["cases"], "id", "plan-cases")
     _need(all(c in planned and _is64(planned[c].get("configSha256")) for c in selected), "planned-config-digests")
-    by = {}
-    _need(isinstance(readers, list), "request-reader-record")
-    for r in readers:
-        _need(isinstance(r, dict) and READER_KEYS <= set(r) and r["consumer"] in REQUIRED_READERS and r["consumer"] not in by,
-              "request-reader-record")
-        by[r["consumer"]] = r
-    for consumer in REQUIRED_READERS:
-        r = by.get(consumer)
-        _need(r is not None and _is64(r["requestSha256"]) and r["requestSha256"] == admitted, "request-not-the-admitted-request:" + consumer)
-        _need(_same(r, identity), "reader-not-this-attempt:" + consumer)
     plan_sha = hashlib.sha256(plan_raw).hexdigest()
-    _need(by["build-plan"].get("planSha256") == plan_sha, "runtime-plan-not-the-built-plan")
-    # The executed plan's own bytes name the request they were built from, so a builder record that misreports is caught too.
+    release = {"sourceSha": plan["sourceSha"], "servedSha": plan["servedSha"]}
+    # build-plan
+    build = _json_object(build_receipt_raw, "request-reader-record:build-plan")
+    _reader(build, "build-plan", admitted, identity)
+    _need(build.get("planSha256") == plan_sha, "runtime-plan-not-the-built-plan")
+    _need(all(build.get(k) == v for k, v in release.items()), "build-plan-release")
     _need(plan.get("requestSha256") == admitted, "runtime-plan-not-from-the-admitted-request")
-    _need(isinstance(runtime, list) and all(isinstance(rr, dict) and isinstance(rr.get("caseId"), str) for rr in runtime), "runtime-receipt-shape")
-    rows = _unique(runtime, "caseId", "duplicate-runtime-receipt")
-    _need(sorted(rows) == sorted(selected), "runtime-receipts-not-the-selected-cases")
+    # reservation
+    if "reservation" in required_readers(priority):
+        _reader(reservation_record, "reservation", admitted, identity)
+    else:
+        _need(reservation_record is None, "unexpected-reservation-record")
+    # runtime: each selected case's execution receipt, and its runtime-start record by file bytes
+    results = _json_object(case_results_raw, "case-results-unreadable")
+    _need(isinstance(results.get("cases"), list) and all(isinstance(r, dict) and isinstance(r.get("caseId"), str) for r in results["cases"]),
+          "case-results-unreadable")
+    rows = _unique(results["cases"], "caseId", "duplicate-case-result")
+    _need(isinstance(runtime_start_raws, dict), "runtime-start-records")
+    receipts = {}
     for cid in sorted(selected):
-        rr = rows[cid]
-        _need(RUNTIME_KEYS <= set(rr) and rr["planSha256"] == plan_sha and _is64(rr["configSha256"]) and
-              rr["configSha256"] == planned[cid]["configSha256"] and rr["requestSha256"] == admitted and _same(rr, identity),
-              "runtime-receipt-not-bound:" + cid)
-        _need(_is40(rr["sourceSha"]) and rr["sourceSha"] == plan["sourceSha"], "runtime-source-release:" + cid)
-        _need(_is40(rr["servedSha"]) and rr["servedSha"] == plan["servedSha"], "runtime-served-release:" + cid)
-    _need(isinstance(collection, dict) and collection.get("requestSha256") == admitted, "request-not-the-admitted-request:collection")
-    _need(collection.get("caseResultsSha256") == hashlib.sha256(case_results_raw).hexdigest(), "collection-not-these-case-results")
-    digests = collection.get("runtimeReceiptDigests")
-    _need(isinstance(digests, dict) and digests == {cid: _canon_digest(rows[cid]) for cid in sorted(selected)}, "collection-runtime-digests")
-    return {"requestSha256": admitted, "planSha256": plan_sha, "cases": sorted(selected)}
+        rr = (rows.get(cid) or {}).get("executionReceipt")
+        expected = dict(identity, caseId=cid, requestSha256=admitted, planSha256=plan_sha, configSha256=planned[cid]["configSha256"], **release)
+        _need(isinstance(rr, dict) and EXECUTION_KEYS <= set(rr) and _same(rr, expected), "runtime-receipt-not-bound:" + cid)
+        start_raw = runtime_start_raws.get(cid)
+        _need(isinstance(start_raw, bytes) and hashlib.sha256(start_raw).hexdigest() == rr["runtimeStartReceiptSha256"], "runtime-start-not-bound:" + cid)
+        start = _json_object(start_raw, "runtime-start-not-bound:" + cid)
+        _reader(start, "runtime-start", admitted, identity)
+        _need(_same(start, {k: expected[k] for k in ("caseId", "planSha256", "configSha256", "sourceSha", "servedSha")}), "runtime-start-not-bound:" + cid)
+        receipts[cid] = rr
+    # collector
+    _need(isinstance(run_record, dict), "request-reader-record:collector")
+    collector = run_record.get("executionProvenance")
+    _reader(collector, "collector", admitted, identity)
+    _need(collector.get("caseResultsSha256") == hashlib.sha256(case_results_raw).hexdigest(), "collection-not-these-case-results")
+    digests = collector.get("runtimeReceiptDigests")
+    _need(isinstance(digests, dict) and all(digests.get(cid) == _canon_digest(receipts[cid]) for cid in receipts), "collection-runtime-digests")
+    return {"requestSha256": admitted, "planSha256": plan_sha, "cases": sorted(selected), "readers": list(required_readers(priority))}
+
+
+def reservation_consumption(ledger, campaign_id):
+    """The nightly reservation's request-consumption record for this campaign, from the reservation ledger's reserve events: exactly one."""
+    events = [e for e in (ledger or {}).get("events") or [] if isinstance(e, dict) and e.get("event") == "reserve"
+              and isinstance(e.get("requestConsumption"), dict) and e["requestConsumption"].get("campaignId") == campaign_id]
+    _need(len(events) == 1, "request-reader-record:reservation")
+    return events[0]["requestConsumption"]
+
+
+def provenance_from_files(request_path, request_sha256, run_id, plan_path, build_receipt_path, reservations_path, case_results_path,
+                          cases_dir, run_record_path, selected):
+    """Reads each producer's record from the files the run wrote and checks them. Every file is read once, as bytes."""
+    req = admitted_request(request_path, request_sha256)
+    identity = {"campaignId": req.get("runId"), "runId": run_id, "attempt": 1}
+    reservation = None
+    if req.get("priority") == "nightly-regression":
+        reservation = reservation_consumption(_load(reservations_path), req.get("runId")) if reservations_path else None
+    starts = {}
+    for cid in selected:
+        path = os.path.join(cases_dir, cid, "runtime-start-consumption.json") if cid in ROLE else None
+        if path and os.path.isfile(path) and not os.path.islink(path):
+            starts[cid] = _read(path)
+    return check_execution_provenance(request_sha256, identity, req.get("priority"), _read(plan_path), _read(build_receipt_path), reservation,
+                                      _read(case_results_path), starts, _load(run_record_path), list(selected))
 
 
 def _unique(items, key, code):
@@ -673,7 +728,7 @@ def _unique(items, key, code):
     return out
 
 
-def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None):
+def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None, provenance=None):
     """run-record.json (the real collector keeps all 15 rows) -> the closed latest record. Qualification counts only when it is bound to THIS
     record and THIS admission: the same case-results digest, tested release, observed served release and admitted request digest. Then the selected rows keep their results, the others
     are NOT SELECTED, and coverage says batch or full truthfully. `passed` needs that binding and every selected row PASS; anything else is
@@ -688,6 +743,9 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
                  q.get("testedSha") == tested_sha and q.get("servedSha") == rel.get("servedShaAtAdmission") and
                  q.get("codeManifestSha256") == (run_record.get("harness") or {}).get("codeManifestSha256") and
                  isinstance(request_sha256, str) and SHA64.match(request_sha256) is not None and q.get("requestSha256") == request_sha256 and
+                 # Execution provenance (I4'): the verdict of check_execution_provenance for this admission, plan and selected cases.
+                 isinstance(provenance, dict) and provenance.get("requestSha256") == request_sha256 and
+                 provenance.get("planSha256") == q.get("planSha256") and provenance.get("cases") == sorted(q.get("cases") or []) and
                  q.get("outcome") in ("passed", "failed") and
                  (q.get("coverage") in ("batch", "incomplete") or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
                  isinstance(q.get("cases"), list) and set(q["cases"]) <= {c.get("case") for c in run_record.get("cases") or [] if isinstance(c, dict)})
@@ -737,10 +795,11 @@ def _write_private(path, doc):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("prepare", "qualify", "project", "window-check"))
+    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "window-check"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
-                 "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256"):
+                 "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
+                 "--reservations", "--provenance"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -748,7 +807,12 @@ def main(argv):
     try:
         if x.command == "project":
             q = _load(x.qualification) if x.qualification and os.path.exists(x.qualification) else None
-            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256))
+            prov = _load(x.provenance) if x.provenance and os.path.exists(x.provenance) else None
+            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov))
+            return 0
+        if x.command == "provenance":
+            _write_private(x.out, provenance_from_files(x.request, x.request_sha256, x.run_id, x.plan, x.build_receipt, x.reservations,
+                                                        x.case_results, x.cases_dir, x.run_record, (x.cases or "").split(",")))
             return 0
         if x.command == "qualify":
             _write_private(x.out, qualify(x.plan, x.case_results, x.cases_dir, (x.cases or "").split(","), x.approval, x.code_manifest,

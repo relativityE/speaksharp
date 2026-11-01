@@ -259,8 +259,16 @@ jobs:
                --request-sha256 "$REQUEST_SHA256" --out "$CT_OUT/qualification.json"; then
             Q=(--qualification "$CT_OUT/qualification.json")
           fi
+          # Execution provenance (I4'): every request reader's own record, checked against the admitted digest; no verdict, no qualified record.
+          P=()
+          if python3 -I tools/cloud-test/scripts/init_run_inputs.py provenance --request "$CT_REQUEST" --request-sha256 "$REQUEST_SHA256" \
+               --run-id "$GITHUB_RUN_ID" --plan "$CT_OUT/plan/cfg/campaign-plan.json" --build-receipt "$CT_OUT/plan/cfg/build-plan-consumption.json" \
+               --reservations "${CT_RESERVATIONS:-}" --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" \
+               --run-record "$CT_OUT/run-record.json" --cases "$CASES" --out "$CT_OUT/provenance.json"; then
+            P=(--provenance "$CT_OUT/provenance.json")
+          fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py project --run-record "$CT_OUT/run-record.json" --run-id "$GITHUB_RUN_ID" \
-            --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" \
+            --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" "${P[@]}" \
             --out "$RUNNER_TEMP/latest-record.json"
       - name: Hand the closed record to the record job (short-lived; not the authoritative record)
         if: always()

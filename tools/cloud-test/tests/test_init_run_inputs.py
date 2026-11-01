@@ -572,7 +572,7 @@ class Qualify(unittest.TestCase):
             request = live_request(None if mode == "full" else list(self.SELECTED), runId="C1")
             record = self.collect(request)
             q = self.qualify(mode=mode)
-            rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"])
+            rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q))
             self.assertEqual((rec["outcome"], rec["coverage"], rec["campaignId"], len(rec["cases"])),
                              ("passed", "full" if mode == "full" else "batch", "C1", 15), mode)
             self.assertEqual(sum(c["result"] == "NOT SELECTED" for c in rec["cases"]), 0 if mode == "full" else 13)
@@ -584,7 +584,7 @@ class Qualify(unittest.TestCase):
                 # A "full" claim on a selected-full campaign is refused at the request binding, before any plan inspection.
                 refused(self, "request-selection-mismatch", self.qualify, mode="full")
             # the collector's campaign is the request runId; a qualification for another campaign never passes
-            other = I.project(dict(record, runId="C2"), "123", 1, "c" * 40, SHA, q, q["requestSha256"])
+            other = I.project(dict(record, runId="C2"), "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q))
             self.assertEqual((other["outcome"], other["coverage"]), ("failed", "unqualified"), mode)
 
     def test_a_request_substituted_after_admission_keeping_the_five_checked_fields_never_qualifies(self):
@@ -615,7 +615,7 @@ class Qualify(unittest.TestCase):
         for digest in (admitted, None, "x"):
             rec = I.project(record, "123", 1, "c" * 40, SHA, q, digest)
             self.assertEqual((rec["outcome"], rec["coverage"], rec["requestSha256"], rec["codes"]), ("failed", "unqualified", None, ["not-qualified"]), digest)
-        self.assertEqual(I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"])["outcome"], "passed", "the same bytes still bind")
+        self.assertEqual(I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q))["outcome"], "passed", "the same bytes still bind")
 
     def test_a_complete_authenticated_fail_baseline_is_full_and_failed(self):
         # Sam 1793547120.015339: every required row executed (PASS or FAIL) is full coverage; FAILs make the outcome failed, never unqualified.
@@ -628,7 +628,7 @@ class Qualify(unittest.TestCase):
         self.assertEqual((q["qualified"], q["coverage"], q["outcome"], q["requiredRows"], q["passRows"], q["failRows"], q["notRunRows"]),
                          (True, "full", "failed", 30, 27, 3, 0))
         self.assertEqual(J(os.path.join(self.d, "snapshot-%d" % self.runs, "verification.json"))["failed"], 0)
-        rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"])
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q))
         self.assertEqual((rec["coverage"], rec["outcome"], rec["codes"], len(rec["cases"])), ("full", "failed", [], 15))
         self.assertEqual(sorted(c["caseId"] for c in rec["cases"] if c["result"] == "FAIL"), ["AHT-03", "AHT-12"])
 
@@ -835,8 +835,16 @@ class Project(unittest.TestCase):
                      "codeManifestSha256": "f" * 64, "requestSha256": "1" * 64, "catalogSha256": "2" * 64}, **over)
 
     def project(self, *a):
-        """Projection against the admitted request digest this qualification fixture is bound to."""
-        return I.project(*a, "1" * 64)
+        """Projection against the admitted request digest and the execution-provenance verdict this qualification fixture is bound to."""
+        return I.project(*a, "1" * 64, prov_of(a[5] if len(a) > 5 else None))
+
+    def test_no_or_a_foreign_execution_provenance_verdict_never_qualifies(self):
+        q = self.q()
+        self.assertEqual(self.project(self.record(), "123", 1, "c" * 40, SHA, q)["coverage"], "batch")
+        for prov in (None, {}, dict(prov_of(q), requestSha256="0" * 64), dict(prov_of(q), planSha256="0" * 64),
+                     dict(prov_of(q), cases=["AHT-05"]), dict(prov_of(q), cases=["AHT-09", "AHT-05"])):
+            rec = I.project(self.record(), "123", 1, "c" * 40, SHA, q, "1" * 64, prov)
+            self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "unqualified", ["not-qualified"]), prov)
 
     def test_a_bound_batch_keeps_all_fifteen_rows_with_the_others_not_selected(self):
         rec = self.project(self.record(), "123", 1, "c" * 40, SHA, self.q())
@@ -873,7 +881,7 @@ class Project(unittest.TestCase):
         self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "incomplete", []))
         # A qualification whose outcome disagrees with the record's rows is not bound to this record.
         for record, q in ((self.record(), self.q(outcome="failed")), (failed, self.q(outcome="passed"))):
-            rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"])
+            rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q))
             self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "unqualified", ["not-qualified"]))
 
     def test_full_coverage_needs_all_fifteen_selected(self):
@@ -949,6 +957,11 @@ PROJECT = "abcdefghijklmnopqrst"
 SUPABASE_URL_OK = "https://%s.supabase.co" % PROJECT
 
 
+def prov_of(q):
+    """The execution-provenance verdict the workflow's provenance step writes for this qualification (its bound fields only)."""
+    return {"requestSha256": q.get("requestSha256"), "planSha256": q.get("planSha256"), "cases": sorted(q.get("cases") or [])} if isinstance(q, dict) else None
+
+
 def bundle_with(throwaway_id):
     d = json.loads(next(v[2] for v in VECTORS if v[0] == "valid"))
     d["accounts"]["existing-disposable"]["accountId"] = throwaway_id
@@ -956,176 +969,218 @@ def bundle_with(throwaway_id):
 
 
 class ExecutionProvenance(unittest.TestCase):
-    """I4' caller-side receiving checks against Jensen's posted fields, with every expectation derived from a COMPLETE frozen plan:
-    discriminating fixtures, including the decisive A-admitted / B-consumed-at-runtime / A-restored case in which reserve and collector
-    both honestly report A, and a coherent substitution of expectations and receipts against unchanged plan bytes."""
+    """The I4' receiver against Jensen's producer shapes at 75b47b2c, with every expectation derived from a COMPLETE frozen plan: the
+    build-plan consumption receipt, the nightly reservation's request consumption, each case's execution receipt and runtime-start file, and
+    the collector's executionProvenance. Includes A-admitted / B-consumed-at-runtime / A-restored with reserve and collector reporting A."""
     A, B = "a" * 64, "b" * 64
     SELECTED = ["AHT-05", "AHT-09"]
     ID = {"campaignId": "C1", "runId": "123", "attempt": 1}
-    SOURCE, SERVED = "1" * 40, "2" * 40  # distinct, valid source and served releases
+    SOURCE, SERVED = "1" * 40, "2" * 40
+
+    @staticmethod
+    def jcanon(doc):  # the producers' canonical file bytes (build_plan.put_canonical / campaign-runner canonicalBytes)
+        return (json.dumps(doc, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
     def plan(self, built_from=None, **over):
-        """The builder's full shape: campaign, source and served release, the request digest it was built from, all 15 case rows."""
-        doc = {"campaignId": "C1", "sourceSha": self.SOURCE, "servedSha": self.SERVED, "requestSha256": built_from or self.A,
+        doc = {"version": 1, "campaignId": "C1", "sourceSha": self.SOURCE, "servedSha": self.SERVED, "requestSha256": built_from or self.A,
                "coverageMode": "partial", "assertionDepth": "full", "selection": {"ids": list(self.SELECTED), "order": list(self.SELECTED)},
-               "cases": [{"id": c, "configFile": "configs/%s.json" % c, "configSha256": hashlib.sha256(c.encode()).hexdigest(),
-                          "driverFile": "drivers/%s.cjs" % c, "driverSha256": "d" * 64} for c in I.ALL_CASES]}
+               "cases": [{"id": c, "configSha256": hashlib.sha256(c.encode()).hexdigest()} for c in I.ALL_CASES]}
         doc.update(over)
-        return doc
+        return (json.dumps(doc, indent=2) + "\n").encode()  # build_plan.put: indented, one LF
 
-    def world(self, built_from=None):
-        """One honest execution; `built_from` is the request digest build_plan actually read (B in the swap case)."""
-        reader = lambda consumer, digest=self.A, **extra: dict(self.ID, requestSha256=digest, consumer=consumer,  # noqa: E731
-                                                               consumedAtUtc="2026-11-01T17:00:00Z", **extra)
-        w = {"admitted": self.A, "identity": dict(self.ID), "case_results_raw": b'{"cases":[]}', "selected": list(self.SELECTED),
-             "readers": [reader("reservation", allocation={}, reservationEntryHash="e" * 64), reader("build-plan", built_from or self.A),
-                         reader("collector")]}
-        return self.rebind(w, self.plan(built_from))
-
-    def rebind(self, w, plan_doc):
-        """Coherently (re)derive everything downstream of a plan: builder record, runtime receipts from the plan rows, collection digests."""
-        w["plan_raw"] = json.dumps(plan_doc, sort_keys=True).encode()
-        plan_sha = hashlib.sha256(w["plan_raw"]).hexdigest()
-        w["readers"][1]["planSha256"] = plan_sha
-        rows = {r.get("id"): r for r in plan_doc.get("cases") or [] if isinstance(r, dict)} if isinstance(plan_doc.get("cases"), list) else {}
-        w["runtime"] = [dict(self.ID, caseId=c, planSha256=plan_sha, configSha256=(rows.get(c) or {}).get("configSha256"), requestSha256=self.A,
-                             sourceSha=plan_doc.get("sourceSha"), servedSha=plan_doc.get("servedSha")) for c in self.SELECTED]
+    def world(self, built_from=None, priority="full-coverage", plan_raw=None):
+        plan_raw = plan_raw or self.plan(built_from)
+        plan = json.loads(plan_raw)
+        plan_sha = hashlib.sha256(plan_raw).hexdigest()
+        rows = {r["id"]: r for r in plan.get("cases") or [] if isinstance(r, dict)} if isinstance(plan.get("cases"), list) else {}
+        reader = lambda consumer, digest=None, **extra: dict(self.ID, consumer=consumer, requestSha256=digest or self.A,  # noqa: E731
+                                                             consumedAtUtc="2026-11-01T17:00:00Z", **extra)
+        build = reader("build-plan", built_from or self.A, schema="speaksharp.cloud-test.build-plan-consumption.v1", planSha256=plan_sha,
+                       admissionConfigSha256="c" * 64, sourceSha=plan.get("sourceSha"), servedSha=plan.get("servedSha"))
+        starts, results = {}, []
+        for c in self.SELECTED:
+            common = dict(self.ID, caseId=c, requestSha256=self.A, planSha256=plan_sha, configSha256=(rows.get(c) or {}).get("configSha256"),
+                          sourceSha=plan.get("sourceSha"), servedSha=plan.get("servedSha"))
+            starts[c] = self.jcanon(dict(common, schema="speaksharp.cloud-test.runtime-start-consumption.v1", consumer="runtime-start",
+                                         consumedAtUtc="2026-11-01T17:01:00Z"))
+            results.append({"caseId": c, "result": "PASS", "executionReceipt": dict(common, schema="speaksharp.cloud-test.case-execution-receipt.v1",
+                            runtimeStartReceipt="/runner/cases/%s/runtime-start-consumption.json" % c,
+                            runtimeStartReceiptSha256=hashlib.sha256(starts[c]).hexdigest(), exitCode=0)})
+        w = {"admitted": self.A, "identity": dict(self.ID), "priority": priority, "plan_raw": plan_raw, "build_receipt_raw": self.jcanon(build),
+             "reservation_record": reader("reservation", allocation={}) if priority == "nightly-regression" else None,
+             "case_results_raw": json.dumps({"campaignId": "C1", "cases": results}).encode(), "runtime_start_raws": starts,
+             "selected": list(self.SELECTED)}
         self.recollect(w)
         return w
 
     def recollect(self, w):
-        w["collection"] = {"requestSha256": self.A, "caseResultsSha256": hashlib.sha256(w["case_results_raw"]).hexdigest(),
-                           "runtimeReceiptDigests": {r["caseId"]: I._canon_digest(r) for r in w["runtime"]}}
+        rows = {r["caseId"]: r for r in json.loads(w["case_results_raw"])["cases"]}
+        w["run_record"] = {"schema": "speaksharp.cloud-test.run-record.v1", "executionProvenance": dict(
+            self.ID, consumer="collector", requestSha256=self.A, consumedAtUtc="2026-11-01T17:30:00Z",
+            caseResultsSha256=hashlib.sha256(w["case_results_raw"]).hexdigest(),
+            runtimeReceiptDigests={c: I._canon_digest(rows[c]["executionReceipt"]) for c in rows if rows[c].get("executionReceipt")},
+            runtimeReceipts={})}
+
+    def set_receipt(self, w, cid, **over):
+        results = json.loads(w["case_results_raw"])
+        for r in results["cases"]:
+            if r["caseId"] == cid:
+                r["executionReceipt"].update(over)
+        w["case_results_raw"] = json.dumps(results).encode()
 
     def check(self, w):
         return I.check_execution_provenance(**w)
 
-    def test_an_honest_execution_binds(self):
-        self.assertEqual(self.check(self.world())["cases"], self.SELECTED)
+    def test_an_honest_manual_and_nightly_execution_binds(self):
+        self.assertEqual(self.check(self.world())["readers"], ["build-plan", "collector"])
+        self.assertEqual(self.check(self.world(priority="nightly-regression"))["readers"], ["reservation", "build-plan", "collector"])
 
-    def test_a_admitted_b_consumed_at_runtime_a_restored_is_refused_although_reserve_and_collector_report_a(self):
-        w = self.world(built_from=self.B)
-        self.assertEqual({r["consumer"]: r["requestSha256"] for r in w["readers"]}, {"reservation": self.A, "build-plan": self.B, "collector": self.A})
-        self.assertEqual(w["collection"]["requestSha256"], self.A)
+    def test_a_admitted_b_consumed_a_restored_is_refused_at_build_plan_and_a_misreporting_builder_at_the_plan(self):
+        w = self.world(built_from=self.B, priority="nightly-regression")
+        self.assertEqual((w["reservation_record"]["requestSha256"], w["run_record"]["executionProvenance"]["requestSha256"]), (self.A, self.A))
         refused(self, "request-not-the-admitted-request:build-plan", self.check, w)
-        # A builder record that misreports A is caught by the executed plan's own bytes, which the runtime receipts bind by digest.
-        w["readers"][1]["requestSha256"] = self.A
+        build = json.loads(w["build_receipt_raw"])
+        build["requestSha256"] = self.A
+        w["build_receipt_raw"] = self.jcanon(build)
         refused(self, "runtime-plan-not-from-the-admitted-request", self.check, w)
 
-    def test_a_coherent_substitution_of_expectations_and_receipts_against_the_unchanged_plan_is_refused(self):
-        # Sam 1793551555.012439: substitute the release and config the receipts claim, refresh the collection digests, keep plan bytes.
-        for over, code in (({"sourceSha": "3" * 40}, "runtime-source-release:AHT-05"), ({"servedSha": "4" * 40}, "runtime-served-release:AHT-05"),
-                           ({"configSha256": "c" * 64}, "runtime-receipt-not-bound:AHT-05")):
-            w = self.world()
-            plan_before = w["plan_raw"]
-            for rr in w["runtime"]:
-                rr.update(over)
-            self.recollect(w)
-            self.assertEqual(w["plan_raw"], plan_before)
-            refused(self, code, self.check, w)
-
-    def test_the_plan_itself_must_be_complete_this_campaigns_and_name_a_valid_release(self):
-        for over, code in (({"campaignId": "C2"}, "plan-not-this-campaign"), ({"campaignId": None}, "plan-not-this-campaign"),
-                           ({"sourceSha": "s" * 40}, "plan-release"), ({"servedSha": None}, "plan-release"),
-                           ({"cases": None}, "plan-cases"), ({"cases": [None]}, "plan-cases"), ({"cases": [{"id": 5}]}, "plan-cases")):
-            w = self.rebind(self.world(), self.plan(**over))
-            with self.subTest(over=over):
-                refused(self, code, self.check, w)
-        doc = self.plan()
-        doc["cases"] = doc["cases"] + [dict(doc["cases"][0])]
-        refused(self, "plan-cases", self.check, self.rebind(self.world(), doc))
-        for mutate in (lambda rows: [r for r in rows if r["id"] != "AHT-09"], lambda rows: [dict(r, configSha256=None) if r["id"] == "AHT-09" else r for r in rows],
-                       lambda rows: [dict(r, configSha256="Z" * 64) if r["id"] == "AHT-09" else r for r in rows]):
-            doc = self.plan()
-            doc["cases"] = mutate(doc["cases"])
-            w = self.rebind(self.world(), doc)  # receipts coherently carry the plan's missing/null/malformed config
-            refused(self, "planned-config-digests", self.check, w)
-
-    def test_a_swap_seen_by_any_single_reader_is_refused_at_that_reader(self):
-        for k, consumer in enumerate(I.REQUIRED_READERS):
-            w = self.world()
-            w["readers"][k]["requestSha256"] = self.B
-            refused(self, "request-not-the-admitted-request:" + consumer, self.check, w)
+    def test_each_reader_swap_is_refused_at_that_reader(self):
+        w = self.world(priority="nightly-regression")
+        w["reservation_record"]["requestSha256"] = self.B
+        refused(self, "request-not-the-admitted-request:reservation", self.check, w)
         w = self.world()
-        w["collection"]["requestSha256"] = self.B
-        refused(self, "request-not-the-admitted-request:collection", self.check, w)
-
-    def test_missing_duplicate_unknown_or_foreign_reader_records_are_refused(self):
-        for mutate, code in ((lambda w: w["readers"].pop(0), "request-not-the-admitted-request:reservation"),
-                             (lambda w: w["readers"].append(dict(w["readers"][2])), "request-reader-record"),
-                             (lambda w: w["readers"][0].update(consumer="other"), "request-reader-record"),
-                             (lambda w: w["readers"][2].pop("consumedAtUtc"), "request-reader-record"),
-                             (lambda w: w["readers"][0].update(runId="124"), "reader-not-this-attempt:reservation"),
-                             (lambda w: w["readers"][1].update(attempt=2), "reader-not-this-attempt:build-plan"),
-                             (lambda w: w["readers"][2].update(campaignId="C2"), "reader-not-this-attempt:collector"),
-                             (lambda w: w.update(readers=None), "request-reader-record"),
-                             (lambda w: w.update(readers=[None]), "request-reader-record")):
-            w = self.world()
-            mutate(w)
-            refused(self, code, self.check, w)
-
-    def test_runtime_receipts_must_run_the_built_plan_and_its_config_for_exactly_the_selected_cases(self):
-        for mutate, code in ((lambda w: w["readers"][1].update(planSha256="0" * 64), "runtime-plan-not-the-built-plan"),
-                             (lambda w: w["runtime"][1].update(configSha256="0" * 64), "runtime-receipt-not-bound:AHT-09"),
-                             (lambda w: w["runtime"][1].update(configSha256=None), "runtime-receipt-not-bound:AHT-09"),
-                             (lambda w: w["runtime"][0].update(requestSha256=self.B), "runtime-receipt-not-bound:AHT-05"),
-                             (lambda w: w["runtime"][0].update(attempt=2), "runtime-receipt-not-bound:AHT-05"),
-                             (lambda w: w["runtime"][1].pop("servedSha"), "runtime-receipt-not-bound:AHT-09"),
-                             (lambda w: w["runtime"].pop(), "runtime-receipts-not-the-selected-cases"),
-                             (lambda w: w["runtime"].append(dict(w["runtime"][0])), "duplicate-runtime-receipt"),
-                             (lambda w: w.update(runtime=None), "runtime-receipt-shape"),
-                             (lambda w: w.update(runtime=[{"caseId": 5}]), "runtime-receipt-shape")):
-            w = self.world()
-            mutate(w)
-            refused(self, code, self.check, w)
-        for field, code in (("sourceSha", "runtime-source-release:AHT-05"), ("servedSha", "runtime-served-release:AHT-05")):
-            for bad in ("s" * 40, "1" * 39, None, "A" * 40):
-                w = self.world()
-                w["runtime"][0][field] = bad
-                refused(self, code, self.check, w)
-
-    def test_the_collection_record_binds_these_results_and_each_runtime_receipt(self):
+        w["run_record"]["executionProvenance"]["requestSha256"] = self.B
+        refused(self, "request-not-the-admitted-request:collector", self.check, w)
         w = self.world()
-        w["case_results_raw"] = b'{"cases":[1]}'
+        start = json.loads(w["runtime_start_raws"]["AHT-05"])
+        start["requestSha256"] = self.B
+        w["runtime_start_raws"]["AHT-05"] = self.jcanon(start)
+        self.set_receipt(w, "AHT-05", runtimeStartReceiptSha256=hashlib.sha256(w["runtime_start_raws"]["AHT-05"]).hexdigest())
+        self.recollect(w)
+        refused(self, "request-not-the-admitted-request:runtime-start", self.check, w)
+
+    def test_reservation_is_required_for_nightly_and_absent_for_manual(self):
+        w = self.world(priority="nightly-regression")
+        w["reservation_record"] = None
+        refused(self, "request-reader-record:reservation", self.check, w)
+        w = self.world()
+        w["reservation_record"] = {"consumer": "reservation"}
+        refused(self, "unexpected-reservation-record", self.check, w)
+        w = self.world(priority="nightly-regression")
+        w["reservation_record"]["attempt"] = True
+        refused(self, "reader-not-this-attempt:reservation", self.check, w)
+
+    def test_runtime_receipts_and_start_files_bind_this_plan_config_releases_and_attempt(self):
+        for over, code in (({"planSha256": "0" * 64}, "runtime-receipt-not-bound:AHT-09"), ({"configSha256": "0" * 64}, "runtime-receipt-not-bound:AHT-09"),
+                           ({"servedSha": "3" * 40}, "runtime-receipt-not-bound:AHT-09"), ({"attempt": True}, "runtime-receipt-not-bound:AHT-09"),
+                           ({"runtimeStartReceiptSha256": "0" * 64}, "runtime-start-not-bound:AHT-09")):
+            w = self.world()
+            self.set_receipt(w, "AHT-09", **over)
+            self.recollect(w)  # coherent: the collector recorded the substituted receipt
+            refused(self, code, self.check, w)
+        w = self.world()
+        w["runtime_start_raws"]["AHT-09"] += b" "
+        refused(self, "runtime-start-not-bound:AHT-09", self.check, w)
+        w = self.world()
+        del w["runtime_start_raws"]["AHT-05"]
+        refused(self, "runtime-start-not-bound:AHT-05", self.check, w)
+        w = self.world()
+        results = json.loads(w["case_results_raw"])
+        results["cases"][1].pop("executionReceipt")
+        w["case_results_raw"] = json.dumps(results).encode()
+        refused(self, "runtime-receipt-not-bound:AHT-09", self.check, w)
+
+    def test_the_collector_binds_these_results_and_each_execution_receipt(self):
+        w = self.world()
+        w["case_results_raw"] = w["case_results_raw"].replace(b'"PASS"', b'"FAIL"', 1)
         refused(self, "collection-not-these-case-results", self.check, w)
         w = self.world()
-        w["collection"]["runtimeReceiptDigests"]["AHT-05"] = "0" * 64
+        w["run_record"]["executionProvenance"]["runtimeReceiptDigests"]["AHT-05"] = "0" * 64
         refused(self, "collection-runtime-digests", self.check, w)
-        w = self.world()
-        w["collection"]["runtimeReceiptDigests"] = None
-        refused(self, "collection-runtime-digests", self.check, w)
-        w = self.world()
-        w["collection"] = None
-        refused(self, "request-not-the-admitted-request:collection", self.check, w)
+        for record in (None, {}, {"executionProvenance": None}):
+            w = self.world()
+            w["run_record"] = record
+            refused(self, "request-reader-record:collector", self.check, w)
 
-    def test_the_admission_identity_is_strict_and_attempt_one_even_when_every_record_agrees(self):
-        for over in ({"attempt": 2}, {"attempt": True}, {"attempt": 1.0}, {"runId": 123}, {"runId": "12a"}, {"campaignId": ""},
-                     {"campaignId": " C1"}, {"campaignId": None}):
+    def test_the_plan_bytes_and_the_builder_record_agree(self):
+        w = self.world()
+        build = json.loads(w["build_receipt_raw"])
+        build["planSha256"] = "0" * 64
+        w["build_receipt_raw"] = self.jcanon(build)
+        refused(self, "runtime-plan-not-the-built-plan", self.check, w)
+        w = self.world()
+        build = json.loads(w["build_receipt_raw"])
+        build["servedSha"] = "3" * 40
+        w["build_receipt_raw"] = self.jcanon(build)
+        refused(self, "build-plan-release", self.check, w)
+        for over, code in (({"campaignId": "C2"}, "plan-not-this-campaign"), ({"sourceSha": "s" * 40}, "plan-release"), ({"cases": None}, "plan-cases")):
+            refused(self, code, self.check, self.world(plan_raw=self.plan(**over)))
+        for raw in (b"{not json", b"[]", None):
+            w = self.world()
+            w["build_receipt_raw"] = raw
+            refused(self, "request-reader-record:build-plan", self.check, w)
+
+    def test_the_admission_identity_is_strict_and_attempt_one(self):
+        for over in ({"attempt": 2}, {"attempt": True}, {"runId": 123}, {"runId": "123.1"}, {"campaignId": ""}):
             w = self.world()
             w["identity"].update(over)
-            for rec in w["readers"] + w["runtime"]:
-                rec.update(over)
             refused(self, "execution-identity", self.check, w)
-        for k, v in ((0, True), (1, 1.0)):
-            w = self.world()
-            w["readers"][k]["attempt"] = v
-            refused(self, "reader-not-this-attempt:" + I.REQUIRED_READERS[k], self.check, w)
-        w = self.world()
-        w["runtime"][0]["attempt"] = True
-        refused(self, "runtime-receipt-not-bound:AHT-05", self.check, w)
-
-    def test_inputs_are_validated_before_lookups_with_deliberate_refusals(self):
-        for key, value, code in (("admitted", "", "admitted-request-digest"), ("admitted", None, "admitted-request-digest"),
-                                 ("admitted", "A" * 64, "admitted-request-digest"), ("identity", None, "execution-identity"),
-                                 ("selected", [], "case-selection"), ("selected", [[]], "case-selection"), ("selected", [None], "case-selection"),
-                                 ("selected", ["AHT-16"], "case-selection"), ("selected", ["AHT-05", "AHT-05"], "case-selection"),
-                                 ("selected", "AHT-05", "case-selection"), ("plan_raw", "not bytes", "provenance-inputs"),
-                                 ("plan_raw", b"{not json", "runtime-plan-unreadable"), ("plan_raw", b"[]", "runtime-plan-unreadable"),
-                                 ("case_results_raw", None, "provenance-inputs")):
+        for key, value, code in (("admitted", "A" * 64, "admitted-request-digest"), ("selected", [[]], "case-selection"),
+                                 ("plan_raw", "x", "provenance-inputs"), ("runtime_start_raws", None, "runtime-start-records")):
             w = self.world()
             w[key] = value
-            with self.subTest(key=key, value=str(value)[:20]):
-                refused(self, code, self.check, w)
+            refused(self, code, self.check, w)
+
+
+class ProvenanceFromFiles(unittest.TestCase):
+    """The provenance command's file reading: admitted request bytes, the plan, build receipt, nightly reservation ledger, case results,
+    runtime-start files and the run record, each read once as written by the producers."""
+
+    def setUp(self):
+        self.d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.d)
+        self.ep = ExecutionProvenance()
+
+    def write(self, priority):
+        req = live_request(None if priority == "nightly-regression" else ["AHT-05", "AHT-09"], runId="C1", priority=priority)
+        req_raw = json.dumps(req).encode()
+        self.ep.A = hashlib.sha256(req_raw).hexdigest()  # every producer record names the digest of exactly these request bytes
+        w = self.ep.world(priority=priority)
+        paths = {n: os.path.join(self.d, n) for n in ("request.json", "plan.json", "build.json", "results.json", "record.json", "ledger.json")}
+        for name, raw in (("request.json", req_raw), ("plan.json", w["plan_raw"]), ("build.json", w["build_receipt_raw"]), ("results.json", w["case_results_raw"]),
+                          ("record.json", json.dumps(w["run_record"]).encode()),
+                          ("ledger.json", json.dumps({"events": [{"event": "reserve", "runId": "C1", "requestConsumption": w["reservation_record"]}]}).encode())):
+            with open(paths[name], "wb") as f:
+                f.write(raw)
+        for cid, raw in w["runtime_start_raws"].items():
+            os.makedirs(os.path.join(self.d, "cases", cid))
+            with open(os.path.join(self.d, "cases", cid, "runtime-start-consumption.json"), "wb") as f:
+                f.write(raw)
+        return w, paths
+
+    def run_files(self, w, paths, reservations=None):
+        return I.provenance_from_files(paths["request.json"], w["admitted"], "123", paths["plan.json"], paths["build.json"], reservations,
+                                       paths["results.json"], os.path.join(self.d, "cases"), paths["record.json"], ["AHT-05", "AHT-09"])
+
+    def test_a_manual_run_reads_every_record_from_the_files_the_producers_wrote(self):
+        w, paths = self.write("full-coverage")
+        self.assertEqual(self.run_files(w, paths)["readers"], ["build-plan", "collector"])
+        os.remove(os.path.join(self.d, "cases", "AHT-09", "runtime-start-consumption.json"))
+        refused(self, "runtime-start-not-bound:AHT-09", self.run_files, w, paths)
+
+    def test_a_nightly_run_reads_its_reservation_consumption_from_the_ledger(self):
+        w, paths = self.write("nightly-regression")
+        self.assertEqual(self.run_files(w, paths, paths["ledger.json"])["readers"], ["reservation", "build-plan", "collector"])
+        refused(self, "request-reader-record:reservation", self.run_files, w, paths, None)
+        with open(paths["ledger.json"], "w") as f:
+            json.dump({"events": []}, f)
+        refused(self, "request-reader-record:reservation", self.run_files, w, paths, paths["ledger.json"])
+
+    def test_the_request_must_be_the_admitted_bytes(self):
+        w, paths = self.write("full-coverage")
+        with open(paths["request.json"], "ab") as f:
+            f.write(b" ")
+        refused(self, "request-changed-since-admission", self.run_files, w, paths)
 
 
 class WindowAtAdmission(unittest.TestCase):
