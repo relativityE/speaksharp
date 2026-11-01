@@ -96,6 +96,45 @@ def main() -> int:
     if target != root / relative or not target.is_file():
         raise RuntimeError("Aliased Python test source")
 
+    # A passing neighboring suite is not evidence that it consumed a changed
+    # fixture. Observe reads of the exact bound inputs inside this interpreter
+    # while the selected module imports and executes. Child processes do not
+    # inherit this hook, so delegated consumption needs a direct assertion in
+    # the selected test module as well.
+    expected_sources = {}
+    for item in binding.get("sourceFiles", []):
+        source = (root / item["file"]).resolve(strict=True)
+        if source != root / item["file"] or not source.is_file() or _sha256(source) != item["sha256"]:
+            raise RuntimeError("Changed or aliased Python input source")
+        expected_sources[str(source)] = item
+    observed_source_reads: set[str] = set()
+
+    def observe_open(event, args):
+        if event != "open" or not args:
+            return
+        raw = args[0]
+        if not isinstance(raw, (str, bytes, os.PathLike)):
+            return
+        try:
+            supplied = Path(raw)
+            lexical = str((supplied if supplied.is_absolute() else Path.cwd() / supplied).absolute())
+            if lexical not in expected_sources:
+                return
+            candidate = str(supplied.resolve(strict=True))
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return
+        if candidate not in expected_sources:
+            return
+        mode = args[1] if len(args) > 1 else None
+        flags = args[2] if len(args) > 2 else None
+        readable = isinstance(mode, str) and "r" in mode
+        if mode is None and isinstance(flags, int):
+            readable = flags & os.O_ACCMODE == os.O_RDONLY
+        if readable:
+            observed_source_reads.add(candidate)
+
+    sys.addaudithook(observe_open)
+
     # Package tests import `scripts` and `report` from tools/cloud-test.
     package_root = root / "tools" / "cloud-test"
     # Isolated mode removes the script directory.  Real package tests use sibling
@@ -137,6 +176,10 @@ def main() -> int:
         },
         "collected": collected,
         "outcomes": result.outcomes,
+        "sourceReads": [
+            {"file": expected_sources[source]["file"], "sha256": _sha256(Path(source))}
+            for source in sorted(observed_source_reads)
+        ],
     }
     receipt_path = Path(binding["receiptFile"])
     if receipt_path.parent.resolve(strict=True) != Path(binding["receiptDirectory"]).resolve(strict=True):

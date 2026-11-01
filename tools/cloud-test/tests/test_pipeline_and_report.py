@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from _fixtures import NOW, REPO, ROOT, TESTED, prerequisite, request_path, run_py, sample, wjson
+from _fixtures import J, NOW, REPO, ROOT, TESTED, prerequisite, request_path, run_py, sample, wjson
 from _synthetic_history import shared as synthetic_history
 import derive_summary as DS
 import workflow_report as W
@@ -283,6 +283,11 @@ class WorkflowFixtureBuilder(unittest.TestCase):
             wjson(p, {"result": "PASS"})
         cmd = [sys.executable, "-I", os.path.join(ROOT, "tests", "_synthetic_history.py"), "--out", os.path.join(d, "history"), "--request", request, "--proof", p]
         return subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.abspath(os.path.join(ROOT, "..", ".."))), d, p
+
+    def test_full_request_fixture_is_consumed_before_it_is_refused_as_unselected(self):
+        request = J("tests", "fixtures", "full-request.json")
+        self.assertEqual(request["coverageMode"], "full")
+        self.assertEqual([row["case"] for row in request["selection"]], ["AHT-%02d" % n for n in range(1, 16)])
 
     def test_only_the_selected_fixture_with_this_jobs_proof_is_built(self):
         r, d, proof = self.build("tools/cloud-test/tests/fixtures/partial-request.json")

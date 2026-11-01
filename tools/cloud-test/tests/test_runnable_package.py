@@ -47,6 +47,17 @@ class VendoredHarness(unittest.TestCase):
         self.assertNotEqual(current["expectedCodeManifestSha256"], h["expectedCodeManifestSha256"])
         self.assertNotEqual(current["expectedPacketManifestSha256"], h["expectedPacketManifestSha256"])
 
+    def test_retained_d100_sources_are_consumed_as_unapplied_rpc_only_inputs(self):
+        source = Path(ROOT) / "harness" / "draft-adapters" / "source" / "d100"
+        evaluations = (source / "20260731120000_session_progress_evaluations.sql").read_text()
+        recommendations = (source / "20260731130000_progress_recommendations.sql").read_text()
+        for sql in (evaluations, recommendations):
+            self.assertIn("NOT APPLIED TO PRODUCTION", sql)
+            self.assertIn("GRANT SELECT", sql)
+        self.assertIn("record_progress_evaluation", evaluations)
+        self.assertIn("record_progress_recommendation", recommendations)
+        self.assertIn("advance_recommendation_attempt", recommendations)
+
     def test_a_changed_adapter_is_refused(self):
         d = self.tree()
         with open(os.path.join(d, "tools/cloud-test/harness/draft-adapters/AHT-12.cjs"), "a") as f:

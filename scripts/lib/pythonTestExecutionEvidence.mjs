@@ -174,6 +174,7 @@ export function validatePythonPhase(phase,{root,base,provenance,runId,contract,r
   if(!isDeepStrictEqual(report.runtime,runtime))fail('Python reporter runtime is absent or stale');
   if(!Array.isArray(report.collected)||!report.collected.length||new Set(report.collected).size!==report.collected.length
     ||!Array.isArray(report.outcomes)||report.outcomes.length!==report.collected.length)fail('Python collection absent, duplicated or stale');
+  if(!isDeepStrictEqual(report.sourceReads??[],b.sourceFiles??[]))fail('Python input consumption absent, substituted or stale');
   const outcomes=new Map();
   for(const item of report.outcomes) {
     if(!item||typeof item.id!=='string'||item.status!=='passed'||outcomes.has(item.id))fail('Python tests failed, skipped, duplicated or malformed');
@@ -183,7 +184,7 @@ export function validatePythonPhase(phase,{root,base,provenance,runId,contract,r
   return contract.testFile;
 }
 
-export function validatePythonReceipt(receipts,{root,base,provenance,files,environment=process.env}) {
+export function validatePythonReceipt(receipts,{root,base,provenance,files,environment=process.env,runtimeOptions}={}) {
   const contracts=selectPythonContracts(files),list=Array.isArray(receipts)?receipts:[receipts];
   reconcileExecutionBatches(list,contracts,'Python');
   const credited=new Set(),runs=new Set(),phases=new Set();
@@ -196,7 +197,8 @@ export function validatePythonReceipt(receipts,{root,base,provenance,files,envir
     selected.forEach((contract,index)=>{
       const item=receipt.tests[index];
       if(item.testFile!==contract.testFile||item.testSha256!==hash(fs.readFileSync(regular(root,contract.testFile)))||phases.has(item.phase?.binding?.phaseId))fail('Wrong or duplicate Python test source');
-      const testFile=validatePythonPhase(item.phase,{root,base,provenance,runId:receipt.runId,contract,environment});
+      const testFile=validatePythonPhase(item.phase,{root,base,provenance,runId:receipt.runId,contract,
+        runtime:pythonRuntime(root,runtimeOptions),environment});
       for(const file of contract.sourceFiles??[])credited.add(file);
       if(contract.consumerExecution)credited.add(testFile);
       phases.add(item.phase.binding.phaseId);

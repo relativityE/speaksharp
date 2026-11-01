@@ -11,6 +11,15 @@ import {PYTHON_INPUT_CONTRACTS,producePythonReceipt,selectPythonContracts,valida
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const here=path.dirname(fileURLToPath(import.meta.url)),repo=path.resolve(here,'../..');
 
+function realRuntimeOptions(f) {
+  const execPath=fs.realpathSync(execFileSync('which',['python3'],{encoding:'utf8'}).trim());
+  const version=execFileSync(execPath,['-c','import sys; print(".".join(map(str, sys.version_info[:3])))'],{encoding:'utf8'}).trim();
+  const yamlFile=path.join(f.root,'yaml','__init__.py');
+  const realExec=fs.realpathSync(execFileSync(execPath,['-c','import sys; print(sys.executable)'],{encoding:'utf8'}).trim());
+  const identity={execPath:realExec,executableSha256:hash(fs.readFileSync(realExec)),version,yamlVersion:'6.0.2',yamlFile,yamlSha256:hash(fs.readFileSync(yamlFile))};
+  return {execPath,spawn:()=>({status:0,signal:null,error:null,stdout:JSON.stringify(identity)})};
+}
+
 function fixture() {
   const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'python-evidence-test-')));
   for(const directory of ['scripts/lib','tools/cloud-test/tests','bin','yaml','pdfjs'])fs.mkdirSync(path.join(root,directory),{recursive:true});
@@ -18,7 +27,7 @@ function fixture() {
   const testFile='tools/cloud-test/tests/test_example.py';fs.writeFileSync(path.join(root,testFile),'import unittest\nclass Example(unittest.TestCase):\n def test_ok(self): self.assertTrue(True)\n');
   const yamlFile=path.join(root,'yaml','__init__.py');fs.writeFileSync(yamlFile,"__version__ = '6.0.2'\n");
   const executable=path.join(root,'bin','python3.cjs');
-  fs.writeFileSync(executable,`#!${process.execPath}\nconst fs=require('fs'),crypto=require('crypto');\nconst hash=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');\nconst yaml=${JSON.stringify(yamlFile)};\nif(process.argv.includes('-c')){console.log(JSON.stringify({execPath:process.argv[1],executableSha256:hash(process.argv[1]),version:'3.12.11',yamlVersion:'6.0.2',yamlFile:yaml,yamlSha256:hash(yaml)}));process.exit(0);}\nconst b=JSON.parse(process.env.PYTHON_TEST_EVIDENCE_BINDING);\nfs.writeFileSync(b.receiptFile,JSON.stringify({schemaVersion:1,binding:b,runtime:b.runtime,collected:['_evidence.test_ok'],outcomes:[{id:'_evidence.test_ok',status:'passed'}]}));\n`);
+  fs.writeFileSync(executable,`#!${process.execPath}\nconst fs=require('fs'),crypto=require('crypto');\nconst hash=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');\nconst yaml=${JSON.stringify(yamlFile)};\nif(process.argv.includes('-c')){console.log(JSON.stringify({execPath:process.argv[1],executableSha256:hash(process.argv[1]),version:'3.12.11',yamlVersion:'6.0.2',yamlFile:yaml,yamlSha256:hash(yaml)}));process.exit(0);}\nconst b=JSON.parse(process.env.PYTHON_TEST_EVIDENCE_BINDING);\nfs.writeFileSync(b.receiptFile,JSON.stringify({schemaVersion:1,binding:b,runtime:b.runtime,collected:['_evidence.test_ok'],outcomes:[{id:'_evidence.test_ok',status:'passed'}],sourceReads:b.sourceFiles??[]}));\n`);
   fs.chmodSync(executable,0o755);
   fs.symlinkSync(path.basename(executable),path.join(root,'bin','python3'));
   const environment={CT_REQUIRE_INTEGRATION:'1'};
@@ -54,23 +63,44 @@ test('Python receipts bind exact source/runtime and reject result tampering',()=
   } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
 });
 
-test('registered Python inputs bind their exact bytes to one consumer and cannot borrow test credit',()=>{
+test('real Python reporter credits only the exact input actually consumed by its selected test',()=>{
   const f=fixture(),contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
-  process.env.PATH=[path.dirname(f.executable),f.oldPath].join(path.delimiter);
   try {
-    for(const [file,bytes] of [[contract.inputFile,'{"fixture":true}\n'],[contract.testFile,'import unittest\nclass Input(unittest.TestCase):\n def test_reads_input(self): self.assertTrue(True)\n']]) {
+    const consumer=`import unittest\nfrom pathlib import Path\nclass Input(unittest.TestCase):\n def test_reads_input(self):\n  source=Path(__file__).resolve().parents[3]/${JSON.stringify(contract.inputFile)}\n  self.assertEqual(source.read_text(), '{"fixture":true}\\n')\n`;
+    for(const [file,bytes] of [[contract.inputFile,'{"fixture":true}\n'],[contract.testFile,consumer]]) {
       fs.mkdirSync(path.dirname(path.join(f.root,file)),{recursive:true});fs.writeFileSync(path.join(f.root,file),bytes);
     }
     const files=[contract.inputFile],selected=selectPythonContracts(files);
     assert.deepEqual(selected,[{testFile:contract.testFile,sourceFiles:[contract.inputFile],batch:0}]);
     const receipt=producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files,batch:0,
-      environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:{execPath:f.executable}});
+      environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:realRuntimeOptions(f)});
     assert.deepEqual([...validatePythonReceipt(receipt,{root:f.root,base:'d'.repeat(40),provenance:f.provenance,
-      files,environment:f.environment})],[contract.inputFile]);
+      files,environment:f.environment,runtimeOptions:realRuntimeOptions(f)})],[contract.inputFile]);
+    assert.deepEqual(receipt.tests[0].phase.report.sourceReads,receipt.tests[0].phase.binding.sourceFiles);
+    const stale=structuredClone(receipt);stale.tests[0].phase.report.sourceReads[0].sha256='0'.repeat(64);
+    assert.throws(()=>validatePythonReceipt(stale,{root:f.root,base:'d'.repeat(40),provenance:f.provenance,
+      files,environment:f.environment,runtimeOptions:realRuntimeOptions(f)}),/consumption absent/);
     fs.writeFileSync(path.join(f.root,contract.inputFile),'{"fixture":"changed"}\n');
     assert.throws(()=>validatePythonReceipt(receipt,{root:f.root,base:'d'.repeat(40),provenance:f.provenance,
-      files,environment:f.environment}),/source|binding/i);
-  } finally {process.env.PATH=f.oldPath;fs.rmSync(f.root,{recursive:true,force:true});}
+      files,environment:f.environment,runtimeOptions:realRuntimeOptions(f)}),/source|binding/i);
+  } finally {fs.rmSync(f.root,{recursive:true,force:true});}
+});
+
+test('real Python reporter refuses non-consumption and substituted input reads',()=>{
+  const contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
+  for(const mode of ['non-consumption','substitution']) {
+    const f=fixture();
+    try {
+      fs.mkdirSync(path.dirname(path.join(f.root,contract.inputFile)),{recursive:true});
+      fs.mkdirSync(path.dirname(path.join(f.root,contract.testFile)),{recursive:true});
+      fs.writeFileSync(path.join(f.root,contract.inputFile),'{"fixture":true}\n');
+      fs.writeFileSync(path.join(f.root,'substitute.json'),'{"fixture":true}\n');
+      const operation=mode==='non-consumption'?'self.assertTrue(True)':"self.assertEqual((Path(__file__).resolve().parents[3]/'substitute.json').read_text(), '{\\\"fixture\\\":true}\\n')";
+      fs.writeFileSync(path.join(f.root,contract.testFile),`import unittest\nfrom pathlib import Path\nclass Input(unittest.TestCase):\n def test_operation(self): ${operation}\n`);
+      assert.throws(()=>producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[contract.inputFile],batch:0,
+        environment:f.environment,drain:()=>({status:'drained'}),runtimeOptions:realRuntimeOptions(f)}),/consumption absent/);
+    } finally {fs.rmSync(f.root,{recursive:true,force:true});}
+  }
 });
 
 test('Python selection refuses unbounded and empty receipts cannot credit tests',()=>{
@@ -85,18 +115,13 @@ test('Python selection refuses unbounded and empty receipts cannot credit tests'
 });
 
 test('installed reporter emits the exact runtime shape consumed by the validator',()=>{
-  const f=fixture(),execPath=fs.realpathSync(execFileSync('which',['python3'],{encoding:'utf8'}).trim());
-  const version=execFileSync(execPath,['-c','import sys; print(".".join(map(str, sys.version_info[:3])))'],{encoding:'utf8'}).trim();
-  const yamlFile=path.join(f.root,'yaml','__init__.py');
-  const realExec=fs.realpathSync(execFileSync(execPath,['-c','import sys; print(sys.executable)'],{encoding:'utf8'}).trim()),
-    identity={execPath:realExec,executableSha256:hash(fs.readFileSync(realExec)),
-    version,yamlVersion:'6.0.2',yamlFile,yamlSha256:hash(fs.readFileSync(yamlFile))};
+  const f=fixture(),runtimeOptions=realRuntimeOptions(f);
   try {
     fs.writeFileSync(path.join(f.root,'tools/cloud-test/tests/_fixtures.py'),'VALUE = 7\n');
     fs.writeFileSync(path.join(f.root,f.testFile),'import unittest\nfrom _fixtures import VALUE\nclass Example(unittest.TestCase):\n def test_ok(self): self.assertEqual(VALUE, 7)\n');
     const receipt=producePythonReceipt({root:f.root,base:'d'.repeat(40),provenance:f.provenance,files:[f.testFile],batch:0,
       environment:f.environment,drain:()=>({status:'drained'}),
-      runtimeOptions:{execPath,spawn:()=>({status:0,signal:null,error:null,stdout:JSON.stringify(identity)})}});
+      runtimeOptions});
     assert.deepEqual(receipt.tests[0].phase.report.runtime,receipt.tests[0].phase.binding.runtime);
     assert.equal(receipt.tests[0].phase.report.outcomes[0].status,'passed');
   } finally {fs.rmSync(f.root,{recursive:true,force:true});}
