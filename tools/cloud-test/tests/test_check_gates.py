@@ -212,6 +212,7 @@ class NightlyCarriedForwardG7(unittest.TestCase):
         w = self.width()
         self.assertIsNone(G.nightly_history_gate(self.REQ, self.history(["P" * w])))                    # one night: bootstrap decides
         self.assertIsNone(G.nightly_history_gate(self.REQ, self.history(["P" * w] * 2, qualified=False)))  # unqualified: never clears
+        self.assertIsNone(G.nightly_history_gate(self.REQ, self.history(["N" * w] * 2)))  # two all-NOT-RUN occurrences: not evidence
         other = dict(self.history(["P" * w])["history"]["identities"][0], backendSha="9" * 40)
         self.assertIsNone(G.nightly_history_gate(self.REQ, self.history(["P" * w] * 2, comp=other)))      # incomparable: bootstrap
         two = self.history(["P" * w, "F" + "N" * (w - 1)])
