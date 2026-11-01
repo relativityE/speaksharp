@@ -1566,6 +1566,49 @@ class ContinuityCheckpoint(Journal):
         self.refused("continuity-state-root-replaced", pins=self.all_pins(accepted_root="e" * 40, reviewed_root="e" * 40))
 
 
+class Case10Bound(unittest.TestCase):
+    """Sam 1793567664.474339 item 2: prepare admits the Case 10 projection only through the builder's own validator; synthetic only."""
+    ENTRIES = {"existing-disposable": {"accountId": ACCOUNT_ID}}
+
+    def record(self, req, **over):
+        from test_case10_request_bound import projection
+        rec = {"schema": "speaksharp.cloud-test.case10-projection.v1", "runId": req["runId"], "sourceSha": req["release"]["testedSha"],
+               "accountSubjectSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "evidenceRef": "SYNTHETIC-NOT-A-RUN",
+               "projection": projection()}
+        rec.update(over)
+        return rec
+
+    def bound_request(self, rec):
+        req = live_request(["AHT-10"])
+        encoded = json.dumps(rec, sort_keys=True, separators=(",", ":")).encode()
+        req["selection"][0]["requestBoundSha256"] = hashlib.sha256(encoded).hexdigest()
+        return req
+
+    def test_a_selected_case10_needs_exactly_the_bound_record_the_builder_validator_accepts(self):
+        req = live_request(["AHT-10"])
+        rec = self.record(req)
+        req = self.bound_request(rec)
+        report = I.check_case10_bound(req, facts(case10RequestBound=rec), ["AHT-10"], self.ENTRIES)
+        self.assertEqual((report["allowance"], report["projectionSha256"]), (240, req["selection"][0]["requestBoundSha256"]))
+        self.assertLessEqual(report["transmittedBound"], req["selection"][0]["plannedRequests"])
+        refused(self, "case10-bound-missing", I.check_case10_bound, req, facts(), ["AHT-10"], self.ENTRIES)
+        for change, code in (({"evidenceRef": "SYNTHETIC-CHANGED"}, "case10-bound-digest"),
+                             ({"accountSubjectSha256": "0" * 64}, "case10-bound-account"),
+                             ({"runId": "R0-other"}, "case10-bound-identity"),
+                             ({"schema": "x"}, "case10-bound-schema")):
+            with self.subTest(code=code):
+                refused(self, code, I.check_case10_bound, req, facts(case10RequestBound=dict(rec, **change)), ["AHT-10"], self.ENTRIES)
+        refused(self, "case10-bound-shape", I.check_case10_bound, req, facts(case10RequestBound=dict(rec, extra=1)), ["AHT-10"], self.ENTRIES)
+
+    def test_no_record_is_admitted_when_case10_needs_none(self):
+        req = live_request(["AHT-05"])
+        self.assertIsNone(I.check_case10_bound(req, facts(), ["AHT-05"], self.ENTRIES))
+        refused(self, "case10-bound-not-applicable", I.check_case10_bound, req, facts(case10RequestBound=self.record(req)), ["AHT-05"],
+                self.ENTRIES)
+        self.assertIn("case10RequestBound", I.FACT_OPTIONAL)
+        self.assertNotIn("case10RequestBound", I.FACT_REQUIRED)
+
+
 class WindowAtAdmission(unittest.TestCase):
     def test_the_remaining_window_must_hold_live_and_collect_and_is_never_reset(self):
         r = live_request(["AHT-05"])
