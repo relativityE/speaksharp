@@ -368,9 +368,11 @@ class GatesForFullMode(unittest.TestCase):
 class ModePassThrough(unittest.TestCase):
     def env(self, req):
         with tempfile.TemporaryDirectory() as d:
+            d = os.path.realpath(d)
             p, o = os.path.join(d, "r.json"), os.path.join(d, "env.txt")
             wjson(p, req)
-            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", p, "--out", o], capture_output=True, text=True)
+            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", p,
+                                "--request-sha256", sha256_file(p), "--out", o], capture_output=True, text=True)
             return r, (dict(l.split("=", 1) for l in open(o).read().splitlines()) if os.path.exists(o) else {})
 
     def full_request(self):
@@ -404,6 +406,21 @@ class ModePassThrough(unittest.TestCase):
         req = self.full_request(); req["sampleMode"] = "minimal"
         r, _ = self.env(req)
         self.assertNotEqual(r.returncode, 0)
+
+    def test_a_admitted_b_read_by_environment_then_a_restored_is_refused_before_builder(self):
+        with tempfile.TemporaryDirectory() as d:
+            request_file, output = os.path.realpath(os.path.join(d, "request.json")), os.path.join(d, "env.txt")
+            admitted = self.full_request(); wjson(request_file, admitted)
+            admitted_sha = sha256_file(request_file)
+            substituted = copy.deepcopy(admitted); substituted["approvedLimits"]["runCapRequests"] += 1
+            wjson(request_file, substituted)
+            result = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"),
+                                     "--request", request_file, "--request-sha256", admitted_sha, "--out", output],
+                                    capture_output=True, text=True)
+            wjson(request_file, admitted)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("request changed since admission", result.stdout + result.stderr)
+            self.assertFalse(os.path.exists(output), "the substituted request must not produce builder inputs")
 
     def test_the_builder_refuses_to_run_without_a_mode_and_has_a_full_branch(self):
         path = os.path.join(ROOT, "harness-adapter", "build_plan.py")
@@ -751,13 +768,30 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
     def test_the_collector_counts_them_from_the_cases_directory(self):
         import shutil
         with tempfile.TemporaryDirectory() as d:
+            d = os.path.realpath(d)
             led = os.path.join(d, "ledgers"); os.makedirs(led)
             shutil.copy(os.path.join(RECEIPTS, "R5", "campaign-ledger.json"), led); shutil.copy(os.path.join(RECEIPTS, "R5", "identity-ledger.json"), led)
             gs = os.path.join(d, "g.json"); wjson(gs, {"decision": "GO"})
             rj = os.path.join(d, "runner.json"); wjson(rj, {})
-            req = os.path.join(d, "req.json"); wjson(req, r7())
+            request_doc = r7(); request_doc["runId"] = "R5"
+            req = os.path.join(d, "req.json"); wjson(req, request_doc)
+            request_sha256 = sha256_file(req)
+            case_results_doc = json.load(open(os.path.join(RECEIPTS, "R5", "case-results.json")))
+            for case in case_results_doc["cases"]:
+                case["executionReceipt"] = {
+                    "schema": "speaksharp.cloud-test.case-execution-receipt.v1",
+                    "campaignId": "R5", "runId": "41325698722", "attempt": 1,
+                    "caseId": case["caseId"], "requestSha256": request_sha256,
+                    "planSha256": "1" * 64, "configSha256": "2" * 64,
+                    "sourceSha": case_results_doc["sourceSha"], "servedSha": case_results_doc["servedSha"],
+                    "runtimeStartReceiptSha256": "3" * 64,
+                    "summarySha256": case["executionReceipt"]["summarySha256"],
+                }
+            case_results = os.path.join(d, "case-results.json"); wjson(case_results, case_results_doc)
             out = os.path.join(d, "rr.json")
-            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "collect_run_record.py"), "--request", req, "--case-results", os.path.join(RECEIPTS, "R5", "case-results.json"), "--cases-dir", os.path.join(RECEIPTS, "R5"),
+            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "collect_run_record.py"), "--request", req,
+                                "--request-sha256", request_sha256, "--execution-run-id", "41325698722", "--attempt", "1",
+                                "--case-results", case_results, "--cases-dir", os.path.join(RECEIPTS, "R5"),
                                 "--ledger-dir", led, "--gate-status", gs, "--workflow", os.path.join(ROOT, "workflow.json"), "--runner-json", rj, "--out", out], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             rec = json.load(open(out))

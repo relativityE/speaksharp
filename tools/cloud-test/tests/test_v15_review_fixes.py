@@ -1,6 +1,7 @@
 """Workflow 1.5.0 review fixes: (1) every recurring cap is enforced from history and reservations; (2) the headline verdict includes the safety checks;
 (3) isolation evidence is account-bound, fresh and checks old-run residue; (4) reviewed features reach regression without a bug; plus the #1488/#1757 concern observations."""
 import copy
+import hashlib
 import json
 import os
 import shutil
@@ -16,6 +17,98 @@ import check_gates as CG
 import history_index as HI
 import recurring_usage as RU
 import reservations as RS
+
+
+class LiveAccountBundleContract(unittest.TestCase):
+    GOLDEN = (b'{"accounts":{"existing-disposable":{"accountId":"11111111-1111-4111-8111-111111111111",'
+              b'"email":"throwaway.synthetic@example.invalid"},"maintained-read-only":{"accountId":'
+              b'"22222222-2222-4222-8222-222222222222","email":"free.synthetic@example.invalid"}},'
+              b'"projectRef":"abcdefghijklmnopqrst","version":1}\n')
+    DIGEST = "9f26df52a410b60729da7fe84a8799d5baca9336fab64a48d274ed0e619aab82"
+
+    def test_caller_and_resolver_share_exact_canonical_bytes_and_digest(self):
+        helper = os.path.join(ROOT, "scripts", "resolve_live_account_bindings.cjs")
+        document = json.loads(self.GOLDEN)
+        script = ("const crypto=require('node:crypto');"
+                  "const helper=require(process.argv[1]);"
+                  "const bytes=helper.canonicalBytes(JSON.parse(process.argv[2]));"
+                  "process.stdout.write(JSON.stringify({hex:bytes.toString('hex'),"
+                  "sha256:crypto.createHash('sha256').update(bytes).digest('hex')}));")
+        result = subprocess.run(["node", "-e", script, helper, json.dumps(document)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actual = json.loads(result.stdout)
+        self.assertEqual(bytes.fromhex(actual["hex"]), self.GOLDEN)
+        self.assertEqual(actual["sha256"], self.DIGEST)
+
+
+class CollectorPreservesOriginalExecutionProvenance(unittest.TestCase):
+    RUN = "41325698722"
+
+    def fixture(self):
+        root = os.path.realpath(tempfile.mkdtemp())
+        ledger = os.path.join(root, "ledgers"); os.makedirs(ledger)
+        request_file = os.path.join(root, "request.json")
+        request_doc = {"runId": "R9-I4", "purpose": "synthetic provenance control", "priority": "full-coverage",
+                       "targetedGaps": ["I4"], "release": {"testedSha": "a" * 40}, "harness": {"version": "test"}}
+        wjson(request_file, request_doc)
+        with open(request_file, "rb") as stream:
+            request_sha = hashlib.sha256(stream.read()).hexdigest()
+        source_sha, served_sha = "b" * 40, "c" * 40
+        receipt = {"schema": "speaksharp.cloud-test.case-execution-receipt.v1", "campaignId": "R9-I4",
+                   "runId": self.RUN, "attempt": 1, "caseId": "AHT-01", "requestSha256": request_sha,
+                   "planSha256": "1" * 64, "configSha256": "2" * 64, "sourceSha": source_sha,
+                   "servedSha": served_sha, "runtimeStartReceiptSha256": "3" * 64,
+                   "caseResultSha256": "4" * 64, "summarySha256": "5" * 64}
+        case_results_file = os.path.join(root, "case-results.json")
+        wjson(case_results_file, {"campaignId": "R9-I4", "sourceSha": source_sha, "servedSha": served_sha,
+                                  "result": "FAIL", "cases": [{"caseId": "AHT-01", "result": "FAIL",
+                                  "assertions": [], "executionReceipt": receipt}]})
+        wjson(os.path.join(ledger, "campaign-ledger.json"), {"used": {"total": 1}})
+        wjson(os.path.join(ledger, "identity-ledger.json"), {"identityGets": 1})
+        paths = {}
+        for name, value in (("gate", {"decision": "GO"}), ("workflow", {"version": "test"}), ("runner", {})):
+            paths[name] = os.path.join(root, name + ".json"); wjson(paths[name], value)
+        paths.update(root=root, request=request_file, requestSha=request_sha, caseResults=case_results_file,
+                     ledger=ledger, out=os.path.join(root, "run-record.json"))
+        return paths, receipt
+
+    def run_collector(self, paths, request_sha=None):
+        return subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "collect_run_record.py"),
+            "--request", paths["request"], "--request-sha256", request_sha or paths["requestSha"],
+            "--execution-run-id", self.RUN, "--attempt", "1", "--case-results", paths["caseResults"],
+            "--ledger-dir", paths["ledger"], "--gate-status", paths["gate"], "--workflow", paths["workflow"],
+            "--runner-json", paths["runner"], "--out", paths["out"]], capture_output=True, text=True)
+
+    def test_original_runtime_receipt_digests_are_preserved(self):
+        paths, receipt = self.fixture()
+        result = self.run_collector(paths)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        provenance = json.load(open(paths["out"]))["executionProvenance"]
+        preserved = provenance["runtimeReceipts"]["AHT-01"]
+        for key in ("requestSha256", "planSha256", "configSha256", "runtimeStartReceiptSha256",
+                    "caseResultSha256", "summarySha256"):
+            self.assertEqual(preserved[key], receipt[key])
+        self.assertEqual(provenance["caseResultsSha256"], hashlib.sha256(open(paths["caseResults"], "rb").read()).hexdigest())
+        self.assertEqual(provenance["runtimeReceiptDigests"]["AHT-01"],
+                         hashlib.sha256(json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
+        self.assertRegex(provenance["consumedAtUtc"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+    def test_request_changed_after_admission_is_refused(self):
+        paths, _ = self.fixture()
+        document = json.load(open(paths["request"])); document["purpose"] = "substituted"
+        wjson(paths["request"], document)
+        result = self.run_collector(paths)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("request changed since admission", result.stderr)
+
+    def test_runtime_receipt_from_a_different_request_is_refused(self):
+        paths, _ = self.fixture()
+        document = json.load(open(paths["caseResults"]))
+        document["cases"][0]["executionReceipt"]["requestSha256"] = "0" * 64
+        wjson(paths["caseResults"], document)
+        result = self.run_collector(paths)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("runtime receipt differs", result.stderr)
 
 
 def approval(req, **caps):
@@ -170,25 +263,45 @@ class ReservationsHoldCapsUntilSealed(unittest.TestCase):
         return subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "reservations.py")] + list(args), capture_output=True, text=True)
 
     def files(self, scale_used=None):
-        d = tempfile.mkdtemp()
+        d = os.path.realpath(tempfile.mkdtemp())
         rq, ap, ix, lg = (os.path.join(d, n) for n in ("req.json", "ap.json", "idx.json", "led.json"))
         wjson(rq, self.req); wjson(ap, self.ap); wjson(ix, {"entries": []}); wjson(lg, RS.empty())
         return rq, ap, ix, lg
 
+    def binding_args(self, request_file):
+        with open(request_file, "rb") as stream:
+            digest = hashlib.sha256(stream.read()).hexdigest()
+        return ["--request-sha256", digest, "--execution-run-id", "41325698722", "--attempt", "1"]
+
     def test_the_command_line_reserves_then_refuses_a_replay_and_requires_the_reservation(self):
         rq, ap, ix, lg = self.files()
-        common = ["--request", rq, "--approval", ap, "--index", ix, "--ledger", lg, "--now", "2026-11-05T03:00:00Z"]
+        common = ["--request", rq, *self.binding_args(rq), "--approval", ap, "--index", ix, "--ledger", lg, "--now", "2026-11-05T03:00:00Z"]
         r = self.cli("reserve", *common)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.cli("require", "--run-id", "R9-N2", "--ledger", lg).returncode, 0)
+        self.assertEqual(self.cli("require", "--run-id", "R9-N2", *self.binding_args(rq), "--ledger", lg).returncode, 0)
         self.assertEqual(self.cli("reserve", *common).returncode, 1)         # no implicit replay
         self.assertEqual(self.cli("require", "--run-id", "R9-other", "--ledger", lg).returncode, 1)
         self.assertEqual(self.cli("verify", "--ledger", lg).returncode, 0)
 
+    def test_reservation_records_the_exact_admitted_request_and_strict_attempt(self):
+        rq, ap, ix, lg = self.files()
+        args = ["--request", rq, *self.binding_args(rq), "--approval", ap, "--index", ix, "--ledger", lg,
+                "--now", "2026-11-05T03:00:00Z"]
+        self.assertEqual(self.cli("reserve", *args).returncode, 0)
+        event = json.load(open(lg))["events"][0]
+        receipt = event["requestConsumption"]
+        self.assertEqual((receipt["campaignId"], receipt["runId"], receipt["attempt"], receipt["consumer"]),
+                         ("R9-N2", "41325698722", 1, "reservation"))
+        self.assertEqual(receipt["allocation"], event["caps"])
+        wrong = ["--request-sha256", "0" * 64, "--execution-run-id", "41325698722", "--attempt", "1"]
+        self.assertNotEqual(self.cli("require", "--run-id", "R9-N2", *wrong, "--ledger", lg).returncode, 0)
+        attempt_two = self.binding_args(rq); attempt_two[-1] = "2"
+        self.assertNotEqual(self.cli("require", "--run-id", "R9-N2", *attempt_two, "--ledger", lg).returncode, 0)
+
     def test_the_command_line_refuses_with_blocked_setup_when_a_cap_is_exhausted(self):
         rq, ap, ix, lg = self.files()
         led = self.reserve(RS.empty(), "R9-A", scale=30); wjson(lg, led)
-        r = self.cli("reserve", "--request", rq, "--approval", ap, "--index", ix, "--ledger", lg, "--now", "2026-11-05T03:00:00Z")
+        r = self.cli("reserve", "--request", rq, *self.binding_args(rq), "--approval", ap, "--index", ix, "--ledger", lg, "--now", "2026-11-05T03:00:00Z")
         self.assertEqual(r.returncode, 78)
         self.assertIn("starts:", r.stdout)
         self.assertEqual(len(json.load(open(lg))["events"]), 1, "a refused run reserves nothing")
@@ -209,7 +322,7 @@ class ReservationsHoldCapsUntilSealed(unittest.TestCase):
     def test_only_nightly_requests_can_reserve(self):
         rq, ap, ix, lg = self.files()
         r = sample()["req"]; wjson(rq, r)
-        self.assertNotEqual(self.cli("reserve", "--request", rq, "--approval", ap, "--index", ix, "--ledger", lg).returncode, 0)
+        self.assertNotEqual(self.cli("reserve", "--request", rq, *self.binding_args(rq), "--approval", ap, "--index", ix, "--ledger", lg).returncode, 0)
 
     def test_the_run_stage_requires_a_reservation_for_a_nightly_request(self):
         sh = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()

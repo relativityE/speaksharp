@@ -4,7 +4,8 @@ Derived from the reviewed prep builder (build_private_r15_prep.py); every sessio
 
   BP_PACKET      the vendored, verified harness directory (bundle/, draft-adapters/)           BP_CHECKOUT   a clean checkout at the tested source SHA
   BP_PRIVATE     NEW private directory for the generated files (0700)                           BP_SOURCE_SHA the tested (served) 40-hex SHA
-  BP_FACTS       reviewed facts JSON (owner approval reference, probe receipts, reviewer, ...)  BP_ACCOUNT_ID_FILE file holding the throwaway account id (not a secret)
+  BP_FACTS       reviewed facts JSON (owner approval reference, probe receipts, reviewer, ...)  BP_ACCOUNT_BINDINGS_FILE private validated role/UID receipt
+  BP_REQUEST_FILE admitted request bytes consumed by this builder                          BP_REQUEST_SHA256 independently admitted lowercase SHA-256
   BP_TASK_ID / BP_SOURCE_REFERENCE / BP_ENV_ID   the Claude task-environment receipt the harness admission requires (the only runtime it accepts)
   BP_CAMPAIGN BP_T0 BP_T1 BP_TOTAL BP_CLEANUP BP_IDENT BP_SELECT BP_GATES BP_EST BP_COACHING_CAP BP_SELECT_REF BP_SELECT_REASON BP_BACKEND_*  (from scripts/run_env.py)
   BP_BROWSER_IDENTITY  this run's existing-browser identity receipt, created before either plan phase
@@ -13,8 +14,8 @@ Derived from the reviewed prep builder (build_private_r15_prep.py); every sessio
   VITE_SUPABASE_ANON_KEY  (phase1 only: the publishable key written into the private case configs)
 
 Phase 1: everything that does not depend on the window having opened. Phase 2: attestation -> admission config -> plan. A missing required input is a hard
-failure (BLOCKED_SETUP). Account id and publishable key are written only to 0600 private files; no credential value is ever printed."""
-import json, os, sys, hashlib, subprocess, time, stat
+failure (BLOCKED_SETUP). Account ids and the publishable key are written only to 0600 private files; no credential value is ever printed."""
+import json, os, sys, hashlib, subprocess, time, stat, re
 
 def need(name):
     v = os.environ.get(name)
@@ -88,15 +89,57 @@ if os.environ.get('BP_COACHING_CAP') not in (None, ''):
 HOST_APP = os.environ.get('BP_HOST_APP', 'speaksharp-public.vercel.app')
 HOST_DB = os.environ.get('BP_HOST_DB', 'yxlapjuovrsvjswkwnrk.supabase.co')
 PROJECT_REF = HOST_DB.split('.')[0]
-UID_FILE = need('BP_ACCOUNT_ID_FILE')
+ACCOUNT_BINDINGS_FILE = need('BP_ACCOUNT_BINDINGS_FILE')
+REQUEST_FILE = need('BP_REQUEST_FILE')
+REQUEST_SHA256 = need('BP_REQUEST_SHA256')
+UUID_V4 = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+SHA256 = re.compile(r'^[0-9a-f]{64}$')
 
 def sha(b): return hashlib.sha256(b).hexdigest()
 def shaf(p): return sha(open(p, 'rb').read())
 def jload(p): return json.load(open(p))
+def bound_request():
+    st = os.lstat(REQUEST_FILE)
+    assert os.path.isabs(REQUEST_FILE) and os.path.realpath(REQUEST_FILE) == REQUEST_FILE, 'request path must be absolute and canonical'
+    assert stat.S_ISREG(st.st_mode) and not os.path.islink(REQUEST_FILE) and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) in (0o400, 0o600), 'request must be a private regular file'
+    assert SHA256.fullmatch(REQUEST_SHA256), 'admitted request digest invalid'
+    with open(REQUEST_FILE, 'rb') as stream:
+        request_bytes = stream.read()
+    assert sha(request_bytes) == REQUEST_SHA256, 'request changed since admission'
+    request = json.loads(request_bytes)
+    assert isinstance(request, dict) and request.get('runId') == CAMPAIGN, 'request campaign differs'
+    return request_bytes, request
+def account_bindings():
+    st = os.lstat(ACCOUNT_BINDINGS_FILE)
+    assert os.path.isabs(ACCOUNT_BINDINGS_FILE) and os.path.realpath(ACCOUNT_BINDINGS_FILE) == ACCOUNT_BINDINGS_FILE, 'account bindings path must be absolute and canonical'
+    assert stat.S_ISREG(st.st_mode) and not os.path.islink(ACCOUNT_BINDINGS_FILE) and st.st_nlink == 1 and stat.S_IMODE(st.st_mode) == 0o600, 'account bindings must be a private regular file'
+    value = jload(ACCOUNT_BINDINGS_FILE)
+    assert set(value) == {'schema', 'projectRef', 'projectOrigin', 'sourceBundleSha256', 'roles', 'campaignId'}, 'account bindings shape differs'
+    assert value['schema'] == 'speaksharp.cloud-test.live-account-bindings.v1' and value['campaignId'] == CAMPAIGN, 'account bindings campaign differs'
+    assert value['projectRef'] == PROJECT_REF and value['projectOrigin'] == f'https://{HOST_DB}', 'account bindings project differs'
+    assert isinstance(value['sourceBundleSha256'], str) and len(value['sourceBundleSha256']) == 64 and all(c in '0123456789abcdef' for c in value['sourceBundleSha256']), 'account bundle digest invalid'
+    expected = {'existing-disposable': {'email': 'THROWAWAY_TEST_EMAIL', 'password': 'THROWAWAY_TEST_PASSWORD'},
+                'maintained-read-only': {'email': 'FREE_TEST_EMAIL', 'password': 'FREE_TEST_PASSWORD'}}
+    assert set(value['roles']) == set(expected), 'account binding roles differ'
+    ids = []
+    for role, names in expected.items():
+        row = value['roles'][role]
+        assert set(row) == {'accountId', 'credentialVars'} and row['credentialVars'] == names, 'account role binding differs'
+        uid = row['accountId']
+        assert isinstance(uid, str) and UUID_V4.fullmatch(uid), 'account id invalid'
+        ids.append(uid)
+    assert len(set(ids)) == len(ids), 'account role ids must be distinct'
+    return value
 def put(path, obj, mode=0o600):
     data = (json.dumps(obj, indent=2) + '\n').encode()
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
     with os.fdopen(fd, 'wb') as f: f.write(data)
+    return sha(data)
+def put_canonical(path, obj, mode=0o600):
+    data = (json.dumps(obj, sort_keys=True, separators=(',', ':')) + '\n').encode('ascii')
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    with os.fdopen(fd, 'wb') as f:
+        f.write(data); f.flush(); os.fsync(f.fileno())
     return sha(data)
 def now(): return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
 
@@ -107,7 +150,10 @@ assert (os.stat(PRIVATE).st_mode & 0o777) == 0o700
 
 if phase == 'phase1':
     for d in ('cases', 'cfg'): os.makedirs(f'{PRIVATE}/{d}', mode=0o700, exist_ok=False)
-    UID = open(UID_FILE).read().strip()
+    ACCOUNT_BINDINGS = account_bindings()
+    ACCOUNT_BINDINGS_SHA = shaf(ACCOUNT_BINDINGS_FILE)
+    REQUEST_BYTES, REQUEST = bound_request()
+    DISPOSABLE_UID = ACCOUNT_BINDINGS['roles']['existing-disposable']['accountId']
     ANON = need('VITE_SUPABASE_ANON_KEY')
     contracts = {c['caseId']: c for c in jload(f'{PACKET}/draft-adapters/contracts.json')['cases']} \
         if isinstance(jload(f'{PACKET}/draft-adapters/contracts.json'), dict) and 'cases' in jload(f'{PACKET}/draft-adapters/contracts.json') \
@@ -134,7 +180,7 @@ if phase == 'phase1':
         descriptor = jload(descriptor_file)
         assert os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('GITHUB_REPOSITORY') == 'relativityE/speaksharp', 'same GitHub job required'
         run_id, attempt = need('GITHUB_RUN_ID'), need('GITHUB_RUN_ATTEMPT')
-        assert run_id.isdecimal() and attempt.isdecimal(), 'actual GitHub run/attempt required'
+        assert run_id.isdecimal() and attempt == '1', 'actual GitHub run and strict attempt 1 required'
         job_id = need('GITHUB_JOB')
         assert descriptor['producerIdentity'] == f'github-actions:relativityE/speaksharp:{run_id}:{attempt}:{job_id}' and descriptor['jobId'] == job_id, 'producer belongs to another job'
         assert descriptor['producerCodeSha256'] == shaf(f'{PACKET}/bundle/harness/authenticated-job-producer.cjs'), 'producer bytes differ'
@@ -176,9 +222,13 @@ if phase == 'phase1':
                   'takeCap': TAKES[n], 'startPressCap': PRESS[n]})
         if BREADTH and n in (2, 3): c['sampleMode'] = 'breadth'
         if MINIMAL: c['sampleMode'] = 'minimal'
-        c['account'] = {'id': UID, 'mode': 'maintained-read-only' if n == 15 else 'existing-disposable',
+        account_role = 'maintained-read-only' if n == 15 else 'existing-disposable'
+        account_binding = ACCOUNT_BINDINGS['roles'][account_role]
+        c['account'] = {'id': account_binding['accountId'], 'mode': account_role,
+                        'bindingReceiptSha256': ACCOUNT_BINDINGS_SHA,
                         'preprovisionReceipt': R['pre'], 'analyticsExclusionReceipt': R['analytics'],
                         'dispositionReceipt': R['disp'], 'effectiveFeatureAccessApproved': True}
+        c['credentialVars'] = dict(account_binding['credentialVars'])
         c['readback'] = {'origin': f'https://{HOST_DB}', 'projectRef': PROJECT_REF, 'anonKey': ANON,
                          'schemaSha256': schema_sha, 'ownerReadApproved': True, 'rlsReadQualificationReceipt': R['rls']}
         if n in (9, 10): c['readback']['immutableFenceMigrationQualificationReceipt'] = R['fence']
@@ -209,7 +259,10 @@ if phase == 'phase1':
         p = f'{PRIVATE}/cases/{cid}.json'; h = put(p, c)
         cases[cid] = (p, h)
     json.dump({'media_of': media_of, 'receiver_sha': receiver_sha, 'oracle_sha': oracle_sha, 'schema_sha': schema_sha,
-               'pdf_sha': pdf_sha, 'uid_sha256': sha(UID.encode())}, open(f'{PRIVATE}/cfg/phase1-facts.json', 'w'), indent=2)
+               'pdf_sha': pdf_sha, 'account_bindings_sha256': ACCOUNT_BINDINGS_SHA,
+               'request_sha256': sha(REQUEST_BYTES),
+               'account_uid_sha256': {role: sha(row['accountId'].encode()) for role, row in ACCOUNT_BINDINGS['roles'].items()}},
+              open(f'{PRIVATE}/cfg/phase1-facts.json', 'w'), indent=2)
     # policy (campaign copy of the reviewed template; disclosed tightenings)
     pol = jload(f'{PACKET}/bundle/config/policy.production.TEMPLATE.json')
     pol = {k: v for k, v in pol.items() if not k.startswith('_')}
@@ -260,7 +313,7 @@ if phase == 'phase1':
     for n in (5, 6):
         so = {'manifestFile': f'{PRIVATE}/cfg/reviewed-steps.json', 'expectedManifestSha256': steps_sha, 'stepRoot': PACKET,
               'oracleFile': f'{PACKET}/draft-adapters/durable-save-oracle.cjs', 'sourceId': f'{CAMPAIGN}-AHT-{n:02d}',
-              'dynamicSessionBinding': {'host': HOST_DB, 'ownerId': UID, 'sourceSha': B}}
+              'dynamicSessionBinding': {'host': HOST_DB, 'ownerId': DISPOSABLE_UID, 'sourceSha': B}}
         put(f'{PRIVATE}/cfg/save-oracle-AHT-{n:02d}.json', so)
     # plan rows file (finished in phase 2 once hashes of everything exist)
     json.dump({'cases': {k: {'config': v[0], 'configSha256': v[1]} for k, v in cases.items()}, 'policySha256': pol_sha,
@@ -281,13 +334,16 @@ elif phase == 'phase2':
             or not os.path.isfile(browser_path) or os.path.islink(browser_path) or shaf(browser_path) != browser_sha:
         raise ValueError('BLOCKED_SETUP: browser identity path/bytes changed before plan binding')
     idx = jload(f'{PRIVATE}/cfg/phase1-index.json'); facts = jload(f'{PRIVATE}/cfg/phase1-facts.json')
-    UID = open(UID_FILE).read().strip()
+    ACCOUNT_BINDINGS = account_bindings()
+    assert shaf(ACCOUNT_BINDINGS_FILE) == facts['account_bindings_sha256'], 'account bindings changed between plan phases'
+    REQUEST_BYTES, REQUEST = bound_request()
+    assert sha(REQUEST_BYTES) == facts['request_sha256'], 'request changed between plan phases'
     # runtime attestation: actual platform observation, written only after the window opened
     assert now() >= T0, 'window not open yet'
     if RUNTIME == 'GitHub Actions SpeakSharp':
         assert os.environ.get('GITHUB_ACTIONS') == 'true' and need('GITHUB_REPOSITORY') == 'relativityE/speaksharp', 'actual selected GitHub job required'
         run_id, attempt, job_id = need('GITHUB_RUN_ID'), need('GITHUB_RUN_ATTEMPT'), need('GITHUB_JOB')
-        assert run_id.isdecimal() and attempt.isdecimal(), 'actual GitHub run/attempt required'
+        assert run_id.isdecimal() and attempt == '1', 'actual GitHub run and strict attempt 1 required'
         workflow_sha = need('GITHUB_SHA')
         assert len(workflow_sha) == 40 and all(c in '0123456789abcdef' for c in workflow_sha), 'workflow source identity missing'
         att = {'kind': 'github-actions-job-environment-receipt', 'platformUrl': 'https://github.com', 'runtime': RUNTIME,
@@ -333,7 +389,10 @@ elif phase == 'phase2':
         if n in oracle_cases: r['caseOracleFile'] = f'{PACKET}/draft-adapters/oracles/index.cjs'
         if n in prod_cases: r['producerReceiverFile'] = f"{PACKET}/{idx['producerReceiverRelativePath']}"
         rows.append(r)
-    plan = {'version': 1, 'campaignId': CAMPAIGN, 'runtime': RUNTIME, 'targetUrl': f'https://{HOST_APP}/', 'costCeilingUsd': 0,
+    execution_run_id = att.get('runId') or att.get('taskId')
+    plan = {'version': 1, 'campaignId': CAMPAIGN, 'requestSha256': REQUEST_SHA256,
+            'executionIdentity': {'runId': execution_run_id, 'attempt': 1},
+            'runtime': RUNTIME, 'targetUrl': f'https://{HOST_APP}/', 'costCeilingUsd': 0,
             'sourceSha': B, 'servedSha': B, 'admissionConfigFile': f'{PRIVATE}/cfg/admission.json', 'admissionConfigSha256': adm_sha,
             'stepRoot': PACKET, 'stepManifestFile': f'{PRIVATE}/cfg/reviewed-steps.json', 'stepManifestSha256': idx['stepsSha256'],
             'campaignLedger': adm['campaignLedger'], 'identityLedger': adm['identityLedger'], 'runRoot': f'{PRIVATE}/run',
@@ -384,4 +443,9 @@ elif phase == 'phase2':
     if os.environ.get('BP_STIM'):
         plan['stimulusPreflight'] = {'file': os.environ['BP_STIM'], 'sha256': shaf(os.environ['BP_STIM'])}
     plan_sha = put(f'{PRIVATE}/cfg/campaign-plan.json', plan)
-    print('phase2 OK', json.dumps({'attestation': att_sha[:12], 'admission': adm_sha[:12], 'plan': plan_sha[:12]}))
+    build_receipt = {'schema': 'speaksharp.cloud-test.build-plan-consumption.v1', 'consumer': 'build-plan',
+                     'campaignId': CAMPAIGN, 'runId': execution_run_id, 'attempt': 1,
+                     'requestSha256': REQUEST_SHA256, 'planSha256': plan_sha, 'admissionConfigSha256': adm_sha,
+                     'sourceSha': B, 'servedSha': B, 'consumedAtUtc': now()}
+    build_receipt_sha = put_canonical(f'{PRIVATE}/cfg/build-plan-consumption.json', build_receipt)
+    print('phase2 OK', json.dumps({'attestation': att_sha[:12], 'admission': adm_sha[:12], 'plan': plan_sha[:12], 'buildReceipt': build_receipt_sha[:12]}))

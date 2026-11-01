@@ -178,6 +178,7 @@
     "package-unit-tests::test_full_coverage.GeneratedProposalRendering.test_budget_renderer_keeps_independent_synthetic_arithmetic",
     "package-unit-tests::test_full_coverage.GeneratedProposalRendering.test_cost_renderer_preserves_categories_and_mismatch_warning",
     "package-unit-tests::test_full_coverage.GeneratedProposalRendering.test_renderer_retains_non_authority_and_unknown_costs",
+    "package-unit-tests::test_full_coverage.ModePassThrough.test_a_admitted_b_read_by_environment_then_a_restored_is_refused_before_builder",
     "package-unit-tests::test_full_coverage.ModePassThrough.test_a_mismatched_sample_mode_is_refused",
     "package-unit-tests::test_full_coverage.ModePassThrough.test_full_and_partial_requests_pass_their_own_mode_to_the_builder",
     "package-unit-tests::test_full_coverage.ModePassThrough.test_the_builder_refuses_to_run_without_a_mode_and_has_a_full_branch",

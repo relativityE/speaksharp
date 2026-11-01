@@ -45,7 +45,9 @@ class SelectedFullCaseRoute(unittest.TestCase):
         root = Path(temporary.name).resolve()
         request_file, output = root / "request.json", root / "env.txt"
         request_file.write_text(json.dumps(request))
-        result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", str(request_file), "--out", str(output)],
+        request_sha = hashlib.sha256(request_file.read_bytes()).hexdigest()
+        result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", str(request_file),
+                                 "--request-sha256", request_sha, "--out", str(output)],
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         values = {}
@@ -69,10 +71,15 @@ class SelectedFullCaseRoute(unittest.TestCase):
         root = Path(temporary.name).resolve()
         output = root / "out"
         output.mkdir(mode=0o700)
-        req, facts, uid = root / "request.json", root / "facts.json", root / "account.txt"
+        req, facts, accounts = root / "request.json", root / "facts.json", root / "live-accounts.json"
         req.write_text(json.dumps(request)); req.chmod(0o600)
         facts.write_text(json.dumps(J("tests", "fixtures", "plan-facts.PLACEHOLDER.json"))); facts.chmod(0o600)
-        uid.write_text("00000000-0000-4000-8000-000000000001"); uid.chmod(0o600)
+        project_ref = "yxlapjuovrsvjswkwnrk"
+        accounts.write_text(json.dumps({"version": 1, "projectRef": project_ref, "accounts": {
+            "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001", "email": "unit@example.invalid"},
+            "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002", "email": "maintained@example.invalid"}}}, sort_keys=True, separators=(",", ":")) + "\n")
+        accounts.chmod(0o600)
+        (root / "run-inputs").mkdir(mode=0o700)
         browser = root / "synthetic-browser"
         browser.write_bytes(b"synthetic browser identity; never executed\n")
         browser_identity = output / "browser-identity.json"
@@ -80,10 +87,11 @@ class SelectedFullCaseRoute(unittest.TestCase):
                                                 "path": str(browser.resolve()),
                                                 "observedBinarySha256": hashlib.sha256(browser.read_bytes()).hexdigest()}))
         env = {"PATH": os.environ["PATH"], "HOME": str(root), "CT_CONFIG": str(Path(ROOT) / "config/test-config.v1.json"),
-               "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),
-               "CT_ACCOUNT_ID_FILE": str(uid), "BP_BROWSER_IDENTITY": str(browser_identity),
+               "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_REQUEST_SHA256": hashlib.sha256(req.read_bytes()).hexdigest(), "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),
+               "CT_LIVE_ACCOUNTS_FILE": str(accounts), "CT_LIVE_ACCOUNTS_SHA256": hashlib.sha256(accounts.read_bytes()).hexdigest(),
+               "CT_PRIVATE_INPUT_DIR": str(root / "run-inputs"), "BP_BROWSER_IDENTITY": str(browser_identity),
                "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE",
-               "VITE_SUPABASE_URL": "https://project.supabase.co",
+               "VITE_SUPABASE_URL": "https://" + project_ref + ".supabase.co",
                "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40,
                "THROWAWAY_TEST_EMAIL": "unit@example.invalid", "THROWAWAY_TEST_PASSWORD": "SYNTHETIC-PASSWORD"}

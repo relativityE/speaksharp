@@ -4,8 +4,12 @@ The names follow the harness plan builder (build_private_*.py): BP_CAMPAIGN, BP_
 BP_SELECT_REF, BP_SELECT_REASON, BP_BACKEND_*. Credentials are NOT written here; the workflow supplies them at the build and run steps only.
 Usage: run_env.py --request R.json --out env.txt"""
 import argparse
+import hashlib
+import json
 import os
+import re
 import shlex
+import stat
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -14,6 +18,31 @@ from _common import load  # noqa: E402
 
 SAMPLE = {"partial": "minimal", "full": "full"}
 BP_MODE = dict(SAMPLE)   # the request's coverageMode is the only source; a request without one fails here
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def bound_request(path, expected_sha256):
+    if not isinstance(path, str) or not os.path.isabs(path) or os.path.realpath(path) != path:
+        sys.exit("BLOCKED_SETUP: request path must be absolute and canonical")
+    try:
+        info = os.lstat(path)
+    except OSError:
+        sys.exit("BLOCKED_SETUP: admitted request is unavailable")
+    if not stat.S_ISREG(info.st_mode) or os.path.islink(path) or info.st_nlink != 1:
+        sys.exit("BLOCKED_SETUP: admitted request must be a single private file")
+    if not SHA256.fullmatch(expected_sha256 or ""):
+        sys.exit("BLOCKED_SETUP: admitted request digest is missing or malformed")
+    with open(path, "rb") as stream:
+        raw = stream.read()
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        sys.exit("BLOCKED_SETUP: request changed since admission")
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        sys.exit("BLOCKED_SETUP: admitted request is not valid JSON")
+    if not isinstance(value, dict):
+        sys.exit("BLOCKED_SETUP: admitted request must be an object")
+    return value
 
 
 def cfg_pin():
@@ -28,9 +57,10 @@ def num(case):
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--request", required=True)
+    a.add_argument("--request-sha256", required=True)
     a.add_argument("--out", required=True)
     x = a.parse_args()
-    r = load(x.request)
+    r = bound_request(x.request, x.request_sha256)
     mode = r.get("coverageMode")
     if mode not in BP_MODE:
         sys.exit("coverageMode must be partial or full; the plan mode is never defaulted")

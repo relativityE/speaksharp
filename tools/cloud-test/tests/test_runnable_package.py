@@ -20,6 +20,21 @@ import verify_harness as VH
 
 CFG = os.path.join(ROOT, "config", "test-config.v1.json")
 RECEIVING_SOURCE = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
+PROJECT_REF = "yxlapjuovrsvjswkwnrk"
+
+
+def write_account_bindings(path, campaign_id):
+    wjson(path, {"schema": "speaksharp.cloud-test.live-account-bindings.v1",
+                 "projectRef": PROJECT_REF,
+                 "projectOrigin": "https://%s.supabase.co" % PROJECT_REF,
+                 "sourceBundleSha256": "a" * 64,
+                 "campaignId": campaign_id,
+                 "roles": {
+                     "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001",
+                                               "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}},
+                     "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002",
+                                               "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}}})
+    os.chmod(path, 0o600)
 
 
 def sha(b):
@@ -257,7 +272,7 @@ class PlanBuilderProof(unittest.TestCase):
         prerequisite(node_ok(), "node")
         prerequisite(subprocess.run(["git", "-C", REPO, "cat-file", "-e", RECEIVING_SOURCE + "^{commit}"], capture_output=True).returncode == 0, "git history with the receiving-source SHA")
         prerequisite(os.path.isfile(os.path.join(REPO, "tests", "fixtures", "rwt", "open_mic_tts.wav")), "the reviewed speech fixtures in the checkout")
-        cls.work = tempfile.mkdtemp(prefix="ct-plan-")
+        cls.work = os.path.realpath(tempfile.mkdtemp(prefix="ct-plan-"))
         cls.browser = os.path.join(cls.work, "synthetic-browser")
         Path(cls.browser).write_bytes(b"synthetic browser identity; never executed\n")
         cls.browser_identity = os.path.join(cls.work, "browser-identity.json")
@@ -270,9 +285,11 @@ class PlanBuilderProof(unittest.TestCase):
         req["approvedLimits"] = {"cumulativeCeilingRequests": 6700, "identityCap": 98, "runCapRequests": 180, "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
         req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
         req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
-        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req)
-        cls.acct = os.path.join(cls.work, "acct.txt"); open(cls.acct, "w").write("00000000-0000-4000-8000-000000000001\n"); os.chmod(cls.acct, 0o600)
-        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--out", os.path.join(cls.work, "env.txt"))
+        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req); os.chmod(cls.reqp, 0o600)
+        cls.bindings = os.path.join(cls.work, "account-bindings.json")
+        write_account_bindings(cls.bindings, req["runId"])
+        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--request-sha256", hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
+                   "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
 
     def build(self, name, extra=None, drop=()):
@@ -282,7 +299,8 @@ class PlanBuilderProof(unittest.TestCase):
         # as FullPlanProof already does; otherwise they silently exercise Claude.
         script += "".join("export %s=%s; " % (key, shlex.quote(value)) for key, value in (extra or {}).items() if key not in drop)
         env = {"PATH": os.environ["PATH"], "HOME": self.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
-               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": self.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
+               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_BINDINGS_FILE": self.bindings,
+               "BP_REQUEST_FILE": self.reqp, "BP_REQUEST_SHA256": hashlib.sha256(Path(self.reqp).read_bytes()).hexdigest(), "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(self.work, "media"),
                "BP_BROWSER_IDENTITY": self.browser_identity,
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key"}
@@ -438,8 +456,8 @@ class PlanBuilderProof(unittest.TestCase):
 
     # ---- fail closed on missing inputs
     def test_missing_inputs_are_blocked_setup(self):
-        for name in ("BP_FACTS", "BP_ACCOUNT_ID_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY", "BP_SOURCE_SHA", "BP_SELECT_REF"):
-            private, out = self.build("p-miss-" + name.lower(), drop=(name,)) if name in ("BP_FACTS", "BP_ACCOUNT_ID_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY") else (None, None)
+        for name in ("BP_FACTS", "BP_ACCOUNT_BINDINGS_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY", "BP_SOURCE_SHA", "BP_SELECT_REF"):
+            private, out = self.build("p-miss-" + name.lower(), drop=(name,)) if name in ("BP_FACTS", "BP_ACCOUNT_BINDINGS_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY") else (None, None)
             if out is None:
                 continue
             self.assertTrue(out[-1].returncode == 78, (name, out[-1].returncode, out[-1].stderr[-200:]))

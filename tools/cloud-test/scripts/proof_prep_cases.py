@@ -5,6 +5,7 @@ tests/fixtures/plan-facts.PLACEHOLDER.json, with a dummy account id and a dummy 
 no network. The packet under test is the vendored harness unless --packet names another copy.
 Usage: proof_prep_cases.py --out NEW_DIR [--packet HARNESS_DIR]   (prints NEW_DIR/cases on success)"""
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -16,6 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 REPO = os.path.abspath(os.path.join(ROOT, "..", ".."))
 DUMMY_ACCOUNT = "00000000-0000-4000-8000-000000000001"
+PROJECT_REF = "yxlapjuovrsvjswkwnrk"
 
 
 def placeholder_request(packet):
@@ -52,20 +54,30 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
         raise SystemExit("--out must not exist")
     pdfjs = pinned_pdfjs()
     work = tempfile.mkdtemp(prefix="ct-proof-prep-")
-    reqp, acct, envf = (os.path.join(work, n) for n in ("req.json", "acct.txt", "env.txt"))
+    reqp, bindings, envf = (os.path.join(work, n) for n in ("req.json", "account-bindings.json", "env.txt"))
+    request = placeholder_request(packet)
     with open(reqp, "w", encoding="utf-8") as f:
-        json.dump(placeholder_request(packet), f)
-    with open(acct, "w", encoding="utf-8") as f:
-        f.write(DUMMY_ACCOUNT + "\n")
-    os.chmod(acct, 0o600)
+        json.dump(request, f)
+    binding = {"schema": "speaksharp.cloud-test.live-account-bindings.v1", "projectRef": PROJECT_REF,
+               "projectOrigin": "https://%s.supabase.co" % PROJECT_REF, "sourceBundleSha256": "a" * 64,
+               "campaignId": request["runId"], "roles": {
+                   "existing-disposable": {"accountId": DUMMY_ACCOUNT, "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}},
+                   "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002", "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}}}
+    with open(bindings, "w", encoding="utf-8") as f:
+        json.dump(binding, f)
+    os.chmod(bindings, 0o600)
     base = {"PATH": os.environ["PATH"], "HOME": work}
-    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "run_env.py"), "--request", reqp, "--out", envf], capture_output=True, text=True, cwd=ROOT, env=base)
+    with open(reqp, "rb") as stream:
+        request_sha256 = hashlib.sha256(stream.read()).hexdigest()
+    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "run_env.py"), "--request", reqp,
+                        "--request-sha256", request_sha256, "--out", envf], capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
         raise SystemExit("run_env.py failed (%d)" % r.returncode)
     if "phase2" in phases and not browser_identity:
         raise SystemExit("BLOCKED_SETUP: phase2 requires this proof run's browser identity receipt")
     env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"),
-               BP_ACCOUNT_ID_FILE=acct, BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
+               BP_ACCOUNT_BINDINGS_FILE=bindings, BP_REQUEST_FILE=reqp, BP_REQUEST_SHA256=request_sha256,
+               BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
                BP_ENV_ID="env_PLACEHOLDER", BP_MEDIA_PARENT=os.path.join(work, "media"), VITE_SUPABASE_ANON_KEY="placeholder-publishable-key", BP_PDFJS_DIR=pdfjs)
     if browser_identity:
         env["BP_BROWSER_IDENTITY"] = os.path.abspath(browser_identity)

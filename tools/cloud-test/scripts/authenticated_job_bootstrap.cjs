@@ -6,7 +6,8 @@ const H=path.resolve(__dirname,'../harness/bundle/harness');
 const {descriptor,jobIdentity,validateScope}=require(path.join(H,'authenticated-job-producer.cjs'));
 const {privateJson}=require(path.join(H,'with-authenticated-evidence.cjs'));
 const {sha}=require(path.join(H,'existing-runner-projection.cjs'));
-const BP_NAMES=Object.freeze(['MODE','PACKET','CHECKOUT','PRIVATE','FACTS','ACCOUNT_ID_FILE','BROWSER_IDENTITY','SOURCE_SHA','CAMPAIGN','T0','T1','TOTAL','CLEANUP','IDENT','SELECT','GATES','EST','COACHING_CAP','SELECT_REF','SELECT_REASON','BACKEND_SOURCE','BACKEND_VERIFIED','CASES','HOST_APP','HOST_DB','MEDIA_PARENT','PDFJS_DIR','PDFJS_SHA','PRESS_EXTRA','SKIP','STIM','LEASE_RPCS','LEASE_READ'].map(x=>'BP_'+x));
+const {validateBindingDocument}=require('./resolve_live_account_bindings.cjs');
+const BP_NAMES=Object.freeze(['MODE','PACKET','CHECKOUT','PRIVATE','FACTS','ACCOUNT_BINDINGS_FILE','REQUEST_FILE','REQUEST_SHA256','BROWSER_IDENTITY','SOURCE_SHA','CAMPAIGN','T0','T1','TOTAL','CLEANUP','IDENT','SELECT','GATES','EST','COACHING_CAP','SELECT_REF','SELECT_REASON','BACKEND_SOURCE','BACKEND_VERIFIED','CASES','HOST_APP','HOST_DB','MEDIA_PARENT','PDFJS_DIR','PDFJS_SHA','PRESS_EXTRA','SKIP','STIM','LEASE_RPCS','LEASE_READ'].map(x=>'BP_'+x));
 function builderEnvironment(env,selection){
  const out={};
  for(const k of ['PATH','HOME','LANG','LC_ALL','TMPDIR','GITHUB_ACTIONS','GITHUB_REPOSITORY','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_JOB','GITHUB_SHA','VITE_SUPABASE_ANON_KEY',...BP_NAMES])if(env[k]!==undefined)out[k]=env[k];
@@ -24,8 +25,9 @@ function assertDirectory(dir){
 function validateBindings(scope,facts,env){
  jobIdentity(env);validateScope(scope,Date.now());
  if(scope.campaignId!==env.BP_CAMPAIGN||scope.sourceSha!==env.BP_SOURCE_SHA||scope.servedSha!==env.BP_SOURCE_SHA||scope.notBefore!==env.BP_T0||scope.deadlineAt!==env.BP_T1||!scope.ownerApprovalReference||scope.ownerApprovalReference!==facts.ownerApprovalReference||!scope.producerReviewReference||scope.producerReviewReference!==facts.producerReviewReference)throw Error('SELECTED_SCOPE_DIFFERS');
- const uid=fs.readFileSync(env.BP_ACCOUNT_ID_FILE,'utf8').trim();
- if(scope.ownerAccountId!==uid)throw Error('SELECTED_ACCOUNT_DIFFERS');
+ const bindingBytes=fs.readFileSync(env.BP_ACCOUNT_BINDINGS_FILE),binding=privateJson(env.BP_ACCOUNT_BINDINGS_FILE,sha(bindingBytes));
+ validateBindingDocument(binding,{campaignId:env.BP_CAMPAIGN,projectOrigin:`https://${env.BP_HOST_DB}`});
+ if(scope.ownerAccountId!==binding.roles['existing-disposable'].accountId)throw Error('SELECTED_ACCOUNT_DIFFERS');
 }
 function prepare({authorization,authorizationSha256,env=process.env,runBuilder}={}){
  // Neither arbitrary commands nor an alternate builder path are accepted.
