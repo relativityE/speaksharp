@@ -1,8 +1,8 @@
 import type { MicStream } from '../utils/types';
 import type { Result } from '../modes/types';
 import type { AvailabilityResult, STTStrategy } from '../STTStrategy';
-import { CANDIDATES, identityOf, isCompleteIdentity, type CandidateId } from '../candidateRegistry';
-import { fetchVerifiedAssets, pinnedAssetsFor, pinnedTotalBytes } from '../moonshineAssetPins';
+import { CANDIDATES, identityOf, isCompleteIdentity, type Candidate, type CandidateId } from '../candidateRegistry';
+import { fetchVerifiedAssets, type PinnedAsset } from '../moonshineAssetPins';
 
 /** Only the registered Moonshine candidates may back this engine. */
 export type MoonshineCandidateId = `moonshine:${string}`;
@@ -245,8 +245,16 @@ export class MoonshineStreamingEngine implements STTStrategy {
                     + 'refusing to start a session whose model bytes cannot be identified',
                 );
             }
+            // The architecture is candidate DATA. A factory that passed one arch for a candidate declaring
+            // another would load a different model under this id.
+            if (candidate.execution.modelArch !== this.options.modelArch) {
+                throw new Error(
+                    `candidate ${this.options.candidateId} declares arch ${candidate.execution.modelArch ?? 'none'}, `
+                    + `not ${this.options.modelArch}; refusing to load a model it did not declare`,
+                );
+            }
             const load = this.options.loadTranscriber
-                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress, candidate.model.id));
+                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, moonshineAssetsOf(candidate), this.options.onDownloadProgress));
 
             // THE ABANDONED LOADER. `Promise.race` only decides which promise this function waits for —
             // it does not cancel the loser. When the timeout won, `load()` kept running: it finished
@@ -616,18 +624,6 @@ function textOf(result: { lines?: { text?: string }[]; text?: string }): string 
  * selected. That is the exact "identity taken from a default" failure this engine exists to prevent, and
  * no test with an injected transcriber can see it, because only the DEFAULT loader touches the enum.
  */
-/**
- * Which arch each registered Moonshine candidate IS.
- *
- * Lives HERE, with the module that owns arch knowledge, rather than in the facade: a candidate id
- * hardcoded in `PrivateSTT` is a second place the slate is written down, and the registry guard flags
- * it for exactly that reason. Absent entry means refuse — never load whichever arch happens to be
- * first and report the configured id over it.
- */
-export const MOONSHINE_ARCH_BY_CANDIDATE: Readonly<Partial<Record<MoonshineCandidateId, MoonshineArch>>> = Object.freeze({
-    'moonshine:streaming-medium': 'MOONSHINE_STREAMING_MEDIUM',
-});
-
 export const RUNTIME_ARCH_MEMBER: Readonly<Record<MoonshineArch, string>> = Object.freeze({
     MOONSHINE_STREAMING_SMALL: 'SmallStreaming',
     MOONSHINE_STREAMING_MEDIUM: 'MediumStreaming',
@@ -646,10 +642,32 @@ export function resolveModelArch(modelArch: Record<string, unknown>, arch: Moons
     return value;
 }
 
+/**
+ * The candidate's OWN verified inventory, keyed by the canonical filename the runtime expects.
+ *
+ * A built-in candidate and an imported package carry the same `assets.files` shape, so a new Moonshine
+ * model is a data change: no side table to edit, no id to register here. A candidate without a complete
+ * inventory refuses before anything is fetched.
+ */
+export function moonshineAssetsOf(candidate: Candidate): PinnedAsset[] {
+    const files = candidate.assets.files;
+    if (!files?.length) {
+        throw new Error(`candidate ${candidate.id} carries no asset inventory; refusing to fetch unpinned bytes`);
+    }
+    const assets = files.map((f) => {
+        if (!f.url) throw new Error(`candidate ${candidate.id} asset ${f.path} has no pinned URL`);
+        return { file: f.path.split('/').pop()!, url: f.url, sha256: f.sha256, bytes: f.bytes };
+    });
+    if (new Set(assets.map((a) => a.file)).size !== assets.length) {
+        throw new Error(`candidate ${candidate.id} names a runtime file twice; refusing an ambiguous inventory`);
+    }
+    return assets.sort((a, b) => a.file.localeCompare(b.file));
+}
+
 async function defaultLoadTranscriber(
     arch: MoonshineArch,
+    assets: PinnedAsset[],
     onDownloadProgress?: (fraction: number) => void,
-    modelId?: string,
 ): Promise<MoonshineTranscriber> {
     const g = globalThis as unknown as { __name?: (t: unknown, v?: unknown) => unknown };
     g.__name ??= (target) => target;
@@ -657,10 +675,6 @@ async function defaultLoadTranscriber(
         Transcriber: { load: (o: Record<string, unknown>) => Promise<MoonshineTranscriber> };
         ModelArch: Record<string, unknown>;
     };
-
-    if (!modelId) {
-        throw new Error('refusing to load Moonshine without a model id to resolve committed pins against');
-    }
 
     // THE PINS NOW DECIDE WHAT RUNS. This called `Transcriber.load({ language, modelArch, onProgress })`,
     // which resolves the model through the vendor's CDN *catalog*: the executing bytes were whatever the
@@ -672,8 +686,7 @@ async function defaultLoadTranscriber(
     // Every component is fetched from its pinned URL and refused unless its length and SHA-256 match, and
     // only verified buffers reach the runtime. `language` is not passed at all: it is what triggers
     // catalog resolution, and leaving it in would let the runtime fall back to fetching its own copy.
-    const assets = pinnedAssetsFor(modelId);
-    const expectedTotal = pinnedTotalBytes(modelId);
+    const expectedTotal = assets.reduce((sum, a) => sum + a.bytes, 0);
     const loadedByFile = new Map<string, number>();
     const files = await fetchVerifiedAssets(assets, fetch, (file, loaded) => {
         // BYTE-BASED, NORMALISED ONCE. The runtime's own callback is

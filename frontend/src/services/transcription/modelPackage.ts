@@ -23,7 +23,15 @@ const PROFILE_RUNTIME = {
     'transformers-js': ['@xenova/transformers', '2.17.2'],
     'granite-ctc': ['onnxruntime-web', '1.26.0'],
     'parakeet-tdt': ['parakeet.js', '1.4.4'],
+    // The reviewed npm runtime executes; a package supplies only its weights and configuration.
+    'moonshine-streaming': ['@moonshine-ai/moonshine-wasm', '0.1.5'],
 } as const;
+/** Architectures the installed Moonshine adapter can resolve against its runtime's ModelArch enum. */
+export const MOONSHINE_PACKAGE_ARCHES = Object.freeze(['MOONSHINE_STREAMING_MEDIUM', 'MOONSHINE_STREAMING_SMALL'] as const);
+/** The components the Moonshine streaming runtime loads, by canonical filename. */
+export const MOONSHINE_PACKAGE_FILES = Object.freeze(['adapter.ort', 'cross_kv.ort', 'decoder_kv.ort', 'encoder.ort',
+    'frontend.ort', 'streaming_config.json', 'tokenizer.bin'] as const);
+const EXECUTABLE = /\.(?:[cm]?js|wasm)$/i;
 export class UnsupportedModelPackageError extends Error {
     readonly code: string;
     constructor(code: string) { super(code); this.name = 'UnsupportedModelPackageError'; this.code=code; }
@@ -79,6 +87,11 @@ export function parseModelPackage(input: unknown): ModelPackage {
         || decode.windowStride !== 0.01 || !Number.isSafeInteger(decode.vocabularySize) || decode.vocabularySize <= 1
         || decode.blankId !== decode.vocabularySize - 1 || p.runtime.dependencies?.['onnxruntime-web'] !== '1.24.1'
         || p.runtime.distribution !== 'pinned-assets')) refuse('UNSUPPORTED_PARAKEET_PROFILE');
+    if (p.engine === 'moonshine-streaming' && (p.execution.family !== 'moonshine-streaming'
+        || decode?.kind !== 'moonshine-streaming' || decode.streamingConfig !== 'pinned-assets' || decode.finalization !== 'force-update'
+        || !(MOONSHINE_PACKAGE_ARCHES as readonly string[]).includes(p.execution.modelArch ?? '')
+        || p.execution.liveResultKind !== 'snapshot' || p.model.device !== 'wasm' || p.model.dtype !== null
+        || p.runtime.distribution === 'pinned-assets')) refuse('UNSUPPORTED_MOONSHINE_PROFILE');
     if (!object(p.assets) || !Array.isArray(p.assets.files) || !p.assets.files.length || p.assets.files.length > 128) refuse('PACKAGE_ASSETS_MISSING');
     const paths = new Set<string>(); const urls = new Set<string>();
     for (const f of p.assets.files) {
@@ -103,9 +116,17 @@ export function parseModelPackage(input: unknown): ModelPackage {
             decode.runtimeBundleFile,decode.wasmGlueFile,decode.wasmBinaryFile];
         if (roles.some(file=>typeof file!=='string'||!paths.has(file)) || new Set(roles).size!==roles.length) refuse('UNSUPPORTED_PARAKEET_ASSETS');
     }
+    // Moonshine weights come from upstream URLs, and the runtime is the installed npm package, so a
+    // package carries exactly one copy of each component and nothing executable.
+    if (p.engine === 'moonshine-streaming') {
+        const names = p.assets.files.map(f => f.path.split('/').pop()!);
+        if (p.assets.files.some(f => !f.url.startsWith('https://') || EXECUTABLE.test(f.path))
+            || new Set(names).size !== names.length || names.length !== MOONSHINE_PACKAGE_FILES.length
+            || MOONSHINE_PACKAGE_FILES.some(file => !names.includes(file))) refuse('UNSUPPORTED_MOONSHINE_ASSETS');
+    }
     // Runtime code is installed adapter policy, not arbitrary executable package input.
     // A compatible new weight package reuses exactly the reviewed runtime artifacts.
-    if (p.engine !== 'transformers-js') {
+    if (p.engine === 'granite-ctc' || p.engine === 'parakeet-tdt') {
         const reference = p.engine === 'granite-ctc' ? graniteRuntimePins.files : parakeetRuntimePins.files;
         const runtimeFiles = reference.filter(f=>/\.(?:[cm]?js|wasm)$/i.test(f.path));
         for (const pin of runtimeFiles) {

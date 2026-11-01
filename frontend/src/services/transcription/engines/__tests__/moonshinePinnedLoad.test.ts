@@ -9,26 +9,23 @@
  * what `Transcriber.load` actually receives.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { pinnedAssetsFor as realPins } from '../../moonshineAssetPins';
+import { createHash, webcrypto } from 'node:crypto';
+import { CANDIDATES, type Candidate } from '../../candidateRegistry';
 
 /**
- * A SMALL pin set whose digests this test computes for real, so verification can SUCCEED and the
- * positive control can assert on what `Transcriber.load` actually receives. Only the pin TABLE is
- * substituted — the fetching, length check and SHA-256 comparison are the shipping implementation.
+ * A SMALL inventory whose digests this test computes for real, so verification can SUCCEED and the
+ * positive control can assert on what `Transcriber.load` actually receives. Only the candidate's
+ * `assets.files` DATA is substituted — the fetching, length check and SHA-256 comparison are the
+ * shipping implementation, and there is no side pin table to mock.
  */
 const TINY = [
     { file: 'encoder.ort', url: 'https://download.moonshine.ai/test/encoder.ort', bytes: 32, sha256: '648aa5c579fb30f38af744d97d6ec840c7a91277a499a0d780f3e7314eca090b' },
     { file: 'tokenizer.bin', url: 'https://download.moonshine.ai/test/tokenizer.bin', bytes: 16, sha256: '6399f6d863b08f4652b342c2e1350b4c01e291332d9d84d84b575bf7272897d2' },
 ];
-
-vi.mock('../../moonshineAssetPins', async (orig) => {
-    const actual = await orig() as Record<string, unknown>;
-    return {
-        ...actual,
-        pinnedAssetsFor: (id: string) => (id === 'medium-streaming-en' ? TINY : (actual.pinnedAssetsFor as typeof realPins)(id)),
-        pinnedTotalBytes: () => TINY.reduce((s, a) => s + a.bytes, 0),
-    };
-});
+const MEDIUM = CANDIDATES['moonshine:streaming-medium'];
+const withFiles = (files: Candidate['assets']['files'], patch: Partial<Candidate> = {}): Candidate =>
+    ({ ...MEDIUM, ...patch, assets: { ...MEDIUM.assets, files } } as Candidate);
+const PACKAGED = withFiles(TINY.map(({ file, ...rest }) => ({ path: `medium/${file}`, ...rest })));
 
 const loadSpy = vi.fn();
 const closeSpy = vi.fn();
@@ -63,11 +60,12 @@ function serveBytes(mutate?: (url: string, body: Uint8Array) => Uint8Array) {
     });
 }
 
-async function newEngine() {
+async function newEngine(candidate: Candidate = PACKAGED, modelArch: 'MOONSHINE_STREAMING_MEDIUM' | 'MOONSHINE_STREAMING_SMALL' = 'MOONSHINE_STREAMING_MEDIUM') {
     const { MoonshineStreamingEngine } = await import('../MoonshineStreamingEngine');
     return new MoonshineStreamingEngine({
         candidateId: 'moonshine:streaming-medium',
-        modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+        modelArch,
+        candidateSource: () => candidate,
     });
 }
 
@@ -142,5 +140,74 @@ describe('a pin mismatch stops before READY and leaves nothing behind', () => {
         const result = await e.init();
         expect(result.isOk).toBe(false);
         expect(e.getMetadata().failure?.message).toMatch(/HTTP 404/);
+    });
+});
+
+// The inventory and architecture are the CANDIDATE'S data. Nothing may fill a gap from a side table or
+// a default, so every gap refuses before a single byte is requested.
+describe('the candidate is the only source of what loads', () => {
+    beforeEach(() => { loadSpy.mockClear(); closeSpy.mockClear(); });
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    it.each([
+        ['no inventory', withFiles(undefined), /carries no asset inventory/],
+        ['an empty inventory', withFiles([]), /carries no asset inventory/],
+        ['a file without a pinned URL', withFiles([{ path: 'encoder.ort', bytes: 32, sha256: TINY[0].sha256 }]), /has no pinned URL/],
+        ['the same runtime file twice', withFiles([
+            { path: 'a/encoder.ort', url: TINY[0].url, bytes: 32, sha256: TINY[0].sha256 },
+            { path: 'b/encoder.ort', url: TINY[0].url + '?b', bytes: 32, sha256: TINY[0].sha256 },
+        ]), /names a runtime file twice/],
+    ])('refuses %s before any fetch', async (_, candidate, message) => {
+        const fetchImpl = serveBytes();
+        vi.stubGlobal('fetch', fetchImpl);
+        const e = await newEngine(candidate);
+        expect((await e.init()).isOk).toBe(false);
+        expect(e.getMetadata().failure?.message).toMatch(message);
+        expect(fetchImpl).not.toHaveBeenCalled();
+        expect(loadSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses a factory arch the candidate does not declare', async () => {
+        const fetchImpl = serveBytes();
+        vi.stubGlobal('fetch', fetchImpl);
+        const e = await newEngine(PACKAGED, 'MOONSHINE_STREAMING_SMALL');
+        expect((await e.init()).isOk).toBe(false);
+        expect(e.getMetadata().failure?.message).toMatch(/declares arch MOONSHINE_STREAMING_MEDIUM, not MOONSHINE_STREAMING_SMALL/);
+        expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('loads a sealed imported Moonshine package end to end through the real package path', async () => {
+        vi.stubGlobal('crypto', webcrypto);
+        const { MOONSHINE_PACKAGE_FILES, candidateFromPackage, sealModelPackage } = await import('../../modelPackage');
+        const bodies = MOONSHINE_PACKAGE_FILES.map((file, i) => ({ file, body: new Uint8Array(8 + i).fill(3) }));
+        const files = bodies.map(({ file, body }) => ({
+            path: `dropin/${file}`, url: `https://download.moonshine.ai/dropin/${file}`, bytes: body.byteLength,
+            sha256: createHash('sha256').update(body).digest('hex'),
+        }));
+        const pkg = await sealModelPackage({ schemaVersion: 1, kind: 'speaksharp-model-package', id: 'dropin:moonshine-test',
+            engine: MEDIUM.engine, runtime: MEDIUM.runtime, model: MEDIUM.model, execution: MEDIUM.execution,
+            assets: { files }, license: 'MIT (test bytes)' });
+        const fetchImpl = vi.fn(async (url: string) => {
+            const hit = bodies.find(({ file }) => url === `https://download.moonshine.ai/dropin/${file}`);
+            if (!hit) throw new Error(`unexpected fetch to ${url}`);
+            return { ok: true, status: 200, arrayBuffer: async () => hit.body.slice().buffer } as unknown as Response;
+        });
+        vi.stubGlobal('fetch', fetchImpl);
+        const e = await newEngine(candidateFromPackage(pkg, 'dropin.json'));
+        expect((await e.init()).isOk).toBe(true);
+        expect(fetchImpl).toHaveBeenCalledTimes(MOONSHINE_PACKAGE_FILES.length);
+        const options = loadSpy.mock.calls[0][0] as { files: Record<string, Uint8Array>; modelArch: number };
+        expect(Object.keys(options.files).sort()).toEqual([...MOONSHINE_PACKAGE_FILES].sort());
+        expect(options.modelArch).toBe(5);
+    });
+
+    it('loads a second architecture from data alone, with no engine edit', async () => {
+        vi.stubGlobal('fetch', serveBytes());
+        const small = withFiles(PACKAGED.assets.files, {
+            execution: { ...MEDIUM.execution, variant: 'MOONSHINE_STREAMING_SMALL', modelArch: 'MOONSHINE_STREAMING_SMALL' },
+        });
+        const e = await newEngine(small, 'MOONSHINE_STREAMING_SMALL');
+        expect((await e.init()).isOk).toBe(true);
+        expect((loadSpy.mock.calls[0][0] as { modelArch: number }).modelArch).toBe(4);
     });
 });
