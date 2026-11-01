@@ -76,7 +76,7 @@ def sanitize_record(rec):
     # Three identities, never conflated: the workflow source that ran the harness, the product release the request tested, and the release
     # observed served at admission (Sam 1793539017 RETURN, finding 4).
     _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "campaignId", "coverage", "requestSha256", "catalogSha256",
-                "startedUtc", "endedUtc", "outcome", "cases", "codes", "rowVerdicts", "comparability"}, "record")
+                "startedUtc", "endedUtc", "outcome", "cases", "codes", "rowVerdicts", "comparability", "evidence"}, "record")
     _attempt(rec.get("runId"), rec.get("attempt"))
     _need(isinstance(rec.get("sourceSha"), str) and SHA40.match(rec["sourceSha"]), "source-sha")
     _need(isinstance(rec.get("testedSha"), str) and SHA40.match(rec["testedSha"]), "tested-sha")
@@ -135,6 +135,12 @@ def sanitize_record(rec):
         _keys(comp, COMPARABILITY_KEYS, "comparability")
         _need(set(comp) == COMPARABILITY_KEYS and all(isinstance(v, str) and (SHA64.match(v) or SHA40.match(v)) for v in comp.values()), "comparability")
         out_rec["comparability"] = dict(sorted(comp.items()))
+    ev = rec.get("evidence")
+    if ev is not None:
+        # the qualification's own digests: the frozen plan (which binds the stimulus receipt) and the case results the rows came from
+        _need(rec["coverage"] != "unqualified" and isinstance(ev, dict) and set(ev) == {"planSha256", "caseResultsSha256"}
+              and all(isinstance(v, str) and SHA64.match(v) for v in ev.values()), "evidence")
+        out_rec["evidence"] = dict(sorted(ev.items()))
     return out_rec
 
 
@@ -145,7 +151,7 @@ def sanitize_record(rec):
 HISTORY_KEYS = {"sequence", "predecessorSha256", "occurrences", "rows", "lastComparison", "identities"}
 # each distinct comparability identity set is kept once (identities[]); an occurrence names it by index (identity), so the bound holds
 OCCURRENCE_KEYS = {"runId", "attempt", "campaignId", "requestSha256", "catalogSha256", "sourceSha", "testedSha", "servedSha", "endedUtc",
-                   "outcome", "coverage", "identity"}
+                   "outcome", "coverage", "identity", "evidence", "rowEvidence"}
 COMPARABILITY_KEYS = {"codeManifestSha256", "packetManifestSha256", "mediaManifestSha256", "backendSha"}
 MAX_OCCURRENCES = 62          # two 31-day periods of nightly occurrences, retained in order
 MAX_HISTORY_BYTES = 48000     # serialized-size bound for the history block
@@ -157,7 +163,17 @@ def canon(doc):
 
 
 def _occurrence(rec, identity):
-    return dict({k: rec.get(k) for k in OCCURRENCE_KEYS - {"identity"}}, identity=identity)
+    qualified_rows = bool(rec.get("rowVerdicts")) and rec["coverage"] != "unqualified" and rec.get("evidence") is not None
+    return dict({k: rec.get(k) for k in OCCURRENCE_KEYS - {"identity", "evidence", "rowEvidence"}}, identity=identity,
+                evidence=rec.get("evidence"), rowEvidence=qualified_rows)
+
+
+def qualified_comparable(history, current):
+    """The occurrences whose row evidence is qualified AND produced under exactly the `current` identities: only these clear G7."""
+    if history is None or current is None:
+        return []
+    return [o for o in history["occurrences"] if o.get("rowEvidence") and o.get("identity") is not None
+            and history["identities"][o["identity"]] == current]
 
 
 def identity_of(history, occurrence):
@@ -183,7 +199,11 @@ def sanitize_history(h):
     occ = h.get("occurrences")
     _need(isinstance(occ, list) and 1 <= len(occ) <= MAX_OCCURRENCES, "history-occurrences")
     for o in occ:
-        _need(isinstance(o, dict) and OCCURRENCE_KEYS - {"identity"} <= set(o) <= OCCURRENCE_KEYS, "history-occurrence")
+        _need(isinstance(o, dict) and OCCURRENCE_KEYS - {"identity", "evidence", "rowEvidence"} <= set(o) <= OCCURRENCE_KEYS, "history-occurrence")
+        _need(type(o.get("rowEvidence", False)) is bool and (o.get("evidence") is None or (isinstance(o["evidence"], dict)
+              and set(o["evidence"]) == {"planSha256", "caseResultsSha256"})), "history-occurrence")
+        # row evidence only from a qualified run with its qualification digests: an unqualified or row-empty occurrence never counts
+        _need(not o.get("rowEvidence") or (o["coverage"] in ("batch", "full", "incomplete") and o.get("evidence") is not None), "history-occurrence")
         _need(o.get("identity") is None or (type(o["identity"]) is int and 0 <= o["identity"] < len(ids)), "history-occurrence")
         _attempt(o.get("runId"), o.get("attempt"))
         _need(isinstance(o.get("endedUtc"), str) and UTC.match(o["endedUtc"]) and o.get("outcome") in ("passed", "failed"), "history-occurrence")
@@ -292,6 +312,10 @@ def render(state):
             done["runId"], done["attempt"], done["sourceSha"][:12], done["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"]))
     else:
         lines.append("Latest completed: none yet.")
+    lc = (state.get("history") or {}).get("lastComparison")
+    if lc:
+        lines.append("Row comparison for run %s: %d regression(s), %d fix(es), %d not comparable" % (
+            lc["runId"], sum(lc["regressions"].values()), sum(lc["fixes"].values()), sum(lc["notComparable"].values())))
     if live:
         lines.append("In progress: run %s attempt %d, status %s." % (live["runId"], live["attempt"], live["status"]))
     lines += ["", "```json", json.dumps(state, sort_keys=True, separators=(",", ":")), "```"]
@@ -337,6 +361,10 @@ def complete(state, record):
     prior = state.get("history")
     # the carry-forward folds on exactly the history this publication read; interruption leaves it (and latestCompleted) untouched
     history = fold_history(prior, rec, None if prior is None else hashlib.sha256(canon(prior)).hexdigest())
+    lc = history["lastComparison"]
+    # the comparison is part of the outcome: a comparable row that regressed (PASS -> FAIL) or was fixed (FAIL -> PASS) is named in the codes
+    codes = list(rec["codes"]) + [c for c, k in (("row-regression", "regressions"), ("row-fix", "fixes")) if lc[k]]
+    rec = dict(rec, codes=_codes(codes, 16))
     return {"schema": SCHEMA, "latestCompleted": rec, "inProgress": None, "history": history}
 
 

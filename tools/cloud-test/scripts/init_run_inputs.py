@@ -1076,7 +1076,8 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
         # comparability: the identities this run's row verdicts were produced under, from the admitted request bytes (digest-checked)
         _need(hashlib.sha256(request_raw).hexdigest() == request_sha256, "request-not-the-admitted-bytes")
         admitted = json.loads(request_raw)
-        comp = {"codeManifestSha256": (admitted.get("harness") or {}).get("codeManifestSha256"),
+        rec["evidence"] = {"planSha256": q.get("planSha256"), "caseResultsSha256": q.get("caseResultsSha256")}
+        comp = {"codeManifestSha256": q.get("codeManifestSha256") or (admitted.get("harness") or {}).get("codeManifestSha256"),
                 "packetManifestSha256": (admitted.get("harness") or {}).get("packetManifestSha256"),
                 "mediaManifestSha256": hashlib.sha256(media_manifest_raw).hexdigest(),
                 "backendSha": ((admitted.get("release") or {}).get("backend") or {}).get("sha")}

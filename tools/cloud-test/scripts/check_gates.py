@@ -76,9 +76,12 @@ def nightly_history_gate(req, prior_state):
         h = sanitize_history((prior_state or {}).get("history"))
     except RecordRefused as e:
         return gate("G7", NOTREADY, "the carried-forward history does not verify", ["latest-record history: %s" % e])
-    if h is None or len(h["occurrences"]) < 2:
-        return None
-    return gate("G7", READY, "carried-forward history verified: %d nightly occurrence(s), sequence %d; every row is compared with its last executed verdict" % (len(h["occurrences"]), h["sequence"]), [])
+    from publish_latest_record import qualified_comparable
+    from select_baselines import current_identities
+    usable = qualified_comparable(h, current_identities(req))
+    if len(usable) < 2:
+        return None  # unqualified, row-empty or incomparable occurrences never clear G7: the verified bootstrap receipts decide
+    return gate("G7", READY, "carried-forward history verified: %d qualified, comparable nightly occurrence(s) of %d, sequence %d; every row is compared with its last executed verdict" % (len(usable), len(h["occurrences"]), h["sequence"]), [])
 
 
 def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None, prior_state=None):
