@@ -114,15 +114,27 @@ def request_shape_ok(req, template_keys):
 
 def select_request(repo, rel, source_sha):
     """The request is a reviewed file in the ONE request location at the tested commit, tracked at exactly this source and byte-identical in
-    the checkout. Returns its absolute path and blob id."""
+    the checkout. Returns its absolute path, blob id and the bytes read ONCE (the blob id is recomputed from exactly those bytes)."""
     _need(isinstance(rel, str) and rel and not os.path.isabs(rel) and os.path.normpath(rel) == rel and not rel.startswith(".."), "request-path")
     _need(os.path.dirname(rel) + "/" == REQUEST_DIR and rel.endswith(".json"), "request-not-in-the-reviewed-request-location")
     _need(_git(repo, "rev-parse", "HEAD") == source_sha, "checkout-not-at-source")
     blob = _git(repo, "rev-parse", "--verify", "--quiet", source_sha + ":" + rel)
     _need(blob is not None, "request-not-committed-at-source")
     path = os.path.join(repo, rel)
-    _need(os.path.isfile(path) and not os.path.islink(path) and _git(repo, "hash-object", "--", rel) == blob, "request-differs-from-commit")
-    return path, blob
+    _need(os.path.isfile(path) and not os.path.islink(path), "request-differs-from-commit")
+    raw = _read(path)
+    _need(hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest() == blob, "request-differs-from-commit")
+    return path, blob, raw
+
+
+def admitted_request(path, admitted_sha256):
+    """Every later reader of the request (window check, qualification) reads its bytes ONCE, hashes and parses those same bytes, and refuses
+    unless they are exactly the bytes prepare admitted. The admitted digest travels only as the init step's output, which no later step can
+    rewrite, so a request substituted after admission (even one keeping every field qualify compares) never reaches a record."""
+    _need(isinstance(admitted_sha256, str) and SHA64.match(admitted_sha256), "admitted-request-digest")
+    raw = _read(path)
+    _need(hashlib.sha256(raw).hexdigest() == admitted_sha256, "request-changed-since-admission")
+    return json.loads(raw)
 
 
 def check_request(req, now, template_keys):
@@ -361,8 +373,8 @@ def prepare(x, now):
     repo = os.path.realpath(x.repo)
     _need(isinstance(x.run_id, str) and LR.RUN_ID.match(x.run_id) and x.attempt == 1, "run-identity")
     _need(isinstance(x.source_sha, str) and LR.SHA40.match(x.source_sha), "source-sha")
-    req_path, req_blob = select_request(repo, x.request, x.source_sha)
-    req, cfg, template_keys = _load(req_path), _load(os.path.join(repo, x.config)), _request_keys()
+    req_path, req_blob, req_raw = select_request(repo, x.request, x.source_sha)
+    req, cfg, template_keys = json.loads(req_raw), _load(os.path.join(repo, x.config)), _request_keys()
     cases = check_request(req, now, template_keys)
     route = "github-producer" if set(cases) & PRODUCER_CASES else "github-direct"
     live_minutes = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
@@ -379,7 +391,8 @@ def prepare(x, now):
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     verified_checkpoint(x.checkpoint)
-    return {"request": req_path, "requestBlob": req_blob, "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
+    return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
+            "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
             "accountId": account_id, "email": role_entry["email"],
             "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes,
             "account": account, "facts": builder_facts, "scope": scope}
@@ -440,15 +453,17 @@ def _freeze(snap, plan_path, case_results_path, cases_dir, approval, code_manife
     return frozen, original_plan, plan_file
 
 
-def identities(request_path, config_path):
-    """The committed request and the pinned assertion catalog this run claims coverage against: the catalog file must still be the pinned
-    bytes, and its exact per-case required-assertion sets are what qualification checks every case config against."""
+def identities(request_path, config_path, admitted_sha256):
+    """The ADMITTED request (exactly the bytes prepare admitted) and the pinned assertion catalog this run claims coverage against: the
+    catalog file must still be the pinned bytes, and its exact per-case required-assertion sets are what qualification checks every case
+    config against."""
+    request = admitted_request(request_path, admitted_sha256)
     pin = _load(config_path)["modes"]["full"]["assertionCatalog"]
     catalog = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(config_path))), pin["file"])
     raw = _read(catalog)
     _need(hashlib.sha256(raw).hexdigest() == pin["sha256"], "assertion-catalog-not-pinned")
     cases = json.loads(raw)["cases"]
-    return {"requestSha256": _sha(request_path), "request": _load(request_path), "catalogSha256": pin["sha256"],
+    return {"requestSha256": admitted_sha256, "request": request, "catalogSha256": pin["sha256"],
             "catalog": {cid: list(c["requiredAssertions"]) for cid, c in cases.items()}}
 
 
@@ -561,9 +576,9 @@ def _unique(items, key, code):
     return out
 
 
-def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None):
+def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None):
     """run-record.json (the real collector keeps all 15 rows) -> the closed latest record. Qualification counts only when it is bound to THIS
-    record: the same case-results digest, tested release and observed served release. Then the selected rows keep their results, the others
+    record and THIS admission: the same case-results digest, tested release, observed served release and admitted request digest. Then the selected rows keep their results, the others
     are NOT SELECTED, and coverage says batch or full truthfully. `passed` needs that binding and every selected row PASS; anything else is
     `failed` with code not-qualified."""
     _need(isinstance(run_record, dict) and run_record.get("schema") == "speaksharp.cloud-test.run-record.v1", "run-record-schema")
@@ -575,6 +590,7 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
                  q.get("caseResultsSha256") == (run_record.get("artifactDigests") or {}).get("case-results.json") and
                  q.get("testedSha") == tested_sha and q.get("servedSha") == rel.get("servedShaAtAdmission") and
                  q.get("codeManifestSha256") == (run_record.get("harness") or {}).get("codeManifestSha256") and
+                 isinstance(request_sha256, str) and SHA64.match(request_sha256) is not None and q.get("requestSha256") == request_sha256 and
                  q.get("outcome") in ("passed", "failed") and
                  (q.get("coverage") in ("batch", "incomplete") or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
                  isinstance(q.get("cases"), list) and set(q["cases"]) <= {c.get("case") for c in run_record.get("cases") or [] if isinstance(c, dict)})
@@ -627,7 +643,7 @@ def main(argv):
     a.add_argument("command", choices=("prepare", "qualify", "project", "window-check"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
-                 "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes"):
+                 "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -635,14 +651,14 @@ def main(argv):
     try:
         if x.command == "project":
             q = _load(x.qualification) if x.qualification and os.path.exists(x.qualification) else None
-            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q))
+            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256))
             return 0
         if x.command == "qualify":
             _write_private(x.out, qualify(x.plan, x.case_results, x.cases_dir, (x.cases or "").split(","), x.approval, x.code_manifest,
-                                          x.snapshot_dir, x.coverage_mode, identities(x.request, x.config)))
+                                          x.snapshot_dir, x.coverage_mode, identities(x.request, x.config, x.request_sha256)))
             return 0
         if x.command == "window-check":
-            check_window_remaining(_load(x.request), datetime.now(timezone.utc), int(x.live_minutes or 0))
+            check_window_remaining(admitted_request(x.request, x.request_sha256), datetime.now(timezone.utc), int(x.live_minutes or 0))
             return 0
         # Mask first: the whole bundle and every extracted value, before any refusal, output or environment export.
         if os.environ.get("GITHUB_ACTIONS") == "true":
@@ -652,11 +668,16 @@ def main(argv):
         os.makedirs(x.out, mode=0o700)
         facts_file, account_file = os.path.join(x.out, "facts.json"), os.path.join(x.out, "account-id")
         _write_private(facts_file, p["facts"])
+        # Every consumer (runner, reservation, collector, window check, qualification) reads the ADMITTED bytes from this private copy.
+        request_file = os.path.join(x.out, "request.json")
+        fd = os.open(request_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(p["requestRaw"])
         fd = os.open(account_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(p["accountId"])
         # The role's email reaches the run stage under execute_run's allowlisted name only through the safe writer, after masking.
-        env = {"CT_REQUEST": p["request"], "CT_FACTS_FILE": facts_file, "CT_ACCOUNT_ID_FILE": account_file,
+        env = {"CT_REQUEST": request_file, "CT_FACTS_FILE": facts_file, "CT_ACCOUNT_ID_FILE": account_file,
                p["account"]["credentials"]["email"]: p["email"]}
         if p["scope"]:
             scope_file = os.path.join(x.out, "evidence-scope.json")
@@ -664,8 +685,9 @@ def main(argv):
             env.update(CT_EVIDENCE_SCOPE_FILE=scope_file, CT_EVIDENCE_SCOPE_SHA256=_sha(scope_file))
         write_env_file(x.env_file, env)
         with open(x.outputs, "a", encoding="utf-8") as f:
-            f.write("route=%s\nrole=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\n" % (
-                p["route"], p["account"]["role"], p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"]))
+            f.write("route=%s\nrole=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\n" % (
+                p["route"], p["account"]["role"], p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"],
+                p["requestSha256"]))
         return 0
     except (Refused, LR.Refused) as e:
         print("BLOCKED_SETUP: " + str(e), file=sys.stderr)

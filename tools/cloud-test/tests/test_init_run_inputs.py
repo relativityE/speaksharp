@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 
 from _fixtures import ROOT, J, approved, fake_rv, receipt, reconciliation, sample
@@ -100,8 +101,9 @@ class SelectRequest(unittest.TestCase):
         self.head = self.repo.commit({RUNS + "r6.json": {"a": 1}, "frontend/r6.json": {"a": 1}, RUNS + "nested/r6.json": {"a": 1}})
 
     def test_only_the_reviewed_request_location_is_selectable(self):
-        path, blob = I.select_request(self.repo.dir, RUNS + "r6.json", self.head)
+        path, blob, raw = I.select_request(self.repo.dir, RUNS + "r6.json", self.head)
         self.assertEqual((path, blob), (os.path.join(self.repo.dir, RUNS + "r6.json"), self.repo.git("rev-parse", self.head + ":" + RUNS + "r6.json")))
+        self.assertEqual(raw, self.repo.git("cat-file", "blob", blob).encode(), "the admitted bytes are exactly the committed blob")
         for rel in ("frontend/r6.json", RUNS + "nested/r6.json", "tools/cloud-test/tests/fixtures/full-request.json"):
             refused(self, "request-not-in-the-reviewed-request-location", I.select_request, self.repo.dir, rel, self.head)
         for rel in ("/etc/r6.json", "../r6.json", RUNS + "../runs/r6.json", "", None):
@@ -388,6 +390,41 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
         self.assertEqual(prepare(RUNS + "r6.json"), (78, "BLOCKED_SETUP: continuity-checkpoint-contract-pending"))
         self.assertEqual(prepare(RUNS + "stray.json"), (78, "BLOCKED_SETUP: request-release-not-in-source-history"))
 
+    def test_admission_publishes_the_committed_request_digest_and_every_consumer_reads_a_private_copy_of_those_bytes(self):
+        # The continuity contract is stubbed HERE ONLY, to observe what admission would hand the later steps.
+        repo = GitRepo()
+        self.addCleanup(shutil.rmtree, repo.dir)
+        req = live_request(["AHT-05"])
+        now = datetime.now(timezone.utc)
+        req["window"].update(startUtc=utc(now - timedelta(hours=1)), endUtc=utc(now + timedelta(hours=1, minutes=30)))
+        req["release"]["testedSha"] = repo.commit({"tools/cloud-test/config/test-config.v1.json": CFG})
+        head = repo.commit({RUNS + "r6.json": req})
+        out, env, outputs = (os.path.join(repo.dir, n) for n in ("out", "env", "outputs"))
+        argv = ["init_run_inputs.py", "prepare", "--repo", repo.dir, "--config", "tools/cloud-test/config/test-config.v1.json", "--request",
+                RUNS + "r6.json", "--facts", json.dumps(facts()), "--run-id", "123", "--attempt", "1", "--source-sha", head,
+                "--job-timeout-minutes", "150", "--out", out, "--env-file", env, "--outputs", outputs]
+        with mock.patch.object(I, "verified_checkpoint", lambda path: None), \
+                mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": bundle_with(ACCOUNT_ID), "SUPABASE_URL": SUPABASE_URL_OK}):
+            self.assertEqual(I.main(argv), 0)
+        committed = repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()
+        with open(outputs, encoding="utf-8") as f:
+            published = dict(line.split("=", 1) for line in f.read().splitlines())
+        self.assertEqual(published["request_sha256"], hashlib.sha256(committed).hexdigest())
+        with open(env, encoding="utf-8") as f:
+            ct_request = dict(line.split("=", 1) for line in f.read().splitlines())["CT_REQUEST"]
+        self.assertEqual(ct_request, os.path.join(out, "request.json"), "consumers read the private admitted copy, not the workspace file")
+        with open(ct_request, "rb") as f:
+            self.assertEqual(f.read(), committed)
+        self.assertEqual(stat.S_IMODE(os.stat(ct_request).st_mode), 0o600)
+        # The window check accepts exactly those bytes, and refuses them once the workspace-style copy is rewritten.
+        check = lambda: subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "init_run_inputs.py"), "window-check", "--request",
+                                        ct_request, "--live-minutes", "47", "--request-sha256", published["request_sha256"]],
+                                       capture_output=True, text=True, env={"PATH": os.environ["PATH"]})
+        self.assertEqual(check().returncode, 0, check().stderr)
+        os.chmod(ct_request, 0o600)
+        put(ct_request, dict(req, window=dict(req["window"], endUtc="2099-01-01T00:00:00Z")))
+        self.assertEqual((check().returncode, check().stderr.strip()), (78, "BLOCKED_SETUP: request-changed-since-admission"))
+
 
 class Qualify(unittest.TestCase):
     """Composition with the REAL verify_run_binding.py on a frozen snapshot of the builder's selected-full plan: all 15 plan.cases rows (driver
@@ -515,7 +552,7 @@ class Qualify(unittest.TestCase):
             request = live_request(None if mode == "full" else list(self.SELECTED), runId="C1")
             record = self.collect(request)
             q = self.qualify(mode=mode)
-            rec = I.project(record, "123", 1, "c" * 40, SHA, q)
+            rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"])
             self.assertEqual((rec["outcome"], rec["coverage"], rec["campaignId"], len(rec["cases"])),
                              ("passed", "full" if mode == "full" else "batch", "C1", 15), mode)
             self.assertEqual(sum(c["result"] == "NOT SELECTED" for c in rec["cases"]), 0 if mode == "full" else 13)
@@ -527,8 +564,38 @@ class Qualify(unittest.TestCase):
                 # A "full" claim on a selected-full campaign is refused at the request binding, before any plan inspection.
                 refused(self, "request-selection-mismatch", self.qualify, mode="full")
             # the collector's campaign is the request runId; a qualification for another campaign never passes
-            other = I.project(dict(record, runId="C2"), "123", 1, "c" * 40, SHA, q)
+            other = I.project(dict(record, runId="C2"), "123", 1, "c" * 40, SHA, q, q["requestSha256"])
             self.assertEqual((other["outcome"], other["coverage"]), ("failed", "unqualified"), mode)
+
+    def test_a_request_substituted_after_admission_keeping_the_five_checked_fields_never_qualifies(self):
+        # Sam 1793548687.416409: the five execution-identity checks (runId, selection, tested release, mode, harness CODE pin) do not bind the
+        # request blob. Substitute window, approval and budget fields after admission while preserving those five exactly.
+        record = self.collect(live_request(list(self.SELECTED), runId="C1"))
+        request_file = os.path.join(self.d, "admitted.json")
+        put(request_file, self.request())
+        admitted = self.sha(request_file)
+        substitute = self.request()
+        substitute["window"].update(endUtc="2099-01-01T00:00:00Z", approvalRef="slack:1793549999.000001")
+        substitute["selectionApprovalRef"] = "slack:1793549999.000002"
+        substitute["approvedLimits"].update(runCapRequests=4000, cumulativeCeilingRequests=99999, identityCap=999, approvalRef="slack:1793549999.000003")
+        substitute["estimate"]["requests"]["runCap"] = 4000
+        self.assertEqual({k: substitute[k] for k in ("runId", "selection", "release", "coverageMode", "harness")},
+                         {k: self.request()[k] for k in ("runId", "selection", "release", "coverageMode", "harness")})
+        put(request_file, substitute)
+        # The five field checks alone accept the substitute: they are not a blob binding.
+        q = I.qualify(self.plan, self.results, self.cases, self.SELECTED, self.approval, self.code, os.path.join(self.d, "snapshot-substitute"),
+                      "partial", self.ids(request_file))
+        self.assertEqual((q["qualified"], q["outcome"]), (True, "passed"))
+        self.assertNotEqual(q["requestSha256"], admitted)
+        # The admission digest refuses it at qualification (bytes read once, hashed and parsed from the same bytes)...
+        refused(self, "request-changed-since-admission", I.identities, request_file, "config-not-reached", admitted)
+        for bad in (None, "", "1" * 63, "A" * 64, admitted.upper()):
+            refused(self, "admitted-request-digest", I.admitted_request, request_file, bad)
+        # ...and a qualification bound to any other request never projects as qualified.
+        for digest in (admitted, None, "x"):
+            rec = I.project(record, "123", 1, "c" * 40, SHA, q, digest)
+            self.assertEqual((rec["outcome"], rec["coverage"], rec["requestSha256"], rec["codes"]), ("failed", "unqualified", None, ["not-qualified"]), digest)
+        self.assertEqual(I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"])["outcome"], "passed", "the same bytes still bind")
 
     def test_a_complete_authenticated_fail_baseline_is_full_and_failed(self):
         # Sam 1793547120.015339: every required row executed (PASS or FAIL) is full coverage; FAILs make the outcome failed, never unqualified.
@@ -541,7 +608,7 @@ class Qualify(unittest.TestCase):
         self.assertEqual((q["qualified"], q["coverage"], q["outcome"], q["requiredRows"], q["passRows"], q["failRows"], q["notRunRows"]),
                          (True, "full", "failed", 30, 27, 3, 0))
         self.assertEqual(J(os.path.join(self.d, "snapshot-%d" % self.runs, "verification.json"))["failed"], 0)
-        rec = I.project(record, "123", 1, "c" * 40, SHA, q)
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"])
         self.assertEqual((rec["coverage"], rec["outcome"], rec["codes"], len(rec["cases"])), ("full", "failed", [], 15))
         self.assertEqual(sorted(c["caseId"] for c in rec["cases"] if c["result"] == "FAIL"), ["AHT-03", "AHT-12"])
 
@@ -625,7 +692,8 @@ class Qualify(unittest.TestCase):
         put(os.path.join(d, "test-config.v1.json"), cfg)
         shutil.copy(os.path.join(ROOT, cfg["modes"]["full"]["assertionCatalog"]["file"]), os.path.join(d, os.path.basename(cfg["modes"]["full"]["assertionCatalog"]["file"])))
         put(os.path.join(self.d, "r.json"), {})
-        refused(self, "assertion-catalog-not-pinned", I.identities, os.path.join(self.d, "r.json"), os.path.join(d, "test-config.v1.json"))
+        refused(self, "assertion-catalog-not-pinned", I.identities, os.path.join(self.d, "r.json"), os.path.join(d, "test-config.v1.json"),
+                self.sha(os.path.join(self.d, "r.json")))
 
     def test_the_real_verifier_on_the_frozen_snapshot_and_every_selected_row_pass_qualifies_with_bindings(self):
         q = self.qualify()
@@ -746,8 +814,12 @@ class Project(unittest.TestCase):
                      "planSha256": "e" * 64, "cases": ["AHT-05", "AHT-09"], "coverage": "batch", "outcome": "passed",
                      "codeManifestSha256": "f" * 64, "requestSha256": "1" * 64, "catalogSha256": "2" * 64}, **over)
 
+    def project(self, *a):
+        """Projection against the admitted request digest this qualification fixture is bound to."""
+        return I.project(*a, "1" * 64)
+
     def test_a_bound_batch_keeps_all_fifteen_rows_with_the_others_not_selected(self):
-        rec = I.project(self.record(), "123", 1, "c" * 40, SHA, self.q())
+        rec = self.project(self.record(), "123", 1, "c" * 40, SHA, self.q())
         self.assertEqual((rec["outcome"], rec["coverage"], rec["campaignId"], len(rec["cases"])), ("passed", "batch", "R6-unit", 15))
         self.assertEqual(sorted(c["caseId"] for c in rec["cases"] if c["result"] == "PASS"), ["AHT-05", "AHT-09"])
         self.assertEqual({c["result"] for c in rec["cases"] if c["caseId"] not in ("AHT-05", "AHT-09")}, {"NOT SELECTED"})
@@ -755,38 +827,41 @@ class Project(unittest.TestCase):
 
     def test_the_campaign_must_match_exactly_on_both_sides(self):
         for record_run, q_campaign in (("R6-other", "R6-unit"), ("R6-unit", "R6-other"), ("", ""), (None, None), ("R6-unit", None)):
-            rec = I.project(dict(self.record(), runId=record_run), "123", 1, "c" * 40, SHA, self.q(campaignId=q_campaign))
+            rec = self.project(dict(self.record(), runId=record_run), "123", 1, "c" * 40, SHA, self.q(campaignId=q_campaign))
             self.assertEqual((rec["outcome"], rec["coverage"], rec["campaignId"]), ("failed", "unqualified", None), (record_run, q_campaign))
-        self.assertEqual(I.project(self.record(), "123", 1, "c" * 40, SHA, self.q())["campaignId"], "R6-unit")
+        self.assertEqual(self.project(self.record(), "123", 1, "c" * 40, SHA, self.q())["campaignId"], "R6-unit")
 
     def test_a_qualification_for_another_record_campaign_or_release_never_passes(self):
         for over in ({"caseResultsSha256": "f" * 64}, {"servedSha": "b" * 40}, {"testedSha": "b" * 40}, {"qualified": False},
                      {"coverage": "unqualified"}, {"cases": ["AHT-05", "AHT-16"]}, {"codeManifestSha256": "0" * 64}, {"outcome": None}):
-            rec = I.project(self.record(), "123", 1, "c" * 40, SHA, self.q(**over))
+            rec = self.project(self.record(), "123", 1, "c" * 40, SHA, self.q(**over))
             self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "unqualified", ["not-qualified"]), over)
             self.assertNotIn("NOT SELECTED", {c["result"] for c in rec["cases"]})
-        rec = I.project(self.record(), "123", 1, "c" * 40, SHA, None)
+        rec = self.project(self.record(), "123", 1, "c" * 40, SHA, None)
         self.assertEqual((rec["outcome"], rec["codes"]), ("failed", ["not-qualified"]))
+        for admitted in ("0" * 64, None, "", "1" * 63, "A" * 64):
+            rec = I.project(self.record(), "123", 1, "c" * 40, SHA, self.q(), admitted)
+            self.assertEqual((rec["outcome"], rec["coverage"], rec["requestSha256"]), ("failed", "unqualified", None), admitted)
         refused(self, "run-record-for-another-release", I.project, self.record(), "123", 1, "c" * 40, "b" * 40, self.q())
 
     def test_a_failed_or_incomplete_qualification_never_publishes_passed(self):
         failed = self.record()
         failed["cases"][8].update(result="FAIL", assertions={"PASS": 1, "FAIL": 1, "NOT RUN": 0})  # AHT-09
-        rec = I.project(failed, "123", 1, "c" * 40, SHA, self.q(outcome="failed"))
+        rec = self.project(failed, "123", 1, "c" * 40, SHA, self.q(outcome="failed"))
         self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "batch", []))
-        rec = I.project(self.record(), "123", 1, "c" * 40, SHA, self.q(outcome="failed", coverage="incomplete"))
+        rec = self.project(self.record(), "123", 1, "c" * 40, SHA, self.q(outcome="failed", coverage="incomplete"))
         self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "incomplete", []))
         # A qualification whose outcome disagrees with the record's rows is not bound to this record.
         for record, q in ((self.record(), self.q(outcome="failed")), (failed, self.q(outcome="passed"))):
-            rec = I.project(record, "123", 1, "c" * 40, SHA, q)
+            rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"])
             self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "unqualified", ["not-qualified"]))
 
     def test_full_coverage_needs_all_fifteen_selected(self):
         record = self.record()
         for c in record["cases"]:
             c.update(result="PASS", reason=None, assertions={"PASS": 2, "FAIL": 0, "NOT RUN": 0})
-        self.assertEqual(I.project(record, "123", 1, "c" * 40, SHA, self.q(cases=I.ALL_CASES, coverage="full"))["coverage"], "full")
-        rec = I.project(self.record(), "123", 1, "c" * 40, SHA, self.q(coverage="full"))
+        self.assertEqual(self.project(record, "123", 1, "c" * 40, SHA, self.q(cases=I.ALL_CASES, coverage="full"))["coverage"], "full")
+        rec = self.project(self.record(), "123", 1, "c" * 40, SHA, self.q(coverage="full"))
         self.assertEqual((rec["outcome"], rec["coverage"]), ("failed", "unqualified"), "a 'full' claim for two cases is not bound")
 
 

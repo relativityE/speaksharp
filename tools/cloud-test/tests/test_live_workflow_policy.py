@@ -160,8 +160,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         check = steps[run - 1]
         self.assertEqual(check["run"].strip(), 'python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" '
-                                               '--live-minutes "$LIVE_MINUTES"')
-        self.assertEqual(check["env"], {"LIVE_MINUTES": "${{ steps.init.outputs.live_minutes }}"})
+                                               '--live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"')
+        self.assertEqual(check["env"], {"LIVE_MINUTES": "${{ steps.init.outputs.live_minutes }}",
+                                        "REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}"})
         self.assertNotIn("if", check, "a failed window check stops the job before admission")
 
     def test_pass_needs_qualify_which_runs_the_real_binding_verifier_then_every_selected_row(self):
@@ -174,6 +175,17 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertIn(arg, collect)
         self.assertNotIn("verify_run_binding.py --plan", collect, "the verifier runs inside qualify, on the bytes qualify snapshots")
         self.assertIn('--tested-sha "$TESTED_SHA"', collect)
+
+    def test_the_admitted_request_digest_reaches_qualify_and_project_only_from_the_init_step_output(self):
+        # A step's outputs cannot be rewritten by a later step; $GITHUB_ENV can, so the digest never travels through it.
+        step = self.jobs["live"]["steps"][-2]
+        self.assertEqual(step["env"]["REQUEST_SHA256"], "${{ steps.init.outputs.request_sha256 }}")
+        qualify, project = step["run"].split("init_run_inputs.py project", 1)
+        self.assertIn('--request-sha256 "$REQUEST_SHA256"', qualify.split("init_run_inputs.py qualify", 1)[1])
+        self.assertIn('--request-sha256 "$REQUEST_SHA256"', project)
+        written = [s.get("name") for j in self.jobs.values() for s in j["steps"] if "REQUEST_SHA256" in (s.get("env") or {})]
+        self.assertTrue(all(s["env"]["REQUEST_SHA256"] == "${{ steps.init.outputs.request_sha256 }}"
+                            for j in self.jobs.values() for s in j["steps"] if "REQUEST_SHA256" in (s.get("env") or {})), written)
 
 
 class PdfjsComposition(unittest.TestCase):

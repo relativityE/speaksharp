@@ -159,11 +159,13 @@ jobs:
           for stage in install-tools build-plan stimulus-preflight build-plan-with-receipt gate-and-validate; do
             bash tools/cloud-test/scripts/execute_run.sh "$stage"
           done
-      # Immediately before admission: the approved window must still hold the live minutes plus the collect reserve (never reset).
+      # Immediately before admission: the approved window must still hold the live minutes plus the collect reserve (never reset), read from
+      # exactly the request bytes prepare admitted (init's request_sha256 output; no later step can rewrite another step's outputs).
       - name: Approved window still fits the live run
         env:
           LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
-        run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES"
+          REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+        run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"
       - name: Stage runner (run), bounded to the selected cases' live minutes
         timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
         env:
@@ -182,6 +184,7 @@ jobs:
           CASES: ${{ steps.init.outputs.cases }}
           TESTED_SHA: ${{ steps.init.outputs.tested_sha }}
           COVERAGE_MODE: ${{ steps.init.outputs.coverage_mode }}
+          REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
         run: |
           set -euo pipefail
           bash tools/cloud-test/scripts/execute_run.sh collect
@@ -193,11 +196,11 @@ jobs:
                --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" \
                --approval "$CT_OUT/plan/cfg/security-approval.json" --code-manifest "$HP/bundle/CODE.sha256" \
                --snapshot-dir "$CT_OUT/qualification-snapshot" --coverage-mode "$COVERAGE_MODE" --request "$CT_REQUEST" --config "$CT_CONFIG" \
-               --out "$CT_OUT/qualification.json"; then
+               --request-sha256 "$REQUEST_SHA256" --out "$CT_OUT/qualification.json"; then
             Q=(--qualification "$CT_OUT/qualification.json")
           fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py project --run-record "$CT_OUT/run-record.json" --run-id "$GITHUB_RUN_ID" \
-            --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" "${Q[@]}" \
+            --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" \
             --out "$RUNNER_TEMP/latest-record.json"
       - name: Hand the closed record to the record job (short-lived; not the authoritative record)
         if: always()
