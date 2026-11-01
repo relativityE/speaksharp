@@ -331,9 +331,10 @@ def is_project_origin(url, project_ref):
     origin; scheme and host compare case-insensitively, as URL origins do). One full-string match bound to THIS project's reference, with
     literal dots and no URL parser (Sam 1793564538.998609): HTTP, any userinfo or "@", another port, another or suffixed domain, any path,
     query or fragment, trailing junk, and anything else refuse."""
-    if not isinstance(url, str) or not isinstance(project_ref, str) or not PROJECT_REF.match(project_ref):
+    # fullmatch, not match: `$` alone admits a final newline. ASCII case-folding only: Unicode folding would accept "\u017fupabase.co".
+    if not isinstance(url, str) or not isinstance(project_ref, str) or not PROJECT_REF.fullmatch(project_ref):
         return False
-    return re.fullmatch(r"https://" + re.escape(project_ref) + r"\.supabase\.co(?::443)?/?", url, re.IGNORECASE) is not None
+    return re.fullmatch(r"https://" + re.escape(project_ref) + r"\.supabase\.co(?::443)?/?", url, re.IGNORECASE | re.ASCII) is not None
 
 
 def role_account(bundle, role, supabase_url):
