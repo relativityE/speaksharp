@@ -248,6 +248,10 @@ class CarryForward(unittest.TestCase):
         s1 = night(P.parse_body(""), "401", "2026-11-01T08:00:00Z", "PPF", same)
         s2 = night(s1, "402", "2026-11-02T08:00:00Z", "FPP", same)
         self.assertEqual(s2["history"]["lastComparison"], {"runId": "402", "regressions": {"AHT-05": 1}, "fixes": {"AHT-05": 1}, "notComparable": {}})
+        # the comparison changes the real published outcome: codes and the rendered summary name the regression and the fix
+        self.assertEqual([c for c in s2["latestCompleted"]["codes"] if c.startswith("row-")], ["row-regression", "row-fix"])
+        self.assertIn("Row comparison for run 402: 1 regression(s), 1 fix(es), 0 not comparable", P.render(s2))
+        self.assertEqual([c for c in s1["latestCompleted"]["codes"] if c.startswith("row-")], [])  # nothing earlier to compare with
         s3 = night(s2, "403", "2026-11-03T08:00:00Z", "PFP", dict(same, backendSha="7" * 40))
         self.assertEqual(s3["history"]["lastComparison"]["notComparable"], {"AHT-05": 3})  # a different backend: no regression/fix claimed
         self.assertEqual(P.parse_body(P.render(s3)), s3)

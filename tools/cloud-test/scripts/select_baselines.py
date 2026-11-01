@@ -65,6 +65,18 @@ def select(ledger, cfg, receipts_root, latest):
             "pairs": [l for l in order if l in needed]}
 
 
+def current_identities(req):
+    """The identities the CURRENT run's verdicts will be produced under, from the admitted request and the checked-out media manifest; None
+    when any is unknown (then nothing is comparable)."""
+    import hashlib
+    media = os.path.join(os.path.dirname(os.path.dirname(ROOT)), "tests", "fixtures", "rwt", "rwt-fixtures.manifest.json")
+    cur = {"codeManifestSha256": (req.get("harness") or {}).get("codeManifestSha256"),
+           "packetManifestSha256": (req.get("harness") or {}).get("packetManifestSha256"),
+           "mediaManifestSha256": hashlib.sha256(open(media, "rb").read()).hexdigest() if os.path.isfile(media) else None,
+           "backendSha": ((req.get("release") or {}).get("backend") or {}).get("sha")}
+    return cur if all(isinstance(v, str) for v in cur.values()) else None
+
+
 def history_baselines(history, catalog, current=None):
     """Nightly baselines (G7, Sam 1793573813.598689) from the VERIFIED carried-forward history in the latest record: every catalog row
     (all 15 cases, 204 rows) is compared with its last executed verdict and the occurrence that produced it, and each journey names its
@@ -107,16 +119,7 @@ def main():
     a.add_argument("--out", required=True)
     x = a.parse_args()
     if x.history_state:
-        current = None
-        if x.request:
-            import hashlib
-            req = load(x.request)
-            media = os.path.join(os.path.dirname(os.path.dirname(ROOT)), "tests", "fixtures", "rwt", "rwt-fixtures.manifest.json")
-            current = {"codeManifestSha256": (req.get("harness") or {}).get("codeManifestSha256"),
-                       "packetManifestSha256": (req.get("harness") or {}).get("packetManifestSha256"),
-                       "mediaManifestSha256": hashlib.sha256(open(media, "rb").read()).hexdigest() if os.path.isfile(media) else None,
-                       "backendSha": ((req.get("release") or {}).get("backend") or {}).get("sha")}
-            current = current if all(isinstance(v, str) for v in current.values()) else None
+        current = current_identities(load(x.request)) if x.request else None
         out = history_baselines((load(x.history_state) or {}).get("history"), load(os.path.join(ROOT, "config", "assertion-catalog.json")), current)
         dump(out, x.out)
         print("nightly baselines from %d carried-forward occurrence(s)" % len(out["occurrences"]))

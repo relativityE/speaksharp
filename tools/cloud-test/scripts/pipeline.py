@@ -116,12 +116,16 @@ def main():
         if rh.returncode:
             print("STOP: the carried-forward history could not provide baselines")
             sys.exit(2)
-    # 6. automatic comparison of the compared runs from the sealed receipts
+    # 6. automatic comparison: on a nightly run whose G7 cleared on the carried-forward history, that history is the comparison basis
+    # (nightly-baselines.json, and each completion's per-row comparison in the record); otherwise the sealed receipts' fixed pair.
+    g7 = next((g for g in (load(O("gate-status.json")) or {}).get("gates", []) if g.get("id") == "G7"), {})
+    history_basis = str(g7.get("detail", "")).startswith("carried-forward history verified")
     base_labels = cfg["history"]["comparisonBaselines"]
     gen = x.generated_at or now_utc().strftime("%Y-%m-%dT%H:%M:%SZ")
-    rc_ = run("compare_latest.py", "--current", base_labels[1], "--previous", base_labels[0], "--out", O("comparison-prior"), "--generated-at", gen, "--config", x.config, "--receipts-root", x.receipts_root)
-    if rc_.returncode:
-        sys.exit(2)
+    if not history_basis:
+        rc_ = run("compare_latest.py", "--current", base_labels[1], "--previous", base_labels[0], "--out", O("comparison-prior"), "--generated-at", gen, "--config", x.config, "--receipts-root", x.receipts_root)
+        if rc_.returncode:
+            sys.exit(2)
     latest_cmp = None
     baselines = None
     if x.latest_label:
