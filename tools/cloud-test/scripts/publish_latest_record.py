@@ -319,7 +319,7 @@ def _read(path):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("select", "begin", "complete", "interrupt"))
+    a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "verify"))
     for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
@@ -329,6 +329,13 @@ def main(argv):
     try:
         if x.command == "select":
             print(json.dumps(select(json.loads(_read(x.comments)), x.issue_url, x.bot_login, x.comment_id)))
+            return 0
+        if x.command == "verify":
+            # readback after publication: the stored comment must be exactly the rendered body and parse to the same state. The PATCH itself is
+            # not compare-and-swap; the workflow's single serialized publisher (its concurrency group) is what prevents a concurrent writer.
+            expected = _read(x.previous)
+            stored = select(json.loads(_read(x.comments)), x.issue_url, x.bot_login, x.comment_id)["body"]
+            _need(stored.rstrip("\r\n") == expected.rstrip("\r\n") and parse_body(stored) == parse_body(expected), "record-readback-differs")
             return 0
         state = parse_body(_read(x.previous))
         if x.command == "begin":

@@ -65,7 +65,23 @@ def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=
     return gate("G11", READY if not need else NOTREADY, "within the standing approval of recurring cost (period usage so far: %d run(s), %s requests, %s Starts, %s takes, %s coaching calls, %s runner minutes; %d open reservation(s))" % (u["runs"], used["requests"], used["starts"], used["takes"], used["coachingRequests"], used["runnerMinutes"], len(u["openReservations"])) if not need else "outside the standing approval of recurring cost", need)
 
 
-def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None):
+def nightly_history_gate(req, prior_state):
+    """G7 for a nightly run (Sam 1793573813.598689): from the third night the comparison basis is the carried-forward history in the verified
+    latest record (two or more occurrences); it must verify (closed shape, order, bounds, row/occurrence bindings) or G7 is NOT READY. Nights
+    one and two (fewer occurrences) return None, so the committed bootstrap receipts are verified instead. Never applies to other runs."""
+    if req.get("priority") != "nightly-regression" or prior_state is None:
+        return None
+    from publish_latest_record import Refused as RecordRefused, sanitize_history
+    try:
+        h = sanitize_history((prior_state or {}).get("history"))
+    except RecordRefused as e:
+        return gate("G7", NOTREADY, "the carried-forward history does not verify", ["latest-record history: %s" % e])
+    if h is None or len(h["occurrences"]) < 2:
+        return None
+    return gate("G7", READY, "carried-forward history verified: %d nightly occurrence(s), sequence %d; every row is compared with its last executed verdict" % (len(h["occurrences"]), h["sequence"]), [])
+
+
+def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None, prior_state=None):
     G = []
     now = now or now_utc()
     try:
@@ -218,7 +234,8 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
             b = load(bf)
             if b.get("failed") != 0 or not b.get("passed"):
                 need.append("%s binding verification has %s failed checks" % (lab, b.get("failed")))
-    G.append(gate("G7", READY if not need else NOTREADY, "last two runs' sealed receipts verified against their pinned hashes and bindings" if not need else "prior-run receipts not verified", need))
+    history_g7 = nightly_history_gate(req, prior_state)
+    G.append(history_g7 or gate("G7", READY if not need else NOTREADY, "last two runs' sealed receipts verified against their pinned hashes and bindings" if not need else "prior-run receipts not verified", need))
     # G8
     need = []
     if req.get("workflowVersion") != wf["version"]:
@@ -245,7 +262,7 @@ def main():
     a = argparse.ArgumentParser()
     for k in ("request", "config", "ledger", "workflow", "release-verification", "reconciliation", "base", "out"):
         a.add_argument("--" + k, required=True)
-    for k in ("validation", "offline-checks", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval"):
+    for k in ("validation", "offline-checks", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "prior-state"):
         a.add_argument("--" + k)
     a.add_argument("--stage", choices=["preflight", "final"], default="final")
     x = a.parse_args()
@@ -256,7 +273,7 @@ def main():
     out = evaluate(req, load(x.config), load(x.ledger), load(x.workflow), load(x.validation) if x.validation else None,
                    load(x.offline_checks) if x.offline_checks else None, rec, x.base, x.stage, load(x.release_verification), load(x.reconciliation),
                    parse_utc(x.now) if x.now else None, x.receipts_root, load(x.history_index) if x.history_index else None,
-                   load(x.reservations) if x.reservations else None, x.approval)
+                   load(x.reservations) if x.reservations else None, x.approval, load(x.prior_state) if x.prior_state else None)
     dump(out, x.out)
     print("decision:", out["decision"], "| blocking open:", ",".join(out["blockingOpen"]) or "none")
 

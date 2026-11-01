@@ -60,7 +60,7 @@ run_stage() {
     [ -n "${!n:-}" ] || blocked "stage $stage needs $n and it is not set in the environment"
     e+=("$n=${!n}")
   done <<< "$names"
-  for n in CT_OUT CT_REQUEST CT_REQUEST_SHA256 CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_CHECKOUT CT_FACTS_FILE CT_LIVE_ACCOUNTS_FILE CT_LIVE_ACCOUNTS_SHA256 CT_ACCOUNT_BINDINGS_FILE CT_PRIVATE_INPUT_DIR CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
+  for n in CT_OUT CT_REQUEST CT_REQUEST_SHA256 CT_CONFIG CT_PRIOR_STATE CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_CHECKOUT CT_FACTS_FILE CT_LIVE_ACCOUNTS_FILE CT_LIVE_ACCOUNTS_SHA256 CT_ACCOUNT_BINDINGS_FILE CT_PRIVATE_INPUT_DIR CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
   for n in CT_EVIDENCE_SCOPE_FILE CT_EVIDENCE_SCOPE_SHA256; do
@@ -216,7 +216,7 @@ case "$STAGE" in
       RES_IN="$OUT/journal-snapshot.json"
     fi
     run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --config "$CFG" --ledger "$CT_GAP_LEDGER" --history-index "$CT_HISTORY_INDEX" --counters "$CT_COUNTERS" --receipts-root "$CT_RECEIPTS_ROOT" --reservations "$RES_IN" \
-      ${CT_APPROVAL:+--approval "$CT_APPROVAL"} --request "$REQ" --out-dir "$OUT/final-gates" --stage final --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" \
+      ${CT_APPROVAL:+--approval "$CT_APPROVAL"} ${CT_PRIOR_STATE:+--prior-state "$CT_PRIOR_STATE"} --request "$REQ" --out-dir "$OUT/final-gates" --stage final --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" \
       ${CT_OFFLINE_CHECKS:+--offline-checks "$CT_OFFLINE_CHECKS"} --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free
     CAT=()
     if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" sampleMode)" = full ]; then

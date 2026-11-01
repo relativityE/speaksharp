@@ -65,14 +65,50 @@ def select(ledger, cfg, receipts_root, latest):
             "pairs": [l for l in order if l in needed]}
 
 
+def history_baselines(history, catalog):
+    """Nightly baselines (G7, Sam 1793573813.598689) from the VERIFIED carried-forward history in the latest record: every catalog row
+    (all 15 cases, 204 rows) is compared with its last executed verdict and the occurrence that produced it, and each journey names its
+    previous verdict and last-known-good. A row that has never executed has no baseline; NOT RUN never replaced an earlier verdict."""
+    from publish_latest_record import sanitize_history
+    h = sanitize_history(history)
+    if h is None:
+        raise ValueError("no carried-forward history")
+    occ = [o["runId"] for o in h["occurrences"]]
+    rows, journeys = {}, {}
+    for cid, case in sorted(catalog["cases"].items()):
+        r = h["rows"].get(cid) or {}
+        last, at, good = r.get("rowLast"), r.get("rowLastAt"), r.get("rowGood")
+        _check = last is None or len(last) == len(case["requiredAssertions"])
+        if not _check:
+            raise ValueError("history row width differs from the catalog for %s" % cid)
+        for i, aid in enumerate(case["requiredAssertions"]):
+            verdict = None if last is None or last[i] == "-" else {"P": "PASS", "F": "FAIL"}[last[i]]
+            rows["%s/%s" % (cid, aid)] = {"baselineVerdict": verdict, "baseline": occ[at[i]] if verdict else None,
+                                          "lastKnownGood": occ[good[i]] if good and good[i] >= 0 else None}
+        prev, lkg = r.get("last"), r.get("lastKnownGood")
+        journeys[cid] = {"previousVerdictRun": prev["runId"] if prev else None, "previousVerdict": prev["result"] if prev else None,
+                         "lastKnownGood": lkg["runId"] if lkg else None}
+    return {"schema": "speaksharp.cloud-test.baselines.v1", "derived": True, "source": "carried-forward-history", "sequence": h["sequence"],
+            "occurrences": occ, "rule": "each row is compared with its last executed verdict; NOT RUN never replaces it",
+            "rows": rows, "journeys": journeys}
+
+
 def main():
     a = argparse.ArgumentParser()
-    a.add_argument("--ledger", required=True)
+    a.add_argument("--history-state")
+    a.add_argument("--ledger")
     a.add_argument("--config", default=os.path.join(ROOT, "config", "test-config.v1.json"))
     a.add_argument("--receipts-root", default=os.path.join(ROOT, "config", "history", "receipts"))
-    a.add_argument("--latest-label", required=True)
+    a.add_argument("--latest-label")
     a.add_argument("--out", required=True)
     x = a.parse_args()
+    if x.history_state:
+        out = history_baselines((load(x.history_state) or {}).get("history"), load(os.path.join(ROOT, "config", "assertion-catalog.json")))
+        dump(out, x.out)
+        print("nightly baselines from %d carried-forward occurrence(s)" % len(out["occurrences"]))
+        return
+    if not (x.ledger and x.latest_label):
+        a.error("--ledger and --latest-label are required without --history-state")
     out = select(load(x.ledger), load(x.config), x.receipts_root, x.latest_label)
     dump(out, x.out)
     print("baselines for %s: compare with %s" % (x.latest_label, ", ".join(out["pairs"]) or "nothing"))

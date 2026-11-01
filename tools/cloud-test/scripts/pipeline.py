@@ -44,7 +44,7 @@ def main():
     a.add_argument("--request", required=True)
     a.add_argument("--out-dir", required=True)
     a.add_argument("--stage", choices=["preflight", "final"], default="preflight")
-    for k in ("latest-label", "offline-checks", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations"):
+    for k in ("latest-label", "offline-checks", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations", "prior-state"):
         a.add_argument("--" + k)
     a.add_argument("--repo", default=os.path.abspath(os.path.join(ROOT, "..", "..")))
     a.add_argument("--config", default=os.path.join(ROOT, "config", "test-config.v1.json"))
@@ -107,7 +107,15 @@ def main():
         g += ["--offline-checks", x.offline_checks]
     if x.stimulus_receipt:
         g += ["--stimulus-receipt", x.stimulus_receipt]
+    if x.prior_state:
+        g += ["--prior-state", x.prior_state]
     run("check_gates.py", *g)
+    if x.prior_state and (load(x.prior_state) or {}).get("history"):
+        # nightly from the third night: every row's baseline comes from the verified carried-forward history
+        rh = run("select_baselines.py", "--history-state", x.prior_state, "--out", O("nightly-baselines.json"))
+        if rh.returncode:
+            print("STOP: the carried-forward history could not provide baselines")
+            sys.exit(2)
     # 6. automatic comparison of the compared runs from the sealed receipts
     base_labels = cfg["history"]["comparisonBaselines"]
     gen = x.generated_at or now_utc().strftime("%Y-%m-%dT%H:%M:%SZ")

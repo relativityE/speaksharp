@@ -120,7 +120,8 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("throwaway-email-not-secret", self.text)
 
     def test_the_record_jobs_bind_the_exact_issue_and_comment(self):
-        self.assertEqual(self.text.count('--issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE"'), 2)
+        # select at begin, select before the terminal write, and the readback verification after it: all bound to the one tracking issue
+        self.assertEqual(self.text.count('--issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE"'), 3)
         self.assertIn('--comment-id "$COMMENT_ID"', self.text)
 
     def test_producer_keys_reach_only_the_producer_route(self):
