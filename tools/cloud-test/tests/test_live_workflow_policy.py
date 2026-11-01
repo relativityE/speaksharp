@@ -58,8 +58,18 @@ class LiveWorkflowPolicy(unittest.TestCase):
                          ("${{ needs.record-begin.outputs.nightly_request_sha256 }}", "${{ needs.record-begin.outputs.nightly_request_b64 }}"))
         self.assertIn('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n'
                       '  (umask 077; printf \'%s\' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")\n'
-                      '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n'
-                      'else\n  SRC=(--request "$REQUEST" --facts "$FACTS")\nfi\n', init["run"])
+                      '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n', init["run"])
+        self.assertIn('else\n  SRC=(--request "$REQUEST" --facts "$FACTS")\nfi\n', init["run"])
+        # Case 10 design A: on schedule only, the observation step runs on exactly the gate's bytes BEFORE prepare, and only a record it
+        # actually placed reaches prepare; a dispatch never runs it.
+        nightly_branch = init["run"].split('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n', 1)[1].split("else\n", 1)[0]
+        self.assertIn('case10_observation.py observe --request "$RUNNER_TEMP/nightly-request.json" \\\n'
+                      '    --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \\\n'
+                      '    --out "$RUNNER_TEMP/case10-observation.json"\n', nightly_branch)
+        self.assertIn('if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi',
+                      nightly_branch)
+        self.assertEqual(init["run"].count("case10_observation.py"), 1)
+        self.assertLess(init["run"].index("case10_observation.py"), init["run"].index("init_run_inputs.py prepare"))
         self.assertIn('init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \\\n  --checkpoint', init["run"])
         self.assertEqual(init["run"].count("--facts"), 1, "a scheduled run never passes a facts input")
         self.assertEqual(begin["needs"], "nightly-gate")

@@ -8,6 +8,7 @@ credentials, no network and no live read. reserve_then_read() (Sam 1793570557.24
 state-ref journal through the reviewed writer's propose BEFORE invoking any reader; a failed or partial read leaves that reservation open,
 so the accepted rollup keeps counting it.
 """
+import argparse
 import hashlib
 import json
 import os
@@ -139,3 +140,40 @@ def reserve_then_read(reader, propose, headroom, req, request_sha256, run_id, at
     except Exception:
         raise Refused("case10-observation-read-failed")
     return record, event, receipt
+
+
+def activated():
+    """A real observation needs a reviewed trusted reader AND the activated state-ref writer (its reserve journal); neither exists today."""
+    return bool(TRUSTED_READERS) and W.REVIEWED_ROOT is not None
+
+
+def main(argv):
+    """`observe`: the nightly live job's step before prepare. Reads exactly the gate-admitted request bytes; writes nothing when its AHT-10 row
+    pins no observation contract; otherwise refuses `case10-observation-not-activated` until a trusted reader and the activated writer
+    exist (there is no real reader in this module). Exit 78 on every refusal; no value is printed."""
+    a = argparse.ArgumentParser()
+    a.add_argument("command", choices=("observe",))
+    for flag in ("--request", "--request-sha256", "--run-id", "--attempt", "--out"):
+        a.add_argument(flag, required=True)
+    x = a.parse_args(argv[1:])
+    try:
+        _need(os.path.isfile(x.request) and not os.path.islink(x.request), "case10-observation-request")
+        with open(x.request, "rb") as f:
+            raw = f.read()
+        _need(hashlib.sha256(raw).hexdigest() == x.request_sha256, "case10-observation-request")
+        req = json.loads(raw)
+        rows = [r for r in req.get("selection") or [] if isinstance(r, dict) and r.get("case") == "AHT-10"]
+        if not rows or "observationContract" not in rows[0]:
+            return 0
+        contract_of(req)
+        _need(x.attempt == "1", "case10-observation-replayed")
+        _need(not os.path.lexists(x.out), "case10-observation-output-exists")
+        _need(activated(), "case10-observation-not-activated")
+        raise Refused("case10-observation-reader-not-implemented")  # unreachable while TRUSTED_READERS is empty
+    except (Refused, OSError, ValueError) as e:
+        print("BLOCKED_SETUP: " + (str(e) if isinstance(e, Refused) else "case10-observation-request"), file=sys.stderr)
+        return 78
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
