@@ -141,6 +141,22 @@ class Rollup(Journal):
             raw = bootstrap(unresolved=bad)
             refused(self, "rollup-unresolved", R.parse_bootstrap, raw)
 
+    def test_a_github_run_id_is_only_a_locator_for_an_unresolved_item(self):
+        # Sam 1793556731.837039: the six later R9 runs are located by run id, never accepted; their usage stays null.
+        runs = ("41071743003", "41115876890", "41134025368", "41231659142", "41322870182", "41325698722")
+        located = [{"kind": "diagnostic", "ref": "gha-run:" + r, "disposition": "UNRESOLVED", "usage": None} for r in runs]
+        self.assertEqual([i["ref"] for i in R.parse_bootstrap(bootstrap(unresolved=located))["unresolved"]], ["gha-run:" + r for r in runs])
+        raw = bootstrap(unresolved=located)
+        refused(self, "rollup-unresolved-usage", R.receive, raw, scope(), self.chain(), accepted_sha256=hashlib.sha256(raw).hexdigest(),
+                accepted_root=self.root)
+        measured = {"requests": 1, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": None, "runnerMinutes": None}
+        for bad in ({"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "MEASURED", "usage": measured},
+                    {"kind": "diagnostic", "ref": "gha-run:041071743003", "disposition": "UNRESOLVED", "usage": None},
+                    {"kind": "diagnostic", "ref": "gha-run:", "disposition": "UNRESOLVED", "usage": None},
+                    {"kind": "diagnostic", "ref": "run:41071743003", "disposition": "UNRESOLVED", "usage": None}):
+            with self.subTest(ref=bad["ref"], disposition=bad["disposition"]):
+                refused(self, "rollup-unresolved", R.parse_bootstrap, bootstrap(unresolved=[bad]))
+
     def test_the_bootstrap_is_historical_closed_and_content_free(self):
         for over, code in (({"email": "x@y.invalid"}, "rollup-bootstrap-shape"), ({"period": {}}, "rollup-bootstrap-shape"),
                            ({"ceilings": {}}, "rollup-bootstrap-shape"), ({"schema": "x"}, "rollup-bootstrap-shape"),

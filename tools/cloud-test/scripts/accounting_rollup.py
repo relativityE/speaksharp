@@ -41,6 +41,9 @@ USAGE_KEYS = G5_KEYS + UNKNOWN_ALLOWED
 CEILING_KEYS = ("requests", "protectedReserveRequests", "identityReads", "starts", "takes")
 UNRESOLVED_KINDS = ("diagnostic", "evaluator-start", "reservation")
 DIGEST_REF = re.compile(r"(sha256|git):[0-9a-f]{40,64}")
+# Sam 1793556731.837039: a GitHub run id is an UNRESOLVED item's LOCATOR only (which run to resolve), never digest evidence or acceptance;
+# it is admitted only on an UNRESOLVED item, whose usage stays null. A MEASURED item still needs a digest ref.
+RUN_LOCATOR = re.compile(r"gha-run:[1-9][0-9]{0,19}")
 
 
 class Refused(ValueError):
@@ -88,7 +91,8 @@ def parse_bootstrap(raw):
     _need(isinstance(doc["unresolved"], list), "rollup-unresolved")
     for item in doc["unresolved"]:
         _need(isinstance(item, dict) and set(item) == {"kind", "ref", "disposition", "usage"} and item["kind"] in UNRESOLVED_KINDS
-              and isinstance(item["ref"], str) and DIGEST_REF.fullmatch(item["ref"]) and item["disposition"] in ("UNRESOLVED", "MEASURED"),
+              and item["disposition"] in ("UNRESOLVED", "MEASURED") and isinstance(item["ref"], str)
+              and (DIGEST_REF.fullmatch(item["ref"]) or (item["disposition"] == "UNRESOLVED" and RUN_LOCATOR.fullmatch(item["ref"]))),
               "rollup-unresolved")
         _need((item["disposition"] == "MEASURED") == (item["usage"] is not None), "rollup-unresolved")
         if item["usage"] is not None:
