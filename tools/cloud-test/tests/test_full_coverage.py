@@ -611,6 +611,37 @@ class Completeness(unittest.TestCase):
                 self.assertNotEqual(proc.returncode, 0, candidate)
                 self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "case.AHT-01.identity")["result"], "FAIL")
 
+    def test_missing_case_directory_requires_explicit_prestart_state_and_no_execution_receipt(self):
+        with tempfile.TemporaryDirectory(prefix="case-dispatch-binding-") as td:
+            root = os.path.realpath(td)
+            plan_path = os.path.join(root, "plan.json")
+            result_path = os.path.join(root, "results.json")
+            approval_path = os.path.join(root, "approval.json")
+            manifest_path = os.path.join(root, "CODE.sha256")
+            cases_dir = os.path.join(root, "cases"); os.mkdir(cases_dir)
+            open(manifest_path, "w", encoding="utf-8").close()
+            source_sha, served_sha = "a" * 40, "b" * 40
+            wjson(plan_path, {"campaignId": "R7", "sourceSha": source_sha, "servedSha": served_sha,
+                              "cases": [{"id": cid} for cid in ("AHT-01", "AHT-02", "AHT-03")]})
+            wjson(result_path, {"campaignId": "R7", "sourceSha": source_sha, "servedSha": served_sha, "cases": [
+                {"caseId": "AHT-01", "result": "FAIL", "reason": "driver failed", "executionReceipt": {}},
+                {"caseId": "AHT-02", "result": "NOT RUN", "reason": "invalidated after execution",
+                 "executionInvalid": True, "executionReceipt": {"summarySha256": "1" * 64}},
+                {"caseId": "AHT-03", "result": "NOT RUN", "reason": "not selected", "notSelected": True,
+                 "requestsUsed": 0},
+            ]})
+            wjson(approval_path, {"reviewedCodeManifestSha256": sha256_file(manifest_path)})
+            out = os.path.join(root, "binding.json")
+            proc = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "verify_run_binding.py"),
+                "--plan", plan_path, "--case-results", result_path, "--approval", approval_path,
+                "--code-manifest", manifest_path, "--packet-root", root, "--cases-dir", cases_dir, "--out", out],
+                capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(proc.returncode, 0)
+            checks = {row["id"]: row["result"] for row in json.load(open(out, encoding="utf-8"))["checks"]}
+            self.assertEqual(checks["case.AHT-01.dir"], "FAIL", "a reason plus even an empty execution receipt cannot bypass evidence")
+            self.assertEqual(checks["case.AHT-02.dir"], "FAIL", "an invalidated dispatched case still needs its original evidence")
+            self.assertEqual(checks["case.AHT-03.dir"], "PASS", "a selected-plan row explicitly marked pre-start and undispatched remains exempt")
+
     def test_a_partial_run_is_never_the_full_live_run_even_with_every_row_executed(self):
         req = sample()["req"]
         out = CC.assess(req, catalog(), self.results(req))

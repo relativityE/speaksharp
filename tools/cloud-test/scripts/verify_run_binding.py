@@ -33,7 +33,14 @@ rows={c['id']:c for c in plan['cases']}
 res={c['caseId']:c for c in cr['cases']}
 for cid,row in sorted(rows.items()):
     d=os.path.join(x.cases_dir,cid)
-    if not os.path.isdir(d): chk('case.'+cid+'.dir','case receipt directory present or the case was not dispatched',res.get(cid,{}).get('reason') is not None or res.get(cid,{}).get('notSelected') is True,'no directory'); continue
+    if not os.path.isdir(d):
+        outcome=res.get(cid,{})
+        receipt_present='executionReceipt' in outcome and outcome.get('executionReceipt') is not None
+        zero_requests=outcome.get('requestsUsed') in (None,0)
+        explicitly_prestart=(outcome.get('notSelected') is True or outcome.get('gateBlocked') is True or outcome.get('requestBudgetSkipped') is True)
+        undispatched=outcome.get('result')=='NOT RUN' and not receipt_present and zero_requests and explicitly_prestart
+        chk('case.'+cid+'.dir','case receipt directory present or an explicit pre-start state proves the case was not dispatched',undispatched,'no directory')
+        continue
     drv=row['driverFile']
     chk('case.'+cid+'.driver','driverSha256 equals the driver bytes in the packet',os.path.exists(drv) and sha(drv)==row['driverSha256'] or (x.packet_root and os.path.exists(os.path.join(x.packet_root,'draft-adapters',cid+'.cjs')) and sha(os.path.join(x.packet_root,'draft-adapters',cid+'.cjs'))==row['driverSha256']),row['driverSha256'][:16])
     cfgp=row['configFile'] if os.path.exists(row['configFile']) else (os.path.join(x.case_config_dir,cid+'.json') if x.case_config_dir else None)
