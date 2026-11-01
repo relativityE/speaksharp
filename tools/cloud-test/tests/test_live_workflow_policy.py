@@ -119,7 +119,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_pass_needs_qualify_which_runs_the_real_binding_verifier_then_every_selected_row(self):
         collect = self.jobs["live"]["steps"][-2]["run"]
-        order = [collect.index(k) for k in ("execute_run.sh collect", "init_run_inputs.py qualify", '--verification "$CT_OUT/binding-verification.json"',
+        order = [collect.index(k) for k in ("execute_run.sh collect", "init_run_inputs.py qualify", '--snapshot-dir "$CT_OUT/qualification-snapshot"',
                                              'Q=(--qualification "$CT_OUT/qualification.json")', "init_run_inputs.py project")]
         self.assertEqual(order, sorted(order))
         for arg in ('--approval "$CT_OUT/plan/cfg/security-approval.json"', '--code-manifest "$HP/bundle/CODE.sha256"', '--cases "$CASES"'):

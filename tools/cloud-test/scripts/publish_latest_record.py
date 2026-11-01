@@ -35,6 +35,7 @@ UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 CODE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 CASE = re.compile(r"^AHT-(0[1-9]|1[0-5])$")
 RUN_ID = re.compile(r"^[1-9][0-9]{0,19}$")
+CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 JSON_BLOCK = re.compile(r"```json\n(.*?)\n```", re.S)
 
 
@@ -70,10 +71,13 @@ def sanitize_record(rec):
     """The terminal record exactly as published; refuses anything outside the closed shape."""
     # Three identities, never conflated: the workflow source that ran the harness, the product release the request tested, and the release
     # observed served at admission (Sam 1793539017 RETURN, finding 4).
-    _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "startedUtc", "endedUtc", "outcome", "cases", "codes"}, "record")
+    _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "campaignId", "coverage", "startedUtc", "endedUtc", "outcome", "cases", "codes"}, "record")
     _attempt(rec.get("runId"), rec.get("attempt"))
     _need(isinstance(rec.get("sourceSha"), str) and SHA40.match(rec["sourceSha"]), "source-sha")
     _need(isinstance(rec.get("testedSha"), str) and SHA40.match(rec["testedSha"]), "tested-sha")
+    # coverage: batch or full only when the qualification was bound to this record; otherwise unqualified (and never passed).
+    _need(rec.get("coverage") in ("batch", "full", "unqualified"), "coverage")
+    _need(rec.get("campaignId") is None if rec["coverage"] == "unqualified" else isinstance(rec.get("campaignId"), str) and CAMPAIGN.match(rec["campaignId"]), "campaign-id")
     _need(rec.get("servedSha") is None or (isinstance(rec["servedSha"], str) and SHA40.match(rec["servedSha"])), "served-sha")
     for k in ("startedUtc", "endedUtc"):
         _need(isinstance(rec.get(k), str) and UTC.match(rec[k]), k)
@@ -86,15 +90,21 @@ def sanitize_record(rec):
         _keys(c, {"caseId", "result", "rows", "codes"}, "case")
         _need(isinstance(c.get("caseId"), str) and CASE.match(c["caseId"]) and c["caseId"] not in seen, "case-id")
         seen.add(c["caseId"])
-        _need(c.get("result") in ("PASS", "FAIL", "NOT RUN"), "case-result")
+        _need(c.get("result") in ("PASS", "FAIL", "NOT RUN", "NOT SELECTED"), "case-result")
         _keys(c.get("rows"), {"pass", "fail", "notRun"}, "rows")
         _need(set(c["rows"]) == {"pass", "fail", "notRun"} and all(_count(v) for v in c["rows"].values()), "rows")
         _need((c["result"] == "PASS") == (c["rows"]["fail"] == 0 and c["rows"]["notRun"] == 0 and c["rows"]["pass"] > 0), "case-result-rows")
+        _need(c["result"] != "NOT SELECTED" or (rec["coverage"] == "batch" and not any(c["rows"].values()) and not c.get("codes")), "not-selected-rows")
         out.append({"caseId": c["caseId"], "result": c["result"], "rows": dict(c["rows"]), "codes": _codes(c.get("codes", []), 8)})
-    all_pass = bool(out) and all(c["result"] == "PASS" for c in out)
-    # `passed` needs every case PASS; an all-PASS record that was not qualified (binding verification + every required row) is `failed`.
-    _need(rec["outcome"] == "failed" if not all_pass else rec["outcome"] == "passed" or "not-qualified" in (rec.get("codes") or []), "outcome-cases")
+    ran = [c for c in out if c["result"] != "NOT SELECTED"]
+    all_pass = bool(ran) and all(c["result"] == "PASS" for c in ran)
+    _need(rec["coverage"] != "full" or len(ran) == 15, "full-coverage-needs-fifteen")
+    # `passed` needs every selected case PASS under bound qualification; an all-PASS record that was not qualified is `failed` (not-qualified).
+    _need(rec["outcome"] == "failed" if not all_pass else
+          (rec["outcome"] == "passed" and rec["coverage"] != "unqualified") or (rec["outcome"] == "failed" and "not-qualified" in (rec.get("codes") or [])),
+          "outcome-cases")
     return {"runId": rec["runId"], "attempt": rec["attempt"], "sourceSha": rec["sourceSha"], "testedSha": rec["testedSha"], "servedSha": rec.get("servedSha"),
+            "campaignId": rec.get("campaignId"), "coverage": rec["coverage"],
             "startedUtc": rec["startedUtc"], "endedUtc": rec["endedUtc"], "outcome": rec["outcome"],
             "cases": sorted(out, key=lambda c: c["caseId"]), "codes": _codes(rec.get("codes", []), 16)}
 

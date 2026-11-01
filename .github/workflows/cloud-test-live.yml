@@ -166,12 +166,12 @@ jobs:
           bash tools/cloud-test/scripts/execute_run.sh collect
           HP="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$CT_CONFIG" harness.packetDir)"
           Q=()
-          # qualify snapshots every consumed byte, runs the REAL verify_run_binding.py itself, refuses any byte changed meanwhile, then requires
-          # every selected required row PASS; only its output can make the record `passed`.
+          # qualify freezes every verifier input into a new private snapshot, runs the REAL verify_run_binding.py on that snapshot only (exit 0,
+          # fresh output), then requires every selected required row PASS from the same bytes; only its bound output can make the record `passed`.
           if python3 -I tools/cloud-test/scripts/init_run_inputs.py qualify --plan "$CT_OUT/plan/cfg/campaign-plan.json" \
                --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" \
-               --approval "$CT_OUT/plan/cfg/security-approval.json" --code-manifest "$HP/bundle/CODE.sha256" --packet-root "$HP" \
-               --verification "$CT_OUT/binding-verification.json" --out "$CT_OUT/qualification.json"; then
+               --approval "$CT_OUT/plan/cfg/security-approval.json" --code-manifest "$HP/bundle/CODE.sha256" \
+               --snapshot-dir "$CT_OUT/qualification-snapshot" --out "$CT_OUT/qualification.json"; then
             Q=(--qualification "$CT_OUT/qualification.json")
           fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py project --run-record "$CT_OUT/run-record.json" --run-id "$GITHUB_RUN_ID" \
