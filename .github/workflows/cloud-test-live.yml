@@ -211,6 +211,13 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = schedule ]; then
             (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
             SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")
+            # Case 10 design A (Sam 1793570217.800529): a fresh current-state observation for the gate's request, reserved on the state-ref
+            # journal BEFORE any read. Inactive: the step refuses until a trusted reader and the activated writer exist, and writes nothing
+            # when the request pins no observation contract; prepare and the builder then re-admit the record it placed.
+            python3 -I tools/cloud-test/scripts/case10_observation.py observe --request "$RUNNER_TEMP/nightly-request.json" \
+              --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+              --out "$RUNNER_TEMP/case10-observation.json"
+            if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi
           else
             SRC=(--request "$REQUEST" --facts "$FACTS")
           fi

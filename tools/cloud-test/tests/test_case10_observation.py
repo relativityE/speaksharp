@@ -184,5 +184,46 @@ class ReserveBeforeRead(Journal):
         self.assertEqual(len(self.calls), 1)
 
 
+class ObserveCli(unittest.TestCase):
+    """The nightly job's step before prepare: inactive in production (no trusted reader, no activated writer); refuses before any read."""
+    def setUp(self):
+        import json
+        import os
+        import shutil
+        import subprocess
+        import sys
+        import tempfile
+        from _fixtures import ROOT
+        self.json, self.os, self.subprocess, self.sys = json, os, subprocess, sys
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d)
+        self.script = os.path.join(ROOT, "scripts", "case10_observation.py")
+
+    def run_cli(self, req, sha=None, attempt="1"):
+        raw = self.json.dumps(req).encode()
+        path = self.os.path.join(self.d, "request-%d.json" % len(self.os.listdir(self.d)))
+        with open(path, "wb") as f:
+            f.write(raw)
+        out = self.os.path.join(self.d, "observation.json")
+        p = self.subprocess.run([self.sys.executable, "-I", self.script, "observe", "--request", path, "--request-sha256",
+                                 sha or hashlib.sha256(raw).hexdigest(), "--run-id", "101", "--attempt", attempt, "--out", out],
+                                capture_output=True, text=True)
+        return p.returncode, p.stderr.strip(), self.os.path.exists(out)
+
+    def test_production_refuses_before_any_read_and_writes_nothing(self):
+        self.assertFalse(O.activated())
+        self.assertEqual(self.run_cli(request()), (78, "BLOCKED_SETUP: case10-observation-not-activated", False))
+
+    def test_no_contract_means_no_observation_step_effect(self):
+        req = request()
+        req["selection"][1].pop("observationContract")
+        self.assertEqual(self.run_cli(req), (0, "", False))
+
+    def test_other_bytes_a_rerun_or_a_bad_contract_refuse(self):
+        self.assertEqual(self.run_cli(request(), sha="0" * 64), (78, "BLOCKED_SETUP: case10-observation-request", False))
+        self.assertEqual(self.run_cli(request(), attempt="2"), (78, "BLOCKED_SETUP: case10-observation-replayed", False))
+        self.assertEqual(self.run_cli(request(maxAgeSeconds=0)), (78, "BLOCKED_SETUP: case10-observation-contract", False))
+
+
 if __name__ == "__main__":
     unittest.main()
