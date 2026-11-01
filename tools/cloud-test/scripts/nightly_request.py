@@ -303,8 +303,9 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
     req["approvedLimits"] = {"runCapRequests": caps["runCapRequests"], "identityCap": caps["identityReads"],
                              "cumulativeCeilingRequests": ap["periodCaps"]["requests"], "startPressCaps": dict(start_allocation),
                              "approvalRef": ref, "approvedBy": ap["approvedBy"]}
+    # G11 and the recurring-usage ledger read githubRunnerMinutesMax: the workflow's own runner-minute allowance (checked against the approval).
     req["estimate"] = dict(derived_estimate(budget, tpl, need), identityReads=need["identityReads"], starts=starts, takes=need["takes"],
-                           paidActionsAuthorizedUsd=0)
+                           githubRunnerMinutesMax=need["githubRunnerMinutes"], paidActionsAuthorizedUsd=0)
     req["release"] = dict(req.get("release") or {}, testedSha=tested_sha)
     req["nightly"] = {"occurrence": occurrence, "occurrenceId": key, "runId": run_id, "attempt": 1,
                       "templateSha256": hashlib.sha256(template_raw).hexdigest(), "approvalSha256": hashlib.sha256(approval_raw).hexdigest(),

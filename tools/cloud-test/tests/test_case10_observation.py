@@ -126,20 +126,43 @@ class ReserveBeforeRead(Journal):
         self.calls.append(list(keys))
         return reader(keys)
 
+    def journal(self, headroom=None, **over):
+        test = self
+
+        class Fixed:
+            """The real writer and chain on the synthetic bare journal; only the headroom is a fixed test value here (the composed control
+            in test_init_run_inputs drives StateJournal with the real checkpoint headroom)."""
+            def head(self):
+                return W.fetch_head(test.repo, test.remote, test.remote)
+
+            def chain_at(self, head):
+                return W.validate_chain(test.repo, head, test.root)
+
+            def headroom(self, head):
+                return test.HEADROOM if headroom is None else headroom
+
+            def propose(self, event, head):
+                return W.propose(test.repo, test.remote, head, event, test.root, test.remote)
+        j = Fixed()
+        for name, fn in over.items():
+            setattr(j, name, fn)
+        return j
+
+    def run_it(self, reader_fn=None, journal=None, now=NOW):
+        return O.reserve_then_read(reader_fn or self.reader, journal or self.journal(), self.req, REQUEST_SHA, "101", 1, ACCOUNT, now)
+
     def propose(self, event):
         return W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote), event, self.root, self.remote)
-
-    def run_it(self, reader_fn=None, propose=None, headroom=None, now=NOW):
-        return O.reserve_then_read(reader_fn or self.reader, propose or self.propose, self.HEADROOM if headroom is None else headroom,
-                                   self.req, REQUEST_SHA, "101", 1, ACCOUNT, now)
 
     def counted(self):
         sc = rollup_scope(periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z")
         return R.receive(self.raw, sc, self.chain(), **self.pins)
 
     def test_the_read_happens_only_after_the_journal_accepted_exactly_this_reserve(self):
+        before = self.chain()[-1][0]
         record, event, receipt = self.run_it()
         self.assertEqual(len(self.calls), 1)
+        self.assertEqual(receipt["previousSha"], before)
         head = self.chain()[-1]
         self.assertEqual((head[0], head[1][-1]), (receipt["newSha"], event))
         self.assertEqual(event["campaignId"], self.req["runId"] + O.RESERVATION_SUFFIX)
@@ -148,19 +171,30 @@ class ReserveBeforeRead(Journal):
         self.assertEqual(O.admit(record, self.req, REQUEST_SHA, "101", 1, ACCOUNT, NOW, trusted=frozenset({READER}))["allowance"], 240)
         self.assertEqual(self.counted()["outstandingReservations"], 1)
 
-    def test_a_missing_failed_stale_or_unconfirmed_reserve_never_invokes_the_reader(self):
-        def failing(event):
+    def test_a_missing_failed_moved_unconfirmed_or_unpersisted_reserve_never_invokes_the_reader(self):
+        def failing(event, head):
             raise W.Refused("state-ref-push-rejected")
-        refused(self, "case10-observation-reserve-failed", self.run_it, propose=failing)
-        stale = lambda event: W.propose(self.repo, self.remote, "f" * 40, event, self.root, self.remote)
-        refused(self, "case10-observation-reserve-failed", self.run_it, propose=stale)  # not the journal head: the writer refuses
-        refused(self, "case10-observation-reserve-not-accepted", self.run_it, propose=lambda event: None)  # a local proposal, no receipt
+        refused(self, "case10-observation-reserve-failed", self.run_it, journal=self.journal(propose=failing))
+        foreign = {"type": "reserve", "campaignId": "R10-manual", "runId": "41400000009", "attempt": 1,
+                   "allocation": {k: 0 for k in W.CATS}, "provenance": "request-sha256:" + "c" * 64, "atUtc": "2026-11-02T03:00:30Z"}
+        base = self.journal()
+
+        def moved(event, head):  # the head moves between the headroom read and the append: the lease on `head` refuses
+            self.propose(foreign)
+            return base.propose(event, head)
+        refused(self, "case10-observation-reserve-failed", self.run_it, journal=self.journal(propose=moved))
+        appended = len(self.chain()[-1][1])
+        refused(self, "case10-observation-reserve-not-accepted", self.run_it, journal=self.journal(propose=lambda e, h: None))
         other = {"ref": W.STATE_REF, "previousSha": self.root, "newSha": "e" * 40, "ledgerBlobSha256": "0" * 64, "proposalSha256": "0" * 64}
-        refused(self, "case10-observation-reserve-not-accepted", self.run_it, propose=lambda event: other)  # a receipt for another event
-        refused(self, "case10-observation-no-headroom", self.run_it, headroom={"requests": 11, "identityReads": 1})
-        refused(self, "case10-observation-no-headroom", self.run_it, headroom={"requests": 12})
+        refused(self, "case10-observation-reserve-not-accepted", self.run_it, journal=self.journal(propose=lambda e, h: other))
+        def unpersisted(event, head):  # a receipt for exactly this event that never landed (a local proposal)
+            return {"ref": W.STATE_REF, "previousSha": head, "newSha": "e" * 40, "ledgerBlobSha256": "0" * 64,
+                    "proposalSha256": W.sha256(W.canon(event))}
+        refused(self, "case10-observation-reserve-not-persisted", self.run_it, journal=self.journal(propose=unpersisted))
+        refused(self, "case10-observation-no-headroom", self.run_it, journal=self.journal(headroom={"requests": 11, "identityReads": 1}))
+        refused(self, "case10-observation-no-headroom", self.run_it, journal=self.journal(headroom={"requests": 12}))
         self.assertEqual(self.calls, [])
-        self.assertEqual(self.chain()[-1][1], [])  # nothing was appended by any refused attempt
+        self.assertEqual(len(self.chain()[-1][1]), appended)  # only the foreign event was appended by any refused attempt
 
     def test_a_failed_or_partial_read_leaves_the_reservation_counted(self):
         def broken(keys):
@@ -222,6 +256,7 @@ class ObserveCli(unittest.TestCase):
         return p.returncode, p.stderr.strip(), self.os.path.exists(out)
 
     def test_production_refuses_before_any_read_and_writes_nothing(self):
+        self.assertEqual((O.READERS, O.TRUSTED_READERS), ({}, frozenset()))
         self.assertFalse(O.activated())
         self.assertEqual(self.run_cli(request()), (78, "BLOCKED_SETUP: case10-observation-not-activated", False))
 

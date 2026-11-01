@@ -29,8 +29,10 @@ RESERVATION_SUFFIX = ".case10-observation"
 MAX_READ_BUDGET = {"requests": 50, "identityReads": 2}
 RECORD_KEYS = {"schema", "requestSha256", "campaignId", "runId", "attempt", "sourceSha", "accountSubjectSha256", "reader", "observedAtUtc",
                "projection"}
-# The reviewed reader identities. EMPTY today, so admit() refuses every record in production until a reviewed reader is pinned.
-TRUSTED_READERS = frozenset()
+# The reviewed readers: identity -> callable(projection keys) -> projection. EMPTY today (no credentialed live read is authorized), so
+# admit() refuses every record and observe refuses before any reserve until a reviewed reader is registered here.
+READERS = {}
+TRUSTED_READERS = frozenset(READERS)
 MAX_AGE_SECONDS = 3600
 READER_ID = re.compile(r"[a-z0-9][a-z0-9.:@/-]{2,99}")
 SHA40 = re.compile(r"[0-9a-f]{40}")
@@ -119,20 +121,68 @@ def reservation_event(req, request_sha256, run_id, attempt, now):
         raise Refused("case10-observation-reservation-shape")
 
 
-def reserve_then_read(reader, propose, headroom, req, request_sha256, run_id, attempt, account_id, now):
-    """Reserve BEFORE read. `propose` is the reviewed writer's journaled propose bound to the same state-ref journal the continuity checkpoint
-    verifies (state_ref_writer.propose: an exact expected-head lease, reconciled against persisted history); it returns a receipt only once
-    the reserve has landed. `headroom` is the accepted rollup's current headroom at that head. No receipt for exactly this event, no read.
-    A reader failure after the reserve raises with the reservation still open, so the rollup keeps counting it."""
+class StateJournal:
+    """The reviewed state-ref journal (state_ref_writer), read into a fresh private repository. headroom(head) is the accepted continuity
+    checkpoint recomputed at exactly `head`; propose(event, head) appends only with `head` as the writer's expected-head lease. `url`, `root`
+    and `pins` are TEST-ONLY overrides; production uses the approved URL, the reviewed root and the continuity pins (None today)."""
+    def __init__(self, checkout, req, url=None, root=None, pins=None):
+        self.checkout, self.req = checkout, req
+        self.url, self.root, self.pins = url or W.APPROVED_URL, root or W.REVIEWED_ROOT, pins
+        _need(self.root is not None, "case10-observation-not-activated")
+        import tempfile
+        self.git = tempfile.mkdtemp(prefix="case10-journal-")
+        _need(subprocess_ok(["git", "init", "-q", self.git]), "case10-observation-journal")
+
+    def head(self):
+        return W.fetch_head(self.git, self.url, self.url)
+
+    def chain_at(self, head):
+        return W.validate_chain(self.git, head, self.root)
+
+    def headroom(self, head):
+        import init_run_inputs as I  # lazy: init_run_inputs reaches this module through case_start_caps
+        try:
+            rc = I.verified_checkpoint(self.checkout, self.req, self.pins, lambda root: self.chain_at(head))
+        except I.Refused as e:
+            raise Refused("case10-observation-" + str(e))
+        return json.loads(rc)["currentHeadroom"]
+
+    def propose(self, event, head):
+        return W.propose(self.git, self.url, head, event, self.root, self.url)
+
+
+def subprocess_ok(argv):
+    import subprocess
+    return subprocess.run(argv, capture_output=True, env={"PATH": os.environ.get("PATH", ""), "GIT_CONFIG_NOSYSTEM": "1",
+                                                          "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TEMPLATE_DIR": ""}).returncode == 0
+
+
+def reserve_then_read(reader, journal, req, request_sha256, run_id, attempt, account_id, now):
+    """Reserve BEFORE read (Sam 1793570557.244339, RETURN 1793572741.370569): the headroom is the accepted checkpoint at the exact head the
+    reserve is appended on (the writer's expected-head lease refuses any other), the receipt must be for exactly this event on that head, and
+    the reserve must be PERSISTED at the receipt's commit on a fresh chain read; only then is the reader invoked. A reader failure after the
+    reserve raises with the reservation still open, so the rollup keeps counting it."""
     event = reservation_event(req, request_sha256, run_id, attempt, now)
+    try:
+        head = journal.head()
+        headroom = journal.headroom(head)
+    except Refused:
+        raise
+    except Exception:
+        raise Refused("case10-observation-journal")
     _need(isinstance(headroom, dict) and all(type(headroom.get(k)) is int and headroom[k] >= v for k, v in contract_of(req)["readBudget"].items()),
           "case10-observation-no-headroom")
     try:
-        receipt = propose(event)
-    except Exception:  # any writer refusal or transport failure: the read never happens
+        receipt = journal.propose(event, head)
+    except Exception:  # any writer refusal (a moved head included) or transport failure: the read never happens
         raise Refused("case10-observation-reserve-failed")
-    _need(isinstance(receipt, dict) and set(receipt) == W.RECEIPT_KEYS and receipt["proposalSha256"] == W.sha256(W.canon(event)),
-          "case10-observation-reserve-not-accepted")
+    _need(isinstance(receipt, dict) and set(receipt) == W.RECEIPT_KEYS and receipt["proposalSha256"] == W.sha256(W.canon(event))
+          and receipt["previousSha"] == head, "case10-observation-reserve-not-accepted")
+    try:
+        persisted = {sha: events for sha, events, _ in journal.chain_at(journal.head())}
+    except Exception:
+        raise Refused("case10-observation-reserve-not-persisted")
+    _need(persisted.get(receipt["newSha"], [None])[-1:] == [event], "case10-observation-reserve-not-persisted")
     try:
         record = observe(reader, req, request_sha256, run_id, attempt, account_id, now)
     except Refused:
@@ -154,6 +204,14 @@ def settlement_event(reserved, record, now):
         raise Refused("case10-observation-settlement-shape")
 
 
+def _read_account(path):
+    _need(isinstance(path, str) and os.path.isfile(path) and not os.path.islink(path), "case10-observation-account")
+    with open(path, encoding="utf-8") as f:
+        account = f.read().strip()
+    _need(re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", account) is not None, "case10-observation-account")
+    return account
+
+
 def activated():
     """A real observation needs a reviewed trusted reader AND the activated state-ref writer (its reserve journal); neither exists today."""
     return bool(TRUSTED_READERS) and W.REVIEWED_ROOT is not None
@@ -167,6 +225,8 @@ def main(argv):
     a.add_argument("command", choices=("observe",))
     for flag in ("--request", "--request-sha256", "--run-id", "--attempt", "--out"):
         a.add_argument(flag, required=True)
+    a.add_argument("--repo", default=os.getcwd())  # the checkout holding the accepted continuity inputs
+    a.add_argument("--account-id-file")  # the Case 10 role's account id, private; needed only once activated
     x = a.parse_args(argv[1:])
     try:
         _need(os.path.isfile(x.request) and not os.path.islink(x.request), "case10-observation-request")
@@ -181,8 +241,17 @@ def main(argv):
         _need(x.attempt == "1", "case10-observation-replayed")
         _need(not os.path.lexists(x.out), "case10-observation-output-exists")
         _need(activated(), "case10-observation-not-activated")
-        raise Refused("case10-observation-reader-not-implemented")  # unreachable while TRUSTED_READERS is empty
-    except (Refused, OSError, ValueError) as e:
+        c = contract_of(req)
+        account = _read_account(x.account_id_file)
+        journal = StateJournal(x.repo, req)
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        record, reserved, _ = reserve_then_read(READERS[c["reader"]], journal, req, x.request_sha256, x.run_id, 1, account, now)
+        fd = os.open(x.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(record, sort_keys=True))
+        journal.propose(settlement_event(reserved, record, datetime.now(timezone.utc).replace(microsecond=0)), journal.head())
+        return 0
+    except (Refused, W.Refused, OSError, ValueError) as e:
         print("BLOCKED_SETUP: " + (str(e) if isinstance(e, Refused) else "case10-observation-request"), file=sys.stderr)
         return 78
 
