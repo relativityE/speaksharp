@@ -1,5 +1,6 @@
 """Runnable package (owner item 4): the reviewed harness is vendored and verified; the browser pin installs and fails closed; the plan builder produces
 plans the REAL vendored runner accepts; nothing ignores a failure; the control plane runs secret-free with no product traffic."""
+import datetime
 import hashlib
 import io
 import json
@@ -384,9 +385,13 @@ class PlanBuilderProof(unittest.TestCase):
     def test_stimulus_preflight_on_the_pinned_browser_then_bound_plan_accepted_with_zero_product_traffic(self):
         chrome = chrome_path()
         prerequisite(chrome, "the pinned browser installed and hash-verified (CT_CHROME)")
+        browser_identity = os.environ.get("CT_BROWSER_RECEIPT")
+        prerequisite(browser_identity and os.path.isfile(browser_identity), "this run's verified browser identity receipt")
         cwd = playwright_cwd()
         prerequisite(cwd, "playwright installed from the lockfile (runner/node_modules)")
-        private0, _ = self.build("p-0")
+        browser_binding = {"BP_BROWSER_IDENTITY": browser_identity}
+        private0, initial = self.build("p-0", extra=browser_binding)
+        self.assertEqual([o.returncode for o in initial], [0, 0], [o.stderr for o in initial])
         receipt = os.path.join(self.work, "receipt.json")
         r = subprocess.run(["node", os.path.join(ROOT, "harness", "draft-adapters", "stimulus-preflight.cjs"), "--plan", os.path.join(private0, "cfg", "campaign-plan.json"), "--chrome", chrome, "--out", receipt],
                            capture_output=True, text=True, cwd=cwd, env={"PATH": os.environ["PATH"], "HOME": self.work})
@@ -396,7 +401,7 @@ class PlanBuilderProof(unittest.TestCase):
         c = rec["cases"]["AHT-12"]
         self.assertTrue(c["captureGranted"] and c["speechDetected"] and c["ready"])
         self.assertEqual((c["ungrantedOutcome"], c["noDeviceOutcome"]), ("not-allowed", "not-found"))
-        private, out = self.build("p-bound", extra={"BP_STIM": receipt})
+        private, out = self.build("p-bound", extra={"BP_STIM": receipt, **browser_binding})
         self.assertEqual([o.returncode for o in out], [0, 0], [o.stderr for o in out])
         acc = self.accept(private)
         self.assertEqual(acc.returncode, 0, acc.stdout + acc.stderr)
@@ -406,8 +411,30 @@ class PlanBuilderProof(unittest.TestCase):
                               ("capture device not acquired", lambda x: x["cases"]["AHT-12"].update(captureGranted=False))):
             bad = json.loads(json.dumps(rec)); mutate(bad)
             bp = os.path.join(self.work, "bad.json"); wjson(bp, bad)
-            pv, _ = self.build("p-bad-" + label.split()[0], extra={"BP_STIM": bp})
+            pv, _ = self.build("p-bad-" + label.split()[0], extra={"BP_STIM": bp, **browser_binding})
             self.assertTrue(json.loads(self.accept(pv).stdout)["stimulus preflight receipt"].startswith("REFUSED"), label)
+
+    def test_a_stimulus_receipt_from_another_browser_is_refused(self):
+        private0, initial = self.build("p-browser-mismatch-0")
+        self.assertEqual([o.returncode for o in initial], [0, 0], [o.stderr for o in initial])
+        plan = json.loads(Path(private0, "cfg", "campaign-plan.json").read_text())
+        case = next(c for c in plan["cases"] if c["id"] == "AHT-12")
+        receipt = {
+            "schema": "speaksharp.stimulus-preflight.v1",
+            "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "productTraffic": 0,
+            "codeManifestSha256": sha(Path(ROOT, "harness", "bundle", "CODE.sha256").read_bytes()),
+            "chrome": {"executablePath": "/different/browser", "sha256": "f" * 64},
+            "cases": {"AHT-12": {"mediaSha256": case["mediaSha256"], "captureGranted": True,
+                                     "ungrantedOutcome": "not-allowed", "noDeviceOutcome": "not-found",
+                                     "speechDetected": True, "alignment": {"status": "not-applicable"}, "ready": True}},
+        }
+        rp = os.path.join(self.work, "browser-mismatch-receipt.json"); wjson(rp, receipt)
+        private, out = self.build("p-browser-mismatch", extra={"BP_STIM": rp})
+        self.assertEqual([o.returncode for o in out], [0, 0], [o.stderr for o in out])
+        result = json.loads(self.accept(private).stdout)
+        self.assertTrue(result["stimulus preflight receipt"].startswith("REFUSED:"), result)
+        self.assertIn("browser differs", result["stimulus preflight receipt"])
 
     # ---- fail closed on missing inputs
     def test_missing_inputs_are_blocked_setup(self):
