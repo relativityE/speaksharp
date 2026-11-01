@@ -260,6 +260,14 @@ class ObserveCli(unittest.TestCase):
         self.assertFalse(O.activated())
         self.assertEqual(self.run_cli(request()), (78, "BLOCKED_SETUP: case10-observation-not-activated", False))
 
+    def test_once_activated_the_account_comes_from_the_private_bundle_through_prepares_validators(self):
+        from unittest import mock
+        from test_init_run_inputs import SUPABASE_URL_OK, bundle_with
+        with mock.patch.dict(self.os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": bundle_with(ACCOUNT), "SUPABASE_URL": SUPABASE_URL_OK}):
+            self.assertEqual(O._bundle_account(), ACCOUNT)
+        with mock.patch.dict(self.os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": "{}", "SUPABASE_URL": SUPABASE_URL_OK}):
+            refused(self, "case10-observation-account", O._bundle_account)
+
     def test_no_contract_means_no_observation_step_effect(self):
         req = request()
         req["selection"][1].pop("observationContract")

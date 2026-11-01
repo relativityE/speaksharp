@@ -216,7 +216,7 @@ jobs:
             # when the request pins no observation contract; prepare and the builder then re-admit the record it placed.
             python3 -I tools/cloud-test/scripts/case10_observation.py observe --request "$RUNNER_TEMP/nightly-request.json" \
               --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-              --out "$RUNNER_TEMP/case10-observation.json"
+              --repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/case10-observation.json"
             if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi
           else
             SRC=(--request "$REQUEST" --facts "$FACTS")

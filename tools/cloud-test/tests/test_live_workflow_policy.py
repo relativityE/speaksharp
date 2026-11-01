@@ -65,7 +65,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         nightly_branch = init["run"].split('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n', 1)[1].split("else\n", 1)[0]
         self.assertIn('case10_observation.py observe --request "$RUNNER_TEMP/nightly-request.json" \\\n'
                       '    --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \\\n'
-                      '    --out "$RUNNER_TEMP/case10-observation.json"\n', nightly_branch)
+                      '    --repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/case10-observation.json"\n', nightly_branch)
         self.assertIn('if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi',
                       nightly_branch)
         self.assertEqual(init["run"].count("case10_observation.py"), 1)

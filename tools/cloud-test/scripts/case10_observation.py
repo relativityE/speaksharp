@@ -212,6 +212,16 @@ def _read_account(path):
     return account
 
 
+def _bundle_account():
+    """The Case 10 role's account id from the private CLOUD_TEST_LIVE_ACCOUNTS bundle, through prepare's own validators (masked there)."""
+    import init_run_inputs as I
+    try:
+        bundle = I.parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
+        return I.role_account(bundle, I.ROLE["AHT-10"], os.environ.get("SUPABASE_URL"))["accountId"]
+    except I.Refused:
+        raise Refused("case10-observation-account")
+
+
 def activated():
     """A real observation needs a reviewed trusted reader AND the activated state-ref writer (its reserve journal); neither exists today."""
     return bool(TRUSTED_READERS) and W.REVIEWED_ROOT is not None
@@ -242,7 +252,7 @@ def main(argv):
         _need(not os.path.lexists(x.out), "case10-observation-output-exists")
         _need(activated(), "case10-observation-not-activated")
         c = contract_of(req)
-        account = _read_account(x.account_id_file)
+        account = _read_account(x.account_id_file) if x.account_id_file else _bundle_account()
         journal = StateJournal(x.repo, req)
         now = datetime.now(timezone.utc).replace(microsecond=0)
         record, reserved, _ = reserve_then_read(READERS[c["reader"]], journal, req, x.request_sha256, x.run_id, 1, account, now)
