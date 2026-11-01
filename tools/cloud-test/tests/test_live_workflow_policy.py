@@ -35,17 +35,24 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertIn("cron: '0 3 * * *'", f.read())
         self.assertEqual(set(self.jobs), {"nightly-gate", "record-begin", "live", "record-complete"})
         gate = self.jobs["nightly-gate"]
-        self.assertEqual((gate["if"], gate["permissions"]), ("github.event_name == 'schedule'", {"contents": "read"}))
+        self.assertEqual((gate["if"], gate["permissions"]), ("github.event_name == 'schedule'", {"contents": "read", "actions": "read"}))
         self.assertIsNone(SECRET_REF.search(str(gate)), "the gate holds no credential")
         step = gate["steps"][-1]
-        self.assertEqual(step["env"], {"NIGHTLY_SWITCH": "${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}"})
-        self.assertEqual(step["run"].strip(), 'python3 -I tools/cloud-test/scripts/nightly_request.py gate --switch "$NIGHTLY_SWITCH" '
-                                              '--attempt "$GITHUB_RUN_ATTEMPT" --outputs "$GITHUB_OUTPUT"')
+        self.assertEqual(step["env"], {"NIGHTLY_SWITCH": "${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}", "SCHEDULE_CRON": "${{ github.event.schedule }}",
+                                       "GH_TOKEN": "${{ github.token }}"})
+        # The trigger time is the run's creation, read only when the switch is on; the gate decides the switch before anything else.
+        self.assertIn('if [ "$NIGHTLY_SWITCH" = true ]; then TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '
+                      '--jq .created_at)"; fi', step["run"])
+        self.assertIn('nightly_request.py gate --switch "$NIGHTLY_SWITCH" --attempt "$GITHUB_RUN_ATTEMPT"', step["run"])
+        self.assertIn('--cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --run-id "$GITHUB_RUN_ID" --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"',
+                      step["run"])
+        self.assertEqual(gate["outputs"], {"admitted": "${{ steps.gate.outputs.admitted }}", "request_sha256": "${{ steps.gate.outputs.request_sha256 }}"})
         begin = self.jobs["record-begin"]
         self.assertEqual(begin["needs"], "nightly-gate")
-        self.assertEqual(begin["if"], "${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.nightly-gate.outputs.admitted == 'true') }}")
-        self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$ADMITTED" = true ] || { echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }',
-                      begin["steps"][0]["run"])
+        self.assertEqual(begin["if"], "${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && "
+                                      "needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}")
+        self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || '
+                      '{ echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }', begin["steps"][0]["run"])
         # Every later job, including the always() record job, runs only after record-begin succeeded.
         self.assertEqual(self.jobs["live"]["needs"], "record-begin")
         self.assertEqual(self.jobs["record-complete"]["if"], "always() && needs.record-begin.result == 'success'")

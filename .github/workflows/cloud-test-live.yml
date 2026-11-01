@@ -59,24 +59,39 @@ jobs:
     timeout-minutes: 3
     permissions:
       contents: read
+      actions: read
     outputs:
       admitted: ${{ steps.gate.outputs.admitted }}
+      request_sha256: ${{ steps.gate.outputs.request_sha256 }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-          sparse-checkout: tools/cloud-test
+          # The admission reads this workflow's own job timeouts for the runner-minute need.
+          sparse-checkout: |
+            tools/cloud-test
+            .github/workflows
       - name: Evaluate the nightly gate (quiet when switched off; a visible failure for any other refusal)
         id: gate
         env:
           NIGHTLY_SWITCH: ${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}
-        run: python3 -I tools/cloud-test/scripts/nightly_request.py gate --switch "$NIGHTLY_SWITCH" --attempt "$GITHUB_RUN_ATTEMPT" --outputs "$GITHUB_OUTPUT"
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TRIGGER_UTC=''
+          # The occurrence is bound to the run's ORIGINAL trigger time (its creation), read only when the switch is on.
+          if [ "$NIGHTLY_SWITCH" = true ]; then TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"; fi
+          # The WHOLE admission happens here, before any record mutation or credential-bearing job: gate, anchored template and budget,
+          # replay from the verified state-ref chain, the derivation and the fit from now.
+          python3 -I tools/cloud-test/scripts/nightly_request.py gate --switch "$NIGHTLY_SWITCH" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --run-id "$GITHUB_RUN_ID" --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"
 
   record-begin:
     name: Record the attempt (latest-record comment; no live credentials)
     needs: nightly-gate
     # A dispatch skips the gate; a scheduled run proceeds only when the gate admitted it. Every later job needs this one to succeed.
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.nightly-gate.outputs.admitted == 'true') }}
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -89,13 +104,14 @@ jobs:
         env:
           CONFIRM: ${{ inputs.confirm }}
           ADMITTED: ${{ needs.nightly-gate.outputs.admitted }}
+          GATE_RESULT: ${{ needs.nightly-gate.result }}
         run: |
           [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "BLOCKED_SETUP: rerun-attempt-refused"; exit 78; }
           # A dispatch is confirmed by its operator; a scheduled run only by the nightly gate's admission.
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             [ "$CONFIRM" = LIVE ] || { echo "BLOCKED_SETUP: live-run-not-confirmed"; exit 78; }
           else
-            [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$ADMITTED" = true ] || { echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }
+            [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || { echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }
           fi
           [ -n "$TRACKING_ISSUE" ] || { echo "BLOCKED_SETUP: tracking-issue-not-bound"; exit 78; }
       - uses: actions/checkout@v6
