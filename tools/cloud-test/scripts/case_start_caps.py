@@ -112,6 +112,10 @@ def reconcile_caps(request, reconciliation, *, execution=False):
     used = integer(starts.get("ownerCounted"), "starts-used")
     current = integer(ceilings.get("starts"), "starts-ceiling")
     cap = request["approvedLimits"].get("startsCap")
+    # A proposal can request a separately justified ceiling; validation is not
+    # permission to execute it. Actual execution never falls back to proposed.
+    if cap is None and not execution:
+        cap = request["proposedLimits"].get("startsCap")
     if cap is None:
         cap = current
     cap = integer(cap, "approved-starts-ceiling")

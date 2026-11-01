@@ -180,6 +180,15 @@ class CaseStartContract(unittest.TestCase):
         f.request["approvedLimits"]["startPressCaps"]["AHT-13"] = True
         f.repin(); self.f=f; self.rejected()
 
+    def test_proposed_ceiling_can_validate_but_never_authorizes_execution(self):
+        r=self.f.request
+        r['approvedLimits']['startsCap']=None
+        r['proposedLimits']['startsCap']=100
+        rc=synthetic_reconciliation();rc['ceilings']['starts']=7
+        self.assertEqual(reconcile_caps(r,rc)[1],{'AHT-13':3})
+        with self.assertRaises(ValueError):reconcile_caps(r,rc,execution=True)
+        self.f.repin(rc=rc);self.rejected()
+
     def test_every_required_and_optional_container_rejects_wrong_present_types(self):
         paths = [("estimate",), ("proposedLimits",), ("approvedLimits",), ("release",), ("harness",), ("window",),
                  ("estimate","requests"), ("estimate","providerBillableRequests"), ("estimate","window"),
