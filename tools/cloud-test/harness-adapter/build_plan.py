@@ -235,6 +235,10 @@ def read_binding_inputs(env, argv):
         ACCOUNT_BINDINGS = account_bindings()
         ACCOUNT_BINDINGS_SHA = shaf(ACCOUNT_BINDINGS_FILE)
         DISPOSABLE_UID = ACCOUNT_BINDINGS['roles']['existing-disposable']['accountId']
+        # Case 10's component projection is an admitted bound, not an allocation.
+        # It must be verified against the current disposable account and request
+        # before any phase-one files are emitted.
+        case10_bound = caps_module.case10_execution_bound(request, FACTS, DISPOSABLE_UID)
         ANON = need('VITE_SUPABASE_ANON_KEY')
         fx = obj(obj(jload(f'{PACKET}/draft-adapters/oracles/pure/fixture-manifest.json'), 'fixture-manifest')['fixtures'], 'fixtures')
         oracle_sha = shaf(f'{PACKET}/draft-adapters/oracles/index.cjs')
@@ -312,6 +316,8 @@ def read_binding_inputs(env, argv):
                             'preprovisionReceipt': R['pre'], 'analyticsExclusionReceipt': R['analytics'],
                             'dispositionReceipt': R['disp'], 'effectiveFeatureAccessApproved': True}
             c['credentialVars'] = dict(account_binding['credentialVars'])
+            if n == 10 and case10_bound is not None:
+                c['requestBound'] = case10_bound
             c['readback'] = {'origin': f'https://{HOST_DB}', 'projectRef': PROJECT_REF, 'anonKey': ANON,
                              'schemaSha256': schema_sha, 'ownerReadApproved': True, 'rlsReadQualificationReceipt': R['rls']}
             if n in (9, 10): c['readback']['immutableFenceMigrationQualificationReceipt'] = R['fence']

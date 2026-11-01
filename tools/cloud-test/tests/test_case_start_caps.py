@@ -54,6 +54,19 @@ def bind_synthetic_files(root, request, facts=None, reconciliation=None):
     reqp, rcp, factp = [root / name for name in ("request.json", "reconciliation.json", "facts.json")]
     facts = copy.deepcopy(facts or J("tests", "fixtures", "plan-facts.PLACEHOLDER.json"))
     rc = copy.deepcopy(reconciliation if reconciliation is not None else synthetic_reconciliation())
+    if request.get("sampleMode") == "full" and any(type(row) is dict and row.get("case") == "AHT-10"
+                                                     for row in request.get("selection", [])):
+        # Declared synthetic planning data, never reused as current live facts.
+        from test_case10_request_bound import projection
+        record = {"schema": "speaksharp.cloud-test.case10-projection.v1", "runId": request["runId"],
+                  "sourceSha": request["release"]["testedSha"],
+                  "accountSubjectSha256": hashlib.sha256(b"00000000-0000-4000-8000-000000000001").hexdigest(),
+                  "evidenceRef": "SYNTHETIC-NOT-A-RUN", "projection": projection()}
+        facts.setdefault("case10RequestBound", record)
+        encoded = json.dumps(facts["case10RequestBound"], sort_keys=True, separators=(",", ":")).encode()
+        for row in request["selection"]:
+            if type(row) is dict and row.get("case") == "AHT-10":
+                row["requestBoundSha256"] = hashlib.sha256(encoded).hexdigest()
     for path, value in ((reqp, request), (rcp, rc)):
         path.write_text(json.dumps(value))
         path.chmod(0o600)
@@ -164,6 +177,39 @@ class CaseStartContract(unittest.TestCase):
             self.assertEqual(cfg["startPressCap"], 2 if cid == "AHT-14" else FULL_MINIMA[cid])
         approval = json.loads((self.f.root / "private/cases/AHT-13.json").read_text())["startPressApproval"]
         self.assertEqual(approval["requestSha256"], self.f.env["BP_REQUEST_SHA256"])
+
+    def test_case10_consumes_the_bound_projection_without_changing_the_allowance(self):
+        self.f = SyntheticBuilder(self.temp.name, cases=(10,))
+        result = self.f.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads((self.f.root / "private/cases/AHT-10.json").read_text())
+        self.assertEqual(config["requestBound"], {
+            "projectionSha256": self.f.request["selection"][0]["requestBoundSha256"],
+            "transmittedBound": 84,
+            "allowance": 240,
+            "evidenceRef": "SYNTHETIC-NOT-A-RUN",
+        })
+
+    def test_case10_missing_changed_or_over_allowance_projection_refuses_before_output(self):
+        mutations = ("missing", "account", "digest", "over-allowance")
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(prefix="r5-case10-control-") as root:
+                self.f = SyntheticBuilder(root, cases=(10,))
+                facts_path = Path(self.f.env["BP_FACTS"])
+                facts = json.loads(facts_path.read_text())
+                if mutation == "missing":
+                    del facts["case10RequestBound"]
+                    facts_path.write_text(json.dumps(facts))
+                elif mutation == "account":
+                    facts["case10RequestBound"]["accountSubjectSha256"] = "0" * 64
+                    facts_path.write_text(json.dumps(facts))
+                elif mutation == "digest":
+                    facts["case10RequestBound"]["evidenceRef"] = "SYNTHETIC-CHANGED"
+                    facts_path.write_text(json.dumps(facts))
+                else:
+                    facts["case10RequestBound"]["projection"]["bootstrap"] = 500
+                    self.f.repin(facts=facts)
+                self.rejected()
 
     def test_minimal_and_future_phase_one_preserve_existing_floor(self):
         self.f = SyntheticBuilder(self.temp.name, cases=(13,14), minimal=True)
