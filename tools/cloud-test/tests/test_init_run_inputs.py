@@ -438,7 +438,7 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
             self.assertFalse(any(os.path.exists(x) for x in (out, env, outputs)))
             return p.returncode, p.stderr.strip()
 
-        self.assertEqual(prepare(RUNS + "r6.json"), (78, "BLOCKED_SETUP: continuity-checkpoint-contract-pending"))
+        self.assertEqual(prepare(RUNS + "r6.json"), (78, "BLOCKED_SETUP: continuity-rollup-not-accepted"))
         self.assertEqual(prepare(RUNS + "stray.json"), (78, "BLOCKED_SETUP: request-release-not-in-source-history"))
 
     def test_admission_publishes_the_committed_request_digest_and_every_consumer_reads_a_private_copy_of_those_bytes(self):
@@ -454,13 +454,20 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
         argv = ["init_run_inputs.py", "prepare", "--repo", repo.dir, "--config", "tools/cloud-test/config/test-config.v1.json", "--request",
                 RUNS + "r6.json", "--facts", json.dumps(facts()), "--run-id", "123", "--attempt", "1", "--source-sha", head,
                 "--job-timeout-minutes", "150", "--out", out, "--env-file", env, "--outputs", outputs]
-        with mock.patch.object(I, "verified_checkpoint", lambda path: None), \
+        rc_bytes = b'{"ceilings":{"starts":120},"starts":{"ownerCounted":0}}\n'
+        with mock.patch.object(I, "verified_checkpoint", lambda repo_dir, request: rc_bytes), \
                 mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": bundle_with(ACCOUNT_ID), "SUPABASE_URL": SUPABASE_URL_OK}):
             self.assertEqual(I.main(argv), 0)
         committed = repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()
         with open(outputs, encoding="utf-8") as f:
             published = dict(line.split("=", 1) for line in f.read().splitlines())
         self.assertEqual(published["request_sha256"], hashlib.sha256(committed).hexdigest())
+        # The continuity checkpoint's exact bytes, private, and their digest only as a step output (Increment I).
+        reconciliation_file = os.path.join(out, "reconciliation.json")
+        with open(reconciliation_file, "rb") as f:
+            self.assertEqual(f.read(), rc_bytes)
+        self.assertEqual(stat.S_IMODE(os.stat(reconciliation_file).st_mode), 0o600)
+        self.assertEqual(published["reconciliation_sha256"], hashlib.sha256(rc_bytes).hexdigest())
         with open(env, encoding="utf-8") as f:
             ct_request = dict(line.split("=", 1) for line in f.read().splitlines())["CT_REQUEST"]
         self.assertEqual(ct_request, os.path.join(out, "request.json"), "consumers read the private admitted copy, not the workspace file")
@@ -1335,6 +1342,111 @@ class NightlyMode(unittest.TestCase):
             refused(self, "nightly-facts-input-refused", I.prepare, x, self.slot + timedelta(minutes=1))
             x.facts = None
             refused(self, "nightly-facts-not-pinned", I.prepare, x, self.slot + timedelta(minutes=1))
+
+
+from test_accounting_rollup import Journal, bootstrap as rollup_bootstrap, scope as rollup_scope  # noqa: E402
+import state_ref_writer as W  # noqa: E402
+
+
+class ContinuityCheckpoint(Journal):
+    """Increment I (Sam 1793566031.065709): the continuity checkpoint is the accepted rollup over the verified journal, bound to the admitted
+    request, written as the exact bytes the stage runner consumes before plan construction. Synthetic inputs and test-only pins only."""
+
+    APPROVAL = "slack:1793538100.358869"
+
+    def setUp(self):
+        super().setUp()
+        self.checkout = os.path.join(self.d, "checkout")
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        self.req = live_request(["AHT-07"])
+        self.req["window"].update(startUtc=utc(now - timedelta(hours=1)), endUtc=utc(now + timedelta(hours=3)))
+        self.scope_doc = rollup_scope(approvalRef=self.APPROVAL, ceilings={"requests": 12000, "protectedReserveRequests": 300,
+                                                                            "identityReads": 126, "starts": 120, "takes": 80})
+        self.write(self.raw, json.dumps(self.scope_doc, sort_keys=True).encode())
+
+    def write(self, bootstrap_raw, scope_raw):
+        os.makedirs(os.path.join(self.checkout, I.CONTINUITY_DIR), exist_ok=True)
+        for name, raw in ((I.CONTINUITY_BOOTSTRAP, bootstrap_raw), (I.CONTINUITY_SCOPE, scope_raw)):
+            with open(os.path.join(self.checkout, I.CONTINUITY_DIR, name), "wb") as f:
+                f.write(raw)
+        self.scope_raw = scope_raw
+
+    def all_pins(self, **over):
+        p = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope_raw).hexdigest(), reviewed_root=self.root)
+        p.update(over)
+        return p
+
+    def check(self, req=None, pins=None):
+        reader = lambda root: W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), root)
+        return I.verified_checkpoint(self.checkout, req or self.req, pins or self.all_pins(), reader)
+
+    def refused(self, code, *a, **k):
+        with self.assertRaises(I.Refused) as e:
+            self.check(*a, **k)
+        self.assertEqual(str(e.exception), code)
+
+    def test_the_production_pins_are_unset_so_continuity_refuses(self):
+        self.assertEqual(set(I.continuity_pins().values()), {None})
+        with self.assertRaises(I.Refused) as e:
+            I.verified_checkpoint(self.checkout, self.req)
+        self.assertEqual(str(e.exception), "continuity-rollup-not-accepted")
+
+    def test_each_missing_acceptance_refuses_by_name_before_any_input_is_read(self):
+        self.refused("continuity-rollup-not-accepted", pins=self.all_pins(accepted_sha256=None))
+        self.refused("continuity-rollup-not-accepted", pins=self.all_pins(accepted_root=None))
+        self.refused("continuity-state-root-not-pinned", pins=self.all_pins(reviewed_root=None))
+        self.refused("continuity-state-root-not-pinned", pins=self.all_pins(reviewed_root="f" * 40))
+        self.refused("continuity-scope-not-accepted", pins=self.all_pins(accepted_scope_sha256=None))
+        os.remove(os.path.join(self.checkout, I.CONTINUITY_DIR, I.CONTINUITY_SCOPE))
+        self.refused("continuity-inputs-missing")
+
+    def test_the_hashed_bytes_are_the_bytes_the_runner_consumes_before_plan_construction(self):
+        rc_bytes = self.check()
+        rc = json.loads(rc_bytes)
+        self.assertEqual(rc_bytes, (json.dumps(rc, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii"))
+        self.assertEqual((rc["source"], rc["scopeApprovalRef"], rc["headSha"]), ("accepted-rollup", self.APPROVAL, self.root))
+        private = os.path.join(self.d, "private")
+        os.mkdir(private, 0o700)
+        rc_file, req_file, env_file = (os.path.join(private, n) for n in ("reconciliation.json", "req.json", "env.txt"))
+        with open(rc_file, "wb") as f:
+            f.write(rc_bytes)
+        put(req_file, self.req)
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
+                            "--request-sha256", I._sha(req_file), "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(env_file, encoding="utf-8") as f:
+            bp = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
+        self.assertEqual((bp["BP_RECONCILIATION_FILE"], bp["BP_RECONCILIATION_SHA256"]), (rc_file, hashlib.sha256(rc_bytes).hexdigest()))
+        import case_start_caps as CS
+        self.assertEqual(CS.reconcile_caps(self.req, rc, execution=True)[0], "selected-full")
+
+    def test_outstanding_reservations_count_toward_the_checkpoint(self):
+        self.append("reserve", "41400000001", {"requests": 4342, "identityReads": 32, "starts": 3, "takes": 2, "coachingRequests": 1,
+                                               "runnerMinutes": 30}, at="2026-11-02T04:00:00Z")
+        rc = json.loads(self.check())
+        self.assertEqual((rc["outstandingReservations"], rc["requests"]["conservativeUsed"], rc["starts"]["ownerCounted"]), (1, 4342, 3))
+
+    def test_the_checkpoint_is_bound_to_the_request_approval_and_every_stated_cumulative_ceiling(self):
+        self.refused("continuity-approval-not-the-request", req=dict(self.req, approvedLimits=dict(self.req["approvedLimits"], approvalRef="slack:1")))
+        for limit, ceiling in (("cumulativeCeilingRequests", "requests"), ("identityCap", "identityReads")):
+            with self.subTest(limit=limit):
+                bad = dict(self.req, approvedLimits=dict(self.req["approvedLimits"], **{limit: self.req["approvedLimits"][limit] - 1}))
+                self.refused("continuity-ceiling-not-the-request:" + ceiling, req=bad)
+        for limit, ceiling, ok in (("startsCap", "starts", 120), ("takesCap", "takes", 80)):
+            with self.subTest(limit=limit):
+                stated = dict(self.req, approvedLimits=dict(self.req["approvedLimits"], **{limit: ok}))
+                self.check(req=stated)
+                self.refused("continuity-ceiling-not-the-request:" + ceiling, req=dict(stated, approvedLimits=dict(stated["approvedLimits"], **{limit: ok + 1})))
+
+    def test_unresolved_unapproved_and_unanchored_inputs_still_refuse(self):
+        unresolved = rollup_bootstrap(unresolved=[{"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "UNRESOLVED", "usage": None}])
+        self.write(unresolved, self.scope_raw)
+        self.refused("continuity-rollup-unresolved-usage", pins=self.all_pins(accepted_sha256=hashlib.sha256(unresolved).hexdigest()))
+        self.write(self.raw, self.scope_raw)
+        other = json.dumps(dict(self.scope_doc, carryover="historical"), sort_keys=True).encode()
+        self.refused("continuity-manual-reservation-scope-not-accepted", pins=self.all_pins(accepted_scope_sha256=hashlib.sha256(other).hexdigest()))
+        self.refused("continuity-rollup-bootstrap-not-accepted", pins=self.all_pins(accepted_sha256="0" * 64))
+        self.refused("continuity-state-root-replaced", pins=self.all_pins(accepted_root="e" * 40, reviewed_root="e" * 40))
 
 
 class WindowAtAdmission(unittest.TestCase):
