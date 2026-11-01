@@ -47,12 +47,15 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('[ "$CONFIRM" = LIVE ]', first)
         self.assertEqual(self.jobs["live"]["needs"], "record-begin")
 
-    def test_secret_values_come_only_from_secrets_and_the_throwaway_email_from_its_variable(self):
-        # PO 18:46:25Z (Sam 1793472433.458519): THROWAWAY_TEST_EMAIL is appropriately a repository Variable; passwords, tokens and keys are Secrets.
+    def test_secret_values_come_only_from_secrets_and_account_identifiers_only_from_the_private_bundle(self):
+        # Sam 1793544453.003099: passwords, tokens and keys are Secrets; account emails and ids travel only in CLOUD_TEST_LIVE_ACCOUNTS.
         for name in ("THROWAWAY_TEST_PASSWORD", "SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY", "SUPABASE_ANON_KEY"):
             self.assertNotRegex(self.text, r"vars\.%s\b" % name, name)
-        self.assertIn("THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}", self.text)
+        self.assertNotRegex(self.text, r"vars\.[A-Z_]*(_EMAIL|_ACCOUNT_ID)\b")
         self.assertNotIn("secrets.THROWAWAY_TEST_EMAIL", self.text)
+        self.assertEqual(self.text.count("secrets.CLOUD_TEST_LIVE_ACCOUNTS"), 1)
+        # A value derived from a Secret by an expression is not masked by Actions: the bundle is never parsed in a workflow expression.
+        self.assertNotRegex(self.text, r"fromJSON\(\s*secrets\.")
         self.assertIn("THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}", self.text)
         self.assertNotIn("throwaway-email-not-secret", self.text)
 
@@ -139,14 +142,18 @@ class LiveWorkflowPolicy(unittest.TestCase):
         run = next(s for s in live["steps"] if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         self.assertEqual(run["timeout-minutes"], "${{ fromJSON(steps.init.outputs.live_minutes) }}")
 
-    def test_every_run_stage_name_is_supplied_and_account_ids_come_from_variables(self):
+    def test_every_run_stage_name_is_supplied_and_the_bundle_reaches_only_prepare(self):
         with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:
             names = json.load(f)["credentials"]["runEnvironment"]["stages"]["run"]
         run = next(s for s in self.jobs["live"]["steps"] if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
-        self.assertTrue(set(names) <= set(run["env"]), set(names) - set(run["env"]))
+        # THROWAWAY_TEST_EMAIL reaches the run stage only through prepare's masked, safe $GITHUB_ENV export, never a step env value.
+        self.assertNotIn("THROWAWAY_TEST_EMAIL", run["env"])
+        self.assertTrue(set(names) - {"THROWAWAY_TEST_EMAIL"} <= set(run["env"]), set(names) - set(run["env"]))
         init = next(s for s in self.jobs["live"]["steps"] if s.get("id") == "init")
-        self.assertEqual(init["env"]["THROWAWAY_TEST_ACCOUNT_ID"], "${{ vars.THROWAWAY_TEST_ACCOUNT_ID }}")
-        self.assertEqual(init["env"]["FREE_TEST_ACCOUNT_ID"], "${{ vars.FREE_TEST_ACCOUNT_ID }}")
+        self.assertEqual(init["env"]["CLOUD_TEST_LIVE_ACCOUNTS"], "${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}")
+        self.assertEqual(init["env"]["SUPABASE_URL"], "${{ vars.SUPABASE_URL }}")
+        holders = [s.get("name", s.get("uses")) for j in self.jobs.values() for s in j["steps"] if "CLOUD_TEST_LIVE_ACCOUNTS" in (s.get("env") or {})]
+        self.assertEqual(holders, [init["name"]])
 
     def test_pass_needs_qualify_which_runs_the_real_binding_verifier_then_every_selected_row(self):
         collect = self.jobs["live"]["steps"][-2]["run"]

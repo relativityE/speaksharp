@@ -12,8 +12,10 @@ name: Cloud Test live journeys (manual, GitHub-hosted)
 #  - one active run (concurrency below); a re-run attempt is refused, because an earlier attempt's consumed state cannot be carried and is never reset;
 #  - the ONE latest record is a bot-owned issue comment updated in place by the isolated record-* jobs, which hold no live credential and only
 #    `issues: write`; the previous completed record stays until a terminal replacement is written, and an interrupted attempt blocks the next run;
-#  - passwords, tokens and keys come only from the `secrets` context; THROWAWAY_TEST_EMAIL is a repository Variable by owner decision
-#    (PO 18:46:25Z via Sam 1793472433.458519), so Actions shows it in the live job's step header; it is never written to the record or artifacts;
+#  - passwords, tokens and keys come only from the `secrets` context. Account emails and ids come only from the private
+#    CLOUD_TEST_LIVE_ACCOUNTS Secret (Sam 1793544453.003099): init_run_inputs.py masks the whole bundle and every extracted value before
+#    any output, then exports the existing-disposable email under execute_run's THROWAWAY_TEST_EMAIL name through a safe env-file writer,
+#    so later step headers show it masked; it is never written to the record or artifacts;
 #  - no evidence payload, transcript, account identifier or row content leaves the live job; only the closed latest record does.
 #
 # NOT ACTIVE: TRACKING_ISSUE is empty until activation. The selected record container is PR #1763's conversation (Sam 1793472499.701439); the record
@@ -141,8 +143,8 @@ jobs:
           REQUEST: ${{ inputs.request }}
           FACTS: ${{ inputs.facts }}
           PRIOR_STATE: ${{ needs.record-begin.outputs.prior_state }}
-          THROWAWAY_TEST_ACCOUNT_ID: ${{ vars.THROWAWAY_TEST_ACCOUNT_ID }}
-          FREE_TEST_ACCOUNT_ID: ${{ vars.FREE_TEST_ACCOUNT_ID }}
+          CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
         run: |
           set -euo pipefail
           printf '%s' "$PRIOR_STATE" > "$RUNNER_TEMP/prior-state.json"
@@ -162,7 +164,6 @@ jobs:
         env:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}
           THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           # Producer keys only for the same-job producer route; execute_run.sh refuses them on any other route.

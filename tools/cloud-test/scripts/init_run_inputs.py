@@ -28,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.parse
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,8 +40,17 @@ PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 ALL_CASES = ["AHT-%02d" % n for n in range(1, 16)]
 # build_plan.py binds ONE account id for the whole plan and labels AHT-15 maintained-read-only (line 179), so roles never mix in one run.
 ROLE = {**{c: "existing-disposable" for c in ALL_CASES[:14]}, "AHT-15": "maintained-read-only"}
-ROLE_CREDENTIALS = {"existing-disposable": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD", "accountId": "THROWAWAY_TEST_ACCOUNT_ID"},
-                    "maintained-read-only": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD", "accountId": "FREE_TEST_ACCOUNT_ID"}}
+ROLE_CREDENTIALS = {"existing-disposable": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"},
+                    "maintained-read-only": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}
+# The private CLOUD_TEST_LIVE_ACCOUNTS bundle (Sam 1793544453.003099): configuration only (emails and account ids, never a password or
+# token), validated exactly as scripts/verify-test-users.mjs does, in the same order and with the same codes (shared vectors).
+BUNDLE_ROLES = ("existing-disposable", "maintained-read-only")
+BUNDLE_LIMIT = 4096
+CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+UUID_V4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+PROJECT_REF = re.compile(r"^[a-z0-9]{20}$")
+EMAIL_SHAPE = re.compile(r"^[^@\s]+@[^@\s]+$")
+ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/#-]{2,159}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 RECEIPT_KEYS = {"pre", "rls", "analytics", "disp", "fence", "review"}  # build_plan.py 55
@@ -193,6 +203,76 @@ def check_release_lineage(repo, req, request_rel, source_sha, request_blob, case
     return "explicit-older-release-diagnostic"
 
 
+def parse_live_accounts_bundle(raw):
+    """The bundle -> {"projectRef", "accounts": {role: {"email", "accountId"}}}, or Refused with a fixed code that never quotes it."""
+    _need(isinstance(raw, str) and raw.strip(), "bundle-missing")
+    _need(len(raw.encode("utf-8")) <= BUNDLE_LIMIT, "bundle-too-large")
+    def no_constants(name):  # NaN/Infinity are not JSON (JSON.parse refuses them too)
+        raise ValueError(name)
+    try:
+        doc = json.loads(raw, parse_constant=no_constants)
+    except ValueError:
+        raise Refused("bundle-not-json")
+
+    def exact(o, keys):
+        return isinstance(o, dict) and sorted(o) == sorted(keys)
+    v = doc.get("version") if isinstance(doc, dict) else None
+    _need(exact(doc, ("version", "projectRef", "accounts")) and type(v) in (int, float) and v == 1 and exact(doc["accounts"], BUNDLE_ROLES), "bundle-shape")
+    for role in BUNDLE_ROLES:
+        _need(exact(doc["accounts"][role], ("email", "accountId")), "bundle-shape")
+    _need(isinstance(doc["projectRef"], str) and PROJECT_REF.match(doc["projectRef"]), "bundle-project")
+    for role in BUNDLE_ROLES:
+        e = doc["accounts"][role]["email"]
+        _need(isinstance(e, str) and len(e) <= 254 and not CONTROL.search(e) and e == e.strip() and EMAIL_SHAPE.match(e), "bundle-email")
+    for role in BUNDLE_ROLES:
+        _need(isinstance(doc["accounts"][role]["accountId"], str) and UUID_V4.match(doc["accounts"][role]["accountId"]), "bundle-account-id")
+    a, b = (doc["accounts"][r] for r in BUNDLE_ROLES)
+    _need(a["email"].lower() != b["email"].lower() and a["accountId"] != b["accountId"], "bundle-duplicate")
+    return {"projectRef": doc["projectRef"], "accounts": {r: {"email": doc["accounts"][r]["email"], "accountId": doc["accounts"][r]["accountId"]}
+                                                          for r in BUNDLE_ROLES}}
+
+
+def mask_values(raw):
+    """The whole raw bundle (even malformed) and, once it parses, every email (as given and lower-cased) and account id."""
+    values = [raw]
+    try:
+        for acct in parse_live_accounts_bundle(raw)["accounts"].values():
+            values += [acct["email"], acct["email"].lower(), acct["accountId"]]
+    except Refused:
+        pass
+    return values
+
+
+def mask_commands(values):
+    """GitHub ::add-mask:: lines with escaped data (% -> %25, CR -> %0D, LF -> %0A), one line each; multi-line values also per line."""
+    out = []
+    for v in values:
+        if not isinstance(v, str) or not v.strip():
+            continue
+        for item in [v] + [ln for ln in re.split(r"\r\n|\r|\n", v) if ln.strip() and ln != v]:
+            cmd = "::add-mask::" + item.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            if cmd not in out:
+                out.append(cmd)
+    return out
+
+
+def role_account(bundle, role, supabase_url):
+    """Role truth: only existing-disposable populates the THROWAWAY_* names. maintained-read-only live execution refuses until the separately
+    reviewed FREE allowlist/config contract exists (B6); its data is never renamed into another role's names."""
+    host = urllib.parse.urlparse(supabase_url or "").hostname or ""
+    _need(bundle["projectRef"] == host.split(".")[0], "bundle-project-mismatch")
+    _need(role == "existing-disposable", "maintained-read-only-live-execution-unavailable")
+    return bundle["accounts"][role]
+
+
+def write_env_file(path, mapping):
+    """$GITHUB_ENV lines only for plain names and single-line, control-free values; anything else refuses before a byte is written."""
+    for k, v in mapping.items():
+        _need(ENV_NAME.match(k) and isinstance(v, str) and not CONTROL.search(v), "unsafe-environment-value")
+    with open(path, "a", encoding="utf-8") as f:
+        f.writelines("%s=%s\n" % kv for kv in sorted(mapping.items()))
+
+
 def account_binding(cfg, cases, facts_account, account_id):
     """One role per run, bound to its credential NAMES, the account ID (by digest) and the account's history reference together. The role's
     names must be ones the run stage actually receives (config credentials.runEnvironment.stages.run); values are never renamed into
@@ -267,7 +347,9 @@ def prepare(x, now):
     facts = json.loads(x.facts or "null")
     _need(isinstance(facts, dict), "facts-shape")
     lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys)
-    account_id = os.environ.get(ROLE_CREDENTIALS[ROLE[cases[0]]]["accountId"])
+    bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
+    role_entry = role_account(bundle, ROLE[cases[0]], os.environ.get("SUPABASE_URL"))
+    account_id = role_entry["accountId"]
     account = account_binding(cfg, cases, facts.get("account"), account_id)
     builder_facts = translate_facts(facts, req, route)
     scope = compose_scope(req, builder_facts, account_id, cases, route)
@@ -275,6 +357,7 @@ def prepare(x, now):
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     verified_checkpoint(x.checkpoint)
     return {"request": req_path, "requestBlob": req_blob, "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
+            "accountId": account_id, "email": role_entry["email"],
             "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes,
             "account": account, "facts": builder_facts, "scope": scope}
 
@@ -486,20 +569,25 @@ def main(argv):
             _write_private(x.out, qualify(x.plan, x.case_results, x.cases_dir, (x.cases or "").split(","), x.approval, x.code_manifest,
                                           x.snapshot_dir, x.coverage_mode))
             return 0
+        # Mask first: the whole bundle and every extracted value, before any refusal, output or environment export.
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            for command in mask_commands(mask_values(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))):
+                print(command, flush=True)
         p = prepare(x, datetime.now(timezone.utc))
         os.makedirs(x.out, mode=0o700)
         facts_file, account_file = os.path.join(x.out, "facts.json"), os.path.join(x.out, "account-id")
         _write_private(facts_file, p["facts"])
         fd = os.open(account_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(os.environ[p["account"]["credentials"]["accountId"]])
-        env = {"CT_REQUEST": p["request"], "CT_FACTS_FILE": facts_file, "CT_ACCOUNT_ID_FILE": account_file}
+            f.write(p["accountId"])
+        # The role's email reaches the run stage under execute_run's allowlisted name only through the safe writer, after masking.
+        env = {"CT_REQUEST": p["request"], "CT_FACTS_FILE": facts_file, "CT_ACCOUNT_ID_FILE": account_file,
+               p["account"]["credentials"]["email"]: p["email"]}
         if p["scope"]:
             scope_file = os.path.join(x.out, "evidence-scope.json")
             _write_private(scope_file, p["scope"])
             env.update(CT_EVIDENCE_SCOPE_FILE=scope_file, CT_EVIDENCE_SCOPE_SHA256=_sha(scope_file))
-        with open(x.env_file, "a", encoding="utf-8") as f:
-            f.writelines("%s=%s\n" % kv for kv in sorted(env.items()))
+        write_env_file(x.env_file, env)
         with open(x.outputs, "a", encoding="utf-8") as f:
             f.write("route=%s\nrole=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\n" % (
                 p["route"], p["account"]["role"], p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"]))
