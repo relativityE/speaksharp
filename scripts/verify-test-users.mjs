@@ -138,6 +138,21 @@ export const LIVE_JOURNEY_ROLES = Object.freeze([
 const SHA256 = /^[0-9a-f]{64}$/;
 
 /**
+ * Every identifier the live-journey target holds, for GitHub's ::add-mask:: before any other output: both emails (as given and
+ * lower-cased) and both expected-id digests. Blank values are skipped.
+ */
+export function liveJourneyMaskValues(env = process.env) {
+  const values = new Set();
+  for (const r of LIVE_JOURNEY_ROLES) {
+    const email = env[r.emailVar]?.trim();
+    if (email) { values.add(email); values.add(email.toLowerCase()); }
+    const digest = env[r.digestVar]?.trim();
+    if (digest) values.add(digest);
+  }
+  return [...values];
+}
+
+/**
  * Role-only verification of the live run's two required accounts. Read-only: the existing auth-user listing and one user_profiles
  * select. Both names are required and nothing falls back (no E2E_*, CREATE_* or PRO). Any read failure becomes one fixed code, so no
  * SDK message can carry an email or id. Returns { target, results, allPass }
@@ -206,6 +221,10 @@ async function main() {
   }
 
   if (VERIFY_TARGET === 'live-journey-accounts') {
+    // Mask first: nothing this target prints, and no later error, can carry an email or digest in the Actions log.
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      for (const value of liveJourneyMaskValues()) process.stdout.write(`::add-mask::${value}\n`);
+    }
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });

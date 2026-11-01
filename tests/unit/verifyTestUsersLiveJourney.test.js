@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { verifyLiveJourneyAccounts, LIVE_JOURNEY_ROLES } from '../../scripts/verify-test-users.mjs';
+import { verifyLiveJourneyAccounts, LIVE_JOURNEY_ROLES, liveJourneyMaskValues } from '../../scripts/verify-test-users.mjs';
 
 /**
  * Sam 1793541050.190059: the Cloud test live run's two REQUIRED accounts, verified by role only. Reconciles historical aa2ff01a
@@ -91,6 +91,12 @@ describe('verify-test-users live-journey-accounts target', () => {
         .rejects.toThrow(/^LIVE_JOURNEY_ACCOUNTS_CONFIG: an expected id digest is malformed$/);
     }
     expect(w.queries).toEqual([]);
+  });
+
+  it('masks every email (as given and lower-cased) and digest, skipping blanks', () => {
+    const masks = liveJourneyMaskValues({ THROWAWAY_TEST_EMAIL: THROWAWAY.toUpperCase(), FREE_TEST_EMAIL: FREE, EXPECTED_THROWAWAY_ID_SHA256: sha(T_ID),
+      EXPECTED_FREE_ID_SHA256: '  ' });
+    expect(masks.sort()).toEqual([THROWAWAY.toUpperCase(), THROWAWAY, FREE, sha(T_ID)].sort());
   });
 
   it('writes nothing: the target has no file, insert, update or sign-in path (historical no-overwrite protection)', async () => {

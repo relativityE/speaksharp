@@ -167,10 +167,23 @@ describe('Admin - Test Users workflow contract', () => {
     const broad = steps.find((s) => s.name === 'Run test user admin action');
     expect(broad.if, 'broad step must exclude the live-journey case').toMatch(/!\s*\(.*action\s*==\s*'verify'.*verify_target\s*==\s*'live-journey-accounts'.*\)/s);
     expect(step.run.trim()).toBe('pnpm verify:test-users');
-    for (const name of ['expected_throwaway_id_sha256', 'expected_free_id_sha256']) {
-      expect(inputs[name].type).toBe('string');
-      expect(inputs[name].required).toBe(false);
-    }
+  });
+
+  // Log privacy (Sam 1793542704.992869): dispatch inputs are shown on the run page and non-secret env values in step headers.
+  it('PRIVACY: no identifier or digest travels through a dispatch input or a run script; digests come only from Secrets', () => {
+    const steps = wf.jobs['test-user-admin'].steps;
+    const step = steps.find((s) => s.name === 'Run live-journey account verification (strictly read-only, role only)');
+    expect(step.env.EXPECTED_THROWAWAY_ID_SHA256).toBe('${{ secrets.EXPECTED_THROWAWAY_ID_SHA256 }}');
+    expect(step.env.EXPECTED_FREE_ID_SHA256).toBe('${{ secrets.EXPECTED_FREE_ID_SHA256 }}');
+    for (const name of Object.keys(inputs)) expect(name, `dispatch input ${name}`).not.toMatch(/sha256|digest|account_id|user_id/i);
+    expect(raw).not.toMatch(/inputs\.expected_/);
+    for (const s of steps) expect(s.run ?? '', `${s.name} interpolates an expression into its script`).not.toContain('${{');
+    // The verifier masks every email and digest before it prints anything for this target.
+    const src = readFileSync(resolve(process.cwd(), 'scripts/verify-test-users.mjs'), 'utf8');
+    const branch = src.slice(src.indexOf("if (VERIFY_TARGET === 'live-journey-accounts') {"));
+    expect(branch.indexOf('::add-mask::')).toBeGreaterThan(-1);
+    expect(branch.indexOf('::add-mask::')).toBeLessThan(branch.indexOf('createClient('));
+    expect(branch.indexOf('::add-mask::')).toBeLessThan(branch.indexOf('console.'));
   });
 
   it('verify_target selects the reviewers check (default), the read-only canary inspection or the live-journey accounts', () => {
