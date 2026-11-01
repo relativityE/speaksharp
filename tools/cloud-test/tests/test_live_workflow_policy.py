@@ -89,6 +89,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
         # A value derived from a Secret by an expression is not masked by Actions: the bundle is never parsed in a workflow expression.
         self.assertNotRegex(self.text, r"fromJSON\(\s*secrets\.")
         self.assertIn("THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}", self.text)
+        # Case15 (Sam 1793554938.870679): the maintained-read-only role's password reaches the run step from its own Secret; its email
+        # comes only from the private bundle, like THROWAWAY's.
+        self.assertEqual(self.text.count("FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}"), 1)
+        self.assertNotIn("FREE_TEST_EMAIL: ${{", self.text)
         self.assertNotIn("throwaway-email-not-secret", self.text)
 
     def test_the_record_jobs_bind_the_exact_issue_and_comment(self):

@@ -57,7 +57,7 @@ REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/#-]{2,159}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 RECEIPT_KEYS = {"pre", "rls", "analytics", "disp", "fence", "review"}  # build_plan.py 55
 BACKEND_KEYS = {"manifestRef", "generation", "completion", "migration129"}
-FACT_REQUIRED = {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "account"}
+FACT_REQUIRED = {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "accounts"}
 FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic"}
 # The ONE reviewed location for live run requests (Sam RETURN 3e0279d6 finding 1); nothing else counts as request-only lineage.
 REQUEST_DIR = "tools/cloud-test/config/runs/"
@@ -301,10 +301,11 @@ def is_project_origin(url, project_ref):
 
 
 def role_account(bundle, role, supabase_url):
-    """Role truth: only existing-disposable populates the THROWAWAY_* names. maintained-read-only live execution refuses until the separately
-    reviewed FREE allowlist/config contract exists (B6); its data is never renamed into another role's names."""
+    """Role truth: each role's data populates only its own credential names (AHT-01..14 existing-disposable -> THROWAWAY_*, AHT-15
+    maintained-read-only -> FREE_*), never another role's. Whether a role may run at all is the reviewed run-stage allowlist's decision
+    (account_bindings)."""
     _need(is_project_origin(supabase_url, bundle["projectRef"]), "bundle-project-mismatch")
-    _need(role == "existing-disposable", "maintained-read-only-live-execution-unavailable")
+    _need(role in bundle["accounts"], "account-role-not-in-bundle")
     return bundle["accounts"][role]
 
 
@@ -316,22 +317,27 @@ def write_env_file(path, mapping):
         f.writelines("%s=%s\n" % kv for kv in sorted(mapping.items()))
 
 
-def account_binding(cfg, cases, facts_account, account_id):
-    """One role per run, bound to its credential NAMES, the account ID (by digest) and the account's history reference together. The role's
-    names must be ones the run stage actually receives (config credentials.runEnvironment.stages.run); values are never renamed into
-    another role's names."""
-    roles = {ROLE[c] for c in cases}
-    _need(len(roles) == 1, "mixed-account-roles")
-    role = roles.pop()
-    names = ROLE_CREDENTIALS[role]
-    _need({names["email"], names["password"]} <= set(cfg["credentials"]["runEnvironment"]["stages"]["run"]), "role-credentials-not-in-run-stage-allowlist")
-    _need(isinstance(facts_account, dict) and set(facts_account) == {"role", "idSha256", "historyRef"}, "account-binding-shape")
-    _need(facts_account["role"] == role, "account-role-not-for-these-cases")
-    _need(isinstance(account_id, str) and account_id.strip() == account_id and account_id, "account-id-source-missing")
-    _need(isinstance(facts_account["idSha256"], str) and SHA64.match(facts_account["idSha256"]) and
-          hashlib.sha256(account_id.encode()).hexdigest() == facts_account["idSha256"], "account-id-not-the-approved-account")
-    _need(_ref(facts_account["historyRef"]), "account-history-reference")
-    return {"role": role, "credentials": dict(ROLE_CREDENTIALS[role]), "historyRef": facts_account["historyRef"]}
+def account_bindings(cfg, cases, facts_accounts, bundle):
+    """Every role the selection needs (Jensen's I1'/I2' contract: AHT-01..14 existing-disposable, AHT-15 maintained-read-only, so an all-15 run
+    is 14+1), each bound to its own credential NAMES, its account ID from the private bundle (checked by digest against the approved binding)
+    and its history reference. A role's names must be ones the run stage actually receives (config credentials.runEnvironment.stages.run);
+    values are never renamed into another role's names. Returns one binding per role, sorted by role."""
+    roles = sorted({ROLE[c] for c in cases})
+    _need(isinstance(facts_accounts, dict) and sorted(facts_accounts) == roles, "account-binding-roles")
+    run_names = set(cfg["credentials"]["runEnvironment"]["stages"]["run"])
+    out = []
+    for role in roles:
+        names = ROLE_CREDENTIALS[role]
+        _need({names["email"], names["password"]} <= run_names, "role-credentials-not-in-run-stage-allowlist")
+        fa = facts_accounts[role]
+        _need(isinstance(fa, dict) and set(fa) == {"idSha256", "historyRef"}, "account-binding-shape")
+        account_id = (bundle["accounts"].get(role) or {}).get("accountId")
+        _need(isinstance(account_id, str) and account_id.strip() == account_id and account_id, "account-id-source-missing")
+        _need(isinstance(fa["idSha256"], str) and SHA64.match(fa["idSha256"]) and
+              hashlib.sha256(account_id.encode()).hexdigest() == fa["idSha256"], "account-id-not-the-approved-account")
+        _need(_ref(fa["historyRef"]), "account-history-reference")
+        out.append({"role": role, "credentials": dict(names), "historyRef": fa["historyRef"]})
+    return out
 
 
 def translate_facts(facts, req, route):
@@ -350,7 +356,7 @@ def translate_facts(facts, req, route):
         b = facts["backend"]
         _need(isinstance(b, dict) and set(b) == BACKEND_KEYS and _ref(b["manifestRef"]) and _int(b["generation"]) and b["generation"] >= 1 and
               b["completion"] in ("ON", "OFF") and b["migration129"] in ("present", "absent"), "facts-backend")
-    return {k: v for k, v in facts.items() if k not in ("account", "olderReleaseDiagnostic")}
+    return {k: v for k, v in facts.items() if k not in ("accounts", "olderReleaseDiagnostic")}
 
 
 def compose_scope(req, facts, account_id, cases, route):
@@ -391,19 +397,21 @@ def prepare(x, now):
     _need(isinstance(facts, dict), "facts-shape")
     lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys)
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
-    role_entry = role_account(bundle, ROLE[cases[0]], os.environ.get("SUPABASE_URL"))
-    account_id = role_entry["accountId"]
-    account = account_binding(cfg, cases, facts.get("account"), account_id)
+    accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle)
+    entries = {b["role"]: role_account(bundle, b["role"], os.environ.get("SUPABASE_URL")) for b in accounts}
+    # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.
+    primary = "existing-disposable" if "existing-disposable" in entries else "maintained-read-only"
+    account_id = entries[primary]["accountId"]
     builder_facts = translate_facts(facts, req, route)
-    scope = compose_scope(req, builder_facts, account_id, cases, route)
+    scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route)
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     verified_checkpoint(x.checkpoint)
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle), "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
-            "accountId": account_id, "email": role_entry["email"],
+            "accountId": account_id, "emails": {b["credentials"]["email"]: entries[b["role"]]["email"] for b in accounts},
             "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes,
-            "account": account, "facts": builder_facts, "scope": scope}
+            "accounts": accounts, "facts": builder_facts, "scope": scope}
 
 
 def _run_verifier(plan, case_results, approval, code_manifest, packet_root, cases_dir, out):
@@ -691,7 +699,8 @@ def check_execution_provenance(admitted, identity, priority, plan_raw, build_rec
     _need(collector.get("caseResultsSha256") == hashlib.sha256(case_results_raw).hexdigest(), "collection-not-these-case-results")
     digests = collector.get("runtimeReceiptDigests")
     _need(isinstance(digests, dict) and all(digests.get(cid) == _canon_digest(receipts[cid]) for cid in receipts), "collection-runtime-digests")
-    return {"requestSha256": admitted, "planSha256": plan_sha, "cases": sorted(selected), "readers": list(required_readers(priority))}
+    return {"requestSha256": admitted, "planSha256": plan_sha, "cases": sorted(selected), "readers": list(required_readers(priority)),
+            "caseResultsSha256": hashlib.sha256(case_results_raw).hexdigest(), **identity}
 
 
 def reservation_consumption(ledger, campaign_id):
@@ -746,6 +755,11 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
                  # Execution provenance (I4'): the verdict of check_execution_provenance for this admission, plan and selected cases.
                  isinstance(provenance, dict) and provenance.get("requestSha256") == request_sha256 and
                  provenance.get("planSha256") == q.get("planSha256") and provenance.get("cases") == sorted(q.get("cases") or []) and
+                 # ...for exactly these case results (the qualification's and the collector's) and this execution.
+                 provenance.get("caseResultsSha256") == q.get("caseResultsSha256") and
+                 provenance.get("caseResultsSha256") == (run_record.get("artifactDigests") or {}).get("case-results.json") and
+                 provenance.get("campaignId") == campaign and type(provenance.get("runId")) is str and provenance.get("runId") == run_id and
+                 type(provenance.get("attempt")) is int and provenance.get("attempt") == 1 and attempt == 1 and
                  q.get("outcome") in ("passed", "failed") and
                  (q.get("coverage") in ("batch", "incomplete") or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
                  isinstance(q.get("cases"), list) and set(q["cases"]) <= {c.get("case") for c in run_record.get("cases") or [] if isinstance(c, dict)})
@@ -845,15 +859,15 @@ def main(argv):
         with os.fdopen(fd, "wb") as f:
             f.write(p["bundleBytes"])
         env = {"CT_REQUEST": request_file, "CT_FACTS_FILE": facts_file, "CT_ACCOUNT_ID_FILE": account_file, "CT_LIVE_ACCOUNTS_FILE": bundle_file,
-               p["account"]["credentials"]["email"]: p["email"]}
+               **p["emails"]}
         if p["scope"]:
             scope_file = os.path.join(x.out, "evidence-scope.json")
             _write_private(scope_file, p["scope"])
             env.update(CT_EVIDENCE_SCOPE_FILE=scope_file, CT_EVIDENCE_SCOPE_SHA256=_sha(scope_file))
         write_env_file(x.env_file, env)
         with open(x.outputs, "a", encoding="utf-8") as f:
-            f.write("route=%s\nrole=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\nlive_accounts_sha256=%s\n" % (
-                p["route"], p["account"]["role"], p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"],
+            f.write("route=%s\nroles=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\nlive_accounts_sha256=%s\n" % (
+                p["route"], ",".join(b["role"] for b in p["accounts"]), p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"],
                 p["requestSha256"], hashlib.sha256(p["bundleBytes"]).hexdigest()))
         return 0
     except (Refused, LR.Refused) as e:

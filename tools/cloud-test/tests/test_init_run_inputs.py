@@ -59,7 +59,7 @@ def live_request(cases=None, **over):
 def facts(**over):
     f = {"ownerApprovalReference": "slack:1793538100.358869", "approvedBy": "sam", "reviewer": "jensen",
          "receipts": {k: "receipt:%s@aaaaaaaaaaaa" % k for k in I.RECEIPT_KEYS},
-         "account": {"role": "existing-disposable", "idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"}}
+         "accounts": {"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"}}}
     f.update(over)
     return f
 
@@ -264,29 +264,53 @@ class Lineage(unittest.TestCase):
 
 
 class Account(unittest.TestCase):
+    """Jensen's I1'/I2' contract (Sam 1793554938.870679 Case15): every selected role bound to its own credential names, its own account id
+    from the private bundle and its own history; an all-15 run is 14 existing-disposable + 1 maintained-read-only."""
+    FREE_ID = "22222222-2222-4222-8222-222222222222"
+
     def free_cfg(self):
         cfg = copy.deepcopy(CFG)
         cfg["credentials"]["runEnvironment"]["stages"]["run"] += ["FREE_TEST_EMAIL", "FREE_TEST_PASSWORD"]
         return cfg
 
+    def bundle(self):
+        return I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))
+
+    def accounts(self, **over):
+        a = {"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"},
+             "maintained-read-only": {"idSha256": hashlib.sha256(self.FREE_ID.encode()).hexdigest(), "historyRef": "history:free@r5"}}
+        a.update(over)
+        return a
+
     def test_one_role_bound_to_its_credential_names_id_and_history(self):
-        b = I.account_binding(CFG, ["AHT-05"], facts()["account"], ACCOUNT_ID)
+        b = I.account_bindings(CFG, ["AHT-05"], {"existing-disposable": self.accounts()["existing-disposable"]}, self.bundle())
         # Credential NAMES only; the account id comes from the private bundle, never from a named Variable.
-        self.assertEqual(b["credentials"], {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"})
-        a = dict(facts()["account"], role="maintained-read-only", historyRef="history:free@r5")
-        # The reviewed run stage receives only the THROWAWAY names today, so AHT-15's maintained pair is refused, never renamed.
-        refused(self, "role-credentials-not-in-run-stage-allowlist", I.account_binding, CFG, ["AHT-15"], a, ACCOUNT_ID)
-        b = I.account_binding(self.free_cfg(), ["AHT-15"], a, ACCOUNT_ID)
-        self.assertEqual((b["role"], b["credentials"]["email"], b["credentials"]["password"], b["historyRef"]),
-                         ("maintained-read-only", "FREE_TEST_EMAIL", "FREE_TEST_PASSWORD", "history:free@r5"))
+        self.assertEqual(b, [{"role": "existing-disposable", "credentials": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"},
+                              "historyRef": "history:throwaway@r5"}])
         self.assertNotIn(ACCOUNT_ID, json.dumps(b))
 
-    def test_mixed_roles_wrong_account_and_missing_sources_are_refused(self):
-        refused(self, "mixed-account-roles", I.account_binding, CFG, ["AHT-14", "AHT-15"], facts()["account"], ACCOUNT_ID)
-        refused(self, "account-role-not-for-these-cases", I.account_binding, self.free_cfg(), ["AHT-15"], facts()["account"], ACCOUNT_ID)
-        refused(self, "account-id-not-the-approved-account", I.account_binding, CFG, ["AHT-05"], facts()["account"], ACCOUNT_ID.replace("1", "2"))
-        refused(self, "account-id-source-missing", I.account_binding, CFG, ["AHT-05"], facts()["account"], None)
-        refused(self, "account-history-reference", I.account_binding, CFG, ["AHT-05"], dict(facts()["account"], historyRef=""), ACCOUNT_ID)
+    def test_an_all_fifteen_selection_binds_fourteen_plus_one_each_to_its_own_names(self):
+        b = I.account_bindings(self.free_cfg(), I.ALL_CASES, self.accounts(), self.bundle())
+        self.assertEqual([(x["role"], x["credentials"]["email"], x["credentials"]["password"]) for x in b],
+                         [("existing-disposable", "THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD"),
+                          ("maintained-read-only", "FREE_TEST_EMAIL", "FREE_TEST_PASSWORD")])
+        self.assertEqual(sum(I.ROLE[c] == "existing-disposable" for c in I.ALL_CASES), 14)
+        # The reviewed run stage receives only the THROWAWAY names today: AHT-15's pair is refused, never renamed into THROWAWAY.
+        refused(self, "role-credentials-not-in-run-stage-allowlist", I.account_bindings, CFG, I.ALL_CASES, self.accounts(), self.bundle())
+        refused(self, "role-credentials-not-in-run-stage-allowlist", I.account_bindings, CFG, ["AHT-15"],
+                {"maintained-read-only": self.accounts()["maintained-read-only"]}, self.bundle())
+
+    def test_missing_extra_or_wrong_role_bindings_are_refused(self):
+        refused(self, "account-binding-roles", I.account_bindings, self.free_cfg(), I.ALL_CASES,
+                {"existing-disposable": self.accounts()["existing-disposable"]}, self.bundle())
+        refused(self, "account-binding-roles", I.account_bindings, self.free_cfg(), ["AHT-05"], self.accounts(), self.bundle())
+        refused(self, "account-binding-roles", I.account_bindings, CFG, ["AHT-05"], None, self.bundle())
+        swapped = self.accounts(**{"maintained-read-only": self.accounts()["existing-disposable"]})
+        refused(self, "account-id-not-the-approved-account", I.account_bindings, self.free_cfg(), I.ALL_CASES, swapped, self.bundle())
+        refused(self, "account-history-reference", I.account_bindings, CFG, ["AHT-05"],
+                {"existing-disposable": dict(self.accounts()["existing-disposable"], historyRef="")}, self.bundle())
+        refused(self, "account-binding-shape", I.account_bindings, CFG, ["AHT-05"],
+                {"existing-disposable": dict(self.accounts()["existing-disposable"], role="existing-disposable")}, self.bundle())
 
 
 class Facts(unittest.TestCase):
@@ -838,11 +862,22 @@ class Project(unittest.TestCase):
         """Projection against the admitted request digest and the execution-provenance verdict this qualification fixture is bound to."""
         return I.project(*a, "1" * 64, prov_of(a[5] if len(a) > 5 else None))
 
+    def test_the_verdict_must_name_the_collectors_case_results_too(self):
+        # The qualification and the verdict agree with each other but not with the collector's recorded case-results digest.
+        q, record = self.q(caseResultsSha256="b" * 64), self.record()
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q, "1" * 64, prov_of(q))
+        self.assertEqual(rec["coverage"], "unqualified")
+        rec = I.project(record, "123", 2, "c" * 40, SHA, self.q(), "1" * 64, prov_of(self.q()))
+        self.assertEqual(rec["coverage"], "unqualified", "a rerun attempt never projects as qualified")
+
     def test_no_or_a_foreign_execution_provenance_verdict_never_qualifies(self):
         q = self.q()
         self.assertEqual(self.project(self.record(), "123", 1, "c" * 40, SHA, q)["coverage"], "batch")
+        # A-qualified / B-provenance: a verdict for another results snapshot under the same plan; a foreign run, attempt or campaign.
         for prov in (None, {}, dict(prov_of(q), requestSha256="0" * 64), dict(prov_of(q), planSha256="0" * 64),
-                     dict(prov_of(q), cases=["AHT-05"]), dict(prov_of(q), cases=["AHT-09", "AHT-05"])):
+                     dict(prov_of(q), cases=["AHT-05"]), dict(prov_of(q), cases=["AHT-09", "AHT-05"]),
+                     dict(prov_of(q), caseResultsSha256="b" * 64), dict(prov_of(q), runId="124"), dict(prov_of(q), runId=123),
+                     dict(prov_of(q), attempt=2), dict(prov_of(q), attempt=True), dict(prov_of(q), campaignId="R6-other")):
             rec = I.project(self.record(), "123", 1, "c" * 40, SHA, q, "1" * 64, prov)
             self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "unqualified", ["not-qualified"]), prov)
 
@@ -957,9 +992,11 @@ PROJECT = "abcdefghijklmnopqrst"
 SUPABASE_URL_OK = "https://%s.supabase.co" % PROJECT
 
 
-def prov_of(q):
+def prov_of(q, run_id="123"):
     """The execution-provenance verdict the workflow's provenance step writes for this qualification (its bound fields only)."""
-    return {"requestSha256": q.get("requestSha256"), "planSha256": q.get("planSha256"), "cases": sorted(q.get("cases") or [])} if isinstance(q, dict) else None
+    return {"requestSha256": q.get("requestSha256"), "planSha256": q.get("planSha256"), "cases": sorted(q.get("cases") or []),
+            "caseResultsSha256": q.get("caseResultsSha256"), "campaignId": q.get("campaignId"), "runId": run_id, "attempt": 1} \
+        if isinstance(q, dict) else None
 
 
 def bundle_with(throwaway_id):
@@ -1222,11 +1259,13 @@ class LiveAccountsBundle(unittest.TestCase):
             if code != "ok":
                 refused(self, code, I.role_account, b, "existing-disposable", url)
 
-    def test_role_truth_project_binding_and_the_maintained_role_refusal(self):
+    def test_role_truth_project_binding_and_each_role_returns_only_its_own_entry(self):
         b = I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))
         self.assertEqual(I.role_account(b, "existing-disposable", SUPABASE_URL_OK)["accountId"], ACCOUNT_ID)
-        # maintained-read-only data never fills THROWAWAY_* names; it refuses until Jensen's FREE allowlist/config contract exists (B6).
-        refused(self, "maintained-read-only-live-execution-unavailable", I.role_account, b, "maintained-read-only", SUPABASE_URL_OK)
+        # Case15 (Sam 1793554938.870679): maintained-read-only returns its OWN entry, never THROWAWAY's; whether it may run at all is the
+        # run-stage allowlist's decision in account_bindings (refused today: Account.test_an_all_fifteen_selection_binds_fourteen_plus_one...).
+        self.assertEqual(I.role_account(b, "maintained-read-only", SUPABASE_URL_OK)["accountId"], "22222222-2222-4222-8222-222222222222")
+        refused(self, "account-role-not-in-bundle", I.role_account, b, "other-role", SUPABASE_URL_OK)
         for url in ("https://zzzzzzzzzzzzzzzzzzzz.supabase.co", "", None, "not a url"):
             refused(self, "bundle-project-mismatch", I.role_account, b, "existing-disposable", url)
 

@@ -14,8 +14,9 @@ name: Cloud Test live journeys (manual, GitHub-hosted)
 #    `issues: write`; the previous completed record stays until a terminal replacement is written, and an interrupted attempt blocks the next run;
 #  - passwords, tokens and keys come only from the `secrets` context. Account emails and ids come only from the private
 #    CLOUD_TEST_LIVE_ACCOUNTS Secret (Sam 1793544453.003099): init_run_inputs.py masks the whole bundle and every extracted value before
-#    any output, then exports the existing-disposable email under execute_run's THROWAWAY_TEST_EMAIL name through a safe env-file writer,
-#    so later step headers show it masked; it is never written to the record or artifacts;
+#    any output, then exports each selected role's email under that role's own name (AHT-01..14 THROWAWAY_TEST_EMAIL, AHT-15
+#    FREE_TEST_EMAIL) through a safe env-file writer, so later step headers show it masked; it is never written to the record or artifacts.
+#    Each role's password comes only from its own Secret; the runner gives every case child only its own role's pair (14+1);
 #  - no evidence payload, transcript, account identifier or row content leaves the live job; only the closed latest record does.
 #
 # NIGHTLY (Sam 1793553158.013909 / 1793553275.772209): source only. No `schedule:` trigger is registered here; the proposed cron lives in
@@ -229,6 +230,8 @@ jobs:
           CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
+          # AHT-15 (maintained-read-only) only; the runner passes it to that case's child alone.
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           # Producer keys only for the same-job producer route; execute_run.sh refuses them on any other route.
           SUPABASE_SERVICE_ROLE_KEY: ${{ steps.init.outputs.route == 'github-producer' && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
