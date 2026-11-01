@@ -154,14 +154,10 @@ describe('Admin - Test Users workflow contract', () => {
     expect(others.map((s) => s.name)).toEqual([]);
     expect(step.if).toMatch(/action\s*==\s*'verify'/);
     expect(step.if).toMatch(/verify_target\s*==\s*'live-journey-accounts'/);
-    expect(Object.keys(step.env ?? {}).sort()).toEqual([
-      'ACTION', 'EXPECTED_FREE_ID_SHA256', 'EXPECTED_THROWAWAY_ID_SHA256', 'FREE_TEST_EMAIL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL',
-      'THROWAWAY_TEST_EMAIL', 'VERIFY_TARGET',
-    ]);
-    expect(step.env.THROWAWAY_TEST_EMAIL).toBe('${{ vars.THROWAWAY_TEST_EMAIL }}');
-    expect(step.env.FREE_TEST_EMAIL).toBe('${{ vars.FREE_TEST_EMAIL }}');
+    expect(Object.keys(step.env ?? {}).sort()).toEqual(['ACTION', 'CLOUD_TEST_LIVE_ACCOUNTS', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL', 'VERIFY_TARGET']);
+    expect(step.env.CLOUD_TEST_LIVE_ACCOUNTS).toBe('${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}');
     const env = JSON.stringify(step.env ?? {});
-    for (const banned of ['PASSWORD', 'ANON_KEY', 'SOAK', 'GH_PAT', 'GH_TOKEN', 'PRO_TEST', 'CREATE_', 'CANARY_', 'E2E_']) {
+    for (const banned of ['PASSWORD', 'ANON_KEY', 'SOAK', 'GH_PAT', 'GH_TOKEN', 'PRO_TEST', 'CREATE_', 'CANARY_', 'E2E_', '_EMAIL', 'EXPECTED_']) {
       expect(env, `live-journey verify step must not receive ${banned}`).not.toContain(banned);
     }
     const broad = steps.find((s) => s.name === 'Run test user admin action');
@@ -170,18 +166,20 @@ describe('Admin - Test Users workflow contract', () => {
   });
 
   // Log privacy (Sam 1793542704.992869): dispatch inputs are shown on the run page and non-secret env values in step headers.
-  it('PRIVACY: no identifier or digest travels through a dispatch input or a run script; digests come only from Secrets', () => {
+  it('PRIVACY: account identifiers travel only in the masked Secret; never a Variable, dispatch input, derived expression or run script', () => {
     const steps = wf.jobs['test-user-admin'].steps;
     const step = steps.find((s) => s.name === 'Run live-journey account verification (strictly read-only, role only)');
-    expect(step.env.EXPECTED_THROWAWAY_ID_SHA256).toBe('${{ secrets.EXPECTED_THROWAWAY_ID_SHA256 }}');
-    expect(step.env.EXPECTED_FREE_ID_SHA256).toBe('${{ secrets.EXPECTED_FREE_ID_SHA256 }}');
+    expect(JSON.stringify(step)).not.toMatch(/vars\.[A-Z_]*_EMAIL|_ID_SHA256/);
+    // A value derived from a Secret by an expression is NOT masked by Actions, so the bundle is never parsed in a workflow expression.
+    expect(raw).not.toMatch(/fromJSON\(\s*secrets\./);
+    expect((raw.match(/secrets\.CLOUD_TEST_LIVE_ACCOUNTS/g) || []).length).toBe(1);
     for (const name of Object.keys(inputs)) expect(name, `dispatch input ${name}`).not.toMatch(/sha256|digest|account_id|user_id/i);
     expect(raw).not.toMatch(/inputs\.expected_/);
     for (const s of steps) expect(s.run ?? '', `${s.name} interpolates an expression into its script`).not.toContain('${{');
     // The verifier masks every email and digest before it prints anything for this target.
     const src = readFileSync(resolve(process.cwd(), 'scripts/verify-test-users.mjs'), 'utf8');
     const branch = src.slice(src.indexOf("if (VERIFY_TARGET === 'live-journey-accounts') {"));
-    const mask = branch.indexOf('maskCommands(liveJourneyMaskValues())');
+    const mask = branch.indexOf('maskCommands(liveJourneyMaskValues(raw))');
     expect(mask).toBeGreaterThan(-1);
     expect(mask).toBeLessThan(branch.indexOf('createClient('));
     expect(mask).toBeLessThan(branch.indexOf('console.'));

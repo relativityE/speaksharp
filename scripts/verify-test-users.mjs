@@ -11,10 +11,10 @@
  * VERIFY_TARGET=canaries: strictly read-only canary identity inspection (scripts/lib/canaryReadOnlyVerify.mjs).
  * It never authenticates as a canary, so credential viability is not tested.
  *
- * VERIFY_TARGET=live-journey-accounts: the Cloud test live run's two REQUIRED accounts, by role only — existing-disposable
- * (THROWAWAY_TEST_EMAIL) and maintained-read-only (FREE_TEST_EMAIL), both expected Free. It reports per role whether the auth user exists,
- * whether its profile carries the expected tier and whether the account's id matches the supplied expected digest; a role passes only
- * when all three hold, so a missing digest reports that role incomplete (pass false).
+ * VERIFY_TARGET=live-journey-accounts: the Cloud test live run's two REQUIRED accounts, by role only, from the private
+ * CLOUD_TEST_LIVE_ACCOUNTS bundle (existing-disposable and maintained-read-only, both expected Free; Secret-only transport, masked
+ * before any output). It reports per role whether the auth user exists, whether its profile carries the expected tier and whether the
+ * account's id equals the bundle's accountId; a role passes only when all three hold.
  * It never prints or returns an email (masked or not), an id, a count or a raw error; it never signs in, so password viability is untested.
  *
  * This script intentionally performs no writes.
@@ -24,7 +24,6 @@ import { createClient } from '@supabase/supabase-js';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { pathToFileURL } from 'node:url';
-import { hash } from 'node:crypto';
 import { formatCanaryLine, runCanaryInspection } from './lib/canaryReadOnlyVerify.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
@@ -132,24 +131,53 @@ export async function completedSessionCount(supabase, userId) {
 }
 
 export const LIVE_JOURNEY_ROLES = Object.freeze([
-  { role: 'existing-disposable', emailVar: 'THROWAWAY_TEST_EMAIL', digestVar: 'EXPECTED_THROWAWAY_ID_SHA256', expectedTier: 'free' },
-  { role: 'maintained-read-only', emailVar: 'FREE_TEST_EMAIL', digestVar: 'EXPECTED_FREE_ID_SHA256', expectedTier: 'free' },
+  { role: 'existing-disposable', expectedTier: 'free' },
+  { role: 'maintained-read-only', expectedTier: 'free' },
 ]);
-const SHA256 = /^[0-9a-f]{64}$/;
+export const LIVE_ACCOUNTS_BUNDLE_LIMIT = 4096;
+const CONTROL = /[\u0000-\u001f\u007f]/;
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const PROJECT_REF = /^[a-z0-9]{20}$/;
+const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+$/;
 
 /**
- * Every identifier the live-journey target holds, for GitHub's ::add-mask:: before any other output: both emails (as given and
- * lower-cased) and both expected-id digests. Blank values are skipped.
+ * The private CLOUD_TEST_LIVE_ACCOUNTS bundle (Sam 1793544453.003099), validated exactly as tools/cloud-test/scripts/init_run_inputs.py
+ * does, in the same order and with the same codes (shared vectors in both test suites):
+ *   {"version":1,"projectRef":"<20 lower-case alphanumerics>","accounts":{"existing-disposable":{"email","accountId"},
+ *    "maintained-read-only":{"email","accountId"}}}
+ * Configuration only: any other key (a password, a token) is refused. Errors are fixed codes and never quote the bundle.
  */
-export function liveJourneyMaskValues(env = process.env) {
-  const values = new Set();
-  for (const r of LIVE_JOURNEY_ROLES) {
-    const email = env[r.emailVar]?.trim();
-    if (email) { values.add(email); values.add(email.toLowerCase()); }
-    const digest = env[r.digestVar]?.trim();
-    if (digest) values.add(digest);
+export function parseLiveAccountsBundle(raw) {
+  const fail = (code) => { throw new Error(`LIVE_JOURNEY_ACCOUNTS_CONFIG: ${code}`); };
+  if (typeof raw !== 'string' || !raw.trim()) fail('bundle-missing');
+  if (Buffer.byteLength(raw, 'utf8') > LIVE_ACCOUNTS_BUNDLE_LIMIT) fail('bundle-too-large');
+  let doc;
+  try { doc = JSON.parse(raw); } catch { fail('bundle-not-json'); }
+  const exact = (o, keys) => Boolean(o) && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).sort().join('\n') === [...keys].sort().join('\n');
+  const roles = LIVE_JOURNEY_ROLES.map((r) => r.role);
+  if (!exact(doc, ['version', 'projectRef', 'accounts']) || doc.version !== 1 || !exact(doc.accounts, roles)) fail('bundle-shape');
+  for (const role of roles) if (!exact(doc.accounts[role], ['email', 'accountId'])) fail('bundle-shape');
+  if (typeof doc.projectRef !== 'string' || !PROJECT_REF.test(doc.projectRef)) fail('bundle-project');
+  for (const role of roles) {
+    const { email } = doc.accounts[role];
+    if (typeof email !== 'string' || email.length > 254 || CONTROL.test(email) || email !== email.trim() || !EMAIL_SHAPE.test(email)) fail('bundle-email');
   }
-  return [...values];
+  for (const role of roles) if (typeof doc.accounts[role].accountId !== 'string' || !UUID_V4.test(doc.accounts[role].accountId)) fail('bundle-account-id');
+  const [a, b] = roles.map((role) => doc.accounts[role]);
+  if (a.email.toLowerCase() === b.email.toLowerCase() || a.accountId === b.accountId) fail('bundle-duplicate');
+  return { projectRef: doc.projectRef, accounts: Object.fromEntries(roles.map((role) => [role, { email: doc.accounts[role].email, accountId: doc.accounts[role].accountId }])) };
+}
+
+/**
+ * Every value to mask before any other output: the whole raw bundle (even when it is not valid JSON) and, when it parses, each email
+ * (as given and lower-cased) and account id.
+ */
+export function liveJourneyMaskValues(raw) {
+  const values = [raw];
+  try {
+    for (const { email, accountId } of Object.values(parseLiveAccountsBundle(raw).accounts)) values.push(email, email.toLowerCase(), accountId);
+  } catch { /* the raw bundle alone is masked; the parse error is reported later as a fixed code */ }
+  return values;
 }
 
 /**
@@ -169,17 +197,17 @@ export function maskCommands(values) {
 }
 
 /**
- * Role-only verification of the live run's two required accounts. Read-only: the existing auth-user listing and one user_profiles
- * select. Both names are required and nothing falls back (no E2E_*, CREATE_* or PRO). Any read failure becomes one fixed code, so no
- * SDK message can carry an email or id. Returns { target, results, allPass }
- * and nothing else: per role { role, authUserExists, tierMatches, idMatches, pass }. A role without an expected digest is INCOMPLETE
- * (idMatches null, pass false): missing input never counts as a verified owner-supplied id.
+ * Role-only verification of the live run's two required accounts from the private bundle. Read-only: the existing auth-user listing and
+ * one user_profiles select. The bundle's project must be the SUPABASE_URL project. Any read failure becomes one fixed code, so no SDK
+ * message can carry an email or id. Returns { target, results, allPass } and nothing else: per role { role, authUserExists, tierMatches,
+ * idMatches, pass }, where idMatches compares the found account's id with the bundle's accountId and pass needs all three.
  */
-export async function verifyLiveJourneyAccounts({ supabase, env = process.env, listUsers = listAllAuthUsers }) {
-  const wanted = LIVE_JOURNEY_ROLES.map((r) => ({ ...r, email: env[r.emailVar]?.trim().toLowerCase() || '', digest: env[r.digestVar]?.trim() || '' }));
-  if (wanted.some((w) => !w.email)) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: both role email names are required');
-  if (wanted.some((w) => w.digest && !SHA256.test(w.digest))) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: an expected id digest is malformed');
-  if (wanted[0].email === wanted[1].email) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: the two roles name the same account');
+export async function verifyLiveJourneyAccounts({ supabase, raw, supabaseUrl, listUsers = listAllAuthUsers }) {
+  const bundle = parseLiveAccountsBundle(raw);
+  let project = '';
+  try { project = new URL(supabaseUrl).hostname.split('.')[0]; } catch { /* refused below */ }
+  if (bundle.projectRef !== project) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: bundle-project-mismatch');
+  const wanted = LIVE_JOURNEY_ROLES.map((r) => ({ ...r, email: bundle.accounts[r.role].email.toLowerCase(), accountId: bundle.accounts[r.role].accountId }));
   let byEmail, profiles;
   try {
     byEmail = new Map((await listUsers(supabase)).filter((u) => u.email).map((u) => [u.email.toLowerCase(), u]));
@@ -197,8 +225,8 @@ export async function verifyLiveJourneyAccounts({ supabase, env = process.env, l
     const user = byEmail.get(w.email);
     const profile = user ? profiles.get(user.id) : null;
     const tierMatches = Boolean(profile && profile.subscription_status === w.expectedTier);
-    const idMatches = w.digest ? Boolean(user && hash('sha256', user.id) === w.digest) : null;
-    return { role: w.role, authUserExists: Boolean(user), tierMatches, idMatches, pass: Boolean(user && tierMatches && idMatches === true) };
+    const idMatches = Boolean(user && user.id === w.accountId);
+    return { role: w.role, authUserExists: Boolean(user), tierMatches, idMatches, pass: Boolean(user && tierMatches && idMatches) };
   });
   return { target: 'live-journey-accounts', results, allPass: results.every((r) => r.pass) };
 }
@@ -237,19 +265,20 @@ async function main() {
   }
 
   if (VERIFY_TARGET === 'live-journey-accounts') {
-    // Mask first: nothing this target prints, and no later error, can carry an email or digest in the Actions log.
+    // Mask first: the whole bundle (even malformed) and every extracted value, before any other output or error.
+    const raw = process.env.CLOUD_TEST_LIVE_ACCOUNTS;
     if (process.env.GITHUB_ACTIONS === 'true') {
-      for (const command of maskCommands(liveJourneyMaskValues())) process.stdout.write(`${command}\n`);
+      for (const command of maskCommands(liveJourneyMaskValues(raw))) process.stdout.write(`${command}\n`);
     }
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
     let outcome;
     try {
-      outcome = await verifyLiveJourneyAccounts({ supabase: adminClient });
+      outcome = await verifyLiveJourneyAccounts({ supabase: adminClient, raw, supabaseUrl: SUPABASE_URL });
     } catch (error) {
       // Only this module's own fixed codes are printed; anything else is reported as a read failure.
-      const message = error instanceof Error && /^LIVE_JOURNEY_ACCOUNTS_[A-Z_]+(: [a-z ]+)?$/.test(error.message) ? error.message : 'LIVE_JOURNEY_ACCOUNTS_READ_FAILED';
+      const message = error instanceof Error && /^LIVE_JOURNEY_ACCOUNTS_[A-Z_]+(: [a-z-]+)?$/.test(error.message) ? error.message : 'LIVE_JOURNEY_ACCOUNTS_READ_FAILED';
       console.error(`FAIL ${message}`);
       process.exit(1);
     }

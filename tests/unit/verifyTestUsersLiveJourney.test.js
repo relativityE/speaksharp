@@ -2,101 +2,159 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { verifyLiveJourneyAccounts, LIVE_JOURNEY_ROLES, liveJourneyMaskValues, maskCommands } from '../../scripts/verify-test-users.mjs';
+import {
+  verifyLiveJourneyAccounts, LIVE_JOURNEY_ROLES, liveJourneyMaskValues, maskCommands, parseLiveAccountsBundle,
+} from '../../scripts/verify-test-users.mjs';
 
 /**
- * Sam 1793541050.190059: the Cloud test live run's two REQUIRED accounts, verified by role only. Reconciles historical aa2ff01a
- * (verifyThrowaway): the same stubbed auth listing and no-identifier output checks, without its in-job id file (account binding now uses
- * the owner-supplied, digest-checked id) and widened to both roles with the profile tier.
+ * Sam 1793541050.190059 / 1793544453.003099: the Cloud test live run's two REQUIRED accounts, verified by role only from the private
+ * CLOUD_TEST_LIVE_ACCOUNTS bundle. Reconciles historical aa2ff01a (verifyThrowaway): the same stubbed auth listing and no-identifier
+ * output checks, without its in-job id file, widened to both roles with the profile tier and the bundle's own account ids.
  */
+// SHARED with tools/cloud-test/tests/test_init_run_inputs.py: the identical vector text, pinned by the same sha256 in both suites, so
+// the two consumers of the bundle agree on every accepted and refused shape and its code.
+const VECTORS_TEXT = String.raw`[
+["valid", "ok", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["missing", "bundle-missing", ""],
+["whitespace only", "bundle-missing", "   \n"],
+["not JSON", "bundle-not-json", "{not json"],
+["too large", "bundle-too-large", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"],
+["version 2", "bundle-shape", "{\"version\": 2, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["version true", "bundle-shape", "{\"version\": true, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["top-level password", "bundle-shape", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}, \"password\": \"p\"}"],
+["top-level array", "bundle-shape", "[]"],
+["account password", "bundle-shape", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\", \"password\": \"p\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["account id missing", "bundle-shape", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\"}}}"],
+["role missing", "bundle-shape", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}}}"],
+["extra role", "bundle-shape", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}, \"pro\": {\"email\": \"p@x.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}}}"],
+["project uppercase", "bundle-project", "{\"version\": 1, \"projectRef\": \"ABCDEFGHIJKLMNOPQRST\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["project short", "bundle-project", "{\"version\": 1, \"projectRef\": \"abc\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email LF", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"a@x.invalid\\nX: y\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email CR", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"a@x.invalid\\r\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email tab", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"a\\t@x.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email DEL", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"a@x.invalid\\u007f\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email no at", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email two at", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"a@b@x.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email leading space", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \" a@x.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["email not string", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": 7, \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["account id uppercase", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["account id v1", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-1111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["account id not string", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": 1}}}"],
+["same email any case", "bundle-duplicate", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"THROWAWAY.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["same account id", "bundle-duplicate", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}}}"]
+]`;
+const VECTORS_SHA256 = 'c9a074ad1bfa047ab0991a68921f7af9dd6016883945c5da7968a0db0cab410d';
+const VECTORS = JSON.parse(VECTORS_TEXT);
+
+const PROJECT = 'abcdefghijklmnopqrst';
+const URL_OK = `https://${PROJECT}.supabase.co`;
 const THROWAWAY = 'throwaway.synthetic@example.invalid';
 const FREE = 'free.synthetic@example.invalid';
 const T_ID = '11111111-1111-4111-8111-111111111111';
 const F_ID = '22222222-2222-4222-8222-222222222222';
-const sha = (v) => createHash('sha256').update(v).digest('hex');
-const ENV = { THROWAWAY_TEST_EMAIL: THROWAWAY, FREE_TEST_EMAIL: FREE };
-const DIGESTS = { EXPECTED_THROWAWAY_ID_SHA256: sha(T_ID), EXPECTED_FREE_ID_SHA256: sha(F_ID) };
+const RAW = VECTORS.find(([name]) => name === 'valid')[2];
+const bundle = (mutate) => { const d = JSON.parse(RAW); mutate(d); return JSON.stringify(d); };
 
 function world({ users = [{ id: 'other', email: 'someone@example.invalid' }, { id: T_ID, email: THROWAWAY.toUpperCase() }, { id: F_ID, email: FREE }],
   profiles = [{ id: T_ID, subscription_status: 'free' }, { id: F_ID, subscription_status: 'free' }], profileError = null, listError = null } = {}) {
   const queries = [];
+  const ids = (q) => q.in?.[1] ?? [];
   const supabase = {
     from(table) {
       const q = { table, select: null, in: null };
       queries.push(q);
       const builder = {
         select(columns) { q.select = columns; return builder; },
-        in(column, ids) { q.in = [column, [...ids]]; return builder; },
+        in(column, list) { q.in = [column, [...list]]; return builder; },
         then(ok, fail) { return Promise.resolve(profileError ? { data: null, error: profileError } : { data: profiles.filter((p) => ids(q).includes(p.id)), error: null }).then(ok, fail); },
       };
       return builder;
     },
   };
-  const ids = (q) => q.in?.[1] ?? [];
   const listUsers = async () => { if (listError) throw listError; return users; };
   return { supabase, listUsers, queries };
 }
+const verify = (w, raw = RAW, supabaseUrl = URL_OK) => verifyLiveJourneyAccounts({ supabase: w.supabase, raw, supabaseUrl, listUsers: w.listUsers });
 const ROW = { authUserExists: true, tierMatches: true, idMatches: true, pass: true };
-const leaks = (value) => new RegExp(`${T_ID}|${F_ID}|synthetic|example\\.invalid|${sha(T_ID)}|${sha(F_ID)}`, 'i').test(JSON.stringify(value));
+const leaks = (value) => new RegExp(`${T_ID}|${F_ID}|synthetic|example\\.invalid|${PROJECT}`, 'i').test(JSON.stringify(value));
+
+describe('the private CLOUD_TEST_LIVE_ACCOUNTS bundle', () => {
+  it('the shared vectors are the pinned ones', () => {
+    expect(createHash('sha256').update(VECTORS_TEXT).digest('hex')).toBe(VECTORS_SHA256);
+    expect(VECTORS.length).toBeGreaterThan(20);
+  });
+
+  it.each(VECTORS)('vector "%s" gives %s', (_name, code, raw) => {
+    if (code === 'ok') {
+      expect(parseLiveAccountsBundle(raw).projectRef).toBe(PROJECT);
+      return;
+    }
+    let err;
+    try { parseLiveAccountsBundle(raw); } catch (e) { err = e; }
+    // The exact fixed code is the whole message: no part of the bundle is ever echoed.
+    expect(err?.message).toBe(`LIVE_JOURNEY_ACCOUNTS_CONFIG: ${code}`);
+  });
+
+  it('masks the whole bundle even when it is malformed, and every extracted email and id once it parses', () => {
+    expect(liveJourneyMaskValues('{not json')).toEqual(['{not json']);
+    const values = liveJourneyMaskValues(RAW);
+    expect(values[0]).toBe(RAW);
+    expect(new Set(values)).toEqual(new Set([RAW, THROWAWAY, FREE, T_ID, F_ID]));
+    for (const line of maskCommands(liveJourneyMaskValues(`{"a":\n"b"}`))) expect(line).not.toMatch(/[\r\n]/);
+  });
+});
 
 describe('verify-test-users live-journey-accounts target', () => {
   it('reports both required roles by role only, with one profile read and no identifier', async () => {
     const w = world();
-    const out = await verifyLiveJourneyAccounts({ supabase: w.supabase, env: { ...ENV, ...DIGESTS }, listUsers: w.listUsers });
+    const out = await verify(w);
     expect(out).toEqual({ target: 'live-journey-accounts', allPass: true, results: [
       { role: 'existing-disposable', ...ROW }, { role: 'maintained-read-only', ...ROW }] });
     expect(leaks(out)).toBe(false);
     expect(w.queries).toEqual([{ table: 'user_profiles', select: 'id, subscription_status', in: ['id', [T_ID, F_ID]] }]);
-    expect(LIVE_JOURNEY_ROLES.map((r) => [r.role, r.emailVar, r.expectedTier])).toEqual([
-      ['existing-disposable', 'THROWAWAY_TEST_EMAIL', 'free'], ['maintained-read-only', 'FREE_TEST_EMAIL', 'free']]);
+    expect(LIVE_JOURNEY_ROLES.map((r) => [r.role, r.expectedTier])).toEqual([['existing-disposable', 'free'], ['maintained-read-only', 'free']]);
   });
 
-  it('matches owner-supplied id digests per role; a wrong digest fails only that role', async () => {
+  it('compares each found account with the bundle id; a wrong id or a cross-role swap fails without naming it', async () => {
     const w = world();
-    const good = await verifyLiveJourneyAccounts({ supabase: w.supabase, listUsers: w.listUsers,
-      env: { ...ENV, EXPECTED_THROWAWAY_ID_SHA256: sha(T_ID), EXPECTED_FREE_ID_SHA256: sha(F_ID) } });
-    expect(good.results.map((r) => [r.role, r.idMatches, r.pass])).toEqual([['existing-disposable', true, true], ['maintained-read-only', true, true]]);
-    const bad = await verifyLiveJourneyAccounts({ supabase: w.supabase, listUsers: w.listUsers,
-      env: { ...ENV, EXPECTED_THROWAWAY_ID_SHA256: sha(T_ID), EXPECTED_FREE_ID_SHA256: sha('33333333-3333-4333-8333-333333333333') } });
-    expect(bad.results.map((r) => [r.role, r.idMatches, r.pass])).toEqual([['existing-disposable', true, true], ['maintained-read-only', false, false]]);
-    expect(bad.allPass).toBe(false);
-    expect(leaks(bad)).toBe(false);
-    // Cross-role swap: each role's digest supplied for the other role fails both, never passes either.
-    const swapped = await verifyLiveJourneyAccounts({ supabase: w.supabase, listUsers: w.listUsers,
-      env: { ...ENV, EXPECTED_THROWAWAY_ID_SHA256: sha(F_ID), EXPECTED_FREE_ID_SHA256: sha(T_ID) } });
+    const wrong = await verify(w, bundle((d) => { d.accounts['maintained-read-only'].accountId = '33333333-3333-4333-8333-333333333333'; }));
+    expect(wrong.results.map((r) => [r.role, r.idMatches, r.pass])).toEqual([['existing-disposable', true, true], ['maintained-read-only', false, false]]);
+    const swapped = await verify(w, bundle((d) => { d.accounts['existing-disposable'].accountId = F_ID; d.accounts['maintained-read-only'].accountId = T_ID; }));
     expect(swapped.results.map((r) => [r.role, r.idMatches, r.pass])).toEqual([['existing-disposable', false, false], ['maintained-read-only', false, false]]);
+    expect(swapped.allPass).toBe(false);
+    expect(leaks([wrong, swapped])).toBe(false);
   });
 
-  it('missing expected-id input never counts as a verified owner id: that role is incomplete and nothing passes overall', async () => {
-    const w = world();
-    // Both digests absent: existence and tier hold for both roles, yet neither role passes and the target fails.
-    const none = await verifyLiveJourneyAccounts({ supabase: w.supabase, env: ENV, listUsers: w.listUsers });
-    expect(none.results).toEqual([
-      { role: 'existing-disposable', authUserExists: true, tierMatches: true, idMatches: null, pass: false },
-      { role: 'maintained-read-only', authUserExists: true, tierMatches: true, idMatches: null, pass: false }]);
-    expect(none.allPass).toBe(false);
-    // One digest absent: only that role is incomplete; the supplied one is still checked.
-    const one = await verifyLiveJourneyAccounts({ supabase: w.supabase, listUsers: w.listUsers, env: { ...ENV, EXPECTED_FREE_ID_SHA256: sha(F_ID) } });
-    expect(one.results.map((r) => [r.role, r.idMatches, r.pass])).toEqual([['existing-disposable', null, false], ['maintained-read-only', true, true]]);
-    expect(one.allPass).toBe(false);
-    // A blank value is absent, not a match.
-    const blank = await verifyLiveJourneyAccounts({ supabase: w.supabase, listUsers: w.listUsers, env: { ...ENV, ...DIGESTS, EXPECTED_THROWAWAY_ID_SHA256: '   ' } });
-    expect(blank.results[0]).toEqual({ role: 'existing-disposable', authUserExists: true, tierMatches: true, idMatches: null, pass: false });
-  });
-
-  it('a malformed digest is refused before any read', async () => {
-    const w = world();
-    for (const bad of [F_ID, sha(F_ID).toUpperCase(), sha(F_ID).slice(1), `${sha(F_ID)}0`, 'not-a-digest']) {
-      await expect(verifyLiveJourneyAccounts({ supabase: w.supabase, env: { ...ENV, EXPECTED_THROWAWAY_ID_SHA256: bad }, listUsers: w.listUsers }))
-        .rejects.toThrow(/^LIVE_JOURNEY_ACCOUNTS_CONFIG: an expected id digest is malformed$/);
+  it('a missing account or wrong tier fails that role without naming it', async () => {
+    const cases = [
+      [world({ users: [{ id: T_ID, email: THROWAWAY }] }), 'maintained-read-only', { authUserExists: false, tierMatches: false, idMatches: false }],
+      [world({ profiles: [{ id: T_ID, subscription_status: 'free' }] }), 'maintained-read-only', { authUserExists: true, tierMatches: false, idMatches: true }],
+      [world({ profiles: [{ id: T_ID, subscription_status: 'pro' }, { id: F_ID, subscription_status: 'free' }] }), 'existing-disposable', { authUserExists: true, tierMatches: false, idMatches: true }],
+    ];
+    for (const [w, role, facts] of cases) {
+      const out = await verify(w);
+      expect(out.allPass).toBe(false);
+      expect(out.results.find((r) => r.role === role)).toEqual({ role, ...facts, pass: false });
+      expect(leaks(out)).toBe(false);
     }
+  });
+
+  it('the bundle project must be the SUPABASE_URL project; a refused bundle reads nothing', async () => {
+    const w = world();
+    for (const url of ['https://zzzzzzzzzzzzzzzzzzzz.supabase.co', 'not a url', undefined]) {
+      await expect(verify(w, RAW, url)).rejects.toThrow(/^LIVE_JOURNEY_ACCOUNTS_CONFIG: bundle-project-mismatch$/);
+    }
+    await expect(verify(w, '{not json')).rejects.toThrow(/^LIVE_JOURNEY_ACCOUNTS_CONFIG: bundle-not-json$/);
     expect(w.queries).toEqual([]);
   });
 
-  it('masks every email (as given and lower-cased) and digest, skipping blanks', () => {
-    const masks = liveJourneyMaskValues({ THROWAWAY_TEST_EMAIL: THROWAWAY.toUpperCase(), FREE_TEST_EMAIL: FREE, EXPECTED_THROWAWAY_ID_SHA256: sha(T_ID),
-      EXPECTED_FREE_ID_SHA256: '  ' });
-    expect(masks.sort()).toEqual([THROWAWAY.toUpperCase(), THROWAWAY, FREE, sha(T_ID)].sort());
+  it('every read failure becomes one fixed code: no SDK message, email or id can leak', async () => {
+    const sdk = new Error(`lookup failed for ${THROWAWAY} id ${T_ID}`);
+    for (const w of [world({ listError: sdk }), world({ profileError: { message: `denied for ${F_ID}` } })]) {
+      const err = await verify(w).catch((e) => e);
+      expect(err.message).toBe('LIVE_JOURNEY_ACCOUNTS_READ_FAILED');
+      expect(leaks(err.message)).toBe(false);
+    }
   });
 
   it('mask commands escape their data, stay one line each, and mask every line of a multi-line value', () => {
@@ -110,49 +168,14 @@ describe('verify-test-users live-journey-accounts target', () => {
       expect(line.startsWith('::add-mask::')).toBe(true);
     }
     expect(maskCommands(['', '  ', null, undefined, 7])).toEqual([]);
-    // The verifier writes only these escaped commands for the target's values.
     const src = readFileSync(resolve(process.cwd(), 'scripts/verify-test-users.mjs'), 'utf8');
-    expect(src).toContain('for (const command of maskCommands(liveJourneyMaskValues())) process.stdout.write(`${command}\\n`);');
+    expect(src).toContain('for (const command of maskCommands(liveJourneyMaskValues(raw))) process.stdout.write(`${command}\\n`);');
     expect(src.match(/::add-mask::\$\{value\}/g)).toBeNull();
   });
 
   it('writes nothing: the target has no file, insert, update or sign-in path (historical no-overwrite protection)', async () => {
     const src = readFileSync(resolve(process.cwd(), 'scripts/verify-test-users.mjs'), 'utf8');
-    const body = src.slice(src.indexOf('export async function verifyLiveJourneyAccounts('), src.indexOf('export function statusLine('));
+    const body = src.slice(src.indexOf('export function parseLiveAccountsBundle('), src.indexOf('export function statusLine('));
     for (const token of ['writeFile', 'appendFile', '.insert(', '.update(', '.upsert(', '.delete(', 'signIn', 'console.']) expect(body).not.toContain(token);
-  });
-
-  it('a missing account, missing profile or wrong tier fails that role without naming it', async () => {
-    const cases = [
-      [world({ users: [{ id: T_ID, email: THROWAWAY }] }), 'maintained-read-only', { authUserExists: false, tierMatches: false }],
-      [world({ profiles: [{ id: T_ID, subscription_status: 'free' }] }), 'maintained-read-only', { authUserExists: true, tierMatches: false }],
-      [world({ profiles: [{ id: T_ID, subscription_status: 'pro' }, { id: F_ID, subscription_status: 'free' }] }), 'existing-disposable', { authUserExists: true, tierMatches: false }],
-    ];
-    for (const [w, role, facts] of cases) {
-      const out = await verifyLiveJourneyAccounts({ supabase: w.supabase, env: ENV, listUsers: w.listUsers });
-      expect(out.allPass).toBe(false);
-      expect(out.results.find((r) => r.role === role)).toEqual({ role, ...facts, idMatches: null, pass: false });
-      expect(leaks(out)).toBe(false);
-    }
-  });
-
-  it('both names are required and nothing falls back to E2E, CREATE or PRO names', async () => {
-    const w = world();
-    for (const env of [{ FREE_TEST_EMAIL: FREE }, { THROWAWAY_TEST_EMAIL: THROWAWAY },
-      { E2E_FREE_EMAIL: FREE, THROWAWAY_TEST_EMAIL: THROWAWAY }, { CREATE_USER_EMAIL: FREE, PRO_TEST_EMAIL: FREE, THROWAWAY_TEST_EMAIL: THROWAWAY }]) {
-      await expect(verifyLiveJourneyAccounts({ supabase: w.supabase, env, listUsers: w.listUsers })).rejects.toThrow(/^LIVE_JOURNEY_ACCOUNTS_CONFIG/);
-    }
-    await expect(verifyLiveJourneyAccounts({ supabase: w.supabase, env: { THROWAWAY_TEST_EMAIL: FREE, FREE_TEST_EMAIL: FREE.toUpperCase() }, listUsers: w.listUsers }))
-      .rejects.toThrow(/same account/);
-    expect(w.queries).toEqual([]);
-  });
-
-  it('every read failure becomes one fixed code: no SDK message, email or id can leak', async () => {
-    const sdk = new Error(`lookup failed for ${THROWAWAY} id ${T_ID}`);
-    for (const w of [world({ listError: sdk }), world({ profileError: { message: `denied for ${F_ID}` } })]) {
-      const err = await verifyLiveJourneyAccounts({ supabase: w.supabase, env: ENV, listUsers: w.listUsers }).catch((e) => e);
-      expect(err.message).toBe('LIVE_JOURNEY_ACCOUNTS_READ_FAILED');
-      expect(leaks(err.message)).toBe(false);
-    }
   });
 });
