@@ -1727,6 +1727,37 @@ class StandingEnvelope(Journal):
                                     self.now + timedelta(days=1), 1, frozenset({self.req["runId"]}), pin=self.pin)
         self.assertNotEqual(other["requestSha256"], self.derive()["requestSha256"])
 
+    def test_the_derived_envelope_names_this_occurrence_and_the_real_builder_binding_accepts_it(self):
+        import shlex
+        import case_start_caps as CS
+        rc_bytes = self.checkpoint()
+        envelope = self.derive()
+        request_sha = hashlib.sha256(self.req_raw).hexdigest()
+        self.assertEqual(envelope, {"schema": I.ACTION_APPROVAL_SCHEMA, "requestSha256": request_sha,
+                                    "reconciliationSha256": hashlib.sha256(rc_bytes).hexdigest(), "approvalRef": self.REF,
+                                    "approvedBy": "owner", "selectionApprovalRef": self.REF})
+        # The real consumer: the runner's env reader over the request and checkpoint bytes, then case_start_caps.bind_inputs.
+        private = os.path.join(self.d, "private")
+        os.mkdir(private, 0o700)
+        req_file, rc_file, env_file = (os.path.join(private, n) for n in ("request.json", "reconciliation.json", "env.txt"))
+        for path, raw in ((req_file, self.req_raw), (rc_file, rc_bytes)):
+            with open(path, "wb") as f:
+                f.write(raw)
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--request-sha256", request_sha,
+                            "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(env_file, encoding="utf-8") as f:
+            bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.rstrip("\n").split("=", 1) for line in f if "=" in line)}
+        binding = CS.bind_inputs(bp, {"actionApproval": envelope})
+        self.assertEqual((binding["requestSha256"], binding["approval"]), (request_sha, envelope))
+        # The next occurrence's request cannot reuse this envelope: the real consumer refuses it.
+        nxt = self.nightly_derive(ap=self.nightly_approval(startTakeGrant=self.GRANT), run_id="102",
+                                  slot=self.slot + timedelta(days=1))
+        with open(req_file, "wb") as f:
+            f.write(nxt)
+        with self.assertRaises(CS.InputValidationError):
+            CS.bind_inputs(dict(bp, BP_REQUEST_SHA256=hashlib.sha256(nxt).hexdigest()), {"actionApproval": envelope})
+
     def test_the_production_pin_is_unset_so_no_grant_is_in_force_and_derivation_refuses(self):
         self.assertIsNone(I.RECURRING_APPROVAL_SHA256)
         self.assertFalse(I.standing_grant_in_force(self.checkout))
@@ -1777,7 +1808,7 @@ class StandingEnvelope(Journal):
                 ("run cap", {"req": self.changed(lambda r: r["approvedLimits"].update(runCapRequests=4399))}, "per-run"),
                 ("identity cap", {"req": self.changed(lambda r: r["approvedLimits"].update(identityCap=31))}, "per-run"),
                 ("estimate takes", {"req": self.changed(lambda r: r["estimate"].update(takes=41))}, "per-run"),
-                ("estimate starts", {"req": self.changed(lambda r: r["estimate"].update(starts=41))}, "per-run"),
+                ("estimate starts", {"req": self.changed(lambda r: r["estimate"].update(starts=46))}, "per-run"),
                 ("estimate requests", {"req": self.changed(lambda r: r["estimate"]["requests"].update(runCap=4401))}, "per-run"),
                 ("period ceiling", {"req": self.changed(lambda r: r["approvedLimits"].update(cumulativeCeilingRequests=131999))}, "period"),
                 ("approver", {"req": self.changed(lambda r: r["approvedLimits"].update(approvedBy="someone-else"))}, "reference"),

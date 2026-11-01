@@ -79,7 +79,24 @@
     "startsCap": 85,
     "startsIncreaseJustification": "SYNTHETIC proposal only: the received full contract requires 40 Starts; this does not approve or increase any operational cap.",
     "takesCap": 55,
-    "takesIncreaseJustification": "The harness contract requires at least 31 authorized takes to reach every row; 24 already used against a cap of 50."
+    "takesIncreaseJustification": "The harness contract requires at least 31 authorized takes to reach every row; 24 already used against a cap of 50.",
+    "startPressCaps": {
+      "AHT-01": 4,
+      "AHT-02": 7,
+      "AHT-03": 4,
+      "AHT-04": 2,
+      "AHT-05": 2,
+      "AHT-06": 2,
+      "AHT-07": 2,
+      "AHT-08": 0,
+      "AHT-09": 3,
+      "AHT-10": 3,
+      "AHT-11": 4,
+      "AHT-12": 3,
+      "AHT-13": 3,
+      "AHT-14": 3,
+      "AHT-15": 0
+    }
   },
   "purpose": "Nightly regression of all 15 journeys against the currently released product, under the owner's standing approval.",
   "release": {
@@ -106,7 +123,8 @@
       "order": 1,
       "plannedRequests": 340,
       "reason": "full coverage: 20 required rows; closes GAP-01",
-      "role": "target"
+      "role": "target",
+      "startPressCap": 4
     },
     {
       "case": "AHT-02",
@@ -118,7 +136,8 @@
       "order": 2,
       "plannedRequests": 260,
       "reason": "full coverage: 33 required rows; closes GAP-02",
-      "role": "target"
+      "role": "target",
+      "startPressCap": 7
     },
     {
       "case": "AHT-03",
@@ -130,7 +149,8 @@
       "order": 3,
       "plannedRequests": 230,
       "reason": "full coverage: 29 required rows; closes GAP-02",
-      "role": "target"
+      "role": "target",
+      "startPressCap": 4
     },
     {
       "case": "AHT-04",
@@ -142,7 +162,8 @@
       "order": 4,
       "plannedRequests": 160,
       "reason": "full coverage: 9 required rows; closes GAP-06",
-      "role": "target"
+      "role": "target",
+      "startPressCap": 2
     },
     {
       "case": "AHT-05",
@@ -152,7 +173,8 @@
       "order": 5,
       "plannedRequests": 320,
       "reason": "full coverage: 10 required rows",
-      "role": "coverage"
+      "role": "coverage",
+      "startPressCap": 2
     },
     {
       "case": "AHT-06",
@@ -162,7 +184,8 @@
       "order": 6,
       "plannedRequests": 310,
       "reason": "full coverage: 10 required rows",
-      "role": "coverage"
+      "role": "coverage",
+      "startPressCap": 2
     },
     {
       "case": "AHT-07",
@@ -172,7 +195,8 @@
       "order": 7,
       "plannedRequests": 360,
       "reason": "full coverage: 15 required rows",
-      "role": "coverage"
+      "role": "coverage",
+      "startPressCap": 2
     },
     {
       "case": "AHT-08",
@@ -182,7 +206,8 @@
       "order": 8,
       "plannedRequests": 110,
       "reason": "full coverage: 9 required rows",
-      "role": "coverage"
+      "role": "coverage",
+      "startPressCap": 0
     },
     {
       "case": "AHT-09",
@@ -192,7 +217,8 @@
       "order": 9,
       "plannedRequests": 260,
       "reason": "full coverage: 12 required rows",
-      "role": "coverage"
+      "role": "coverage",
+      "startPressCap": 3
     },
     {
       "case": "AHT-10",
@@ -204,7 +230,40 @@
       "order": 10,
       "plannedRequests": 190,
       "reason": "full coverage: 10 required rows; closes GAP-05",
-      "role": "target"
+      "role": "target",
+      "startPressCap": 3,
+      "observationContract": {
+        "schema": "speaksharp.cloud-test.case10-observation-contract.v1",
+        "reader": "synthetic:case10-current-state@1",
+        "recordSchema": "speaksharp.cloud-test.case10-observation.v1",
+        "projectionKeys": [
+          "auth",
+          "bootstrap",
+          "cancelledAttempts",
+          "distinctRetryDebtsUpperBound",
+          "evidenceTail",
+          "historyQueryLifecycles",
+          "leaseAcquisitions",
+          "leaseConfirmations",
+          "leaseHeldIntervalsMs",
+          "loadQueueSizes",
+          "localRetrySkips",
+          "modelAcquisition",
+          "navigation",
+          "openAttemptAdvances",
+          "preflights",
+          "recommendationSettlementInvocations",
+          "saveEvaluationInvocations",
+          "scanObligationCounts",
+          "snapshotSizes",
+          "successorSave"
+        ],
+        "maxAgeSeconds": 600,
+        "readBudget": {
+          "requests": 12,
+          "identityReads": 1
+        }
+      }
     },
     {
       "case": "AHT-11",
@@ -214,7 +273,8 @@
       "order": 11,
       "plannedRequests": 330,
       "reason": "full coverage: 9 required rows",
-      "role": "coverage"
+      "role": "coverage",
+      "startPressCap": 4
     },
     {
       "case": "AHT-12",
@@ -226,7 +286,8 @@
       "order": 12,
       "plannedRequests": 120,
       "reason": "full coverage: 8 required rows; closes GAP-03",
-      "role": "target"
+      "role": "target",
+      "startPressCap": 3
     },
     {
       "case": "AHT-13",
@@ -238,7 +299,8 @@
       "order": 13,
       "plannedRequests": 130,
       "reason": "full coverage: 8 required rows; closes GAP-06",
-      "role": "target"
+      "role": "target",
+      "startPressCap": 3
     },
     {
       "case": "AHT-14",
@@ -250,7 +312,8 @@
       "order": 14,
       "plannedRequests": 360,
       "reason": "full coverage: 8 required rows; closes GAP-06",
-      "role": "target"
+      "role": "target",
+      "startPressCap": 3
     },
     {
       "case": "AHT-15",
@@ -262,7 +325,8 @@
       "order": 15,
       "plannedRequests": 130,
       "reason": "full coverage: 14 required rows; closes GAP-04",
-      "role": "target"
+      "role": "target",
+      "startPressCap": 0
     }
   ],
   "selectionApprovalRef": null,

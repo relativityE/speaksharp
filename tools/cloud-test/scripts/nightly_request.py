@@ -33,6 +33,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (offline)
 import init_run_inputs as I  # noqa: E402
 import state_ref_writer  # noqa: E402
+import case_start_caps  # noqa: E402
+import case10_observation  # noqa: E402
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW_PATH = os.path.join(os.path.dirname(os.path.dirname(HERE)), ".github", "workflows", "cloud-test-live.yml")
@@ -222,7 +224,18 @@ def check_template(tpl):
     _need(isinstance(tpl, dict) and tpl.get("priority") == "nightly-regression" and tpl.get("coverageMode") == "full"
           and tpl.get("sampleMode") == "full" and "nightly" not in tpl and "fixtureScope" not in tpl and "synthetic" not in tpl
           and sorted(s.get("case") for s in tpl.get("selection") or [] if isinstance(s, dict)) == I.ALL_CASES, "nightly-template-shape")
+    # Sam 1793569757.991869: the reviewed per-case Start caps are the template rows' own, stated identically in its proposed limits.
+    caps = {s["case"]: s.get("startPressCap") for s in tpl["selection"]}
+    _need(all(type(v) is int and v >= case_start_caps.FULL_MINIMA[c] for c, v in caps.items())
+          and (tpl.get("proposedLimits") or {}).get("startPressCaps") == caps, "nightly-template-start-caps")
     return tpl
+
+
+def start_caps(tpl, ap):
+    """The per-case Start allocation: the reviewed template's caps, which the standing approval must state identically; never invented."""
+    caps = {s["case"]: s["startPressCap"] for s in tpl["selection"]}
+    _need(ap.get("startPressCaps") == caps, "nightly-start-caps-not-approved")
+    return caps
 
 
 def derived_need(budget):
@@ -235,6 +248,26 @@ def derived_need(budget):
         raise Refused("nightly-budget-shape")
     _need(all(type(v) is int and v >= 0 for v in need.values()), "nightly-budget-shape")
     return need
+
+
+def derived_estimate(budget, tpl, need):
+    """The request's estimate block, complete for the stage runner and builder (cleanup reserve, coaching cap, window), from the accepted
+    budget proposal: its planned sum must be the template rows' own and its run cap exactly estimates + cleanup + slack."""
+    try:
+        r, coaching, window = budget["requests"], budget["coaching"], budget["window"]
+        est = {"requests": {"planned": r["plannedSumOfEstimates"], "cleanupReserve": r["cleanupReserve"], "pooledSlack": r["pooledSlack"],
+                            "runCap": need["runCapRequests"]},
+               "providerBillableRequests": {"coachingCap": need["coachingRequests"], "basis": coaching["basis"]},
+               "window": {"expectedMinutes": window["expectedMinutes"], "worstCaseMinutes": window["worstCaseMinutes"],
+                          "proposedMinutes": need["windowMinutes"]}}
+    except (KeyError, TypeError):
+        raise Refused("nightly-budget-shape")
+    q = est["requests"]
+    _need(all(type(v) is int and v >= 0 for v in list(q.values()) + list(est["window"].values()))
+          and isinstance(est["providerBillableRequests"]["basis"], str) and est["providerBillableRequests"]["basis"]
+          and q["planned"] + q["cleanupReserve"] + q["pooledSlack"] == q["runCap"], "nightly-budget-shape")
+    _need(q["planned"] == sum(s.get("plannedRequests", 0) for s in tpl["selection"]), "nightly-budget-not-the-template")
+    return est
 
 
 def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, prior_occurrences, cfg, workflow_text,
@@ -251,6 +284,9 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
     _need(isinstance(prior_occurrences, (set, frozenset)) and key not in prior_occurrences, "nightly-occurrence-replayed")
     caps, need = ap["perRunCaps"], dict(derived_need(budget), githubRunnerMinutes=nightly_runner_minutes(workflow_text))
     _need(all(need[k] <= caps[k] for k in need), "nightly-need-exceeds-approval")
+    start_allocation = start_caps(tpl, ap)
+    starts = sum(start_allocation.values())
+    _need(need["starts"] <= starts <= caps["starts"], "nightly-start-caps-outside-need-or-approval")
     window_end = slot + timedelta(minutes=caps["windowMinutes"])
     _need(_utc(ap["validFromUtc"]) <= slot and window_end <= _utc(ap["expiresUtc"]), "nightly-window-outside-approval")
     p_start, p_end = period_bounds(ap)
@@ -261,15 +297,25 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
     req["window"] = {"startUtc": occurrence, "endUtc": _iso(window_end), "approvalRef": ref}
     req["harness"] = dict(req.get("harness") or {}, ownerApprovalRef=ref)
     req["approvedLimits"] = {"runCapRequests": caps["runCapRequests"], "identityCap": caps["identityReads"],
-                             "cumulativeCeilingRequests": ap["periodCaps"]["requests"], "approvalRef": ref, "approvedBy": ap["approvedBy"]}
-    req["estimate"] = {"requests": {"runCap": need["runCapRequests"]}, "identityReads": need["identityReads"], "starts": need["starts"],
-                       "takes": need["takes"], "paidActionsAuthorizedUsd": 0}
+                             "cumulativeCeilingRequests": ap["periodCaps"]["requests"], "startPressCaps": dict(start_allocation),
+                             "approvalRef": ref, "approvedBy": ap["approvedBy"]}
+    req["estimate"] = dict(derived_estimate(budget, tpl, need), identityReads=need["identityReads"], starts=starts, takes=need["takes"],
+                           paidActionsAuthorizedUsd=0)
     req["release"] = dict(req.get("release") or {}, testedSha=tested_sha)
     req["nightly"] = {"occurrence": occurrence, "occurrenceId": key, "runId": run_id, "attempt": 1,
                       "templateSha256": hashlib.sha256(template_raw).hexdigest(), "approvalSha256": hashlib.sha256(approval_raw).hexdigest(),
                       "budgetSha256": hashlib.sha256(budget_raw).hexdigest(), "standingApprovalRef": ref}
     # The caller's own ceiling checks against the live job's actual timeout.
     I.check_ceilings(cfg, req, I.ALL_CASES, workflow_job_timeouts(workflow_text)["live"])
+    # The stage runner's own Start-allocation contract and the Case 10 observation contract, on exactly the derived request.
+    try:
+        case_start_caps.request_caps(req, execution=True)
+    except (case_start_caps.InputValidationError, KeyError, TypeError, ValueError):
+        raise Refused("nightly-start-allocation")
+    try:
+        case10_observation.contract_of(req)
+    except case10_observation.Refused:
+        raise Refused("nightly-case10-observation-contract")
     return canon(req)
 
 
