@@ -225,6 +225,10 @@ def check_template(tpl):
           and tpl.get("sampleMode") == "full" and "nightly" not in tpl and "fixtureScope" not in tpl and "synthetic" not in tpl
           and sorted(s.get("case") for s in tpl.get("selection") or [] if isinstance(s, dict)) == I.ALL_CASES, "nightly-template-shape")
     # Sam 1793569757.991869: the reviewed per-case Start caps are the template rows' own, stated identically in its proposed limits.
+    # Full coverage always selects the producer-route cases, so the reviewed template carries their evidence-scope limits.
+    scope = tpl.get("evidenceScope")
+    _need(isinstance(scope, dict) and set(scope) == set(I.SCOPE_LIMITS)
+          and all(type(scope[k]) is int and lo <= scope[k] <= hi for k, (lo, hi) in I.SCOPE_LIMITS.items()), "nightly-template-evidence-scope")
     caps = {s["case"]: s.get("startPressCap") for s in tpl["selection"]}
     _need(all(type(v) is int and v >= case_start_caps.FULL_MINIMA[c] for c, v in caps.items())
           and (tpl.get("proposedLimits") or {}).get("startPressCaps") == caps, "nightly-template-start-caps")

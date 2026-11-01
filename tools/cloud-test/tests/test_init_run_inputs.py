@@ -1758,6 +1758,131 @@ class StandingEnvelope(Journal):
         with self.assertRaises(CS.InputValidationError):
             CS.bind_inputs(dict(bp, BP_REQUEST_SHA256=hashlib.sha256(nxt).hexdigest()), {"actionApproval": envelope})
 
+    def test_composed_nightly_occurrence_runs_gate_reserve_observation_prepare_and_both_builder_phases(self):
+        # Sam 1793572531.612979: ONE composed all-15 synthetic control. Real: nightly derive, the observation's accepted reserve on the journal,
+        # its settle, prepare (continuity checkpoint, standing envelope, Case 10 admission), run_env, and build_plan phase 1 and 2 in-process,
+        # to the consumption receipt. Explicit test-only substitutions, nothing else: the approval/facts/continuity pins, the trusted reader
+        # identity, the synthetic packet scaffold, producer descriptor and PDF-parser file. Admission and accounting are not stubbed.
+        import contextlib
+        import importlib.util
+        import io
+        import shlex
+        from pathlib import Path
+        import case10_observation as O
+        from test_case10_request_bound import projection
+        from test_case_start_caps import BUILDER, REPO, SyntheticBuilder
+        from test_nightly_request import derive as nightly_derive
+        now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        slot = now - timedelta(minutes=1)
+        # The 360-minute nightly window (Sam 1793554593.723039) holds setup + live + collect from an admission a few seconds after the slot.
+        approval_raw = self.nightly_approval(startTakeGrant=self.GRANT, perRunCaps={"windowMinutes": 360})
+        bundle = json.loads(bundle_with(ACCOUNT_ID))
+        maintained = bundle["accounts"]["maintained-read-only"]["accountId"]
+        nightly_facts = facts(backend={"manifestRef": "synthetic:backend-manifest@1", "generation": 6, "completion": "OFF", "migration129": "absent"},
+                              producerReviewReference="UNIT-INDEPENDENT-REVIEW-NOT-A-RUN", ownerApprovalReference=self.REF,
+                              accounts={"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"},
+                                        "maintained-read-only": {"idSha256": hashlib.sha256(maintained.encode()).hexdigest(), "historyRef": "history:free@r5"}})
+        # The release checkout: config, continuity inputs, the standing approval, the pinned nightly facts, lockfile and media fixtures.
+        repo = GitRepo()
+        self.addCleanup(shutil.rmtree, repo.dir)
+        shutil.copytree(os.path.join(REPO, "tests", "fixtures", "rwt"), os.path.join(repo.dir, "tests", "fixtures", "rwt"))
+        shutil.copyfile(os.path.join(REPO, "pnpm-lock.yaml"), os.path.join(repo.dir, "pnpm-lock.yaml"))
+        repo.git("add", "--", "tests/fixtures/rwt", "pnpm-lock.yaml")
+        for rel, raw in ((I.RECURRING_APPROVAL_PATH, approval_raw), (I.NIGHTLY_FACTS_PATH, json.dumps(nightly_facts).encode())):
+            os.makedirs(os.path.dirname(os.path.join(repo.dir, rel)), exist_ok=True)
+            with open(os.path.join(repo.dir, rel), "wb") as f:
+                f.write(raw)
+            repo.git("add", "--", rel)
+        head = repo.commit({"tools/cloud-test/config/test-config.v1.json": CFG,
+                            I.CONTINUITY_DIR + "/" + I.CONTINUITY_BOOTSTRAP: self.raw.decode(),
+                            I.CONTINUITY_DIR + "/" + I.CONTINUITY_SCOPE: self.scope_raw.decode()})
+        # 1. The gate's derivation for this occurrence (real), on exactly this source.
+        req_raw = nightly_derive(ap=approval_raw, run_id="123", sha=head, slot=slot)
+        req, request_sha = json.loads(req_raw), hashlib.sha256(req_raw).hexdigest()
+        private = Path(self.d) / "composed"
+        private.mkdir(mode=0o700)
+        (private / "nightly-request.json").write_bytes(req_raw)
+        pins = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope_raw).hexdigest(), reviewed_root=self.root)
+        reader_id = O.contract_of(req)["reader"]
+        # 2. The observation's reserve accepted on the SAME journal before its read (real writer), then the read and its settle.
+        headroom = json.loads(I.verified_checkpoint(repo.dir, req, pins, lambda root: self.chain()))["currentHeadroom"]
+        record, reserve, _ = O.reserve_then_read(lambda keys: {k: projection()[k] for k in keys},
+                                                 lambda e: W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote),
+                                                                     e, self.root, self.remote),
+                                                 headroom, req, request_sha, "123", 1, ACCOUNT_ID, now)
+        W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote), O.settlement_event(reserve, record, now),
+                  self.root, self.remote)
+        (private / "case10-observation.json").write_text(json.dumps(record))
+        # 3. prepare (real), with the explicit synthetic pins and reader trust.
+        out, env_out, outputs = (str(private / n) for n in ("out", "env", "outputs"))
+        argv = ["init_run_inputs.py", "prepare", "--repo", repo.dir, "--config", "tools/cloud-test/config/test-config.v1.json",
+                "--nightly-request-file", str(private / "nightly-request.json"), "--nightly-request-sha256", request_sha,
+                "--case10-observation", str(private / "case10-observation.json"), "--run-id", "123", "--attempt", "1", "--source-sha", head,
+                "--job-timeout-minutes", "340", "--out", out, "--env-file", env_out, "--outputs", outputs]
+        trust = mock.patch.object(O, "TRUSTED_READERS", frozenset({reader_id}))
+        err = io.StringIO()
+        with trust, mock.patch.object(I, "continuity_pins", lambda: pins), mock.patch.object(I, "state_chain", lambda root: self.chain()), \
+                mock.patch.object(I, "RECURRING_APPROVAL_SHA256", hashlib.sha256(approval_raw).hexdigest()), \
+                mock.patch.object(I, "NIGHTLY_FACTS_SHA256", hashlib.sha256(json.dumps(nightly_facts).encode()).hexdigest()), \
+                mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": json.dumps(bundle), "SUPABASE_URL": "https://%s.supabase.co" % bundle["projectRef"]}), \
+                contextlib.redirect_stderr(err):
+            self.assertEqual(I.main(argv), 0, err.getvalue())
+        with open(outputs, encoding="utf-8") as f:
+            published = dict(line.split("=", 1) for line in f.read().splitlines())
+        builder_facts = json.loads(Path(out, "facts.json").read_text())
+        self.assertEqual(builder_facts["case10Observation"], record)
+        self.assertEqual(builder_facts["actionApproval"]["requestSha256"], request_sha)
+        # 4. Placement and the runner's own reader (real).
+        ct_out = private / "ct-out"
+        ct_out.mkdir(mode=0o700)
+        shutil.copyfile(os.path.join(out, "reconciliation.json"), ct_out / "reconciliation.json")
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
+                            "--request-sha256", published["request_sha256"], "--reconciliation", str(ct_out / "reconciliation.json"),
+                            "--out", str(ct_out / "plan-env.txt")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in (ct_out / "plan-env.txt").read_text().splitlines() if "=" in line)}
+        # 5. Both builder phases (real build_plan, in-process so the explicit reader trust applies), on the synthetic packet scaffold.
+        (ct_out / "builder").mkdir(mode=0o700)
+        scaffold = SyntheticBuilder(ct_out / "builder", cases=tuple(range(1, 16)))
+        bindings = json.loads(Path(scaffold.env["BP_ACCOUNT_BINDINGS_FILE"]).read_text())
+        bindings["campaignId"] = req["runId"]
+        Path(scaffold.env["BP_ACCOUNT_BINDINGS_FILE"]).write_text(json.dumps(bindings))
+        packet = Path(ROOT) / "harness"
+        receiver = "draft-adapters/receivers/github-job-evidence-reader.cjs"
+        descriptor = ct_out / "producer-descriptor.json"
+        descriptor.write_text(json.dumps({"producerIdentity": "github-actions:relativityE/speaksharp:123:1:live", "jobId": "live",
+                                          "producerCodeSha256": hashlib.sha256((packet / "bundle/harness/authenticated-job-producer.cjs").read_bytes()).hexdigest(),
+                                          "receiverSourceSha256": hashlib.sha256((packet / receiver).read_bytes()).hexdigest(),
+                                          "receiverRelativePath": receiver, "workflowSourceSha": head,
+                                          "reviewReference": "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"}))
+        from test_full_plan import selected_pdf_source  # the existing pin-verified parser bytes; never installed or copied here
+        pdf_source = selected_pdf_source()
+        env = {k: v for k, v in scaffold.env.items() if not k.startswith("BP_") or k in (
+            "BP_PACKET", "BP_PRIVATE", "BP_ACCOUNT_BINDINGS_FILE", "BP_LIVE_ACCOUNTS_SHA256", "BP_BROWSER_IDENTITY", "BP_TASK_ID",
+            "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CASES")}
+        env.update(bp, BP_FACTS=os.path.join(out, "facts.json"), BP_CHECKOUT=repo.dir, BP_PDFJS_DIR=pdf_source,
+                   BP_PRODUCER_MODE="same-github-job", BP_PRODUCER_DESCRIPTOR=str(descriptor),
+                   BP_PRODUCER_DESCRIPTOR_SHA256=hashlib.sha256(descriptor.read_bytes()).hexdigest(), GITHUB_ACTIONS="true",
+                   GITHUB_REPOSITORY="relativityE/speaksharp", GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1", GITHUB_JOB="live", GITHUB_SHA=head)
+        spec = importlib.util.spec_from_file_location("build_plan_composed", str(BUILDER))
+        BP = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(BP)
+        with trust:
+            for phase in ("phase1", "phase2"):
+                BP.emit_verified_inputs(BP.read_binding_inputs(dict(env), [phase]))
+        built = Path(env["BP_PRIVATE"])
+        plan_raw = (built / "cfg" / "campaign-plan.json").read_bytes()
+        receipt = json.loads((built / "cfg" / "build-plan-consumption.json").read_text())
+        self.assertEqual((receipt.get("requestSha256"), receipt.get("planSha256")), (request_sha, hashlib.sha256(plan_raw).hexdigest()))
+        self.assertEqual([c["id"] for c in json.loads(plan_raw)["cases"]], I.ALL_CASES)
+        # 6. Accounting: the observation's reserve and settle are on the journal the next occurrence's checkpoint reads.
+        rc = json.loads(I.verified_checkpoint(repo.dir, req, pins, lambda root: self.chain()))
+        self.assertEqual((rc["outstandingReservations"], rc["period"]["requests"]), (0, 12))
+        # The same occurrence cannot reserve its observation again; without the reader trust prepare refuses the record.
+        with self.assertRaises(O.Refused):
+            O.reserve_then_read(lambda keys: {}, lambda e: W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote),
+                                                                     e, self.root, self.remote), headroom, req, request_sha, "123", 1, ACCOUNT_ID, now)
+
     def test_the_production_pin_is_unset_so_no_grant_is_in_force_and_derivation_refuses(self):
         self.assertIsNone(I.RECURRING_APPROVAL_SHA256)
         self.assertFalse(I.standing_grant_in_force(self.checkout))

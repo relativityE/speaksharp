@@ -316,6 +316,17 @@ class StartAllocation(unittest.TestCase):
         refused(self, "nightly-budget-not-the-template", derive,
                 bud=budget(requests={"plannedSumOfEstimates": 3600, "pooledSlack": 560}))
 
+    def test_the_template_carries_its_reviewed_evidence_scope_limits(self):
+        self.assertEqual(json.loads(derive())["evidenceScope"], {"maxDeliveries": 64, "maxSupabaseRequests": 128, "maxTelemetryReads": 8})
+        for label, mutate in (("missing", lambda t: t.pop("evidenceScope")),
+                              ("above a limit", lambda t: t["evidenceScope"].update(maxTelemetryReads=17)),
+                              ("extra key", lambda t: t["evidenceScope"].update(other=1))):
+            with self.subTest(label):
+                tpl = json.loads(TEMPLATE)
+                mutate(tpl)
+                raw = json.dumps(tpl).encode()
+                refused(self, "nightly-template-evidence-scope", derive, tpl=raw, tpl_pin=hashlib.sha256(raw).hexdigest())
+
     def test_the_case10_row_pins_the_observation_contract(self):
         import case10_observation
         self.assertEqual(case10_observation.contract_of(json.loads(derive()))["readBudget"], {"requests": 12, "identityReads": 1})
