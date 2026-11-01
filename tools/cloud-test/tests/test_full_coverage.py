@@ -488,7 +488,8 @@ class Completeness(unittest.TestCase):
             approval = {"reviewedCodeManifestSha256": sha256_file(manifest_path)}
             wjson(plan_path, plan); wjson(approval_path, approval)
 
-            def verify(result):
+            def verify(result, selected_plan=None):
+                wjson(plan_path, selected_plan or plan)
                 wjson(result_path, result)
                 out = os.path.join(root, "binding.json")
                 proc = subprocess.run([
@@ -503,11 +504,30 @@ class Completeness(unittest.TestCase):
             proc, receipt = verify(matching)
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "PASS")
-            for field, value in (("campaignId", "R7-other"), ("servedSha", "c" * 40)):
+            for field, value in (("campaignId", "R7-other"), ("sourceSha", "c" * 40), ("servedSha", "c" * 40)):
                 foreign = dict(matching); foreign[field] = value
                 proc, receipt = verify(foreign)
                 self.assertNotEqual(proc.returncode, 0)
                 self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "FAIL")
+
+            invalid_values = {
+                "campaignId": (None, "", "\n", 7),
+                "sourceSha": (None, "", "g" * 40, 7),
+                "servedSha": (None, "", "b" * 39, 7),
+            }
+            for side in ("plan", "result"):
+                for field, values in invalid_values.items():
+                    for value in values:
+                        candidate_plan, candidate_result = dict(plan), dict(matching)
+                        (candidate_plan if side == "plan" else candidate_result)[field] = value
+                        proc, receipt = verify(candidate_result, candidate_plan)
+                        self.assertNotEqual(proc.returncode, 0, f"{side} {field} accepted {value!r}")
+                        self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "FAIL")
+                    candidate_plan, candidate_result = dict(plan), dict(matching)
+                    del (candidate_plan if side == "plan" else candidate_result)[field]
+                    proc, receipt = verify(candidate_result, candidate_plan)
+                    self.assertNotEqual(proc.returncode, 0, f"{side} {field} accepted missing identity")
+                    self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "FAIL")
 
     def test_a_partial_run_is_never_the_full_live_run_even_with_every_row_executed(self):
         req = sample()["req"]

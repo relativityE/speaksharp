@@ -5,7 +5,7 @@ Offline; reads files only. Exit 0 only when every check passes."""
 import os as _o, sys as _s
 _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__)))
 import _netguard  # noqa: F401  (offline control plane)
-import argparse,hashlib,json,os,sys
+import argparse,hashlib,json,os,re,sys
 def sha(p): return hashlib.sha256(open(p,'rb').read()).hexdigest()
 a=argparse.ArgumentParser()
 for k in ('plan','case-results','approval','code-manifest','packet-root','cases-dir','out'): a.add_argument('--'+k,required=True)
@@ -22,11 +22,13 @@ for line in open(x.code_manifest):
     f=os.path.join(os.path.dirname(x.code_manifest),p)
     if not os.path.exists(f) or sha(f)!=h: bad.append(p)
 chk('code-files','every file in CODE.sha256 still has its recorded bytes',not bad,','.join(bad[:4]))
-campaign_bound = plan.get('campaignId') == cr.get('campaignId')
-source_bound = plan.get('sourceSha') == cr.get('sourceSha')
-served_bound = plan.get('servedSha') == cr.get('servedSha')
+def nonblank(value): return isinstance(value,str) and bool(value.strip())
+def git_sha(value): return isinstance(value,str) and re.fullmatch(r'[0-9a-f]{40}',value) is not None
+campaign_bound = nonblank(plan.get('campaignId')) and nonblank(cr.get('campaignId')) and plan['campaignId'] == cr['campaignId']
+source_bound = git_sha(plan.get('sourceSha')) and git_sha(cr.get('sourceSha')) and plan['sourceSha'] == cr['sourceSha']
+served_bound = git_sha(plan.get('servedSha')) and git_sha(cr.get('servedSha')) and plan['servedSha'] == cr['servedSha']
 chk('campaign','campaign id and source/served SHA match the plan',campaign_bound and source_bound and served_bound,
-    f"plan={plan.get('campaignId')} result={cr.get('campaignId')} source={cr.get('sourceSha')} served={cr.get('servedSha')}")
+    f"campaign={campaign_bound} source={source_bound} served={served_bound}")
 rows={c['id']:c for c in plan['cases']}
 res={c['caseId']:c for c in cr['cases']}
 for cid,row in sorted(rows.items()):
