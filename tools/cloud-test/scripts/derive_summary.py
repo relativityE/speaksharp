@@ -209,6 +209,21 @@ def total_words(f):
     return sum(words(j(f[k])) + 2 for k in ("status", "customerImpact", "deployedSinceLastRun", "good", "bad", "unknown", "readiness", "spend", "blockers", "recommendation")) + len(f["provenGapsClosed"]) + 8
 
 
+def nightly_history(baselines):
+    """The carried-forward nightly history as the summary reports it (G7, Sam 1793576632.959179): how many retained occurrences, how many
+    rows are comparable with this run, which rows still carry a comparable FAIL from an earlier night, and which journeys have no
+    last-known-good. Derived only from select_baselines.py --history-state output."""
+    if not baselines or baselines.get("source") != "carried-forward-history":
+        return None
+    rows = baselines.get("rows") or {}
+    carried = sorted(k for k, r in rows.items() if r.get("comparable") and r.get("baselineVerdict") == "FAIL")
+    return {"occurrences": len(baselines.get("occurrences") or []), "sequence": baselines.get("sequence"),
+            "comparableRows": sum(1 for r in rows.values() if r.get("comparable")), "rowsTotal": len(rows),
+            "carriedFailRows": len(carried), "carriedFailCases": sorted({k.split("/")[0] for k in carried}),
+            "journeysWithoutLastKnownGood": sorted(c for c, j in (baselines.get("journeys") or {}).items()
+                                                   if j.get("previousVerdict") is not None and j.get("lastKnownGood") is None)}
+
+
 def main():
     a = argparse.ArgumentParser()
     for k in ("comparison", "ledger-derived", "release-verification", "gates", "spend", "workflow", "request", "out"):
@@ -217,10 +232,14 @@ def main():
     a.add_argument("--coverage")
     a.add_argument("--alerts")
     a.add_argument("--isolation")
+    a.add_argument("--nightly-baselines")
     x = a.parse_args()
     wf = load(x.workflow)
     f = derive(load(x.comparison), load(x.latest_comparison) if x.latest_comparison else None, load(x.ledger_derived), load(x.release_verification), load(x.gates), load(x.spend), wf, load(x.request), wf["report"]["executiveSummaryMaxWords"] - 70, load(x.coverage) if x.coverage else None,
                 load(x.alerts) if x.alerts else None, load(x.isolation) if x.isolation else None)
+    nh = nightly_history(load(x.nightly_baselines)) if x.nightly_baselines else None
+    if nh is not None:
+        f["nightlyHistory"] = nh
     dump({"schema": "speaksharp.cloud-test.summary.v2", "derived": True, "fields": f}, x.out)
     print("summary derived:", f["status"], f["recommendation"])
 

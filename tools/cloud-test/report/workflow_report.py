@@ -232,6 +232,22 @@ def fmt_unknown(c, usd_label="USD"):
     return "<b>%s %s</b> <span class='small muted'>source: %s, as of %s</span>" % (esc(c["usd"]), usd_label, esc(c["source"]), esc(c["asOfUtc"]))
 
 
+def render_nightly_history(rep):
+    nh = rep.get("nightlyHistory")
+    if not nh:
+        return ""
+    chip = "regressed" if nh["carriedFailRows"] else "improved"
+    o = ["<section id='nightly-history'><h2>Nightly carried-forward history</h2><p><span class='pill %s'>%d comparable row(s) still FAIL</span> "
+         "&nbsp;%d of %d rows comparable across %d retained nightly occurrence(s) (sequence %s)</p>" % (
+             chip, nh["carriedFailRows"], nh["comparableRows"], nh["rowsTotal"], nh["occurrences"], esc(str(nh["sequence"])))]
+    if nh["carriedFailCases"]:
+        o.append("<p>Cases carrying a comparable FAIL: %s</p>" % esc(", ".join(nh["carriedFailCases"])))
+    if nh["journeysWithoutLastKnownGood"]:
+        o.append("<p>Journeys with no last-known-good: %s</p>" % esc(", ".join(nh["journeysWithoutLastKnownGood"])))
+    o.append("</section>")
+    return "".join(o)
+
+
 def render_coverage(rep):
     cv = rep.get("coverage")
     if not cv:
@@ -359,6 +375,7 @@ def render(rep, wf):
         A("<p><b>%s.</b> %s</p>" % (esc(k), esc(v if v.endswith((".", "!", "?")) else v + ".")))
     A("</section>")
     h.append(render_coverage(rep))
+    h.append(render_nightly_history(rep))
     h.append(render_alerts(rep))
     h.append(render_safety(rep))
     h.append(render_concerns(rep))
@@ -506,6 +523,9 @@ def main():
     if os.path.exists(a.out):
         sys.exit("output directory must not exist")
     rep, wf = build(a)
+    nh = (load(a.summary).get("fields") or {}).get("nightlyHistory")
+    if nh:
+        rep["nightlyHistory"] = nh  # the derived carried-forward history (summary input), rendered as its own section
     errs = validate(rep, wf)
     os.makedirs(os.path.join(a.out, "inputs"))
     for k in ("request", "ledger_derived", "release_verification", "reconciliation", "gates", "spend", "offline_proof", "workflow", "comparison", "latest_comparison", "summary", "run_record", "coverage", "budget", "alerts", "isolation", "features", "concerns"):
