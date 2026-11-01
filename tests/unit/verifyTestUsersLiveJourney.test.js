@@ -37,13 +37,13 @@ const VECTORS_TEXT = String.raw`[
 ["email two at", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"a@b@x.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["email leading space", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \" a@x.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["email not string", "bundle-email", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": 7, \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
-["account id uppercase", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
+["account id uppercase", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"AAAAAAAA-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["account id v1", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-1111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["account id not string", "bundle-account-id", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": 1}}}"],
 ["same email any case", "bundle-duplicate", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"THROWAWAY.synthetic@example.invalid\", \"accountId\": \"22222222-2222-4222-8222-222222222222\"}}}"],
 ["same account id", "bundle-duplicate", "{\"version\": 1, \"projectRef\": \"abcdefghijklmnopqrst\", \"accounts\": {\"existing-disposable\": {\"email\": \"throwaway.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}, \"maintained-read-only\": {\"email\": \"free.synthetic@example.invalid\", \"accountId\": \"11111111-1111-4111-8111-111111111111\"}}}"]
 ]`;
-const VECTORS_SHA256 = 'c9a074ad1bfa047ab0991a68921f7af9dd6016883945c5da7968a0db0cab410d';
+const VECTORS_SHA256 = 'd84dd0ab4602f1c1324567c9427d609994a99325c2b92610b3f72b6000db2c12';
 const VECTORS = JSON.parse(VECTORS_TEXT);
 
 const PROJECT = 'abcdefghijklmnopqrst';
@@ -141,8 +141,10 @@ describe('verify-test-users live-journey-accounts target', () => {
 
   it('the bundle project must be the SUPABASE_URL project; a refused bundle reads nothing', async () => {
     const w = world();
-    for (const url of ['https://zzzzzzzzzzzzzzzzzzzz.supabase.co', 'not a url', undefined]) {
-      await expect(verify(w, RAW, url)).rejects.toThrow(/^LIVE_JOURNEY_ACCOUNTS_CONFIG: bundle-project-mismatch$/);
+    // Called directly: the verify() helper's default parameter would replace an undefined URL with the valid one.
+    for (const supabaseUrl of ['https://zzzzzzzzzzzzzzzzzzzz.supabase.co', 'not a url', undefined, '']) {
+      await expect(verifyLiveJourneyAccounts({ supabase: w.supabase, raw: RAW, supabaseUrl, listUsers: w.listUsers }))
+        .rejects.toThrow(/^LIVE_JOURNEY_ACCOUNTS_CONFIG: bundle-project-mismatch$/);
     }
     await expect(verify(w, '{not json')).rejects.toThrow(/^LIVE_JOURNEY_ACCOUNTS_CONFIG: bundle-not-json$/);
     expect(w.queries).toEqual([]);
