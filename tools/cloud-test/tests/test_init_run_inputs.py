@@ -41,6 +41,8 @@ def live_request(cases=None, **over):
     r.pop("fixtureScope", None)
     if cases is not None:
         r["selection"] = [s for s in r["selection"] if s["case"] in cases]
+        for index, row in enumerate(r["selection"], 1):
+            row["order"] = index
         r["coverageMode"] = "partial"
         r["estimate"]["requests"]["runCap"] = 700
         r["estimate"]["identityReads"] = 8
@@ -50,8 +52,11 @@ def live_request(cases=None, **over):
     r["harness"]["ownerApprovalRef"] = "slack:1793538100.358869"
     r["window"] = {"startUtc": "2026-11-01T13:00:00Z", "endUtc": "2026-11-01T20:00:00Z", "approvalRef": "slack:1793538100.358869"}
     full = r["coverageMode"] == "full"
+    start_caps = {row["case"]: row["startPressCap"] for row in r["selection"]}
+    r["proposedLimits"]["startPressCaps"] = copy.deepcopy(start_caps)
+    r["estimate"]["starts"] = sum(start_caps.values())
     r["approvedLimits"] = {"cumulativeCeilingRequests": 12000, "identityCap": 126, "runCapRequests": 4310 if full else 800,
-                           "approvalRef": "slack:1793538100.358869", "approvedBy": "sam"}
+                           "startPressCaps": start_caps, "approvalRef": "slack:1793538100.358869", "approvedBy": "sam"}
     r.update(over)
     return r
 
@@ -290,14 +295,18 @@ class Account(unittest.TestCase):
         self.assertNotIn(ACCOUNT_ID, json.dumps(b))
 
     def test_an_all_fifteen_selection_binds_fourteen_plus_one_each_to_its_own_names(self):
-        b = I.account_bindings(self.free_cfg(), I.ALL_CASES, self.accounts(), self.bundle())
+        b = I.account_bindings(CFG, I.ALL_CASES, self.accounts(), self.bundle())
         self.assertEqual([(x["role"], x["credentials"]["email"], x["credentials"]["password"]) for x in b],
                          [("existing-disposable", "THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD"),
                           ("maintained-read-only", "FREE_TEST_EMAIL", "FREE_TEST_PASSWORD")])
         self.assertEqual(sum(I.ROLE[c] == "existing-disposable" for c in I.ALL_CASES), 14)
-        # The reviewed run stage receives only the THROWAWAY names today: AHT-15's pair is refused, never renamed into THROWAWAY.
-        refused(self, "role-credentials-not-in-run-stage-allowlist", I.account_bindings, CFG, I.ALL_CASES, self.accounts(), self.bundle())
-        refused(self, "role-credentials-not-in-run-stage-allowlist", I.account_bindings, CFG, ["AHT-15"],
+        # Removing the maintained role's names from the reviewed run-stage allowlist refuses AHT-15; they are never renamed into THROWAWAY.
+        missing_free = copy.deepcopy(CFG)
+        missing_free["credentials"]["runEnvironment"]["stages"]["run"] = [
+            name for name in missing_free["credentials"]["runEnvironment"]["stages"]["run"] if not name.startswith("FREE_TEST_")
+        ]
+        refused(self, "role-credentials-not-in-run-stage-allowlist", I.account_bindings, missing_free, I.ALL_CASES, self.accounts(), self.bundle())
+        refused(self, "role-credentials-not-in-run-stage-allowlist", I.account_bindings, missing_free, ["AHT-15"],
                 {"maintained-read-only": self.accounts()["maintained-read-only"]}, self.bundle())
 
     def test_missing_extra_or_wrong_role_bindings_are_refused(self):
@@ -344,16 +353,34 @@ class ProducerScope(unittest.TestCase):
     def bind(self, scope, account=ACCOUNT_ID, facts_over=None):
         private = os.path.join(self.d, "private-%d" % len(os.listdir(self.d)))
         os.mkdir(private, 0o700)
-        scope_file, facts_file, acct, req_file, env_file = (os.path.join(private, n) for n in ("scope.json", "facts.json", "acct", "req.json", "env.txt"))
-        for path, doc in ((scope_file, scope), (facts_file, dict(self.facts, **(facts_over or {}))), (acct, account), (req_file, self.req)):
+        scope_file, facts_file, bindings_file, req_file, reconciliation_file, env_file = (
+            os.path.join(private, n) for n in ("scope.json", "facts.json", "account-bindings.json", "req.json", "reconciliation.json", "env.txt")
+        )
+        project_ref = I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))["projectRef"]
+        bindings = {
+            "schema": "speaksharp.cloud-test.live-account-bindings.v1", "projectRef": project_ref,
+            "projectOrigin": "https://%s.supabase.co" % project_ref, "sourceBundleSha256": "d" * 64,
+            "campaignId": self.req["runId"], "roles": {
+                "existing-disposable": {"accountId": account, "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}},
+                "maintained-read-only": {"accountId": "22222222-2222-4222-8222-222222222222",
+                                         "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}},
+            },
+        }
+        for path, doc in ((scope_file, scope), (facts_file, dict(self.facts, **(facts_over or {}))),
+                          (bindings_file, bindings), (req_file, self.req)):
             put(path, doc)
             os.chmod(path, 0o600)
-        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--out", env_file], capture_output=True, text=True)
+        put(reconciliation_file, reconciliation())
+        os.chmod(reconciliation_file, 0o600)
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
+                            "--request-sha256", I._sha(req_file), "--reconciliation", reconciliation_file, "--out", env_file],
+                           capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
         env = dict(bp, PATH=os.environ["PATH"], GITHUB_ACTIONS="true", GITHUB_REPOSITORY="relativityE/speaksharp", GITHUB_RUN_ID="123",
-                   GITHUB_RUN_ATTEMPT="1", GITHUB_JOB="live", GITHUB_SHA="b" * 40, BP_FACTS=facts_file, BP_ACCOUNT_ID_FILE=acct)
+                   GITHUB_RUN_ATTEMPT="1", GITHUB_JOB="live", GITHUB_SHA="b" * 40, BP_FACTS=facts_file,
+                   BP_ACCOUNT_BINDINGS_FILE=bindings_file, BP_HOST_DB=project_ref + ".supabase.co")
         script = ("const b=require(process.argv[1]),{privateJson}=require(process.argv[2]),fs=require('node:fs');"
                   "const s=privateJson(process.argv[3],process.argv[4]);b.validateBindings(s,JSON.parse(fs.readFileSync(process.env.BP_FACTS)),process.env);"
                   "console.log('BOUND')")
@@ -568,19 +595,33 @@ class Qualify(unittest.TestCase):
     def collect(self, request):
         """The REAL collector over the same case results (collect_run_record.py; campaign-runner rows carry their assertions)."""
         request["harness"]["codeManifestSha256"] = self.sha(self.code)  # the reviewed harness pin the run executed
+        request_file = os.path.join(self.d, "request.json")
+        put(request_file, request)
+        request_sha = self.sha(request_file)
         results = J(self.results)
+        plan_rows = {row["id"]: row for row in J(self.plan)["cases"]}
         for row in results["cases"]:
             if row["caseId"] in self.SELECTED:
                 case = J(os.path.join(self.cases, row["caseId"], "case-result.json"))
-                row.update(result=case["result"], assertions=case["assertions"])
+                case_result = os.path.join(self.cases, row["caseId"], "case-result.json")
+                summary = os.path.join(self.cases, row["caseId"], "summary.json")
+                row.update(result=case["result"], assertions=case["assertions"], executionReceipt={
+                    "schema": "speaksharp.cloud-test.case-execution-receipt.v1", "campaignId": request["runId"],
+                    "runId": "123", "attempt": 1, "caseId": row["caseId"], "requestSha256": request_sha,
+                    "planSha256": self.sha(self.plan), "configSha256": plan_rows[row["caseId"]]["configSha256"],
+                    "sourceSha": results["sourceSha"], "servedSha": results["servedSha"],
+                    "runtimeStartReceiptSha256": "a" * 64, "caseResultSha256": self.sha(case_result),
+                    "summarySha256": self.sha(summary),
+                })
         put(self.results, results)
         ledgers = os.path.join(self.d, "ledgers"); os.makedirs(ledgers, exist_ok=True)
         put(os.path.join(ledgers, "campaign-ledger.json"), {"used": {"total": 1}})
         put(os.path.join(ledgers, "identity-ledger.json"), {"identityGets": 1})
-        for name, doc in (("request.json", request), ("gate-status.json", {"decision": "GO"}), ("runner.json", {})):
+        for name, doc in (("gate-status.json", {"decision": "GO"}), ("runner.json", {})):
             put(os.path.join(self.d, name), doc)
         out = os.path.join(self.d, "run-record.json")
         p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "collect_run_record.py"), "--request", os.path.join(self.d, "request.json"),
+                            "--request-sha256", request_sha, "--execution-run-id", "123", "--attempt", "1",
                             "--case-results", self.results, "--cases-dir", self.cases, "--ledger-dir", ledgers,
                             "--gate-status", os.path.join(self.d, "gate-status.json"), "--workflow", os.path.join(ROOT, "workflow.json"),
                             "--runner-json", os.path.join(self.d, "runner.json"), "--started-utc", "2026-11-01T14:00:00Z",

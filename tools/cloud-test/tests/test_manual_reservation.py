@@ -18,7 +18,7 @@ AT = "2026-11-02T04:00:00Z"
 RUN = "41400000001"
 EVIDENCE = "e" * 64
 # R7-full-coverage: run cap 4310 + 32 identity reads = a G5 request charge of 4342.
-ALLOCATION = {"requests": 4342, "identityReads": 32, "starts": 40, "takes": 31, "coachingRequests": 40, "runnerMinutes": 30}
+ALLOCATION = {"requests": 4342, "identityReads": 32, "starts": 42, "takes": 31, "coachingRequests": 40, "runnerMinutes": 30}
 
 
 def read(path):
