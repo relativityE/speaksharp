@@ -593,32 +593,38 @@ def _same(record, identity):
     return all(type(record.get(k)) is type(v) and record.get(k) == v for k, v in identity.items())
 
 
-def check_execution_provenance(admitted, identity, release, readers, plan_raw, planned_configs, runtime, collection, case_results_raw, selected):
-    """Execution provenance from what each consumer RECORDED when it read its input, never a rehash of a file at the end. Every input's
-    shape is validated before any lookup or hash, and every refusal is a deliberate code, never an incidental exception.
+def check_execution_provenance(admitted, identity, readers, plan_raw, runtime, collection, case_results_raw, selected):
+    """Execution provenance from what each consumer RECORDED when it read its input, never a rehash of a file at the end. Every expectation
+    about the run comes from the FROZEN PLAN BYTES themselves (campaign, source and served release, each case's config digest), never from a
+    caller-supplied map, so a coherent substitution of expectations and receipts cannot pass against an unchanged plan. Every input's shape
+    is validated before any lookup or hash, and every refusal is a deliberate code, never an incidental exception.
     - the admission identity is checked on its own first: campaignId, a run id, and attempt exactly 1 (reruns are refused upstream);
     - exactly one record per required reader, each naming the admitted digest and THIS identity (same types and values);
-    - build-plan's produced planSha256 is the executed plan, whose own bytes name the admitted request;
-    - every selected case's runtime start receipt names that plan, the case's valid planned config digest, the admitted digest, this
-      identity, and exactly the planned source and served releases (valid, compared separately);
+    - build-plan's produced planSha256 is the executed plan, whose own bytes name the admitted request and this campaign;
+    - every selected case's runtime start receipt names that plan, the plan's config digest for the case, the admitted digest, this
+      identity, and exactly the plan's source and served releases (compared separately);
     - the collection record names the admitted digest, the frozen case results and each runtime receipt's canonical digest.
     A request swapped for the run and restored before collection, with reserve and collector both honestly reporting the admitted digest,
-    fails at build-plan (it read the swapped bytes); a misreporting builder fails on the executed plan's bytes."""
+    fails at build-plan (it read the swapped bytes); a misreporting builder fails on the executed plan's bytes.
+    Not wired into qualify until the I4' producers land."""
     _need(_is64(admitted), "admitted-request-digest")
     _need(isinstance(identity, dict) and set(identity) == {"campaignId", "runId", "attempt"} and
           isinstance(identity["campaignId"], str) and identity["campaignId"].strip() == identity["campaignId"] and identity["campaignId"] and
           isinstance(identity["runId"], str) and LR.RUN_ID.match(identity["runId"]) and type(identity["attempt"]) is int and
           identity["attempt"] == 1, "execution-identity")
-    _need(isinstance(release, dict) and set(release) == {"sourceSha", "servedSha"} and _is40(release["sourceSha"]) and
-          _is40(release["servedSha"]), "planned-release")
-    _need(isinstance(selected, list) and selected and all(c in ROLE for c in selected) and len(set(selected)) == len(selected), "case-selection")
-    _need(isinstance(planned_configs, dict) and all(_is64(planned_configs.get(c)) for c in selected), "planned-config-digests")
+    _need(isinstance(selected, list) and selected and all(isinstance(c, str) and c in ROLE for c in selected) and
+          len(set(selected)) == len(selected), "case-selection")
     _need(isinstance(plan_raw, bytes) and isinstance(case_results_raw, bytes), "provenance-inputs")
     try:
         plan = json.loads(plan_raw)
     except ValueError:
         raise Refused("runtime-plan-unreadable")
     _need(isinstance(plan, dict), "runtime-plan-unreadable")
+    _need(type(plan.get("campaignId")) is str and plan["campaignId"] == identity["campaignId"], "plan-not-this-campaign")
+    _need(_is40(plan.get("sourceSha")) and _is40(plan.get("servedSha")), "plan-release")
+    _need(isinstance(plan.get("cases"), list) and all(isinstance(c, dict) and isinstance(c.get("id"), str) for c in plan["cases"]), "plan-cases")
+    planned = _unique(plan["cases"], "id", "plan-cases")
+    _need(all(c in planned and _is64(planned[c].get("configSha256")) for c in selected), "planned-config-digests")
     by = {}
     _need(isinstance(readers, list), "request-reader-record")
     for r in readers:
@@ -639,10 +645,10 @@ def check_execution_provenance(admitted, identity, release, readers, plan_raw, p
     for cid in sorted(selected):
         rr = rows[cid]
         _need(RUNTIME_KEYS <= set(rr) and rr["planSha256"] == plan_sha and _is64(rr["configSha256"]) and
-              rr["configSha256"] == planned_configs[cid] and rr["requestSha256"] == admitted and _same(rr, identity),
+              rr["configSha256"] == planned[cid]["configSha256"] and rr["requestSha256"] == admitted and _same(rr, identity),
               "runtime-receipt-not-bound:" + cid)
-        _need(_is40(rr["sourceSha"]) and rr["sourceSha"] == release["sourceSha"], "runtime-source-release:" + cid)
-        _need(_is40(rr["servedSha"]) and rr["servedSha"] == release["servedSha"], "runtime-served-release:" + cid)
+        _need(_is40(rr["sourceSha"]) and rr["sourceSha"] == plan["sourceSha"], "runtime-source-release:" + cid)
+        _need(_is40(rr["servedSha"]) and rr["servedSha"] == plan["servedSha"], "runtime-served-release:" + cid)
     _need(isinstance(collection, dict) and collection.get("requestSha256") == admitted, "request-not-the-admitted-request:collection")
     _need(collection.get("caseResultsSha256") == hashlib.sha256(case_results_raw).hexdigest(), "collection-not-these-case-results")
     digests = collection.get("runtimeReceiptDigests")
