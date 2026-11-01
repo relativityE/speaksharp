@@ -3,23 +3,27 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import {
-  coachingErrorDescriptor, get_error_string, decodeProviderAnswer, decodeProviderError, readBoundedBody,
-  type ProviderAnswerCodes, type ProviderErrorCodes,
+  coachingErrorDescriptor, get_error_string, type ProviderAnswerCodes, type ProviderErrorCodes,
 } from './providerDecode.ts';
 import {
   attemptTimeoutMs, canAdmitAttempt, isRetryableProviderStatus, MAX_PROVIDER_ATTEMPTS, parseRetryAfter, planNextAttempt,
   realProviderRetryRuntime, type ProviderRetryRuntime, type RetryAfter,
 } from './providerRetry.ts';
+import { GEMINI_API_URL, GEMINI_GENERATION_CONFIG } from './providers/gemini.ts';
+import { PERSISTABLE_PROVIDER_IDS, SELECTED_PROVIDER_ID, selectProvider } from './providers/registry.ts';
+
+// Provider-adapter groundwork: the provider call now lives behind `providers/` (types, the Gemini adapter, the reviewed registry).
+// Gemini stays the selected default; its URL, key placement, request body and decoding are unchanged and re-exported here.
+export { GEMINI_API_URL, GEMINI_GENERATION_CONFIG };
 
 // #1416 — the original `gemini-3-flash-preview` endpoint was a PREVIEW channel and could disappear
 // inside a sprint. The selected stable model is pinned in contract.json; runtime URL construction uses
-// that single reviewed value rather than accepting a caller-supplied model ID.
+// that single reviewed value rather than accepting a caller-supplied model ID (providers/gemini.ts).
 //
 // The prompt below was tuned against the preview model, so the risk of this change is a SHAPE shift,
 // not a quality one — `parseSuggestions` already rejects any object whose keys are not exactly
 // {version, what_worked, what_to_try_next}, and that rejection is what must reach the user as an
 // error rather than as an empty review.
-export const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${coachingContract.model}:generateContent`;
 // #1424 (Codex finding): the request used to constrain its answer by PROMPT WORDING alone, and
 // `parseSuggestions` then demanded exactly {version, what_worked, what_to_try_next}. That made the contract a
 // request rather than a constraint: a model is free to wrap its answer in a markdown fence or add a key, and
@@ -62,8 +66,6 @@ export const COACHING_CHARACTER_CEILING = Object.freeze({
 
 /** Words, counted the way a reader would: runs of non-whitespace. */
 export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
-
-export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
 
 /**
  * #1486 — THE PROVIDER RETRY LIVES HERE, BEHIND THE ONE QUOTA CONSUMPTION.
@@ -480,6 +482,8 @@ export async function handler(
   let diagnosticProduct: SessionProduct | 'unknown' = asProduct(requestInput.product) ?? 'unknown';
   let hasSession = typeof requestInput.sessionId === 'string' && DIAGNOSTIC_UUID.test(requestInput.sessionId);
   let observedProviderModel: string | null = null;
+  // The provider that generated (or, for a cache replay, originally generated) this answer — never a literal.
+  let diagnosticProvider: string | null = null;
   let providerAttempts = 0;
   let providerDurationMs = 0;
   let providerStatus: number | null = null;
@@ -516,7 +520,7 @@ export async function handler(
       reason: rawReason,
       status,
       provider_status: providerStatus,
-      provider: providerAttempts > 0 || (diagnosticSource === 'cache' && observedProviderModel) ? 'google_gemini' : 'none',
+      provider: (providerAttempts > 0 || (diagnosticSource === 'cache' && observedProviderModel)) && diagnosticProvider ? diagnosticProvider : 'none',
       configured_model: coachingContract.model,
       observed_model: observedProviderModel,
       source: diagnosticSource,
@@ -727,12 +731,13 @@ export async function handler(
         });
         const row = Array.isArray(rows) ? rows[0] as Record<string, unknown> | undefined : undefined;
         if (!error && row?.session_id === sessionId && row?.user_id === userId
-          && row?.provider === 'google_gemini' && row?.provider_request_made === true
+          && typeof row?.provider === 'string' && PERSISTABLE_PROVIDER_IDS.has(row.provider) && row?.provider_request_made === true
           && typeof row?.receipt_suggestion_sha256 === 'string' && SHA256_HEX.test(row.receipt_suggestion_sha256)
           && typeof row?.current_suggestion_sha256 === 'string' && SHA256_HEX.test(row.current_suggestion_sha256)
           && row?.current_suggestion_sha256 === row?.receipt_suggestion_sha256
           && typeof row?.model === 'string' && SAFE_MODEL_ID.test(row.model)) {
           observedProviderModel = row.model;
+          diagnosticProvider = row.provider;
         }
       } catch {
         // Keep cached coaching readable; missing authority is represented as null model provenance.
@@ -780,11 +785,15 @@ export async function handler(
       ? `${session.transcript.slice(0, MAX_TRANSCRIPT_CHARS)}\n\n[Transcript truncated for coaching request length.]`
       : session.transcript;
 
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) {
-      console.error('GEMINI_API_KEY is not set.');
+    // The reviewed selection (providers/registry.ts), resolved before admission, quota and any provider call. A missing, unknown or
+    // not-yet-persistable provider is the same configuration failure as a missing key: nothing is admitted, consumed or sent.
+    const provider = selectProvider(SELECTED_PROVIDER_ID);
+    const apiKey = provider ? Deno.env.get(provider.keyVariable) : undefined;
+    if (!provider || !apiKey) {
+      console.error(provider ? `${provider.keyVariable} is not set.` : 'The configured coaching provider is not available.');
       return finish({ error: 'AI coaching is unavailable right now. Please try again.', code: 'service_configuration' }, 503);
     }
+    diagnosticProvider = provider.id;
 
     const operationIdentity = { p_user_id: userId, p_session_id: sessionId, p_operation_id: crypto.randomUUID() };
     const { data: admission, error: admissionError } = await createServiceRoleSupabase().rpc(
@@ -839,7 +848,8 @@ export async function handler(
       providerAttempts = providerAttempt;
       // Only a failure in the retry set earns another attempt (`providerRetry.ts`). Set where the failure is known.
       let providerFailureIsRetryable = false;
-      let retryAfter: RetryAfter = { kind: 'absent' };
+      // Typed as the whole union: the adapter's onResponse hook may set it, which flow analysis cannot see.
+      let retryAfter = { kind: 'absent' } as RetryAfter;
       // This attempt's own timeout, kept so its abort can be told apart from the caller's and from a malformed body.
       const attemptTimeout = retryRuntime.timeout(attemptTimeoutMs(retryRuntime.now() - budgetStartedAt));
       // Each attempt states its own outcome; the reason reported is the last attempt's.
@@ -850,40 +860,35 @@ export async function handler(
       providerAnswerCodes = null;
       const providerStartedAt = performance.now();
       try {
-        const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const result = await provider.attempt({
+          prompt,
+          apiKey,
           // The caller's own abort and this attempt's timeout, composed — and told apart below by which one fired.
           signal: AbortSignal.any([callerSignal, attemptTimeout]),
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: GEMINI_GENERATION_CONFIG,
-          }),
+          // #1258 (Codex P2 r4288823216): a received answer's status is known the moment it arrives, before either
+          // body is read, so a malformed or truncated body still reports the status that actually arrived. A failure's
+          // Retry-After header is read for the wait decision at the same moment and never logged or returned in raw form.
+          onResponse: (status, retryAfterHeader) => {
+            providerStatus = status;
+            if (retryAfterHeader !== undefined) retryAfter = parseRetryAfter(retryAfterHeader, retryRuntime.wallNow());
+          },
         });
-        // #1258 (Codex P2 r4288823216): a received answer's status is known the moment fetch resolves, before either
-        // body is read, so a malformed or truncated body still reports the status that actually arrived.
-        providerStatus = geminiResponse.status;
 
-        if (!geminiResponse.ok) {
-          // Header only, read for the wait decision and never logged or returned in raw form.
-          retryAfter = parseRetryAfter(geminiResponse.headers.get('retry-after'), retryRuntime.wallNow());
+        if (!result.ok) {
           // #1258 (PM 5953504835): the provider's error body can echo anything, so it is never logged or returned.
           // PO 2026-10-12: it is DECODED instead — only `error.status` and the ErrorInfo `reason`, each kept only when
           // it belongs to its closed vocabulary (providerDecode.ts); the message and every other field are not read.
-          providerErrorCodes = decodeProviderError(await readBoundedBody(geminiResponse));
+          providerErrorCodes = result.errorCodes;
           console.error('Gemini API request failed.', JSON.stringify({
-            status: geminiResponse.status, attempt: providerAttempt,
-            error_status: providerErrorCodes.error_status, error_reason: providerErrorCodes.error_reason,
+            status: result.status, attempt: providerAttempt,
+            error_status: providerErrorCodes?.error_status ?? null, error_reason: providerErrorCodes?.error_reason ?? null,
           }));
-          providerFailureIsRetryable = isRetryableProviderStatus(geminiResponse.status);
-          failureReason = geminiResponse.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
+          providerFailureIsRetryable = isRetryableProviderStatus(result.status);
+          failureReason = result.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
         } else {
           // #1258 (PM 6203482045): a received answer whose body is malformed or truncated is NOT a transport failure — its
           // status already arrived. Named for what it is; still retryable (a truncated body is typically transient).
-          let responseData: Awaited<ReturnType<Response['json']>> | null = null;
-          try {
-            responseData = await geminiResponse.json();
-          } catch {
+          if (result.bodyUnreadable) {
             coachingOutcomeUnknown = true;
             if (callerSignal.aborted) {
               // PM 6206983551: the CALLER left while the received answer was being read — a cancellation, never a
@@ -900,15 +905,12 @@ export async function handler(
               failureReason = 'provider_malformed_response';
             }
           }
-          if (responseData !== null) {
-            providerAnswerCodes = decodeProviderAnswer(responseData);
-            const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
-            observedProviderModel = typeof responseData?.modelVersion === 'string'
-              && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
-              ? responseData.modelVersion
-              : null;
+          if (result.answer !== null) {
+            providerAnswerCodes = result.answer.codes;
+            // The adapter keeps only a safe model id (providers/types.ts SAFE_MODEL_ID, the rule that was inline here).
+            observedProviderModel = result.answer.modelVersion;
             // The model's FRESH answer — the one place the budget is enforced.
-            const classified = classifyGeneratedSuggestions(rawText);
+            const classified = classifyGeneratedSuggestions(result.answer.text);
             if ('suggestions' in classified) suggestions = classified.suggestions;
             else failureReason = classified.reason;
             if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
@@ -1028,7 +1030,7 @@ export async function handler(
         p_session_id: sessionId,
         p_user_id: userId,
         p_suggestions: suggestions,
-        p_provider: 'google_gemini',
+        p_provider: provider.id,
         p_model: observedProviderModel,
         p_quota_scope: 'user_utc_day',
         p_quota_utc_date: new Date().toISOString().slice(0, 10),
