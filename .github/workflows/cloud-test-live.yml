@@ -154,6 +154,9 @@ jobs:
       - name: Stage runner (install-tools, plans, stimulus preflight, gates)
         env:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
+          CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+          CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
         run: |
           set -euo pipefail
           for stage in install-tools build-plan stimulus-preflight build-plan-with-receipt gate-and-validate; do
@@ -170,6 +173,9 @@ jobs:
         timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
         env:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
+          CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+          CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -185,6 +191,9 @@ jobs:
           TESTED_SHA: ${{ steps.init.outputs.tested_sha }}
           COVERAGE_MODE: ${{ steps.init.outputs.coverage_mode }}
           REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+          # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
+          CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+          CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
         run: |
           set -euo pipefail
           bash tools/cloud-test/scripts/execute_run.sh collect

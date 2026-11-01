@@ -425,12 +425,16 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
             canonical = f.read()
         parsed = I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))
         self.assertEqual(canonical, json.dumps({"version": 1, "projectRef": parsed["projectRef"], "accounts": parsed["accounts"]},
-                                                sort_keys=True, separators=(",", ":")).encode())
+                                                sort_keys=True, separators=(",", ":")).encode() + b"\n", "canonical JSON plus exactly one LF")
+        self.assertEqual(stat.S_IMODE(os.stat(out).st_mode), 0o700)
         self.assertEqual(published["live_accounts_sha256"], hashlib.sha256(canonical).hexdigest())
         with open(outputs, encoding="utf-8") as f:
             outputs_text = f.read()
         self.assertNotIn("synthetic", outputs_text)
         self.assertNotIn(ACCOUNT_ID, outputs_text)
+        with open(env, encoding="utf-8") as f:
+            env_names = {line.split("=", 1)[0] for line in f.read().splitlines()}
+        self.assertFalse(env_names & {"CT_REQUEST_SHA256", "CT_LIVE_ACCOUNTS_SHA256"}, "admission digests never travel through $GITHUB_ENV")
         self.assertEqual(I.canonical_bundle_bytes(I.parse_live_accounts_bundle(canonical.decode())), canonical, "canonical bytes are a fixed point")
         # The window check accepts exactly those bytes, and refuses them once the workspace-style copy is rewritten.
         check = lambda: subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "init_run_inputs.py"), "window-check", "--request",
@@ -1134,6 +1138,18 @@ class WindowAtAdmission(unittest.TestCase):
 
 
 class LiveAccountsBundle(unittest.TestCase):
+    # Cross-language golden fixture (Sam RETURN 89949827; Jensen 1793552377.273939): the synthetic "valid" vector's exact canonical file bytes
+    # and their digest. The resolver side pins the same two literals, so caller and resolver agree byte for byte.
+    GOLDEN_BYTES = (b'{"accounts":{"existing-disposable":{"accountId":"11111111-1111-4111-8111-111111111111",'
+                    b'"email":"throwaway.synthetic@example.invalid"},"maintained-read-only":{"accountId":"22222222-2222-4222-8222-222222222222",'
+                    b'"email":"free.synthetic@example.invalid"}},"projectRef":"abcdefghijklmnopqrst","version":1}\n')
+    GOLDEN_SHA256 = "9f26df52a410b60729da7fe84a8799d5baca9336fab64a48d274ed0e619aab82"
+
+    def test_the_cross_language_golden_bytes_and_digest(self):
+        out = I.canonical_bundle_bytes(I.parse_live_accounts_bundle(next(v[2] for v in VECTORS if v[0] == "valid")))
+        self.assertEqual((out, len(out), hashlib.sha256(out).hexdigest()), (self.GOLDEN_BYTES, 301, self.GOLDEN_SHA256))
+        self.assertTrue(out.endswith(b"}\n") and not out.endswith(b"\n\n") and b" " not in out)
+
     def test_the_shared_vectors_are_the_pinned_ones_and_every_code_agrees(self):
         self.assertEqual(hashlib.sha256(VECTORS_TEXT.encode()).hexdigest(), VECTORS_SHA256)
         self.assertGreater(len(VECTORS), 20)

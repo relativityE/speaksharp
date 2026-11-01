@@ -255,10 +255,11 @@ def parse_live_accounts_bundle(raw):
 
 
 def canonical_bundle_bytes(bundle):
-    """The VALIDATED bundle as the one canonical representation both runtimes agree on (Elon 1793552234.767509): UTF-8 JSON, keys sorted at
-    every level, "," and ":" separators, no whitespace. Every value is ASCII by validation, so Python and a sorted-key JS stringify match."""
+    """The VALIDATED minimum binding document as the exact file bytes both runtimes agree on (Jensen 1793552377.273939): UTF-8 JSON with
+    keys sorted at every level, "," and ":" separators, no whitespace, then exactly one LF. Every value is ASCII by validation, so Python
+    and a sorted-key JS stringify match. live_accounts_sha256 is the lowercase SHA-256 of exactly these bytes."""
     doc = {"version": 1, "projectRef": bundle["projectRef"], "accounts": bundle["accounts"]}
-    return json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+    return json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii") + b"\n"
 
 
 def mask_values(raw):
@@ -762,6 +763,7 @@ def main(argv):
                 print(command, flush=True)
         p = prepare(x, datetime.now(timezone.utc))
         os.makedirs(x.out, mode=0o700)
+        os.chmod(x.out, 0o700)  # the private run-inputs directory is exactly 0700 whatever the umask
         facts_file, account_file = os.path.join(x.out, "facts.json"), os.path.join(x.out, "account-id")
         _write_private(facts_file, p["facts"])
         # Every consumer (runner, reservation, collector, window check, qualification) reads the ADMITTED bytes from this private copy.

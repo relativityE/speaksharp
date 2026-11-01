@@ -176,6 +176,14 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("verify_run_binding.py --plan", collect, "the verifier runs inside qualify, on the bytes qualify snapshots")
         self.assertIn('--tested-sha "$TESTED_SHA"', collect)
 
+    def test_the_runner_receives_the_admission_digests_only_from_init_step_outputs(self):
+        want = {"CT_REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}",
+                "CT_LIVE_ACCOUNTS_SHA256": "${{ steps.init.outputs.live_accounts_sha256 }}"}
+        runner = [s for s in self.jobs["live"]["steps"] if "execute_run.sh" in s.get("run", "")]
+        self.assertEqual(len(runner), 3, "setup stages, run, collect")
+        for step in runner:
+            self.assertEqual({k: step["env"].get(k) for k in want}, want, step.get("name"))
+
     def test_the_private_run_inputs_are_removed_last_and_never_uploaded(self):
         steps = self.jobs["live"]["steps"]
         self.assertEqual((steps[-1].get("name"), steps[-1].get("if"), steps[-1].get("run", "").strip()),
