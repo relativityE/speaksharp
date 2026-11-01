@@ -267,6 +267,9 @@ jobs:
           # Producer keys only for the same-job producer route; execute_run.sh refuses them on any other route.
           SUPABASE_SERVICE_ROLE_KEY: ${{ steps.init.outputs.route == 'github-producer' && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
           POSTHOG_PERSONAL_API_KEY: ${{ steps.init.outputs.route == 'github-producer' && secrets.POSTHOG_PERSONAL_API_KEY || '' }}
+          # The producer's non-secret project identifier (Sam 1793567412.564949), stored as a repository Secret; producer route only, and
+          # the producer still refuses TELEMETRY_CAPABILITY_UNAVAILABLE without it.
+          POSTHOG_PROJECT_ID: ${{ steps.init.outputs.route == 'github-producer' && secrets.POSTHOG_PROJECT_ID || '' }}
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
         run: bash tools/cloud-test/scripts/execute_run.sh run
       - name: Collect, verify the binding, qualify every selected row, and project the closed record
