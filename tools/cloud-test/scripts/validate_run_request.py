@@ -16,6 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import load, dump, parse_utc, is_sha40, ep_requirements, ep_cases, request_mode, mode_limits, sha256_file, ROOT  # noqa: E402
+from case_start_caps import reconcile_caps
 
 CASE_RE = re.compile(r"^AHT-(0[1-9]|1[0-5])$")
 LEGACY_COST_KEYS = ("costUsd", "costCapUsd", "actualCostUsd")
@@ -50,6 +51,10 @@ def validate_ledger(ledger):
 
 def validate(req, cfg, ledger, wf, rv, rc, budget=None):
     errs, warns = [], []
+    try:
+        reconcile_caps(req, rc)
+    except (ValueError, TypeError, KeyError):
+        return ["invalid per-case Start allocation or input structure"], warns
     E = errs.append
     for e in validate_ledger(ledger):
         E("gap ledger: " + e)

@@ -17,6 +17,9 @@ Phase 1: everything that does not depend on the window having opened. Phase 2: a
 failure (BLOCKED_SETUP). Account ids and the publishable key are written only to 0600 private files; no credential value is ever printed."""
 import json, os, sys, hashlib, subprocess, time, stat, re
 
+sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), '..', 'scripts')))
+from case_start_caps import request_caps
+
 def need(name):
     v = os.environ.get(name)
     if not v:
@@ -155,6 +158,11 @@ if phase == 'phase1':
     ACCOUNT_BINDINGS = account_bindings()
     ACCOUNT_BINDINGS_SHA = shaf(ACCOUNT_BINDINGS_FILE)
     REQUEST_BYTES, REQUEST = bound_request()
+    REQUEST_MODE, REQUEST_PRESS = request_caps(REQUEST, execution=True)
+    assert REQUEST_MODE == MODE, 'request Start allocation mode differs from builder mode'
+    assert not PRESS_EXTRA, 'BP_PRESS_EXTRA cannot override the admitted request allocation'
+    assert list(REQUEST_PRESS) == [f'AHT-{n:02d}' for n in SELECTED], 'request Start allocation selection differs'
+    PRESS.update({int(case_id[-2:]): cap for case_id, cap in REQUEST_PRESS.items()})
     DISPOSABLE_UID = ACCOUNT_BINDINGS['roles']['existing-disposable']['accountId']
     ANON = need('VITE_SUPABASE_ANON_KEY')
     contracts = {c['caseId']: c for c in jload(f'{PACKET}/draft-adapters/contracts.json')['cases']} \
@@ -222,6 +230,14 @@ if phase == 'phase1':
         c = {k: v for k, v in t.items() if not k.startswith('_')}
         c.update({'campaignId': CAMPAIGN, 'sourceSha': B, 'servedSha': B, 'targetUrl': f'https://{HOST_APP}',
                   'takeCap': TAKES[n], 'startPressCap': PRESS[n]})
+        if n in SELECTED:
+            c['startPressApproval'] = {
+                'caseId': cid,
+                'cap': PRESS[n],
+                'requestSha256': REQUEST_SHA256,
+                'approvalRef': REQUEST['approvedLimits']['approvalRef'],
+                'selectionApprovalRef': REQUEST['selectionApprovalRef'],
+            }
         if BREADTH and n in (2, 3): c['sampleMode'] = 'breadth'
         if MINIMAL: c['sampleMode'] = 'minimal'
         account_role = 'maintained-read-only' if n == 15 else 'existing-disposable'
@@ -263,6 +279,7 @@ if phase == 'phase1':
     json.dump({'media_of': media_of, 'receiver_sha': receiver_sha, 'oracle_sha': oracle_sha, 'schema_sha': schema_sha,
                'pdf_sha': pdf_sha, 'account_bindings_sha256': ACCOUNT_BINDINGS_SHA,
                'request_sha256': sha(REQUEST_BYTES),
+               'start_press_caps': REQUEST_PRESS,
                'account_uid_sha256': {role: sha(row['accountId'].encode()) for role, row in ACCOUNT_BINDINGS['roles'].items()}},
               open(f'{PRIVATE}/cfg/phase1-facts.json', 'w'), indent=2)
     # policy (campaign copy of the reviewed template; disclosed tightenings)
@@ -340,6 +357,10 @@ elif phase == 'phase2':
     assert shaf(ACCOUNT_BINDINGS_FILE) == facts['account_bindings_sha256'], 'account bindings changed between plan phases'
     REQUEST_BYTES, REQUEST = bound_request()
     assert sha(REQUEST_BYTES) == facts['request_sha256'], 'request changed between plan phases'
+    REQUEST_MODE, REQUEST_PRESS = request_caps(REQUEST, execution=True)
+    assert REQUEST_MODE == MODE and REQUEST_PRESS == facts['start_press_caps'], 'request Start allocation changed between plan phases'
+    assert not PRESS_EXTRA, 'BP_PRESS_EXTRA cannot override the admitted request allocation'
+    PRESS.update({int(case_id[-2:]): cap for case_id, cap in REQUEST_PRESS.items()})
     # runtime attestation: actual platform observation, written only after the window opened
     assert now() >= T0, 'window not open yet'
     if RUNTIME == 'GitHub Actions SpeakSharp':

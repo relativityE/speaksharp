@@ -42,6 +42,14 @@ def problems(**over):
 
 
 class Verdict(unittest.TestCase):
+    def test_synthetic_proof_request_uses_the_real_start_allocation_contract(self):
+        import proof_prep_cases
+        from case_start_caps import request_caps
+        req=proof_prep_cases.placeholder_request(str(SCRIPTS.parent/'harness'))
+        mode,caps=request_caps(req,execution=True)
+        self.assertEqual(mode,'full');self.assertEqual(sum(caps.values()),42)
+        self.assertEqual((caps['AHT-13'],caps['AHT-14']),(3,3))
+        self.assertIn('NOT-A-RUN',req['approvedLimits']['approvalRef'])
     def test_a_complete_clean_run_is_accepted(self):
         self.assertEqual(problems(), [])
 

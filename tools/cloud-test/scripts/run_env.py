@@ -14,6 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import load  # noqa: E402
+from case_start_caps import request_caps  # noqa: E402
 
 
 SAMPLE = {"partial": "minimal", "full": "full"}
@@ -61,6 +62,10 @@ def main():
     a.add_argument("--out", required=True)
     x = a.parse_args()
     r = bound_request(x.request, x.request_sha256)
+    try:
+        contract_mode, _ = request_caps(r, execution=True)
+    except (KeyError, TypeError, ValueError):
+        sys.exit("BLOCKED_SETUP: invalid Start allocation")
     mode = r.get("coverageMode")
     if mode not in BP_MODE:
         sys.exit("coverageMode must be partial or full; the plan mode is never defaulted")
@@ -73,6 +78,8 @@ def main():
     if runtime not in ("Claude SpeakSharp R4", "GitHub Actions SpeakSharp"):
         sys.exit("executionRuntime must be an explicitly supported runtime")
     builder_mode = "selected-full" if mode == "partial" and r["sampleMode"] == "full" else BP_MODE[mode]
+    if contract_mode != builder_mode:
+        sys.exit("BLOCKED_SETUP: Start allocation mode differs from builder mode")
     est, sel, win, appr, rel = r["estimate"], r["selection"], r["window"], r["approvedLimits"], r["release"]
     gates = []
     for s in sel:
