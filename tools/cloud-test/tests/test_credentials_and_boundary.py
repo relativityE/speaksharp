@@ -216,10 +216,7 @@ class Boundary(unittest.TestCase):
 class NoNetworkImports(unittest.TestCase):
     def test_only_the_run_environment_browser_installer_may_use_the_network(self):
         pat = re.compile(r"^\s*(import|from)\s+(socket|urllib|http|requests|ssl|ftplib|smtplib|aiohttp|httpx|websocket)\b", re.M)
-        # init_run_inputs uses only urllib.parse for origin canonicalisation. It
-        # imports and activates _netguard before any executable work; it has no
-        # HTTP client or network-opening call.
-        allowed = {"install_browser.py", "_netguard.py", "init_run_inputs.py"}
+        allowed = {"install_browser.py", "_netguard.py"}
         offenders = []
         for sub in ("scripts", "report", "harness-adapter"):
             for r, _, fs in os.walk(os.path.join(ROOT, sub)):
@@ -234,14 +231,6 @@ class NoNetworkImports(unittest.TestCase):
             if fn.endswith(".py") and fn not in ("_netguard.py", "_common.py", "install_browser.py", "cfg_get.py", "stage_env.py", "stimulus_preflight_retry.py", "case_start_caps.py"):
                 text = open(os.path.join(ROOT, "scripts", fn), encoding="utf-8").read()
                 self.assertTrue("from _common import" in text or "import _netguard" in text or "import _common" in text or "from verify_receipts import" in text, fn)
-
-    def test_origin_parser_is_guarded_and_has_no_network_client(self):
-        text = open(os.path.join(ROOT, "scripts", "init_run_inputs.py"), encoding="utf-8").read()
-        self.assertIn("import _netguard", text)
-        self.assertIn("import urllib.parse", text)
-        for forbidden in ("urlopen(", "urlretrieve(", "HTTPConnection(", "HTTPSConnection(", "requests."):
-            self.assertNotIn(forbidden, text)
-
 
 if __name__ == "__main__":
     unittest.main()
