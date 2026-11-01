@@ -18,6 +18,7 @@ import validate_run_request as V
 import check_gates as CG
 import derive_assertion_catalog as CAT
 from _common import sha256_file
+from test_case_start_caps import SyntheticBuilder
 
 # Costs and budgets come from the SYNTHETIC sealed history (tests/_synthetic_history.py over tests/fixtures/synthetic-history/inputs.v1.json).
 # The retained campaigns are read only by the historical-audit suite (tests/legacy_audit/audit_full_coverage.py).
@@ -435,9 +436,14 @@ class ModePassThrough(unittest.TestCase):
 
     def test_the_builder_refuses_to_run_without_a_mode_and_has_a_full_branch(self):
         path = os.path.join(ROOT, "harness-adapter", "build_plan.py")
-        r = subprocess.run([sys.executable, "-I", path, "phase1"], capture_output=True, text=True, env={"PATH": os.environ["PATH"], "BP_PACKET": "x", "BP_CHECKOUT": "x", "BP_PRIVATE": "x", "BP_SOURCE_SHA": "0" * 40})
-        self.assertEqual(r.returncode, 78)
-        self.assertIn("INVALID_BINDING_INPUT", r.stderr)
+        with tempfile.TemporaryDirectory(prefix="ct-full-coverage-missing-mode-") as temporary:
+            builder = SyntheticBuilder(temporary, cases=(12,))
+            before = builder.outputs()
+            builder.env.pop("BP_MODE")
+            r = builder.run()
+            self.assertEqual(r.returncode, 78, r.stdout + r.stderr)
+            self.assertIn("INVALID_BINDING_INPUT", r.stderr)
+            self.assertEqual(builder.outputs(), before, "missing BP_MODE must not create builder outputs")
         src = open(path, encoding="utf-8").read()
         # The full branch is shared with selected-full since 76457a64 (selected full-depth execution); it still refuses fewer than 15 cases.
         self.assertIn("if FULL or SELECTED_FULL:", src)

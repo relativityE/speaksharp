@@ -104,7 +104,7 @@
     "source/transcriptState.ts": "2110751d258cc3ef75dc333857b12b3132fa5f4bbae31caf09cbac87c32cc846",
     "source-adapters.cjs": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd",
     "source-control-crosswalk.json": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a",
-    "tests/claude-adapter-delta.offline.test.cjs": "ed48f4a5add50595d0d9843477b3df6ad369e37f4f626ff44344175f3f140f2f",
+    "tests/claude-adapter-delta.offline.test.cjs": "d64ca555e8de7425110cd0484c4d9a0dfa83d995ae11e8591bc5f13bddc2ad99",
     "tests/coaching-lifecycle.offline.test.cjs": "1599b40cceb3ec58afe99dbf1deda05f8ad58de14dee89a1ca6c77fa24a3d928",
     "tests/coaching-readiness.offline.test.cjs": "7b3d768d394abe335d19f5afc75d2c4c090494128a4ce93d21f67323c2886a1f",
     "tests/existing-producer.offline.test.cjs": "2137859c37d1290389b3188718f6f79441c867e43899d1e54a0446f49f88adcb",

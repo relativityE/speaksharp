@@ -118,7 +118,8 @@ def main():
     r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "stimulus_preflight_retry.py"), "--harness", HARNESS, "--plan", os.path.join(plan0, "cfg", "campaign-plan.json"),
                         "--chrome", chrome, "--browser-receipt", browser_receipt, "--cwd", pw, "--out", receipt], capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
-        raise SystemExit("BLOCKED_SETUP: stimulus preflight on the pinned Chrome failed (%d)" % r.returncode)
+        detail = (r.stderr or r.stdout or "no diagnostic output").strip().replace("\n", " | ")
+        raise SystemExit("BLOCKED_SETUP: stimulus preflight on the pinned Chrome failed (%d): %s" % (r.returncode, detail[:500]))
     plan = os.path.join(work, "plan")
     prep.build(plan, HARNESS, phases=("phase1", "phase2"), stimulus_receipt=receipt, browser_identity=browser_receipt)
 

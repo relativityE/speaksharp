@@ -54,7 +54,9 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
     if os.path.exists(out):
         raise SystemExit("--out must not exist")
     pdfjs = pinned_pdfjs()
-    work = tempfile.mkdtemp(prefix="ct-proof-prep-")
+    # macOS exposes the per-user temporary directory through a /var symlink;
+    # run_env deliberately accepts only canonical input paths.
+    work = os.path.realpath(tempfile.mkdtemp(prefix="ct-proof-prep-"))
     reqp, bindings, envf, rcp, factp = (os.path.join(work, n) for n in
         ("req.json", "account-bindings.json", "env.txt", "reconciliation.json", "facts.json"))
     request = placeholder_request(packet)
@@ -91,7 +93,8 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
                         "--request-sha256", request_sha256, "--reconciliation", rcp, "--out", envf],
                        capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
-        raise SystemExit("run_env.py failed (%d)" % r.returncode)
+        detail = (r.stderr or r.stdout or "no diagnostic output").strip().replace("\n", " | ")
+        raise SystemExit("run_env.py failed (%d): %s" % (r.returncode, detail[:500]))
     if "phase2" in phases and not browser_identity:
         raise SystemExit("BLOCKED_SETUP: phase2 requires this proof run's browser identity receipt")
     env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=factp,
