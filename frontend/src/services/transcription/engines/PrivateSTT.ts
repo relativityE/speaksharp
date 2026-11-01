@@ -160,6 +160,8 @@ export async function constructPrivateEngine(
             if (!modelArch) throw new Error(`Descriptor ${candidate.id} has no Moonshine architecture`);
             engine = new (await import('./MoonshineStreamingEngine')).MoonshineStreamingEngine({
                 candidateId: candidate.id as MoonshineCandidateId, modelArch,
+                // The RESOLVED candidate (built-in or admitted package) is the identity and asset source, never a catalogue re-lookup.
+                candidateSource: (id) => (id === candidate.id ? candidate : undefined),
                 onDownloadProgress: (fraction) => options.onModelLoadProgress?.(Math.round(fraction * 100)),
             });
             break;

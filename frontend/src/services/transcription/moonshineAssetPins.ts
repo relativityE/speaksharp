@@ -42,6 +42,42 @@ export function pinnedAssetsFor(modelId: string): PinnedAsset[] {
     return mine.sort((a, b) => a.file.localeCompare(b.file));
 }
 
+/** What a Moonshine candidate says about its own bytes: a package's full inventory, or a built-in's exact pin-table prefix. */
+export interface MoonshineAssetSource {
+    id: string;
+    assets: { files?: readonly { path: string; url?: string; sha256: string; bytes: number }[]; pinKeyPrefix?: string };
+}
+
+/**
+ * The components a Moonshine candidate loads, taken from the CANDIDATE'S OWN DATA (PO 11-01: no hardcoded
+ * models). A package carries its whole verified inventory; a built-in names the exact pin-table prefix it
+ * owns, so selection is by that whole prefix, never a substring of the model id that another model could
+ * also contain. Two components the runtime would key to the same filename refuse rather than shadow.
+ */
+export function moonshineAssetsFor(candidate: MoonshineAssetSource): PinnedAsset[] {
+    let mine: PinnedAsset[];
+    if (candidate.assets.files?.length) {
+        mine = candidate.assets.files.map((f) => {
+            if (!f.url) throw new Error(`candidate ${candidate.id} asset ${f.path} has no pinned URL; refusing to fetch unpinned bytes`);
+            return { file: f.path.split('/').pop()!, url: f.url, sha256: f.sha256, bytes: f.bytes };
+        });
+    } else if (candidate.assets.pinKeyPrefix) {
+        const prefix = candidate.assets.pinKeyPrefix;
+        mine = Object.entries((PINS as { assets: Record<string, RawPin> }).assets)
+            .filter(([key]) => key.startsWith(prefix) && !key.slice(prefix.length).includes('/'))
+            .map(([key, pin]) => ({ file: key.slice(prefix.length), url: pin.url, sha256: pin.sha256, bytes: pin.bytes }));
+    } else {
+        mine = [];
+    }
+    if (mine.length === 0) {
+        throw new Error(`no committed asset pins for candidate ${candidate.id}; refusing to fetch unpinned bytes`);
+    }
+    if (new Set(mine.map((a) => a.file)).size !== mine.length) {
+        throw new Error(`candidate ${candidate.id} names two components with the same runtime filename; refusing an ambiguous load`);
+    }
+    return mine.sort((a, b) => a.file.localeCompare(b.file));
+}
+
 export function pinnedTotalBytes(modelId: string): number {
     return pinnedAssetsFor(modelId).reduce((sum, a) => sum + a.bytes, 0);
 }

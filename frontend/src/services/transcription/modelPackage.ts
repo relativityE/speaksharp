@@ -23,6 +23,8 @@ const PROFILE_RUNTIME = {
     'transformers-js': ['@xenova/transformers', '2.17.2'],
     'granite-ctc': ['onnxruntime-web', '1.26.0'],
     'parakeet-tdt': ['parakeet.js', '1.4.4'],
+    // The installed runtime adapter; a Moonshine package carries only pinned weights (PO 11-01 Moonshine drop-in).
+    'moonshine-streaming': ['@moonshine-ai/moonshine-wasm', '0.1.5'],
 } as const;
 export class UnsupportedModelPackageError extends Error {
     readonly code: string;
@@ -79,6 +81,12 @@ export function parseModelPackage(input: unknown): ModelPackage {
         || decode.windowStride !== 0.01 || !Number.isSafeInteger(decode.vocabularySize) || decode.vocabularySize <= 1
         || decode.blankId !== decode.vocabularySize - 1 || p.runtime.dependencies?.['onnxruntime-web'] !== '1.24.1'
         || p.runtime.distribution !== 'pinned-assets')) refuse('UNSUPPORTED_PARAKEET_PROFILE');
+    if (p.engine === 'moonshine-streaming' && (p.execution.family !== 'moonshine-streaming' || decode?.kind !== 'moonshine-streaming'
+        || decode.streamingConfig !== 'pinned-assets' || decode.finalization !== 'force-update'
+        || typeof decode.runtimeArch !== 'string' || !/^[A-Z][A-Za-z0-9]{0,63}$/.test(decode.runtimeArch)
+        || typeof p.execution.modelArch !== 'string' || !/^[A-Z][A-Z0-9_]{0,63}$/.test(p.execution.modelArch)
+        || p.execution.variant !== p.execution.modelArch || p.execution.liveResultKind !== 'snapshot'
+        || p.model.device !== 'wasm' || p.model.dtype !== null || p.runtime.distribution === 'pinned-assets')) refuse('UNSUPPORTED_MOONSHINE_PROFILE');
     if (!object(p.assets) || !Array.isArray(p.assets.files) || !p.assets.files.length || p.assets.files.length > 128) refuse('PACKAGE_ASSETS_MISSING');
     const paths = new Set<string>(); const urls = new Set<string>();
     for (const f of p.assets.files) {
@@ -98,6 +106,9 @@ export function parseModelPackage(input: unknown): ModelPackage {
         'onnx/encoder_model_quantized.onnx','onnx/decoder_model_merged_quantized.onnx'];
     if (p.engine === 'transformers-js' && (requiredWhisper.some(file=>!paths.has(file))
         || p.assets.files.some(f=>/\.(?:[cm]?js|wasm)$/i.test(f.path)))) refuse('UNSUPPORTED_WHISPER_ASSETS');
+    // The Moonshine runtime keys verified buffers by filename: each component has a distinct filename and is fetched from https.
+    if (p.engine === 'moonshine-streaming' && (p.assets.files.some(f => !f.url.startsWith('https://'))
+        || new Set(p.assets.files.map(f => f.path.split('/').pop())).size !== p.assets.files.length)) refuse('UNSUPPORTED_MOONSHINE_ASSETS');
     if (p.engine === 'parakeet-tdt' && decode.kind === 'parakeet-tdt') {
         const roles = [decode.encoderFile,decode.decoderFile,decode.vocabularyFile,decode.configurationFile,
             decode.runtimeBundleFile,decode.wasmGlueFile,decode.wasmBinaryFile];
@@ -106,7 +117,9 @@ export function parseModelPackage(input: unknown): ModelPackage {
     // Runtime code is installed adapter policy, not arbitrary executable package input.
     // A compatible new weight package reuses exactly the reviewed runtime artifacts.
     if (p.engine !== 'transformers-js') {
-        const reference = p.engine === 'granite-ctc' ? graniteRuntimePins.files : parakeetRuntimePins.files;
+        // Moonshine's runtime is the installed npm adapter, so its package may carry no runtime bytes at all.
+        const reference: readonly { path: string; sha256: string; bytes: number }[] = p.engine === 'granite-ctc' ? graniteRuntimePins.files
+            : p.engine === 'parakeet-tdt' ? parakeetRuntimePins.files : [];
         const runtimeFiles = reference.filter(f=>/\.(?:[cm]?js|wasm)$/i.test(f.path));
         for (const pin of runtimeFiles) {
             const asset=p.assets.files.find(f=>f.path===pin.path);

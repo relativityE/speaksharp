@@ -22,6 +22,8 @@ import { CANDIDATES, admitPackageDescriptors, type Candidate } from '../candidat
 import * as modelPackage from '../modelPackage';
 import { constructPrivateEngine } from '../engines/PrivateSTT';
 import { TransformersJSEngine } from '../engines/TransformersJSEngine';
+import { MoonshineStreamingEngine } from '../engines/MoonshineStreamingEngine';
+import { moonshineAssetsFor } from '../moonshineAssetPins';
 import { sttRegistry } from '../STTRegistry';
 import {
     clearRuntimeCandidateOverride, registerSwitchExecutor, runtimeCandidateOverride, switchCandidate,
@@ -76,6 +78,66 @@ describe('an imported package reaches the real product adapter', () => {
         ['malformed JSON', () => '{not json', 'PACKAGE_INVALID'],
     ])('admission refuses %s with its code and admits nothing', async (_, make, code) => {
         const { imported, rejections } = admitPackageDescriptors({ './model-packages/bad.json': await make() }, modelPackage);
+        expect(imported).toEqual({});
+        expect(rejections).toEqual([{ file: './model-packages/bad.json', code }]);
+    });
+});
+
+/** A Moonshine package (PO 11-01 drop-in): the built-in medium model's DATA as a package; only data, no new runtime or bytes. */
+async function moonshineDescriptor(over: (p: Record<string, unknown>) => void = () => {}, id = 'factory:moonshine-medium') {
+    const base = CANDIDATES['moonshine:streaming-medium'];
+    const pkg: Record<string, unknown> = {
+        schemaVersion: 1, kind: 'speaksharp-model-package', id, engine: base.engine, runtime: base.runtime, model: base.model,
+        execution: structuredClone(base.execution),
+        assets: { files: moonshineAssetsFor(base).map(a => ({ path: a.file, url: a.url, bytes: a.bytes, sha256: a.sha256 })) },
+        license: 'MIT (moonshine-ai/moonshine; fixture declaration, no model copied)' };
+    // Sealed valid first; a negative case then alters the sealed descriptor, which admission must refuse by its shape code.
+    const sealed = JSON.parse(JSON.stringify(await modelPackage.sealModelPackage(pkg as never))) as Record<string, unknown>;
+    over(sealed);
+    return JSON.stringify(sealed);
+}
+
+describe('a Moonshine model is a drop-in package (PO 11-01: no hardcoded models)', () => {
+    it('is admitted, built into the real Moonshine adapter, and loads exactly the built-in pinned bytes and runtime arch', async () => {
+        const { imported, rejections } = admitPackageDescriptors({ './model-packages/moonshine.json': await moonshineDescriptor() }, modelPackage);
+        expect(rejections).toEqual([]);
+        const pkg = imported['factory:moonshine-medium'];
+        expect(pkg).toMatchObject({ engine: 'moonshine-streaming', comparisonReady: false, activationReady: false });
+        const base = CANDIDATES['moonshine:streaming-medium'];
+        expect(moonshineAssetsFor(pkg)).toEqual(moonshineAssetsFor(base));
+        expect(pkg.execution.decode).toEqual(base.execution.decode);
+        const engine = await constructPrivateEngine('moonshine-streaming', pkg, {} as never);
+        expect(engine).toBeInstanceOf(MoonshineStreamingEngine);
+        // The engine resolves ITS candidate from the facade's resolved selection, not a built-in catalogue lookup.
+        const source = (engine as unknown as { options: { candidateSource: (id: string) => unknown } }).options.candidateSource;
+        expect(source(pkg.id)).toBe(pkg);
+        expect(source('moonshine:streaming-medium')).toBeUndefined();
+    });
+
+    it.each([
+        ['a runtime script or wasm in the package', (p: Record<string, unknown>) => {
+            const a = p.assets as { files: Record<string, unknown>[] };
+            a.files.push({ path: 'runtime.js', url: 'https://download.moonshine.ai/x/runtime.js', bytes: 1, sha256: 'a'.repeat(64) });
+        }, 'UNSUPPORTED_PACKAGE_RUNTIME_BYTES'],
+        ['a weight not fetched over https', (p: Record<string, unknown>) => {
+            const a = p.assets as { files: Record<string, unknown>[] };
+            a.files[0] = { ...a.files[0], url: '/models/moonshine/' + String(a.files[0].path) };
+        }, 'UNSUPPORTED_MOONSHINE_ASSETS'],
+        ['a weight URL carrying a query', (p: Record<string, unknown>) => {
+            const a = p.assets as { files: Record<string, unknown>[] };
+            a.files[0] = { ...a.files[0], url: String(a.files[0].url) + '?v=1' };
+        }, 'PACKAGE_ASSET_LOCATION_INVALID'],
+        ['a duplicated runtime filename at distinct urls', (p: Record<string, unknown>) => {
+            const a = p.assets as { files: Record<string, unknown>[] };
+            a.files.push({ ...a.files[0], path: 'dup/' + a.files[0].path, url: 'https://download.moonshine.ai/dup/' + a.files[0].path });
+        }, 'UNSUPPORTED_MOONSHINE_ASSETS'],
+        ['a runtime arch that is not an enum member name', (p: Record<string, unknown>) => {
+            ((p.execution as { decode: Record<string, unknown> }).decode).runtimeArch = '4';
+        }, 'UNSUPPORTED_MOONSHINE_PROFILE'],
+        ['a different runtime version', (p: Record<string, unknown>) => { p.runtime = { package: '@moonshine-ai/moonshine-wasm', version: '0.1.6' }; },
+            'UNSUPPORTED_PACKAGE_RUNTIME'],
+    ])('admission refuses %s', async (_, over, code) => {
+        const { imported, rejections } = admitPackageDescriptors({ './model-packages/bad.json': await moonshineDescriptor(over) }, modelPackage);
         expect(imported).toEqual({});
         expect(rejections).toEqual([{ file: './model-packages/bad.json', code }]);
     });

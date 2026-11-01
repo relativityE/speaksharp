@@ -46,6 +46,8 @@ export interface MoonshineDecodeProfile {
     kind: 'moonshine-streaming';
     streamingConfig: 'pinned-assets';
     finalization: 'force-update';
+    /** The installed runtime's `ModelArch` member this model loads as (data, verified against the runtime at load; never a code map). */
+    runtimeArch: string;
 }
 
 /** Serializable load settings; architecture algorithms belong to the engine adapter. */
@@ -66,7 +68,8 @@ export interface CandidateExecution {
     /** Directory beneath the product's /models/ origin for local-only Whisper exports. */
     localModelId?: string;
     cacheFiles?: readonly string[];
-    modelArch?: 'MOONSHINE_STREAMING_MEDIUM' | 'MOONSHINE_STREAMING_SMALL';
+    /** Our attribution token for a Moonshine model (persisted as its variant); package data, not a code union. */
+    modelArch?: string;
 }
 
 export interface ConfiguredRuntime {
@@ -172,9 +175,9 @@ const WHISPER_DECODE: WhisperDecodeProfile = {
 const WHISPER_ANTI_LOOP_DECODE: WhisperDecodeProfile = {
     ...WHISPER_DECODE, generation: { condition_on_previous_text: false, no_repeat_ngram_size: 6 },
 };
-const MOONSHINE_DECODE: MoonshineDecodeProfile = {
-    kind: 'moonshine-streaming', streamingConfig: 'pinned-assets', finalization: 'force-update',
-};
+const moonshineDecode = (runtimeArch: string): MoonshineDecodeProfile => ({
+    kind: 'moonshine-streaming', streamingConfig: 'pinned-assets', finalization: 'force-update', runtimeArch,
+});
 const whisperAssetKeys = (repository: string, decoder: string): string[] => [
     'config.json', 'generation_config.json', 'preprocessor_config.json', 'tokenizer.json',
     'tokenizer_config.json', 'onnx/encoder_model.onnx', `onnx/${decoder}`,
@@ -394,7 +397,7 @@ const CANDIDATE_DEFINITIONS = deepFreeze({
             + 'qualification awaits the PO-authorized human comparison and down-selection',
         comparisonReady: true,
         engine: 'moonshine-streaming',
-        execution: { family: 'moonshine-streaming', variant: 'MOONSHINE_STREAMING_MEDIUM', modelArch: 'MOONSHINE_STREAMING_MEDIUM', implemented: true, liveResultKind: 'snapshot', preprocessing: PCM_16K, decode: MOONSHINE_DECODE },
+        execution: { family: 'moonshine-streaming', variant: 'MOONSHINE_STREAMING_MEDIUM', modelArch: 'MOONSHINE_STREAMING_MEDIUM', implemented: true, liveResultKind: 'snapshot', preprocessing: PCM_16K, decode: moonshineDecode('MediumStreaming') },
         runtime: { package: '@moonshine-ai/moonshine-wasm', version: '0.1.5' },
         model: {
             id: 'medium-streaming-en',
@@ -426,7 +429,7 @@ const CANDIDATE_DEFINITIONS = deepFreeze({
         notReadyReason: 'descriptor-only compatibility candidate; browser and product qualification have not run',
         comparisonNotReadyReason: 'not approved for the production comparison slate',
         engine: 'moonshine-streaming',
-        execution: { family: 'moonshine-streaming', variant: 'MOONSHINE_STREAMING_SMALL', modelArch: 'MOONSHINE_STREAMING_SMALL', implemented: true, liveResultKind: 'snapshot', preprocessing: PCM_16K, decode: MOONSHINE_DECODE },
+        execution: { family: 'moonshine-streaming', variant: 'MOONSHINE_STREAMING_SMALL', modelArch: 'MOONSHINE_STREAMING_SMALL', implemented: true, liveResultKind: 'snapshot', preprocessing: PCM_16K, decode: moonshineDecode('SmallStreaming') },
         runtime: { package: '@moonshine-ai/moonshine-wasm', version: '0.1.5' },
         model: {
             id: 'small-streaming-en', revision: 'quantized_26_07_30', dtype: null,

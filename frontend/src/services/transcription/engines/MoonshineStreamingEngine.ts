@@ -2,7 +2,7 @@ import type { MicStream } from '../utils/types';
 import type { Result } from '../modes/types';
 import type { AvailabilityResult, STTStrategy } from '../STTStrategy';
 import { CANDIDATES, identityOf, isCompleteIdentity, type CandidateId } from '../candidateRegistry';
-import { fetchVerifiedAssets, pinnedAssetsFor, pinnedTotalBytes } from '../moonshineAssetPins';
+import { fetchVerifiedAssets, moonshineAssetsFor } from '../moonshineAssetPins';
 
 /** Only the registered Moonshine candidates may back this engine. */
 export type MoonshineCandidateId = `moonshine:${string}`;
@@ -25,7 +25,8 @@ export type MoonshineCandidateId = `moonshine:${string}`;
 export const LIVE_WINDOW_SECONDS = 3;
 const TARGET_SAMPLE_RATE = 16_000;
 
-export type MoonshineArch = 'MOONSHINE_STREAMING_MEDIUM' | 'MOONSHINE_STREAMING_SMALL';
+/** Our attribution token for the loaded model (the candidate's `execution.modelArch`): package data, not a code union. */
+export type MoonshineArch = string;
 
 export interface MoonshineEngineOptions {
     /**
@@ -246,7 +247,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
                 );
             }
             const load = this.options.loadTranscriber
-                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress, candidate.model.id));
+                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress, candidate));
 
             // THE ABANDONED LOADER. `Promise.race` only decides which promise this function waits for —
             // it does not cancel the loser. When the timeout won, `load()` kept running: it finished
@@ -617,26 +618,11 @@ function textOf(result: { lines?: { text?: string }[]; text?: string }): string 
  * no test with an injected transcriber can see it, because only the DEFAULT loader touches the enum.
  */
 /**
- * Which arch each registered Moonshine candidate IS.
- *
- * Lives HERE, with the module that owns arch knowledge, rather than in the facade: a candidate id
- * hardcoded in `PrivateSTT` is a second place the slate is written down, and the registry guard flags
- * it for exactly that reason. Absent entry means refuse — never load whichever arch happens to be
- * first and report the configured id over it.
+ * Resolve the candidate's runtime member (its `decode.runtimeArch` DATA) against the installed runtime's enum, failing closed rather
+ * than passing `undefined`. There is no code map from our token to the runtime's: a new Moonshine model is a data change.
  */
-export const MOONSHINE_ARCH_BY_CANDIDATE: Readonly<Partial<Record<MoonshineCandidateId, MoonshineArch>>> = Object.freeze({
-    'moonshine:streaming-medium': 'MOONSHINE_STREAMING_MEDIUM',
-});
-
-export const RUNTIME_ARCH_MEMBER: Readonly<Record<MoonshineArch, string>> = Object.freeze({
-    MOONSHINE_STREAMING_SMALL: 'SmallStreaming',
-    MOONSHINE_STREAMING_MEDIUM: 'MediumStreaming',
-});
-
-/** Resolve OUR token against the runtime's enum, failing closed rather than passing `undefined`. */
-export function resolveModelArch(modelArch: Record<string, unknown>, arch: MoonshineArch): number {
-    const member = RUNTIME_ARCH_MEMBER[arch];
-    const value = modelArch[member];
+export function resolveModelArch(modelArch: Record<string, unknown>, member: string, arch: MoonshineArch = member): number {
+    const value = Object.prototype.hasOwnProperty.call(modelArch, member) && !/^\d+$/.test(member) ? modelArch[member] : undefined;
     if (typeof value !== 'number') {
         throw new Error(
             `moonshine runtime does not declare ModelArch.${member} for ${arch}; `
@@ -648,8 +634,8 @@ export function resolveModelArch(modelArch: Record<string, unknown>, arch: Moons
 
 async function defaultLoadTranscriber(
     arch: MoonshineArch,
-    onDownloadProgress?: (fraction: number) => void,
-    modelId?: string,
+    onDownloadProgress: ((fraction: number) => void) | undefined,
+    candidate: typeof CANDIDATES[CandidateId],
 ): Promise<MoonshineTranscriber> {
     const g = globalThis as unknown as { __name?: (t: unknown, v?: unknown) => unknown };
     g.__name ??= (target) => target;
@@ -658,8 +644,9 @@ async function defaultLoadTranscriber(
         ModelArch: Record<string, unknown>;
     };
 
-    if (!modelId) {
-        throw new Error('refusing to load Moonshine without a model id to resolve committed pins against');
+    const decode = candidate.execution.decode;
+    if (decode.kind !== 'moonshine-streaming' || !decode.runtimeArch) {
+        throw new Error(`refusing to load Moonshine for ${candidate.id} without a runtime arch in its decode profile`);
     }
 
     // THE PINS NOW DECIDE WHAT RUNS. This called `Transcriber.load({ language, modelArch, onProgress })`,
@@ -672,8 +659,8 @@ async function defaultLoadTranscriber(
     // Every component is fetched from its pinned URL and refused unless its length and SHA-256 match, and
     // only verified buffers reach the runtime. `language` is not passed at all: it is what triggers
     // catalog resolution, and leaving it in would let the runtime fall back to fetching its own copy.
-    const assets = pinnedAssetsFor(modelId);
-    const expectedTotal = pinnedTotalBytes(modelId);
+    const assets = moonshineAssetsFor(candidate);
+    const expectedTotal = assets.reduce((sum, a) => sum + a.bytes, 0);
     const loadedByFile = new Map<string, number>();
     const files = await fetchVerifiedAssets(assets, fetch, (file, loaded) => {
         // BYTE-BASED, NORMALISED ONCE. The runtime's own callback is
@@ -688,6 +675,6 @@ async function defaultLoadTranscriber(
 
     return lib.Transcriber.load({
         files,
-        modelArch: resolveModelArch(lib.ModelArch, arch),
+        modelArch: resolveModelArch(lib.ModelArch, decode.runtimeArch, arch),
     });
 }

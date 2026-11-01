@@ -13,8 +13,9 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
-    AssetPinViolation, fetchVerifiedAsset, fetchVerifiedAssets, pinnedAssetsFor, pinnedTotalBytes,
+    AssetPinViolation, fetchVerifiedAsset, fetchVerifiedAssets, moonshineAssetsFor, pinnedAssetsFor, pinnedTotalBytes,
 } from '../moonshineAssetPins';
+import { CANDIDATES } from '../candidateRegistry';
 
 const MODEL = 'medium-streaming-en';
 
@@ -113,5 +114,29 @@ describe('download progress is normalised from BYTES', () => {
         // The runtime's `total` is optional and absent for some components, so dividing by it yields
         // Infinity or NaN exactly when the download is largest.
         expect(pinnedTotalBytes(MODEL)).toBe(304_690_919);
+    });
+});
+
+describe('a Moonshine candidate names its own bytes (PO 11-01: no hardcoded models)', () => {
+    it('a built-in selects by its exact pin-table prefix and loads the same components as before', () => {
+        const medium = CANDIDATES['moonshine:streaming-medium'];
+        expect(moonshineAssetsFor(medium)).toEqual(pinnedAssetsFor(MODEL));
+        expect(moonshineAssetsFor(medium).reduce((n, a) => n + a.bytes, 0)).toBe(medium.assets.totalBytes);
+        const small = CANDIDATES['moonshine:streaming-small'];
+        expect(moonshineAssetsFor(small).reduce((n, a) => n + a.bytes, 0)).toBe(small.assets.totalBytes);
+    });
+
+    it('a prefix that only CONTAINS a model id, or names a nested key, selects nothing and refuses', () => {
+        expect(() => moonshineAssetsFor({ id: 'x', assets: { pinKeyPrefix: 'medium-streaming-en/' } })).toThrow(/refusing to fetch unpinned bytes/);
+        expect(() => moonshineAssetsFor({ id: 'x', assets: { pinKeyPrefix: 'download.moonshine.ai/model/' } })).toThrow(/refusing to fetch unpinned bytes/);
+        expect(() => moonshineAssetsFor({ id: 'x', assets: {} })).toThrow(/refusing to fetch unpinned bytes/);
+    });
+
+    it('a package inventory is used as given, and refuses a missing URL or two components with one runtime filename', () => {
+        const f = { path: 'm/encoder.ort', url: 'https://example.invalid/encoder.ort', sha256: 'a'.repeat(64), bytes: 3 };
+        expect(moonshineAssetsFor({ id: 'p', assets: { files: [f] } })).toEqual([{ file: 'encoder.ort', url: f.url, sha256: f.sha256, bytes: 3 }]);
+        expect(() => moonshineAssetsFor({ id: 'p', assets: { files: [{ ...f, url: undefined }] } })).toThrow(/no pinned URL/);
+        expect(() => moonshineAssetsFor({ id: 'p', assets: { files: [f, { ...f, path: 'n/encoder.ort', url: f.url + '2' }] } }))
+            .toThrow(/same runtime filename/);
     });
 });
