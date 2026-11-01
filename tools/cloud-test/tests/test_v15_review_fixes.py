@@ -326,7 +326,7 @@ class ReservationsHoldCapsUntilSealed(unittest.TestCase):
 
     def test_the_run_stage_requires_a_reservation_for_a_nightly_request(self):
         sh = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
-        self.assertIn("reservations.py\" require", sh)
+        self.assertIn("reservations.py\" journal-require", sh)
         self.assertIn("reserve)", sh)
         self.assertIn("reserve", J("config", "test-config.v1.json")["credentials"]["runEnvironment"]["stages"])
 

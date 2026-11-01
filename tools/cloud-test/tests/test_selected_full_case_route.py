@@ -151,7 +151,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
             # Deliberately recreate the caller mistake in an isolated script copy.
             # The generic stage=run transport must STILL keep broker keys out.
             body = executable.read_text()
-            needle = 'run_stage reserve python3 -I "$ROOT/scripts/reservations.py" require'
+            needle = 'run_stage reserve python3 -I "$ROOT/scripts/reservations.py" journal-require'
             self.assertEqual(body.count(needle), 1)
             body = body.replace(needle, needle.replace("run_stage reserve", "run_stage run"))
             lines = body.splitlines(True)

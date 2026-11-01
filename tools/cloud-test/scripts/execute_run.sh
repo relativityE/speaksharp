@@ -11,7 +11,7 @@ set -euo pipefail
 STAGE="${1:-}"
 blocked() { echo "BLOCKED_SETUP: $*" >&2; exit 78; }
 case "$STAGE" in
-  install-tools|build-plan|stimulus-preflight|build-plan-with-receipt|gate-and-validate|reserve|run|collect) ;;
+  install-tools|build-plan|stimulus-preflight|build-plan-with-receipt|gate-and-validate|reserve|run|collect|settle) ;;
   *) blocked "unknown stage $STAGE" ;;
 esac
 [ -z "${SUPABASE_SECRET_KEY:-}" ] || blocked "SUPABASE_SECRET_KEY is present; forbidden"
@@ -209,7 +209,13 @@ case "$STAGE" in
   build-plan-with-receipt) build "$OUT/plan" with-receipt ;;
   gate-and-validate)
     require_runtime_inputs
-    run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --config "$CFG" --ledger "$CT_GAP_LEDGER" --history-index "$CT_HISTORY_INDEX" --counters "$CT_COUNTERS" --receipts-root "$CT_RECEIPTS_ROOT" --reservations "$CT_RESERVATIONS" \
+    RES_IN="$CT_RESERVATIONS"
+    if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
+      # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN 1793572741.370569), not a file ledger
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
+      RES_IN="$OUT/journal-snapshot.json"
+    fi
+    run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --config "$CFG" --ledger "$CT_GAP_LEDGER" --history-index "$CT_HISTORY_INDEX" --counters "$CT_COUNTERS" --receipts-root "$CT_RECEIPTS_ROOT" --reservations "$RES_IN" \
       ${CT_APPROVAL:+--approval "$CT_APPROVAL"} --request "$REQ" --out-dir "$OUT/final-gates" --stage final --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" \
       ${CT_OFFLINE_CHECKS:+--offline-checks "$CT_OFFLINE_CHECKS"} --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free
     CAT=()
@@ -225,16 +231,16 @@ case "$STAGE" in
     attempt="${GITHUB_RUN_ATTEMPT:-1}"
     [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "reservation requires exact execution run and strict attempt 1"
     # a nightly run takes its reservation BEFORE it spends anything; any exhausted cap (requests, identity reads, Starts, takes, coaching, runner minutes, runs) refuses it
-    run_stage reserve python3 -I "$ROOT/scripts/reservations.py" reserve --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
-      --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ;;
+    run_stage reserve python3 -I "$ROOT/scripts/reservations.py" journal-reserve --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
+      --approval "$CT_APPROVAL" --repo "${CT_CHECKOUT:-$REPO}" --journal "$OUT/reserve-journal" --out "$OUT/reserve-receipt.json" ;;
   run)
     if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
       require_runtime_inputs
       execution_run_id="${GITHUB_RUN_ID:-${CT_EXECUTION_RUN_ID:-}}"
       attempt="${GITHUB_RUN_ATTEMPT:-1}"
       [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "run requires exact execution run and strict attempt 1"
-      run_stage reserve python3 -I "$ROOT/scripts/reservations.py" require --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
-        --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --run-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)"
+      run_stage reserve python3 -I "$ROOT/scripts/reservations.py" journal-require --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
+        --execution-run-id "$execution_run_id" --attempt "$attempt"
     fi
     planfile="$OUT/plan/cfg/campaign-plan.json"
     build_receipt="$OUT/plan/cfg/build-plan-consumption.json"
@@ -260,5 +266,13 @@ case "$STAGE" in
     run_stage collect python3 -I "$ROOT/scripts/collect_run_record.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
       --case-results "$OUT/plan/run/case-results.json" --cases-dir "$OUT/plan/run/cases" --ledger-dir "$OUT/plan/ledgers" \
       --gate-status "$OUT/final-gates/gate-status.json" --workflow "$ROOT/workflow.json" --runner-json "$OUT/runner.json" --started-utc "$started" --ended-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$OUT/run-record.json" ;;
+  settle)
+    # the nightly reservation closes on the same journal from the collector's run record (unmeasured dimensions settle at their reserved caps)
+    [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ] || blocked "settle is for nightly-regression runs"
+    execution_run_id="${GITHUB_RUN_ID:-${CT_EXECUTION_RUN_ID:-}}"
+    attempt="${GITHUB_RUN_ATTEMPT:-1}"
+    [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "settle requires exact execution run and strict attempt 1"
+    run_stage settle python3 -I "$ROOT/scripts/reservations.py" journal-settle --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" \
+      --attempt "$attempt" --approval "$CT_APPROVAL" --repo "${CT_CHECKOUT:-$REPO}" --record "$OUT/run-record.json" --journal "$OUT/settle-journal" --out "$OUT/settle-receipt.json" ;;
   *) blocked "unknown stage $STAGE" ;;
 esac

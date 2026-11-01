@@ -52,6 +52,19 @@ def usage(approval, index, ledger, now, exclude_run=None):
     return {"used": used, "runs": runs, "openReservations": open_res, "unrecordedActuals": sources}
 
 
+JOURNAL_SNAPSHOT_SCHEMA = "speaksharp.cloud-test.journal-snapshot.v1"
+
+
+def snapshot_chain(doc):
+    """The verified state-ref journal snapshot reservations.py journal-snapshot wrote (its head and that head's full ledger), as the
+    one-element chain journal_usage folds; None for the legacy reservation-file input."""
+    if isinstance(doc, dict) and doc.get("schema") == JOURNAL_SNAPSHOT_SCHEMA:
+        if not (isinstance(doc.get("headSha"), str) and isinstance(doc.get("events"), list)):
+            raise ValueError("journal-snapshot-shape")
+        return [(doc["headSha"], doc["events"], None)]
+    return None
+
+
 def journal_usage(approval, chain, exclude_run=None):
     """G11 period usage from the VERIFIED state-ref journal (RETURN 1793572741.370569: one journal for reservation, G11 and continuity):
     every event inside the approval period folds per (campaign, run, attempt); a settle replaces its reservation with the settled allocation,
