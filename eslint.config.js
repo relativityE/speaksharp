@@ -83,6 +83,23 @@ export default tseslint.config(
 
   },
 
+  // #1760: the vendored Granite JS sits outside the allowJs:false app project, and its default-project
+  // fallback exhausted the lint heap in a full services batch. An explicit two-file project keeps every
+  // typed rule above (including the promise rules) with parser services.
+  {
+    files: [
+      'frontend/src/services/transcription/engines/granite/ctc-core.js',
+      'frontend/src/services/transcription/engines/granite/granite.worker.js',
+    ],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: ['./frontend/tsconfig.granite-js-lint.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+
   // Config for Mocks
   {
     files: ['__mocks__/**/*.js'],
