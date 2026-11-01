@@ -83,6 +83,19 @@ class LiveWorkflowPolicy(unittest.TestCase):
         first_stage = next(i for i, s in enumerate(steps) if "execute_run.sh" in s.get("run", ""))
         self.assertLess(at, first_stage)
         self.assertNotIn("env", steps[at], "the install step receives no credential or extra environment")
+        # P2: the network install and the copy are bounded inside prepare's fixed setup allowance.
+        import init_run_inputs as I
+        copy = next(i for i, s in enumerate(steps) if "install_pdfjs.py" in s.get("run", ""))
+        bounds = [steps[at].get("timeout-minutes"), steps[copy].get("timeout-minutes")]
+        self.assertTrue(all(isinstance(b, int) and b > 0 for b in bounds), bounds)
+        self.assertLessEqual(sum(bounds), I.SETUP_RESERVE_MINUTES)
+        # P1: the pin-verifying copy into the checkout root comes after the install and before any stage, in copy (not check-only) mode,
+        # from exactly the bound dependency root into exactly CT_CHECKOUT.
+        self.assertLess(at, copy)
+        self.assertLess(copy, first_stage)
+        self.assertEqual(steps[copy]["run"].strip(), 'python3 -I tools/cloud-test/scripts/install_pdfjs.py --config "$CT_CONFIG" --checkout "$CT_CHECKOUT" '
+                                                     '--runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"')
+        self.assertNotIn("env", steps[copy])
         env = self.jobs["live"]["env"]
         self.assertEqual(env["CT_EXISTING_DEPENDENCY_ROOT"], "${{ github.workspace }}/tools/cloud-test/runner")
         self.assertEqual(env["CT_EXISTING_PDFJS_DIR"], "${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist")
@@ -145,6 +158,64 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertIn(arg, collect)
         self.assertNotIn("verify_run_binding.py --plan", collect, "the verifier runs inside qualify, on the bytes qualify snapshots")
         self.assertIn('--tested-sha "$TESTED_SHA"', collect)
+
+
+class PdfjsComposition(unittest.TestCase):
+    """B4 P1: the REAL install_pdfjs.py, composed as the live job runs it: copy mode from the runner dependency root into the checkout root,
+    then execute_run's --check-only with --source-dir. Synthetic package bytes with their own pins; no network and no install."""
+
+    def setUp(self):
+        import hashlib
+        import json as _json
+        import shutil
+        import tempfile
+        self.d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.d)
+        self.runner = os.path.join(self.d, "runner")
+        pkg = os.path.join(self.runner, "node_modules", "pdfjs-dist")
+        os.makedirs(os.path.join(pkg, "legacy", "build"))
+        with open(os.path.join(pkg, "package.json"), "w") as f:
+            f.write('{"name":"pdfjs-dist","version":"4.10.38"}')
+        with open(os.path.join(pkg, "legacy", "build", "pdf.mjs"), "w") as f:
+            f.write("export const synthetic = true;\n")
+        def sha(p):
+            with open(p, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        self.pkg = pkg
+        self.config = os.path.join(self.d, "config.json")
+        with open(self.config, "w") as f:
+            _json.dump({"tools": {"pdfjs": {"version": "4.10.38", "relativePdfMjs": "legacy/build/pdf.mjs",
+                                            "packageJsonSha256": sha(os.path.join(pkg, "package.json")),
+                                            "pdfMjsSha256": sha(os.path.join(pkg, "legacy", "build", "pdf.mjs"))}}}, f)
+        self.checkout = os.path.join(self.d, "checkout")
+        os.makedirs(self.checkout)
+
+    def run_helper(self, *args):
+        import subprocess
+        import sys
+        return subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "install_pdfjs.py"), "--config", self.config, *args],
+                              capture_output=True, text=True)
+
+    def test_copy_then_execute_run_check_only_composes_on_a_clean_checkout(self):
+        self.assertEqual(self.run_helper("--checkout", self.checkout, "--check-only", "--source-dir", self.pkg).returncode, 78,
+                         "a clean hosted checkout refuses without the copy (the original P1 failure)")
+        self.assertEqual(self.run_helper("--checkout", self.checkout, "--runner-dir", self.runner).returncode, 0)
+        r = self.run_helper("--checkout", self.checkout, "--check-only", "--source-dir", self.pkg)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_conflicting_checkout_copy_is_refused_and_never_overwritten(self):
+        dst = os.path.join(self.checkout, "node_modules", "pdfjs-dist", "legacy", "build")
+        os.makedirs(dst)
+        with open(os.path.join(self.checkout, "node_modules", "pdfjs-dist", "package.json"), "w") as f:
+            f.write('{"name":"pdfjs-dist","version":"9.9.9"}')
+        with open(os.path.join(dst, "pdf.mjs"), "w") as f:
+            f.write("other")
+        r = self.run_helper("--checkout", self.checkout, "--runner-dir", self.runner)
+        self.assertEqual(r.returncode, 78)
+        self.assertIn("not overwritten", r.stderr)
+        with open(os.path.join(dst, "pdf.mjs")) as f:
+            self.assertEqual(f.read(), "other")
+
 
 if __name__ == "__main__":
     unittest.main()
