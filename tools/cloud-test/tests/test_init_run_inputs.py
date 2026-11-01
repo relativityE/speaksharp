@@ -942,6 +942,7 @@ class ExecutionProvenance(unittest.TestCase):
     SELECTED = ["AHT-05", "AHT-09"]
     ID = {"campaignId": "C1", "runId": "123", "attempt": 1}
     CONFIGS = {"AHT-05": "5" * 64, "AHT-09": "9" * 64}
+    RELEASE = {"sourceSha": "1" * 40, "servedSha": "2" * 40}  # distinct, valid source and served releases
 
     def world(self, built_from=None):
         """One honest execution; `built_from` is the request digest build_plan actually read (B in the swap case)."""
@@ -951,12 +952,12 @@ class ExecutionProvenance(unittest.TestCase):
                                                                consumedAtUtc="2026-11-01T17:00:00Z", **extra)
         readers = [reader("reservation", allocation={}, reservationEntryHash="e" * 64),
                    reader("build-plan", built_from or self.A, planSha256=plan_sha), reader("collector")]
-        runtime = [dict(self.ID, caseId=c, planSha256=plan_sha, configSha256=self.CONFIGS[c], requestSha256=self.A, sourceSha="s" * 40,
-                        servedSha="s" * 40) for c in self.SELECTED]
+        runtime = [dict(self.ID, caseId=c, planSha256=plan_sha, configSha256=self.CONFIGS[c], requestSha256=self.A, **self.RELEASE)
+                   for c in self.SELECTED]
         results_raw = b'{"cases":[]}'
         collection = {"requestSha256": self.A, "caseResultsSha256": hashlib.sha256(results_raw).hexdigest(),
                       "runtimeReceiptDigests": {r["caseId"]: I._canon_digest(r) for r in runtime}}
-        return {"admitted": self.A, "identity": dict(self.ID), "readers": readers, "plan_raw": plan_raw, "planned_configs": dict(self.CONFIGS),
+        return {"admitted": self.A, "identity": dict(self.ID), "release": dict(self.RELEASE), "readers": readers, "plan_raw": plan_raw, "planned_configs": dict(self.CONFIGS),
                 "runtime": runtime, "collection": collection, "case_results_raw": results_raw, "selected": list(self.SELECTED)}
 
     def check(self, w):
@@ -1013,8 +1014,72 @@ class ExecutionProvenance(unittest.TestCase):
         w["case_results_raw"] = b'{"cases":[1]}'
         refused(self, "collection-not-these-case-results", self.check, w)
         w = self.world()
-        w["runtime"][0]["servedSha"] = "t" * 40  # changed after collection recorded its digest
+        w["collection"]["runtimeReceiptDigests"]["AHT-05"] = "0" * 64  # collection recorded a different receipt
         refused(self, "collection-runtime-digests", self.check, w)
+        w = self.world()
+        w["collection"]["runtimeReceiptDigests"] = None
+        refused(self, "collection-runtime-digests", self.check, w)
+
+    def test_the_admission_identity_is_strict_and_attempt_one_even_when_every_record_agrees(self):
+        for over in ({"attempt": 2}, {"attempt": True}, {"attempt": 1.0}, {"runId": 123}, {"runId": "12a"}, {"campaignId": ""},
+                     {"campaignId": " C1"}, {"campaignId": None}):
+            w = self.world()
+            w["identity"].update(over)  # a coherent world: every record carries the same values
+            for rec in w["readers"] + w["runtime"]:
+                rec.update(over)
+            refused(self, "execution-identity", self.check, w)
+        # A record whose value is equal but of another type is not this attempt (True == 1, 1.0 == 1).
+        for k, v in ((0, True), (1, 1.0)):
+            w = self.world()
+            w["readers"][k]["attempt"] = v
+            refused(self, "reader-not-this-attempt:" + I.REQUIRED_READERS[k], self.check, w)
+        w = self.world()
+        w["runtime"][0]["attempt"] = True
+        refused(self, "runtime-receipt-not-bound:AHT-05", self.check, w)
+
+    def test_runtime_receipts_name_exactly_the_planned_source_and_served_releases(self):
+        self.assertNotEqual(self.RELEASE["sourceSha"], self.RELEASE["servedSha"])
+        for field, code in (("sourceSha", "runtime-source-release:AHT-05"), ("servedSha", "runtime-served-release:AHT-05")):
+            for bad in ("s" * 40, "1" * 39, None, "A" * 40):
+                w = self.world()
+                w["runtime"][0][field] = bad
+                refused(self, code, self.check, w)
+        # Coherent wrong release: every receipt agrees with each other, but not with the planned release.
+        w = self.world()
+        for rr in w["runtime"]:
+            rr.update(sourceSha="3" * 40, servedSha="4" * 40)
+        w["collection"]["runtimeReceiptDigests"] = {rr["caseId"]: I._canon_digest(rr) for rr in w["runtime"]}
+        refused(self, "runtime-source-release:AHT-05", self.check, w)
+        for bad in ({"sourceSha": "s" * 40, "servedSha": "2" * 40}, {"sourceSha": "1" * 40}, None, {"sourceSha": "1" * 40, "servedSha": None}):
+            w = self.world()
+            w["release"] = bad
+            refused(self, "planned-release", self.check, w)
+
+    def test_shapes_are_validated_before_lookups_and_hashing_with_deliberate_refusals(self):
+        # A missing planned-config digest and a null runtime configSha256 never compare equal.
+        w = self.world()
+        del w["planned_configs"]["AHT-09"]
+        w["runtime"][1]["configSha256"] = None
+        refused(self, "planned-config-digests", self.check, w)
+        for bad in (None, "9" * 63, "Z" * 64, 5):
+            w = self.world()
+            w["planned_configs"]["AHT-09"] = bad
+            refused(self, "planned-config-digests", self.check, w)
+        for bad in (None, "", "9" * 63):
+            w = self.world()
+            w["runtime"][1]["configSha256"] = bad
+            refused(self, "runtime-receipt-not-bound:AHT-09", self.check, w)
+        for key, value, code in (("planned_configs", None, "planned-config-digests"), ("plan_raw", "not bytes", "provenance-inputs"),
+                                 ("plan_raw", b"{not json", "runtime-plan-unreadable"), ("plan_raw", b"[]", "runtime-plan-unreadable"),
+                                 ("case_results_raw", None, "provenance-inputs"), ("runtime", None, "runtime-receipt-shape"),
+                                 ("runtime", [None], "runtime-receipt-shape"), ("runtime", [{"caseId": 5}], "runtime-receipt-shape"),
+                                 ("readers", [None], "request-reader-record"), ("collection", None, "request-not-the-admitted-request:collection"),
+                                 ("selected", [], "case-selection"), ("selected", ["AHT-16"], "case-selection"),
+                                 ("selected", ["AHT-05", "AHT-05"], "case-selection")):
+            w = self.world()
+            w[key] = value
+            with self.subTest(key=key, value=str(value)[:20]):
+                refused(self, code, self.check, w)
 
     def test_the_admitted_digest_and_identity_are_required_and_exact(self):
         for bad in ("", None, "A" * 64, "a" * 63):

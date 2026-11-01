@@ -580,38 +580,73 @@ def _canon_digest(doc):
     return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def check_execution_provenance(admitted, identity, readers, plan_raw, planned_configs, runtime, collection, case_results_raw, selected):
-    """Execution provenance from what each consumer RECORDED when it read its input, never a rehash of a file at the end.
-    - exactly one record per required reader, each naming the admitted digest and THIS {campaignId, runId, attempt};
-    - build-plan's produced planSha256 is the plan qualify froze; every selected case's runtime start receipt names that plan, the case's
-      planned config digest, the admitted digest and this attempt;
+def _is64(v):
+    return isinstance(v, str) and SHA64.match(v) is not None
+
+
+def _is40(v):
+    return isinstance(v, str) and LR.SHA40.match(v) is not None
+
+
+def _same(record, identity):
+    """Strict equality on every identity field: the same type AND value (True is not 1; 123 is not "123")."""
+    return all(type(record.get(k)) is type(v) and record.get(k) == v for k, v in identity.items())
+
+
+def check_execution_provenance(admitted, identity, release, readers, plan_raw, planned_configs, runtime, collection, case_results_raw, selected):
+    """Execution provenance from what each consumer RECORDED when it read its input, never a rehash of a file at the end. Every input's
+    shape is validated before any lookup or hash, and every refusal is a deliberate code, never an incidental exception.
+    - the admission identity is checked on its own first: campaignId, a run id, and attempt exactly 1 (reruns are refused upstream);
+    - exactly one record per required reader, each naming the admitted digest and THIS identity (same types and values);
+    - build-plan's produced planSha256 is the executed plan, whose own bytes name the admitted request;
+    - every selected case's runtime start receipt names that plan, the case's valid planned config digest, the admitted digest, this
+      identity, and exactly the planned source and served releases (valid, compared separately);
     - the collection record names the admitted digest, the frozen case results and each runtime receipt's canonical digest.
     A request swapped for the run and restored before collection, with reserve and collector both honestly reporting the admitted digest,
-    fails at build-plan (it read the swapped bytes); a swap seen by any single reader fails at that reader."""
-    _need(isinstance(admitted, str) and SHA64.match(admitted), "admitted-request-digest")
-    _need(isinstance(identity, dict) and set(identity) == {"campaignId", "runId", "attempt"}, "execution-identity")
+    fails at build-plan (it read the swapped bytes); a misreporting builder fails on the executed plan's bytes."""
+    _need(_is64(admitted), "admitted-request-digest")
+    _need(isinstance(identity, dict) and set(identity) == {"campaignId", "runId", "attempt"} and
+          isinstance(identity["campaignId"], str) and identity["campaignId"].strip() == identity["campaignId"] and identity["campaignId"] and
+          isinstance(identity["runId"], str) and LR.RUN_ID.match(identity["runId"]) and type(identity["attempt"]) is int and
+          identity["attempt"] == 1, "execution-identity")
+    _need(isinstance(release, dict) and set(release) == {"sourceSha", "servedSha"} and _is40(release["sourceSha"]) and
+          _is40(release["servedSha"]), "planned-release")
+    _need(isinstance(selected, list) and selected and all(c in ROLE for c in selected) and len(set(selected)) == len(selected), "case-selection")
+    _need(isinstance(planned_configs, dict) and all(_is64(planned_configs.get(c)) for c in selected), "planned-config-digests")
+    _need(isinstance(plan_raw, bytes) and isinstance(case_results_raw, bytes), "provenance-inputs")
+    try:
+        plan = json.loads(plan_raw)
+    except ValueError:
+        raise Refused("runtime-plan-unreadable")
+    _need(isinstance(plan, dict), "runtime-plan-unreadable")
     by = {}
-    for r in readers if isinstance(readers, list) else [None]:
+    _need(isinstance(readers, list), "request-reader-record")
+    for r in readers:
         _need(isinstance(r, dict) and READER_KEYS <= set(r) and r["consumer"] in REQUIRED_READERS and r["consumer"] not in by,
               "request-reader-record")
         by[r["consumer"]] = r
     for consumer in REQUIRED_READERS:
         r = by.get(consumer)
-        _need(r is not None and r["requestSha256"] == admitted, "request-not-the-admitted-request:" + consumer)
-        _need(all(r[k] == v for k, v in identity.items()), "reader-not-this-attempt:" + consumer)
+        _need(r is not None and _is64(r["requestSha256"]) and r["requestSha256"] == admitted, "request-not-the-admitted-request:" + consumer)
+        _need(_same(r, identity), "reader-not-this-attempt:" + consumer)
     plan_sha = hashlib.sha256(plan_raw).hexdigest()
     _need(by["build-plan"].get("planSha256") == plan_sha, "runtime-plan-not-the-built-plan")
     # The executed plan's own bytes name the request they were built from, so a builder record that misreports is caught too.
-    _need((json.loads(plan_raw) or {}).get("requestSha256") == admitted, "runtime-plan-not-from-the-admitted-request")
+    _need(plan.get("requestSha256") == admitted, "runtime-plan-not-from-the-admitted-request")
+    _need(isinstance(runtime, list) and all(isinstance(rr, dict) and isinstance(rr.get("caseId"), str) for rr in runtime), "runtime-receipt-shape")
     rows = _unique(runtime, "caseId", "duplicate-runtime-receipt")
     _need(sorted(rows) == sorted(selected), "runtime-receipts-not-the-selected-cases")
     for cid in sorted(selected):
         rr = rows[cid]
-        _need(RUNTIME_KEYS <= set(rr) and rr["planSha256"] == plan_sha and rr["configSha256"] == planned_configs.get(cid) and
-              rr["requestSha256"] == admitted and all(rr[k] == v for k, v in identity.items()), "runtime-receipt-not-bound:" + cid)
+        _need(RUNTIME_KEYS <= set(rr) and rr["planSha256"] == plan_sha and _is64(rr["configSha256"]) and
+              rr["configSha256"] == planned_configs[cid] and rr["requestSha256"] == admitted and _same(rr, identity),
+              "runtime-receipt-not-bound:" + cid)
+        _need(_is40(rr["sourceSha"]) and rr["sourceSha"] == release["sourceSha"], "runtime-source-release:" + cid)
+        _need(_is40(rr["servedSha"]) and rr["servedSha"] == release["servedSha"], "runtime-served-release:" + cid)
     _need(isinstance(collection, dict) and collection.get("requestSha256") == admitted, "request-not-the-admitted-request:collection")
     _need(collection.get("caseResultsSha256") == hashlib.sha256(case_results_raw).hexdigest(), "collection-not-these-case-results")
-    _need(collection.get("runtimeReceiptDigests") == {cid: _canon_digest(rows[cid]) for cid in sorted(selected)}, "collection-runtime-digests")
+    digests = collection.get("runtimeReceiptDigests")
+    _need(isinstance(digests, dict) and digests == {cid: _canon_digest(rows[cid]) for cid in sorted(selected)}, "collection-runtime-digests")
     return {"requestSha256": admitted, "planSha256": plan_sha, "cases": sorted(selected)}
 
 
