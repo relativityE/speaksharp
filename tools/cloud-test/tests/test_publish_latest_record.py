@@ -213,15 +213,42 @@ class CarryForward(unittest.TestCase):
             P.sanitize_history(dict(s1["history"], occurrences=s1["history"]["occurrences"] * (P.MAX_OCCURRENCES + 1)))
         self.assertIn(str(e.exception), ("history-occurrences", "history-order"))
 
+    def test_row_verdicts_carry_forward_per_row_and_a_catalog_change_refuses(self):
+        def night(state, run_id, ended, verdicts):
+            cases = [{"caseId": "AHT-05", "result": "PASS" if set(verdicts) == {"P"} else "FAIL",
+                      "rows": {"pass": verdicts.count("P"), "fail": verdicts.count("F"), "notRun": verdicts.count("N")}, "codes": []}]
+            if "F" not in verdicts and "N" in verdicts:
+                cases[0]["result"] = "NOT RUN" if verdicts.count("P") == 0 else "FAIL"
+            st = P.begin(state, run_id, 1, SHA, ended.replace("08:", "03:"))
+            return P.complete(st, record(run_id, outcome="passed" if cases[0]["result"] == "PASS" else "failed", endedUtc=ended,
+                                         startedUtc=ended.replace("08:", "03:"), cases=cases, rowVerdicts={"AHT-05": verdicts},
+                                         coverage="batch" if cases[0]["result"] == "PASS" else "incomplete"))
+        s1 = night(P.parse_body(""), "301", "2026-11-01T08:00:00Z", "PPP")
+        s2 = night(s1, "302", "2026-11-02T08:00:00Z", "FNP")
+        row = s2["history"]["rows"]["AHT-05"]
+        self.assertEqual((row["rowLast"], row["rowLastAt"], row["rowGood"]), ("FPP", [1, 0, 1], [0, 0, 1]))  # N kept night 1's verdict
+        with self.assertRaises(P.Refused) as e:
+            night(s2, "303", "2026-11-03T08:00:00Z", "PPPP")
+        self.assertEqual(str(e.exception), "history-catalog-changed")
+        with self.assertRaises(P.Refused) as e:
+            P.sanitize_record(record("304", rowVerdicts={"AHT-05": "PPF"}))  # inconsistent with the case's row counts
+        self.assertEqual(str(e.exception), "row-verdicts")
+
     def test_worst_case_history_fits_the_size_bound_and_a_larger_one_fails_closed(self):
+        import json as _json
+        catalog = _json.load(open(os.path.join(ROOT, "config", "assertion-catalog.json")))
+        widths = {cid: len(c["requiredAssertions"]) for cid, c in catalog["cases"].items()}
+        self.assertEqual(sum(widths.values()), 204)
         state = P.parse_body("")
         for i in range(P.MAX_OCCURRENCES):
             day = "2026-%02d-%02dT08:00:00Z" % (11 + i // 28, i % 28 + 1)
             st = P.begin(state, str(1000 + i), 1, SHA, day.replace("08:", "03:"))
-            rec = record(str(1000 + i), endedUtc=day, startedUtc=day.replace("08:", "03:"),
-                         cases=[self.case("AHT-%02d" % n, "PASS") for n in range(1, 16)], coverage="full", campaignId="nightly-%d" % i)
+            cases = [{"caseId": cid, "result": "PASS", "rows": {"pass": w, "fail": 0, "notRun": 0}, "codes": []} for cid, w in widths.items()]
+            rec = record(str(1000 + i), endedUtc=day, startedUtc=day.replace("08:", "03:"), cases=cases, coverage="full",
+                         campaignId="nightly-20261101T0000Z-%08d" % i, rowVerdicts={cid: "P" * w for cid, w in widths.items()})
             state = P.complete(st, rec)
         self.assertLessEqual(len(P.canon(state["history"])), P.MAX_HISTORY_BYTES)
+        self.assertLessEqual(len(P.render(state)), P.MAX_BODY_CHARS)  # the whole comment stays under GitHub's body limit
         st = P.begin(state, "9999", 1, SHA, "2027-02-01T03:00:00Z")
         with self.assertRaises(P.Refused) as e:
             P.complete(st, record("9999", endedUtc="2027-02-01T08:00:00Z", startedUtc="2027-02-01T03:00:00Z"))

@@ -39,6 +39,8 @@ RUN_ID = re.compile(r"^[1-9][0-9]{0,19}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 JSON_BLOCK = re.compile(r"```json\n(.*?)\n```", re.S)
+# one character per catalog row, in catalog order: P(ASS) F(AIL) N(OT RUN); bound to the record's catalogSha256
+ROW_VERDICTS = re.compile(r"^[PFN]{1,64}$")
 
 
 class Refused(ValueError):
@@ -74,7 +76,7 @@ def sanitize_record(rec):
     # Three identities, never conflated: the workflow source that ran the harness, the product release the request tested, and the release
     # observed served at admission (Sam 1793539017 RETURN, finding 4).
     _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "campaignId", "coverage", "requestSha256", "catalogSha256",
-                "startedUtc", "endedUtc", "outcome", "cases", "codes"}, "record")
+                "startedUtc", "endedUtc", "outcome", "cases", "codes", "rowVerdicts"}, "record")
     _attempt(rec.get("runId"), rec.get("attempt"))
     _need(isinstance(rec.get("sourceSha"), str) and SHA40.match(rec["sourceSha"]), "source-sha")
     _need(isinstance(rec.get("testedSha"), str) and SHA40.match(rec["testedSha"]), "tested-sha")
@@ -111,11 +113,23 @@ def sanitize_record(rec):
           (rec["outcome"] == "passed" and rec["coverage"] in ("batch", "full")) or
           (rec["outcome"] == "failed" and (rec["coverage"] == "incomplete" or "not-qualified" in (rec.get("codes") or []))),
           "outcome-cases")
-    return {"runId": rec["runId"], "attempt": rec["attempt"], "sourceSha": rec["sourceSha"], "testedSha": rec["testedSha"], "servedSha": rec.get("servedSha"),
+    rv = rec.get("rowVerdicts")
+    if rv is not None:
+        # per-row verdicts (G7 rows): only for a qualified record, only for executed cases, each consistent with that case's row counts
+        _need(rec["coverage"] != "unqualified" and isinstance(rv, dict), "row-verdicts")
+        by_case = {c["caseId"]: c for c in out}
+        for cid, v in rv.items():
+            c = by_case.get(cid)
+            _need(c is not None and c["result"] != "NOT SELECTED" and isinstance(v, str) and ROW_VERDICTS.match(v)
+                  and (v.count("P"), v.count("F"), v.count("N")) == (c["rows"]["pass"], c["rows"]["fail"], c["rows"]["notRun"]), "row-verdicts")
+    out_rec = {"runId": rec["runId"], "attempt": rec["attempt"], "sourceSha": rec["sourceSha"], "testedSha": rec["testedSha"], "servedSha": rec.get("servedSha"),
             "campaignId": rec.get("campaignId"), "coverage": rec["coverage"], "requestSha256": rec.get("requestSha256"),
             "catalogSha256": rec.get("catalogSha256"),
             "startedUtc": rec["startedUtc"], "endedUtc": rec["endedUtc"], "outcome": rec["outcome"],
             "cases": sorted(out, key=lambda c: c["caseId"]), "codes": _codes(rec.get("codes", []), 16)}
+    if rv is not None:
+        out_rec["rowVerdicts"] = dict(sorted(rv.items()))
+    return out_rec
 
 
 # G7 durable carry-forward (Sam 1793573813.598689): the bounded history every completed run folds into this same record. Per case: the last
@@ -126,7 +140,8 @@ HISTORY_KEYS = {"sequence", "predecessorSha256", "occurrences", "rows"}
 OCCURRENCE_KEYS = {"runId", "attempt", "campaignId", "requestSha256", "catalogSha256", "sourceSha", "testedSha", "servedSha", "endedUtc",
                    "outcome", "coverage"}
 MAX_OCCURRENCES = 62          # two 31-day periods of nightly occurrences, retained in order
-MAX_HISTORY_BYTES = 32768     # serialized-size bound; the GitHub comment body limit is 65536 characters
+MAX_HISTORY_BYTES = 48000     # serialized-size bound for the history block
+MAX_BODY_CHARS = 60000        # the whole rendered comment, under GitHub's 65536-character body limit
 
 
 def canon(doc):
@@ -154,7 +169,14 @@ def sanitize_history(h):
     rows, run_ids = h.get("rows"), {o["runId"] for o in occ}
     _need(isinstance(rows, dict) and set(rows) <= {"AHT-%02d" % n for n in range(1, 16)}, "history-rows")
     for r in rows.values():
-        _keys(r, {"last", "lastKnownGood"}, "history-row")
+        _need(isinstance(r, dict) and {"last", "lastKnownGood"} <= set(r) <= {"last", "lastKnownGood", "rowLast", "rowLastAt", "rowGood"},
+              "history-row")
+        if "rowLast" in r:
+            # per row (catalog order): last executed verdict, the occurrence index that produced it, and the last-known-good occurrence index
+            n = len(r["rowLast"]) if isinstance(r["rowLast"], str) else -1
+            _need(re.match(r"^[PF-]{1,64}$", r["rowLast"] or "") is not None and all(isinstance(r.get(k), list) and len(r[k]) == n for k in ("rowLastAt", "rowGood"))
+                  and all(type(i) is int and -1 <= i < len(occ) for i in r["rowLastAt"] + r["rowGood"])
+                  and all((ch == "-") == (i == -1) for ch, i in zip(r["rowLast"], r["rowLastAt"])), "history-row")
         for k in ("last", "lastKnownGood"):
             v = r.get(k)
             # every retained verdict is bound to a retained occurrence
@@ -176,7 +198,23 @@ def fold_history(history, rec, expected_predecessor):
     occ.append(_occurrence(rec))
     _need(len(occ) <= MAX_OCCURRENCES, "history-overflow")
     rows = {cid: dict(r) for cid, r in (prior["rows"] if prior else {}).items()}
+    index = len(occ) - 1
+    if prior and rec.get("rowVerdicts"):
+        # row positions are catalog positions: a different catalog makes them incomparable, so the fold refuses rather than mixing them
+        _need(all(o.get("catalogSha256") in (None, rec.get("catalogSha256")) for o in prior["occurrences"]), "history-catalog-changed")
     for c in rec["cases"]:
+        v = (rec.get("rowVerdicts") or {}).get(c["caseId"])
+        if v is not None:
+            row = rows.setdefault(c["caseId"], {"last": None, "lastKnownGood": None})
+            last = list(row.get("rowLast") or "-" * len(v))
+            at, good = list(row.get("rowLastAt") or [-1] * len(v)), list(row.get("rowGood") or [-1] * len(v))
+            _need(len(last) == len(v), "history-catalog-changed")
+            for i, ch in enumerate(v):
+                if ch in "PF":  # N (NOT RUN) never erases a row's prior verdict
+                    last[i], at[i] = ch, index
+                    if ch == "P":
+                        good[i] = index
+            row.update(rowLast="".join(last), rowLastAt=at, rowGood=good)
         if c["result"] not in ("PASS", "FAIL"):
             continue  # NOT RUN / NOT SELECTED never erase prior evidence
         entry = {"result": c["result"], "runId": rec["runId"], "endedUtc": rec["endedUtc"]}
@@ -221,8 +259,10 @@ def render(state):
         lines.append("Latest completed: none yet.")
     if live:
         lines.append("In progress: run %s attempt %d, status %s." % (live["runId"], live["attempt"], live["status"]))
-    lines += ["", "```json", json.dumps(state, sort_keys=True, indent=1), "```"]
-    return "\n".join(lines) + "\n"
+    lines += ["", "```json", json.dumps(state, sort_keys=True, separators=(",", ":")), "```"]
+    body = "\n".join(lines) + "\n"
+    _need(len(body) <= MAX_BODY_CHARS, "record-overflow")  # fail closed: never publish a truncated or rejected record
+    return body
 
 
 def select(comments, issue_url, bot_login=BOT_LOGIN, comment_id=None):
