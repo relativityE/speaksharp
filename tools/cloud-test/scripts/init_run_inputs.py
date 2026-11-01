@@ -47,6 +47,13 @@ PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 # the committed file below, admitted only when its bytes hash to the reviewed pin. None today: every nightly prepare refuses.
 NIGHTLY_FACTS_PATH = "tools/cloud-test/config/nightly/facts.json"
 NIGHTLY_FACTS_SHA256 = None
+# Option A (Sam 1793568947.054419, design only): the owner's recurring approval may carry an explicit per-occurrence Start/take grant, from
+# which a nightly occurrence's action envelope is DERIVED. Its bytes are admitted only when they hash to this reviewed pin. None today: every
+# derivation refuses, so the mechanics stay inactive until an actual owner grant and accepted inputs exist.
+RECURRING_APPROVAL_PATH = "tools/cloud-test/config/recurring-approval.json"
+RECURRING_APPROVAL_SHA256 = None
+STANDING_GRANT_KEYS = {"scope", "cases", "grantRef"}
+STANDING_GRANT_SCOPE = "per-occurrence-start-take"
 ALL_CASES = ["AHT-%02d" % n for n in range(1, 16)]
 # build_plan.py binds ONE account id for the whole plan and labels AHT-15 maintained-read-only (line 179), so roles never mix in one run.
 ROLE = {**{c: "existing-disposable" for c in ALL_CASES[:14]}, "AHT-15": "maintained-read-only"}
@@ -477,6 +484,83 @@ def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
     return approval
 
 
+def reserved_occurrences(chain):
+    """Campaign ids already reserved on the verified state-ref chain (the same journal the continuity checkpoint received)."""
+    return frozenset(e["campaignId"] for e in chain[-1][1] if e["type"] == "reserve")
+
+
+def _standing_raw(repo, pin):
+    pinned = RECURRING_APPROVAL_SHA256 if pin is None else pin
+    _need(pinned is not None, "action-approval-standing-not-pinned")
+    path = os.path.join(repo, RECURRING_APPROVAL_PATH)
+    _need(os.path.isfile(path) and not os.path.islink(path), "action-approval-standing-unreadable")
+    raw = _read(path)
+    _need(hashlib.sha256(raw).hexdigest() == pinned, "action-approval-standing-not-the-pinned-bytes")
+    return raw, pinned
+
+
+def standing_grant_in_force(repo, pin=None):
+    """True only when the pinned recurring approval carries a grant clause; an unset pin means no grant can be in force."""
+    if (RECURRING_APPROVAL_SHA256 if pin is None else pin) is None:
+        return False
+    raw, _ = _standing_raw(repo, pin)
+    try:
+        doc = json.loads(raw)
+    except ValueError:
+        raise Refused("action-approval-standing-unreadable")
+    return isinstance(doc, dict) and "startTakeGrant" in doc
+
+
+def standing_envelope(repo, req, request_sha256, reconciliation_bytes, cases, cfg, now, attempt, prior, pin=None):
+    """Option A (Sam 1793568947.054419): a nightly occurrence's action envelope, DERIVED only under the owner's explicit standing grant in the
+    pinned recurring approval, never from data equality alone. The approval, attempt, occurrence (and its replay), cases, window, per-run
+    and period limits and references are all checked BEFORE the envelope exists; the unchanged check_action_approval then admits it, and
+    case_start_caps.bind_inputs re-checks it against the bytes it reads. `pin` is TEST-ONLY."""
+    import nightly_request as N  # lazy: nightly_request imports this module
+    raw, pinned = _standing_raw(repo, pin)
+    n = req.get("nightly") or {}
+    _need(n.get("approvalSha256") == pinned, "action-approval-standing-not-the-request-approval")
+    try:
+        ap = N.check_approval(raw, now, cfg)
+    except N.Refused as e:
+        raise Refused("action-approval-standing-" + str(e))
+    grant = ap.get("startTakeGrant")
+    _need(grant is not None, "action-approval-standing-not-granted")
+    _need(isinstance(grant, dict) and set(grant) == STANDING_GRANT_KEYS and grant["scope"] == STANDING_GRANT_SCOPE and _ref(grant["grantRef"])
+          and isinstance(grant["cases"], list) and grant["cases"] and all(isinstance(c, str) for c in grant["cases"])
+          and grant["cases"] == sorted(set(grant["cases"])) and set(grant["cases"]) <= set(ALL_CASES), "action-approval-standing-grant-shape")
+    _need(attempt == 1 and type(n.get("attempt")) is int and n["attempt"] == 1, "action-approval-standing-attempt")
+    slot = _utc(n.get("occurrence"))
+    try:
+        key = N.occurrence_id(ap, slot)
+    except N.Refused:
+        raise Refused("action-approval-standing-occurrence")
+    _need(key == req.get("runId") == n.get("occurrenceId"), "action-approval-standing-occurrence")
+    _need(isinstance(prior, (set, frozenset)) and key not in prior, "action-approval-standing-occurrence-replayed")
+    _need(set(cases) <= set(grant["cases"]), "action-approval-standing-case")
+    caps, period = ap["perRunCaps"], ap["periodCaps"]
+    p_start, p_end = N.period_bounds(ap)
+    w = req.get("window") or {}
+    start, end = _utc(w.get("startUtc")), _utc(w.get("endUtc"))
+    _need(start == slot and (end - start).total_seconds() == 60 * caps["windowMinutes"] and _utc(ap["validFromUtc"]) <= start
+          and end <= _utc(ap["expiresUtc"]) and p_start <= start and end <= p_end and start <= now < end, "action-approval-standing-window")
+    lim, est = req.get("approvedLimits") or {}, req.get("estimate") or {}
+    run_cap = (est.get("requests") or {}).get("runCap")
+    _need(lim.get("runCapRequests") == caps["runCapRequests"] and lim.get("identityCap") == caps["identityReads"]
+          and _int(run_cap) and run_cap <= caps["runCapRequests"] and _int(est.get("identityReads")) and est["identityReads"] <= caps["identityReads"]
+          and _int(est.get("starts")) and est["starts"] <= caps["starts"] and _int(est.get("takes")) and est["takes"] <= caps["takes"],
+          "action-approval-standing-per-run")
+    # The checkpoint's own period ceiling and remaining headroom checks already ran in verified_checkpoint.
+    _need(lim.get("cumulativeCeilingRequests") == period["requests"], "action-approval-standing-period")
+    _need(lim.get("approvalRef") == ap["approvalRef"] and lim.get("approvedBy") == ap["approvedBy"]
+          and req.get("selectionApprovalRef") == ap["approvalRef"] and n.get("standingApprovalRef") == ap["approvalRef"],
+          "action-approval-standing-reference")
+    envelope = {"schema": ACTION_APPROVAL_SCHEMA, "requestSha256": request_sha256,
+                "reconciliationSha256": hashlib.sha256(reconciliation_bytes).hexdigest(), "approvalRef": ap["approvalRef"],
+                "approvedBy": ap["approvedBy"], "selectionApprovalRef": req["selectionApprovalRef"]}
+    return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
+
+
 def verified_checkpoint(repo, req, pins=None, chain_reader=None):
     """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, or a continuity-* refusal. `pins` and
     `chain_reader` are TEST-ONLY overrides; production uses continuity_pins() (all None today) and the real state-ref journal."""
@@ -543,8 +627,20 @@ def prepare(x, now):
     scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route)
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
-    reconciliation = verified_checkpoint(repo, req)
-    check_action_approval(facts.get("actionApproval"), hashlib.sha256(req_raw).hexdigest(), reconciliation, req)
+    chains = []
+
+    def read_chain(root):
+        chains.append(state_chain(root))
+        return chains[-1]
+    reconciliation = verified_checkpoint(repo, req, chain_reader=read_chain)
+    request_sha256, supplied = hashlib.sha256(req_raw).hexdigest(), facts.get("actionApproval")
+    if nightly and supplied is None:
+        # Option A: derived for THIS occurrence under the pinned standing grant (refuses while the production pin is unset).
+        builder_facts = dict(builder_facts, actionApproval=standing_envelope(repo, req, request_sha256, reconciliation, cases, cfg, now,
+                                                                             x.attempt, reserved_occurrences(chains[-1])))
+    else:
+        _need(not (nightly and standing_grant_in_force(repo)), "action-approval-two-sources")
+        check_action_approval(supplied, request_sha256, reconciliation, req)
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
             "reconciliationBytes": reconciliation, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,

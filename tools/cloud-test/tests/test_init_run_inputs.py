@@ -467,7 +467,7 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
         rc_bytes = b'{"ceilings":{"starts":120},"starts":{"ownerCounted":0}}\n'
         committed_sha = hashlib.sha256(repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()).hexdigest()
         argv[argv.index("--facts") + 1] = json.dumps(facts(actionApproval=action_approval(req, committed_sha, rc_bytes)))
-        with mock.patch.object(I, "verified_checkpoint", lambda repo_dir, request: rc_bytes), \
+        with mock.patch.object(I, "verified_checkpoint", lambda repo_dir, request, **_: rc_bytes), \
                 mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": bundle_with(ACCOUNT_ID), "SUPABASE_URL": SUPABASE_URL_OK}):
             self.assertEqual(I.main(argv), 0)
         committed = repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()
@@ -1655,6 +1655,171 @@ class ContinuityCheckpoint(Journal):
         self.refused("continuity-manual-reservation-scope-not-accepted", pins=self.all_pins(accepted_scope_sha256=hashlib.sha256(other).hexdigest()))
         self.refused("continuity-rollup-bootstrap-not-accepted", pins=self.all_pins(accepted_sha256="0" * 64))
         self.refused("continuity-state-root-replaced", pins=self.all_pins(accepted_root="e" * 40, reviewed_root="e" * 40))
+
+
+class StandingEnvelope(Journal):
+    """Option A (Sam 1793568947.054419), design only: a nightly occurrence's action envelope is DERIVED under the explicit grant in the pinned
+    recurring approval. Every approval, grant, pin and checkpoint here is SYNTHETIC, supplied through test-only overrides; the production pin
+    stays unset, so production derivation refuses."""
+    GRANT = {"scope": "per-occurrence-start-take", "cases": I.ALL_CASES, "grantRef": "SYNTHETIC-NOT-A-GRANT"}
+    REF = "slack:1793553158.013909"  # the synthetic recurring approval's reference (test_nightly_request.approval)
+
+    def setUp(self):
+        super().setUp()
+        from test_nightly_request import CFG as NCFG, SLOT, approval as nightly_approval, derive as nightly_derive
+        self.cfg, self.slot, self.nightly_approval, self.nightly_derive = NCFG, SLOT, nightly_approval, nightly_derive
+        self.now = SLOT + timedelta(minutes=1)
+        self.checkout = os.path.join(self.d, "checkout")
+        # A real verified checkpoint over this journal, for the same approval and period as the synthetic standing approval.
+        self.scope_raw = json.dumps(rollup_scope(approvalRef=self.REF, periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z",
+                                                 ceilings={"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960,
+                                                           "starts": 1200, "takes": 1200}), sort_keys=True).encode()
+        os.makedirs(os.path.join(self.checkout, I.CONTINUITY_DIR))
+        for name, raw in ((I.CONTINUITY_BOOTSTRAP, self.raw), (I.CONTINUITY_SCOPE, self.scope_raw)):
+            with open(os.path.join(self.checkout, I.CONTINUITY_DIR, name), "wb") as f:
+                f.write(raw)
+        self.use(self.nightly_approval(startTakeGrant=self.GRANT))
+
+    def use(self, approval_raw, derive_from=None):
+        """Writes the recurring approval the checkout carries; the request is derived from `derive_from` (default: the same bytes)."""
+        path = os.path.join(self.checkout, I.RECURRING_APPROVAL_PATH)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(approval_raw)
+        self.pin = hashlib.sha256(approval_raw).hexdigest()
+        self.req_raw = self.nightly_derive(ap=derive_from or approval_raw, run_id="101")
+        self.req = json.loads(self.req_raw)
+
+    def checkpoint(self, req=None):
+        pins = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope_raw).hexdigest(), reviewed_root=self.root)
+        return I.verified_checkpoint(self.checkout, req or self.req, pins, lambda root: self.chain())
+
+    def derive(self, req=None, cases=None, now=None, attempt=1, prior=frozenset(), pin=""):
+        req = self.req if req is None else req
+        raw = self.req_raw if req is self.req else json.dumps(req, sort_keys=True).encode()
+        return I.standing_envelope(self.checkout, req, hashlib.sha256(raw).hexdigest(), self.checkpoint(), cases or I.ALL_CASES, self.cfg,
+                                   now or self.now, attempt, prior, pin=self.pin if pin == "" else pin)
+
+    def changed(self, mutate):
+        req = copy.deepcopy(self.req)
+        mutate(req)
+        return req
+
+    def test_the_derived_envelope_names_exactly_this_occurrence_request_and_checkpoint(self):
+        rc_bytes = self.checkpoint()
+        self.assertEqual(self.derive(), {"schema": I.ACTION_APPROVAL_SCHEMA, "requestSha256": hashlib.sha256(self.req_raw).hexdigest(),
+                                         "reconciliationSha256": hashlib.sha256(rc_bytes).hexdigest(), "approvalRef": self.REF,
+                                         "approvedBy": "owner", "selectionApprovalRef": self.REF})
+        # The next occurrence derives a different envelope: one envelope is never valid for two occurrences.
+        self.use(self.nightly_approval(startTakeGrant=self.GRANT))
+        nxt_raw = self.nightly_derive(ap=self.nightly_approval(startTakeGrant=self.GRANT), run_id="102", slot=self.slot + timedelta(days=1))
+        nxt = json.loads(nxt_raw)
+        other = I.standing_envelope(self.checkout, nxt, hashlib.sha256(nxt_raw).hexdigest(), rc_bytes, I.ALL_CASES, self.cfg,
+                                    self.now + timedelta(days=1), 1, frozenset({self.req["runId"]}), pin=self.pin)
+        self.assertNotEqual(other["requestSha256"], self.derive()["requestSha256"])
+
+    def test_the_production_pin_is_unset_so_no_grant_is_in_force_and_derivation_refuses(self):
+        self.assertIsNone(I.RECURRING_APPROVAL_SHA256)
+        self.assertFalse(I.standing_grant_in_force(self.checkout))
+        refused(self, "action-approval-standing-not-pinned", self.derive, pin=None)
+
+    def test_the_approval_must_be_the_pinned_bytes_the_request_was_derived_from_and_still_valid(self):
+        refused(self, "action-approval-standing-not-the-pinned-bytes", self.derive, pin="0" * 64)
+        other = self.nightly_approval(startTakeGrant=self.GRANT, expiresUtc="2026-12-14T00:00:00Z")
+        self.use(other, derive_from=self.nightly_approval(startTakeGrant=self.GRANT))
+        refused(self, "action-approval-standing-not-the-request-approval", self.derive)
+        self.use(self.nightly_approval(startTakeGrant=self.GRANT))
+        refused(self, "action-approval-standing-recurring-approval-expired", self.derive, now=datetime(2026, 12, 15, tzinfo=timezone.utc))
+        os.remove(os.path.join(self.checkout, I.RECURRING_APPROVAL_PATH))
+        refused(self, "action-approval-standing-unreadable", self.derive)
+
+    def test_no_grant_or_a_malformed_grant_derives_nothing(self):
+        self.use(self.nightly_approval())
+        refused(self, "action-approval-standing-not-granted", self.derive)
+        self.assertFalse(I.standing_grant_in_force(self.checkout, self.pin))
+        for bad in (dict(self.GRANT, scope="per-run"), dict(self.GRANT, extra=1), dict(self.GRANT, cases=[]),
+                    dict(self.GRANT, cases=list(reversed(I.ALL_CASES))), dict(self.GRANT, cases=I.ALL_CASES + ["AHT-16"]),
+                    dict(self.GRANT, cases=["AHT-01", "AHT-01"]), dict(self.GRANT, grantRef=""), {k: self.GRANT[k] for k in ("scope", "cases")}):
+            with self.subTest(grant=str(bad)[:70]):
+                self.use(self.nightly_approval(startTakeGrant=bad))
+                refused(self, "action-approval-standing-grant-shape", self.derive)
+
+    def test_attempt_occurrence_and_replay_are_checked_before_derivation(self):
+        refused(self, "action-approval-standing-attempt", self.derive, attempt=2)
+        refused(self, "action-approval-standing-attempt", self.derive, req=self.changed(lambda r: r["nightly"].update(attempt=True)))
+        refused(self, "action-approval-standing-occurrence", self.derive, req=self.changed(lambda r: r.update(runId="nightly-other")))
+        refused(self, "action-approval-standing-occurrence", self.derive,
+                req=self.changed(lambda r: r["nightly"].update(occurrenceId="nightly-other")))
+        refused(self, "action-approval-standing-occurrence", self.derive,
+                req=self.changed(lambda r: r["nightly"].update(occurrence="2026-12-20T03:00:00Z")))  # outside the approval period
+        refused(self, "action-approval-standing-occurrence-replayed", self.derive, prior=frozenset({self.req["runId"]}))
+        self.assertTrue(self.derive(prior=frozenset({"nightly-20261101T0000Z-20261101T0300Z"})))
+
+    def test_cases_window_per_run_period_and_references_are_checked_before_derivation(self):
+        self.use(self.nightly_approval(startTakeGrant=dict(self.GRANT, cases=I.ALL_CASES[:14])))
+        refused(self, "action-approval-standing-case", self.derive)
+        self.use(self.nightly_approval(startTakeGrant=self.GRANT))
+        end = self.req["window"]["endUtc"]
+        for label, kw, code in (
+                ("window longer", {"req": self.changed(lambda r: r["window"].update(endUtc="2026-11-02T08:31:00Z"))}, "window"),
+                ("window moved", {"req": self.changed(lambda r: r["window"].update(startUtc="2026-11-02T03:01:00Z"))}, "window"),
+                ("before start", {"now": self.slot - timedelta(minutes=1)}, "window"),
+                ("at end", {"now": I._utc(end)}, "window"),
+                ("run cap", {"req": self.changed(lambda r: r["approvedLimits"].update(runCapRequests=4399))}, "per-run"),
+                ("identity cap", {"req": self.changed(lambda r: r["approvedLimits"].update(identityCap=31))}, "per-run"),
+                ("estimate takes", {"req": self.changed(lambda r: r["estimate"].update(takes=41))}, "per-run"),
+                ("estimate starts", {"req": self.changed(lambda r: r["estimate"].update(starts=41))}, "per-run"),
+                ("estimate requests", {"req": self.changed(lambda r: r["estimate"]["requests"].update(runCap=4401))}, "per-run"),
+                ("period ceiling", {"req": self.changed(lambda r: r["approvedLimits"].update(cumulativeCeilingRequests=131999))}, "period"),
+                ("approver", {"req": self.changed(lambda r: r["approvedLimits"].update(approvedBy="someone-else"))}, "reference"),
+                ("selection", {"req": self.changed(lambda r: r.update(selectionApprovalRef="slack:1793566031.065709"))}, "reference"),
+                ("standing ref", {"req": self.changed(lambda r: r["nightly"].update(standingApprovalRef="slack:1793566031.065709"))}, "reference")):
+            with self.subTest(label):
+                refused(self, "action-approval-standing-" + code, self.derive, **kw)
+
+    def test_prepare_derives_only_without_a_supplied_envelope_and_refuses_two_sources(self):
+        # The prepare branch itself: the admission steps before it are stubbed to a nightly result; the checkpoint, the derivation and the
+        # supplied-envelope path are the real ones.
+        import contextlib
+        rc_bytes = self.checkpoint()
+        request_sha = hashlib.sha256(self.req_raw).hexdigest()
+        supplied = {"schema": I.ACTION_APPROVAL_SCHEMA, "requestSha256": request_sha, "reconciliationSha256": hashlib.sha256(rc_bytes).hexdigest(),
+                    "approvalRef": self.REF, "approvedBy": "owner", "selectionApprovalRef": self.REF}
+        path = os.path.join(self.d, "nightly-request.json")
+        with open(path, "wb") as f:
+            f.write(self.req_raw)
+        pins = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope_raw).hexdigest(), reviewed_root=self.root)
+        binding = {"role": "existing-disposable", "credentials": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}}
+
+        def prepare(nightly_facts, pin):
+            x = mock.Mock(repo=self.checkout, run_id="101", attempt=1, source_sha=self.req["release"]["testedSha"], request=None,
+                          nightly_request_file=path, nightly_request_sha256=request_sha, config="cfg.json", job_timeout_minutes=340, facts=None)
+            stubs = {"_git": lambda *a: x.source_sha, "_load": lambda p: self.cfg, "check_ceilings": lambda *a: 300,
+                     "check_window_fit": lambda *a: None, "nightly_facts": lambda repo: nightly_facts, "check_release_lineage": lambda *a: "same",
+                     "parse_live_accounts_bundle": lambda raw: {}, "account_bindings": lambda *a: [binding],
+                     "role_account": lambda *a: {"accountId": ACCOUNT_ID, "email": "SYNTHETIC"}, "check_case10_bound": lambda *a: None,
+                     "translate_facts": lambda f, *a: dict(f), "compose_scope": lambda *a: {}, "canonical_bundle_bytes": lambda b: b"{}",
+                     "continuity_pins": lambda: pins, "state_chain": lambda root: self.chain(), "RECURRING_APPROVAL_SHA256": pin}
+            with contextlib.ExitStack() as stack:
+                for name, value in stubs.items():
+                    stack.enter_context(mock.patch.object(I, name, value))
+                return I.prepare(x, self.now)
+
+        # Granted and pinned, nothing supplied: derived for this occurrence; the result equals the envelope an approver would have supplied.
+        self.assertEqual(prepare(facts(), self.pin)["facts"]["actionApproval"], supplied)
+        # Two sources refuse; the production pin unset refuses derivation by name.
+        refused(self, "action-approval-two-sources", prepare, facts(actionApproval=supplied), self.pin)
+        refused(self, "action-approval-standing-not-pinned", prepare, facts(), None)
+        # A pinned approval WITHOUT a grant: the supplied path is unchanged, and nothing is derived when nothing is supplied.
+        self.use(self.nightly_approval())
+        request_sha = hashlib.sha256(self.req_raw).hexdigest()
+        with open(path, "wb") as f:
+            f.write(self.req_raw)
+        supplied.update(requestSha256=request_sha)
+        self.assertEqual(prepare(facts(actionApproval=supplied), self.pin)["facts"]["actionApproval"], supplied)
+        refused(self, "action-approval-standing-not-granted", prepare, facts(), self.pin)
+        # An unset pin never makes a supplied nightly envelope a second source.
+        self.assertEqual(prepare(facts(actionApproval=supplied), None)["facts"]["actionApproval"], supplied)
 
 
 class Case10Bound(unittest.TestCase):
