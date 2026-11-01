@@ -528,6 +528,20 @@ class Completeness(unittest.TestCase):
                     proc, receipt = verify(candidate_result, candidate_plan)
                     self.assertNotEqual(proc.returncode, 0, f"{side} {field} accepted missing identity")
                     self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "FAIL")
+            # Direct regression for the equality-only defect: the same invalid
+            # value (including absence) on both sides must not become a match.
+            for field, values in invalid_values.items():
+                for value in values:
+                    candidate_plan, candidate_result = dict(plan), dict(matching)
+                    candidate_plan[field] = value; candidate_result[field] = value
+                    proc, receipt = verify(candidate_result, candidate_plan)
+                    self.assertNotEqual(proc.returncode, 0, f"paired {field} accepted {value!r}")
+                    self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "FAIL")
+                candidate_plan, candidate_result = dict(plan), dict(matching)
+                del candidate_plan[field]; del candidate_result[field]
+                proc, receipt = verify(candidate_result, candidate_plan)
+                self.assertNotEqual(proc.returncode, 0, f"paired {field} accepted missing identities")
+                self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "FAIL")
 
     def test_a_partial_run_is_never_the_full_live_run_even_with_every_row_executed(self):
         req = sample()["req"]
