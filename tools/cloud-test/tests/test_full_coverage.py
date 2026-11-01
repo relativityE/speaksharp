@@ -543,6 +543,74 @@ class Completeness(unittest.TestCase):
                 self.assertNotEqual(proc.returncode, 0, f"paired {field} accepted missing identities")
                 self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "campaign")["result"], "FAIL")
 
+    def test_each_case_receipt_binds_case_source_and_served_identities_to_the_plan(self):
+        with tempfile.TemporaryDirectory(prefix="case-binding-") as td:
+            root = os.path.realpath(td)
+            source_sha, served_sha = "a" * 40, "b" * 40
+            plan_path = os.path.join(root, "plan.json")
+            result_path = os.path.join(root, "results.json")
+            approval_path = os.path.join(root, "approval.json")
+            manifest_path = os.path.join(root, "CODE.sha256")
+            cases_dir = os.path.join(root, "cases")
+            case_dir = os.path.join(cases_dir, "AHT-01")
+            driver_path = os.path.join(root, "driver.cjs")
+            config_path = os.path.join(root, "AHT-01.json")
+            os.makedirs(case_dir)
+            open(manifest_path, "w", encoding="utf-8").close()
+            open(driver_path, "w", encoding="utf-8").write("module.exports = {}\n")
+            wjson(config_path, {"caseId": "AHT-01"})
+            plan = {
+                "campaignId": "R7",
+                "sourceSha": source_sha,
+                "servedSha": served_sha,
+                "cases": [{
+                    "id": "AHT-01",
+                    "driverFile": driver_path,
+                    "driverSha256": sha256_file(driver_path),
+                    "configFile": config_path,
+                    "configSha256": sha256_file(config_path),
+                }],
+            }
+            campaign = {
+                "campaignId": "R7",
+                "sourceSha": source_sha,
+                "servedSha": served_sha,
+                "cases": [{"caseId": "AHT-01"}],
+            }
+            approval = {"reviewedCodeManifestSha256": sha256_file(manifest_path)}
+            matching = {"caseId": "AHT-01", "sourceSha": source_sha, "servedSha": served_sha, "evidenceDigests": {}}
+            wjson(plan_path, plan); wjson(result_path, campaign); wjson(approval_path, approval)
+
+            def verify(case_receipt):
+                wjson(os.path.join(case_dir, "case-result.json"), case_receipt)
+                out = os.path.join(root, "binding.json")
+                proc = subprocess.run([
+                    sys.executable, "-I", os.path.join(ROOT, "scripts", "verify_run_binding.py"),
+                    "--plan", plan_path, "--case-results", result_path,
+                    "--approval", approval_path, "--code-manifest", manifest_path,
+                    "--packet-root", root, "--cases-dir", cases_dir, "--out", out,
+                ], capture_output=True, text=True, timeout=15)
+                return proc, json.load(open(out, encoding="utf-8"))
+
+            proc, receipt = verify(matching)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "case.AHT-01.identity")["result"], "PASS")
+
+            invalid = [
+                {**matching, "caseId": "AHT-02"},
+                {**matching, "sourceSha": served_sha, "servedSha": source_sha},
+            ]
+            for field in ("caseId", "sourceSha", "servedSha"):
+                for value in (None, "", "g" * 40, 7):
+                    candidate = dict(matching); candidate[field] = value
+                    invalid.append(candidate)
+                candidate = dict(matching); del candidate[field]
+                invalid.append(candidate)
+            for candidate in invalid:
+                proc, receipt = verify(candidate)
+                self.assertNotEqual(proc.returncode, 0, candidate)
+                self.assertEqual(next(c for c in receipt["checks"] if c["id"] == "case.AHT-01.identity")["result"], "FAIL")
+
     def test_a_partial_run_is_never_the_full_live_run_even_with_every_row_executed(self):
         req = sample()["req"]
         out = CC.assess(req, catalog(), self.results(req))

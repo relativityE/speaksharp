@@ -23,7 +23,8 @@
       "allowedObservationInputs": [
         "startedAt",
         "journeyId",
-        "bootId"
+        "bootId",
+        "trafficType"
       ]
     },
     "feedback-association": {

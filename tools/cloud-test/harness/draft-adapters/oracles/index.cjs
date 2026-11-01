@@ -115,7 +115,7 @@ function createOracles({context,guard,caseConfig:c,writeEvidence,readPrivateEvid
    const observed=feedbackSentVerdict(sentRows(),{blind:s.tap.blind});
    if(observed.status!=='PASS')return result('received-feedback',observed.status,{sentEvents:sentRows().length,blind:s.tap.blind,reason:observed.reason});
    const sent=observed.identity;must(sent.releaseSha===c.sourceSha&&['canary','internal_test'].includes(sent.trafficType),'feedback sent identity not source/canary bound');
-   const raw=await privateReceipt('feedback-received',s.startedAt,{journeyId:sent.journeyId,bootId:sent.bootId});if(raw===null)return result('received-feedback','NOT RUN',{sentBound:true,sentAttempts:observed.attempts,sentEvents:observed.events,receivedStageQualified:false,reason:'authorized-evidence-reader-unavailable'},{evidenceReaderUnavailable:true});
+   const raw=await privateReceipt('feedback-received',s.startedAt,{journeyId:sent.journeyId,bootId:sent.bootId,trafficType:sent.trafficType});if(raw===null)return result('received-feedback','NOT RUN',{sentBound:true,sentAttempts:observed.attempts,sentEvents:observed.events,receivedStageQualified:false,reason:'authorized-evidence-reader-unavailable'},{evidenceReaderUnavailable:true});
    const finalSent=feedbackSentVerdict(sentRows(),{blind:s.tap.blind});if(finalSent.status!=='PASS')return result('received-feedback',finalSent.status,{reason:finalSent.reason,sentEvents:sentRows().length});
    const v=receipts.receivedFeedbackVerdict(raw,sent,c);return result('received-feedback',v.status,{sentBound:true,sentAttempts:observed.attempts,sentEvents:observed.events,receivedStageQualified:v.status==='PASS',feedbackVendorCardinality:'NOT_ESTABLISHED_BY_SUMMARY',reason:v.reason});
   }finally{s.tap.detach();}

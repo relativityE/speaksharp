@@ -32,7 +32,7 @@ function readTelemetry(request,{env,checkout,signal}){
  const childEnv={};for(const k of ['PATH','HOME','POSTHOG_PROJECT_ID','POSTHOG_PERSONAL_API_KEY','POSTHOG_API_HOST'])if(env[k]!==undefined)childEnv[k]=env[k];
  childEnv.QUALIFICATION_STAGES='share_feedback';
  return new Promise((resolve,reject)=>{
-  const child=spawn(process.execPath,['--import','tsx',path.join(checkout,'scripts/telemetry-readback-qualification.mts'),'--release-sha',request.sourceSha,'--journey-id',request.journeyId,'--traffic-type','canary','--query-timeout-ms','30000'],{cwd:checkout,env:childEnv,stdio:['ignore','pipe','pipe'],signal});
+  const child=spawn(process.execPath,['--import','tsx',path.join(checkout,'scripts/telemetry-readback-qualification.mts'),'--release-sha',request.sourceSha,'--journey-id',request.journeyId,'--traffic-type',request.trafficType,'--query-timeout-ms','30000'],{cwd:checkout,env:childEnv,stdio:['ignore','pipe','pipe'],signal});
   let output='',size=0,overflow=false;
   const timer=setTimeout(()=>child.kill('SIGKILL'),40000);timer.unref();
   child.stdout.on('data',b=>{size+=b.length;if(size>1048576){overflow=true;child.kill('SIGKILL');}else output+=b.toString('utf8');});

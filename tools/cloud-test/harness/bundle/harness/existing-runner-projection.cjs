@@ -24,22 +24,23 @@ function projectFeedbackAssociation(rows,request){
 }
 const feedbackFamilies=['feedback_dialog_opened','feedback_field','feedback_submit'];
 const feedbackCounts=['stageReasonsCount','missingCount','reasonsCount','unrecognisedCount','duplicateFamiliesCount','deliveryFailuresCount'];
+const trafficTypes=['canary','internal_test'];
 function feedbackReceivedQuery(request){
- requestDigest(request);need(request.artifactRole==='feedback-received'&&['journeyId','bootId'].every(k=>typeof request[k]==='string'&&request[k].trim()&&request[k].length<=200),'actual feedback telemetry identity missing');
- return {gate:'TELEMETRY-READBACK-COMPLETENESS',releaseSha:request.sourceSha,journeyId:request.journeyId,bootId:request.bootId,stage:'share_feedback',allowedTrafficTypes:['canary','internal_test']};
+ requestDigest(request);need(request.artifactRole==='feedback-received'&&['journeyId','bootId'].every(k=>typeof request[k]==='string'&&request[k].trim()&&request[k].length<=200)&&trafficTypes.includes(request.trafficType),'actual feedback telemetry identity/traffic type missing');
+ return {gate:'TELEMETRY-READBACK-COMPLETENESS',releaseSha:request.sourceSha,journeyId:request.journeyId,bootId:request.bootId,trafficType:request.trafficType,stage:'share_feedback'};
 }
 function validateFeedbackReceivedObservation(r,request){
  feedbackReceivedQuery(request);
  const keys=['identityBound','journeySha256','bootSha256','trafficType','verdict','stagesDeclared','observedFamilies','requiredFamilies','positiveControlCount',...feedbackCounts];
  need(r&&Object.keys(r).length===keys.length&&Object.keys(r).every(k=>keys.includes(k)),'unexpected feedback received projection fields');
- need(r.identityBound===true&&r.journeySha256===sha(request.journeyId)&&r.bootSha256===sha(request.bootId)&&['canary','internal_test'].includes(r.trafficType)&&['QUALIFIED','FAIL','HOLD'].includes(r.verdict),'feedback received projection identity/verdict differs');
+ need(r.identityBound===true&&r.journeySha256===sha(request.journeyId)&&r.bootSha256===sha(request.bootId)&&r.trafficType===request.trafficType&&['QUALIFIED','FAIL','HOLD'].includes(r.verdict),'feedback received projection identity/verdict differs');
  for(const [key,allowed]of [['stagesDeclared',['share_feedback']],['observedFamilies',feedbackFamilies],['requiredFamilies',feedbackFamilies]])need(Array.isArray(r[key])&&new Set(r[key]).size===r[key].length&&r[key].every(v=>allowed.includes(v)),'feedback received projection family/stage differs');
  need(feedbackCounts.every(k=>Number.isSafeInteger(r[k])&&r[k]>=0)&& (r.positiveControlCount===null||(Number.isSafeInteger(r.positiveControlCount)&&r.positiveControlCount>=0)),'feedback received projection counts invalid');
  return r;
 }
 function projectFeedbackReceived(receipt,request){
  const q=feedbackReceivedQuery(request);
- need(receipt?.gate===q.gate&&receipt.release_sha===q.releaseSha&&receipt.journey_id===q.journeyId&&receipt.boot_id===q.bootId&&receipt.identity_bound===true&&q.allowedTrafficTypes.includes(receipt.traffic_type),'actual feedback readback scope/identity differs');
+ need(receipt?.gate===q.gate&&receipt.release_sha===q.releaseSha&&receipt.journey_id===q.journeyId&&receipt.boot_id===q.bootId&&receipt.identity_bound===true&&receipt.traffic_type===q.trafficType,'actual feedback readback scope/identity differs');
  const arrays=['stage_reasons','missing','reasons','unrecognised','duplicate_families','stages_declared','observed_families','required_families'];
  need(arrays.every(k=>Array.isArray(receipt[k])&&receipt[k].every(v=>typeof v==='string')),'actual feedback readback completeness fields missing');
  // deliveryReceiptGate.ts emits typed objects, not vendor-name strings. Retain only their count.

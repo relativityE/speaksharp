@@ -163,7 +163,7 @@ if phase == 'phase1':
                 'deliveryKind': 'reviewed-authenticated-workflow-artifact' if same_job else kind, 'allowedObservationInputs': inputs}
     PROD = {'coaching-authority': producer('coaching-authority', 'reviewed-authenticated-workflow-artifact', ['startedAt', 'sessionIds']),
             'feedback-association': producer('feedback-association', 'reviewed-authenticated-workflow-artifact', ['startedAt', 'idempotencyKey']),
-            'feedback-received': producer('feedback-received', 'authenticated-connector-artifact', ['startedAt', 'journeyId', 'bootId'])}
+            'feedback-received': producer('feedback-received', 'authenticated-connector-artifact', ['startedAt', 'journeyId', 'bootId', 'trafficType'])}
     FIX = {'open': 'open_mic_tts', 'focus': 'focus_points_tts', 'partial': 'focus_points_partial_tts'}
     def fixture(name):
         e = fx[name]; return {'name': name, 'sha256': e['sha256'], 'launchSha256': e['sha256'], 'speechDurationMs': int(round(e['speechSeconds'] * 1000))}, e

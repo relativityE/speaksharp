@@ -8,7 +8,8 @@ const {verifyReviewedStep}=require('./reviewed-step.cjs');
 const SHA=/^[a-f0-9]{64}$/,UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 const loaded=new WeakSet();
-const roles=Object.freeze({'coaching-authority':['sessionIds'],'feedback-received':['journeyId','bootId'],'feedback-association':['idempotencyKey']});
+const roles=Object.freeze({'coaching-authority':['sessionIds'],'feedback-received':['journeyId','bootId','trafficType'],'feedback-association':['idempotencyKey']});
+const trafficTypes=Object.freeze(['canary','internal_test']);
 const requiredScope='existing-authenticated-producer-receiving-capability';
 function fail(s){throw new Error('NOT_RUN: '+s);}
 function validateProducerBinding(name,b){
@@ -24,7 +25,7 @@ function buildProducerRequest(name,b,c,observation,{notBefore,now=Date.now()}={}
  const request={version:1,artifactRole:name,producerIdentity:b.producerIdentity,producerCodeSha256:b.producerCodeSha256,campaignId:c.campaignId,caseId:c.caseId,sourceSha:c.sourceSha,servedSha:c.servedSha,ownerAccountId:c.account.id,startedAt:new Date(start).toISOString(),requestedAt:new Date(now).toISOString(),requestNonce:crypto.randomBytes(16).toString('hex')};
  if(name==='coaching-authority'){if(!Array.isArray(observation.sessionIds)||observation.sessionIds.length!==1||new Set(observation.sessionIds).size!==1||observation.sessionIds.some(id=>!UUID.test(id)))fail('producer requires exactly one actual current session identity');request.sessionIds=[...observation.sessionIds];}
  else if(name==='feedback-association'){if(!UUID.test(observation.idempotencyKey||''))fail('producer actual feedback idempotency key missing');request.idempotencyKey=observation.idempotencyKey;}
- else{for(const key of ['journeyId','bootId'])if(typeof observation[key]!=='string'||!observation[key].trim()||observation[key].length>200)fail('producer observed telemetry identity missing');request.journeyId=observation.journeyId;request.bootId=observation.bootId;}
+ else{for(const key of ['journeyId','bootId'])if(typeof observation[key]!=='string'||!observation[key].trim()||observation[key].length>200)fail('producer observed telemetry identity missing');if(!trafficTypes.includes(observation.trafficType))fail('producer observed telemetry traffic type invalid');request.journeyId=observation.journeyId;request.bootId=observation.bootId;request.trafficType=observation.trafficType;}
  return Object.freeze({...request,...(request.sessionIds?{sessionIds:Object.freeze(request.sessionIds)}:{})});
 }
 function validateProducerDelivery(delivery,request,b,{now=Date.now()}={}){
@@ -57,7 +58,7 @@ function persistPrivateDelivery(directory,request,delivery,result){
  const put=(file,bytes)=>{const fd=fs.openSync(file,'wx',0o600);created.push(file);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}};
  const p=delivery.provenance,retained=Object.fromEntries(['verificationStatus','deliveryKind','producerIdentity','producerCodeSha256','requestSha256','artifactSha256','artifactRole','campaignId','caseId','sourceSha','servedSha','sourceReference','verifierReference','rawServerRead','producedAt','receivedAt'].map(k=>[k,p[k]]));
  const summaryBytes=Buffer.from(JSON.stringify({contentSafe:true,kind:'producer-content-free-summary',artifactRole:request.artifactRole,rawArtifactSha256:result.provenance.artifactSha256,rawArtifactRetained:false,jsonType:Array.isArray(result.content)?'array':typeof result.content,rowCount:Array.isArray(result.content?.rows)?result.content.rows.length:null},null,2)+'\n');
- const safeRequest={artifactRole:request.artifactRole,campaignId:request.campaignId,caseId:request.caseId,sourceSha:request.sourceSha,servedSha:request.servedSha,ownerAccountSha256:digest(request.ownerAccountId),sessionSha256s:request.sessionIds?.map(digest)||null,idempotencySha256:request.idempotencyKey?digest(request.idempotencyKey):null,journeySha256:request.journeyId?digest(request.journeyId):null,bootSha256:request.bootId?digest(request.bootId):null,startedAt:request.startedAt,requestedAt:request.requestedAt,requestSha256:result.provenance.requestSha256};
+ const safeRequest={artifactRole:request.artifactRole,campaignId:request.campaignId,caseId:request.caseId,sourceSha:request.sourceSha,servedSha:request.servedSha,ownerAccountSha256:digest(request.ownerAccountId),sessionSha256s:request.sessionIds?.map(digest)||null,idempotencySha256:request.idempotencyKey?digest(request.idempotencyKey):null,journeySha256:request.journeyId?digest(request.journeyId):null,bootSha256:request.bootId?digest(request.bootId):null,trafficType:request.trafficType||null,startedAt:request.startedAt,requestedAt:request.requestedAt,requestSha256:result.provenance.requestSha256};
  const receiptBytes=Buffer.from(JSON.stringify({kind:'private-authenticated-producer-delivery',request:safeRequest,provenance:retained,summaryFile:path.basename(artifact),summarySha256:digest(summaryBytes),rawArtifactSha256:result.provenance.artifactSha256,rawArtifactRetained:false},null,2)+'\n');
  try{put(artifact,summaryBytes);put(receipt,receiptBytes);const fd=fs.openSync(dir,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}catch(e){for(const file of created)try{fs.unlinkSync(file);}catch{}throw e;}
  return {summaryFile:path.basename(artifact),summarySha256:digest(summaryBytes),receiptFile:path.basename(receipt),receiptSha256:digest(receiptBytes)};

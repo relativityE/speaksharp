@@ -19,8 +19,8 @@ for(const [k,v]of [['user_id',id],['idempotency_key',id],['session_id','malforme
 for(const [k,v]of [['requestSha256',h],['campaignId','other'],['caseId','AHT-08'],['sourceReadRoute','fake'],['artifactRole','feedback-association']])test('projection receipt rejects '+k,()=>{const q=request(),v0=p.projectCoachingAuthority([authority()],q);v0[k]=v;assert.throws(()=>p.validateProjection(v0,q));});
 const binding={deliveryKind:'authenticated-connector-artifact',producerIdentity:'UNIT-EXISTING',producerCodeSha256:h};
 
-const telemetryRequest=()=>({...request('feedback-received'),caseId:'AHT-08',journeyId:'UNIT-journey',bootId:'UNIT-boot'});
-const telemetryReceipt=()=>({gate:'TELEMETRY-READBACK-COMPLETENESS',release_sha:sha,journey_id:'UNIT-journey',boot_id:'UNIT-boot',traffic_type:'internal_test',identity_bound:true,verdict:'QUALIFIED',stages_declared:['share_feedback'],stage_reasons:[],missing:[],reasons:[],unrecognised:[],duplicate_families:[],delivery_failures:[],observed_families:['feedback_dialog_opened','feedback_field','feedback_submit'],required_families:['feedback_dialog_opened','feedback_field','feedback_submit'],received_counts:{telemetry_positive_control:1}});
+const telemetryRequest=(trafficType='internal_test')=>({...request('feedback-received'),caseId:'AHT-08',journeyId:'UNIT-journey',bootId:'UNIT-boot',trafficType});
+const telemetryReceipt=(trafficType='internal_test')=>({gate:'TELEMETRY-READBACK-COMPLETENESS',release_sha:sha,journey_id:'UNIT-journey',boot_id:'UNIT-boot',traffic_type:trafficType,identity_bound:true,verdict:'QUALIFIED',stages_declared:['share_feedback'],stage_reasons:[],missing:[],reasons:[],unrecognised:[],duplicate_families:[],delivery_failures:[],observed_families:['feedback_dialog_opened','feedback_field','feedback_submit'],required_families:['feedback_dialog_opened','feedback_field','feedback_submit'],received_counts:{telemetry_positive_control:1}});
 const receivedVerdict=require('../../draft-adapters/oracles/receipts.cjs').receivedFeedbackVerdict;
 const sentTelemetry={journeyId:'UNIT-journey',bootId:'UNIT-boot',trafficType:'internal_test'};
 const telemetryConfig={sourceSha:sha,servedSha:sha,campaignId:'UNIT',caseId:'AHT-08'};
@@ -32,6 +32,14 @@ test('actual feedback readback projection reaches the existing journey oracle wi
  for(const value of [q.journeyId,q.bootId,q.ownerAccountId,raw.extra])assert.equal(JSON.stringify(projected).includes(value),false);
  assert.equal(projected.observations[0].positiveControlCount,1);
  assert.equal(projected.observations[0].feedbackSubmitCount,undefined);
+});
+test('feedback traffic class is exact, digest-bound, and supports both closed classes',()=>{
+ const canary=telemetryRequest('canary'),internal=telemetryRequest('internal_test');
+ assert.notEqual(p.requestDigest(canary),p.requestDigest(internal));
+ for(const q of [canary,internal])assert.doesNotThrow(()=>p.projectFeedbackReceived(telemetryReceipt(q.trafficType),q));
+ assert.throws(()=>p.projectFeedbackReceived(telemetryReceipt('canary'),internal),/scope\/identity/);
+ const missing=telemetryRequest();delete missing.trafficType;assert.throws(()=>p.feedbackReceivedQuery(missing),/traffic type/);
+ for(const trafficType of [null,'','customer','CANARY'])assert.throws(()=>p.feedbackReceivedQuery(telemetryRequest(trafficType)),/traffic type/);
 });
 for(const [field,value]of [['release_sha','b'.repeat(40)],['journey_id','other'],['boot_id','other'],['identity_bound',false],['traffic_type','user']])test('received projection rejects actual readback '+field,()=>assert.throws(()=>p.projectFeedbackReceived({...telemetryReceipt(),[field]:value},telemetryRequest())));
 for(const [variant,[field,value,expected]]of [['missing',['feedback_submit'],'HOLD'],['reasons',['private error token'],'HOLD'],['stage_reasons',['private failure text'],'HOLD'],['unrecognised',['other'],'HOLD'],['duplicate_families',['feedback_submit'],'FAIL'],['delivery_failures',[{category:'unaccounted_delivery_gap',affectedFamilies:['feedback_submit']}],'FAIL'],['verdict','FAIL','FAIL'],['verdict','HOLD','HOLD'],['stages_declared',[],'HOLD'],['required_families',[],'HOLD'],['observed_families',[],'HOLD'],['received_counts',{telemetry_positive_control:0},'HOLD']].entries())test('received projection preserves non-success '+field+' variant '+variant,()=>{

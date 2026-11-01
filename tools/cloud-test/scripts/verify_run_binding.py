@@ -40,6 +40,11 @@ for cid,row in sorted(rows.items()):
     chk('case.'+cid+'.config','configSha256 equals the case config bytes',bool(cfgp) and os.path.exists(cfgp) and sha(cfgp)==row['configSha256'],row['configSha256'][:16])
     if row.get('mediaFile'): chk('case.'+cid+'.media','mediaSha256 equals the media bytes',os.path.exists(row['mediaFile']) and sha(row['mediaFile'])==row['mediaSha256'],row['mediaSha256'][:16])
     r=json.load(open(os.path.join(d,'case-result.json')))
+    receipt_case_bound = r.get('caseId') == cid
+    receipt_source_bound = git_sha(r.get('sourceSha')) and r['sourceSha'] == plan['sourceSha']
+    receipt_served_bound = git_sha(r.get('servedSha')) and r['servedSha'] == plan['servedSha']
+    chk('case.'+cid+'.identity','case receipt binds exact caseId and planned source/served SHAs',receipt_case_bound and receipt_source_bound and receipt_served_bound,
+        f"case={receipt_case_bound} source={receipt_source_bound} served={receipt_served_bound}")
     chk('case.'+cid+'.evidence','every evidenceDigests entry matches the evidence file bytes ('+str(len(r.get('evidenceDigests',{})))+')',all(any(os.path.exists(os.path.join(b,k)) and sha(os.path.join(b,k))==v for b in [d]+[os.path.join(sd,cid) for sd in x.supplement_cases_dir]) for k,v in r.get('evidenceDigests',{}).items()))
     s=res.get(cid,{}).get('executionReceipt',{})
     if s and s.get('summarySha256'): chk('case.'+cid+'.summary','campaign summarySha256 equals summary.json',sha(os.path.join(d,'summary.json'))==s['summarySha256'])
