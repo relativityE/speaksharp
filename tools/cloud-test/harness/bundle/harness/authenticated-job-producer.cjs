@@ -5,7 +5,7 @@ const fs=require('node:fs'),path=require('node:path'),net=require('node:net');
 const {spawn}=require('node:child_process');
 const p=require('./existing-runner-projection.cjs');
 const SHA=/^[a-f0-9]{40}$/,UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
-const ROLES=Object.freeze({'AHT-01':['coaching-authority'],'AHT-02':['coaching-authority'],'AHT-03':['coaching-authority'],'AHT-07':['coaching-authority','feedback-association','feedback-received'],'AHT-08':['feedback-association','feedback-received']});
+const ROLES=Object.freeze({'AHT-01':['coaching-authority'],'AHT-02':['coaching-authority'],'AHT-03':['coaching-authority'],'AHT-07':['feedback-association','feedback-received'],'AHT-08':['feedback-association','feedback-received']});
 const fail=code=>{throw Object.assign(new Error('NOT_RUN: '+code),{code});};
 const producerSha=()=>p.sha(fs.readFileSync(__filename));
 function descriptor(reviewReference,env=process.env){

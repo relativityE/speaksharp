@@ -97,10 +97,39 @@ test('disposal while reading model status cannot open late observation windows',
  let opened=0;const evaluate=f.a.evaluate.bind(f.a);f.a.evaluate=(fn,args)=>{if(!args?.url)opened++;return evaluate(fn,args);};
  await refuses(f.begin());assert.equal(opened,0);assert.equal(f.b.listenerCount('request'),0);
 });
-test('adapter arms on first page before first Start and retains account-wide terminal safety',()=>{
+test('adapter arms on first page before first Start and retains post-baseline terminal safety',()=>{
  const source=readFileSync(require.resolve('../source-adapters.cjs'),'utf8');
  const branch=source.slice(source.indexOf("}else if(caseId==='AHT-11'){"),source.indexOf("}else if(caseId==='AHT-12'){"));
  const armed=branch.indexOf("await hook('takeoverLease','before-first')"),start=branch.indexOf('await ui.start(page)');
  assert.ok(armed>=0&&start>armed,'creation observer precedes actual first Start');
- assert.ok(branch.includes("(await rows(d)).every(r=>r.status!=='active')"),'final all-owner no-active condition unchanged');
+ assert.ok(branch.includes("(await rows(d)).every(r=>r.status!=='active')"),'final post-baseline no-active condition unchanged');
+});
+
+async function adapterTerminalControl({newActive=false}={}){
+ const adapters=require('../source-adapters.cjs'),ui=require('../browser-actions.cjs'),observer=require('../browser-observers.cjs'),readback=require('../browser-readback.cjs');
+ const patches=[],recorded=[],phases=[],made=[];let completed=false,otherClosed=false;
+ const patch=(object,key,value)=>{patches.push([object,key,object[key]]);object[key]=value;};
+ const page=name=>{let closed=false;const p=Object.assign(new EventEmitter(),{name,setDefaultTimeout(){},setDefaultNavigationTimeout(){},waitForTimeout:async()=>{},isClosed:()=>closed,close:async()=>{closed=true;},getByText:()=>({first(){return this;},waitFor:async()=>{},isVisible:async()=>false})});made.push(p);return p;};
+ const a=page('first'),b=page('same-context'),d=page('independent'),queue=[a,b];
+ const contract=adapters.CONTRACTS['AHT-11'],c={caseId:'AHT-11',campaignId:'UNIT-TERMINAL',sourceSha:adapters.SOURCE_SHA,servedSha:adapters.SOURCE_SHA,targetUrl:'https://unit.invalid',requiredAssertions:contract.rows,
+  account:{id:owner,mode:'existing-disposable',preprovisionReceipt:'unit/pre.json',analyticsExclusionReceipt:'unit/analytics.json',dispositionReceipt:'unit/disposition.json',effectiveFeatureAccessApproved:true},
+  readback:{origin:'https://unit.invalid',projectRef:'unit',anonKey:'synthetic-public',schemaSha256:'a'.repeat(64),ownerReadApproved:true,rlsReadQualificationReceipt:'unit/rls.json'},
+  observerSourceReviewed:true,observerQualificationReceipt:'unit/observer.json',takeCap:2,startPressCap:4,fixture:{sha256:'b'.repeat(64),launchSha256:'b'.repeat(64),speechDurationMs:7000},
+  oracleBindings:{takeoverLease:{sha256:'c'.repeat(64),reviewReceipt:'unit/review.json',module:'unit/takeover.cjs'}}};
+ const historical={id:'historical-fenced',status:'active'},first={id:'created-first',status:'completed'},second={id:'created-second',status:'completed'};
+ patch(ui,'login',async()=>true);patch(ui,'openMic',async()=>{});patch(ui,'start',async()=>{});patch(ui,'primary',async()=>{});patch(ui,'recording',async()=>{});patch(ui,'speak',async()=>{});patch(ui,'stop',async()=>{});
+ patch(ui,'saved',async p=>{completed=true;return p===a?first.id:second.id;});
+ patch(observer,'install',async()=>{});patch(observer,'mic',async p=>({recording:p===a,liveTracks:p===a?1:0,recorderVisible:p===a,acquisitions:0}));
+ patch(readback,'sessions',async()=>[historical,...(completed?[first,second,...(newActive?[{id:'new-unclosed',status:'active'}]:[])]:[])]);
+ try{
+  const result=await adapters.run('AHT-11',{context:{newPage:async()=>queue.shift(),grantPermissions:async()=>{}},browser:{newContext:async()=>({newPage:async()=>d,close:async()=>{otherClosed=true;}})},guard:{summary:()=>({ledgerUsed:{model:0}})},caseConfig:c,
+   capabilities:{credentials:{email:'synthetic@example.invalid',password:'synthetic-only'},recordStartPress:async()=>{},writeEvidence:async n=>n,recordAssertion:async r=>recorded.push(r),oracles:{takeoverLease:async args=>{phases.push(args.phase);return args.phase==='assert'?{observed:true,result:'PASS',contentSafe:true,evidenceRefs:['unit/synthetic-oracle.json']}:{observed:true};}}}});
+  return {result,recorded,phases,closed:made.every(p=>p.isClosed()),otherClosed};
+ }finally{for(const [object,key,value]of patches.reverse())object[key]=value;}
+}
+test('whole adapter permits unchanged historical active row excluded by its initial baseline',async()=>{
+ const f=await adapterTerminalControl();assert.equal(f.recorded.find(r=>r.id==='two-takes-isolated')?.result,'PASS');assert.equal(f.recorded.find(r=>r.id==='owned-pages-closed')?.result,'PASS');assert(f.closed&&f.otherClosed);assert.equal(f.phases[0],'before-first');
+});
+test('whole adapter fails a NEW active row after takeover and still closes every owned page/context',async()=>{
+ const f=await adapterTerminalControl({newActive:true});assert.equal(f.recorded.find(r=>r.id==='two-takes-isolated')?.result,'FAIL');assert.equal(f.recorded.find(r=>r.id==='owned-pages-closed')?.result,'PASS');assert(f.closed&&f.otherClosed);assert.equal(f.result.blocker,'observed-product-contradiction');
 });
