@@ -11,6 +11,11 @@
  * VERIFY_TARGET=canaries: strictly read-only canary identity inspection (scripts/lib/canaryReadOnlyVerify.mjs).
  * It never authenticates as a canary, so credential viability is not tested.
  *
+ * VERIFY_TARGET=live-journey-accounts: the Cloud test live run's two REQUIRED accounts, by role only — existing-disposable
+ * (THROWAWAY_TEST_EMAIL) and maintained-read-only (FREE_TEST_EMAIL), both expected Free. It reports per role whether the auth user exists,
+ * whether its profile carries the expected tier and, when an expected id digest is supplied, whether the account's id matches it.
+ * It never prints or returns an email (masked or not), an id, a count or a raw error; it never signs in, so password viability is untested.
+ *
  * This script intentionally performs no writes.
  */
 
@@ -18,6 +23,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { pathToFileURL } from 'node:url';
+import { hash } from 'node:crypto';
 import { formatCanaryLine, runCanaryInspection } from './lib/canaryReadOnlyVerify.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
@@ -124,6 +130,46 @@ export async function completedSessionCount(supabase, userId) {
   return !error && Number.isInteger(count) && count >= 0 ? count : null;
 }
 
+export const LIVE_JOURNEY_ROLES = Object.freeze([
+  { role: 'existing-disposable', emailVar: 'THROWAWAY_TEST_EMAIL', digestVar: 'EXPECTED_THROWAWAY_ID_SHA256', expectedTier: 'free' },
+  { role: 'maintained-read-only', emailVar: 'FREE_TEST_EMAIL', digestVar: 'EXPECTED_FREE_ID_SHA256', expectedTier: 'free' },
+]);
+const SHA256 = /^[0-9a-f]{64}$/;
+
+/**
+ * Role-only verification of the live run's two required accounts. Read-only: the existing auth-user listing and one user_profiles
+ * select. Both names are required and nothing falls back (no E2E_*, CREATE_* or PRO). Any read failure becomes one fixed code, so no
+ * SDK message can carry an email or id. Returns { target, results, allPass }
+ * and nothing else: per role { role, authUserExists, tierMatches, idMatches, pass } (idMatches is null when no digest was supplied).
+ */
+export async function verifyLiveJourneyAccounts({ supabase, env = process.env, listUsers = listAllAuthUsers }) {
+  const wanted = LIVE_JOURNEY_ROLES.map((r) => ({ ...r, email: env[r.emailVar]?.trim().toLowerCase() || '', digest: env[r.digestVar]?.trim() || '' }));
+  if (wanted.some((w) => !w.email)) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: both role email names are required');
+  if (wanted.some((w) => w.digest && !SHA256.test(w.digest))) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: an expected id digest is malformed');
+  if (wanted[0].email === wanted[1].email) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: the two roles name the same account');
+  let byEmail, profiles;
+  try {
+    byEmail = new Map((await listUsers(supabase)).filter((u) => u.email).map((u) => [u.email.toLowerCase(), u]));
+    const found = wanted.map((w) => byEmail.get(w.email)).filter(Boolean);
+    profiles = new Map();
+    if (found.length) {
+      const { data, error } = await supabase.from('user_profiles').select('id, subscription_status').in('id', found.map((u) => u.id));
+      if (error) throw new Error('profiles');
+      for (const row of data || []) profiles.set(row.id, row);
+    }
+  } catch {
+    throw new Error('LIVE_JOURNEY_ACCOUNTS_READ_FAILED');
+  }
+  const results = wanted.map((w) => {
+    const user = byEmail.get(w.email);
+    const profile = user ? profiles.get(user.id) : null;
+    const tierMatches = Boolean(profile && profile.subscription_status === w.expectedTier);
+    const idMatches = w.digest ? Boolean(user && hash('sha256', user.id) === w.digest) : null;
+    return { role: w.role, authUserExists: Boolean(user), tierMatches, idMatches, pass: Boolean(user && tierMatches && idMatches !== false) };
+  });
+  return { target: 'live-journey-accounts', results, allPass: results.every((r) => r.pass) };
+}
+
 export function statusLine(status, result) {
   const prefix = status === 'PASS' ? 'PASS' : 'FAIL';
   const details = [
@@ -152,9 +198,28 @@ async function main() {
     process.exit(1);
   }
 
-  if (!['reviewers', 'canaries'].includes(VERIFY_TARGET)) {
-    console.error(`FAIL verifier config: unknown VERIFY_TARGET '${VERIFY_TARGET}' (expected reviewers or canaries)`);
+  if (!['reviewers', 'canaries', 'live-journey-accounts'].includes(VERIFY_TARGET)) {
+    console.error(`FAIL verifier config: unknown VERIFY_TARGET '${VERIFY_TARGET}' (expected reviewers, canaries or live-journey-accounts)`);
     process.exit(1);
+  }
+
+  if (VERIFY_TARGET === 'live-journey-accounts') {
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    let outcome;
+    try {
+      outcome = await verifyLiveJourneyAccounts({ supabase: adminClient });
+    } catch (error) {
+      // Only this module's own fixed codes are printed; anything else is reported as a read failure.
+      const message = error instanceof Error && /^LIVE_JOURNEY_ACCOUNTS_[A-Z_]+(: [a-z ]+)?$/.test(error.message) ? error.message : 'LIVE_JOURNEY_ACCOUNTS_READ_FAILED';
+      console.error(`FAIL ${message}`);
+      process.exit(1);
+    }
+    console.log('Live-journey account verification (read-only; role only; no sign-in)');
+    console.log(JSON.stringify({ checkedAt: new Date().toISOString(), ...outcome }, null, 2));
+    if (!outcome.allPass) process.exit(1);
+    return;
   }
 
   if (VERIFY_TARGET === 'canaries') {

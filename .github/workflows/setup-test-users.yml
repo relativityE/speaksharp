@@ -69,13 +69,22 @@ on:
           - canary_paid
           - free_test
       verify_target:
-        description: 'Verify action only: reviewers (default), or canaries for a strictly read-only canary identity inspection that never signs in'
+        description: 'Verify action only: reviewers (default), canaries (read-only canary identity inspection, never signs in), or live-journey-accounts (the Cloud test live run accounts by role only, never signs in)'
         required: false
         default: 'reviewers'
         type: choice
         options:
           - reviewers
           - canaries
+          - live-journey-accounts
+      expected_throwaway_id_sha256:
+        description: 'live-journey-accounts only, optional: sha256 of the expected existing-disposable account id (a digest, never the id)'
+        required: false
+        type: string
+      expected_free_id_sha256:
+        description: 'live-journey-accounts only, optional: sha256 of the expected maintained-read-only account id (a digest, never the id)'
+        required: false
+        type: string
 
 jobs:
   test-user-admin:
@@ -128,10 +137,26 @@ jobs:
           VERIFY_TARGET: ${{ github.event.inputs.verify_target }}
         run: pnpm verify:test-users
 
+      # Least privilege for the Cloud test live run's two accounts: the Supabase URL, the service-role credential (auth-user listing
+      # and the user_profiles select), the two role email IDENTIFIERS, the two optional expected-id digests and the selectors.
+      # No anon key, no password, no PRO or reviewer identity, no create input, no soak variable; it never signs in.
+      - name: Run live-journey account verification (strictly read-only, role only)
+        if: ${{ github.event.inputs.action == 'verify' && github.event.inputs.verify_target == 'live-journey-accounts' }}
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
+          EXPECTED_THROWAWAY_ID_SHA256: ${{ github.event.inputs.expected_throwaway_id_sha256 }}
+          EXPECTED_FREE_ID_SHA256: ${{ github.event.inputs.expected_free_id_sha256 }}
+          ACTION: ${{ github.event.inputs.action }}
+          VERIFY_TARGET: ${{ github.event.inputs.verify_target }}
+        run: pnpm verify:test-users
+
       - name: Run test user admin action
-        # The broad step cannot execute for the canary-verification case; that case is served only by the
+        # The broad step cannot execute for the canary or live-journey account verification; each is served only by its
         # least-privilege step above.
-        if: ${{ !(github.event.inputs.action == 'verify' && github.event.inputs.verify_target == 'canaries') }}
+        if: ${{ !(github.event.inputs.action == 'verify' && (github.event.inputs.verify_target == 'canaries' || github.event.inputs.verify_target == 'live-journey-accounts')) }}
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -143,8 +143,38 @@ describe('Admin - Test Users workflow contract', () => {
     expect(canary.run.trim()).toBe('pnpm verify:test-users');
   });
 
-  it('verify_target selects the reviewers check (default) or the read-only canary inspection', () => {
-    expect(inputs.verify_target.options).toEqual(['reviewers', 'canaries']);
+  // Cloud test live run: the two required accounts by role only, in their OWN least-privilege step (Sam 1793541050.190059).
+  it('CASUALTY: the live-journey account verify path runs in its own step with ONLY the allowed environment', () => {
+    const steps = wf.jobs['test-user-admin'].steps;
+    const STEP = 'Run live-journey account verification (strictly read-only, role only)';
+    const own = steps.filter((s) => s.name === STEP);
+    expect(own).toHaveLength(1);
+    const [step] = own;
+    const others = steps.filter((s) => s.name !== STEP && /live-journey-accounts/.test(s.if ?? '') && !/\$\{\{\s*!/.test(s.if ?? ''));
+    expect(others.map((s) => s.name)).toEqual([]);
+    expect(step.if).toMatch(/action\s*==\s*'verify'/);
+    expect(step.if).toMatch(/verify_target\s*==\s*'live-journey-accounts'/);
+    expect(Object.keys(step.env ?? {}).sort()).toEqual([
+      'ACTION', 'EXPECTED_FREE_ID_SHA256', 'EXPECTED_THROWAWAY_ID_SHA256', 'FREE_TEST_EMAIL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL',
+      'THROWAWAY_TEST_EMAIL', 'VERIFY_TARGET',
+    ]);
+    expect(step.env.THROWAWAY_TEST_EMAIL).toBe('${{ vars.THROWAWAY_TEST_EMAIL }}');
+    expect(step.env.FREE_TEST_EMAIL).toBe('${{ vars.FREE_TEST_EMAIL }}');
+    const env = JSON.stringify(step.env ?? {});
+    for (const banned of ['PASSWORD', 'ANON_KEY', 'SOAK', 'GH_PAT', 'GH_TOKEN', 'PRO_TEST', 'CREATE_', 'CANARY_', 'E2E_']) {
+      expect(env, `live-journey verify step must not receive ${banned}`).not.toContain(banned);
+    }
+    const broad = steps.find((s) => s.name === 'Run test user admin action');
+    expect(broad.if, 'broad step must exclude the live-journey case').toMatch(/!\s*\(.*action\s*==\s*'verify'.*verify_target\s*==\s*'live-journey-accounts'.*\)/s);
+    expect(step.run.trim()).toBe('pnpm verify:test-users');
+    for (const name of ['expected_throwaway_id_sha256', 'expected_free_id_sha256']) {
+      expect(inputs[name].type).toBe('string');
+      expect(inputs[name].required).toBe(false);
+    }
+  });
+
+  it('verify_target selects the reviewers check (default), the read-only canary inspection or the live-journey accounts', () => {
+    expect(inputs.verify_target.options).toEqual(['reviewers', 'canaries', 'live-journey-accounts']);
     expect(inputs.verify_target.default).toBe('reviewers');
     expect(raw).toContain('VERIFY_TARGET: ${{ github.event.inputs.verify_target }}');
   });
