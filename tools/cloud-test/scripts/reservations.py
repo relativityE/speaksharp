@@ -101,6 +101,95 @@ def request_consumption(req, expected_sha256, execution_run_id, attempt, stamp, 
             "requestSha256": expected_sha256, "consumedAtUtc": stamp, "allocation": caps}
 
 
+class JournalRefused(ValueError):
+    pass
+
+
+def _jneed(ok, code):
+    if not ok:
+        raise JournalRefused(code)
+
+
+def nightly_journal_request(request_raw, admitted_sha256):
+    """The gate-admitted nightly request bytes, every cap a known integer. Returns (request, allocation). The run is held at its APPROVED
+    per-run ceilings, the ones G5 and the builder enforce at runtime (approvedLimits.runCapRequests and identityCap), never the lower
+    estimate: `requests` holds G5's charge, the approved run cap plus the approved identity reads."""
+    _jneed(isinstance(request_raw, bytes) and isinstance(admitted_sha256, str) and SHA256.fullmatch(admitted_sha256)
+           and hashlib.sha256(request_raw).hexdigest() == admitted_sha256, "reservation-request-not-admitted")
+    try:
+        req = json.loads(request_raw)
+    except ValueError:
+        raise JournalRefused("reservation-request-unreadable")
+    _jneed(isinstance(req, dict) and req.get("priority") == "nightly-regression", "reservation-not-nightly")
+    caps, lim = caps_of_request(req), req.get("approvedLimits") or {}
+    caps.update(identityReads=lim.get("identityCap"))
+    _jneed(type(lim.get("runCapRequests")) is int and all(type(caps[k]) is int and caps[k] >= 0 for k in CATS), "reservation-caps-unknown")
+    return req, dict(caps, requests=lim["runCapRequests"] + caps["identityReads"])
+
+
+def journal_reserve(request_raw, admitted_sha256, github_run_id, attempt, approval, rollup, chain, expected_head, at_utc):
+    """The nightly campaign's reserve event for the state-ref journal (RETURN 1793572741.370569), or a refusal: attempt 1; the accepted
+    rollup recomputed at exactly `expected_head` (the head it will be appended on) holds G5's charge; and G11's standing-approval limits
+    (per run, cadence, period caps) hold over the SAME journal's period usage."""
+    import manual_reservation as M
+    from recurring_usage import check_caps
+    _jneed(attempt == 1, "reservation-attempt")
+    req, allocation = nightly_journal_request(request_raw, admitted_sha256)
+    _jneed(isinstance(rollup, dict) and rollup.get("source") == "accepted-rollup" and rollup.get("headSha") == expected_head
+           and chain[-1][0] == expected_head, "reservation-rollup-stale")
+    room = rollup.get("currentHeadroom") or {}
+    _jneed(all(type(room.get(k)) is int and allocation[k] <= room[k] for k in M.G5_KEYS), "reservation-exceeds-headroom")
+    needs = check_caps(req, approval, None, None, parse_utc(at_utc), journal_chain=chain)
+    _jneed(not needs, "reservation-standing-limit")
+    try:
+        return M._event("reserve", {"campaignId": req["runId"], "runId": github_run_id, "attempt": 1}, allocation,
+                        "request-sha256:" + admitted_sha256, at_utc)
+    except M.Refused as e:
+        raise JournalRefused("reservation-" + str(e))
+
+
+def journal_execute(command, inputs, repo, url, root, journal, out, pins, approval, approved_url=None):
+    """One nightly transition on the state ref the continuity rollup reads: `reserve` (then the reserve must be persisted at the receipt's
+    commit on a fresh chain read) or `settle` (from the collector's run-record bytes, bound to the reservation found ON the chain).
+    `pins` are the accepted bootstrap digest, its root and the accepted scope digest; `root` must be that root."""
+    import accounting_rollup
+    import manual_reservation as M
+    import state_ref_writer as W
+    approved_url = approved_url or W.APPROVED_URL
+    _jneed(root is not None and root == pins.get("accepted_root"), "reservation-root-mismatch")
+    try:
+        head = W.fetch_head(repo, url, approved_url)
+        chain = W.validate_chain(repo, head, root)
+        scope = M.accepted_scope(inputs["scope"], pins.get("accepted_scope_sha256"))
+        M._in_period(scope, inputs["atUtc"], "reservation-outside-period")
+        if command == "reserve":
+            rollup = accounting_rollup.receive(inputs["bootstrap"], scope, chain, pins.get("accepted_sha256"), pins.get("accepted_root"))
+            event = journal_reserve(inputs["request"], inputs["admittedSha256"], inputs["runId"], inputs["attempt"], approval, rollup, chain,
+                                    head, inputs["atUtc"])
+        else:
+            _jneed(command == "settle", "reservation-command")
+            reserved = M._reserved_on_chain(chain, inputs["campaignId"], inputs["runId"])
+            usage, evidence = M.usage_from_record(inputs["record"], reserved)
+            event = M.settle(reserved, usage, evidence, inputs["atUtc"])
+        W.propose_to_files(repo, url, head, event, root, journal, out, approved_url)
+        persisted = W.validate_chain(repo, W.fetch_head(repo, url, approved_url), root)
+    except (W.Refused, accounting_rollup.Refused, M.Refused) as err:
+        raise JournalRefused("reservation-" + str(err))
+    _jneed(any(events and events[-1] == event for _, events, _ in persisted), "reservation-not-persisted")
+    return event
+
+
+def journal_require(chain, campaign_id, github_run_id, admitted_sha256):
+    """The run stage proceeds only when THIS campaign/run/attempt holds an open reserve for exactly the admitted request ON the chain."""
+    state = {}
+    for e in chain[-1][1]:
+        key = (e["campaignId"], e["runId"], e["attempt"])
+        state[key] = e if e["type"] == "reserve" else None
+    e = state.get((campaign_id, github_run_id, 1))
+    _jneed(e is not None and e["provenance"] == "request-sha256:" + str(admitted_sha256), "reservation-not-held")
+    return e
+
+
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=["reserve", "release", "verify", "require"])
