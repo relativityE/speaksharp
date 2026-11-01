@@ -83,6 +83,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
                "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),
                "CT_ACCOUNT_ID_FILE": str(uid), "BP_BROWSER_IDENTITY": str(browser_identity),
                "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE",
+               "VITE_SUPABASE_URL": "https://project.supabase.co",
                "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40,
                "THROWAWAY_TEST_EMAIL": "unit@example.invalid", "THROWAWAY_TEST_PASSWORD": "SYNTHETIC-PASSWORD"}
