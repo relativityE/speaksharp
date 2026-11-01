@@ -20,7 +20,7 @@ def comment(cid, user, body, url=URL):
 
 
 def record(run_id="101", outcome="passed", **over):
-    rec = {"runId": run_id, "attempt": 1, "sourceSha": SHA, "testedSha": "b" * 40, "servedSha": "b" * 40, "campaignId": "R6-unit", "coverage": "batch", "startedUtc": "2026-10-31T18:00:00Z",
+    rec = {"runId": run_id, "attempt": 1, "sourceSha": SHA, "testedSha": "b" * 40, "servedSha": "b" * 40, "campaignId": "R6-unit", "coverage": "batch", "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": "2026-10-31T18:00:00Z",
            "endedUtc": "2026-10-31T18:40:00Z", "outcome": outcome,
            "cases": [{"caseId": "AHT-05", "result": "PASS", "rows": {"pass": 6, "fail": 0, "notRun": 0}, "codes": []}] if outcome == "passed" else
            [{"caseId": "AHT-05", "result": "FAIL", "rows": {"pass": 4, "fail": 1, "notRun": 1}, "codes": ["observed-product-contradiction"]}],
@@ -125,12 +125,12 @@ class ClosedShape(unittest.TestCase):
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
             P.sanitize_record(record(outcome="passed", cases=[]))
         # An all-PASS record is `failed` only when it says it was not qualified; it is never silently downgraded or upgraded.
-        unqualified = dict(record(), outcome="failed", coverage="unqualified", campaignId=None)
+        unqualified = dict(record(), outcome="failed", coverage="unqualified", campaignId=None, requestSha256=None, catalogSha256=None)
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
             P.sanitize_record(unqualified)
         self.assertEqual(P.sanitize_record(dict(unqualified, codes=["not-qualified"]))["outcome"], "failed")
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
-            P.sanitize_record(dict(record(), coverage="unqualified", campaignId=None))
+            P.sanitize_record(dict(record(), coverage="unqualified", campaignId=None, requestSha256=None, catalogSha256=None))
         selected_only = record()
         selected_only["cases"] = selected_only["cases"] + [{"caseId": "AHT-06", "result": "NOT SELECTED", "rows": {"pass": 0, "fail": 0, "notRun": 0}, "codes": []}]
         self.assertEqual(P.sanitize_record(selected_only)["outcome"], "passed")
@@ -138,10 +138,19 @@ class ClosedShape(unittest.TestCase):
             rows = record(); rows["cases"] = rows["cases"] + [{"caseId": "AHT-06", "result": "NOT SELECTED", "rows": bad, "codes": []}]
             with self.assertRaisesRegex(P.Refused, "not-selected-rows"):
                 P.sanitize_record(rows)
-        with self.assertRaisesRegex(P.Refused, "full-coverage-needs-fifteen"):
+        with self.assertRaisesRegex(P.Refused, "full-coverage-needs-fifteen-executed"):
             P.sanitize_record(dict(record(), coverage="full"))
+        # Incomplete coverage is never passed, even when every row that ran is PASS; batch and full may be failed.
+        with self.assertRaisesRegex(P.Refused, "outcome-cases"):
+            P.sanitize_record(dict(record(), coverage="incomplete"))
+        self.assertEqual(P.sanitize_record(dict(record(), coverage="incomplete", outcome="failed"))["coverage"], "incomplete")
+        with self.assertRaisesRegex(P.Refused, "outcome-cases"):
+            P.sanitize_record(dict(record(), outcome="failed"))  # a qualified batch whose executed rows all PASS is passed, not failed
+        with self.assertRaisesRegex(P.Refused, "requestSha256"):
+            P.sanitize_record(dict(record(), requestSha256="x"))
         with self.assertRaisesRegex(P.Refused, "not-selected-rows"):
-            P.sanitize_record(dict(selected_only, coverage="unqualified", campaignId=None, outcome="failed", codes=["not-qualified"]))
+            P.sanitize_record(dict(selected_only, coverage="unqualified", campaignId=None, requestSha256=None, catalogSha256=None, outcome="failed",
+                                   codes=["not-qualified"]))
         with self.assertRaisesRegex(P.Refused, "tested-sha"):
             P.sanitize_record({k: v for k, v in record().items() if k != "testedSha"})
         self.assertEqual({k: P.sanitize_record(record())[k] for k in ("sourceSha", "testedSha", "servedSha")},

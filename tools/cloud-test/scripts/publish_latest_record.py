@@ -35,6 +35,7 @@ UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 CODE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 CASE = re.compile(r"^AHT-(0[1-9]|1[0-5])$")
 RUN_ID = re.compile(r"^[1-9][0-9]{0,19}$")
+SHA64 = re.compile(r"^[0-9a-f]{64}$")
 CAMPAIGN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 JSON_BLOCK = re.compile(r"```json\n(.*?)\n```", re.S)
 
@@ -71,12 +72,16 @@ def sanitize_record(rec):
     """The terminal record exactly as published; refuses anything outside the closed shape."""
     # Three identities, never conflated: the workflow source that ran the harness, the product release the request tested, and the release
     # observed served at admission (Sam 1793539017 RETURN, finding 4).
-    _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "campaignId", "coverage", "startedUtc", "endedUtc", "outcome", "cases", "codes"}, "record")
+    _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "campaignId", "coverage", "requestSha256", "catalogSha256",
+                "startedUtc", "endedUtc", "outcome", "cases", "codes"}, "record")
     _attempt(rec.get("runId"), rec.get("attempt"))
     _need(isinstance(rec.get("sourceSha"), str) and SHA40.match(rec["sourceSha"]), "source-sha")
     _need(isinstance(rec.get("testedSha"), str) and SHA40.match(rec["testedSha"]), "tested-sha")
-    # coverage: batch or full only when the qualification was bound to this record; otherwise unqualified (and never passed).
-    _need(rec.get("coverage") in ("batch", "full", "unqualified"), "coverage")
+    # coverage (Sam 1793547120.015339): full/batch when every selected required row EXECUTED (PASS or FAIL), incomplete when any did not,
+    # unqualified when the qualification was not bound to this record. Coverage is not the outcome: a full baseline may be failed.
+    _need(rec.get("coverage") in ("batch", "full", "incomplete", "unqualified"), "coverage")
+    for k in ("requestSha256", "catalogSha256"):
+        _need(rec.get(k) is None if rec["coverage"] == "unqualified" else isinstance(rec.get(k), str) and SHA64.match(rec[k]), k)
     _need(rec.get("campaignId") is None if rec["coverage"] == "unqualified" else isinstance(rec.get("campaignId"), str) and CAMPAIGN.match(rec["campaignId"]), "campaign-id")
     _need(rec.get("servedSha") is None or (isinstance(rec["servedSha"], str) and SHA40.match(rec["servedSha"])), "served-sha")
     for k in ("startedUtc", "endedUtc"):
@@ -94,17 +99,20 @@ def sanitize_record(rec):
         _keys(c.get("rows"), {"pass", "fail", "notRun"}, "rows")
         _need(set(c["rows"]) == {"pass", "fail", "notRun"} and all(_count(v) for v in c["rows"].values()), "rows")
         _need((c["result"] == "PASS") == (c["rows"]["fail"] == 0 and c["rows"]["notRun"] == 0 and c["rows"]["pass"] > 0), "case-result-rows")
-        _need(c["result"] != "NOT SELECTED" or (rec["coverage"] == "batch" and not any(c["rows"].values()) and not c.get("codes")), "not-selected-rows")
+        _need(c["result"] != "NOT SELECTED" or (rec["coverage"] in ("batch", "incomplete") and not any(c["rows"].values()) and not c.get("codes")),
+              "not-selected-rows")
         out.append({"caseId": c["caseId"], "result": c["result"], "rows": dict(c["rows"]), "codes": _codes(c.get("codes", []), 8)})
     ran = [c for c in out if c["result"] != "NOT SELECTED"]
     all_pass = bool(ran) and all(c["result"] == "PASS" for c in ran)
-    _need(rec["coverage"] != "full" or len(ran) == 15, "full-coverage-needs-fifteen")
+    _need(rec["coverage"] != "full" or (len(ran) == 15 and all(c["rows"]["notRun"] == 0 for c in ran)), "full-coverage-needs-fifteen-executed")
     # `passed` needs every selected case PASS under bound qualification; an all-PASS record that was not qualified is `failed` (not-qualified).
     _need(rec["outcome"] == "failed" if not all_pass else
-          (rec["outcome"] == "passed" and rec["coverage"] != "unqualified") or (rec["outcome"] == "failed" and "not-qualified" in (rec.get("codes") or [])),
+          (rec["outcome"] == "passed" and rec["coverage"] in ("batch", "full")) or
+          (rec["outcome"] == "failed" and (rec["coverage"] == "incomplete" or "not-qualified" in (rec.get("codes") or []))),
           "outcome-cases")
     return {"runId": rec["runId"], "attempt": rec["attempt"], "sourceSha": rec["sourceSha"], "testedSha": rec["testedSha"], "servedSha": rec.get("servedSha"),
-            "campaignId": rec.get("campaignId"), "coverage": rec["coverage"],
+            "campaignId": rec.get("campaignId"), "coverage": rec["coverage"], "requestSha256": rec.get("requestSha256"),
+            "catalogSha256": rec.get("catalogSha256"),
             "startedUtc": rec["startedUtc"], "endedUtc": rec["endedUtc"], "outcome": rec["outcome"],
             "cases": sorted(out, key=lambda c: c["caseId"]), "codes": _codes(rec.get("codes", []), 16)}
 

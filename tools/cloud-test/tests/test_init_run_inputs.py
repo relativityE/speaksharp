@@ -445,8 +445,11 @@ class Qualify(unittest.TestCase):
 
     def qualify(self, run_verifier=I._run_verifier, selected=None, mode="partial"):
         self.runs += 1
+        request = os.path.join(self.d, "request-%d.json" % self.runs)
+        put(request, live_request(runId="C1"))
+        ids = I.identities(request, os.path.join(ROOT, "config", "test-config.v1.json"))
         return I.qualify(self.plan, self.results, self.cases, selected or self.SELECTED, self.approval, self.code,
-                         os.path.join(self.d, "snapshot-%d" % self.runs), mode, run_verifier)
+                         os.path.join(self.d, "snapshot-%d" % self.runs), mode, ids, run_verifier)
 
     def make_full(self):
         """The real full builder's shape: no partial markers, an explicit all-15 selection, every case dispatched with its receipts."""
@@ -461,10 +464,12 @@ class Qualify(unittest.TestCase):
 
     def collect(self, request):
         """The REAL collector over the same case results (collect_run_record.py; campaign-runner rows carry their assertions)."""
+        request["harness"]["codeManifestSha256"] = self.sha(self.code)  # the reviewed harness pin the run executed
         results = J(self.results)
         for row in results["cases"]:
             if row["caseId"] in self.SELECTED:
-                row.update(result="PASS", assertions=J(os.path.join(self.cases, row["caseId"], "case-result.json"))["assertions"])
+                case = J(os.path.join(self.cases, row["caseId"], "case-result.json"))
+                row.update(result=case["result"], assertions=case["assertions"])
         put(self.results, results)
         ledgers = os.path.join(self.d, "ledgers"); os.makedirs(ledgers, exist_ok=True)
         put(os.path.join(ledgers, "campaign-ledger.json"), {"used": {"total": 1}})
@@ -492,6 +497,7 @@ class Qualify(unittest.TestCase):
             self.assertEqual((rec["outcome"], rec["coverage"], rec["campaignId"], len(rec["cases"])),
                              ("passed", "full" if mode == "full" else "batch", "C1", 15), mode)
             self.assertEqual(sum(c["result"] == "NOT SELECTED" for c in rec["cases"]), 0 if mode == "full" else 13)
+            self.assertEqual((rec["requestSha256"], rec["catalogSha256"]), (q["requestSha256"], q["catalogSha256"]))
             # a full claim against a selected-full plan, and the reverse, are refused by the qualifier itself
             if mode == "full":
                 refused(self, "plan-not-a-selected-full-plan", self.qualify, mode="partial")
@@ -501,24 +507,76 @@ class Qualify(unittest.TestCase):
             other = I.project(dict(record, runId="C2"), "123", 1, "c" * 40, SHA, q)
             self.assertEqual((other["outcome"], other["coverage"]), ("failed", "unqualified"), mode)
 
+    def test_a_complete_authenticated_fail_baseline_is_full_and_failed(self):
+        # Sam 1793547120.015339: every required row executed (PASS or FAIL) is full coverage; FAILs make the outcome failed, never unqualified.
+        self.make_full()
+        self.write_case("AHT-03", [("a", "PASS"), ("b", "FAIL")], "FAIL")
+        self.write_case("AHT-12", [("a", "FAIL"), ("b", "FAIL")], "FAIL")
+        self.write_results()
+        record = self.collect(live_request(runId="C1"))
+        q = self.qualify(mode="full")
+        self.assertEqual((q["qualified"], q["coverage"], q["outcome"], q["requiredRows"], q["passRows"], q["failRows"], q["notRunRows"]),
+                         (True, "full", "failed", 30, 27, 3, 0))
+        self.assertEqual(J(os.path.join(self.d, "snapshot-%d" % self.runs, "verification.json"))["failed"], 0)
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q)
+        self.assertEqual((rec["coverage"], rec["outcome"], rec["codes"], len(rec["cases"])), ("full", "failed", [], 15))
+        self.assertEqual(sorted(c["caseId"] for c in rec["cases"] if c["result"] == "FAIL"), ["AHT-03", "AHT-12"])
+
+    def test_a_not_run_or_missing_required_row_is_incomplete_never_full(self):
+        for rows, result in ([("a", "PASS"), ("b", "NOT RUN")], "NOT RUN"), ([("a", "PASS")], "PASS"):
+            self.setUp()
+            self.write_case("AHT-09", rows, result)
+            self.write_results()
+            q = self.qualify()
+            self.assertEqual((q["coverage"], q["outcome"], q["notRunRows"]), ("incomplete", "failed", 1), rows)
+
+    def test_verifier_errors_malformed_evidence_and_missing_rows_never_qualify(self):
+        # Real verify_run_binding semantics: a dispatched case without its case-result.json, or with unreadable JSON, makes it exit non-zero.
+        os.remove(os.path.join(self.cases, "AHT-09", "case-result.json"))
+        refused(self, "binding-verifier-failed", self.qualify)
+        self.setUp()
+        put(os.path.join(self.cases, "AHT-09", "case-result.json"), "{not json")
+        refused(self, "binding-verifier-failed", self.qualify)
+        self.setUp()
+        put(os.path.join(self.cases, "AHT-09", "aht-09-1.json"), {"tampered": True})  # evidence no longer matches its digest
+        refused(self, "binding-verifier-failed", self.qualify)
+        self.setUp()
+        self.write_case("AHT-09", [("a", "PASS"), ("b", "FAIL")], "PASS")  # the harness case result contradicts its rows
+        refused(self, "case-result-inconsistent:AHT-09", self.qualify)
+        self.setUp()
+        self.write_case("AHT-09", [("a", "PASS"), ("b", "MAYBE")], "PASS")
+        refused(self, "assertion-result-unknown:AHT-09", self.qualify)
+
+    def test_the_assertion_catalog_must_be_the_pinned_bytes(self):
+        cfg = copy.deepcopy(CFG)
+        cfg["modes"]["full"]["assertionCatalog"]["sha256"] = "0" * 64
+        d = os.path.join(self.d, "cfgroot", "config")
+        os.makedirs(d)
+        put(os.path.join(d, "test-config.v1.json"), cfg)
+        shutil.copy(os.path.join(ROOT, cfg["modes"]["full"]["assertionCatalog"]["file"]), os.path.join(d, os.path.basename(cfg["modes"]["full"]["assertionCatalog"]["file"])))
+        put(os.path.join(self.d, "r.json"), {})
+        refused(self, "assertion-catalog-not-pinned", I.identities, os.path.join(self.d, "r.json"), os.path.join(d, "test-config.v1.json"))
+
     def test_the_real_verifier_on_the_frozen_snapshot_and_every_selected_row_pass_qualifies_with_bindings(self):
         q = self.qualify()
-        self.assertEqual({k: q[k] for k in ("qualified", "campaignId", "testedSha", "servedSha", "cases", "coverage", "planCases", "requiredRows", "passRows")},
+        self.assertEqual({k: q[k] for k in ("qualified", "campaignId", "testedSha", "servedSha", "cases", "coverage", "outcome", "planCases",
+                                            "requiredRows", "passRows", "failRows", "notRunRows")},
                          {"qualified": True, "campaignId": "C1", "testedSha": SHA, "servedSha": SHA, "cases": self.SELECTED, "coverage": "batch",
-                          "planCases": 15, "requiredRows": 4, "passRows": 4})
+                          "outcome": "passed", "planCases": 15, "requiredRows": 4, "passRows": 4, "failRows": 0, "notRunRows": 0})
+        self.assertEqual(q["codeManifestSha256"], self.sha(self.code))
+        self.assertEqual(q["catalogSha256"], CFG["modes"]["full"]["assertionCatalog"]["sha256"])
         self.assertEqual((q["planSha256"], q["caseResultsSha256"]), (self.sha(self.plan), self.sha(self.results)))
         snap = os.path.join(self.d, "snapshot-1")
         self.assertEqual(J(os.path.join(snap, "verification.json"))["failed"], 0)
         self.assertEqual(stat.S_IMODE(os.stat(snap).st_mode), 0o700)
 
-    def test_verifier_success_alone_never_qualifies_a_failed_missing_or_duplicated_row(self):
-        for rows, result, code in [([("a", "PASS"), ("b", "FAIL")], "FAIL", "case-not-pass:AHT-09"),
-                                   ([("a", "PASS")], "PASS", "required-assertion-not-pass:AHT-09"),
-                                   ([("a", "PASS"), ("b", "NOT RUN")], "PASS", "required-assertion-not-pass:AHT-09"),
-                                   ([("a", "PASS"), ("b", "FAIL"), ("b", "PASS")], "PASS", "duplicate-assertion:AHT-09")]:
-            self.write_case("AHT-09", rows, result)
-            refused(self, code, self.qualify)
-            self.assertEqual(J(os.path.join(self.d, "snapshot-%d" % self.runs, "verification.json"))["failed"], 0, "the verifier itself passes " + code)
+    def test_verifier_success_never_passes_a_failed_row_and_a_duplicate_refuses(self):
+        self.write_case("AHT-09", [("a", "PASS"), ("b", "FAIL")], "FAIL")
+        q = self.qualify()
+        self.assertEqual((q["coverage"], q["outcome"], q["failRows"]), ("batch", "failed", 1))
+        self.write_case("AHT-09", [("a", "PASS"), ("b", "FAIL"), ("b", "PASS")], "FAIL")
+        refused(self, "duplicate-assertion:AHT-09", self.qualify)
+        self.assertEqual(J(os.path.join(self.d, "snapshot-%d" % self.runs, "verification.json"))["failed"], 0, "the verifier itself passes")
 
     def test_omitted_inputs_are_frozen_and_verified_too(self):
         mutations = {"approval": lambda: put(self.approval, {"reviewedCodeManifestSha256": "0" * 64}),
@@ -573,7 +631,7 @@ class Qualify(unittest.TestCase):
         self.assertTrue(self.qualify(swap_restore)["qualified"])
         self.write_case("AHT-09", [("a", "PASS"), ("b", "FAIL")], "FAIL")
         self.write_results()
-        refused(self, "case-not-pass:AHT-09", self.qualify, swap_restore)
+        self.assertEqual(self.qualify(swap_restore)["outcome"], "failed", "the frozen FAIL decides, not the swapped bytes")
 
     def test_a_snapshot_changed_during_verification_is_refused(self):
         def tamper(*a):
@@ -613,11 +671,13 @@ class Project(unittest.TestCase):
                  "assertions": {"PASS": 2, "FAIL": 0, "NOT RUN": 0} if c in ("AHT-05", "AHT-09") else {"PASS": 0, "FAIL": 0, "NOT RUN": 0}}
                 for c in I.ALL_CASES]
         return {"schema": "speaksharp.cloud-test.run-record.v1", "runId": "R6-unit", "release": {"testedSha": SHA, "servedShaAtAdmission": SHA},
-                "startedUtc": "2026-11-01T14:00:00Z", "endedUtc": "2026-11-01T14:30:00Z", "cases": rows, "artifactDigests": {"case-results.json": "d" * 64}}
+                "startedUtc": "2026-11-01T14:00:00Z", "endedUtc": "2026-11-01T14:30:00Z", "cases": rows, "artifactDigests": {"case-results.json": "d" * 64},
+                "harness": {"codeManifestSha256": "f" * 64}}
 
     def q(self, **over):
         return dict({"qualified": True, "campaignId": "R6-unit", "testedSha": SHA, "servedSha": SHA, "caseResultsSha256": "d" * 64,
-                     "planSha256": "e" * 64, "cases": ["AHT-05", "AHT-09"], "coverage": "batch"}, **over)
+                     "planSha256": "e" * 64, "cases": ["AHT-05", "AHT-09"], "coverage": "batch", "outcome": "passed",
+                     "codeManifestSha256": "f" * 64, "requestSha256": "1" * 64, "catalogSha256": "2" * 64}, **over)
 
     def test_a_bound_batch_keeps_all_fifteen_rows_with_the_others_not_selected(self):
         rec = I.project(self.record(), "123", 1, "c" * 40, SHA, self.q())
@@ -634,13 +694,25 @@ class Project(unittest.TestCase):
 
     def test_a_qualification_for_another_record_campaign_or_release_never_passes(self):
         for over in ({"caseResultsSha256": "f" * 64}, {"servedSha": "b" * 40}, {"testedSha": "b" * 40}, {"qualified": False},
-                     {"coverage": "unqualified"}, {"cases": ["AHT-05", "AHT-16"]}):
+                     {"coverage": "unqualified"}, {"cases": ["AHT-05", "AHT-16"]}, {"codeManifestSha256": "0" * 64}, {"outcome": None}):
             rec = I.project(self.record(), "123", 1, "c" * 40, SHA, self.q(**over))
             self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "unqualified", ["not-qualified"]), over)
             self.assertNotIn("NOT SELECTED", {c["result"] for c in rec["cases"]})
         rec = I.project(self.record(), "123", 1, "c" * 40, SHA, None)
         self.assertEqual((rec["outcome"], rec["codes"]), ("failed", ["not-qualified"]))
         refused(self, "run-record-for-another-release", I.project, self.record(), "123", 1, "c" * 40, "b" * 40, self.q())
+
+    def test_a_failed_or_incomplete_qualification_never_publishes_passed(self):
+        failed = self.record()
+        failed["cases"][8].update(result="FAIL", assertions={"PASS": 1, "FAIL": 1, "NOT RUN": 0})  # AHT-09
+        rec = I.project(failed, "123", 1, "c" * 40, SHA, self.q(outcome="failed"))
+        self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "batch", []))
+        rec = I.project(self.record(), "123", 1, "c" * 40, SHA, self.q(outcome="failed", coverage="incomplete"))
+        self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "incomplete", []))
+        # A qualification whose outcome disagrees with the record's rows is not bound to this record.
+        for record, q in ((self.record(), self.q(outcome="failed")), (failed, self.q(outcome="passed"))):
+            rec = I.project(record, "123", 1, "c" * 40, SHA, q)
+            self.assertEqual((rec["outcome"], rec["coverage"], rec["codes"]), ("failed", "unqualified", ["not-qualified"]))
 
     def test_full_coverage_needs_all_fifteen_selected(self):
         record = self.record()
@@ -719,6 +791,15 @@ def bundle_with(throwaway_id):
     d = json.loads(next(v[2] for v in VECTORS if v[0] == "valid"))
     d["accounts"]["existing-disposable"]["accountId"] = throwaway_id
     return json.dumps(d)
+
+
+class WindowAtAdmission(unittest.TestCase):
+    def test_the_remaining_window_must_hold_live_and_collect_and_is_never_reset(self):
+        r = live_request(["AHT-05"])
+        r["window"]["endUtc"] = "2026-11-01T14:57:00Z"  # 47 live + 10 collect = 57 minutes from NOW
+        I.check_window_remaining(r, NOW, 47)
+        refused(self, "approved-window-too-short-at-admission", I.check_window_remaining, r, NOW + timedelta(seconds=1), 47)
+        refused(self, "live-minutes", I.check_window_remaining, r, NOW, 0)
 
 
 class LiveAccountsBundle(unittest.TestCase):

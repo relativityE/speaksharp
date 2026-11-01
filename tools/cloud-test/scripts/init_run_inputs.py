@@ -177,6 +177,14 @@ def check_window_fit(req, now, live_minutes):
     _need((end - now).total_seconds() >= 60 * (SETUP_RESERVE_MINUTES + live_minutes + COLLECT_RESERVE_MINUTES), "run-would-outlast-approved-window")
 
 
+def check_window_remaining(req, now, live_minutes):
+    """Immediately before the run step (admission): the approved window must still hold the live minutes plus the collect reserve. The
+    window is never reset or extended; setup time already spent is simply gone."""
+    end = _utc(req["window"]["endUtc"])
+    _need(_int(live_minutes) and live_minutes > 0, "live-minutes")
+    _need((end - now).total_seconds() >= 60 * (live_minutes + COLLECT_RESERVE_MINUTES), "approved-window-too-short-at-admission")
+
+
 def check_release_lineage(repo, req, request_rel, source_sha, request_blob, cases, diagnostic, template_keys):
     """Workflow source, tested product release and served release are distinct. The source may descend from the tested release only by
     schema-valid run requests in the ONE reviewed request location; anything else (product, dependency, harness, or any other JSON) refuses
@@ -432,11 +440,23 @@ def _freeze(snap, plan_path, case_results_path, cases_dir, approval, code_manife
     return frozen, original_plan, plan_file
 
 
-def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_manifest, snapshot_dir, coverage_mode, run_verifier=_run_verifier):
+def identities(request_path, config_path):
+    """The request blob and the pinned assertion catalog this run claims coverage against; the catalog file must still be the pinned bytes."""
+    pin = _load(config_path)["modes"]["full"]["assertionCatalog"]
+    catalog = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(config_path))), pin["file"])
+    _need(_sha(catalog) == pin["sha256"], "assertion-catalog-not-pinned")
+    return {"requestSha256": _sha(request_path), "catalogSha256": pin["sha256"]}
+
+
+def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_manifest, snapshot_dir, coverage_mode, ids,
+            run_verifier=_run_verifier):
     """Freeze every verifier input, run the REAL verifier on the frozen snapshot only (fresh --out, exit 0, zero failures for exactly the
     frozen plan and results), then decide from the same frozen bytes: the builder's 15-row denominator with the dispatch subset in
-    plan.selection, every selected case dispatched, every required assertion PASS exactly once, and every evidence digest and summary
-    matching the frozen bytes. The result is bound to the campaign, the tested and served release, and the plan and results digests."""
+    plan.selection, every selected case dispatched with a case result consistent with its rows, every required assertion present exactly
+    once, and every evidence digest and summary matching the frozen bytes. EXECUTION and OUTCOME are separate (Sam 1793547120.015339):
+    coverage is full/batch only when every selected required row was executed (PASS or FAIL), otherwise incomplete; the outcome is passed
+    only when every one is PASS. A FAIL never weakens a binding check. The result binds the campaign, releases, plan/results digests,
+    request, assertion catalog and harness CODE manifest."""
     selected = sorted(selected)
     _need(selected and all(c in ROLE for c in selected) and len(set(selected)) == len(selected), "case-selection")
     _need(coverage_mode in ("partial", "full"), "coverage-mode")
@@ -473,7 +493,8 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
         _need(selected == ALL_CASES and "coverageMode" not in plan and "assertionDepth" not in plan, "plan-not-a-full-coverage-plan")
     else:
         _need(plan.get("coverageMode") == "partial" and plan.get("assertionDepth") == "full", "plan-not-a-selected-full-plan")
-    required_rows = 0
+    counts = {"PASS": 0, "FAIL": 0, "NOT RUN": 0}
+    case_outcomes = []
     for cid in ALL_CASES:
         r = res.get(cid)
         if cid not in selected:
@@ -493,13 +514,23 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
         summary = (r.get("executionReceipt") or {}).get("summarySha256")
         _need(summary is None or digest(frozen.get("cases/%s/summary.json" % cid, b"\0missing")) == summary, "summary-not-the-frozen-bytes:" + cid)
         got = _unique(out_case.get("assertions"), "id", "duplicate-assertion:" + cid)
-        _need(out_case.get("caseId") == cid and out_case.get("result") == "PASS", "case-not-pass:" + cid)
-        _need(all(got.get(a, {}).get("result") == "PASS" for a in required), "required-assertion-not-pass:" + cid)
-        required_rows += len(required)
+        _need(out_case.get("caseId") == cid, "case-result-for-another-case:" + cid)
+        _need(all(a.get("result") in ("PASS", "FAIL", "NOT RUN") for a in got.values()), "assertion-result-unknown:" + cid)
+        # The harness's own case result must agree with its rows (case-results.cjs): FAIL if any row FAILs, PASS only if every row PASSes.
+        rows_all = [a["result"] for a in got.values()]
+        expect = "FAIL" if "FAIL" in rows_all else "PASS" if rows_all and all(r == "PASS" for r in rows_all) else "NOT RUN"
+        _need(out_case.get("result") == expect, "case-result-inconsistent:" + cid)
+        for a in required:
+            counts[got[a]["result"] if a in got else "NOT RUN"] += 1
+        case_outcomes.append(out_case["result"])
+    executed = counts["NOT RUN"] == 0
     return {"qualified": True, "campaignId": plan["campaignId"], "testedSha": plan["sourceSha"], "servedSha": results.get("servedSha"),
             "planSha256": digest(original_plan), "caseResultsSha256": digest(frozen["case-results.json"]), "cases": selected,
-            "coverage": "full" if coverage_mode == "full" else "batch",
-            "planCases": len(rows), "requiredRows": required_rows, "passRows": required_rows}
+            "coverage": ("full" if coverage_mode == "full" else "batch") if executed else "incomplete",
+            "outcome": "passed" if executed and counts["FAIL"] == 0 and all(o == "PASS" for o in case_outcomes) else "failed",
+            "requestSha256": ids["requestSha256"], "catalogSha256": ids["catalogSha256"], "codeManifestSha256": digest(frozen["packet/CODE.sha256"]),
+            "planCases": len(rows), "requiredRows": sum(counts.values()), "passRows": counts["PASS"], "failRows": counts["FAIL"],
+            "notRunRows": counts["NOT RUN"]}
 
 
 def _unique(items, key, code):
@@ -524,8 +555,14 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
     qualified = (q.get("qualified") is True and isinstance(campaign, str) and campaign.strip() and q.get("campaignId") == campaign and
                  q.get("caseResultsSha256") == (run_record.get("artifactDigests") or {}).get("case-results.json") and
                  q.get("testedSha") == tested_sha and q.get("servedSha") == rel.get("servedShaAtAdmission") and
-                 (q.get("coverage") == "batch" or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
+                 q.get("codeManifestSha256") == (run_record.get("harness") or {}).get("codeManifestSha256") and
+                 q.get("outcome") in ("passed", "failed") and
+                 (q.get("coverage") in ("batch", "incomplete") or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
                  isinstance(q.get("cases"), list) and set(q["cases"]) <= {c.get("case") for c in run_record.get("cases") or [] if isinstance(c, dict)})
+    if qualified and q["coverage"] in ("batch", "full"):
+        # The qualification and the record derive from the same digest-bound case results; their outcomes must agree or neither counts.
+        chosen = [c for c in run_record.get("cases") or [] if isinstance(c, dict) and c.get("case") in q["cases"]]
+        qualified = (q["outcome"] == "passed") == (bool(chosen) and all(c.get("result") == "PASS" for c in chosen))
     cases = []
     for c in run_record.get("cases") or []:
         a = c.get("assertions") or {}
@@ -537,7 +574,8 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
     rec = {"runId": run_id, "attempt": attempt, "sourceSha": source_sha, "testedSha": tested_sha, "servedSha": rel.get("servedShaAtAdmission"),
            "campaignId": q.get("campaignId") if qualified else None, "coverage": q["coverage"] if qualified else "unqualified",
            "startedUtc": run_record.get("startedUtc"), "endedUtc": run_record.get("endedUtc"),
-           "outcome": "passed" if qualified and selected and all(c["result"] == "PASS" for c in selected) else "failed",
+           "requestSha256": q.get("requestSha256") if qualified else None, "catalogSha256": q.get("catalogSha256") if qualified else None,
+           "outcome": "passed" if qualified and q["outcome"] == "passed" and selected and all(c["result"] == "PASS" for c in selected) else "failed",
            "cases": cases, "codes": [] if qualified else ["not-qualified"]}
     try:
         return LR.sanitize_record(rec)
@@ -567,10 +605,10 @@ def _write_private(path, doc):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("prepare", "qualify", "project"))
+    a.add_argument("command", choices=("prepare", "qualify", "project", "window-check"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
-                 "--code-manifest", "--snapshot-dir", "--coverage-mode"):
+                 "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -582,7 +620,10 @@ def main(argv):
             return 0
         if x.command == "qualify":
             _write_private(x.out, qualify(x.plan, x.case_results, x.cases_dir, (x.cases or "").split(","), x.approval, x.code_manifest,
-                                          x.snapshot_dir, x.coverage_mode))
+                                          x.snapshot_dir, x.coverage_mode, identities(x.request, x.config)))
+            return 0
+        if x.command == "window-check":
+            check_window_remaining(_load(x.request), datetime.now(timezone.utc), int(x.live_minutes or 0))
             return 0
         # Mask first: the whole bundle and every extracted value, before any refusal, output or environment export.
         if os.environ.get("GITHUB_ACTIONS") == "true":

@@ -155,13 +155,22 @@ class LiveWorkflowPolicy(unittest.TestCase):
         holders = [s.get("name", s.get("uses")) for j in self.jobs.values() for s in j["steps"] if "CLOUD_TEST_LIVE_ACCOUNTS" in (s.get("env") or {})]
         self.assertEqual(holders, [init["name"]])
 
+    def test_the_approved_window_is_rechecked_immediately_before_the_run_step(self):
+        steps = self.jobs["live"]["steps"]
+        run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
+        check = steps[run - 1]
+        self.assertEqual(check["run"].strip(), 'python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" '
+                                               '--live-minutes "$LIVE_MINUTES"')
+        self.assertEqual(check["env"], {"LIVE_MINUTES": "${{ steps.init.outputs.live_minutes }}"})
+        self.assertNotIn("if", check, "a failed window check stops the job before admission")
+
     def test_pass_needs_qualify_which_runs_the_real_binding_verifier_then_every_selected_row(self):
         collect = self.jobs["live"]["steps"][-2]["run"]
         order = [collect.index(k) for k in ("execute_run.sh collect", "init_run_inputs.py qualify", '--snapshot-dir "$CT_OUT/qualification-snapshot"',
                                              'Q=(--qualification "$CT_OUT/qualification.json")', "init_run_inputs.py project")]
         self.assertEqual(order, sorted(order))
         for arg in ('--approval "$CT_OUT/plan/cfg/security-approval.json"', '--code-manifest "$HP/bundle/CODE.sha256"', '--cases "$CASES"',
-                    '--coverage-mode "$COVERAGE_MODE"'):
+                    '--coverage-mode "$COVERAGE_MODE"', '--request "$CT_REQUEST"', '--config "$CT_CONFIG"'):
             self.assertIn(arg, collect)
         self.assertNotIn("verify_run_binding.py --plan", collect, "the verifier runs inside qualify, on the bytes qualify snapshots")
         self.assertIn('--tested-sha "$TESTED_SHA"', collect)

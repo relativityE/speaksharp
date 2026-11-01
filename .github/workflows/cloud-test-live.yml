@@ -159,6 +159,11 @@ jobs:
           for stage in install-tools build-plan stimulus-preflight build-plan-with-receipt gate-and-validate; do
             bash tools/cloud-test/scripts/execute_run.sh "$stage"
           done
+      # Immediately before admission: the approved window must still hold the live minutes plus the collect reserve (never reset).
+      - name: Approved window still fits the live run
+        env:
+          LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
+        run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES"
       - name: Stage runner (run), bounded to the selected cases' live minutes
         timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
         env:
@@ -187,7 +192,8 @@ jobs:
           if python3 -I tools/cloud-test/scripts/init_run_inputs.py qualify --plan "$CT_OUT/plan/cfg/campaign-plan.json" \
                --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" \
                --approval "$CT_OUT/plan/cfg/security-approval.json" --code-manifest "$HP/bundle/CODE.sha256" \
-               --snapshot-dir "$CT_OUT/qualification-snapshot" --coverage-mode "$COVERAGE_MODE" --out "$CT_OUT/qualification.json"; then
+               --snapshot-dir "$CT_OUT/qualification-snapshot" --coverage-mode "$COVERAGE_MODE" --request "$CT_REQUEST" --config "$CT_CONFIG" \
+               --out "$CT_OUT/qualification.json"; then
             Q=(--qualification "$CT_OUT/qualification.json")
           fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py project --run-record "$CT_OUT/run-record.json" --run-id "$GITHUB_RUN_ID" \
