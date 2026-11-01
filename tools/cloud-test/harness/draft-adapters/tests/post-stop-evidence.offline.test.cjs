@@ -90,8 +90,18 @@ test('PCM receipt sanitizer emits one bounded current-capture summary and reject
  assert.equal(JSON.stringify(clean).includes('must-not-escape'),false);assert.equal(clean.diagnosticOnly,true);assert.match(clean.selectedCapture.captureDigest,/^[a-f0-9]{64}$/);
  const pending=pcmCapture();pending.receipts.push({...pending.receipts[0],ordinal:4,status:'pending',sha256:null});const pendingSummary=observer.sanitizePcmBoundaryReceipts([pending],{baseline});assert.equal(pendingSummary.selectedCapture.declaredComplete,true);assert.equal(pendingSummary.selectedCapture.validatedComplete,false);assert.equal(pendingSummary.selectedCapture.contradiction,true);assert.equal(pendingSummary.selectedCapture.allReceiptsHashed,false);
  const wrongLineage=pcmCapture();wrongLineage.receipts[0].spans[0].captureId='22222222-2222-4222-8222-222222222222';const lineageSummary=observer.sanitizePcmBoundaryReceipts([wrongLineage],{baseline});assert.equal(lineageSummary.selectedCapture.validatedComplete,false);assert.equal(lineageSummary.selectedCapture.allSpansCurrentCapture,false);
+ const nullCoordinate=pcmCapture();nullCoordinate.receipts[0].spans[0].start=null;const coordinateSummary=observer.sanitizePcmBoundaryReceipts([nullCoordinate],{baseline});assert.equal(coordinateSummary.selectedCapture.validatedComplete,false);assert.equal(coordinateSummary.selectedCapture.allSpansHaveCoordinates,false);
  const missing=pcmCapture();missing.receipts.pop();assert.equal(observer.sanitizePcmBoundaryReceipts([missing],{baseline}).selectedCapture.validatedComplete,false);
  const wrongHash=pcmCapture();wrongHash.receipts[0].sha256='not-a-hash';assert.equal(observer.sanitizePcmBoundaryReceipts([wrongHash],{baseline}).selectedCapture.validatedComplete,false);
+});
+
+test('PCM diagnostic preserves bounded per-domain PCM and lineage digests without equating domains',()=>{
+ const original=observer.sanitizePcmBoundaryReceipts([pcmCapture()],{baseline}).selectedCapture.domains;
+ assert.equal(new Set(original.map(x=>x.orderedPcmSha256)).size,4);assert.equal(new Set(original.map(x=>x.orderedLineageSha256)).size,4);
+ const pcmChanged=pcmCapture();pcmChanged.receipts[2].sha256='f'.repeat(64);const changed=observer.sanitizePcmBoundaryReceipts([pcmChanged],{baseline}).selectedCapture.domains;
+ for(let i=0;i<4;i++){assert.equal(changed[i].orderedPcmSha256===original[i].orderedPcmSha256,i!==2);assert.equal(changed[i].orderedLineageSha256,original[i].orderedLineageSha256);}
+ const lineageChanged=pcmCapture();lineageChanged.receipts[1].spans[0].start=99;const relined=observer.sanitizePcmBoundaryReceipts([lineageChanged],{baseline}).selectedCapture.domains;
+ for(let i=0;i<4;i++){assert.equal(relined[i].orderedLineageSha256===original[i].orderedLineageSha256,i!==1);assert.equal(relined[i].orderedPcmSha256,original[i].orderedPcmSha256);}
 });
 
 test('PCM current capture is bound after the pre-Start baseline and stale or successor captures refuse selection',()=>{
@@ -106,6 +116,14 @@ test('real evidence writer preserves the bounded PCM summary without blocking or
  const recorder=createCaseRecorder({caseId:'AHT-02',sourceSha:'a'.repeat(40),servedSha:'a'.repeat(40),targetUrl:'https://speaksharp-public.vercel.app',requiredAssertions:['focus-final']},dir);
  const diagnostic=observer.sanitizePcmBoundaryReceipts([pcmCapture()],{baseline});const ref=recorder.writeEvidence('pcm.json',{contentSafe:true,caseId:'AHT-02',kind:'pcm-boundary-diagnostic',...diagnostic});const written=JSON.parse(fs.readFileSync(path.join(dir,ref)));
  assert.deepEqual(written.sanitizer,{blockedStrings:0,droppedKeys:0,truncated:0});assert.equal(written.selectedCapture.validatedComplete,true);assert.equal(written.selectedCapture.domains.length,4);
+});
+
+test('real evidence writer never receives an invalid nested sample-rate payload',t=>{
+ const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'pcm-writer-malicious-')));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const recorder=createCaseRecorder({caseId:'AHT-02',sourceSha:'a'.repeat(40),servedSha:'a'.repeat(40),targetUrl:'https://speaksharp-public.vercel.app',requiredAssertions:['focus-final']},dir);
+ const capture=pcmCapture();capture.sampleRateHz={nested:[16000,'must-not-escape']};const diagnostic=observer.sanitizePcmBoundaryReceipts([capture],{baseline});
+ const ref=recorder.writeEvidence('pcm-malicious.json',{contentSafe:true,caseId:'AHT-02',kind:'pcm-boundary-diagnostic',...diagnostic});const written=JSON.parse(fs.readFileSync(path.join(dir,ref)));
+ assert.equal(written.selectedCapture.sampleRateHz,null);assert.equal(written.selectedCapture.validatedComplete,false);assert.equal(JSON.stringify(written).includes('must-not-escape'),false);assert.deepEqual(written.sanitizer,{blockedStrings:0,droppedKeys:0,truncated:0});
 });
 
 test('PCM receipt capture is opt-in and only the selected Focus path enables it',async()=>{
