@@ -1555,6 +1555,97 @@ class ContinuityCheckpoint(Journal):
             bind()
         self.assertEqual(str(e.exception), "action-digests")
 
+    def test_prepare_outputs_drive_the_real_builder_through_phase_two_and_its_consumption_receipt(self):
+        # Sam 1793567840.781019 / 1793568078.292469: the positive control continues from prepare and the placed bytes through the actual
+        # build_plan entry point (phase 1, then phase 2) to its bound outputs, with complete admitted facts; synthetic, no browser/network.
+        import contextlib
+        import io
+        import shlex
+        from pathlib import Path
+        from test_case_start_caps import BUILDER, REPO, SyntheticBuilder
+        repo = GitRepo()
+        self.addCleanup(shutil.rmtree, repo.dir)
+        # The release checkout carries the repository's own lockfile and reviewed media fixtures, as the workflow's checkout does.
+        shutil.copytree(os.path.join(REPO, "tests", "fixtures", "rwt"), os.path.join(repo.dir, "tests", "fixtures", "rwt"))
+        shutil.copyfile(os.path.join(REPO, "pnpm-lock.yaml"), os.path.join(repo.dir, "pnpm-lock.yaml"))
+        repo.git("add", "--", "tests/fixtures/rwt", "pnpm-lock.yaml")
+        req = live_request(["AHT-05"])
+        req["window"] = dict(self.req["window"])
+        req["release"]["testedSha"] = repo.commit({"tools/cloud-test/config/test-config.v1.json": CFG,
+                                                   I.CONTINUITY_DIR + "/" + I.CONTINUITY_BOOTSTRAP: self.raw.decode(),
+                                                   I.CONTINUITY_DIR + "/" + I.CONTINUITY_SCOPE: self.scope_raw.decode()})
+        head = repo.commit({RUNS + "r6.json": req})
+        request_sha = hashlib.sha256(repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()).hexdigest()
+        pins = self.all_pins()
+        reader = lambda root: W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), root)
+        rc_bytes = I.verified_checkpoint(repo.dir, req, pins, reader)
+        backend = {"manifestRef": "synthetic:backend-manifest@1", "generation": 6, "completion": "OFF", "migration129": "absent"}
+        admitted = facts(backend=backend, actionApproval=action_approval(req, request_sha, rc_bytes))
+        out, env_out, outputs = (os.path.join(repo.dir, n) for n in ("out", "env", "outputs"))
+        argv = ["init_run_inputs.py", "prepare", "--repo", repo.dir, "--config", "tools/cloud-test/config/test-config.v1.json", "--request",
+                RUNS + "r6.json", "--facts", json.dumps(admitted), "--run-id", "123", "--attempt", "1", "--source-sha", head,
+                "--job-timeout-minutes", "150", "--out", out, "--env-file", env_out, "--outputs", outputs]
+        err = io.StringIO()
+        with mock.patch.object(I, "continuity_pins", lambda: pins), mock.patch.object(I, "state_chain", reader), \
+                mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": bundle_with(ACCOUNT_ID), "SUPABASE_URL": SUPABASE_URL_OK}), \
+                contextlib.redirect_stderr(err):
+            self.assertEqual(I.main(argv), 0, err.getvalue())
+        with open(outputs, encoding="utf-8") as f:
+            published = dict(line.split("=", 1) for line in f.read().splitlines())
+        # Placement: the workflow step copies exactly these bytes as the runner's reconciliation.json.
+        ct_out = Path(self.d) / "ct-out"
+        ct_out.mkdir(mode=0o700)
+        placed = ct_out / "reconciliation.json"
+        shutil.copyfile(os.path.join(out, "reconciliation.json"), placed)
+        self.assertEqual(hashlib.sha256(placed.read_bytes()).hexdigest(), published["reconciliation_sha256"])
+        # The runner's own reader derives the builder's BP_* environment from the admitted request and the placed bytes.
+        plan_env = ct_out / "plan-env.txt"
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
+                            "--request-sha256", published["request_sha256"], "--reconciliation", str(placed), "--out", str(plan_env)],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in plan_env.read_text().splitlines() if "=" in line)}
+        # Non-caller scaffolding (packet, checkout, private dir, browser identity, account bindings) from the builder's own synthetic fixture,
+        # bound to THIS campaign; every caller-produced input comes from prepare.
+        (ct_out / "builder").mkdir(mode=0o700)
+        builder = SyntheticBuilder(ct_out / "builder")
+        bindings = json.loads(Path(builder.env["BP_ACCOUNT_BINDINGS_FILE"]).read_text())
+        bindings["campaignId"] = req["runId"]
+        Path(builder.env["BP_ACCOUNT_BINDINGS_FILE"]).write_text(json.dumps(bindings))
+        env = {k: v for k, v in builder.env.items() if not k.startswith("BP_") or k in (
+            "BP_PACKET", "BP_CHECKOUT", "BP_PRIVATE", "BP_ACCOUNT_BINDINGS_FILE", "BP_LIVE_ACCOUNTS_SHA256", "BP_BROWSER_IDENTITY",
+            "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CASES")}
+        env.update(bp, BP_FACTS=os.path.join(out, "facts.json"), BP_CHECKOUT=repo.dir, GITHUB_ACTIONS="true",
+                   GITHUB_REPOSITORY="relativityE/speaksharp", GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1", GITHUB_JOB="live", GITHUB_SHA=head)
+
+        def build(phase, **over):
+            return subprocess.run([sys.executable, "-I", str(BUILDER), phase], env=dict(env, **over), capture_output=True, text=True, timeout=60)
+        private = Path(env["BP_PRIVATE"])
+        # Substitution negatives at the builder boundary refuse before any output.
+        bad_rc = ct_out / "substituted-reconciliation.json"
+        bad_rc.write_bytes(rc_bytes.replace(b'"outstandingReservations":0', b'"outstandingReservations":1'))
+        bad_facts = ct_out / "substituted-facts.json"
+        changed = json.loads(Path(env["BP_FACTS"]).read_text())
+        changed["actionApproval"]["selectionApprovalRef"] = "slack:1793566031.065709"
+        bad_facts.write_text(json.dumps(changed))
+        for label, over in (("reconciliation bytes", {"BP_RECONCILIATION_FILE": str(bad_rc),
+                                                      "BP_RECONCILIATION_SHA256": hashlib.sha256(bad_rc.read_bytes()).hexdigest()}),
+                            ("action envelope", {"BP_FACTS": str(bad_facts)}),
+                            ("request digest", {"BP_REQUEST_SHA256": "0" * 64})):
+            with self.subTest(substituted=label):
+                result = build("phase1", **over)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(private.exists() and any(p.is_file() for p in private.rglob("*")), "a refused build writes nothing")
+        first = build("phase1")
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        second = build("phase2")
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        plan_raw = (private / "cfg" / "campaign-plan.json").read_bytes()
+        receipt = json.loads((private / "cfg" / "build-plan-consumption.json").read_text())
+        self.assertEqual(receipt["schema"], "speaksharp.cloud-test.build-plan-consumption.v1")
+        self.assertEqual((receipt.get("requestSha256"), receipt.get("planSha256")), (request_sha, hashlib.sha256(plan_raw).hexdigest()))
+        self.assertEqual(json.loads(plan_raw)["runIdentity"]["backend"]["manifestRef"], backend["manifestRef"])
+
     def test_unresolved_unapproved_and_unanchored_inputs_still_refuse(self):
         unresolved = rollup_bootstrap(unresolved=[{"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "UNRESOLVED", "usage": None}])
         self.write(unresolved, self.scope_raw)
