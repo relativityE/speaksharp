@@ -196,9 +196,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
         with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:
             names = json.load(f)["credentials"]["runEnvironment"]["stages"]["run"]
         run = next(s for s in self.jobs["live"]["steps"] if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
-        # THROWAWAY_TEST_EMAIL reaches the run stage only through prepare's masked, safe $GITHUB_ENV export, never a step env value.
-        self.assertNotIn("THROWAWAY_TEST_EMAIL", run["env"])
-        self.assertTrue(set(names) - {"THROWAWAY_TEST_EMAIL"} <= set(run["env"]), set(names) - set(run["env"]))
+        # Both account-role emails reach the run stage only through prepare's masked, safe $GITHUB_ENV export, never a step env value.
+        role_emails = {"THROWAWAY_TEST_EMAIL", "FREE_TEST_EMAIL"}
+        self.assertTrue(role_emails.isdisjoint(run["env"]))
+        self.assertTrue(set(names) - role_emails <= set(run["env"]), set(names) - set(run["env"]))
         init = next(s for s in self.jobs["live"]["steps"] if s.get("id") == "init")
         self.assertEqual(init["env"]["CLOUD_TEST_LIVE_ACCOUNTS"], "${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}")
         self.assertEqual(init["env"]["SUPABASE_URL"], "${{ vars.SUPABASE_URL }}")
