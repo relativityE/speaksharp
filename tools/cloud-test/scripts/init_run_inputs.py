@@ -567,6 +567,54 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
             "notRunRows": counts["NOT RUN"]}
 
 
+# I4' receiving contract (Sam 1793550229.086469; fields per Jensen's I4' checkpoint). Every request reader records the digest of the ONE
+# buffer it hashed, parsed and compared with the admitted digest before any effect. Source only: not yet called by qualify; it is wired, and
+# becomes mandatory, when the I4' producers land. build-plan's produced planSha256 and the plan's own requestSha256 are the receiver's
+# open asks (Elon 1793550885.166339).
+READER_KEYS = {"requestSha256", "campaignId", "runId", "attempt", "consumer", "consumedAtUtc"}
+REQUIRED_READERS = ("reservation", "build-plan", "collector")
+RUNTIME_KEYS = {"caseId", "planSha256", "configSha256", "requestSha256", "sourceSha", "servedSha", "campaignId", "runId", "attempt"}
+
+
+def _canon_digest(doc):
+    return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def check_execution_provenance(admitted, identity, readers, plan_raw, planned_configs, runtime, collection, case_results_raw, selected):
+    """Execution provenance from what each consumer RECORDED when it read its input, never a rehash of a file at the end.
+    - exactly one record per required reader, each naming the admitted digest and THIS {campaignId, runId, attempt};
+    - build-plan's produced planSha256 is the plan qualify froze; every selected case's runtime start receipt names that plan, the case's
+      planned config digest, the admitted digest and this attempt;
+    - the collection record names the admitted digest, the frozen case results and each runtime receipt's canonical digest.
+    A request swapped for the run and restored before collection, with reserve and collector both honestly reporting the admitted digest,
+    fails at build-plan (it read the swapped bytes); a swap seen by any single reader fails at that reader."""
+    _need(isinstance(admitted, str) and SHA64.match(admitted), "admitted-request-digest")
+    _need(isinstance(identity, dict) and set(identity) == {"campaignId", "runId", "attempt"}, "execution-identity")
+    by = {}
+    for r in readers if isinstance(readers, list) else [None]:
+        _need(isinstance(r, dict) and READER_KEYS <= set(r) and r["consumer"] in REQUIRED_READERS and r["consumer"] not in by,
+              "request-reader-record")
+        by[r["consumer"]] = r
+    for consumer in REQUIRED_READERS:
+        r = by.get(consumer)
+        _need(r is not None and r["requestSha256"] == admitted, "request-not-the-admitted-request:" + consumer)
+        _need(all(r[k] == v for k, v in identity.items()), "reader-not-this-attempt:" + consumer)
+    plan_sha = hashlib.sha256(plan_raw).hexdigest()
+    _need(by["build-plan"].get("planSha256") == plan_sha, "runtime-plan-not-the-built-plan")
+    # The executed plan's own bytes name the request they were built from, so a builder record that misreports is caught too.
+    _need((json.loads(plan_raw) or {}).get("requestSha256") == admitted, "runtime-plan-not-from-the-admitted-request")
+    rows = _unique(runtime, "caseId", "duplicate-runtime-receipt")
+    _need(sorted(rows) == sorted(selected), "runtime-receipts-not-the-selected-cases")
+    for cid in sorted(selected):
+        rr = rows[cid]
+        _need(RUNTIME_KEYS <= set(rr) and rr["planSha256"] == plan_sha and rr["configSha256"] == planned_configs.get(cid) and
+              rr["requestSha256"] == admitted and all(rr[k] == v for k, v in identity.items()), "runtime-receipt-not-bound:" + cid)
+    _need(isinstance(collection, dict) and collection.get("requestSha256") == admitted, "request-not-the-admitted-request:collection")
+    _need(collection.get("caseResultsSha256") == hashlib.sha256(case_results_raw).hexdigest(), "collection-not-these-case-results")
+    _need(collection.get("runtimeReceiptDigests") == {cid: _canon_digest(rows[cid]) for cid in sorted(selected)}, "collection-runtime-digests")
+    return {"requestSha256": admitted, "planSha256": plan_sha, "cases": sorted(selected)}
+
+
 def _unique(items, key, code):
     _need(isinstance(items, list), code)
     out = {}

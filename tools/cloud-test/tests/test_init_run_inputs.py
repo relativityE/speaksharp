@@ -935,6 +935,97 @@ def bundle_with(throwaway_id):
     return json.dumps(d)
 
 
+class ExecutionProvenance(unittest.TestCase):
+    """I4' caller-side receiving checks against Jensen's posted fields: discriminating fixtures, including the decisive A-admitted /
+    B-consumed-at-runtime / A-restored case in which reserve and collector both honestly report A."""
+    A, B = "a" * 64, "b" * 64
+    SELECTED = ["AHT-05", "AHT-09"]
+    ID = {"campaignId": "C1", "runId": "123", "attempt": 1}
+    CONFIGS = {"AHT-05": "5" * 64, "AHT-09": "9" * 64}
+
+    def world(self, built_from=None):
+        """One honest execution; `built_from` is the request digest build_plan actually read (B in the swap case)."""
+        plan_raw = json.dumps({"campaignId": "C1", "requestSha256": built_from or self.A}, sort_keys=True).encode()
+        plan_sha = hashlib.sha256(plan_raw).hexdigest()
+        reader = lambda consumer, digest=self.A, **extra: dict(self.ID, requestSha256=digest, consumer=consumer,  # noqa: E731
+                                                               consumedAtUtc="2026-11-01T17:00:00Z", **extra)
+        readers = [reader("reservation", allocation={}, reservationEntryHash="e" * 64),
+                   reader("build-plan", built_from or self.A, planSha256=plan_sha), reader("collector")]
+        runtime = [dict(self.ID, caseId=c, planSha256=plan_sha, configSha256=self.CONFIGS[c], requestSha256=self.A, sourceSha="s" * 40,
+                        servedSha="s" * 40) for c in self.SELECTED]
+        results_raw = b'{"cases":[]}'
+        collection = {"requestSha256": self.A, "caseResultsSha256": hashlib.sha256(results_raw).hexdigest(),
+                      "runtimeReceiptDigests": {r["caseId"]: I._canon_digest(r) for r in runtime}}
+        return {"admitted": self.A, "identity": dict(self.ID), "readers": readers, "plan_raw": plan_raw, "planned_configs": dict(self.CONFIGS),
+                "runtime": runtime, "collection": collection, "case_results_raw": results_raw, "selected": list(self.SELECTED)}
+
+    def check(self, w):
+        return I.check_execution_provenance(**w)
+
+    def test_an_honest_execution_binds(self):
+        self.assertEqual(self.check(self.world())["cases"], self.SELECTED)
+
+    def test_a_admitted_b_consumed_at_runtime_a_restored_is_refused_although_reserve_and_collector_report_a(self):
+        w = self.world(built_from=self.B)
+        self.assertEqual({r["consumer"]: r["requestSha256"] for r in w["readers"]}, {"reservation": self.A, "build-plan": self.B, "collector": self.A})
+        self.assertEqual(w["collection"]["requestSha256"], self.A)
+        refused(self, "request-not-the-admitted-request:build-plan", self.check, w)
+        # A builder record that misreports A is caught by the executed plan's own bytes, which the runtime receipts bind by digest.
+        w["readers"][1]["requestSha256"] = self.A
+        refused(self, "runtime-plan-not-from-the-admitted-request", self.check, w)
+
+    def test_a_swap_seen_by_any_single_reader_is_refused_at_that_reader(self):
+        for k, consumer in enumerate(I.REQUIRED_READERS):
+            w = self.world()
+            w["readers"][k]["requestSha256"] = self.B
+            refused(self, "request-not-the-admitted-request:" + consumer, self.check, w)
+        w = self.world()
+        w["collection"]["requestSha256"] = self.B
+        refused(self, "request-not-the-admitted-request:collection", self.check, w)
+
+    def test_missing_duplicate_unknown_or_foreign_reader_records_are_refused(self):
+        for mutate, code in ((lambda w: w["readers"].pop(0), "request-not-the-admitted-request:reservation"),
+                             (lambda w: w["readers"].append(dict(w["readers"][2])), "request-reader-record"),
+                             (lambda w: w["readers"][0].update(consumer="other"), "request-reader-record"),
+                             (lambda w: w["readers"][2].pop("consumedAtUtc"), "request-reader-record"),
+                             (lambda w: w["readers"][0].update(runId="124"), "reader-not-this-attempt:reservation"),
+                             (lambda w: w["readers"][1].update(attempt=2), "reader-not-this-attempt:build-plan"),
+                             (lambda w: w["readers"][2].update(campaignId="C2"), "reader-not-this-attempt:collector"),
+                             (lambda w: w.update(readers=None), "request-reader-record")):
+            w = self.world()
+            mutate(w)
+            refused(self, code, self.check, w)
+
+    def test_runtime_receipts_must_run_the_built_plan_and_planned_config_for_exactly_the_selected_cases(self):
+        for mutate, code in ((lambda w: w["readers"][1].update(planSha256="0" * 64), "runtime-plan-not-the-built-plan"),
+                             (lambda w: w["runtime"][1].update(configSha256="0" * 64), "runtime-receipt-not-bound:AHT-09"),
+                             (lambda w: w["runtime"][0].update(requestSha256=self.B), "runtime-receipt-not-bound:AHT-05"),
+                             (lambda w: w["runtime"][0].update(attempt=2), "runtime-receipt-not-bound:AHT-05"),
+                             (lambda w: w["runtime"][1].pop("servedSha"), "runtime-receipt-not-bound:AHT-09"),
+                             (lambda w: w["runtime"].pop(), "runtime-receipts-not-the-selected-cases"),
+                             (lambda w: w["runtime"].append(dict(w["runtime"][0])), "duplicate-runtime-receipt")):
+            w = self.world()
+            mutate(w)
+            refused(self, code, self.check, w)
+
+    def test_the_collection_record_binds_these_results_and_each_runtime_receipt(self):
+        w = self.world()
+        w["case_results_raw"] = b'{"cases":[1]}'
+        refused(self, "collection-not-these-case-results", self.check, w)
+        w = self.world()
+        w["runtime"][0]["servedSha"] = "t" * 40  # changed after collection recorded its digest
+        refused(self, "collection-runtime-digests", self.check, w)
+
+    def test_the_admitted_digest_and_identity_are_required_and_exact(self):
+        for bad in ("", None, "A" * 64, "a" * 63):
+            w = self.world()
+            w["admitted"] = bad
+            refused(self, "admitted-request-digest", self.check, w)
+        w = self.world()
+        w["identity"]["extra"] = 1
+        refused(self, "execution-identity", self.check, w)
+
+
 class WindowAtAdmission(unittest.TestCase):
     def test_the_remaining_window_must_hold_live_and_collect_and_is_never_reset(self):
         r = live_request(["AHT-05"])
