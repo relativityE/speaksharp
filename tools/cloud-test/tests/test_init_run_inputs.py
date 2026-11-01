@@ -1805,13 +1805,10 @@ class StandingEnvelope(Journal):
         pins = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope_raw).hexdigest(), reviewed_root=self.root)
         reader_id = O.contract_of(req)["reader"]
         # 2. The observation's reserve accepted on the SAME journal before its read (real writer), then the read and its settle.
-        headroom = json.loads(I.verified_checkpoint(repo.dir, req, pins, lambda root: self.chain()))["currentHeadroom"]
-        record, reserve, _ = O.reserve_then_read(lambda keys: {k: projection()[k] for k in keys},
-                                                 lambda e: W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote),
-                                                                     e, self.root, self.remote),
-                                                 headroom, req, request_sha, "123", 1, ACCOUNT_ID, now)
-        W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote), O.settlement_event(reserve, record, now),
-                  self.root, self.remote)
+        journal = O.StateJournal(repo.dir, req, url=self.remote, root=self.root, pins=pins)  # the real adapter on the synthetic journal
+        record, reserve, _ = O.reserve_then_read(lambda keys: {k: projection()[k] for k in keys}, journal, req, request_sha, "123", 1,
+                                                 ACCOUNT_ID, now)
+        journal.propose(O.settlement_event(reserve, record, now), journal.head())
         (private / "case10-observation.json").write_text(json.dumps(record))
         # 3. prepare (real), with the explicit synthetic pins and reader trust.
         out, env_out, outputs = (str(private / n) for n in ("out", "env", "outputs"))
@@ -1880,8 +1877,7 @@ class StandingEnvelope(Journal):
         self.assertEqual((rc["outstandingReservations"], rc["period"]["requests"]), (0, 12))
         # The same occurrence cannot reserve its observation again; without the reader trust prepare refuses the record.
         with self.assertRaises(O.Refused):
-            O.reserve_then_read(lambda keys: {}, lambda e: W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote),
-                                                                     e, self.root, self.remote), headroom, req, request_sha, "123", 1, ACCOUNT_ID, now)
+            O.reserve_then_read(lambda keys: {}, journal, req, request_sha, "123", 1, ACCOUNT_ID, now)
 
     def test_the_production_pin_is_unset_so_no_grant_is_in_force_and_derivation_refuses(self):
         self.assertIsNone(I.RECURRING_APPROVAL_SHA256)

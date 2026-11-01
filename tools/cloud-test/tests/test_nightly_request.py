@@ -174,7 +174,9 @@ class Derivation(unittest.TestCase):
         self.assertEqual(req["estimate"], {"requests": {"planned": 3610, "cleanupReserve": 150, "pooledSlack": 550, "runCap": 4310},
                                            "providerBillableRequests": {"coachingCap": 15, "basis": "SYNTHETIC-NOT-A-BUDGET"},
                                            "window": {"expectedMinutes": 111, "worstCaseMinutes": 294, "proposedMinutes": 329},
-                                           "identityReads": 30, "starts": 42, "takes": 30, "paidActionsAuthorizedUsd": 0})
+                                           "identityReads": 30, "starts": 42, "takes": 30, "githubRunnerMinutesMax": N.nightly_runner_minutes(WF),
+                                           "paidActionsAuthorizedUsd": 0})
+        self.assertLessEqual(req["estimate"]["githubRunnerMinutesMax"], json.loads(approval())["perRunCaps"]["githubRunnerMinutes"])
         self.assertEqual((req["nightly"]["occurrenceId"], req["nightly"]["budgetSha256"]), (OCCURRENCE, hashlib.sha256(budget()).hexdigest()))
         self.assertEqual(N.verify(raw, TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF, template_pin=TEMPLATE_PIN,
                                   budget_pin=hashlib.sha256(budget()).hexdigest()), hashlib.sha256(raw).hexdigest())
