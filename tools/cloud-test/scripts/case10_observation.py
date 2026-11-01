@@ -142,6 +142,18 @@ def reserve_then_read(reader, propose, headroom, req, request_sha256, run_id, at
     return record, event, receipt
 
 
+def settlement_event(reserved, record, now):
+    """Closes the observation's reservation after a completed read: the reader measures no per-dimension usage, so every dimension settles
+    at its reserved budget (never under-counted, as manual_reservation settles unmeasured dimensions), with the record's digest as evidence.
+    A failed or partial read is never settled here; its reservation stays open and counted."""
+    event = dict(reserved, type="settle", provenance="evidence-sha256:" + hashlib.sha256(canon(record)).hexdigest(),
+                 atUtc=now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    try:
+        return W.validate_event(event)
+    except W.Refused:
+        raise Refused("case10-observation-settlement-shape")
+
+
 def activated():
     """A real observation needs a reviewed trusted reader AND the activated state-ref writer (its reserve journal); neither exists today."""
     return bool(TRUSTED_READERS) and W.REVIEWED_ROOT is not None

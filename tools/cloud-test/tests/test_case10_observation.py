@@ -178,6 +178,17 @@ class ReserveBeforeRead(Journal):
         rc = self.counted()
         self.assertEqual((rc["outstandingReservations"], rc["period"]["requests"]), (1, 12))
 
+    def test_a_completed_read_settles_at_its_reserved_budget_with_the_record_as_evidence(self):
+        record, event, _ = self.run_it()
+        settle = O.settlement_event(event, record, NOW + timedelta(minutes=1))
+        self.assertEqual((settle["type"], settle["allocation"], settle["provenance"]),
+                         ("settle", event["allocation"], "evidence-sha256:" + hashlib.sha256(O.canon(record)).hexdigest()))
+        self.propose(settle)
+        rc = self.counted()
+        self.assertEqual((rc["outstandingReservations"], rc["period"]["requests"], rc["period"]["identityReads"]), (0, 12, 1))
+        with self.assertRaises(W.Refused):
+            self.propose(settle)  # a settle is never replayed
+
     def test_the_same_occurrence_cannot_reserve_its_observation_twice(self):
         self.run_it()
         refused(self, "case10-observation-reserve-failed", self.run_it)  # the writer refuses a duplicate reserve key
