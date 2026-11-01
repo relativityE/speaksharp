@@ -343,5 +343,10 @@
     "endUtc": null,
     "startUtc": null
   },
-  "workflowVersion": "1.5.0"
+  "workflowVersion": "1.5.0",
+  "evidenceScope": {
+    "maxDeliveries": 64,
+    "maxSupabaseRequests": 128,
+    "maxTelemetryReads": 8
+  }
 }
