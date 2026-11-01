@@ -68,7 +68,10 @@ SHA64 = re.compile(r"^[0-9a-f]{64}$")
 RECEIPT_KEYS = {"pre", "rls", "analytics", "disp", "fence", "review"}  # build_plan.py 55
 BACKEND_KEYS = {"manifestRef", "generation", "completion", "migration129"}
 FACT_REQUIRED = {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "accounts"}
-FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic"}
+FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic", "actionApproval"}
+# The builder's Start/take action approval (case_start_caps.bind_inputs), supplied by its approver; prepare admits it, never builds it.
+ACTION_APPROVAL_SCHEMA = "speaksharp.case-start-approval.v1"
+ACTION_APPROVAL_KEYS = {"schema", "requestSha256", "reconciliationSha256", "approvalRef", "approvedBy", "selectionApprovalRef"}
 # The ONE reviewed location for live run requests (Sam RETURN 3e0279d6 finding 1); nothing else counts as request-only lineage.
 REQUEST_DIR = "tools/cloud-test/config/runs/"
 TEMPLATE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates", "run-request.template.json")
@@ -444,7 +447,22 @@ def state_chain(root):
     return state_ref_writer.validate_chain(path, state_ref_writer.fetch_head(path, url, url), root)
 
 
-def verified_checkpoint(repo, req, pins=None, chain_reader=state_chain):
+def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
+    """RETURN 1793567352.685309 #1: the builder's Start/take action approval, as SUPPLIED in the facts by its approver, admitted only when it
+    names exactly the admitted request bytes, exactly the continuity checkpoint bytes, and the request's own approval and selection
+    references. The real consumer (case_start_caps.bind_inputs) checks the same envelope again against the bytes it reads."""
+    _need(isinstance(approval, dict) and set(approval) == ACTION_APPROVAL_KEYS and approval["schema"] == ACTION_APPROVAL_SCHEMA,
+          "action-approval-shape")
+    _need(approval["requestSha256"] == request_sha256, "action-approval-not-the-request")
+    _need(approval["reconciliationSha256"] == hashlib.sha256(reconciliation_bytes).hexdigest(), "action-approval-not-the-checkpoint")
+    lim = req["approvedLimits"]
+    _need(_ref(approval["approvalRef"]) and approval["approvalRef"] == lim.get("approvalRef") and approval["approvedBy"] == lim.get("approvedBy"),
+          "action-approval-reference")
+    _need(approval["selectionApprovalRef"] == req.get("selectionApprovalRef"), "action-approval-selection")
+    return approval
+
+
+def verified_checkpoint(repo, req, pins=None, chain_reader=None):
     """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, or a continuity-* refusal. `pins` and
     `chain_reader` are TEST-ONLY overrides; production uses continuity_pins() (all None today) and the real state-ref journal."""
     pins = continuity_pins() if pins is None else pins
@@ -458,13 +476,23 @@ def verified_checkpoint(repo, req, pins=None, chain_reader=state_chain):
         raws[name] = _read(path)
     try:
         scope = manual_reservation.accepted_scope(raws[CONTINUITY_SCOPE], pins["accepted_scope_sha256"])
-        rc = accounting_rollup.receive(raws[CONTINUITY_BOOTSTRAP], scope, chain_reader(pins["reviewed_root"]), pins["accepted_sha256"],
+        rc = accounting_rollup.receive(raws[CONTINUITY_BOOTSTRAP], scope, (chain_reader or state_chain)(pins["reviewed_root"]), pins["accepted_sha256"],
                                        pins["accepted_root"])
     except (accounting_rollup.Refused, manual_reservation.Refused, state_ref_writer.Refused) as e:
         raise Refused("continuity-" + str(e))
     lim = req.get("approvedLimits") or {}
     _need(isinstance(lim.get("approvalRef"), str) and scope["approvalRef"] == lim["approvalRef"], "continuity-approval-not-the-request")
+    # Sam RETURN 1793567352.685309 #2: the whole execution window lies inside the accepted period (no future or expired period admits it).
+    window = req.get("window") or {}
+    _need(_utc(scope["periodStartUtc"]) <= _utc(window.get("startUtc")) and _utc(window.get("endUtc")) <= _utc(scope["periodEndUtc"]),
+          "continuity-window-outside-period")
+    nightly = req.get("priority") == "nightly-regression"
     for ceiling, limit in CONTINUITY_CEILINGS:
+        if nightly and limit == "identityCap":
+            # RETURN #3: a nightly request's identityCap is its PER-RUN cap (nightly_request.derive), not the period ceiling; it must fit
+            # the period's remaining identity headroom instead of equalling the period ceiling.
+            _need(_int(lim.get(limit)) and lim[limit] <= rc["currentHeadroom"]["identityReads"], "continuity-run-identity-exceeds-period")
+            continue
         # Applicable = stated by the admitted request; the cumulative request and identity ceilings are always stated (check_request).
         if lim.get(limit) is not None or limit in ("cumulativeCeilingRequests", "identityCap"):
             _need(_int(lim.get(limit)) and rc["ceilings"][ceiling] == lim[limit], "continuity-ceiling-not-the-request:" + ceiling)
@@ -500,6 +528,7 @@ def prepare(x, now):
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     reconciliation = verified_checkpoint(repo, req)
+    check_action_approval(facts.get("actionApproval"), hashlib.sha256(req_raw).hexdigest(), reconciliation, req)
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
             "reconciliationBytes": reconciliation, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
