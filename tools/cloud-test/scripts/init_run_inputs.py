@@ -973,7 +973,16 @@ def check_execution_provenance(admitted, identity, priority, plan_raw, build_rec
 
 
 def reservation_consumption(ledger, campaign_id):
-    """The nightly reservation's request-consumption record for this campaign, from the reservation ledger's reserve events: exactly one."""
+    """The nightly reservation's request-consumption record for this campaign: from a verified state-ref journal snapshot (the reserve stage
+    writes it right after its reserve lands; the journal's own reserve event is the record), or from a legacy reservation ledger's reserve
+    events. Exactly one either way."""
+    if isinstance(ledger, dict) and ledger.get("schema") == "speaksharp.cloud-test.journal-snapshot.v1":
+        found = [e for e in ledger.get("events") or [] if isinstance(e, dict) and e.get("type") == "reserve" and e.get("campaignId") == campaign_id]
+        _need(len(found) == 1 and isinstance(found[0].get("provenance"), str) and found[0]["provenance"].startswith("request-sha256:"),
+              "request-reader-record:reservation")
+        e = found[0]
+        return {"campaignId": e["campaignId"], "runId": e["runId"], "attempt": e["attempt"], "consumer": "reservation",
+                "requestSha256": e["provenance"][len("request-sha256:"):], "consumedAtUtc": e["atUtc"]}
     events = [e for e in (ledger or {}).get("events") or [] if isinstance(e, dict) and e.get("event") == "reserve"
               and isinstance(e.get("requestConsumption"), dict) and e["requestConsumption"].get("campaignId") == campaign_id]
     _need(len(events) == 1, "request-reader-record:reservation")
