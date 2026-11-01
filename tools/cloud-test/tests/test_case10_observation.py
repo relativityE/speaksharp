@@ -19,7 +19,7 @@ NOW = START + timedelta(minutes=2)
 
 def request(**contract_over):
     contract = {"schema": O.CONTRACT_SCHEMA, "reader": READER, "recordSchema": O.RECORD_SCHEMA, "projectionKeys": sorted(INPUTS),
-                "maxAgeSeconds": 600}
+                "maxAgeSeconds": 600, "readBudget": {"requests": 12, "identityReads": 1}}
     contract.update(contract_over)
     return {"runId": "nightly-20261101T0000Z-20261102T0300Z", "release": {"testedSha": "4" * 40},
             "window": {"startUtc": "2026-11-02T03:00:00Z", "endUtc": "2026-11-02T08:30:00Z"},
@@ -66,7 +66,9 @@ class Observation(unittest.TestCase):
 
     def test_the_request_must_pin_the_exact_contract(self):
         for over in ({"schema": "x"}, {"recordSchema": "x"}, {"reader": "Bad Reader"}, {"projectionKeys": sorted(INPUTS)[:-1]},
-                     {"projectionKeys": sorted(INPUTS) + ["extra"]}, {"maxAgeSeconds": 0}, {"maxAgeSeconds": 3601}, {"maxAgeSeconds": True}):
+                     {"projectionKeys": sorted(INPUTS) + ["extra"]}, {"maxAgeSeconds": 0}, {"maxAgeSeconds": 3601}, {"maxAgeSeconds": True},
+                     {"readBudget": {"requests": 0, "identityReads": 1}}, {"readBudget": {"requests": 51, "identityReads": 1}},
+                     {"readBudget": {"requests": 12}}, {"readBudget": {"requests": 12, "identityReads": 1, "starts": 1}}):
             with self.subTest(over=over):
                 refused(self, "case10-observation-contract", self.admit, req=request(**over))
         no_row = copy.deepcopy(self.req)
@@ -102,6 +104,84 @@ class Observation(unittest.TestCase):
         tight = copy.deepcopy(self.req)
         tight["selection"][1]["plannedRequests"] = 80  # the fresh bound (84) exceeds this row's plan, though it fits 240
         refused(self, "case10-observation-over-allowance", self.admit, req=tight)
+
+
+from test_accounting_rollup import Journal  # noqa: E402
+import accounting_rollup as R  # noqa: E402
+from test_accounting_rollup import scope as rollup_scope  # noqa: E402
+import state_ref_writer as W  # noqa: E402
+
+
+class ReserveBeforeRead(Journal):
+    """Sam 1793570557.244339: no read until the SAME journal accepted the reserve; a failed or partial read stays counted. A synthetic bare
+    repository journal stands in for the state ref; nothing remote is written and no real reader exists."""
+    HEADROOM = {"requests": 1000, "identityReads": 10}
+
+    def setUp(self):
+        super().setUp()
+        self.req = request()
+        self.calls = []
+
+    def reader(self, keys):
+        self.calls.append(list(keys))
+        return reader(keys)
+
+    def propose(self, event):
+        return W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote), event, self.root, self.remote)
+
+    def run_it(self, reader_fn=None, propose=None, headroom=None, now=NOW):
+        return O.reserve_then_read(reader_fn or self.reader, propose or self.propose, self.HEADROOM if headroom is None else headroom,
+                                   self.req, REQUEST_SHA, "101", 1, ACCOUNT, now)
+
+    def counted(self):
+        sc = rollup_scope(periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z")
+        return R.receive(self.raw, sc, self.chain(), **self.pins)
+
+    def test_the_read_happens_only_after_the_journal_accepted_exactly_this_reserve(self):
+        record, event, receipt = self.run_it()
+        self.assertEqual(len(self.calls), 1)
+        head = self.chain()[-1]
+        self.assertEqual((head[0], head[1][-1]), (receipt["newSha"], event))
+        self.assertEqual(event["campaignId"], self.req["runId"] + O.RESERVATION_SUFFIX)
+        self.assertEqual((event["allocation"]["requests"], event["allocation"]["identityReads"], event["provenance"]),
+                         (12, 1, "request-sha256:" + REQUEST_SHA))
+        self.assertEqual(O.admit(record, self.req, REQUEST_SHA, "101", 1, ACCOUNT, NOW, trusted=frozenset({READER}))["allowance"], 240)
+        self.assertEqual(self.counted()["outstandingReservations"], 1)
+
+    def test_a_missing_failed_stale_or_unconfirmed_reserve_never_invokes_the_reader(self):
+        def failing(event):
+            raise W.Refused("state-ref-push-rejected")
+        refused(self, "case10-observation-reserve-failed", self.run_it, propose=failing)
+        stale = lambda event: W.propose(self.repo, self.remote, "f" * 40, event, self.root, self.remote)
+        refused(self, "case10-observation-reserve-failed", self.run_it, propose=stale)  # not the journal head: the writer refuses
+        refused(self, "case10-observation-reserve-not-accepted", self.run_it, propose=lambda event: None)  # a local proposal, no receipt
+        other = {"ref": W.STATE_REF, "previousSha": self.root, "newSha": "e" * 40, "ledgerBlobSha256": "0" * 64, "proposalSha256": "0" * 64}
+        refused(self, "case10-observation-reserve-not-accepted", self.run_it, propose=lambda event: other)  # a receipt for another event
+        refused(self, "case10-observation-no-headroom", self.run_it, headroom={"requests": 11, "identityReads": 1})
+        refused(self, "case10-observation-no-headroom", self.run_it, headroom={"requests": 12})
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.chain()[-1][1], [])  # nothing was appended by any refused attempt
+
+    def test_a_failed_or_partial_read_leaves_the_reservation_counted(self):
+        def broken(keys):
+            self.calls.append(list(keys))
+            raise OSError("synthetic transport failure")
+        refused(self, "case10-observation-read-failed", self.run_it, reader_fn=broken)
+        self.assertEqual(len(self.calls), 1)
+        rc = self.counted()
+        self.assertEqual((rc["outstandingReservations"], rc["period"]["requests"], rc["period"]["identityReads"]), (1, 12, 1))
+
+    def test_a_partial_read_is_refused_at_admission_and_its_reservation_stays_counted(self):
+        partial = lambda keys: {k: v for k, v in reader(keys).items() if k != "bootstrap"}
+        record, _, _ = self.run_it(reader_fn=partial)
+        refused(self, "case10-observation-projection", O.admit, record, self.req, REQUEST_SHA, "101", 1, ACCOUNT, NOW, frozenset({READER}))
+        rc = self.counted()
+        self.assertEqual((rc["outstandingReservations"], rc["period"]["requests"]), (1, 12))
+
+    def test_the_same_occurrence_cannot_reserve_its_observation_twice(self):
+        self.run_it()
+        refused(self, "case10-observation-reserve-failed", self.run_it)  # the writer refuses a duplicate reserve key
+        self.assertEqual(len(self.calls), 1)
 
 
 if __name__ == "__main__":
