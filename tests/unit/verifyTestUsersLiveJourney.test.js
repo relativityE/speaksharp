@@ -15,6 +15,7 @@ const T_ID = '11111111-1111-4111-8111-111111111111';
 const F_ID = '22222222-2222-4222-8222-222222222222';
 const sha = (v) => createHash('sha256').update(v).digest('hex');
 const ENV = { THROWAWAY_TEST_EMAIL: THROWAWAY, FREE_TEST_EMAIL: FREE };
+const DIGESTS = { EXPECTED_THROWAWAY_ID_SHA256: sha(T_ID), EXPECTED_FREE_ID_SHA256: sha(F_ID) };
 
 function world({ users = [{ id: 'other', email: 'someone@example.invalid' }, { id: T_ID, email: THROWAWAY.toUpperCase() }, { id: F_ID, email: FREE }],
   profiles = [{ id: T_ID, subscription_status: 'free' }, { id: F_ID, subscription_status: 'free' }], profileError = null, listError = null } = {}) {
@@ -35,13 +36,13 @@ function world({ users = [{ id: 'other', email: 'someone@example.invalid' }, { i
   const listUsers = async () => { if (listError) throw listError; return users; };
   return { supabase, listUsers, queries };
 }
-const ROW = { authUserExists: true, tierMatches: true, idMatches: null, pass: true };
+const ROW = { authUserExists: true, tierMatches: true, idMatches: true, pass: true };
 const leaks = (value) => new RegExp(`${T_ID}|${F_ID}|synthetic|example\\.invalid|${sha(T_ID)}|${sha(F_ID)}`, 'i').test(JSON.stringify(value));
 
 describe('verify-test-users live-journey-accounts target', () => {
   it('reports both required roles by role only, with one profile read and no identifier', async () => {
     const w = world();
-    const out = await verifyLiveJourneyAccounts({ supabase: w.supabase, env: ENV, listUsers: w.listUsers });
+    const out = await verifyLiveJourneyAccounts({ supabase: w.supabase, env: { ...ENV, ...DIGESTS }, listUsers: w.listUsers });
     expect(out).toEqual({ target: 'live-journey-accounts', allPass: true, results: [
       { role: 'existing-disposable', ...ROW }, { role: 'maintained-read-only', ...ROW }] });
     expect(leaks(out)).toBe(false);
@@ -64,9 +65,23 @@ describe('verify-test-users live-journey-accounts target', () => {
     const swapped = await verifyLiveJourneyAccounts({ supabase: w.supabase, listUsers: w.listUsers,
       env: { ...ENV, EXPECTED_THROWAWAY_ID_SHA256: sha(F_ID), EXPECTED_FREE_ID_SHA256: sha(T_ID) } });
     expect(swapped.results.map((r) => [r.role, r.idMatches, r.pass])).toEqual([['existing-disposable', false, false], ['maintained-read-only', false, false]]);
-    // A missing digest is no check for that role (idMatches null), while the other role is still checked.
+  });
+
+  it('missing expected-id input never counts as a verified owner id: that role is incomplete and nothing passes overall', async () => {
+    const w = world();
+    // Both digests absent: existence and tier hold for both roles, yet neither role passes and the target fails.
+    const none = await verifyLiveJourneyAccounts({ supabase: w.supabase, env: ENV, listUsers: w.listUsers });
+    expect(none.results).toEqual([
+      { role: 'existing-disposable', authUserExists: true, tierMatches: true, idMatches: null, pass: false },
+      { role: 'maintained-read-only', authUserExists: true, tierMatches: true, idMatches: null, pass: false }]);
+    expect(none.allPass).toBe(false);
+    // One digest absent: only that role is incomplete; the supplied one is still checked.
     const one = await verifyLiveJourneyAccounts({ supabase: w.supabase, listUsers: w.listUsers, env: { ...ENV, EXPECTED_FREE_ID_SHA256: sha(F_ID) } });
-    expect(one.results.map((r) => [r.role, r.idMatches, r.pass])).toEqual([['existing-disposable', null, true], ['maintained-read-only', true, true]]);
+    expect(one.results.map((r) => [r.role, r.idMatches, r.pass])).toEqual([['existing-disposable', null, false], ['maintained-read-only', true, true]]);
+    expect(one.allPass).toBe(false);
+    // A blank value is absent, not a match.
+    const blank = await verifyLiveJourneyAccounts({ supabase: w.supabase, listUsers: w.listUsers, env: { ...ENV, ...DIGESTS, EXPECTED_THROWAWAY_ID_SHA256: '   ' } });
+    expect(blank.results[0]).toEqual({ role: 'existing-disposable', authUserExists: true, tierMatches: true, idMatches: null, pass: false });
   });
 
   it('a malformed digest is refused before any read', async () => {

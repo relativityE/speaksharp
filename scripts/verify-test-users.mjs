@@ -13,7 +13,8 @@
  *
  * VERIFY_TARGET=live-journey-accounts: the Cloud test live run's two REQUIRED accounts, by role only — existing-disposable
  * (THROWAWAY_TEST_EMAIL) and maintained-read-only (FREE_TEST_EMAIL), both expected Free. It reports per role whether the auth user exists,
- * whether its profile carries the expected tier and, when an expected id digest is supplied, whether the account's id matches it.
+ * whether its profile carries the expected tier and whether the account's id matches the supplied expected digest; a role passes only
+ * when all three hold, so a missing digest reports that role incomplete (pass false).
  * It never prints or returns an email (masked or not), an id, a count or a raw error; it never signs in, so password viability is untested.
  *
  * This script intentionally performs no writes.
@@ -140,7 +141,8 @@ const SHA256 = /^[0-9a-f]{64}$/;
  * Role-only verification of the live run's two required accounts. Read-only: the existing auth-user listing and one user_profiles
  * select. Both names are required and nothing falls back (no E2E_*, CREATE_* or PRO). Any read failure becomes one fixed code, so no
  * SDK message can carry an email or id. Returns { target, results, allPass }
- * and nothing else: per role { role, authUserExists, tierMatches, idMatches, pass } (idMatches is null when no digest was supplied).
+ * and nothing else: per role { role, authUserExists, tierMatches, idMatches, pass }. A role without an expected digest is INCOMPLETE
+ * (idMatches null, pass false): missing input never counts as a verified owner-supplied id.
  */
 export async function verifyLiveJourneyAccounts({ supabase, env = process.env, listUsers = listAllAuthUsers }) {
   const wanted = LIVE_JOURNEY_ROLES.map((r) => ({ ...r, email: env[r.emailVar]?.trim().toLowerCase() || '', digest: env[r.digestVar]?.trim() || '' }));
@@ -165,7 +167,7 @@ export async function verifyLiveJourneyAccounts({ supabase, env = process.env, l
     const profile = user ? profiles.get(user.id) : null;
     const tierMatches = Boolean(profile && profile.subscription_status === w.expectedTier);
     const idMatches = w.digest ? Boolean(user && hash('sha256', user.id) === w.digest) : null;
-    return { role: w.role, authUserExists: Boolean(user), tierMatches, idMatches, pass: Boolean(user && tierMatches && idMatches !== false) };
+    return { role: w.role, authUserExists: Boolean(user), tierMatches, idMatches, pass: Boolean(user && tierMatches && idMatches === true) };
   });
   return { target: 'live-journey-accounts', results, allPass: results.every((r) => r.pass) };
 }
