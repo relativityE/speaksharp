@@ -238,7 +238,8 @@ def read_binding_inputs(env, argv):
         # Case 10's component projection is an admitted bound, not an allocation.
         # It must be verified against the current disposable account and request
         # before any phase-one files are emitted.
-        case10_bound = caps_module.case10_execution_bound(request, FACTS, DISPOSABLE_UID)
+        case10_bound = caps_module.case10_execution_bound(request, FACTS, DISPOSABLE_UID, binding['requestSha256'],
+                                                          env.get('GITHUB_RUN_ID'), now())
         ANON = need('VITE_SUPABASE_ANON_KEY')
         fx = obj(obj(jload(f'{PACKET}/draft-adapters/oracles/pure/fixture-manifest.json'), 'fixture-manifest')['fixtures'], 'fixtures')
         oracle_sha = shaf(f'{PACKET}/draft-adapters/oracles/index.cjs')
