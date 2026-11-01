@@ -90,6 +90,7 @@ HOST_APP = os.environ.get('BP_HOST_APP', 'speaksharp-public.vercel.app')
 HOST_DB = os.environ.get('BP_HOST_DB', 'yxlapjuovrsvjswkwnrk.supabase.co')
 PROJECT_REF = HOST_DB.split('.')[0]
 ACCOUNT_BINDINGS_FILE = need('BP_ACCOUNT_BINDINGS_FILE')
+ACCOUNT_BUNDLE_SHA256 = need('BP_LIVE_ACCOUNTS_SHA256')
 REQUEST_FILE = need('BP_REQUEST_FILE')
 REQUEST_SHA256 = need('BP_REQUEST_SHA256')
 UUID_V4 = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
@@ -117,7 +118,8 @@ def account_bindings():
     assert set(value) == {'schema', 'projectRef', 'projectOrigin', 'sourceBundleSha256', 'roles', 'campaignId'}, 'account bindings shape differs'
     assert value['schema'] == 'speaksharp.cloud-test.live-account-bindings.v1' and value['campaignId'] == CAMPAIGN, 'account bindings campaign differs'
     assert value['projectRef'] == PROJECT_REF and value['projectOrigin'] == f'https://{HOST_DB}', 'account bindings project differs'
-    assert isinstance(value['sourceBundleSha256'], str) and len(value['sourceBundleSha256']) == 64 and all(c in '0123456789abcdef' for c in value['sourceBundleSha256']), 'account bundle digest invalid'
+    assert SHA256.fullmatch(ACCOUNT_BUNDLE_SHA256), 'admitted account bundle digest invalid'
+    assert value['sourceBundleSha256'] == ACCOUNT_BUNDLE_SHA256, 'account bindings are not anchored to the admitted account bundle'
     expected = {'existing-disposable': {'email': 'THROWAWAY_TEST_EMAIL', 'password': 'THROWAWAY_TEST_PASSWORD'},
                 'maintained-read-only': {'email': 'FREE_TEST_EMAIL', 'password': 'FREE_TEST_PASSWORD'}}
     assert set(value['roles']) == set(expected), 'account binding roles differ'

@@ -25,15 +25,17 @@
   ],
   "harness": {
     "packetDir": "tools/cloud-test/harness",
-    "expectedCodeManifestSha256": "d93612db1f4643d492e96781716a77e9d4e604655ed649237c51b53b03ec80a3",
+    "expectedCodeManifestSha256": "dea17f1b56c8abdf48d4a757559e53a1fc244bc993e01508a265ad8af69752bb",
     "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
     "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
-    "expectedPacketManifestSha256": "e77e59ae0f9cf9db8b423ac648acb3e99e0f12c44cb71c95b5355942c5b629f7"
+    "expectedPacketManifestSha256": "ca2aa9d2004cbfa9b79bd296b16724de67436b57d7b30b99e435170953c01914"
   },
   "credentials": {
     "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",
     "runEnvironment": {
       "names": [
+        "FREE_TEST_EMAIL",
+        "FREE_TEST_PASSWORD",
         "THROWAWAY_TEST_EMAIL",
         "THROWAWAY_TEST_PASSWORD",
         "VITE_SUPABASE_URL",
@@ -47,6 +49,8 @@
         "stimulus-preflight": [],
         "gate-and-validate": [],
         "run": [
+          "FREE_TEST_EMAIL",
+          "FREE_TEST_PASSWORD",
           "THROWAWAY_TEST_EMAIL",
           "THROWAWAY_TEST_PASSWORD",
           "VITE_SUPABASE_URL",
@@ -56,13 +60,14 @@
         "reserve": []
       },
       "why": {
+        "FREE_TEST_EMAIL": "AHT-15 signs into its maintained read-only account by variable NAME in the run stage only",
+        "FREE_TEST_PASSWORD": "AHT-15 signs in with it in the run stage only; per-case isolation keeps it out of AHT-01 through AHT-14",
         "THROWAWAY_TEST_EMAIL": "case configs bind the throwaway account by variable NAME; the drivers sign in with it (run stage only)",
         "THROWAWAY_TEST_PASSWORD": "drivers sign in with it (run stage only); never needed to build the plan",
         "VITE_SUPABASE_URL": "the publishable project URL admission binds to the reviewed target host (run stage only)",
         "VITE_SUPABASE_ANON_KEY": "the publishable key the plan builder writes into the private case configs and the app uses; not a secret role key"
       },
       "alternatives": [
-        "FREE_TEST_EMAIL/FREE_TEST_PASSWORD",
         "PRO_TEST_EMAIL/PRO_TEST_PASSWORD (shared fixtures; only with an explicit owner decision for a case that needs them)"
       ]
     },

@@ -25,6 +25,28 @@ class IndependentGithubCasePreparation(unittest.TestCase):
         wjson(str(facts), facts_value)
         uid = base / "account.txt"
         uid.write_text("00000000-0000-4000-8000-000000000001")
+        request = base / "request.json"
+        request.write_text(json.dumps({"runId": "SYNTHETIC-NOT-A-LIVE-RUN"}) + "\n")
+        request.chmod(0o600)
+        account_bindings = base / "account-bindings.json"
+        account_bindings.write_text(json.dumps({
+            "schema": "speaksharp.cloud-test.live-account-bindings.v1",
+            "projectRef": "yxlapjuovrsvjswkwnrk",
+            "projectOrigin": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+            "sourceBundleSha256": "a" * 64,
+            "campaignId": "SYNTHETIC-NOT-A-LIVE-RUN",
+            "roles": {
+                "existing-disposable": {
+                    "accountId": uid.read_text(),
+                    "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"},
+                },
+                "maintained-read-only": {
+                    "accountId": "00000000-0000-4000-8000-000000000002",
+                    "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"},
+                },
+            },
+        }) + "\n")
+        account_bindings.chmod(0o600)
         browser = base / "synthetic-browser"
         browser.write_bytes(b"synthetic browser identity; never executed\n")
         browser_identity = base / "browser-identity.json"
@@ -36,6 +58,9 @@ class IndependentGithubCasePreparation(unittest.TestCase):
             "PATH": os.environ["PATH"], "HOME": str(base),
             "BP_PACKET": str(Path(ROOT) / "harness"), "BP_CHECKOUT": REPO,
             "BP_PRIVATE": str(output), "BP_FACTS": str(facts), "BP_ACCOUNT_ID_FILE": str(uid),
+            "BP_ACCOUNT_BINDINGS_FILE": str(account_bindings), "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
+            "BP_REQUEST_FILE": str(request), "BP_REQUEST_SHA256": hashlib.sha256(request.read_bytes()).hexdigest(),
+            "BP_HOST_DB": "yxlapjuovrsvjswkwnrk.supabase.co",
             "BP_BROWSER_IDENTITY": str(browser_identity),
             "BP_SOURCE_SHA": source, "BP_CAMPAIGN": "SYNTHETIC-NOT-A-LIVE-RUN",
             "BP_MODE": "breadth", "BP_CASES": str(case), "BP_SELECT": str(case),

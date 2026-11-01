@@ -129,11 +129,10 @@ ensure_account_bindings() {
   CT_PRIVATE_INPUT_DIR="$private_inputs"
   CT_ACCOUNT_BINDINGS_FILE="${CT_ACCOUNT_BINDINGS_FILE:-$private_inputs/account-bindings.json}"
   export CT_ACCOUNT_BINDINGS_FILE
-  if [ ! -e "$CT_ACCOUNT_BINDINGS_FILE" ]; then
-    run_stage build-plan node "$ROOT/scripts/resolve_live_account_bindings.cjs" \
-      --bundle "$bundle" --bundle-sha256 "$bundle_sha" --project-origin "${VITE_SUPABASE_URL:?VITE_SUPABASE_URL is required}" \
-      --campaign-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)" --out "$CT_ACCOUNT_BINDINGS_FILE"
-  fi
+  [ ! -e "$CT_ACCOUNT_BINDINGS_FILE" ] || blocked "account bindings output already exists; prebuilt or replayed bindings are refused"
+  run_stage build-plan node "$ROOT/scripts/resolve_live_account_bindings.cjs" \
+    --bundle "$bundle" --bundle-sha256 "$bundle_sha" --project-origin "${VITE_SUPABASE_URL:?VITE_SUPABASE_URL is required}" \
+    --campaign-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)" --out "$CT_ACCOUNT_BINDINGS_FILE"
 }
 
 build() {
@@ -148,6 +147,7 @@ build() {
     set -euo pipefail
     set -a; . "$CT_OUT/plan-env.txt"; set +a
     export BP_PACKET="'"$HP"'" BP_CHECKOUT="$CT_CHECKOUT" BP_PRIVATE="'"$private"'" BP_FACTS="$CT_FACTS_FILE" BP_ACCOUNT_BINDINGS_FILE="$CT_ACCOUNT_BINDINGS_FILE" \
+           BP_LIVE_ACCOUNTS_SHA256="$CT_LIVE_ACCOUNTS_SHA256" \
            BP_REQUEST_FILE="$CT_REQUEST" BP_REQUEST_SHA256="$CT_REQUEST_SHA256" \
            BP_MEDIA_PARENT="${CT_MEDIA_PARENT:-/var/tmp/ss-media-cloud-test}" BP_BROWSER_IDENTITY="$CT_OUT/browser-identity.json" BP_LEASE_RPCS=1 BP_LEASE_READ=1
     if [ "$BP_RUNTIME" = "Claude SpeakSharp R4" ]; then
@@ -227,7 +227,11 @@ case "$STAGE" in
         --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --run-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)"
     fi
     planfile="$OUT/plan/cfg/campaign-plan.json"
-    psha="$(sha256sum "$planfile" | cut -d' ' -f1)"
+    build_receipt="$OUT/plan/cfg/build-plan-consumption.json"
+    [ -f "$build_receipt" ] || blocked "retained build-time plan identity is missing"
+    psha="$(python3 -I "$ROOT/scripts/cfg_get.py" "$build_receipt" planSha256)" || blocked "retained build-time plan identity cannot be read"
+    actual_psha="$(sha256sum "$planfile" | cut -d' ' -f1)"
+    [ "$psha" = "$actual_psha" ] || blocked "campaign plan changed after the build-time identity was retained"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$OUT/started.txt"
     if [ "$ROUTE" = github-producer ]; then
       scopefile="$OUT/plan/producer-scope.json"

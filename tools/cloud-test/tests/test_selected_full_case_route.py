@@ -65,7 +65,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return directory, json.loads((directory / "cfg/campaign-plan.json").read_text())
 
-    def stage(self, request, stage, extra=None, capture=False, mislabel_reservation=False):
+    def stage(self, request, stage, extra=None, capture=False, mislabel_reservation=False, substitute_plan=False):
         temporary = tempfile.TemporaryDirectory(prefix="selected-stage-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name).resolve()
@@ -94,6 +94,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
                "VITE_SUPABASE_URL": "https://" + project_ref + ".supabase.co",
                "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40,
+               "FREE_TEST_EMAIL": "maintained@example.invalid", "FREE_TEST_PASSWORD": "SYNTHETIC-FREE-PASSWORD",
                "THROWAWAY_TEST_EMAIL": "unit@example.invalid", "THROWAWAY_TEST_PASSWORD": "SYNTHETIC-PASSWORD"}
         record = root / "invocation.json"
         if capture:
@@ -117,7 +118,11 @@ class SelectedFullCaseRoute(unittest.TestCase):
             python_shim.chmod(0o700)
             env["PATH"] = str(binary) + os.pathsep + env["PATH"]
             (output / "plan/cfg").mkdir(parents=True, mode=0o700)
-            (output / "plan/cfg/campaign-plan.json").write_text("{}")
+            plan_file = output / "plan/cfg/campaign-plan.json"
+            plan_file.write_text("{}")
+            (output / "plan/cfg/build-plan-consumption.json").write_text(json.dumps({"planSha256": hashlib.sha256(plan_file.read_bytes()).hexdigest()}))
+            if substitute_plan:
+                plan_file.write_text('{"substituted":true}')
             (output / "plan/producer-scope.json").write_text("{}")
             if request.get("priority") == "nightly-regression":
                 for name in ("CT_HISTORY_INDEX", "CT_COUNTERS", "CT_GAP_LEDGER", "CT_RECEIPTS_ROOT", "CT_RESERVATIONS", "CT_APPROVAL"):
@@ -206,6 +211,17 @@ class SelectedFullCaseRoute(unittest.TestCase):
         self.assertIn("actual GitHub job identity required", result.stderr)
         self.assertFalse((directory / "cfg/campaign-plan.json").exists())
 
+    def test_preexisting_account_bindings_are_refused_before_plan_build(self):
+        _, request = self.request()
+        with tempfile.TemporaryDirectory(prefix="prebuilt-bindings-") as directory:
+            prebuilt = Path(directory).resolve() / "account-bindings.json"
+            prebuilt.write_text('{"synthetic":"must-not-be-trusted"}')
+            prebuilt.chmod(0o600)
+            plan, result, _ = self.stage(request, "build-plan", {"CT_ACCOUNT_BINDINGS_FILE": str(prebuilt)})
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("prebuilt or replayed bindings are refused", result.stderr)
+        self.assertFalse((plan / "cfg/campaign-plan.json").exists())
+
     def test_run_stage_chooses_fixed_broker_only_for_evidence_cases_and_never_other_secrets(self):
         for producer in (False, True):
             with self.subTest(producer=producer):
@@ -227,6 +243,13 @@ class SelectedFullCaseRoute(unittest.TestCase):
                 identity_names = json.loads(record.with_name("identity-env.json").read_text())
                 for name in ("SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY", "THROWAWAY_TEST_PASSWORD", "UNKNOWN_SECRET"):
                     self.assertNotIn(name, identity_names)
+
+    def test_run_refuses_a_plan_substituted_after_build_without_starting_the_campaign_child(self):
+        _, request = self.request()
+        _, refused, record = self.stage(request, "run", capture=True, substitute_plan=True)
+        self.assertEqual(refused.returncode, 78, refused.stdout + refused.stderr)
+        self.assertIn("campaign plan changed after the build-time identity was retained", refused.stderr)
+        self.assertFalse(record.exists(), "the campaign child must not start after plan substitution")
 
     def test_nightly_prelude_and_all_python_children_never_receive_broker_keys_even_if_mislabeled(self):
         for mislabeled in (False, True):

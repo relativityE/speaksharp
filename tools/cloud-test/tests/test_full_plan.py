@@ -173,6 +173,7 @@ class FullPlanProof(unittest.TestCase):
         script += "".join("export %s=%s; " % (k, shlex.quote(v)) for k, v in (extra or {}).items())
         env = {"PATH": os.environ["PATH"], "HOME": cls.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
                "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_BINDINGS_FILE": cls.bindings,
+               "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
                "BP_REQUEST_FILE": cls.reqp, "BP_REQUEST_SHA256": hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(), "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(cls.work, "media"),
                "BP_BROWSER_IDENTITY": cls.browser_identity,

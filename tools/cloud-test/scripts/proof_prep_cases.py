@@ -76,7 +76,7 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
     if "phase2" in phases and not browser_identity:
         raise SystemExit("BLOCKED_SETUP: phase2 requires this proof run's browser identity receipt")
     env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"),
-               BP_ACCOUNT_BINDINGS_FILE=bindings, BP_REQUEST_FILE=reqp, BP_REQUEST_SHA256=request_sha256,
+               BP_ACCOUNT_BINDINGS_FILE=bindings, BP_LIVE_ACCOUNTS_SHA256="a" * 64, BP_REQUEST_FILE=reqp, BP_REQUEST_SHA256=request_sha256,
                BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
                BP_ENV_ID="env_PLACEHOLDER", BP_MEDIA_PARENT=os.path.join(work, "media"), VITE_SUPABASE_ANON_KEY="placeholder-publishable-key", BP_PDFJS_DIR=pdfjs)
     if browser_identity:

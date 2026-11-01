@@ -300,6 +300,7 @@ class PlanBuilderProof(unittest.TestCase):
         script += "".join("export %s=%s; " % (key, shlex.quote(value)) for key, value in (extra or {}).items() if key not in drop)
         env = {"PATH": os.environ["PATH"], "HOME": self.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
                "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_BINDINGS_FILE": self.bindings,
+               "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
                "BP_REQUEST_FILE": self.reqp, "BP_REQUEST_SHA256": hashlib.sha256(Path(self.reqp).read_bytes()).hexdigest(), "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(self.work, "media"),
                "BP_BROWSER_IDENTITY": self.browser_identity,
@@ -456,8 +457,8 @@ class PlanBuilderProof(unittest.TestCase):
 
     # ---- fail closed on missing inputs
     def test_missing_inputs_are_blocked_setup(self):
-        for name in ("BP_FACTS", "BP_ACCOUNT_BINDINGS_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY", "BP_SOURCE_SHA", "BP_SELECT_REF"):
-            private, out = self.build("p-miss-" + name.lower(), drop=(name,)) if name in ("BP_FACTS", "BP_ACCOUNT_BINDINGS_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY") else (None, None)
+        for name in ("BP_FACTS", "BP_ACCOUNT_BINDINGS_FILE", "BP_LIVE_ACCOUNTS_SHA256", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY", "BP_SOURCE_SHA", "BP_SELECT_REF"):
+            private, out = self.build("p-miss-" + name.lower(), drop=(name,)) if name in ("BP_FACTS", "BP_ACCOUNT_BINDINGS_FILE", "BP_LIVE_ACCOUNTS_SHA256", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY") else (None, None)
             if out is None:
                 continue
             self.assertTrue(out[-1].returncode == 78, (name, out[-1].returncode, out[-1].stderr[-200:]))

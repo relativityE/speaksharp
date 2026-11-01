@@ -81,4 +81,4 @@ async function main(argv){let lock=null;try{const a={};if(argv.length%2)throw ne
  const result=await runCampaign(plan,createAdapter({...plan,runRoot:root},bundle,{executeR0:execute}),{executeR0:execute});console.log(JSON.stringify({result:result.report.result,cases:result.report.cases.map(c=>({id:c.caseId,result:c.result})),report:path.join(root,execute?'case-results.json':'offline-case-plan.json')}));return result.exitCode;
  }catch(e){console.error('BLOCKED_SETUP: '+e.message);return 78;}finally{if(lock)try{fs.unlinkSync(lock);}catch{}}}
 if(require.main===module)main(process.argv.slice(2)).then(c=>process.exitCode=c);
-module.exports={createAdapter,main,readBound,capDenialReasons,evaluateCaseBoundary,validateCampaignPaths};
+module.exports={createAdapter,main,readBound,capDenialReasons,evaluateCaseBoundary,validateCampaignPaths,caseEnvironment};
