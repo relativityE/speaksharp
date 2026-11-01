@@ -153,6 +153,22 @@ export function liveJourneyMaskValues(env = process.env) {
 }
 
 /**
+ * GitHub workflow-command lines that mask each value. Command data is escaped (% -> %25, CR -> %0D, LF -> %0A) so an embedded line break
+ * cannot end the command and print the rest of the value; a multi-line value is also masked line by line, because the log is masked per
+ * line. Every returned string is exactly one line.
+ */
+export function maskCommands(values) {
+  const escape = (v) => v.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  const out = new Set();
+  for (const value of values) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    out.add(`::add-mask::${escape(value)}`);
+    for (const line of value.split(/\r\n|\r|\n/)) if (line.trim() && line !== value) out.add(`::add-mask::${escape(line)}`);
+  }
+  return [...out];
+}
+
+/**
  * Role-only verification of the live run's two required accounts. Read-only: the existing auth-user listing and one user_profiles
  * select. Both names are required and nothing falls back (no E2E_*, CREATE_* or PRO). Any read failure becomes one fixed code, so no
  * SDK message can carry an email or id. Returns { target, results, allPass }
@@ -223,7 +239,7 @@ async function main() {
   if (VERIFY_TARGET === 'live-journey-accounts') {
     // Mask first: nothing this target prints, and no later error, can carry an email or digest in the Actions log.
     if (process.env.GITHUB_ACTIONS === 'true') {
-      for (const value of liveJourneyMaskValues()) process.stdout.write(`::add-mask::${value}\n`);
+      for (const command of maskCommands(liveJourneyMaskValues())) process.stdout.write(`${command}\n`);
     }
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },

@@ -181,9 +181,10 @@ describe('Admin - Test Users workflow contract', () => {
     // The verifier masks every email and digest before it prints anything for this target.
     const src = readFileSync(resolve(process.cwd(), 'scripts/verify-test-users.mjs'), 'utf8');
     const branch = src.slice(src.indexOf("if (VERIFY_TARGET === 'live-journey-accounts') {"));
-    expect(branch.indexOf('::add-mask::')).toBeGreaterThan(-1);
-    expect(branch.indexOf('::add-mask::')).toBeLessThan(branch.indexOf('createClient('));
-    expect(branch.indexOf('::add-mask::')).toBeLessThan(branch.indexOf('console.'));
+    const mask = branch.indexOf('maskCommands(liveJourneyMaskValues())');
+    expect(mask).toBeGreaterThan(-1);
+    expect(mask).toBeLessThan(branch.indexOf('createClient('));
+    expect(mask).toBeLessThan(branch.indexOf('console.'));
   });
 
   it('verify_target selects the reviewers check (default), the read-only canary inspection or the live-journey accounts', () => {

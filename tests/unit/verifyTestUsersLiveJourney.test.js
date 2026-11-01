@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { verifyLiveJourneyAccounts, LIVE_JOURNEY_ROLES, liveJourneyMaskValues } from '../../scripts/verify-test-users.mjs';
+import { verifyLiveJourneyAccounts, LIVE_JOURNEY_ROLES, liveJourneyMaskValues, maskCommands } from '../../scripts/verify-test-users.mjs';
 
 /**
  * Sam 1793541050.190059: the Cloud test live run's two REQUIRED accounts, verified by role only. Reconciles historical aa2ff01a
@@ -97,6 +97,23 @@ describe('verify-test-users live-journey-accounts target', () => {
     const masks = liveJourneyMaskValues({ THROWAWAY_TEST_EMAIL: THROWAWAY.toUpperCase(), FREE_TEST_EMAIL: FREE, EXPECTED_THROWAWAY_ID_SHA256: sha(T_ID),
       EXPECTED_FREE_ID_SHA256: '  ' });
     expect(masks.sort()).toEqual([THROWAWAY.toUpperCase(), THROWAWAY, FREE, sha(T_ID)].sort());
+  });
+
+  it('mask commands escape their data, stay one line each, and mask every line of a multi-line value', () => {
+    expect(maskCommands(['a%b'])).toEqual(['::add-mask::a%25b']);
+    expect(maskCommands(['%0A'])).toEqual(['::add-mask::%250A'], 'a literal %0A is escaped, never decoded into a break');
+    const multi = maskCommands([`first@example.invalid\nsecond-part\r\nthird`]);
+    expect(multi).toEqual(['::add-mask::first@example.invalid%0Asecond-part%0D%0Athird', '::add-mask::first@example.invalid',
+      '::add-mask::second-part', '::add-mask::third']);
+    for (const line of [...multi, ...maskCommands(['x\ry', 'z\n'])]) {
+      expect(line).not.toMatch(/[\r\n]/);
+      expect(line.startsWith('::add-mask::')).toBe(true);
+    }
+    expect(maskCommands(['', '  ', null, undefined, 7])).toEqual([]);
+    // The verifier writes only these escaped commands for the target's values.
+    const src = readFileSync(resolve(process.cwd(), 'scripts/verify-test-users.mjs'), 'utf8');
+    expect(src).toContain('for (const command of maskCommands(liveJourneyMaskValues())) process.stdout.write(`${command}\\n`);');
+    expect(src.match(/::add-mask::\$\{value\}/g)).toBeNull();
   });
 
   it('writes nothing: the target has no file, insert, update or sign-in path (historical no-overwrite protection)', async () => {
