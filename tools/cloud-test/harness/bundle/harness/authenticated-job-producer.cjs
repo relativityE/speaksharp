@@ -5,9 +5,14 @@ const fs=require('node:fs'),path=require('node:path'),net=require('node:net');
 const {spawn}=require('node:child_process');
 const p=require('./existing-runner-projection.cjs');
 const SHA=/^[a-f0-9]{40}$/,UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
-const ROLES=Object.freeze({'AHT-01':['coaching-authority'],'AHT-02':['coaching-authority'],'AHT-03':['coaching-authority'],'AHT-07':['feedback-association','feedback-received'],'AHT-08':['feedback-association','feedback-received']});
+const ROLES=Object.freeze({'AHT-01':['coaching-authority'],'AHT-02':['coaching-authority'],'AHT-03':['coaching-authority'],'AHT-07':['coaching-authority','feedback-association','feedback-received'],'AHT-08':['feedback-association','feedback-received']});
 const fail=code=>{throw Object.assign(new Error('NOT_RUN: '+code),{code});};
 const producerSha=()=>p.sha(fs.readFileSync(__filename));
+function capabilityBinding(scope,job){
+ const receiverSourceSha256=p.sha(fs.readFileSync(path.resolve(__dirname,'../../draft-adapters/receivers/github-job-evidence-reader.cjs')));
+ if(typeof scope.producerReviewReference!=='string'||!scope.producerReviewReference.trim())fail('INDEPENDENT_PRODUCER_REVIEW_REQUIRED');
+ return {campaignId:scope.campaignId,ownerAccountId:scope.ownerAccountId,sourceSha:scope.sourceSha,servedSha:scope.servedSha,notBefore:scope.notBefore,deadlineAt:scope.deadlineAt,maxDeliveries:scope.maxDeliveries,maxSupabaseRequests:scope.maxSupabaseRequests,maxTelemetryReads:scope.maxTelemetryReads,caseRoles:[...scope.caseIds].sort().map(caseId=>({caseId,roles:ROLES[caseId]})),producerIdentity:job.identity,producerCodeSha256:producerSha(),receiverSourceSha256,reviewReference:scope.producerReviewReference};
+}
 function descriptor(reviewReference,env=process.env){
  const job=jobIdentity(env),relative='draft-adapters/receivers/github-job-evidence-reader.cjs';
  if(typeof reviewReference!=='string'||!reviewReference.trim())fail('INDEPENDENT_PRODUCER_REVIEW_REQUIRED');
@@ -48,7 +53,7 @@ function readTelemetry(request,{env,checkout,signal}){
  });
 }
 function createProducer({scope,env=process.env,fetchImpl=globalThis.fetch,telemetryReader=readTelemetry,checkout=process.cwd(),now=Date.now}={}){
- const job=jobIdentity(env),s=validateScope(scope,now()),codeSha=producerSha(),seen=new Set();let deliveries=0,supabaseRequests=0,telemetryReads=0;
+ const job=jobIdentity(env),s=validateScope(scope,now()),codeSha=producerSha(),seen=new Set(),probeNonces=new Set();let deliveries=0,supabaseRequests=0,telemetryReads=0,capabilityProbes=0;
  let base;try{base=new URL(env.SUPABASE_URL);}catch{fail('AUTHENTICATED_READ_CAPABILITY_UNAVAILABLE');}
  if(base.href!=='https://yxlapjuovrsvjswkwnrk.supabase.co/'||!env.SUPABASE_SERVICE_ROLE_KEY)fail('AUTHENTICATED_READ_CAPABILITY_UNAVAILABLE');
  async function json(route,{method='GET',body,signal}={}){
@@ -59,7 +64,18 @@ function createProducer({scope,env=process.env,fetchImpl=globalThis.fetch,teleme
   for await(const part of response.body){bytes+=part.length;if(bytes>2097152)fail('AUTHENTICATED_READ_TOO_LARGE');parts.push(part);}
   try{return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{fail('AUTHENTICATED_READ_INVALID');}
  }
- return {job,codeSha,stats:()=>({deliveries,supabaseRequests,telemetryReads}),async receive({request,requestSha256,signal}){
+ return {job,codeSha,stats:()=>({deliveries,supabaseRequests,telemetryReads,capabilityProbes}),probe(request){
+  const t=now();
+  if(t<Date.parse(s.notBefore)||t>=Date.parse(s.deadlineAt))fail('PRODUCER_WINDOW_EXPIRED');
+  if(!request||Object.keys(request).sort().join(',')!=='bindingSha256,kind,nonce,requestedAt'||request.kind!=='same-job-capability-probe'||!/^[a-f0-9]{32}$/.test(request.nonce||''))fail('PRODUCER_PROBE_INVALID');
+  if(!Number.isFinite(Date.parse(request.requestedAt))||Date.parse(request.requestedAt)>t||t-Date.parse(request.requestedAt)>5000)fail('PRODUCER_PROBE_STALE');
+  const bindingSha256=p.sha(JSON.stringify(capabilityBinding(s,job)));
+  if(request.bindingSha256!==bindingSha256)fail('PRODUCER_PROBE_BINDING_DIFFERS');
+  if(probeNonces.has(request.nonce)||capabilityProbes>=8)fail('PRODUCER_PROBE_REPLAY_OR_LIMIT');
+  probeNonces.add(request.nonce);capabilityProbes++;
+  if(s.caseIds.some(id=>ROLES[id].includes('feedback-received'))&&(!env.POSTHOG_PROJECT_ID||!env.POSTHOG_PERSONAL_API_KEY))fail('TELEMETRY_CAPABILITY_UNAVAILABLE');
+  return {kind:'same-job-capability-receipt',nonce:request.nonce,bindingSha256,configured:true,remoteReadProven:false,producedAt:new Date(t).toISOString()};
+ },async receive({request,requestSha256,signal}){
   const t=now();if(signal?.aborted)fail('PRODUCER_CANCELLED');
   if(t<Date.parse(s.notBefore)||t>=Date.parse(s.deadlineAt))fail('PRODUCER_WINDOW_EXPIRED');
   if(p.requestDigest(request)!==requestSha256||request.campaignId!==s.campaignId||request.ownerAccountId!==s.ownerAccountId||request.sourceSha!==s.sourceSha||request.servedSha!==s.servedSha||!s.caseIds.includes(request.caseId)||!ROLES[request.caseId]?.includes(request.artifactRole)||request.producerIdentity!==job.identity||request.producerCodeSha256!==codeSha)fail('PRODUCER_REQUEST_SCOPE_DIFFERS');
@@ -101,9 +117,9 @@ async function startBroker({directory,producer}){
   socket.setTimeout(50000,()=>socket.destroy());socket.on('error',()=>{});
   socket.on('data',b=>{bytes+=b.length;if(bytes>16384)socket.destroy();else chunks.push(b);});
   socket.on('close',()=>{clients.delete(socket);controllers.delete(controller);controller.abort();});
-  socket.on('end',async()=>{try{const input=JSON.parse(Buffer.concat(chunks).toString('utf8'));const result=await producer.receive({...input,signal:controller.signal});socket.end(JSON.stringify({ok:true,artifactBase64:result.artifactBytes.toString('base64'),provenance:result.provenance}));}catch{socket.end(JSON.stringify({ok:false,code:'EVIDENCE_READ_UNAVAILABLE'}));}});
+  socket.on('end',async()=>{try{const input=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(input.kind==='same-job-capability-probe'){const probe=producer.probe(input);socket.end(JSON.stringify({ok:true,probe}));}else{const result=await producer.receive({...input,signal:controller.signal});socket.end(JSON.stringify({ok:true,artifactBase64:result.artifactBytes.toString('base64'),provenance:result.provenance}));}}catch{socket.end(JSON.stringify({ok:false,code:'EVIDENCE_READ_UNAVAILABLE'}));}});
  });
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(socketPath,()=>{fs.chmodSync(socketPath,0o600);resolve();});});
  return {socketPath,async close(){for(const c of controllers)c.abort();for(const c of clients)c.destroy();await new Promise((resolve,reject)=>server.close(e=>e?reject(e):resolve()));}};
 }
-module.exports={createProducer,startBroker,jobIdentity,assertJobReceipt,validateScope,producerSha,descriptor};
+module.exports={createProducer,startBroker,jobIdentity,assertJobReceipt,validateScope,producerSha,descriptor,capabilityBinding};

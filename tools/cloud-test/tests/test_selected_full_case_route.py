@@ -15,6 +15,7 @@ import hashlib
 
 from _fixtures import ROOT, REPO, J, sample, fake_rv
 import validate_run_request as validator
+from test_case_start_caps import synthetic_allocation, synthetic_reconciliation
 
 
 class SelectedFullCaseRoute(unittest.TestCase):
@@ -37,17 +38,19 @@ class SelectedFullCaseRoute(unittest.TestCase):
                                      "startsCap": 100, "takesCap": 100, "approvalRef": "SYNTHETIC-NOT-AUTHORIZATION", "approvedBy": "UNIT-FIXTURE"}
         request["window"] = {"startUtc": "2026-10-30T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "SYNTHETIC-NOT-AUTHORIZATION"}
         request["selectionApprovalRef"] = "SYNTHETIC-NOT-AUTHORIZATION"
+        synthetic_allocation(request)
         return base, request
 
     def environment(self, request):
         temporary = tempfile.TemporaryDirectory(prefix="selected-full-env-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name).resolve()
-        request_file, output = root / "request.json", root / "env.txt"
+        request_file, reconciliation_file, output = root / "request.json", root / "reconciliation.json", root / "env.txt"
         request_file.write_text(json.dumps(request))
+        reconciliation_file.write_text(json.dumps(synthetic_reconciliation()))
         request_sha = hashlib.sha256(request_file.read_bytes()).hexdigest()
         result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", str(request_file),
-                                 "--request-sha256", request_sha, "--out", str(output)],
+                                 "--request-sha256", request_sha, "--reconciliation", str(reconciliation_file), "--out", str(output)],
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         values = {}
@@ -76,7 +79,17 @@ class SelectedFullCaseRoute(unittest.TestCase):
         output.mkdir(mode=0o700, exist_ok=True)
         req, facts, accounts = root / "request.json", root / "facts.json", root / "live-accounts.json"
         req.write_text(json.dumps(request)); req.chmod(0o600)
-        facts.write_text(json.dumps(J("tests", "fixtures", "plan-facts.PLACEHOLDER.json"))); facts.chmod(0o600)
+        reconciliation = output / "reconciliation.json"
+        reconciliation.write_text(json.dumps(synthetic_reconciliation()))
+        facts_value = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        request_sha = hashlib.sha256(req.read_bytes()).hexdigest()
+        reconciliation_sha = hashlib.sha256(reconciliation.read_bytes()).hexdigest()
+        facts_value["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1",
+            "requestSha256": request_sha, "reconciliationSha256": reconciliation_sha,
+            "approvalRef": request["approvedLimits"]["approvalRef"],
+            "approvedBy": request["approvedLimits"]["approvedBy"],
+            "selectionApprovalRef": request["selectionApprovalRef"]}
+        facts.write_text(json.dumps(facts_value)); facts.chmod(0o600)
         project_ref = "yxlapjuovrsvjswkwnrk"
         accounts.write_text(json.dumps({"version": 1, "projectRef": project_ref, "accounts": {
             "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001", "email": "unit@example.invalid"},
@@ -90,7 +103,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
                                                 "path": str(browser.resolve()),
                                                 "observedBinarySha256": hashlib.sha256(browser.read_bytes()).hexdigest()}))
         env = {"PATH": os.environ["PATH"], "HOME": str(root), "CT_CONFIG": str(Path(ROOT) / "config/test-config.v1.json"),
-               "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_REQUEST_SHA256": hashlib.sha256(req.read_bytes()).hexdigest(), "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),
+               "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_REQUEST_SHA256": request_sha, "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),
                "CT_LIVE_ACCOUNTS_FILE": str(accounts), "CT_LIVE_ACCOUNTS_SHA256": hashlib.sha256(accounts.read_bytes()).hexdigest(),
                "CT_PRIVATE_INPUT_DIR": str(root / "run-inputs"), "BP_BROWSER_IDENTITY": str(browser_identity),
                "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE",
@@ -231,6 +244,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
             root = Path(directory).resolve()
             plan0, first, _ = self.stage(request, "build-plan", shared_root=root)
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            (root / "out/stimulus-preflight-receipt.json").write_text('{"synthetic":"NOT-A-RUN"}\n')
             plan, second, _ = self.stage(request, "build-plan-with-receipt", shared_root=root)
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
             bindings = sorted((root / "run-inputs").glob("account-bindings.*.json"))

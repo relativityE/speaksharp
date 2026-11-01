@@ -119,7 +119,11 @@ require_runtime_inputs() {
   fi
 }
 
-plan_env_file() { python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --out "$OUT/plan-env.txt" >/dev/null; }
+plan_env_file() {
+  [ -f "$OUT/reconciliation.json" ] || blocked "reconciliation.json is required before plan construction"
+  python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
+    --reconciliation "$OUT/reconciliation.json" --out "$OUT/plan-env.txt" >/dev/null
+}
 
 ensure_account_bindings() {
   local bundle="${CT_LIVE_ACCOUNTS_FILE:-}" bundle_sha="${CT_LIVE_ACCOUNTS_SHA256:-}"

@@ -25,10 +25,10 @@
   ],
   "harness": {
     "packetDir": "tools/cloud-test/harness",
-    "expectedCodeManifestSha256": "2403b3da44ac996fbf49afff07daa1898300e7f87684c468eb4765d66c5be700",
+    "expectedCodeManifestSha256": "ee7821934fe56baf62682462550dc2a43d3ac46a781bc1c66c8b49d9a4a5bd35",
     "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
     "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
-    "expectedPacketManifestSha256": "1569da22babb0b7a309d774440d6d9d57bb4acd288a964c99aa0130fa8ee8d41"
+    "expectedPacketManifestSha256": "543e34044542e8f826ba008ff919d4c7bef43cb57405af1094da15cd8dcd953d"
   },
   "credentials": {
     "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",
@@ -288,7 +288,7 @@
       },
       "assertionCatalog": {
         "file": "config/assertion-catalog.json",
-        "sha256": "8332492b8d8c2bd99b19f94a5b6f5ded1993531aa54c5104c24e63b473bc6210",
+        "sha256": "3933cf952feb18779495e11336252fd0127c6343609e6dec1c5bd09ef5fc2144",
         "totalAssertions": 204,
         "rule": "A full live run executes every catalog row (PASS or FAIL). A row left NOT RUN must be named in approvedOmissions with a reason and an approval reference, and a run with any omission is not a full live run.",
         "version": 3,

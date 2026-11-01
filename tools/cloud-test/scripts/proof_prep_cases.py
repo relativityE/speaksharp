@@ -29,6 +29,7 @@ def placeholder_request(packet):
                              "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
     req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
     req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
+    req["approvedLimits"]["startPressCaps"] = dict(req["proposedLimits"]["startPressCaps"])
     return req
 
 
@@ -54,7 +55,8 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
         raise SystemExit("--out must not exist")
     pdfjs = pinned_pdfjs()
     work = tempfile.mkdtemp(prefix="ct-proof-prep-")
-    reqp, bindings, envf = (os.path.join(work, n) for n in ("req.json", "account-bindings.json", "env.txt"))
+    reqp, bindings, envf, rcp, factp = (os.path.join(work, n) for n in
+        ("req.json", "account-bindings.json", "env.txt", "reconciliation.json", "facts.json"))
     request = placeholder_request(packet)
     with open(reqp, "w", encoding="utf-8") as f:
         json.dump(request, f)
@@ -69,13 +71,30 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
     base = {"PATH": os.environ["PATH"], "HOME": work}
     with open(reqp, "rb") as stream:
         request_sha256 = hashlib.sha256(stream.read()).hexdigest()
+    reconciliation = {"synthetic": "PLACEHOLDER-NOT-A-RUN", "starts": {"ownerCounted": 0},
+        "ceilings": {"starts": 85, "requests": 20000, "identityReads": 200, "takes": 100,
+                     "protectedReserveRequests": 50}, "requests": {"conservativeUsed": 0},
+        "identityReads": {"conservativeUsed": 0}, "takes": {"ownerCounted": 0}}
+    with open(rcp, "w", encoding="utf-8") as f:
+        json.dump(reconciliation, f)
+    with open(os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), encoding="utf-8") as f:
+        facts = json.load(f)
+    with open(rcp, "rb") as stream:
+        reconciliation_sha256 = hashlib.sha256(stream.read()).hexdigest()
+    facts["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1",
+        "requestSha256": request_sha256, "reconciliationSha256": reconciliation_sha256,
+        "approvalRef": request["approvedLimits"]["approvalRef"], "approvedBy": request["approvedLimits"]["approvedBy"],
+        "selectionApprovalRef": request["selectionApprovalRef"]}
+    with open(factp, "w", encoding="utf-8") as f:
+        json.dump(facts, f)
     r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "run_env.py"), "--request", reqp,
-                        "--request-sha256", request_sha256, "--out", envf], capture_output=True, text=True, cwd=ROOT, env=base)
+                        "--request-sha256", request_sha256, "--reconciliation", rcp, "--out", envf],
+                       capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
         raise SystemExit("run_env.py failed (%d)" % r.returncode)
     if "phase2" in phases and not browser_identity:
         raise SystemExit("BLOCKED_SETUP: phase2 requires this proof run's browser identity receipt")
-    env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"),
+    env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=factp,
                BP_ACCOUNT_BINDINGS_FILE=bindings, BP_LIVE_ACCOUNTS_SHA256="a" * 64, BP_REQUEST_FILE=reqp, BP_REQUEST_SHA256=request_sha256,
                BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
                BP_ENV_ID="env_PLACEHOLDER", BP_MEDIA_PARENT=os.path.join(work, "media"), VITE_SUPABASE_ANON_KEY="placeholder-publishable-key", BP_PDFJS_DIR=pdfjs)

@@ -283,13 +283,37 @@ class PlanBuilderProof(unittest.TestCase):
         # same current source as FullPlanProof, not an obsolete request identity.
         req["release"]["testedSha"] = RECEIVING_SOURCE
         req["approvedLimits"] = {"cumulativeCeilingRequests": 6700, "identityCap": 98, "runCapRequests": 180, "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
+        start_caps = {"AHT-12": 3}
+        for row in req["selection"]:
+            row["startPressCap"] = start_caps[row["case"]]
+        req["estimate"]["starts"] = sum(start_caps.values())
+        req["proposedLimits"]["startPressCaps"] = dict(start_caps)
+        req["approvedLimits"]["startPressCaps"] = dict(start_caps)
         req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
         req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
         cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req); os.chmod(cls.reqp, 0o600)
         cls.bindings = os.path.join(cls.work, "account-bindings.json")
         write_account_bindings(cls.bindings, req["runId"])
+        cls.reconciliation = os.path.join(cls.work, "reconciliation.json")
+        wjson(cls.reconciliation, {"synthetic": "NOT-A-RUN", "starts": {"ownerCounted": 5},
+                                   "ceilings": {"starts": 100, "requests": 20000, "identityReads": 200,
+                                                "takes": 100, "protectedReserveRequests": 50},
+                                   "requests": {"conservativeUsed": 0},
+                                   "identityReads": {"conservativeUsed": 0},
+                                   "takes": {"ownerCounted": 0}})
+        os.chmod(cls.reconciliation, 0o600)
+        cls.facts = os.path.join(cls.work, "facts.json")
+        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        facts["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1",
+                                   "requestSha256": hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
+                                   "reconciliationSha256": hashlib.sha256(Path(cls.reconciliation).read_bytes()).hexdigest(),
+                                   "approvalRef": req["approvedLimits"]["approvalRef"],
+                                   "approvedBy": req["approvedLimits"]["approvedBy"],
+                                   "selectionApprovalRef": req["selectionApprovalRef"]}
+        wjson(cls.facts, facts)
+        os.chmod(cls.facts, 0o600)
         r = run_py("scripts/run_env.py", "--request", cls.reqp, "--request-sha256", hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
-                   "--out", os.path.join(cls.work, "env.txt"))
+                   "--reconciliation", cls.reconciliation, "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
 
     def build(self, name, extra=None, drop=()):
@@ -299,7 +323,7 @@ class PlanBuilderProof(unittest.TestCase):
         # as FullPlanProof already does; otherwise they silently exercise Claude.
         script += "".join("export %s=%s; " % (key, shlex.quote(value)) for key, value in (extra or {}).items() if key not in drop)
         env = {"PATH": os.environ["PATH"], "HOME": self.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
-               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_BINDINGS_FILE": self.bindings,
+               "BP_FACTS": self.facts, "BP_ACCOUNT_BINDINGS_FILE": self.bindings,
                "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
                "BP_REQUEST_FILE": self.reqp, "BP_REQUEST_SHA256": hashlib.sha256(Path(self.reqp).read_bytes()).hexdigest(), "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(self.work, "media"),
@@ -332,8 +356,15 @@ class PlanBuilderProof(unittest.TestCase):
 
     def job_inputs(self, name):
         review = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"
-        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        request = json.load(open(self.reqp))
+        request["executionRuntime"] = "GitHub Actions SpeakSharp"
+        request_path = os.path.join(self.work, name + "-request.json")
+        wjson(request_path, request)
+        os.chmod(request_path, 0o600)
+        request_sha = sha(open(request_path, "rb").read())
+        facts = json.load(open(self.facts))
         facts["producerReviewReference"] = review
+        facts["actionApproval"]["requestSha256"] = request_sha
         fp = os.path.join(self.work, name + "-facts.json"); wjson(fp, facts)
         packet = os.path.join(ROOT, "harness")
         receiver = "draft-adapters/receivers/github-job-evidence-reader.cjs"
@@ -342,7 +373,8 @@ class PlanBuilderProof(unittest.TestCase):
                       "receiverSourceSha256": sha(open(os.path.join(packet, receiver), "rb").read()),
                       "receiverRelativePath": receiver, "workflowSourceSha": "b" * 40, "reviewReference": review}
         dp = os.path.join(self.work, name + "-descriptor.json"); wjson(dp, descriptor)
-        return {"BP_RUNTIME": "GitHub Actions SpeakSharp", "BP_PRODUCER_MODE": "same-github-job", "BP_PRODUCER_DESCRIPTOR": dp,
+        return {"BP_RUNTIME": "GitHub Actions SpeakSharp", "BP_REQUEST_FILE": request_path,
+                "BP_REQUEST_SHA256": request_sha, "BP_PRODUCER_MODE": "same-github-job", "BP_PRODUCER_DESCRIPTOR": dp,
                 "BP_PRODUCER_DESCRIPTOR_SHA256": sha(open(dp, "rb").read()), "BP_FACTS": fp,
                 "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40}
 
@@ -373,15 +405,15 @@ class PlanBuilderProof(unittest.TestCase):
 
     def test_same_job_descriptor_from_another_run_is_refused(self):
         inputs = self.job_inputs("other-job"); inputs["GITHUB_RUN_ID"] = "999"
-        _, out = self.build("p-other-job", extra=inputs)
-        self.assertNotEqual(out[-1].returncode, 0)
-        self.assertIn("producer belongs to another job", out[-1].stderr)
+        private, out = self.build("p-other-job", extra=inputs)
+        self.assertEqual((out[-1].returncode, out[-1].stderr.strip()), (78, "BLOCKED_SETUP: INVALID_BINDING_INPUT"))
+        self.assertFalse(os.path.exists(private))
 
     def test_same_run_descriptor_from_another_job_is_refused(self):
         inputs = self.job_inputs("other-job-same-run"); inputs["GITHUB_JOB"] = "other"
-        _, out = self.build("p-other-job-same-run", extra=inputs)
-        self.assertNotEqual(out[-1].returncode, 0)
-        self.assertIn("producer belongs to another job", out[-1].stderr)
+        private, out = self.build("p-other-job-same-run", extra=inputs)
+        self.assertEqual((out[-1].returncode, out[-1].stderr.strip()), (78, "BLOCKED_SETUP: INVALID_BINDING_INPUT"))
+        self.assertFalse(os.path.exists(private))
 
     def test_no_session_specific_value_is_embedded_in_the_generated_files(self):
         private, out = self.build("p-embed")
@@ -464,12 +496,12 @@ class PlanBuilderProof(unittest.TestCase):
             self.assertTrue(out[-1].returncode == 78, (name, out[-1].returncode, out[-1].stderr[-200:]))
 
     def test_a_facts_file_without_required_keys_is_blocked_setup(self):
-        bad = json.load(open(os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json")))
+        bad = json.load(open(self.facts))
         bad.pop("ownerApprovalReference")
         p = os.path.join(self.work, "facts-bad.json"); wjson(p, bad)
         _, out = self.build("p-facts", extra={"BP_FACTS": p})
         self.assertEqual(out[0].returncode, 78)
-        self.assertIn("facts file lacks", out[0].stderr)
+        self.assertEqual(out[0].stderr.strip(), "BLOCKED_SETUP: INVALID_BINDING_INPUT")
 
     def test_the_builder_never_overwrites_an_existing_private_directory(self):
         private, out = self.build("p-twice")

@@ -2,7 +2,7 @@
 """Maps a validated run request to the plan-builder environment variables (names, not secrets). Offline.
 The names follow the harness plan builder (build_private_*.py): BP_CAMPAIGN, BP_T0/BP_T1, BP_TOTAL, BP_CLEANUP, BP_IDENT, BP_SELECT, BP_GATES, BP_EST,
 BP_SELECT_REF, BP_SELECT_REASON, BP_BACKEND_*. Credentials are NOT written here; the workflow supplies them at the build and run steps only.
-Usage: run_env.py --request R.json --out env.txt"""
+Usage: run_env.py --request R.json --request-sha256 SHA --reconciliation RC.json --out env.txt"""
 import argparse
 import hashlib
 import json
@@ -59,9 +59,22 @@ def main():
     a = argparse.ArgumentParser()
     a.add_argument("--request", required=True)
     a.add_argument("--request-sha256", required=True)
+    a.add_argument("--reconciliation", required=True)
     a.add_argument("--out", required=True)
     x = a.parse_args()
     r = bound_request(x.request, x.request_sha256)
+    if not os.path.isabs(x.reconciliation) or os.path.realpath(x.reconciliation) != x.reconciliation:
+        sys.exit("BLOCKED_SETUP: reconciliation path must be absolute and canonical")
+    try:
+        reconciliation_info = os.lstat(x.reconciliation)
+        reconciliation_raw = open(x.reconciliation, "rb").read()
+        reconciliation = json.loads(reconciliation_raw)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        sys.exit("BLOCKED_SETUP: reconciliation is unavailable or invalid")
+    if not stat.S_ISREG(reconciliation_info.st_mode) or os.path.islink(x.reconciliation) or reconciliation_info.st_nlink != 1 \
+            or type(reconciliation) is not dict:
+        sys.exit("BLOCKED_SETUP: reconciliation must be one regular JSON object")
+    reconciliation_sha256 = hashlib.sha256(reconciliation_raw).hexdigest()
     try:
         contract_mode, _ = request_caps(r, execution=True)
     except (KeyError, TypeError, ValueError):
@@ -95,6 +108,8 @@ def main():
         "BP_SELECT_REF": r["selectionApprovalRef"], "BP_SELECT_REASON": r["purpose"][:200], "BP_SOURCE_SHA": rel["testedSha"],
         "BP_PDFJS_SHA": cfg_pin(),
         "BP_BACKEND_SOURCE": rel["backend"]["source"], "BP_BACKEND_VERIFIED": rel["backend"]["verifiedAtUtc"] or "-",
+        "BP_REQUEST_FILE": x.request, "BP_REQUEST_SHA256": x.request_sha256,
+        "BP_RECONCILIATION_FILE": x.reconciliation, "BP_RECONCILIATION_SHA256": reconciliation_sha256,
     }
     env["BP_BACKEND_VERIFIED"] = "" if env["BP_BACKEND_VERIFIED"] == "-" else env["BP_BACKEND_VERIFIED"]
     if builder_mode == "selected-full":

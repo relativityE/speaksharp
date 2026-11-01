@@ -84,10 +84,29 @@ class SyntheticBuilder:
         r["window"] = {"startUtc": "2020-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z"}
         r["selectionApprovalRef"] = "SYNTHETIC-NOT-A-RUN"
         synthetic_allocation(r)
-        uid = self.root / "uid"
-        uid.write_text("00000000-0000-4000-8000-000000000001"); uid.chmod(0o600)
+        account_bindings = self.root / "account-bindings.json"
+        account_bindings.write_text(json.dumps({
+            "schema": "speaksharp.cloud-test.live-account-bindings.v1",
+            "projectRef": "yxlapjuovrsvjswkwnrk",
+            "projectOrigin": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+            "sourceBundleSha256": "a" * 64,
+            "campaignId": r["runId"],
+            "roles": {
+                "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001",
+                    "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}},
+                "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002",
+                    "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}},
+            },
+        })); account_bindings.chmod(0o600)
+        browser = self.root / "synthetic-browser"
+        browser.write_bytes(b"SYNTHETIC-NOT-A-BROWSER\n"); browser.chmod(0o700)
+        browser_identity = self.root / "browser-identity.json"
+        browser_identity.write_text(json.dumps({"schema": "speaksharp.cloud-test.existing-browser.v1",
+            "path": str(browser), "observedBinarySha256": digest(browser)}))
         self.env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "BP_PACKET": str(Path(ROOT) / "harness"),
-                    "BP_CHECKOUT": REPO, "BP_PRIVATE": str(self.root / "private"), "BP_ACCOUNT_ID_FILE": str(uid),
+                    "BP_CHECKOUT": REPO, "BP_PRIVATE": str(self.root / "private"),
+                    "BP_ACCOUNT_BINDINGS_FILE": str(account_bindings), "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
+                    "BP_BROWSER_IDENTITY": str(browser_identity),
                     "BP_TASK_ID": "SYNTHETIC", "BP_SOURCE_REFERENCE": "https://claude.ai/code/SYNTHETIC",
                     "BP_ENV_ID": "SYNTHETIC", "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE"}
         self.repin()
@@ -169,7 +188,8 @@ class CaseStartContract(unittest.TestCase):
     def test_bridge_emits_raw_bytes_and_both_digests(self):
         output = self.f.root / "env.txt"
         result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", self.f.env["BP_REQUEST_FILE"],
-            "--reconciliation", self.f.env["BP_RECONCILIATION_FILE"], "--out", str(output)], capture_output=True, text=True)
+            "--request-sha256", self.f.env["BP_REQUEST_SHA256"], "--reconciliation", self.f.env["BP_RECONCILIATION_FILE"],
+            "--out", str(output)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         values = {line.split("=",1)[0]: shlex.split(line.split("=",1)[1])[0] for line in output.read_text().splitlines() if shlex.split(line.split("=",1)[1])}
         for key in ("BP_REQUEST_FILE", "BP_REQUEST_SHA256", "BP_RECONCILIATION_FILE", "BP_RECONCILIATION_SHA256"):

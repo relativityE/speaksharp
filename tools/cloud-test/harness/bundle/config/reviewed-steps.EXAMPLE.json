@@ -36,7 +36,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -92,7 +92,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -196,7 +196,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -234,7 +234,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -290,7 +290,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -394,7 +394,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -432,7 +432,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -488,7 +488,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -592,7 +592,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -630,7 +630,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -686,7 +686,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -790,7 +790,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -828,7 +828,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -884,7 +884,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -988,7 +988,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1026,7 +1026,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1082,7 +1082,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1186,7 +1186,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1224,7 +1224,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1280,7 +1280,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1384,7 +1384,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1422,7 +1422,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1478,7 +1478,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1582,7 +1582,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1620,7 +1620,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1676,7 +1676,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1780,7 +1780,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1818,7 +1818,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1874,7 +1874,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1978,7 +1978,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2016,7 +2016,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2072,7 +2072,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2176,7 +2176,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2214,7 +2214,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2270,7 +2270,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2374,7 +2374,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2412,7 +2412,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2468,7 +2468,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2572,7 +2572,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2610,7 +2610,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2666,7 +2666,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2770,7 +2770,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2808,7 +2808,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2864,7 +2864,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2968,7 +2968,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "9293eba5cba834635fefc48accdb57c0d552acd93925e72ea295ed62456857bd"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2978,7 +2978,7 @@
     },
     {
       "path": "draft-adapters/oracles/index.cjs",
-      "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d",
+      "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4",
       "dependencies": [
         {
           "path": "draft-adapters/browser-observers.cjs",

@@ -52,7 +52,7 @@ class ValidateRunRequest(unittest.TestCase):
     def test_broad_rerun_refused(self):
         r = copy.deepcopy(self.req)
         r["selection"] = [{"order": i, "case": "AHT-%02d" % i, "gaps": ["GAP-03"], "role": "target", "plannedRequests": 50, "gate": None, "reason": "all"} for i in range(1, 16)]
-        self.expect(r, "invalid per-case Start allocation")
+        self.expect(r, "selection exceeds the configured maximum 6")
 
     def test_case_not_tied_to_a_gap_refused(self):
         r = copy.deepcopy(self.req); r["selection"][0]["gaps"] = []; self.expect(r, "not tied to a targeted gap")
