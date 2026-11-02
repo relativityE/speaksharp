@@ -331,7 +331,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
 
         receiver = AggregateReceiver("test_exact_pinned_bundle_reaches_the_actual_gate_consumers")
         receiver.setUp()
-        ledger = ManualReservation("test_the_cli_refuses_while_the_writer_is_not_activated")
+        ledger = ManualReservation("test_the_activated_cli_still_refuses_unreadable_inputs")
         ledger.setUp()
         fixture, request = self.request()
         _, ledger_doc = approved(copy.deepcopy(request), fixture["ledger"])

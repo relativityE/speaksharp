@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Accepted-rollup receiving mode (Sam 1793553421.029269, correction 1793555433.084449): cumulative usage for G5 from ONE independently
 accepted, content-free accounting bootstrap, an explicitly APPROVED period scope, and the verified state-ref journal. Separate from, and
-leaving unchanged, the legacy receipt validation (verify_receipts.py / reconcile_cumulative.py). SOURCE ONLY and refusing today: no bootstrap
-is accepted (ACCEPTED_BOOTSTRAP_SHA256 / ACCEPTED_ROOT are None), no period scope is approved, and the state-ref writer is not activated.
+leaving unchanged, the legacy receipt validation (verify_receipts.py / reconcile_cumulative.py). The independently reviewed R10 bootstrap,
+fresh-period scope and state-ref root are pinned below; every substituted byte or root still refuses.
 
   bootstrap   HISTORICAL usage only, content-free: the last defensible cumulative record's usage (coaching/runner dimensions stay null when
               unknown, never 0), the authority it was counted under (an expired one-run approval is marked expired and is never a ceiling

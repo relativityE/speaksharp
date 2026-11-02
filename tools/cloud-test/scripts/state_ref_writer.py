@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Append-only bookkeeping on the ONE selected state ref (Sam 1793548444.540999, RETURN 1793549143.187519). SOURCE ONLY: this module never
-creates the ref, never changes a permission, and is not wired into any workflow. The CLI refuses until REVIEWED_ROOT is pinned by review.
+"""Append-only bookkeeping on the ONE selected state ref (Sam 1793548444.540999, RETURN 1793549143.187519). This module never creates the
+ref or changes a permission. The independently reviewed R10 root is pinned below; every substituted root still refuses.
 
 The ref's history is a single-parent chain from the pinned, independently reviewed root (an empty canonical ledger). Every commit's tree holds
 exactly ledger.json, and every ledger is its parent's ledger plus EXACTLY ONE closed-schema, content-free event:

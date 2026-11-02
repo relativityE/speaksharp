@@ -29,7 +29,7 @@ class NightlyJournalReservation(Journal):
     def use_scope(self, **ceilings):
         c = {"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1260, "takes": 1200}
         c.update(ceilings)
-        self.scope_raw = json.dumps(rollup_scope(periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z", ceilings=c),
+        self.scope_raw = json.dumps(rollup_scope(periodStartUtc="2026-11-02T00:00:00Z", periodEndUtc="2026-12-02T00:00:00Z", ceilings=c),
                                     sort_keys=True).encode()
         self.pins_all = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope_raw).hexdigest())
 
@@ -73,7 +73,7 @@ class NightlyJournalReservation(Journal):
         self.refused("reservation-exceeds-headroom", self.reserve)
         self.use_scope()
         other = {"type": "reserve", "campaignId": "nightly-20261101T0000Z-20261101T0300Z", "runId": "100", "attempt": 1,
-                 "allocation": {k: 0 for k in W.CATS}, "provenance": "request-sha256:" + "c" * 64, "atUtc": "2026-11-01T03:01:00Z"}
+                 "allocation": {k: 0 for k in W.CATS}, "provenance": "request-sha256:" + "c" * 64, "atUtc": "2026-11-02T00:01:00Z"}
         self.append_event(other)
         one_run = dict(self.approval, cadence=dict(self.approval["cadence"], runsPerPeriod=1))
         self.refused("reservation-standing-limit", self.reserve, approval=one_run)
@@ -108,7 +108,7 @@ class NightlyJournalReservation(Journal):
                     "identityReads": period["identityReads"] - held_ids - observation["identityReads"], "starts": 2, "takes": 1}
         self.append_event({"type": "reserve", "campaignId": "nightly-20261101T0000Z-20261101T0300Z", "runId": "100", "attempt": 1,
                            "allocation": dict({k: 0 for k in W.CATS}, **external), "provenance": "request-sha256:" + "c" * 64,
-                           "atUtc": "2026-11-01T03:01:00Z"})
+                           "atUtc": "2026-11-02T00:01:00Z"})
         self.append_event({"type": "reserve", "campaignId": self.req["runId"] + O.RESERVATION_SUFFIX, "runId": "123", "attempt": 1,
                            "allocation": dict({k: 0 for k in W.CATS}, **observation), "provenance": "request-sha256:" + self.sha,
                            "atUtc": "2026-11-02T03:00:00Z"})
@@ -142,8 +142,8 @@ class NightlyJournalReservation(Journal):
         self.assertEqual(admission(), ["invalid per-case Start allocation or input structure"],
                          "a duplicate own reservation is ambiguous (own-reservation-ambiguous) and refuses admission")
 
-    def test_production_is_not_activated(self):
-        self.assertIsNone(W.REVIEWED_ROOT)
+    def test_production_is_pinned_to_the_reviewed_r10_root(self):
+        self.assertEqual(W.REVIEWED_ROOT, "92d6ebf902351750c368d7d513116c6b1f19f80c")
         self.refused("reservation-root-mismatch", RES.journal_execute, "reserve", {}, self.repo, self.remote, None,
                      os.path.join(self.d, "j"), os.path.join(self.d, "o"), self.pins_all, self.approval, self.remote)
 
@@ -207,13 +207,12 @@ class NightlyJournalReservation(Journal):
         other = dict(self.req, runId="nightly-20261101T0000Z-20261103T0300Z")
         self.assertNotEqual(G.recurring_gate(other, cfg, ROOT, {"entries": []}, at, json.load(open(snap2)), ap_path)["status"], G.READY)
 
-    def test_production_cli_is_not_activated_and_reads_nothing(self):
-        import subprocess
-        import sys
-        from _fixtures import ROOT
-        p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "reservations.py"), "journal-snapshot", "--out",
-                            os.path.join(self.d, "never.json")], capture_output=True, text=True)
-        self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: reservation-journal-not-activated"))
+    def test_production_cli_is_activated_but_mismatched_pins_refuse_before_any_read(self):
+        import argparse
+        bad = dict(self.pins_all, accepted_root="f" * 40)
+        args = argparse.Namespace(command="journal-snapshot", request=None, request_sha256=self.sha, execution_run_id="123", attempt=1,
+                                  approval=None, repo=None, record=None, out=os.path.join(self.d, "never.json"), journal=None)
+        self.assertEqual(RES.journal_main(args, url=self.remote, root=W.REVIEWED_ROOT, pins=bad), 78)
         self.assertFalse(os.path.exists(os.path.join(self.d, "never.json")))
 
     def append_event(self, event):

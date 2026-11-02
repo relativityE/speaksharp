@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Manual-dispatch reservation integration (Sam 1793556225.890759, RETURN 1793556820.561729): the reserve / settle / release events a MANUAL
-(non-nightly) run would append to the state-ref journal, so the accepted rollup counts it. SOURCE ONLY and not wired into any workflow: the
-writer is not activated (REVIEWED_ROOT is None), and no bootstrap or period scope is accepted, so nothing here can append today. Nightly
-runs keep their own path (reservations.py); this module refuses them.
+(non-nightly) run would append to the state-ref journal, so the accepted rollup counts it. The independently reviewed R10 root, bootstrap and
+fresh-period scope are pinned below. Nightly runs keep their own path (reservations.py); this module refuses them.
 
   reserve   identity {campaignId: the request runId, runId: GITHUB_RUN_ID, attempt 1}, `request-sha256:` provenance. The allocation is the
             ADMITTED request's caps (reservations.caps_of_request on exactly the admitted bytes), with `requests` holding G5's request CHARGE:
@@ -20,8 +19,8 @@ runs keep their own path (reservations.py); this module refuses them.
             the rollup recomputed at that head, the reserve AND the settle inside the approved period BEFORE they are appended (a late
             settle is refused and the reservation stays held until an explicit cross-period disposition), and settle finding its
             reservation ON the chain; then the writer's journaled propose.
-  CLI       refuses `manual-reservation-not-activated` before reading any input until the writer root, the accepted bootstrap and the
-            accepted scope are pinned to the same journal.
+  CLI       refuses `manual-reservation-not-activated` before reading any input unless the writer root, accepted bootstrap and accepted
+            scope remain pinned to the same journal.
 Exit 78 on every refusal; no value is printed.
 """
 import argparse
