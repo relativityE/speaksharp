@@ -80,7 +80,7 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(s["inProgress"]["status"], "running")
         with self.assertRaisesRegex(P.Refused, "record-not-the-running-attempt"):
             P.complete(s, record("102"))
-        done = P.complete(s, record("101", "failed"))
+        done = P.complete(s, record("101", "failed", startedUtc="2026-10-31T19:00:00Z", endedUtc="2026-10-31T19:40:00Z"))  # a later occurrence
         self.assertEqual((done["latestCompleted"]["runId"], done["latestCompleted"]["outcome"], done["inProgress"]), ("101", "failed", None))
 
     def test_an_interrupted_attempt_keeps_the_previous_record_and_blocks_the_next_run(self):
@@ -160,8 +160,145 @@ class ClosedShape(unittest.TestCase):
         body = P.render(P.complete(started(P.parse_body("")), record()))
         self.assertTrue(body.startswith(P.MARKER + "\n"))
         state = json.loads(P.JSON_BLOCK.findall(body)[0])
-        self.assertEqual(set(state), {"schema", "latestCompleted", "inProgress"})
+        self.assertEqual(set(state), {"schema", "latestCompleted", "inProgress", "history"})  # history: the bounded G7 carry-forward
         self.assertEqual(P.parse_body(body), state)
+
+
+class CarryForward(unittest.TestCase):
+    """G7 durable carry-forward (Sam 1793573813.598689): per-case last executed verdict and last-known-good across every completed night,
+    bound to occurrences, ordered, replay- and predecessor-safe, size-bounded and closed; NOT RUN never erases prior evidence."""
+    def night(self, state, run_id, ended, cases):
+        st = P.begin(state, run_id, 1, SHA, "2026-11-0%sT03:00:00Z" % ended[9])
+        rec = record(run_id, outcome="passed" if all(c["result"] == "PASS" for c in cases) else "failed", endedUtc=ended,
+                     startedUtc="2026-11-0%sT03:00:00Z" % ended[9], cases=cases, coverage="batch" if all(c["result"] == "PASS" for c in cases) else "incomplete")
+        return P.complete(st, rec)
+
+    def case(self, cid, result):
+        rows = {"PASS": {"pass": 6, "fail": 0, "notRun": 0}, "FAIL": {"pass": 4, "fail": 1, "notRun": 1},
+                "NOT RUN": {"pass": 0, "fail": 0, "notRun": 6}}[result]
+        return {"caseId": cid, "result": result, "rows": rows, "codes": []}
+
+    def test_last_verdict_and_last_known_good_carry_forward_and_not_run_never_erases(self):
+        s1 = self.night(P.parse_body(""), "201", "2026-11-01T08:00:00Z", [self.case("AHT-05", "PASS"), self.case("AHT-06", "PASS")])
+        s2 = self.night(s1, "202", "2026-11-02T08:00:00Z", [self.case("AHT-05", "FAIL"), self.case("AHT-06", "NOT RUN")])
+        h = s2["history"]
+        self.assertEqual((h["sequence"], [o["runId"] for o in h["occurrences"]]), (2, ["201", "202"]))
+        self.assertEqual(h["rows"]["AHT-05"], {"last": {"result": "FAIL", "runId": "202", "endedUtc": "2026-11-02T08:00:00Z"},
+                                               "lastKnownGood": {"result": "PASS", "runId": "201", "endedUtc": "2026-11-01T08:00:00Z"}})
+        self.assertEqual(h["rows"]["AHT-06"]["last"]["runId"], "201")  # NOT RUN on night 2 kept night 1's evidence
+        self.assertEqual(h["predecessorSha256"], __import__("hashlib").sha256(P.canon(s1["history"])).hexdigest())
+        self.assertEqual(P.parse_body(P.render(s2)), s2)  # the published bytes read back to exactly this state
+
+    def test_replay_out_of_order_moved_predecessor_and_overflow_refuse_and_interruption_keeps_history(self):
+        s1 = self.night(P.parse_body(""), "201", "2026-11-01T08:00:00Z", [self.case("AHT-05", "PASS")])
+        rec = P.sanitize_record(record("201", endedUtc="2026-11-03T08:00:00Z", startedUtc="2026-11-03T03:00:00Z"))
+        with self.assertRaises(P.Refused) as e:
+            P.fold_history(s1["history"], rec, __import__("hashlib").sha256(P.canon(s1["history"])).hexdigest())
+        self.assertEqual(str(e.exception), "history-replay")
+        early = P.sanitize_record(record("199", startedUtc="2026-10-31T03:00:00Z", endedUtc="2026-10-31T08:00:00Z"))
+        with self.assertRaises(P.Refused) as e:
+            P.fold_history(s1["history"], early, __import__("hashlib").sha256(P.canon(s1["history"])).hexdigest())
+        self.assertEqual(str(e.exception), "history-out-of-order")
+        later = P.sanitize_record(record("202", endedUtc="2026-11-02T08:00:00Z", startedUtc="2026-11-02T03:00:00Z"))
+        with self.assertRaises(P.Refused) as e:
+            P.fold_history(s1["history"], later, "0" * 64)
+        self.assertEqual(str(e.exception), "history-predecessor-moved")
+        interrupted = P.interrupt(P.begin(s1, "202", 1, SHA, "2026-11-02T03:00:00Z"), "202", 1, "cancelled")
+        self.assertEqual(interrupted["history"], s1["history"])
+        full = dict(s1["history"], occurrences=[dict(s1["history"]["occurrences"][0], runId=str(300 + i), endedUtc="2026-12-%02dT08:00:00Z" % (i % 28 + 1))
+                                                for i in range(P.MAX_OCCURRENCES)])
+        with self.assertRaises(P.Refused):
+            P.sanitize_history(full)  # not in order: refused
+        with self.assertRaises(P.Refused) as e:
+            P.sanitize_history(dict(s1["history"], occurrences=s1["history"]["occurrences"] * (P.MAX_OCCURRENCES + 1)))
+        self.assertIn(str(e.exception), ("history-occurrences", "history-order"))
+
+    def test_row_verdicts_carry_forward_per_row_and_a_catalog_change_refuses(self):
+        def night(state, run_id, ended, verdicts):
+            cases = [{"caseId": "AHT-05", "result": "PASS" if set(verdicts) == {"P"} else "FAIL",
+                      "rows": {"pass": verdicts.count("P"), "fail": verdicts.count("F"), "notRun": verdicts.count("N")}, "codes": []}]
+            if "F" not in verdicts and "N" in verdicts:
+                cases[0]["result"] = "NOT RUN" if verdicts.count("P") == 0 else "FAIL"
+            st = P.begin(state, run_id, 1, SHA, ended.replace("08:", "03:"))
+            return P.complete(st, record(run_id, outcome="passed" if cases[0]["result"] == "PASS" else "failed", endedUtc=ended,
+                                         startedUtc=ended.replace("08:", "03:"), cases=cases, rowVerdicts={"AHT-05": verdicts},
+                                         coverage="batch" if cases[0]["result"] == "PASS" else "incomplete"))
+        s1 = night(P.parse_body(""), "301", "2026-11-01T08:00:00Z", "PPP")
+        s2 = night(s1, "302", "2026-11-02T08:00:00Z", "FNP")
+        row = s2["history"]["rows"]["AHT-05"]
+        self.assertEqual((row["rowLast"], row["rowLastAt"], row["rowGood"]), ("FPP", [1, 0, 1], [0, 0, 1]))  # N kept night 1's verdict
+        with self.assertRaises(P.Refused) as e:
+            night(s2, "303", "2026-11-03T08:00:00Z", "PPPP")
+        self.assertEqual(str(e.exception), "history-catalog-changed")
+        with self.assertRaises(P.Refused) as e:
+            P.sanitize_record(record("304", rowVerdicts={"AHT-05": "PPF"}))  # inconsistent with the case's row counts
+        self.assertEqual(str(e.exception), "row-verdicts")
+
+    def test_the_fold_compares_each_row_only_under_the_same_identities(self):
+        same = {"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64, "mediaManifestSha256": "5" * 64, "backendSha": "6" * 40}
+
+        def night(state, run_id, ended, verdicts, comp):
+            ok = set(verdicts) == {"P"}
+            cases = [{"caseId": "AHT-05", "result": "PASS" if ok else "FAIL",
+                      "rows": {"pass": verdicts.count("P"), "fail": verdicts.count("F"), "notRun": verdicts.count("N")}, "codes": []}]
+            st = P.begin(state, run_id, 1, SHA, ended.replace("08:", "03:"))
+            return P.complete(st, record(run_id, outcome="passed" if ok else "failed", endedUtc=ended, startedUtc=ended.replace("08:", "03:"),
+                                         cases=cases, rowVerdicts={"AHT-05": verdicts}, comparability=comp,
+                                         coverage="batch" if ok else "incomplete"))
+        s1 = night(P.parse_body(""), "401", "2026-11-01T08:00:00Z", "PPF", same)
+        s2 = night(s1, "402", "2026-11-02T08:00:00Z", "FPP", same)
+        self.assertEqual(s2["history"]["lastComparison"], {"runId": "402", "regressions": {"AHT-05": 1}, "fixes": {"AHT-05": 1}, "notComparable": {}})
+        # the comparison changes the real published outcome: codes and the rendered summary name the regression and the fix
+        self.assertEqual([c for c in s2["latestCompleted"]["codes"] if c.startswith("row-")], ["row-regression", "row-fix"])
+        self.assertIn("Row comparison for run 402: 1 regression(s), 1 fix(es), 0 not comparable", P.render(s2))
+        self.assertEqual([c for c in s1["latestCompleted"]["codes"] if c.startswith("row-")], [])  # nothing earlier to compare with
+        s3 = night(s2, "403", "2026-11-03T08:00:00Z", "PFP", dict(same, backendSha="7" * 40))
+        self.assertEqual(s3["history"]["lastComparison"]["notComparable"], {"AHT-05": 3})  # a different backend: no regression/fix claimed
+        self.assertEqual(P.parse_body(P.render(s3)), s3)
+
+    def test_worst_case_history_fits_the_size_bound_and_a_larger_one_fails_closed(self):
+        import json as _json
+        catalog = _json.load(open(os.path.join(ROOT, "config", "assertion-catalog.json")))
+        widths = {cid: len(c["requiredAssertions"]) for cid, c in catalog["cases"].items()}
+        self.assertEqual(sum(widths.values()), 204)
+        state = P.parse_body("")
+        for i in range(P.MAX_OCCURRENCES):
+            day = "2026-%02d-%02dT08:00:00Z" % (11 + i // 28, i % 28 + 1)
+            st = P.begin(state, str(1000 + i), 1, SHA, day.replace("08:", "03:"))
+            cases = [{"caseId": cid, "result": "PASS", "rows": {"pass": w, "fail": 0, "notRun": 0}, "codes": []} for cid, w in widths.items()]
+            rec = record(str(1000 + i), endedUtc=day, startedUtc=day.replace("08:", "03:"), cases=cases, coverage="full",
+                         campaignId="nightly-20261101T0000Z-%08d" % i, rowVerdicts={cid: "P" * w for cid, w in widths.items()},
+                         comparability={"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64, "mediaManifestSha256": "5" * 64,
+                                        "backendSha": "6" * 40})
+            state = P.complete(st, rec)
+        self.assertLessEqual(len(P.canon(state["history"])), P.MAX_HISTORY_BYTES)
+        self.assertLessEqual(len(P.render(state)), P.MAX_BODY_CHARS)  # the whole comment stays under GitHub's body limit
+        st = P.begin(state, "9999", 1, SHA, "2027-02-01T03:00:00Z")
+        with self.assertRaises(P.Refused) as e:
+            P.complete(st, record("9999", endedUtc="2027-02-01T08:00:00Z", startedUtc="2027-02-01T03:00:00Z"))
+        self.assertEqual(str(e.exception), "history-overflow")  # never silently drops history
+
+
+class Readback(unittest.TestCase):
+    def test_the_stored_comment_must_be_exactly_the_rendered_record(self):
+        import io
+        from contextlib import redirect_stderr
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        body = P.render(P.complete(started(P.parse_body("")), record()))
+        exp = os.path.join(d, "body.md")
+        with open(exp, "w") as f:
+            f.write(body)
+
+        def verify(stored):
+            path = os.path.join(d, "readback-%d.json" % len(os.listdir(d)))
+            with open(path, "w") as f:
+                json.dump([comment(7, BOT, stored)], f)
+            with redirect_stderr(io.StringIO()):
+                return P.main(["publish_latest_record.py", "verify", "--previous", exp, "--comments", path, "--issue-url", URL, "--comment-id", "7"])
+        self.assertEqual(verify(body), 0)
+        self.assertEqual(verify(body.rstrip("\n")), 0)  # a trailing newline difference only
+        self.assertEqual(verify(body.replace('"runId":"101"', '"runId":"102"')), 78)  # any other change refuses
 
 
 class Cli(unittest.TestCase):

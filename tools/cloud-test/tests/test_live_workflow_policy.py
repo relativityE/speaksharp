@@ -36,7 +36,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("schedule", on)
         with open(os.path.join(ROOT, "config", "nightly", "schedule.proposed.yml"), encoding="utf-8") as f:
             self.assertIn("cron: '0 3 * * *'", f.read())
-        self.assertEqual(set(self.jobs), {"nightly-gate", "record-begin", "live", "record-complete"})
+        self.assertEqual(set(self.jobs), {"nightly-gate", "record-begin", "journal-reserve", "live", "journal-settle", "record-complete"})
         gate = self.jobs["nightly-gate"]
         self.assertEqual((gate["if"], gate["permissions"]), ("github.event_name == 'schedule'", {"contents": "read", "actions": "read"}))
         self.assertIsNone(SECRET_REF.search(str(gate)), "the gate holds no credential")
@@ -61,8 +61,18 @@ class LiveWorkflowPolicy(unittest.TestCase):
                          ("${{ needs.record-begin.outputs.nightly_request_sha256 }}", "${{ needs.record-begin.outputs.nightly_request_b64 }}"))
         self.assertIn('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n'
                       '  (umask 077; printf \'%s\' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")\n'
-                      '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n'
-                      'else\n  SRC=(--request "$REQUEST" --facts "$FACTS")\nfi\n', init["run"])
+                      '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n', init["run"])
+        self.assertIn('else\n  SRC=(--request "$REQUEST" --facts "$FACTS")\nfi\n', init["run"])
+        # Case 10 design A: on schedule only, the observation step runs on exactly the gate's bytes BEFORE prepare, and only a record it
+        # actually placed reaches prepare; a dispatch never runs it.
+        nightly_branch = init["run"].split('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n', 1)[1].split("else\n", 1)[0]
+        self.assertIn('case10_observation.py observe --request "$RUNNER_TEMP/nightly-request.json" \\\n'
+                      '    --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \\\n'
+                      '    --repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/case10-observation.json"\n', nightly_branch)
+        self.assertIn('if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi',
+                      nightly_branch)
+        self.assertEqual(init["run"].count("case10_observation.py"), 1)
+        self.assertLess(init["run"].index("case10_observation.py"), init["run"].index("init_run_inputs.py prepare"))
         self.assertIn('init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \\\n  --checkpoint', init["run"])
         self.assertEqual(init["run"].count("--facts"), 1, "a scheduled run never passes a facts input")
         self.assertEqual(begin["needs"], "nightly-gate")
@@ -71,7 +81,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || '
                       '{ echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }', begin["steps"][0]["run"])
         # Every later job, including the always() record job, runs only after record-begin succeeded.
-        self.assertEqual(self.jobs["live"]["needs"], "record-begin")
+        self.assertEqual(self.jobs["live"]["needs"], ["record-begin", "journal-reserve"])  # J1: a scheduled run waits for its journal reserve
         self.assertEqual(self.jobs["record-complete"]["if"], "always() && needs.record-begin.result == 'success'")
         # Manual and nightly share ONE serialized group; an active run is never cancelled.
         self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
@@ -94,7 +104,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         first = self.jobs["record-begin"]["steps"][0]["run"]
         self.assertIn('[ "$GITHUB_RUN_ATTEMPT" = 1 ]', first)
         self.assertIn('[ "$CONFIRM" = LIVE ]', first)
-        self.assertEqual(self.jobs["live"]["needs"], "record-begin")
+        self.assertEqual(self.jobs["live"]["needs"], ["record-begin", "journal-reserve"])  # J1: a scheduled run waits for its journal reserve
 
     def test_secret_values_come_only_from_secrets_and_account_identifiers_only_from_the_private_bundle(self):
         # Sam 1793544453.003099: passwords, tokens and keys are Secrets; account emails and ids travel only in CLOUD_TEST_LIVE_ACCOUNTS.
@@ -113,7 +123,8 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("throwaway-email-not-secret", self.text)
 
     def test_the_record_jobs_bind_the_exact_issue_and_comment(self):
-        self.assertEqual(self.text.count('--issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE"'), 2)
+        # select at begin, select before the terminal write, and the readback verification after it: all bound to the one tracking issue
+        self.assertEqual(self.text.count('--issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE"'), 3)
         self.assertIn('--comment-id "$COMMENT_ID"', self.text)
 
     def test_producer_keys_reach_only_the_producer_route(self):
@@ -318,9 +329,17 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_handoff_artifact_is_short_lived_and_not_the_authoritative_record(self):
         up = [s for s in self.jobs["live"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
-        self.assertEqual(len(up), 1)
-        self.assertEqual(up[0]["with"]["retention-days"], 1)
-        self.assertTrue(up[0]["with"]["path"].endswith("latest-record.json"))
+        self.assertEqual(len(up), 2)  # the closed record (record job) and, on schedule only, the closed settle input for journal-settle (J1)
+        self.assertTrue(all(u["with"]["retention-days"] == 1 for u in up))
+        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in up), ["latest-record.json", "settle-input.json"])
+        settle = next(u for u in up if u["with"]["path"].endswith("settle-input.json"))
+        self.assertIn("github.event_name == 'schedule'", settle["if"])
+        # Sam 1793580806.654369: the public artifact is the closed projection, never the collector's run record; journal-settle validates it
+        project = next(st for st in self.jobs["live"]["steps"] if "settle_input.py project" in st.get("run", ""))
+        self.assertIn('--record "$CT_OUT/run-record.json"', project["run"])
+        self.assertFalse(any(u["with"]["path"].endswith("run-record.json") for u in up))
+        settle_run = next(st["run"] for st in self.jobs["journal-settle"]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))
+        self.assertLess(settle_run.index("settle_input.py validate"), settle_run.index("reservations.py journal-settle"))
 
     def test_the_dispatch_names_a_committed_request_and_never_generates_one(self):
         on = self.doc.get("on", self.doc.get(True))
@@ -457,6 +476,110 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertTrue(all(s["env"]["REQUEST_SHA256"] == "${{ steps.init.outputs.request_sha256 }}"
                             for j in self.jobs.values() for s in j["steps"] if "REQUEST_SHA256" in (s.get("env") or {})), written)
 
+    def test_j1_journal_jobs_hold_the_only_write_permission_and_confine_the_token(self):
+        # J1 (PO approval recorded 1793578273.517019): contents: write only in the two journal jobs, scheduled runs only.
+        jobs = self.jobs
+        for name in ("journal-reserve", "journal-settle"):
+            job = jobs[name]
+            self.assertEqual(job["permissions"], {"contents": "write"})
+            self.assertIn("github.event_name == 'schedule'", job["if"])
+            checkout = next(st for st in job["steps"] if str(st.get("uses", "")).startswith("actions/checkout"))
+            self.assertIs(checkout["with"]["persist-credentials"], False)
+            writers = [st for st in job["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {})]
+            self.assertEqual(len(writers), 1)
+            self.assertEqual(writers[0]["env"]["CT_STATE_PUSH_TOKEN"], "${{ github.token }}")
+            self.assertIn("reservations.py journal-%s" % name.split("-")[1], writers[0]["run"])
+        self.assertEqual(self.text.count("CT_STATE_PUSH_TOKEN"), 2, "the token reaches only the two writer steps")
+        self.assertEqual(jobs["live"]["permissions"], {"contents": "read"})
+        # Case 10 (Sam 1793580806.654369): the observation reserve and settle run in the write jobs; the live job only observes, read-only
+        self.assertIn("case10_observation.py reserve", writers_of(jobs, "journal-reserve"))
+        self.assertIn("case10_observation.py settle", writers_of(jobs, "journal-settle"))
+        live_runs = " ".join(st.get("run", "") for st in jobs["live"]["steps"])
+        self.assertIn("case10_observation.py observe", live_runs)
+        self.assertNotIn("case10_observation.py reserve", live_runs)
+        self.assertNotIn("case10_observation.py settle", live_runs)
+        self.assertNotIn("execute_run.sh reserve", self.text)
+        self.assertNotIn("execute_run.sh settle", self.text)
+        self.assertEqual(jobs["live"]["needs"], ["record-begin", "journal-reserve"])
+        self.assertIn("needs.journal-reserve.result == 'success'", jobs["live"]["if"])
+        self.assertIn("needs.journal-reserve.result == 'skipped'", jobs["live"]["if"])  # a dispatch never waits on a journal reserve
+        self.assertIn("needs.journal-reserve.result == 'success'", jobs["journal-settle"]["if"])
+        # write is never granted at the workflow level or to any other job
+        self.assertEqual([n for n, j in jobs.items() if (j.get("permissions") or {}).get("contents") == "write"], ["journal-reserve", "journal-settle"])
+
+
+
+class Case10ObserveCredentials(unittest.TestCase):
+    """Sam 1793582780.014609: the observe step's credential environment. Scheduled runs only, from Secrets, on the one step that already
+    holds the private bundle, under names nothing else reads; the reader subprocess receives them by explicit hand-off only."""
+    def test_the_case10_credentials_reach_only_the_init_step_on_scheduled_runs(self):
+        import yaml
+        with open(YML, encoding="utf-8") as f:
+            text = f.read()
+        doc = yaml.safe_load(text)
+        init = next(st for st in doc["jobs"]["live"]["steps"] if st.get("id") == "init")
+        self.assertEqual(init["env"]["CT_CASE10_PASSWORD"], "${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}")
+        self.assertEqual(init["env"]["CT_CASE10_ANON_KEY"], "${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}")
+        others = [st for job in doc["jobs"].values() for st in job["steps"] if st is not init]
+        for name in ("CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"):
+            self.assertFalse(any(name in json.dumps(st) for st in others), name)  # no other step names it
+        self.assertIn("case10_observation.py observe", init["run"])
+
+    def children(self, event):
+        """Sam 1793584373.385389, behavioural: the REAL init script, with python3 and base64 shadowed by shell functions that record the
+        environment each child would receive (exported variables only), then the real base64 runs."""
+        import base64
+        import shutil
+        import subprocess
+        import tempfile
+        import yaml
+        with open(YML, encoding="utf-8") as f:
+            init = next(st for st in yaml.safe_load(f)["jobs"]["live"]["steps"] if st.get("id") == "init")
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        calls = os.path.join(d, "calls")
+        os.mkdir(calls)
+        # the call index counts recorded files, so it survives the script's ( ... ) subshell
+        shadow = ('python3() { __n=$(command ls "$CALLS" | command wc -l | command tr -d " "); env > "$CALLS/$__n.python3.env"; '
+                  'printf "%s\\n" "$*" > "$CALLS/$__n.python3.argv"; }\n'
+                  'base64() { __n=$(command ls "$CALLS" | command wc -l | command tr -d " "); env > "$CALLS/$__n.base64.env"; command base64 "$@"; }\n')
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "CALLS": calls, "GITHUB_EVENT_NAME": event, "RUNNER_TEMP": d,
+               "PRIOR_STATE": "{}", "NIGHTLY_REQUEST_B64": base64.b64encode(b"{}").decode(), "NIGHTLY_REQUEST_SHA256": "a" * 64,
+               "REQUEST": "r.json", "FACTS": "f.json", "CT_CONFIG": "c.json", "GITHUB_WORKSPACE": d, "GITHUB_RUN_ID": "101",
+               "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "4" * 40, "GITHUB_ENV": os.path.join(d, "env"), "GITHUB_OUTPUT": os.path.join(d, "out"),
+               "CT_CASE10_PASSWORD": "case10-pw-value" if event == "schedule" else "", "CT_CASE10_ANON_KEY": "case10-anon-value" if event == "schedule" else ""}
+        p = subprocess.run(["bash", "-c", shadow + init["run"]], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        out = {}
+        for fn in sorted(os.listdir(calls), key=lambda x: int(x.split(".")[0])):
+            if fn.endswith(".env"):
+                n, tool = fn.split(".")[:2]
+                argv = open(os.path.join(calls, "%s.python3.argv" % n)).read() if tool == "python3" else "base64"
+                out[(int(n), tool, argv.split()[1] if tool == "python3" else "base64")] = open(os.path.join(calls, fn)).read()
+        return out
+
+    def test_only_the_observe_child_receives_the_case10_credentials(self):
+        seen = self.children("schedule")
+        self.assertEqual([k[2] for k in sorted(seen)], ["base64", "tools/cloud-test/scripts/case10_observation.py",
+                                                        "tools/cloud-test/scripts/init_run_inputs.py"])
+        for (_, _, what), env in seen.items():
+            names = {line.split("=", 1)[0] for line in env.splitlines()}
+            if what.endswith("case10_observation.py"):
+                self.assertIn("CT_CASE10_PASSWORD=case10-pw-value", env.splitlines())
+                self.assertIn("CT_CASE10_ANON_KEY=case10-anon-value", env.splitlines())
+            else:  # base64 before it and prepare after it receive neither name nor value
+                self.assertFalse({"CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY", "C10_PASSWORD", "C10_ANON_KEY"} & names, what)
+                self.assertNotIn("case10-pw-value", env)
+                self.assertNotIn("case10-anon-value", env)
+        dispatch = self.children("workflow_dispatch")
+        self.assertEqual([k[2] for k in sorted(dispatch)], ["tools/cloud-test/scripts/init_run_inputs.py"])
+        for env in dispatch.values():
+            self.assertFalse({"CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"} & {line.split("=", 1)[0] for line in env.splitlines()})
+
+
+def writers_of(jobs, name):
+    return next(st["run"] for st in jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))
+
 
 class PdfjsComposition(unittest.TestCase):
     """B4 P1: the REAL install_pdfjs.py, composed as the live job runs it: copy mode from the runner dependency root into the checkout root,
@@ -513,6 +636,7 @@ class PdfjsComposition(unittest.TestCase):
         self.assertIn("not overwritten", r.stderr)
         with open(os.path.join(dst, "pdf.mjs")) as f:
             self.assertEqual(f.read(), "other")
+
 
 
 if __name__ == "__main__":

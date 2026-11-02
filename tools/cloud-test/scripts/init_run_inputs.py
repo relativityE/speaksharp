@@ -47,6 +47,14 @@ PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 # the committed file below, admitted only when its bytes hash to the reviewed pin. None today: every nightly prepare refuses.
 NIGHTLY_FACTS_PATH = "tools/cloud-test/config/nightly/facts.json"
 NIGHTLY_FACTS_SHA256 = None
+# Option A (Sam 1793568947.054419, design only): the owner's recurring approval may carry an explicit per-occurrence Start/take grant, from
+# which a nightly occurrence's action envelope is DERIVED. Its bytes are admitted only when they hash to this reviewed pin. None today: every
+# derivation refuses, so the mechanics stay inactive until an actual owner grant and accepted inputs exist.
+RECURRING_APPROVAL_PATH = "tools/cloud-test/config/recurring-approval.json"
+RECURRING_APPROVAL_SHA256 = None
+STANDING_GRANT_KEYS = {"scope", "cases", "grantRef"}
+STANDING_GRANT_SCOPE = "per-occurrence-start-take"
+STANDING_PERIOD_DIMENSIONS = ("requests", "identityReads", "starts", "takes")
 ALL_CASES = ["AHT-%02d" % n for n in range(1, 16)]
 # build_plan.py binds ONE account id for the whole plan and labels AHT-15 maintained-read-only (line 179), so roles never mix in one run.
 ROLE = {**{c: "existing-disposable" for c in ALL_CASES[:14]}, "AHT-15": "maintained-read-only"}
@@ -447,19 +455,35 @@ def state_chain(root):
     return state_ref_writer.validate_chain(path, state_ref_writer.fetch_head(path, url, url), root)
 
 
-def check_case10_bound(req, facts, cases, entries):
+def check_case10_bound(req, facts, cases, entries, request_sha256=None, run_id=None, now=None, observation=None):
     """Sam 1793567664.474339 item 2: the Case 10 request-bound projection the builder consumes is admitted only when the builder's own
     validator (case_start_caps.case10_execution_bound: shape, schema, run/source/account binding, evidence reference, the request row's
     requestBoundSha256 over the exact record bytes, and the unchanged 240 allowance) accepts it for the admitted request and the Case 10
-    role's account. A record supplied when Case 10 needs none refuses. Returns the builder's bound report, or None."""
+    role's account. A row pinning an observationContract (design A, Sam 1793570217.800529) takes only the fresh `observation` record,
+    admitted for this request digest, run and time. A record supplied when Case 10 needs none refuses. Returns the bound report, or None."""
     import case_start_caps as CS
     account = entries[ROLE["AHT-10"]]["accountId"] if "AHT-10" in cases else ""
+    bound_facts = facts if observation is None else dict(facts, case10Observation=observation)
     try:
-        bound = CS.case10_execution_bound(req, facts, account)
+        bound = CS.case10_execution_bound(req, bound_facts, account, request_sha256, run_id,
+                                          now.strftime("%Y-%m-%dT%H:%M:%SZ") if now is not None else None)
     except CS.InputValidationError as e:
         raise Refused(str(e))
-    _need(bound is not None or "case10RequestBound" not in facts, "case10-bound-not-applicable")
+    _need(bound is not None or ("case10RequestBound" not in facts and observation is None), "case10-bound-not-applicable")
     return bound
+
+
+def read_case10_observation(path):
+    """The Case 10 observation record the reader step placed privately: one regular JSON object file, or None when no path was given."""
+    if not isinstance(path, str):
+        return None
+    _need(os.path.isfile(path) and not os.path.islink(path), "case10-observation-unreadable")
+    try:
+        record = json.loads(_read(path))
+    except ValueError:
+        raise Refused("case10-observation-unreadable")
+    _need(isinstance(record, dict), "case10-observation-unreadable")
+    return record
 
 
 def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
@@ -477,8 +501,94 @@ def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
     return approval
 
 
-def verified_checkpoint(repo, req, pins=None, chain_reader=None):
-    """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, or a continuity-* refusal. `pins` and
+def reserved_occurrences(chain):
+    """Campaign ids already reserved on the verified state-ref chain (the same journal the continuity checkpoint received)."""
+    return frozenset(e["campaignId"] for e in chain[-1][1] if e["type"] == "reserve")
+
+
+def _standing_raw(repo, pin):
+    pinned = RECURRING_APPROVAL_SHA256 if pin is None else pin
+    _need(pinned is not None, "action-approval-standing-not-pinned")
+    path = os.path.join(repo, RECURRING_APPROVAL_PATH)
+    _need(os.path.isfile(path) and not os.path.islink(path), "action-approval-standing-unreadable")
+    raw = _read(path)
+    _need(hashlib.sha256(raw).hexdigest() == pinned, "action-approval-standing-not-the-pinned-bytes")
+    return raw, pinned
+
+
+def standing_grant_in_force(repo, pin=None):
+    """True only when the pinned recurring approval carries a grant clause; an unset pin means no grant can be in force."""
+    if (RECURRING_APPROVAL_SHA256 if pin is None else pin) is None:
+        return False
+    raw, _ = _standing_raw(repo, pin)
+    try:
+        doc = json.loads(raw)
+    except ValueError:
+        raise Refused("action-approval-standing-unreadable")
+    return isinstance(doc, dict) and "startTakeGrant" in doc
+
+
+def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, cases, cfg, now, attempt, prior, pin=None):
+    """Option A (Sam 1793568947.054419): a nightly occurrence's action envelope, DERIVED only under the owner's explicit standing grant in the
+    pinned recurring approval, never from data equality alone. The approval, attempt, occurrence (and its replay), cases, window, per-run
+    and period limits and references are all checked BEFORE the envelope exists; the unchanged check_action_approval then admits it, and
+    case_start_caps.bind_inputs re-checks it against the bytes it reads. `pin` is TEST-ONLY."""
+    import nightly_request as N  # lazy: nightly_request imports this module
+    raw, pinned = _standing_raw(repo, pin)
+    n = req.get("nightly") or {}
+    _need(n.get("approvalSha256") == pinned, "action-approval-standing-not-the-request-approval")
+    try:
+        ap = N.check_approval(raw, now, cfg)
+    except N.Refused as e:
+        raise Refused("action-approval-standing-" + str(e))
+    grant = ap.get("startTakeGrant")
+    _need(grant is not None, "action-approval-standing-not-granted")
+    _need(isinstance(grant, dict) and set(grant) == STANDING_GRANT_KEYS and grant["scope"] == STANDING_GRANT_SCOPE and _ref(grant["grantRef"])
+          and isinstance(grant["cases"], list) and grant["cases"] and all(isinstance(c, str) for c in grant["cases"])
+          and grant["cases"] == sorted(set(grant["cases"])) and set(grant["cases"]) <= set(ALL_CASES), "action-approval-standing-grant-shape")
+    _need(attempt == 1 and type(n.get("attempt")) is int and n["attempt"] == 1, "action-approval-standing-attempt")
+    slot = _utc(n.get("occurrence"))
+    try:
+        key = N.occurrence_id(ap, slot)
+    except N.Refused:
+        raise Refused("action-approval-standing-occurrence")
+    _need(key == req.get("runId") == n.get("occurrenceId"), "action-approval-standing-occurrence")
+    _need(isinstance(prior, (set, frozenset)) and key not in prior, "action-approval-standing-occurrence-replayed")
+    _need(set(cases) <= set(grant["cases"]), "action-approval-standing-case")
+    caps, period = ap["perRunCaps"], ap["periodCaps"]
+    p_start, p_end = N.period_bounds(ap)
+    w = req.get("window") or {}
+    start, end = _utc(w.get("startUtc")), _utc(w.get("endUtc"))
+    _need(start == slot and (end - start).total_seconds() == 60 * caps["windowMinutes"] and _utc(ap["validFromUtc"]) <= start
+          and end <= _utc(ap["expiresUtc"]) and p_start <= start and end <= p_end and start <= now < end, "action-approval-standing-window")
+    lim, est = req.get("approvedLimits") or {}, req.get("estimate") or {}
+    run_cap = (est.get("requests") or {}).get("runCap")
+    _need(lim.get("runCapRequests") == caps["runCapRequests"] and lim.get("identityCap") == caps["identityReads"]
+          and _int(run_cap) and run_cap <= caps["runCapRequests"] and _int(est.get("identityReads")) and est["identityReads"] <= caps["identityReads"]
+          and _int(est.get("starts")) and est["starts"] <= caps["starts"] and _int(est.get("takes")) and est["takes"] <= caps["takes"],
+          "action-approval-standing-per-run")
+    # RETURN 1793570165.380389: the verified checkpoint's accounting period and every period ceiling are the standing approval's own, and
+    # the remaining headroom in each dimension still holds this run, so a different accounting scope can never extend the standing grant.
+    rc = json.loads(reconciliation_bytes)
+    _need(lim.get("cumulativeCeilingRequests") == period["requests"] and isinstance(scope, dict)
+          and _utc(scope.get("periodStartUtc")) == p_start and _utc(scope.get("periodEndUtc")) == p_end
+          and rc.get("scopeApprovalRef") == ap["approvalRef"]
+          and all(rc["ceilings"].get(k) == period[k] for k in STANDING_PERIOD_DIMENSIONS), "action-approval-standing-period")
+    need = {"requests": lim["runCapRequests"], "identityReads": lim["identityCap"], "starts": est["starts"], "takes": est["takes"]}
+    for k in STANDING_PERIOD_DIMENSIONS:
+        _need(_int(rc["currentHeadroom"].get(k)) and rc["currentHeadroom"][k] >= need[k], "action-approval-standing-exhausted:" + k)
+    _need(lim.get("approvalRef") == ap["approvalRef"] and lim.get("approvedBy") == ap["approvedBy"]
+          and req.get("selectionApprovalRef") == ap["approvalRef"] and n.get("standingApprovalRef") == ap["approvalRef"],
+          "action-approval-standing-reference")
+    envelope = {"schema": ACTION_APPROVAL_SCHEMA, "requestSha256": request_sha256,
+                "reconciliationSha256": hashlib.sha256(reconciliation_bytes).hexdigest(), "approvalRef": ap["approvalRef"],
+                "approvedBy": ap["approvedBy"], "selectionApprovalRef": req["selectionApprovalRef"]}
+    return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
+
+
+def checkpoint_and_scope(repo, req, pins=None, chain_reader=None):
+    """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, with the accepted period scope they were
+    received under (the standing derivation binds its period), or a continuity-* refusal. `pins` and
     `chain_reader` are TEST-ONLY overrides; production uses continuity_pins() (all None today) and the real state-ref journal."""
     pins = continuity_pins() if pins is None else pins
     _need(pins.get("accepted_sha256") is not None and pins.get("accepted_root") is not None, "continuity-rollup-not-accepted")
@@ -511,7 +621,12 @@ def verified_checkpoint(repo, req, pins=None, chain_reader=None):
         # Applicable = stated by the admitted request; the cumulative request and identity ceilings are always stated (check_request).
         if lim.get(limit) is not None or limit in ("cumulativeCeilingRequests", "identityCap"):
             _need(_int(lim.get(limit)) and rc["ceilings"][ceiling] == lim[limit], "continuity-ceiling-not-the-request:" + ceiling)
-    return (json.dumps(rc, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+    return (json.dumps(rc, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii"), scope
+
+
+def verified_checkpoint(repo, req, pins=None, chain_reader=None):
+    """The checkpoint bytes alone (see checkpoint_and_scope); `pins` and `chain_reader` are TEST-ONLY overrides."""
+    return checkpoint_and_scope(repo, req, pins, chain_reader)[0]
 
 
 def prepare(x, now):
@@ -535,16 +650,31 @@ def prepare(x, now):
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
     accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle)
     entries = {b["role"]: role_account(bundle, b["role"], os.environ.get("SUPABASE_URL")) for b in accounts}
-    check_case10_bound(req, facts, cases, entries)
+    observation = read_case10_observation(getattr(x, "case10_observation", None))
+    check_case10_bound(req, facts, cases, entries, hashlib.sha256(req_raw).hexdigest(), x.run_id, now, observation)
     # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.
     primary = "existing-disposable" if "existing-disposable" in entries else "maintained-read-only"
     account_id = entries[primary]["accountId"]
     builder_facts = translate_facts(facts, req, route)
+    if observation is not None:
+        builder_facts = dict(builder_facts, case10Observation=observation)  # the builder re-admits it (case10_execution_bound)
     scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route)
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
-    reconciliation = verified_checkpoint(repo, req)
-    check_action_approval(facts.get("actionApproval"), hashlib.sha256(req_raw).hexdigest(), reconciliation, req)
+    chains = []
+
+    def read_chain(root):
+        chains.append(state_chain(root))
+        return chains[-1]
+    reconciliation, accepted_scope = checkpoint_and_scope(repo, req, chain_reader=read_chain)
+    request_sha256, supplied = hashlib.sha256(req_raw).hexdigest(), facts.get("actionApproval")
+    if nightly and supplied is None:
+        # Option A: derived for THIS occurrence under the pinned standing grant (refuses while the production pin is unset).
+        builder_facts = dict(builder_facts, actionApproval=standing_envelope(repo, req, request_sha256, reconciliation, accepted_scope, cases,
+                                                                             cfg, now, x.attempt, reserved_occurrences(chains[-1])))
+    else:
+        _need(not (nightly and standing_grant_in_force(repo)), "action-approval-two-sources")
+        check_action_approval(supplied, request_sha256, reconciliation, req)
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
             "reconciliationBytes": reconciliation, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
@@ -843,7 +973,16 @@ def check_execution_provenance(admitted, identity, priority, plan_raw, build_rec
 
 
 def reservation_consumption(ledger, campaign_id):
-    """The nightly reservation's request-consumption record for this campaign, from the reservation ledger's reserve events: exactly one."""
+    """The nightly reservation's request-consumption record for this campaign: from a verified state-ref journal snapshot (the reserve stage
+    writes it right after its reserve lands; the journal's own reserve event is the record), or from a legacy reservation ledger's reserve
+    events. Exactly one either way."""
+    if isinstance(ledger, dict) and ledger.get("schema") == "speaksharp.cloud-test.journal-snapshot.v1":
+        found = [e for e in ledger.get("events") or [] if isinstance(e, dict) and e.get("type") == "reserve" and e.get("campaignId") == campaign_id]
+        _need(len(found) == 1 and isinstance(found[0].get("provenance"), str) and found[0]["provenance"].startswith("request-sha256:"),
+              "request-reader-record:reservation")
+        e = found[0]
+        return {"campaignId": e["campaignId"], "runId": e["runId"], "attempt": e["attempt"], "consumer": "reservation",
+                "requestSha256": e["provenance"][len("request-sha256:"):], "consumedAtUtc": e["atUtc"]}
     events = [e for e in (ledger or {}).get("events") or [] if isinstance(e, dict) and e.get("event") == "reserve"
               and isinstance(e.get("requestConsumption"), dict) and e["requestConsumption"].get("campaignId") == campaign_id]
     _need(len(events) == 1, "request-reader-record:reservation")
@@ -876,7 +1015,8 @@ def _unique(items, key, code):
     return out
 
 
-def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None, provenance=None):
+def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None, provenance=None, case_results_raw=None,
+            catalog=None, request_raw=None, media_manifest_raw=None):
     """run-record.json (the real collector keeps all 15 rows) -> the closed latest record. Qualification counts only when it is bound to THIS
     record and THIS admission: the same case-results digest, tested release, observed served release and admitted request digest. Then the selected rows keep their results, the others
     are NOT SELECTED, and coverage says batch or full truthfully. `passed` needs that binding and every selected row PASS; anything else is
@@ -914,12 +1054,35 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
                       "rows": {"pass": 0, "fail": 0, "notRun": 0} if unselected else {"pass": a.get("PASS"), "fail": a.get("FAIL"), "notRun": a.get("NOT RUN")},
                       "codes": [c["outcomeClass"]] if not unselected and isinstance(c.get("outcomeClass"), str) and LR.CODE.match(c["outcomeClass"]) else []})
     selected = [c for c in cases if c["result"] != "NOT SELECTED"]
+    row_verdicts = None
+    if qualified and case_results_raw is not None and catalog is not None:
+        # G7 rows: per-row verdicts in catalog order, only from the case results the qualification bound by digest
+        _need(hashlib.sha256(case_results_raw).hexdigest() == q.get("caseResultsSha256"), "case-results-not-the-qualified-bytes")
+        results = {c.get("caseId"): {a.get("id"): a.get("result") for a in c.get("assertions") or [] if isinstance(a, dict)}
+                   for c in (json.loads(case_results_raw).get("cases") or []) if isinstance(c, dict)}
+        code = {"PASS": "P", "FAIL": "F"}
+        row_verdicts = {c["caseId"]: "".join(code.get(results.get(c["caseId"], {}).get(aid), "N")
+                                             for aid in catalog["cases"][c["caseId"]]["requiredAssertions"])
+                        for c in selected if c["caseId"] in catalog.get("cases", {})}
     rec = {"runId": run_id, "attempt": attempt, "sourceSha": source_sha, "testedSha": tested_sha, "servedSha": rel.get("servedShaAtAdmission"),
            "campaignId": q.get("campaignId") if qualified else None, "coverage": q["coverage"] if qualified else "unqualified",
            "startedUtc": run_record.get("startedUtc"), "endedUtc": run_record.get("endedUtc"),
            "requestSha256": q.get("requestSha256") if qualified else None, "catalogSha256": q.get("catalogSha256") if qualified else None,
            "outcome": "passed" if qualified and q["outcome"] == "passed" and selected and all(c["result"] == "PASS" for c in selected) else "failed",
            "cases": cases, "codes": [] if qualified else ["not-qualified"]}
+    if row_verdicts:
+        rec["rowVerdicts"] = row_verdicts
+    if row_verdicts and request_raw is not None and media_manifest_raw is not None:
+        # comparability: the identities this run's row verdicts were produced under, from the admitted request bytes (digest-checked)
+        _need(hashlib.sha256(request_raw).hexdigest() == request_sha256, "request-not-the-admitted-bytes")
+        admitted = json.loads(request_raw)
+        rec["evidence"] = {"planSha256": q.get("planSha256"), "caseResultsSha256": q.get("caseResultsSha256")}
+        comp = {"codeManifestSha256": q.get("codeManifestSha256") or (admitted.get("harness") or {}).get("codeManifestSha256"),
+                "packetManifestSha256": (admitted.get("harness") or {}).get("packetManifestSha256"),
+                "mediaManifestSha256": hashlib.sha256(media_manifest_raw).hexdigest(),
+                "backendSha": ((admitted.get("release") or {}).get("backend") or {}).get("sha")}
+        if all(isinstance(v, str) for v in comp.values()):
+            rec["comparability"] = comp  # an identity that is not known leaves the rows not comparable, never a guessed match
     try:
         return LR.sanitize_record(rec)
     except LR.Refused as e:
@@ -952,7 +1115,7 @@ def main(argv):
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
-                 "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256"):
+                 "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -961,7 +1124,11 @@ def main(argv):
         if x.command == "project":
             q = _load(x.qualification) if x.qualification and os.path.exists(x.qualification) else None
             prov = _load(x.provenance) if x.provenance and os.path.exists(x.provenance) else None
-            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov))
+            cr = _read(x.case_results) if x.case_results and os.path.exists(x.case_results) else None
+            catalog = _load(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "assertion-catalog.json"))
+            media = os.path.join(x.repo or ".", "tests", "fixtures", "rwt", "rwt-fixtures.manifest.json")
+            _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov, cr, catalog,
+                                          _read(x.request) if x.request else None, _read(media) if x.request and os.path.isfile(media) else None))
             return 0
         if x.command == "provenance":
             _write_private(x.out, provenance_from_files(x.request, x.request_sha256, x.run_id, x.plan, x.build_receipt, x.reservations,

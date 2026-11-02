@@ -161,5 +161,133 @@ class ArithmeticOnly(unittest.TestCase):
         self.assertIn("INPUT_MISSING:successorSave", refused.stderr)
 
 
+class ObservationVariant(unittest.TestCase):
+    """Design A (Sam 1793570217.800529): a row pinning an observationContract takes ONLY a fresh observation, admitted by
+    case10_observation for this request digest, run, attempt and time; the legacy record path is unchanged for other rows."""
+    def setUp(self):
+        import json as _json
+        from unittest import mock
+        from test_nightly_request import derive as nightly_derive
+        import case10_observation as O
+        import case_start_caps as CS
+        self.O, self.CS, self.mock = O, CS, mock
+        self.raw = nightly_derive(run_id="101")
+        self.req = _json.loads(self.raw)
+        self.sha = hashlib_sha(self.raw)
+        self.account = "00000000-0000-4000-8000-000000000001"
+        self.reader_id = O.contract_of(self.req)["reader"]
+        self.at = "2026-11-02T03:01:00Z"
+        from datetime import datetime, timezone
+        self.now = datetime(2026, 11, 2, 3, 2, tzinfo=timezone.utc)
+        self.record = O.observe(lambda keys: {k: projection()[k] for k in keys}, self.req, self.sha, "101", 1, self.account,
+                                datetime(2026, 11, 2, 3, 1, tzinfo=timezone.utc))
+
+    def bound(self, facts, sha=None, run_id="101", now="2026-11-02T03:02:00Z", trusted=True):
+        readers = frozenset({self.reader_id}) if trusted else frozenset()
+        with self.mock.patch.object(self.O, "TRUSTED_READERS", readers):
+            return self.CS.case10_execution_bound(self.req, facts, self.account, sha or self.sha, run_id, now)
+
+    def refused(self, code, *a, **k):
+        with self.assertRaises(self.CS.InputValidationError) as e:
+            self.bound(*a, **k)
+        self.assertEqual(str(e.exception), code)
+
+    def test_a_fresh_observation_for_this_request_and_run_is_the_bound(self):
+        report = self.bound({"case10Observation": self.record})
+        self.assertEqual(report["allowance"], 240)
+        self.assertTrue(report["evidenceRef"].startswith("case10-observation:"))
+        self.assertLessEqual(report["transmittedBound"], next(r for r in self.req["selection"] if r["case"] == "AHT-10")["plannedRequests"])
+
+    def test_production_trusts_no_reader_and_every_mismatch_refuses(self):
+        self.refused("case10-observation-reader-not-trusted", {"case10Observation": self.record}, trusted=False)
+        self.refused("case10-observation-missing", {})
+        self.refused("case10-observation-two-sources", {"case10Observation": self.record, "case10RequestBound": {}})
+        self.refused("case10-observation-not-this-request", {"case10Observation": self.record}, sha="b" * 64)
+        self.refused("case10-observation-replayed", {"case10Observation": self.record}, run_id="100")
+        self.refused("case10-observation-stale", {"case10Observation": self.record}, now="2026-11-02T03:12:00Z")
+        with self.assertRaises(self.CS.InputValidationError) as e:
+            self.CS.case10_execution_bound(self.req, {"case10Observation": self.record}, self.account)
+        self.assertEqual(str(e.exception), "case10-observation-binding")
+
+    def test_a_legacy_row_refuses_an_observation(self):
+        import copy
+        legacy = copy.deepcopy(self.req)
+        next(r for r in legacy["selection"] if r["case"] == "AHT-10").pop("observationContract")
+        with self.assertRaises(self.CS.InputValidationError) as e:
+            self.CS.case10_execution_bound(legacy, {"case10Observation": self.record}, self.account)
+        self.assertEqual(str(e.exception), "case10-observation-not-applicable")
+
+
+class ObservationAtTheBuilder(unittest.TestCase):
+    """The released build_plan.py call site (Jensen 1793572039.059739) passes the bound request digest, GITHUB_RUN_ID and the builder's own
+    time, so the REAL phase-1 binding admits an observation-contract row only with a fresh observation for this request and run."""
+    ACCOUNT = "00000000-0000-4000-8000-000000000001"
+
+    def setUp(self):
+        import importlib.util
+        import case10_observation as O
+        from test_case_start_caps import BUILDER
+        self.O = O
+        spec = importlib.util.spec_from_file_location("build_plan_under_test", str(BUILDER))
+        self.BP = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.BP)
+        self.temp = tempfile.mkdtemp(prefix="ct-case10-builder-")
+        self.addCleanup(shutil.rmtree, self.temp, True)
+
+    def build(self, observe=True, run_id="123", trusted=True, mutate=None, legacy_too=False):
+        import copy
+        from datetime import datetime, timedelta, timezone
+        from pathlib import Path
+        from unittest import mock
+        from test_case_start_caps import SyntheticBuilder
+        root = os.path.join(self.temp, "b%d" % len(os.listdir(self.temp)))
+        os.mkdir(root, 0o700)
+        f = SyntheticBuilder(root, cases=(10,))
+        req = copy.deepcopy(f.request)
+        row = next(r for r in req["selection"] if r["case"] == "AHT-10")
+        row.pop("requestBoundSha256")
+        row["observationContract"] = {"schema": self.O.CONTRACT_SCHEMA, "reader": "synthetic:case10-current-state@1",
+                                      "recordSchema": self.O.RECORD_SCHEMA, "projectionKeys": sorted(B.INPUTS), "maxAgeSeconds": 600,
+                                      "readBudget": {"requests": 12, "identityReads": 1}}
+        reqp, factp = Path(f.env["BP_REQUEST_FILE"]), Path(f.env["BP_FACTS"])
+        reqp.write_text(json.dumps(req))
+        import hashlib
+        sha = hashlib.sha256(reqp.read_bytes()).hexdigest()
+        facts = json.loads(factp.read_text())
+        if not legacy_too:
+            facts.pop("case10RequestBound")
+        facts["actionApproval"]["requestSha256"] = sha
+        record = self.O.observe(lambda keys: {k: projection()[k] for k in keys}, req, sha, "123", 1, self.ACCOUNT,
+                                datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=1))
+        if mutate:
+            mutate(record)
+        if observe:
+            facts["case10Observation"] = record
+        factp.write_text(json.dumps(facts))
+        env = dict(f.env, BP_REQUEST_SHA256=sha, GITHUB_RUN_ID=run_id)
+        with mock.patch.object(self.O, "TRUSTED_READERS", frozenset({"synthetic:case10-current-state@1"}) if trusted else frozenset()):
+            return self.BP.read_binding_inputs(env, ["phase1"])
+
+    def refused(self, code, **k):
+        import case_start_caps  # the builder imports this same module by name, so its refusal class is this one
+        with self.assertRaises(case_start_caps.InputValidationError) as e:
+            self.build(**k)
+        self.assertEqual(str(e.exception), code)
+
+    def test_the_real_phase_one_binding_admits_only_a_fresh_observation_for_this_request_and_run(self):
+        self.assertTrue(self.build())
+        self.refused("case10-observation-missing", observe=False)
+        self.refused("case10-observation-reader-not-trusted", trusted=False)
+        self.refused("case10-observation-replayed", run_id="124")
+        self.refused("case10-observation-two-sources", legacy_too=True)
+        self.refused("case10-observation-stale", mutate=lambda r: r.update(observedAtUtc="2026-01-01T00:00:00Z"))
+        self.refused("case10-observation-not-this-request", mutate=lambda r: r.update(requestSha256="b" * 64))
+
+
+def hashlib_sha(raw):
+    import hashlib
+    return hashlib.sha256(raw).hexdigest()
+
+
 if __name__ == "__main__":
     unittest.main()

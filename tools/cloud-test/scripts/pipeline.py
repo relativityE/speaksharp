@@ -44,7 +44,7 @@ def main():
     a.add_argument("--request", required=True)
     a.add_argument("--out-dir", required=True)
     a.add_argument("--stage", choices=["preflight", "final"], default="preflight")
-    for k in ("latest-label", "offline-checks", "offline-proof", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations", "accepted-input-dir", "receiver-receipt", "receiver-manifest"):
+    for k in ("latest-label", "offline-checks", "offline-proof", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations", "accepted-input-dir", "receiver-receipt", "receiver-manifest", "prior-state"):
         a.add_argument("--" + k)
     a.add_argument("--repo", default=os.path.abspath(os.path.join(ROOT, "..", "..")))
     a.add_argument("--config", default=os.path.join(ROOT, "config", "test-config.v1.json"))
@@ -180,8 +180,17 @@ def main():
         g += ["--offline-proof", x.offline_proof]
     if x.stimulus_receipt:
         g += ["--stimulus-receipt", x.stimulus_receipt]
+    if x.prior_state:
+        g += ["--prior-state", x.prior_state]
     run("check_gates.py", *g)
-    # 6. automatic comparison of the compared runs from the sealed receipts
+    if x.prior_state and (load(x.prior_state) or {}).get("history"):
+        # nightly from the third night: every row's baseline comes from the verified carried-forward history
+        rh = run("select_baselines.py", "--history-state", x.prior_state, "--request", x.request, "--out", O("nightly-baselines.json"))
+        if rh.returncode:
+            print("STOP: the carried-forward history could not provide baselines")
+            sys.exit(2)
+    # 6. automatic comparison of the sealed bootstrap pair (always: the summary and report consume comparison-prior/comparison.json). On a
+    # nightly run whose G7 cleared on the carried-forward history, nightly-baselines.json above is the per-row basis as well.
     base_labels = cfg["history"]["comparisonBaselines"]
     gen = x.generated_at or now_utc().strftime("%Y-%m-%dT%H:%M:%SZ")
     rc_ = run("compare_latest.py", "--current", base_labels[1], "--previous", base_labels[0], "--out", O("comparison-prior"), "--generated-at", gen, "--config", x.config, "--receipts-root", x.receipts_root)
@@ -273,6 +282,8 @@ def main():
         sm += ["--alerts", alerts]
     if iso_result:
         sm += ["--isolation", iso_result]
+    if os.path.exists(O("nightly-baselines.json")):
+        sm += ["--nightly-baselines", O("nightly-baselines.json")]
     run("derive_summary.py", *sm)
     # 10. report
     rp = [os.path.join(ROOT, "report", "workflow_report.py"), "--request", x.request, "--ledger-derived", O("ledger-derived.json"), "--release-verification", O("release-verification.json"), "--reconciliation", O("reconciliation.json"),

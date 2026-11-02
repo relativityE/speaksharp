@@ -13,7 +13,7 @@ set -euo pipefail
 STAGE="${1:-}"
 blocked() { echo "BLOCKED_SETUP: $*" >&2; exit 78; }
 case "$STAGE" in
-  install-tools|build-plan|stimulus-preflight|build-plan-with-receipt|gate-and-validate|reserve|manual-reserve|run|collect|manual-settle) ;;
+  install-tools|build-plan|stimulus-preflight|build-plan-with-receipt|gate-and-validate|reserve|manual-reserve|run|collect|settle|manual-settle) ;;
   *) blocked "unknown stage $STAGE" ;;
 esac
 [ -z "${SUPABASE_SECRET_KEY:-}" ] || blocked "SUPABASE_SECRET_KEY is present; forbidden"
@@ -62,7 +62,7 @@ run_stage() {
     [ -n "${!n:-}" ] || blocked "stage $stage needs $n and it is not set in the environment"
     e+=("$n=${!n}")
   done <<< "$names"
-  for n in CT_OUT CT_REQUEST CT_REQUEST_SHA256 CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_OFFLINE_PROOF CT_RETAINED_GATE_MANIFEST CT_STATE_REPO CT_STATE_JOURNAL_RESERVE CT_STATE_JOURNAL_SETTLE CT_ACCOUNTING_BOOTSTRAP CT_PERIOD_SCOPE CT_CHECKOUT CT_FACTS_FILE CT_LIVE_ACCOUNTS_FILE CT_LIVE_ACCOUNTS_SHA256 CT_ACCOUNT_BINDINGS_FILE CT_PRIVATE_INPUT_DIR CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_BROWSER_RECEIPT CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
+  for n in CT_OUT CT_REQUEST CT_REQUEST_SHA256 CT_CONFIG CT_PRIOR_STATE CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_OFFLINE_PROOF CT_RETAINED_GATE_MANIFEST CT_STATE_REPO CT_STATE_JOURNAL_RESERVE CT_STATE_JOURNAL_SETTLE CT_ACCOUNTING_BOOTSTRAP CT_PERIOD_SCOPE CT_CHECKOUT CT_FACTS_FILE CT_LIVE_ACCOUNTS_FILE CT_LIVE_ACCOUNTS_SHA256 CT_ACCOUNT_BINDINGS_FILE CT_PRIVATE_INPUT_DIR CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_BROWSER_RECEIPT CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
   for n in CT_EVIDENCE_SCOPE_FILE CT_EVIDENCE_SCOPE_SHA256; do
@@ -225,14 +225,20 @@ case "$STAGE" in
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
       run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --request "$REQ" --config "$CFG" \
         --workflow "$ROOT/workflow.json" --accepted-input-dir "$accepted" --receiver-receipt "$accepted/receiver-receipt.json" \
-        --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" \
+        --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" ${CT_PRIOR_STATE:+--prior-state "$CT_PRIOR_STATE"} \
         --offline-checks "$CT_OFFLINE_CHECKS" --offline-proof "$CT_OFFLINE_PROOF" \
         --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" --stage final --out-dir "$OUT/final-gates" \
         --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free
       [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$OUT/final-gates/gate-status.json" decision)" = GO ] || blocked "retained aggregate gates are not GO"
     else
-      run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --config "$CFG" --ledger "$CT_GAP_LEDGER" --history-index "$CT_HISTORY_INDEX" --counters "$CT_COUNTERS" --receipts-root "$CT_RECEIPTS_ROOT" --reservations "$CT_RESERVATIONS" \
-        ${CT_APPROVAL:+--approval "$CT_APPROVAL"} --request "$REQ" --out-dir "$OUT/final-gates" --stage final --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" \
+      RES_IN="$CT_RESERVATIONS"
+      if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
+        # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN 1793572741.370569), not a file ledger
+        run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
+        RES_IN="$OUT/journal-snapshot.json"
+      fi
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --config "$CFG" --ledger "$CT_GAP_LEDGER" --history-index "$CT_HISTORY_INDEX" --counters "$CT_COUNTERS" --receipts-root "$CT_RECEIPTS_ROOT" --reservations "$RES_IN" \
+        ${CT_APPROVAL:+--approval "$CT_APPROVAL"} ${CT_PRIOR_STATE:+--prior-state "$CT_PRIOR_STATE"} --request "$REQ" --out-dir "$OUT/final-gates" --stage final --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" \
         ${CT_OFFLINE_CHECKS:+--offline-checks "$CT_OFFLINE_CHECKS"} ${CT_OFFLINE_PROOF:+--offline-proof "$CT_OFFLINE_PROOF"} \
         --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free
     fi
@@ -249,8 +255,10 @@ case "$STAGE" in
     attempt="${GITHUB_RUN_ATTEMPT:-1}"
     [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "reservation requires exact execution run and strict attempt 1"
     # a nightly run takes its reservation BEFORE it spends anything; any exhausted cap (requests, identity reads, Starts, takes, coaching, runner minutes, runs) refuses it
-    run_stage reserve python3 -I "$ROOT/scripts/reservations.py" reserve --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
-      --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ;;
+    run_stage reserve python3 -I "$ROOT/scripts/reservations.py" journal-reserve --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
+      --approval "$CT_APPROVAL" --repo "${CT_CHECKOUT:-$REPO}" --journal "$OUT/reserve-journal" --out "$OUT/reserve-receipt.json"
+    # the verified journal right after the reserve: the request reader record execution provenance (I4') checks
+    run_stage reserve python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-reserved.json" ;;
   manual-reserve)
     [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" != nightly-regression ] || blocked "manual reservation refuses nightly requests"
     for n in CT_STATE_REPO CT_STATE_JOURNAL_RESERVE CT_ACCOUNTING_BOOTSTRAP CT_PERIOD_SCOPE; do [ -n "${!n:-}" ] || blocked "$n is required"; done
@@ -267,8 +275,8 @@ case "$STAGE" in
       execution_run_id="${GITHUB_RUN_ID:-${CT_EXECUTION_RUN_ID:-}}"
       attempt="${GITHUB_RUN_ATTEMPT:-1}"
       [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "run requires exact execution run and strict attempt 1"
-      run_stage reserve python3 -I "$ROOT/scripts/reservations.py" require --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
-        --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --run-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)"
+      run_stage reserve python3 -I "$ROOT/scripts/reservations.py" journal-require --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
+        --execution-run-id "$execution_run_id" --attempt "$attempt"
     fi
     planfile="$OUT/plan/cfg/campaign-plan.json"
     build_receipt="$OUT/plan/cfg/build-plan-consumption.json"
@@ -302,5 +310,13 @@ case "$STAGE" in
     run_stage manual-settle python3 -I "$ROOT/scripts/manual_reservation.py" settle --repo "$CT_STATE_REPO" --journal "$CT_STATE_JOURNAL_SETTLE" \
       --out "$OUT/manual-settle-receipt.json" --campaign-id "$campaign_id" --run-id "$execution_run_id" \
       --record "$OUT/run-record.json" --scope "$CT_PERIOD_SCOPE" ;;
+  settle)
+    # the nightly reservation closes on the same journal from the collector's run record (unmeasured dimensions settle at their reserved caps)
+    [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ] || blocked "settle is for nightly-regression runs"
+    execution_run_id="${GITHUB_RUN_ID:-${CT_EXECUTION_RUN_ID:-}}"
+    attempt="${GITHUB_RUN_ATTEMPT:-1}"
+    [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "settle requires exact execution run and strict attempt 1"
+    run_stage settle python3 -I "$ROOT/scripts/reservations.py" journal-settle --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" \
+      --attempt "$attempt" --approval "$CT_APPROVAL" --repo "${CT_CHECKOUT:-$REPO}" --record "$OUT/run-record.json" --journal "$OUT/settle-journal" --out "$OUT/settle-receipt.json" ;;
   *) blocked "unknown stage $STAGE" ;;
 esac

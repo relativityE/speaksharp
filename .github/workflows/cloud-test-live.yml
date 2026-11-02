@@ -145,9 +145,42 @@ jobs:
           fi
           echo "comment_id=$id" >> "$GITHUB_OUTPUT"
 
+  journal-reserve:
+    name: Reserve the nightly run on the state-ref journal (scheduled runs only; the one push before the run)
+    needs: record-begin
+    # J1 (PO approval recorded 1793578273.517019, scope 1793578116.842849): only a scheduled run of this reviewed workflow, never a PR or fork.
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.record-begin.result == 'success' }}
+    runs-on: ubuntu-latest
+    # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
+    timeout-minutes: 3
+    # contents: write is a repository-wide capability; this job uses it only for the one leased push to refs/heads/cloud-test-state.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Append the reserve (expected-head lease, persisted readback; refuses before any read until the writer is activated)
+        env:
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          CT_STATE_PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+          python3 -I tools/cloud-test/scripts/reservations.py journal-reserve --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --execution-run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --approval tools/cloud-test/config/recurring-approval.json --repo "$GITHUB_WORKSPACE" \
+            --journal "$RUNNER_TEMP/reserve-journal" --out "$RUNNER_TEMP/reserve-receipt.json"
+          # Case 10 design A: the observation's own read budget is reserved here, never in the read-only live job (Sam 1793580806.654369).
+          # Nothing when the request pins no observation contract; refuses until a trusted reader and the activated writer exist.
+          python3 -I tools/cloud-test/scripts/case10_observation.py reserve --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --repo "$GITHUB_WORKSPACE"
   live:
     name: Selected live journeys (existing stage runner; preinstalled browser)
-    needs: record-begin
+    needs: [record-begin, journal-reserve]
+    # A scheduled run starts only after its reserve landed; a dispatch (no journal reserve) proceeds as before.
+    if: ${{ !cancelled() && needs.record-begin.result == 'success' && (needs.journal-reserve.result == 'success' || (github.event_name != 'schedule' && needs.journal-reserve.result == 'skipped')) }}
     runs-on: ubuntu-latest
     # 329 minutes fit all 15 cases (sum of caseMaxMs 272 + admission 20 + inter-case 10 + cleanup 2 + setup 15 + collect 10); prepare refuses any
     # selection that does not fit and bounds the run step to its live minutes, so collect and the record always keep their reserve.
@@ -234,17 +267,34 @@ jobs:
           NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
           CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # Case 10 observation (Sam 1793582780.014609): the AHT-10 role's password and the project's anon key, scheduled runs only. The
+          # observe step hands them, with the bundle's account id and email, to case10_reader's own subprocess and to nothing else.
+          CT_CASE10_PASSWORD: ${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}
+          CT_CASE10_ANON_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}
         run: |
           set -euo pipefail
+          # Sam 1793584373.385389: the Case 10 reader's credentials reach ONLY the observe child. They move into unexported shell variables at
+          # once, so no other child of this step (base64, prepare) inherits them, and are discarded right after the observation.
+          C10_PASSWORD="${CT_CASE10_PASSWORD-}"; C10_ANON_KEY="${CT_CASE10_ANON_KEY-}"; unset CT_CASE10_PASSWORD CT_CASE10_ANON_KEY
           printf '%s' "$PRIOR_STATE" > "$RUNNER_TEMP/prior-state.json"
           # A dispatch names its committed request and facts; a scheduled run admits exactly the gate's derived bytes (prepare checks their
           # digest) and reads its facts only from the pinned committed file (prepare refuses a facts input there).
           if [ "$GITHUB_EVENT_NAME" = schedule ]; then
             (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
             SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")
+            # Case 10 design A (Sam 1793570217.800529): a fresh current-state observation for the gate's request. Read-only: it reads only
+            # when the verified journal already holds the open reserve journal-reserve appended, and never pushes. Inactive: the step refuses
+            # until a trusted reader and the activated writer exist, and writes nothing when the request pins no observation contract; prepare
+            # and the builder then re-admit the record it placed.
+            CT_CASE10_PASSWORD="$C10_PASSWORD" CT_CASE10_ANON_KEY="$C10_ANON_KEY" \
+              python3 -I tools/cloud-test/scripts/case10_observation.py observe --request "$RUNNER_TEMP/nightly-request.json" \
+              --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+              --repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/case10-observation.json"
+            if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi
           else
             SRC=(--request "$REQUEST" --facts "$FACTS")
           fi
+          unset C10_PASSWORD C10_ANON_KEY
           python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \
             --checkpoint "$RUNNER_TEMP/prior-state.json" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --source-sha "$GITHUB_SHA" --job-timeout-minutes 340 --out "$RUNNER_TEMP/run-inputs" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
@@ -288,6 +338,8 @@ jobs:
       - name: Stage runner (install-tools, plans, stimulus preflight, gates)
         env:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # the verified prior latest-record state (record-begin parsed it): G7's carried-forward history from the third night
+          CT_PRIOR_STATE: ${{ runner.temp }}/prior-state.json
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
@@ -297,6 +349,10 @@ jobs:
           for stage in install-tools build-plan stimulus-preflight build-plan-with-receipt gate-and-validate; do
             bash tools/cloud-test/scripts/execute_run.sh "$stage"
           done
+          # A scheduled run reserves on the state-ref journal BEFORE it spends anything (the run stage then requires exactly that reserve).
+          # A scheduled run's reserve is appended by the separate journal-reserve job (the only contents: write before the run); this job
+          # stays contents: read and only snapshots the verified journal for execution provenance (the run stage requires the reserve).
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then python3 -I tools/cloud-test/scripts/reservations.py journal-snapshot --out "$CT_OUT/journal-reserved.json"; fi
       # Immediately before admission: the approved window must still hold the live minutes plus the collect reserve (never reset), read from
       # exactly the request bytes prepare admitted (init's request_sha256 output; no later step can rewrite another step's outputs).
       - name: Approved window still fits the live run
@@ -305,6 +361,8 @@ jobs:
           REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
         run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"
       - name: Reserve the admitted manual run before product execution
+        # manual runs only: a scheduled run is reserved by the journal-reserve job, and manual_reservation refuses nightly requests
+        if: ${{ github.event_name != 'schedule' }}
         env:
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
           CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
@@ -342,7 +400,9 @@ jobs:
         run: |
           set -euo pipefail
           bash tools/cloud-test/scripts/execute_run.sh collect
-          bash tools/cloud-test/scripts/execute_run.sh manual-settle
+          # A manual run settles its manual reservation here. A scheduled run never uses the manual path (manual_reservation refuses nightly
+          # requests): its settle is appended by the separate journal-settle job from the closed settle input.
+          if [ "$GITHUB_EVENT_NAME" != schedule ]; then bash tools/cloud-test/scripts/execute_run.sh manual-settle; fi
           HP="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$CT_CONFIG" harness.packetDir)"
           Q=()
           # qualify freezes every verifier input into a new private snapshot, runs the REAL verify_run_binding.py on that snapshot only (exit 0,
@@ -355,16 +415,37 @@ jobs:
             Q=(--qualification "$CT_OUT/qualification.json")
           fi
           # Execution provenance (I4'): every request reader's own record, checked against the admitted digest; no verdict, no qualified record.
+          # A scheduled run's reservation record is the journal's own reserve event, from the snapshot the reserve stage wrote.
+          RES_RECORD="${CT_RESERVATIONS:-}"
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then RES_RECORD="$CT_OUT/journal-reserved.json"; fi
           P=()
           if python3 -I tools/cloud-test/scripts/init_run_inputs.py provenance --request "$CT_REQUEST" --request-sha256 "$REQUEST_SHA256" \
                --run-id "$GITHUB_RUN_ID" --plan "$CT_OUT/plan/cfg/campaign-plan.json" --build-receipt "$CT_OUT/plan/cfg/build-plan-consumption.json" \
-               --reservations "${CT_RESERVATIONS:-}" --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" \
+               --reservations "$RES_RECORD" --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" \
                --run-record "$CT_OUT/run-record.json" --cases "$CASES" --out "$CT_OUT/provenance.json"; then
             P=(--provenance "$CT_OUT/provenance.json")
           fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py project --run-record "$CT_OUT/run-record.json" --run-id "$GITHUB_RUN_ID" \
+            --case-results "$CT_OUT/plan/run/case-results.json" --request "$CT_REQUEST" --repo "$GITHUB_WORKSPACE" \
             --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" "${P[@]}" \
             --out "$RUNNER_TEMP/latest-record.json"
+      - name: Project the closed settle input (ids, digests and counts only; without a run record, none)
+        if: always() && github.event_name == 'schedule'
+        run: |
+          set -euo pipefail
+          if [ ! -f "$CT_OUT/run-record.json" ]; then echo "no run record: the reservation stays open and counted"; exit 0; fi
+          mkdir -p "$CT_OUT/settle"
+          python3 -I tools/cloud-test/scripts/settle_input.py project --record "$CT_OUT/run-record.json" \
+            --case10-observation "$RUNNER_TEMP/case10-observation.json" --out "$CT_OUT/settle/settle-input.json"
+      # The repository is public: this artifact holds only the closed settle input (settle_input.py), never the run record.
+      - name: Hand the closed settle input to the journal-settle job (scheduled runs; 1 day)
+        if: always() && github.event_name == 'schedule'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-settle-input
+          path: ${{ env.CT_OUT }}/settle/settle-input.json
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Hand the closed record to the record job (short-lived; not the authoritative record)
         if: always()
         uses: actions/upload-artifact@v4
@@ -379,6 +460,44 @@ jobs:
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/run-inputs"
 
+  journal-settle:
+    name: Settle the nightly reservation on the state-ref journal (scheduled runs only; the one push after the run)
+    needs: [record-begin, journal-reserve, live]
+    # Runs whenever the run was reserved; with no run record (cancelled or missing collection) it appends nothing and the reservation stays
+    # open, so the period keeps counting it at its caps.
+    if: ${{ always() && github.event_name == 'schedule' && needs.journal-reserve.result == 'success' }}
+    runs-on: ubuntu-latest
+    # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cloud-test-settle-input
+          path: ${{ runner.temp }}/settle
+        continue-on-error: true
+      - name: Append the settles from the closed settle input (without one, each reservation stays open and counted)
+        env:
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          CT_STATE_PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SETTLE="$RUNNER_TEMP/settle/settle-input.json"
+          if [ ! -f "$SETTLE" ]; then echo "no settle input: each reservation stays open and counted"; exit 0; fi
+          python3 -I tools/cloud-test/scripts/settle_input.py validate --input "$SETTLE"
+          (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+          python3 -I tools/cloud-test/scripts/reservations.py journal-settle --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --execution-run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --approval tools/cloud-test/config/recurring-approval.json --repo "$GITHUB_WORKSPACE" --record "$SETTLE" \
+            --journal "$RUNNER_TEMP/settle-journal" --out "$RUNNER_TEMP/settle-receipt.json"
+          python3 -I tools/cloud-test/scripts/case10_observation.py settle --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --repo "$GITHUB_WORKSPACE" \
+            --settle-input "$SETTLE"
   record-complete:
     name: Complete or interrupt the attempt in the latest record (no live credentials)
     needs: [record-begin, live]
@@ -415,3 +534,7 @@ jobs:
               --status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)" --out "$RUNNER_TEMP/body.md"
           fi
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
+          # readback: the stored record must be exactly what was rendered (the PATCH is not compare-and-swap; this job is the sole publisher)
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/readback.json"
+          python3 -I "$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/readback.json" \
+            --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID"

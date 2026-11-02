@@ -26,6 +26,8 @@ TEMPLATE_PIN = hashlib.sha256(TEMPLATE).hexdigest()
 with open(os.path.join(REPO, ".github", "workflows", "cloud-test-live.yml"), encoding="utf-8") as _f:
     WF = _f.read()
 OCCURRENCE = "nightly-20261101T0000Z-20261102T0300Z"
+# The reviewed per-case Start caps the synthetic template carries (sum 42); the standing approval must state them identically.
+START_CAPS = {"AHT-%02d" % n: c for n, c in zip(range(1, 16), (4, 7, 4, 2, 2, 2, 2, 0, 3, 3, 4, 3, 3, 3, 0))}
 
 
 def approval(**over):
@@ -33,7 +35,8 @@ def approval(**over):
     ap = {"schema": "speaksharp.cloud-test.recurring-approval.v1", "status": "APPROVED", "approvedBy": "owner", "approvalRef": "slack:1793553158.013909",
           "approvedAtUtc": "2026-10-31T12:00:00Z", "validFromUtc": "2026-10-31T12:00:00Z", "expiresUtc": "2026-12-15T00:00:00Z",
           "periodStartUtc": "2026-11-01T00:00:00Z", "cadence": {"runsPerPeriod": 30, "period": "30 days"},
-          "perRunCaps": {"runCapRequests": 4400, "identityReads": 32, "starts": 40, "takes": 40, "coachingRequests": 15, "windowMinutes": 330,
+          "startPressCaps": dict(START_CAPS),
+          "perRunCaps": {"runCapRequests": 4400, "identityReads": 32, "starts": 45, "takes": 40, "coachingRequests": 15, "windowMinutes": 330,
                          "githubRunnerMinutes": 360, "paidActionsUsd": 0},
           "periodCaps": {"requests": 132000, "identityReads": 960, "starts": 1200, "takes": 1200, "coachingRequests": 450, "githubRunnerMinutes": 10500}}
     for k, v in over.items():
@@ -42,8 +45,9 @@ def approval(**over):
 
 
 def budget(**over):
-    b = {"requests": {"runCap": 4310}, "identity": {"readsThisRun": 30}, "actions": {"startsMinimum": 30, "takesMinimum": 30},
-         "coaching": {"cap": 15}, "window": {"proposedWindowMinutes": 329}}
+    b = {"requests": {"runCap": 4310, "plannedSumOfEstimates": 3610, "cleanupReserve": 150, "pooledSlack": 550}, "identity": {"readsThisRun": 30},
+         "actions": {"startsMinimum": 30, "takesMinimum": 30}, "coaching": {"cap": 15, "basis": "SYNTHETIC-NOT-A-BUDGET"},
+         "window": {"proposedWindowMinutes": 329, "expectedMinutes": 111, "worstCaseMinutes": 294}}
     for k, v in over.items():
         b[k] = dict(b[k], **v)
     return json.dumps(b, sort_keys=True).encode()
@@ -167,7 +171,12 @@ class Derivation(unittest.TestCase):
         req = json.loads(raw)
         self.assertEqual((req["runId"], req["window"]["startUtc"], req["window"]["endUtc"], req["synthetic"]),
                          (OCCURRENCE, "2026-11-02T03:00:00Z", "2026-11-02T08:30:00Z", False))
-        self.assertEqual(req["estimate"], {"requests": {"runCap": 4310}, "identityReads": 30, "starts": 30, "takes": 30, "paidActionsAuthorizedUsd": 0})
+        self.assertEqual(req["estimate"], {"requests": {"planned": 3610, "cleanupReserve": 150, "pooledSlack": 550, "runCap": 4310},
+                                           "providerBillableRequests": {"coachingCap": 15, "basis": "SYNTHETIC-NOT-A-BUDGET"},
+                                           "window": {"expectedMinutes": 111, "worstCaseMinutes": 294, "proposedMinutes": 329},
+                                           "identityReads": 30, "starts": 42, "takes": 30, "githubRunnerMinutesMax": N.nightly_runner_minutes(WF),
+                                           "paidActionsAuthorizedUsd": 0})
+        self.assertLessEqual(req["estimate"]["githubRunnerMinutesMax"], json.loads(approval())["perRunCaps"]["githubRunnerMinutes"])
         self.assertEqual((req["nightly"]["occurrenceId"], req["nightly"]["budgetSha256"]), (OCCURRENCE, hashlib.sha256(budget()).hexdigest()))
         self.assertEqual(N.verify(raw, TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF, template_pin=TEMPLATE_PIN,
                                   budget_pin=hashlib.sha256(budget()).hexdigest()), hashlib.sha256(raw).hexdigest())
@@ -185,10 +194,11 @@ class Derivation(unittest.TestCase):
 
     def test_the_runner_minute_need_is_the_actual_workflow_allowance(self):
         timeouts = N.workflow_job_timeouts(WF)
-        self.assertEqual(timeouts, {"nightly-gate": 3, "record-begin": 5, "live": 340, "record-complete": 5})
-        self.assertEqual(N.nightly_runner_minutes(WF), 353, "a nightly run's maximum allowance; a dispatch (no gate job) is 350")
-        refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 352}))
-        self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 353})))
+        self.assertEqual(timeouts, {"nightly-gate": 3, "record-begin": 5, "journal-reserve": 3, "live": 340, "journal-settle": 3, "record-complete": 5})
+        # 353 plus the two 3-minute journal jobs (J1): still within the approved 360 per run
+        self.assertEqual(N.nightly_runner_minutes(WF), 359, "a nightly run's maximum allowance; a dispatch (no gate or journal jobs) is 350")
+        refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 358}))
+        self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 359})))
         refused(self, "nightly-workflow-timeouts", derive, wf=WF.replace("    timeout-minutes: 340", "    timeout: 340"))
 
     def test_the_whole_run_must_still_fit_from_now_using_the_callers_own_checks(self):
@@ -268,6 +278,65 @@ class ReplayThroughTheRealWriter(unittest.TestCase):
         for run_id in ("102", "999999"):
             refused(self, "nightly-occurrence-replayed", derive, run_id=run_id, prior=seen)
         self.assertTrue(derive(slot=SLOT + timedelta(days=1), run_id="103", prior=seen), "the next night is a new occurrence")
+
+
+class StartAllocation(unittest.TestCase):
+    """Sam 1793569757.991869: the derived request carries the reviewed per-case Start caps, matched to the standing approval's explicit
+    caps, in both limit maps and the summed estimate; any disagreement refuses and no cap is invented."""
+    def test_the_derived_request_passes_the_stage_runners_own_start_allocation_contract(self):
+        import case_start_caps
+        req = json.loads(derive())
+        self.assertEqual(req["approvedLimits"]["startPressCaps"], START_CAPS)
+        self.assertEqual(req["proposedLimits"]["startPressCaps"], START_CAPS)
+        self.assertEqual({r["case"]: r["startPressCap"] for r in req["selection"]}, START_CAPS)
+        self.assertEqual(req["estimate"]["starts"], sum(START_CAPS.values()))
+        self.assertEqual(case_start_caps.request_caps(req, execution=True)[0], "full")
+
+    def test_approval_disagreement_or_a_sum_outside_need_or_approval_refuses(self):
+        refused(self, "nightly-start-caps-not-approved", derive, ap=approval(startPressCaps=dict(START_CAPS, **{"AHT-02": 8})))
+        no_caps = json.loads(approval())
+        del no_caps["startPressCaps"]
+        refused(self, "nightly-start-caps-not-approved", derive, ap=json.dumps(no_caps, sort_keys=True).encode())
+        refused(self, "nightly-start-caps-outside-need-or-approval", derive, ap=approval(perRunCaps={"starts": 41}))
+        refused(self, "nightly-start-caps-outside-need-or-approval", derive, bud=budget(actions={"startsMinimum": 43}))
+
+    def test_the_template_must_carry_its_reviewed_caps_identically(self):
+        for label, mutate in (("row cap below the minimum", lambda t: t["selection"][1].update(startPressCap=6)),
+                              ("row cap missing", lambda t: t["selection"][0].pop("startPressCap")),
+                              ("proposed map differs", lambda t: t["proposedLimits"]["startPressCaps"].update({"AHT-01": 5}))):
+            with self.subTest(label):
+                tpl = json.loads(TEMPLATE)
+                mutate(tpl)
+                raw = json.dumps(tpl).encode()
+                refused(self, "nightly-template-start-caps", derive, tpl=raw, tpl_pin=hashlib.sha256(raw).hexdigest())
+
+    def test_the_estimate_is_complete_for_the_runner_and_the_budget_must_be_the_templates(self):
+        est = json.loads(derive())["estimate"]
+        self.assertEqual((est["requests"]["cleanupReserve"], est["providerBillableRequests"]["coachingCap"], est["window"]["worstCaseMinutes"]),
+                         (150, 15, 294))
+        refused(self, "nightly-budget-shape", derive, bud=budget(requests={"pooledSlack": 551}))  # run cap no longer the sum
+        refused(self, "nightly-budget-shape", derive, bud=budget(coaching={"basis": ""}))
+        refused(self, "nightly-budget-not-the-template", derive,
+                bud=budget(requests={"plannedSumOfEstimates": 3600, "pooledSlack": 560}))
+
+    def test_the_template_carries_its_reviewed_evidence_scope_limits(self):
+        self.assertEqual(json.loads(derive())["evidenceScope"], {"maxDeliveries": 64, "maxSupabaseRequests": 128, "maxTelemetryReads": 8})
+        for label, mutate in (("missing", lambda t: t.pop("evidenceScope")),
+                              ("above a limit", lambda t: t["evidenceScope"].update(maxTelemetryReads=17)),
+                              ("extra key", lambda t: t["evidenceScope"].update(other=1))):
+            with self.subTest(label):
+                tpl = json.loads(TEMPLATE)
+                mutate(tpl)
+                raw = json.dumps(tpl).encode()
+                refused(self, "nightly-template-evidence-scope", derive, tpl=raw, tpl_pin=hashlib.sha256(raw).hexdigest())
+
+    def test_the_case10_row_pins_the_observation_contract(self):
+        import case10_observation
+        self.assertEqual(case10_observation.contract_of(json.loads(derive()))["readBudget"], {"requests": 12, "identityReads": 1})
+        tpl = json.loads(TEMPLATE)
+        next(r for r in tpl["selection"] if r["case"] == "AHT-10").pop("observationContract")
+        raw = json.dumps(tpl).encode()
+        refused(self, "nightly-case10-observation-contract", derive, tpl=raw, tpl_pin=hashlib.sha256(raw).hexdigest())
 
 
 if __name__ == "__main__":

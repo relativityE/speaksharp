@@ -153,17 +153,32 @@ def bind_inputs(env, facts):
             "requestSha256": request_sha, "reconciliationSha256": rc_sha, "approval": approval}
 
 
-def case10_execution_bound(request, facts, account_id):
+def case10_execution_bound(request, facts, account_id, request_sha256=None, run_id=None, now=None):
     """Verify the selected Case 10 projection without allocating more requests.
 
     The runtime ledger still charges every transmitted request and stops at the
     unchanged allowance of 240. This binds the component sum to the admitted
     request, source, account and exact projection bytes before builder output.
+    A row that pins an observationContract (nightly design A) takes ONLY a fresh
+    current-state observation, admitted by case10_observation for this request
+    digest, run, attempt 1 and time; the legacy record is then refused.
     """
     selected = [row for row in request["selection"] if row["case"] == "AHT-10"]
     if not selected or request["sampleMode"] == "minimal":
         return None
     row = selected[0]
+    if "observationContract" in row:
+        require("case10RequestBound" not in facts, "case10-observation-two-sources")
+        record = obj(facts.get("case10Observation"), "case10-observation-missing")
+        require(type(request_sha256) is str and type(run_id) is str and type(now) is str, "case10-observation-binding")
+        import case10_observation
+        try:
+            report = case10_observation.admit(record, request, request_sha256, run_id, 1, account_id, utc(now))
+        except case10_observation.Refused as e:
+            raise InputValidationError(str(e)) from None
+        return {"projectionSha256": report["recordSha256"], "transmittedBound": report["transmittedBound"],
+                "allowance": report["allowance"], "evidenceRef": "case10-observation:" + report["recordSha256"]}
+    require("case10Observation" not in facts, "case10-observation-not-applicable")
     record = obj(facts.get("case10RequestBound"), "case10-bound-missing")
     require(set(record) == {"schema", "runId", "sourceSha", "accountSubjectSha256", "evidenceRef", "projection"},
             "case10-bound-shape")

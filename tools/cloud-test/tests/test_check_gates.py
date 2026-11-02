@@ -209,3 +209,65 @@ class CheckGates(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NightlyCarriedForwardG7(unittest.TestCase):
+    """G7 through its real consumers (Sam 1793575319.659179, RETURN 1793576198.013729): only QUALIFIED row evidence produced under the
+    CURRENT identities clears G7; unqualified, row-empty or incomparable history falls back to the verified bootstrap receipts."""
+    REQ = {"priority": "nightly-regression", "harness": {"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64},
+           "release": {"backend": {"sha": "6" * 40}}}
+
+    def history(self, nights, qualified=True, comp=None):
+        import json as _json
+        import publish_latest_record as P
+        import select_baselines as SB
+        current = SB.current_identities(self.REQ)
+        state = P.parse_body("")
+        for i, verdicts in enumerate(nights):
+            day = "2026-11-%02dT08:00:00Z" % (i + 1)
+            ok = set(verdicts) == {"P"}
+            cases = [{"caseId": "AHT-05", "result": "PASS" if ok else "FAIL",
+                      "rows": {"pass": verdicts.count("P"), "fail": verdicts.count("F"), "notRun": verdicts.count("N")}, "codes": []}]
+            rec = {"runId": str(500 + i), "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40,
+                   "campaignId": ("nightly-%d" % i) if qualified else None, "coverage": ("batch" if ok else "incomplete") if qualified else "unqualified",
+                   "requestSha256": "1" * 64 if qualified else None, "catalogSha256": "2" * 64 if qualified else None,
+                   "startedUtc": day.replace("08:", "03:"), "endedUtc": day, "outcome": "passed" if ok and qualified else "failed",
+                   "cases": cases, "codes": [] if qualified else ["not-qualified"]}
+            if qualified:
+                rec.update(rowVerdicts={"AHT-05": verdicts}, comparability=comp or current,
+                           evidence={"planSha256": "7" * 64, "caseResultsSha256": "8" * 64})
+            st = P.begin(state, str(500 + i), 1, "a" * 40, day.replace("08:", "03:"))
+            state = P.complete(st, rec)
+        return state
+
+    def width(self):
+        import json as _json
+        return len(_json.load(open(os.path.join(ROOT, "config", "assertion-catalog.json")))["cases"]["AHT-05"]["requiredAssertions"])
+
+    def test_only_qualified_comparable_row_evidence_clears_g7(self):
+        import check_gates as G
+        w = self.width()
+        self.assertIsNone(G.nightly_history_gate(self.REQ, self.history(["P" * w])))                    # one night: bootstrap decides
+        self.assertIsNone(G.nightly_history_gate(self.REQ, self.history(["P" * w] * 2, qualified=False)))  # unqualified: never clears
+        self.assertIsNone(G.nightly_history_gate(self.REQ, self.history(["N" * w] * 2)))  # two all-NOT-RUN occurrences: not evidence
+        other = dict(self.history(["P" * w])["history"]["identities"][0], backendSha="9" * 40)
+        self.assertIsNone(G.nightly_history_gate(self.REQ, self.history(["P" * w] * 2, comp=other)))      # incomparable: bootstrap
+        two = self.history(["P" * w, "F" + "N" * (w - 1)])
+        self.assertEqual(G.nightly_history_gate(self.REQ, two)["status"], G.READY)
+        self.assertIsNone(G.nightly_history_gate(dict(self.REQ, priority="full-coverage"), two))
+        corrupt = dict(two, history=dict(two["history"], sequence=0))
+        self.assertEqual(G.nightly_history_gate(self.REQ, corrupt)["status"], G.NOTREADY)
+
+    def test_history_baselines_cover_all_rows_and_flag_comparability_with_the_current_run(self):
+        import json as _json
+        import select_baselines as SB
+        w = self.width()
+        two = self.history(["P" * w, "F" + "N" * (w - 1)])
+        catalog = _json.load(open(os.path.join(ROOT, "config", "assertion-catalog.json")))
+        b = SB.history_baselines(two["history"], catalog, SB.current_identities(self.REQ))
+        rows = catalog["cases"]["AHT-05"]["requiredAssertions"]
+        self.assertEqual(len(b["rows"]), 204)
+        self.assertEqual(b["rows"]["AHT-05/%s" % rows[0]], {"baselineVerdict": "FAIL", "baseline": "501", "lastKnownGood": "500", "comparable": True})
+        self.assertEqual(b["rows"]["AHT-05/%s" % rows[1]], {"baselineVerdict": "PASS", "baseline": "500", "lastKnownGood": "500", "comparable": True})
+        self.assertEqual(b["journeys"]["AHT-05"], {"previousVerdictRun": "501", "previousVerdict": "FAIL", "lastKnownGood": "500"})
+        self.assertFalse(SB.history_baselines(two["history"], catalog, None)["rows"]["AHT-05/%s" % rows[0]]["comparable"])
