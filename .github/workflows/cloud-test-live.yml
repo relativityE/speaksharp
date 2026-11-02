@@ -92,8 +92,9 @@ jobs:
   record-begin:
     name: Record the attempt (latest-record comment; no live credentials)
     needs: nightly-gate
-    # A dispatch skips the gate; a scheduled run proceeds only when the gate admitted it. Every later job needs this one to succeed.
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
+    # Privileged issue writes and every downstream credential-bearing job are admitted only from the server-reported protected main ref.
+    # A dispatch skips the nightly gate; a scheduled run proceeds only when that gate admitted it. Every later job needs this one to succeed.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -121,6 +122,8 @@ jobs:
           [ -n "$TRACKING_ISSUE" ] || { echo "BLOCKED_SETUP: tracking-issue-not-bound"; exit 78; }
       - uses: actions/checkout@v6
         with:
+          # Control code is the immutable SHA already admitted by the protected-main job condition, never a request-selected release.
+          ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: tools/cloud-test/scripts
       - name: Begin the attempt in the latest record
@@ -148,6 +151,7 @@ jobs:
   live:
     name: Selected live journeys (existing stage runner; preinstalled browser)
     needs: record-begin
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.record-begin.result == 'success' }}
     runs-on: ubuntu-latest
     # 329 minutes fit all 15 cases (sum of caseMaxMs 272 + admission 20 + inter-case 10 + cleanup 2 + setup 15 + collect 10); prepare refuses any
     # selection that does not fit and bounds the run step to its live minutes, so collect and the record always keep their reserve.
@@ -170,6 +174,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          # Trusted runner/control code stays pinned to protected main. Admission later creates a separate checkout at TESTED_SHA.
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Bind private runner paths and initialize the inactive accounting workspace

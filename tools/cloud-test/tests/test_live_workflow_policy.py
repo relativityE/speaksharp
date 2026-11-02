@@ -66,7 +66,8 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \\\n  --checkpoint', init["run"])
         self.assertEqual(init["run"].count("--facts"), 1, "a scheduled run never passes a facts input")
         self.assertEqual(begin["needs"], "nightly-gate")
-        self.assertEqual(begin["if"], "${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && "
+        self.assertEqual(begin["if"], "${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && "
+                                      "(github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && "
                                       "needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}")
         self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || '
                       '{ echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }', begin["steps"][0]["run"])
@@ -85,6 +86,15 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_the_record_jobs_hold_no_live_credential(self):
         for name in ("record-begin", "record-complete"):
             self.assertIsNone(SECRET_REF.search(str(self.jobs[name])), name)
+        protected_main = "github.ref == 'refs/heads/main' && github.ref_protected == true"
+        self.assertIn(protected_main, self.jobs["record-begin"]["if"])
+        self.assertIn(protected_main, self.jobs["live"]["if"])
+        self.assertIn("needs.record-begin.result == 'success'", self.jobs["live"]["if"])
+        # The two privileged jobs execute control code only from the immutable SHA admitted by those job-level checks.
+        for name in ("record-begin", "live"):
+            checkouts = [s for s in self.jobs[name]["steps"] if s.get("uses", "").startswith("actions/checkout@")]
+            self.assertEqual(len(checkouts), 1, name)
+            self.assertEqual(checkouts[0]["with"]["ref"], "${{ github.sha }}")
 
     def test_the_latest_record_is_inactive_until_the_tracking_issue_is_bound(self):
         self.assertEqual(self.doc["env"]["TRACKING_ISSUE"], "")
