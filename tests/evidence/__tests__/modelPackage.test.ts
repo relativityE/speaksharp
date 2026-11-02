@@ -50,7 +50,9 @@ describe('one serializable compatible package',()=>{
     }
     // A Whisper package may omit it (service default) or declare an in-range value; the declared value is sealed into the digest.
     const pkg=await fourthPackage();expect(pkg.execution.preparationBudgetMs).toBeUndefined();
-    const declared=await sealModelPackage({...pkg,execution:{...pkg.execution,preparationBudgetMs:30_000}});
+    // Re-seal from the UNSEALED body: a sealed package's own digests are derived fields, never inputs.
+    const unsealed=structuredClone(pkg) as Partial<ModelPackage>;delete unsealed.packageDigest;delete unsealed.assetDigest;
+    const declared=await sealModelPackage({...unsealed,execution:{...pkg.execution,preparationBudgetMs:30_000}} as Parameters<typeof sealModelPackage>[0]);
     expect(candidateFromPackage(declared,'fourth.json').execution.preparationBudgetMs).toBe(30_000);
     const raised=structuredClone(declared);raised.execution.preparationBudgetMs=600_000;
     await expect(verifyModelPackage(raised)).rejects.toThrow('PACKAGE_DIGEST_MISMATCH');
