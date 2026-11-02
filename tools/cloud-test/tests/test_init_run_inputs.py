@@ -1759,6 +1759,33 @@ class StandingEnvelope(Journal):
         mutate(req)
         return req
 
+    def reserve_on_chain(self, run="101", request_sha=None, at="2026-11-02T03:00:30Z"):
+        """Appends a nightly reserve through the REAL state-ref writer, as journal-reserve does before the live job prepares."""
+        from reservations import CATS
+        head = W.fetch_head(self.repo, self.remote, self.remote)
+        e = {"type": "reserve", "campaignId": self.req["runId"], "runId": run, "attempt": 1, "allocation": {k: 1 for k in CATS},
+             "provenance": "request-sha256:" + (request_sha or hashlib.sha256(self.req_raw).hexdigest()), "atUtc": at}
+        W.propose(self.repo, self.remote, head, e, self.root, self.remote)
+
+    def test_this_executions_own_open_reserve_is_not_a_replay_but_any_other_reserve_is(self):
+        # Sam RETURN 1793624502.797169 #2: journal-reserve appends THIS run's reserve before prepare; it must not reject itself.
+        own = (self.req["runId"], "101", 1, hashlib.sha256(self.req_raw).hexdigest())
+        self.reserve_on_chain()
+        prior = I.reserved_occurrences(self.chain(), own)
+        self.assertNotIn(self.req["runId"], prior)
+        self.assertTrue(self.derive(prior=prior))  # connected reserve -> prepare positive
+        # without the execution identity, the same reserve is a replay (the old behaviour, kept for any other caller)
+        refused(self, "action-approval-standing-occurrence-replayed", self.derive,
+                prior=I.reserved_occurrences(self.chain()))
+        # a second run of the same occurrence (foreign or replayed) still refuses, even alongside this run's own reserve
+        self.reserve_on_chain(run="102", at="2026-11-02T03:00:40Z")
+        refused(self, "action-approval-standing-occurrence-replayed", self.derive, prior=I.reserved_occurrences(self.chain(), own))
+
+    def test_a_reserve_bound_to_another_request_is_never_this_executions_own(self):
+        own = (self.req["runId"], "101", 1, hashlib.sha256(self.req_raw).hexdigest())
+        self.reserve_on_chain(request_sha="b" * 64)
+        refused(self, "action-approval-standing-occurrence-replayed", self.derive, prior=I.reserved_occurrences(self.chain(), own))
+
     def test_the_derived_envelope_names_exactly_this_occurrence_request_and_checkpoint(self):
         rc_bytes = self.checkpoint()
         self.assertEqual(self.derive(), {"schema": I.ACTION_APPROVAL_SCHEMA, "requestSha256": hashlib.sha256(self.req_raw).hexdigest(),

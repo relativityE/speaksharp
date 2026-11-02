@@ -149,8 +149,9 @@ def main():
              "--receiver-manifest", x.receiver_manifest, "--accepted-input-dir", accepted_snapshot,
              "--stage", x.stage, "--base", ROOT, "--out", O("gate-status.json")]
         if req.get("priority") == "nightly-regression":
-            g += ["--receipts-root", x.receipts_root, "--history-index", history_index,
-                  "--approval", approval, "--reservations", reservations]
+            # Sam RETURN 1793624502.797169 #1: the history index is forwarded below only when the file exists; on the verified journal-
+            # snapshot route G11 admits the snapshot without it (approval and reservations are added below with the recurring inputs).
+            g += ["--receipts-root", x.receipts_root]
         if x.offline_checks:
             g += ["--offline-checks", x.offline_checks]
         if x.offline_proof:

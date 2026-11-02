@@ -96,6 +96,8 @@ class NightlyAcceptedRoute(unittest.TestCase):
         return subprocess.run(argv, capture_output=True, text=True, env=env), output
 
     def test_a_nightly_accepted_run_reaches_g7_and_g11_and_the_carried_history_consumers(self):
+        # Sam RETURN 1793624502.797169 #1: the valid authenticated-snapshot route with NO history index file reaches the real check_gates
+        self.assertFalse(os.path.exists(os.path.join(ROOT, "config", "history", "index.json")))
         r, out = self.run_route()
         self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
         gates = {g["id"]: g for g in json.loads((out / "gate-status.json").read_text())["gates"]}

@@ -504,9 +504,18 @@ def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
     return approval
 
 
-def reserved_occurrences(chain):
-    """Campaign ids already reserved on the verified state-ref chain (the same journal the continuity checkpoint received)."""
-    return frozenset(e["campaignId"] for e in chain[-1][1] if e["type"] == "reserve")
+def reserved_occurrences(chain, own=None):
+    """Campaign ids already reserved on the verified state-ref chain (the same journal the continuity checkpoint received). Sam RETURN
+    1793624502.797169 #2: `own` = (campaignId, runId, attempt, requestSha256) of THIS execution. journal-reserve appends its reserve before the
+    live job prepares, so that one verified, still-open reserve (exact campaign, run, attempt and request digest) is not a replay. Any other
+    reserve of the occurrence (another run, another attempt, another request, or this reserve once settled) still makes it replayed."""
+    events = chain[-1][1]
+    settled = {(e["campaignId"], e["runId"], e["attempt"]) for e in events if e["type"] == "settle"}
+
+    def is_own(e):
+        return (own is not None and (e["campaignId"], e["runId"], e["attempt"]) == tuple(own[:3])
+                and e.get("provenance") == "request-sha256:" + own[3] and tuple(own[:3]) not in settled)
+    return frozenset(e["campaignId"] for e in events if e["type"] == "reserve" and not is_own(e))
 
 
 def _standing_raw(repo, pin):
@@ -685,7 +694,7 @@ def prepare(x, now):
     action_approval = occurrence_action_approval(
         facts, request_sha256, reconciliation, req, nightly,
         standing=lambda: standing_envelope(repo, req, request_sha256, reconciliation, accepted_scope, cases, cfg, now, x.attempt,
-                                           reserved_occurrences(chains[-1])))
+                                           reserved_occurrences(chains[-1], (req["runId"], x.run_id, x.attempt, request_sha256))))
     facts = dict(facts, actionApproval=action_approval)
     check_case10_bound(req, facts, cases, entries, request_sha256, x.run_id, now, observation)
     # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.
