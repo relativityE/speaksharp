@@ -14,6 +14,7 @@ import { readProductCampaign, verifyCampaignPackages } from '../../scripts/model
 import { verifyProjectRuntimeBindings } from '../../scripts/model-evaluator/runtime-bindings.mjs';
 import { createCleanupBarrier, awaitOwnedCleanup, signalOwnedGroups, groupState } from './ownedCleanup.mjs';
 import { qualifyComparison, timingMetric as metric, validatePromotionPolicy } from './qualification.mjs';
+import { assertNotMaintainedIdentity } from './identityExclusion.mjs';
 import { chromium } from 'playwright';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 if (process.version !== 'v22.12.0') throw Error('bounded_requires_frozen_node_22_12_0');
@@ -54,6 +55,8 @@ for (const name of ['EVAL_TEST_EMAIL','EVAL_TEST_PASSWORD','EVAL_SOURCE_ROOT','E
   'EVAL_APP_URL','EVAL_API_ORIGIN','VITE_SUPABASE_ANON_KEY','EVAL_BACKEND_CONTRACT_RECEIPT']) {
   if (!process.env[name]) throw Error('bounded_missing_input:'+name);
 }
+// Maintained-user exclusion, before any login: the injected identity must not be a maintained shared account.
+const identityExclusion=assertNotMaintainedIdentity(process.env.EVAL_TEST_EMAIL,process.env);
 const contractBytes=await readFile(process.env.EVAL_BACKEND_CONTRACT_RECEIPT);
 if(createHash('sha256').update(contractBytes).digest('hex')!==approval.backendContractSha256)throw Error('bounded_backend_contract_binding_mismatch');
 requireCompatibleBackend(JSON.parse(contractBytes.toString()),approval,campaign.campaign.candidates);
@@ -144,7 +147,7 @@ for(const row of rows) {
   if(!expected.delete(key)||row.campaignSha256!==campaign.sha256||row.runId!==approval.runId||row.releaseSha!==approval.sourceHead||row.driverSha256!==approval.driverSha256||!row.measured
     ||row.productEvidence?.productProof?.verdict!=='PASS'||row.budget?.failures?.length) complete=false;
 }
-const summary={mode:'product-lifecycle',campaignSha256:campaign.sha256,runId:approval.runId,sourceHead:approval.sourceHead,terminal,timedOut,startupFailure,cleanupVerified:true,
+const summary={mode:'product-lifecycle',campaignSha256:campaign.sha256,runId:approval.runId,sourceHead:approval.sourceHead,terminal,timedOut,startupFailure,cleanupVerified:true,identityExclusion,
   status:complete&&!expected.size&&!timedOut&&terminal.code===0?'MEASURED_PRODUCT_COMPARISON':'INCOMPLETE_OR_FAILED',
   attemptedRows:rows.length,expectedRows:campaign.takes,models:{},
   limits:['single_synthetic_speaker','acoustic_labels_unverified',...(promotionPolicy?[]:['no_promotion_policy']),'Focus_NOT_RUN',

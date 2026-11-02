@@ -648,6 +648,9 @@ async function defaultLoadTranscriber(
     if (decode.kind !== 'moonshine-streaming' || !decode.runtimeArch) {
         throw new Error(`refusing to load Moonshine for ${candidate.id} without a runtime arch in its decode profile`);
     }
+    // The runtime member is resolved BEFORE any asset fetch: an admitted package naming an arch this runtime does not declare refuses
+    // without downloading a single weight.
+    const modelArch = resolveModelArch(lib.ModelArch, decode.runtimeArch, arch);
 
     // THE PINS NOW DECIDE WHAT RUNS. This called `Transcriber.load({ language, modelArch, onProgress })`,
     // which resolves the model through the vendor's CDN *catalog*: the executing bytes were whatever the
@@ -675,6 +678,6 @@ async function defaultLoadTranscriber(
 
     return lib.Transcriber.load({
         files,
-        modelArch: resolveModelArch(lib.ModelArch, decode.runtimeArch, arch),
+        modelArch,
     });
 }
