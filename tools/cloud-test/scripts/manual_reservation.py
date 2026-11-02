@@ -76,6 +76,17 @@ def manual_request(request_raw, admitted_sha256):
     _need(isinstance(req, dict) and isinstance(req.get("priority"), str), "manual-reservation-request-unreadable")
     _need(req["priority"] != "nightly-regression", "manual-reservation-nightly")
     caps = caps_of_request(req)
+    approved_request_cap = (req.get("approvedLimits") or {}).get("runCapRequests")
+    _need(type(approved_request_cap) is int and approved_request_cap >= 0,
+          "manual-reservation-approved-request-cap")
+    estimated_request_cap = caps.get("requests")
+    _need(type(estimated_request_cap) is int and estimated_request_cap >= 0
+          and approved_request_cap >= estimated_request_cap,
+          "manual-reservation-approved-request-cap")
+    # The browser guard enforces approvedLimits.runCapRequests, not the lower
+    # estimate. Reserve the maximum admitted spend so a within-cap run can
+    # always settle without exceeding its reservation.
+    caps["requests"] = approved_request_cap
     _need(all(type(caps[k]) is int and caps[k] >= 0 for k in CATS), "manual-reservation-caps-unknown")
     return req, dict(caps, requests=caps["requests"] + caps["identityReads"])
 

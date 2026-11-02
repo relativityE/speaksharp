@@ -310,11 +310,17 @@ jobs:
           LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
           REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
         run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"
-      - name: Reserve the admitted manual run before product execution
+      - name: Reserve the admitted run through its priority-specific path before product execution
         env:
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
           CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
-        run: bash tools/cloud-test/scripts/execute_run.sh manual-reserve
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            bash tools/cloud-test/scripts/execute_run.sh reserve
+          else
+            bash tools/cloud-test/scripts/execute_run.sh manual-reserve
+          fi
       - name: Stage runner (run), bounded to the selected cases' live minutes
         timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
         env:
@@ -348,7 +354,9 @@ jobs:
         run: |
           set -euo pipefail
           bash tools/cloud-test/scripts/execute_run.sh collect
-          bash tools/cloud-test/scripts/execute_run.sh manual-settle
+          # Recurring reservations remain governed by the recurring ledger and
+          # sealed history; manual runs settle their separate reservation here.
+          if [ "$GITHUB_EVENT_NAME" != schedule ]; then bash tools/cloud-test/scripts/execute_run.sh manual-settle; fi
           HP="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$CT_CONFIG" harness.packetDir)"
           Q=()
           # qualify freezes every verifier input into a new private snapshot, runs the REAL verify_run_binding.py on that snapshot only (exit 0,

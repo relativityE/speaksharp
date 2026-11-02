@@ -15,7 +15,11 @@ from datetime import datetime, timedelta, timezone
 from _fixtures import REPO, ROOT
 import nightly_request as N
 import case_start_caps as C
+import check_gates as G
 import state_ref_writer as W
+from _common import parse_utc
+from _fixtures import fake_rv, receipt, reconciliation, sample
+from _gate_fixtures import GateInputs
 
 SLOT = datetime(2026, 11, 2, 3, 0, tzinfo=timezone.utc)
 SHA = "4" * 40
@@ -229,6 +233,15 @@ class Derivation(unittest.TestCase):
         self.assertEqual(json.loads(wide)["window"]["endUtc"], "2026-11-02T09:00:00Z")
         self.assertEqual(N.check_fit(wide, SLOT + timedelta(minutes=31), CFG, WF), 304)
         refused(self, "nightly-run-would-outlast-window", N.check_fit, wide, SLOT + timedelta(minutes=31, seconds=1), CFG, WF)
+        self.assertEqual(G.NIGHTLY_MAX_WINDOW_MINUTES, N.NIGHTLY_MAX_WINDOW_MINUTES)
+        req = json.loads(wide)
+        inputs = GateInputs(sample())
+        self.addCleanup(inputs.close)
+        result = G.evaluate(req, CFG, sample()["ledger"], sample()["wf"], {"valid": True, "errors": []},
+                            {"passed": True}, receipt(req), str(inputs.root), "final", fake_rv(), reconciliation(),
+                            parse_utc("2026-11-02T03:31:00Z"), receipts_root=str(inputs.receipts))
+        g5 = next(g for g in result["gates"] if g["id"] == "G5")
+        self.assertEqual(g5["status"], G.READY, g5)
         self.assertEqual(raw, derive(), "the request bytes never depend on when admission ran")
 
     def test_template_approval_budget_and_request_substitution_never_verify(self):

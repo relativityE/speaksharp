@@ -34,7 +34,9 @@ def scope_raw(**over):
 class ManualReservation(Journal):
     def setUp(self):
         super().setUp()
-        self.req = read(request_path("R7-full-coverage-proposal.json"))
+        request = json.loads(read(request_path("R7-full-coverage-proposal.json")))
+        request["approvedLimits"]["runCapRequests"] = request["estimate"]["requests"]["runCap"]
+        self.req = json.dumps(request, sort_keys=True).encode()
         self.sha = hashlib.sha256(self.req).hexdigest()
         self.scope = scope_raw()
         self.all_pins = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope).hexdigest())
@@ -129,6 +131,22 @@ class ManualReservation(Journal):
         self.refused("manual-reservation-caps-unknown", M.reserve, unknown, hashlib.sha256(unknown).hexdigest(), *args)
         self.refused("manual-reservation-event-run-id", M.reserve, self.req, self.sha, "0123", *args[1:])
         self.refused("manual-reservation-event-run-id", M.reserve, self.req, self.sha, 41400000001, *args[1:])
+
+    def test_the_reservation_holds_the_enforced_approved_request_cap(self):
+        doc = json.loads(self.req)
+        doc["approvedLimits"]["runCapRequests"] = 4400
+        raw = json.dumps(doc, sort_keys=True).encode()
+        event = M.reserve(raw, hashlib.sha256(raw).hexdigest(), RUN, self.receive(), self.head(), AT)
+        self.assertEqual(event["allocation"]["requests"], 4432,
+                         "the approved browser allowance plus identity reads is reserved")
+
+        for value in (None, True, 4309):
+            with self.subTest(approved=value):
+                bad = json.loads(self.req)
+                bad["approvedLimits"]["runCapRequests"] = value
+                encoded = json.dumps(bad, sort_keys=True).encode()
+                self.refused("manual-reservation-approved-request-cap", M.reserve, encoded,
+                             hashlib.sha256(encoded).hexdigest(), RUN, self.receive(), self.head(), AT)
 
     def test_settlement_is_bound_to_the_record_bytes_and_the_reservation(self):
         e = self.reserved()

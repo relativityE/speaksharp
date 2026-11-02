@@ -231,7 +231,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         steps = self.jobs["live"]["steps"]
         bind = next(i for i, s in enumerate(steps) if s.get("name") == "Bind private runner paths and initialize the inactive accounting workspace")
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
-        reserve = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
+        reserve = next(i for i, s in enumerate(steps) if s.get("name") == "Reserve the admitted run through its priority-specific path before product execution")
         collect = next(s for s in steps if s.get("name", "").startswith("Collect, verify the binding"))["run"]
         self.assertLess(bind, reserve)
         workspace = steps[bind]["run"]
@@ -246,6 +246,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('echo "CT_STATE_JOURNAL_SETTLE=$RUNNER_TEMP/cloud-test-state-settle.json"', workspace)
         self.assertNotIn('CT_STATE_JOURNAL=', workspace)
         self.assertLess(reserve, run)
+        reserve_script = steps[reserve]["run"]
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" = schedule ]', reserve_script)
+        self.assertLess(reserve_script.index("execute_run.sh reserve"), reserve_script.index("execute_run.sh manual-reserve"))
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" != schedule ]', collect)
         self.assertLess(collect.index("execute_run.sh collect"), collect.index("execute_run.sh manual-settle"))
         self.assertNotIn("manual-release", self.text)
         runner = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
@@ -380,7 +384,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
         steps = self.jobs["live"]["steps"]
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         reserve = steps[run - 1]
-        self.assertEqual(reserve["run"].strip(), "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
+        self.assertEqual(reserve["name"], "Reserve the admitted run through its priority-specific path before product execution")
+        self.assertIn("execute_run.sh reserve", reserve["run"])
+        self.assertIn("execute_run.sh manual-reserve", reserve["run"])
         check = steps[run - 2]
         self.assertEqual(check["run"].strip(), 'python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" '
                                                '--live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"')
