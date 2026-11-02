@@ -252,6 +252,41 @@ class ReserveBeforeRead(Journal):
         refused(self, "case10-observation-reserve-not-held", read, self.chain()[-1][1])  # a settled reserve is no longer held
         self.assertEqual(len(self.calls), 1)
 
+    def test_a_lost_push_response_reconciles_from_the_persisted_chain_and_never_reappends(self):
+        """Recovery (Sam 1793575063.458039): the writer's response is lost. One fresh chain read decides: landed on exactly the leased head ->
+        the read proceeds with no receipt; not landed -> refuse, nothing re-appended, the reader never invoked."""
+        base = self.journal()
+
+        def landed_then_lost(event, head):
+            base.propose(event, head)
+            raise OSError("connection reset after the push")
+        before = len(self.chain()[-1][1])
+        record, event, receipt = self.run_it(journal=self.journal(propose=landed_then_lost))
+        self.assertIsNone(receipt)
+        self.assertEqual((len(self.calls), self.chain()[-1][1][-1], len(self.chain()[-1][1])), (1, event, before + 1))
+        self.assertEqual(O.admit(record, self.req, REQUEST_SHA, "101", 1, ACCOUNT, NOW, trusted=frozenset({READER}))["allowance"], 240)
+
+    def test_a_lost_response_without_a_landing_or_on_another_head_refuses_without_reading(self):
+        def lost(event, head):
+            raise OSError("timeout before any push")
+        appended = len(self.chain()[-1][1])
+        refused(self, "case10-observation-reserve-unconfirmed", self.run_it, journal=self.journal(propose=lost))
+        foreign = {"type": "reserve", "campaignId": "R10-manual", "runId": "41400000009", "attempt": 1,
+                   "allocation": {k: 0 for k in W.CATS}, "provenance": "request-sha256:" + "c" * 64, "atUtc": "2026-11-02T03:00:30Z"}
+
+        def other_landed(event, head):  # someone else's append took the head: this reserve did not land
+            self.propose(foreign)
+            raise OSError("connection reset")
+        refused(self, "case10-observation-reserve-unconfirmed", self.run_it, journal=self.journal(propose=other_landed))
+
+        def unreadable(event, head):
+            raise OSError("reset")
+        broken = self.journal(propose=unreadable)
+        broken.chain_at = lambda head: (_ for _ in ()).throw(OSError("fetch failed"))
+        refused(self, "case10-observation-reserve-unconfirmed", O.reserve_observation, broken, self.req, REQUEST_SHA, "101", 1, NOW)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(len(self.chain()[-1][1]), appended + 1)  # only the foreign event
+
     def test_the_settle_step_takes_only_this_runs_digest_from_the_closed_settle_input(self):
         import settle_input as S
         record, event, _ = self.run_it()

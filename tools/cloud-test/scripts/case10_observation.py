@@ -175,8 +175,10 @@ def reserve_observation(journal, req, request_sha256, run_id, attempt, now):
           "case10-observation-no-headroom")
     try:
         receipt = journal.propose(event, head)
-    except Exception:  # any writer refusal (a moved head included) or transport failure: the read never happens
+    except W.Refused:  # the writer refused (a moved head included): nothing was appended and the read never happens
         raise Refused("case10-observation-reserve-failed")
+    except Exception:  # the response was lost: the push may have landed, so reconcile from the persisted chain, never re-append
+        return reconcile_lost_reserve(journal, event, head)
     _need(isinstance(receipt, dict) and set(receipt) == W.RECEIPT_KEYS and receipt["proposalSha256"] == W.sha256(W.canon(event))
           and receipt["previousSha"] == head, "case10-observation-reserve-not-accepted")
     try:
@@ -185,6 +187,21 @@ def reserve_observation(journal, req, request_sha256, run_id, attempt, now):
         raise Refused("case10-observation-reserve-not-persisted")
     _need(persisted.get(receipt["newSha"], [None])[-1:] == [event], "case10-observation-reserve-not-persisted")
     return event, receipt, persisted[receipt["newSha"]]
+
+
+def reconcile_lost_reserve(journal, event, head):
+    """Recovery for a lost push response (Sam 1793575063.458039): one fresh verified chain read decides. The reserve counts as landed only when
+    the commit directly after `head` (the lease it was proposed on) ends with exactly this event; then the run continues with no receipt.
+    Otherwise it refuses without retrying or re-appending; if the push did land later in some other form, the rollup still counts it."""
+    try:
+        chain = journal.chain_at(journal.head())
+    except Exception:
+        raise Refused("case10-observation-reserve-unconfirmed")
+    shas = [sha for sha, _, _ in chain]
+    _need(head in shas and shas.index(head) + 1 < len(shas), "case10-observation-reserve-unconfirmed")
+    sha, events, _ = chain[shas.index(head) + 1]
+    _need(events[-1:] == [event], "case10-observation-reserve-unconfirmed")
+    return event, None, chain[-1][1]
 
 
 def held_observation(events, req, request_sha256, run_id, attempt):
