@@ -123,14 +123,24 @@ def validate_documents(docs, request, config):
 
 
 def receive_occurrence(request, request_raw, occurrence):
-    """#1772 Code finding 4446324167: the occurrence envelope of a recurring request, derived only from verified inputs: the journal snapshot
-    (verified state-ref head and events) must hold exactly one open reserve of THIS request (campaign and admitted request digest), and the
-    occurrence's reconciliation must be the accepted rollup at that same head. Returns (envelope, reconciliation bytes)."""
+    """#1772 Code finding 4446324167: the occurrence envelope of a recurring request, derived only from the AUTHENTICATED journal: the supplied
+    snapshot is admitted only when its head and events are exactly the approved state ref as authenticated now, through the same boundary
+    G11 uses (check_gates.authenticated_chain: a fresh fetch into a private repository and whole-chain validation from the reviewed root;
+    Jensen RETURN 1793647288.547869), so a well-shaped fabricated, reduced or stale snapshot never yields an envelope or a receipt. That
+    journal must hold exactly one open reserve of THIS request (campaign and admitted request digest), and the occurrence's reconciliation
+    must be the accepted rollup at that same head. Returns (envelope, reconciliation bytes)."""
     need(isinstance(occurrence, dict) and isinstance(occurrence.get("journalSnapshot"), bytes)
          and isinstance(occurrence.get("reconciliation"), bytes), "aggregate-occurrence-missing")
     snap = load_json(occurrence["journalSnapshot"], "aggregate-occurrence-journal")
     need(isinstance(snap, dict) and snap.get("schema") == JOURNAL_SNAPSHOT_SCHEMA and SHA40.fullmatch(str(snap.get("headSha", "")))
          and isinstance(snap.get("events"), list), "aggregate-occurrence-journal")
+    import check_gates
+    import state_ref_writer
+    try:
+        auth_head, auth_events = check_gates.authenticated_chain()
+    except (state_ref_writer.Refused, OSError):
+        raise Refused("aggregate-occurrence-journal-unauthenticated")
+    need(snap["headSha"] == auth_head and snap["events"] == auth_events, "aggregate-occurrence-journal-unauthenticated")
     provenance = "request-sha256:" + digest(request_raw)
     closed = {(e.get("campaignId"), e.get("runId"), e.get("attempt")) for e in snap["events"] if isinstance(e, dict)
               and e.get("type") in ("settle", "release")}

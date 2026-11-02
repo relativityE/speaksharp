@@ -91,8 +91,8 @@ class NightlyAcceptedRoute(unittest.TestCase):
         occ = ["--journal-snapshot", str(snapshot), "--occurrence-reconciliation", str(root / "reconciliation.json")] if v2 else []
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "aggregate_receiver.py"), "--manifest", str(manifest),
                             "--request", str(request), "--config", str(config), "--out-dir", str(accepted)] + occ, capture_output=True, text=True, env=env)
-        if occurrence is not None and occurrence[1] == "v1-of-another-occurrence":
-            return r, None
+        if occurrence is not None and occurrence[1] in ("v1-of-another-occurrence", "v2"):
+            return r, accepted
         self.assertEqual(r.returncode, 0, r.stderr)
         proof = root / "proof.json"
         proof.write_text(json.dumps({"result": "PASS", "codeManifestSha256": self.request["harness"]["codeManifestSha256"], "testsPassed": 1, "testsFailed": 0,
@@ -115,22 +115,21 @@ class NightlyAcceptedRoute(unittest.TestCase):
         argv += occ
         return subprocess.run(argv, capture_output=True, text=True, env=env), output
 
-    def test_one_pinned_v2_manifest_carries_every_occurrence_to_the_gates(self):
-        # #1772 Code finding 4446324167. Broken before: a manifest pinned to one occurrence refuses the next occurrence's request.
+    def test_a_manifest_pinned_to_one_occurrence_refuses_the_next_and_the_real_cli_authenticates_the_envelope(self):
+        # #1772 Code finding 4446324167. Broken before: a v1 manifest pinned to one occurrence refuses the next occurrence's request.
         self.nightly_bundle()
         first = self.request["runId"]
         r, _ = self.run_route(occurrence=(first + "-next", "v1-of-another-occurrence"))
         self.assertEqual(r.returncode, 78)
         self.assertIn("aggregate-request-binding", r.stderr)
-        # Fixed after: the same pinned v2 manifest admits two different occurrences end to end (real receiver CLI, real pipeline and gates).
-        for campaign in ("nightly-2026-11-03", "nightly-2026-11-04"):
-            self.setUp()
-            r, out = self.run_route(occurrence=(campaign, "v2"))
-            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
-            gates = {g["id"] for g in json.loads((out / "gate-status.json").read_text())["gates"]}
-            self.assertTrue({"G7", "G11"} <= gates)
-            receipt = json.loads((self.root / "accepted" / "receiver-receipt.json").read_text())
-            self.assertEqual((receipt["occurrence"]["campaignId"], receipt["occurrence"]["journalHeadSha"]), (campaign, "c" * 40))
+        # Jensen RETURN 1793647288.547869: the REAL receiver CLI authenticates the occurrence snapshot itself (G11's boundary). Production pins
+        # no reviewed root, so this well-shaped synthetic snapshot is refused and NO accepted bytes or receipt are written. The positive, two
+        # occurrences received through an actually authenticated state ref, is test_aggregate_receiver.OccurrenceEnvelopeOnARealStateRef.
+        self.setUp()
+        r, accepted = self.run_route(occurrence=("nightly-2026-11-03", "v2"))
+        self.assertEqual(r.returncode, 78)
+        self.assertIn("aggregate-occurrence-journal-unauthenticated", r.stderr)
+        self.assertFalse(accepted.exists(), "no accepted directory or receiver receipt for an unauthenticated occurrence")
 
     def test_a_nightly_accepted_run_reaches_g7_and_g11_and_the_carried_history_consumers(self):
         # Sam RETURN 1793624502.797169 #1: the valid authenticated-snapshot route with NO history index file reaches the real check_gates

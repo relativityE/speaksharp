@@ -252,10 +252,11 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class RecurringOccurrenceEnvelope(AggregateReceiver):
+class RecurringOccurrenceEnvelope(unittest.TestCase):
     """#1772 Code finding 4446324167: each nightly occurrence has new request bytes and a new campaign, so a v1 manifest pinned to one
     occurrence refuses the next (aggregate-request-binding). A v2 manifest pins only the historical components and the release; the
     request/campaign binding and the reconciliation come from an occurrence envelope derived from the verified journal snapshot."""
+    setUp = AggregateReceiver.setUp  # the same pinned bundle fixture, without re-running the v1 receiver tests
 
     def occurrence(self, request_raw, campaign, head="c" * 40, events=None, reconciliation_head=None):
         own = {"type": "reserve", "campaignId": campaign, "runId": "101", "attempt": 1, "allocation": {},
@@ -263,6 +264,13 @@ class RecurringOccurrenceEnvelope(AggregateReceiver):
         snapshot = {"schema": A.JOURNAL_SNAPSHOT_SCHEMA, "headSha": head, "events": [own] if events is None else events(own)}
         rc = dict(self.docs["reconciliation"], headSha=reconciliation_head or head)
         return {"journalSnapshot": json.dumps(snapshot, sort_keys=True).encode(), "reconciliation": json.dumps(rc, sort_keys=True).encode()}
+
+    def authenticated_as(self, occurrence):
+        """The approved state ref, as G11's boundary would authenticate it, is exactly the supplied snapshot (unit controls of the reserve and
+        checkpoint logic; the real-ref controls below authenticate through an actual state ref)."""
+        from unittest import mock
+        snap = json.loads(occurrence["journalSnapshot"])
+        return mock.patch.object(C, "authenticated_chain", lambda: (snap["headSha"], snap["events"]))
 
     def nightly(self, campaign):
         request = dict(copy.deepcopy(self.request), priority="nightly-regression", runId=campaign)
@@ -289,7 +297,8 @@ class RecurringOccurrenceEnvelope(AggregateReceiver):
         raw, pins = self.v2()
         for request, request_raw in ((first, first_raw), (second, second_raw)):
             occurrence = self.occurrence(request_raw, request["runId"])
-            docs, accepted, envelope = A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, occurrence)
+            with self.authenticated_as(occurrence):
+                docs, accepted, envelope = A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, occurrence)
             self.assertEqual((envelope["requestSha256"], envelope["campaignId"], envelope["journalHeadSha"], envelope["executionRunId"]),
                              (hashlib.sha256(request_raw).hexdigest(), request["runId"], "c" * 40, "101"))
             self.assertEqual(accepted["reconciliation"], occurrence["reconciliation"], "the occurrence's checkpoint, not a pinned one")
@@ -316,10 +325,89 @@ class RecurringOccurrenceEnvelope(AggregateReceiver):
         )
         for label, occurrence, code in cases:
             with self.assertRaisesRegex(A.Refused, code, msg=label):
-                A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, occurrence)
+                if occurrence is None:
+                    A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, occurrence)
+                else:
+                    with self.authenticated_as(occurrence):
+                        A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, occurrence)
         # a manual request never uses the occurrence route, and v1 never accepts an envelope
         with self.assertRaisesRegex(A.Refused, "aggregate-occurrence-not-recurring"):
             A.receive_bundle(raw, str(self.root), self.request_raw, self.config, pins, self.occurrence(self.request_raw, self.request["runId"]))
         with self.assertRaisesRegex(A.Refused, "aggregate-occurrence-unexpected"):
             A.receive_bundle(self.manifest_raw, str(self.root), self.request_raw, self.config, self.pins,
                              self.occurrence(self.request_raw, self.request["runId"]))
+
+
+class OccurrenceEnvelopeOnARealStateRef(unittest.TestCase):
+    """Jensen RETURN 1793647288.547869: the receiver authenticates the occurrence snapshot itself, through G11's own boundary
+    (check_gates.authenticated_chain: a fresh fetch of the approved ref and whole-chain validation), before any accepted bytes or receipt.
+    A REAL state ref (the writer tests' local bare repository) carries two occurrences; well-shaped fabricated, reduced, stale and
+    unauthenticated snapshots never produce a receipt."""
+    nightly, v2 = RecurringOccurrenceEnvelope.nightly, RecurringOccurrenceEnvelope.v2
+
+    def setUp(self):
+        AggregateReceiver.setUp(self)
+        from test_accounting_rollup import Journal
+        self.journal = Journal("setUp")  # the state-ref fixture, composed (its attribute names differ from this bundle fixture's)
+        self.journal.setUp()
+        self.addCleanup(self.journal.doCleanups)
+
+    def push(self, event):
+        import state_ref_writer as W
+        j = self.journal
+        W.propose(j.repo, j.remote, W.fetch_head(j.repo, j.remote, j.remote), event, j.root, j.remote)
+
+    def real_occurrence(self, request_raw, head_events=None):
+        head, events, _ = self.journal.chain()[-1]
+        snapshot = {"schema": A.JOURNAL_SNAPSHOT_SCHEMA, "headSha": head, "events": events if head_events is None else head_events}
+        rc = dict(self.docs["reconciliation"], headSha=head)
+        return {"journalSnapshot": json.dumps(snapshot, sort_keys=True).encode(), "reconciliation": json.dumps(rc, sort_keys=True).encode()}
+
+    def reserve(self, request, request_raw, run):
+        from reservations import CATS
+        return {"type": "reserve", "campaignId": request["runId"], "runId": run, "attempt": 1, "allocation": {k: 10 for k in CATS},
+                "provenance": "request-sha256:" + hashlib.sha256(request_raw).hexdigest(), "atUtc": "2026-11-02T03:00:00Z"}
+
+    def receive_real(self, request_raw, occurrence, pinned=True):
+        from unittest import mock
+        raw, pins = self.v2()
+        with mock.patch.object(C, "JOURNAL_URL", self.journal.remote if pinned else None), \
+                mock.patch.object(C, "JOURNAL_ROOT", self.journal.root if pinned else None):
+            return A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, occurrence)
+
+    def test_two_real_occurrences_are_received_through_the_authenticated_ref(self):
+        for campaign, run in (("nightly-2026-11-03", "101"), ("nightly-2026-11-04", "102")):
+            request, request_raw = self.nightly(campaign)
+            self.push(self.reserve(request, request_raw, run))
+            _, accepted, envelope = self.receive_real(request_raw, self.real_occurrence(request_raw))
+            self.assertEqual((envelope["campaignId"], envelope["executionRunId"], envelope["journalHeadSha"]),
+                             (campaign, run, self.journal.chain()[-1][0]))
+
+    def test_a_fabricated_reduced_stale_or_unauthenticated_snapshot_produces_no_receipt(self):
+        # broken before: receive_occurrence parsed the supplied JSON alone, so a well-shaped fabrication was accepted
+        request, request_raw = self.nightly("nightly-2026-11-03")
+        self.push(self.reserve(request, request_raw, "101"))
+        good = self.real_occurrence(request_raw)
+        snap = json.loads(good["journalSnapshot"])
+        self.push(self.reserve(dict(request, runId="nightly-other"), request_raw, "900"))  # the ref moves on
+        stale = good
+        current = self.real_occurrence(request_raw)
+        cur = json.loads(current["journalSnapshot"])
+
+        def variant(**over):
+            doc = dict(cur, **over)
+            rc = dict(self.docs["reconciliation"], headSha=doc["headSha"])
+            return {"journalSnapshot": json.dumps(doc, sort_keys=True).encode(), "reconciliation": json.dumps(rc, sort_keys=True).encode()}
+        cases = {
+            "fabricated head": variant(headSha="c" * 40),
+            "fabricated ledger": variant(events=[dict(e, allocation={k: 1 for k in e["allocation"]}) for e in cur["events"]]),
+            "reduced ledger": variant(events=cur["events"][:1]),
+            "stale (the ref moved on)": stale,
+        }
+        for label, occurrence in cases.items():
+            with self.assertRaisesRegex(A.Refused, "aggregate-occurrence-journal-unauthenticated", msg=label):
+                self.receive_real(request_raw, occurrence)
+        with self.assertRaisesRegex(A.Refused, "aggregate-occurrence-journal-unauthenticated"):
+            self.receive_real(request_raw, current, pinned=False)  # no reviewed root: nothing can be authenticated
+        self.assertEqual(self.receive_real(request_raw, current)[2]["journalHeadSha"], cur["headSha"])  # the current ref still admits it
+        self.assertNotEqual(snap["headSha"], cur["headSha"])
