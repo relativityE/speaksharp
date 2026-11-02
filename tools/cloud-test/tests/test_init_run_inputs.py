@@ -1355,6 +1355,35 @@ class NightlyMode(unittest.TestCase):
             x.facts = None
             refused(self, "nightly-facts-not-pinned", I.prepare, x, self.slot + timedelta(minutes=1))
 
+    def test_each_nightly_occurrence_derives_its_own_action_envelope_from_the_admitted_request(self):
+        from test_nightly_request import derive as nightly_derive
+        first = json.loads(self.raw)
+        second_raw = nightly_derive(run_id="102", sha=self.sha)
+        second = json.loads(second_raw)
+        reconciliation = b'{"accepted":"synthetic-unit-control"}\n'
+        committed = facts(ownerApprovalReference="slack:1793553158.013909")
+        self.assertNotIn("actionApproval", committed)
+        one = I.occurrence_action_approval(committed, hashlib.sha256(self.raw).hexdigest(), reconciliation, first, nightly=True)
+        two = I.occurrence_action_approval(committed, hashlib.sha256(second_raw).hexdigest(), reconciliation, second, nightly=True)
+        self.assertNotEqual(one["requestSha256"], two["requestSha256"])
+        self.assertEqual(one["reconciliationSha256"], hashlib.sha256(reconciliation).hexdigest())
+        for envelope, request in ((one, first), (two, second)):
+            self.assertEqual(envelope["approvalRef"], request["approvedLimits"]["approvalRef"])
+            self.assertEqual(envelope["approvedBy"], request["approvedLimits"]["approvedBy"])
+            self.assertEqual(envelope["selectionApprovalRef"], request["selectionApprovalRef"])
+        refused(self, "nightly-action-approval-must-be-derived", I.occurrence_action_approval,
+                dict(committed, actionApproval=one), one["requestSha256"], reconciliation, first, True)
+
+    def test_manual_action_envelopes_remain_approver_supplied_and_occurrence_bound(self):
+        request = live_request(["AHT-05"])
+        reconciliation = b'{"accepted":"manual-unit-control"}\n'
+        digest = "4" * 64
+        supplied = action_approval(request, digest, reconciliation)
+        self.assertEqual(I.occurrence_action_approval(dict(facts(), actionApproval=supplied), digest,
+                                                      reconciliation, request), supplied)
+        refused(self, "action-approval-shape", I.occurrence_action_approval, facts(), digest,
+                reconciliation, request)
+
 
 from test_accounting_rollup import Journal, bootstrap as rollup_bootstrap, scope as rollup_scope  # noqa: E402
 import state_ref_writer as W  # noqa: E402

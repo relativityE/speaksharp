@@ -114,6 +114,12 @@ require_runtime_inputs() {
   if [ -n "${CT_RETAINED_GATE_MANIFEST:-}" ]; then
     [ -n "${CT_OFFLINE_CHECKS:-}" ] && [ -f "$CT_OFFLINE_CHECKS" ] || blocked "CT_OFFLINE_CHECKS is required for the retained-input receiver"
     [ -n "${CT_OFFLINE_PROOF:-}" ] && [ -f "$CT_OFFLINE_PROOF" ] || blocked "CT_OFFLINE_PROOF is required for the retained-input receiver"
+    if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
+      local recurring
+      for recurring in CT_HISTORY_INDEX CT_RESERVATIONS CT_APPROVAL CT_RECEIPTS_ROOT; do
+        [ -n "${!recurring:-}" ] && [ -e "${!recurring}" ] || blocked "$recurring is required for retained-input recurring gates"
+      done
+    fi
     return
   fi
   local n
@@ -226,6 +232,7 @@ case "$STAGE" in
       run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --request "$REQ" --config "$CFG" \
         --workflow "$ROOT/workflow.json" --accepted-input-dir "$accepted" --receiver-receipt "$accepted/receiver-receipt.json" \
         --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" \
+        --history-index "$CT_HISTORY_INDEX" --reservations "$CT_RESERVATIONS" --approval "$CT_APPROVAL" --receipts-root "$CT_RECEIPTS_ROOT" \
         --offline-checks "$CT_OFFLINE_CHECKS" --offline-proof "$CT_OFFLINE_PROOF" \
         --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" --stage final --out-dir "$OUT/final-gates" \
         --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free

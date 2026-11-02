@@ -172,6 +172,12 @@ jobs:
       CT_RETAINED_GATE_MANIFEST: ${{ github.workspace }}/tools/cloud-test/config/aggregate/manifest.json
       CT_ACCOUNTING_BOOTSTRAP: ${{ github.workspace }}/tools/cloud-test/config/aggregate/accounting-bootstrap.json
       CT_PERIOD_SCOPE: ${{ github.workspace }}/tools/cloud-test/config/aggregate/period-scope.json
+      # The retained-input route must still receive the recurring gate's independently reviewed usage inputs. They intentionally remain
+      # missing until activation; execute_run refuses before evaluation rather than falling back to repository defaults.
+      CT_HISTORY_INDEX: ${{ github.workspace }}/tools/cloud-test/config/history/index.json
+      CT_RESERVATIONS: ${{ github.workspace }}/tools/cloud-test/config/history/reservations.json
+      CT_APPROVAL: ${{ github.workspace }}/tools/cloud-test/config/recurring-approval.json
+      CT_RECEIPTS_ROOT: ${{ github.workspace }}/tools/cloud-test/config/history/receipts
     steps:
       - uses: actions/checkout@v6
         with:

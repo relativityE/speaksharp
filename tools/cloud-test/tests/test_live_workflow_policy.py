@@ -225,6 +225,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_retained_inputs_are_connected_and_manual_accounting_stays_explicitly_inactive(self):
         env = self.jobs["live"]["env"]
         self.assertEqual(env["CT_RETAINED_GATE_MANIFEST"], "${{ github.workspace }}/tools/cloud-test/config/aggregate/manifest.json")
+        self.assertEqual(env["CT_HISTORY_INDEX"], "${{ github.workspace }}/tools/cloud-test/config/history/index.json")
+        self.assertEqual(env["CT_RESERVATIONS"], "${{ github.workspace }}/tools/cloud-test/config/history/reservations.json")
+        self.assertEqual(env["CT_APPROVAL"], "${{ github.workspace }}/tools/cloud-test/config/recurring-approval.json")
+        self.assertEqual(env["CT_RECEIPTS_ROOT"], "${{ github.workspace }}/tools/cloud-test/config/history/receipts")
         with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {"activated": False, "manifestSha256": None, "bundleRootSha256": None,
@@ -257,6 +261,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('--accepted-input-dir "$accepted"', runner)
         self.assertIn('--receiver-receipt "$accepted/receiver-receipt.json"', runner)
         self.assertIn('--receiver-manifest "$CT_RETAINED_GATE_MANIFEST"', runner)
+        for token in ('--history-index "$CT_HISTORY_INDEX"', '--reservations "$CT_RESERVATIONS"',
+                      '--approval "$CT_APPROVAL"', '--receipts-root "$CT_RECEIPTS_ROOT"'):
+            self.assertIn(token, runner)
+        self.assertIn('blocked "$recurring is required for retained-input recurring gates"', runner)
         self.assertIn('cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json"', runner)
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         manual = open(os.path.join(ROOT, "scripts", "manual_reservation.py"), encoding="utf-8").read()

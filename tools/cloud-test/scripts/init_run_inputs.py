@@ -69,7 +69,10 @@ RECEIPT_KEYS = {"pre", "rls", "analytics", "disp", "fence", "review"}  # build_p
 BACKEND_KEYS = {"manifestRef", "generation", "completion", "migration129"}
 FACT_REQUIRED = {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "accounts"}
 FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic", "actionApproval", "case10RequestBound"}
-# The builder's Start/take action approval (case_start_caps.bind_inputs), supplied by its approver; prepare admits it, never builds it.
+# A manual run's builder Start/take action approval (case_start_caps.bind_inputs) is supplied by its approver.  A scheduled run instead
+# derives the occurrence-bound envelope from the exact request emitted by the credential-free nightly gate and the admitted reconciliation;
+# the standing approval already bound into that request remains the authority.  No reusable committed facts file can predict a future
+# occurrence digest.
 ACTION_APPROVAL_SCHEMA = "speaksharp.case-start-approval.v1"
 ACTION_APPROVAL_KEYS = {"schema", "requestSha256", "reconciliationSha256", "approvalRef", "approvedBy", "selectionApprovalRef"}
 # The ONE reviewed location for live run requests (Sam RETURN 3e0279d6 finding 1); nothing else counts as request-only lineage.
@@ -477,6 +480,25 @@ def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
     return approval
 
 
+def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req, nightly=False):
+    """Return the exact builder envelope for this occurrence.
+
+    Manual dispatches retain the approver-supplied, byte-bound envelope.  Scheduled executions must not carry a reusable envelope in their
+    pinned facts: their request bytes contain the occurrence/run identity, so prepare derives only the two occurrence digests while copying
+    the already-admitted standing approval and selection references from that exact request.  The ordinary checker then validates the same
+    shape and references for both routes.
+    """
+    supplied = facts.get("actionApproval")
+    if nightly:
+        _need(supplied is None, "nightly-action-approval-must-be-derived")
+        lim = req["approvedLimits"]
+        supplied = {"schema": ACTION_APPROVAL_SCHEMA, "requestSha256": request_sha256,
+                    "reconciliationSha256": hashlib.sha256(reconciliation_bytes).hexdigest(),
+                    "approvalRef": lim.get("approvalRef"), "approvedBy": lim.get("approvedBy"),
+                    "selectionApprovalRef": req.get("selectionApprovalRef")}
+    return check_action_approval(supplied, request_sha256, reconciliation_bytes, req)
+
+
 def verified_checkpoint(repo, req, pins=None, chain_reader=None):
     """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, or a continuity-* refusal. `pins` and
     `chain_reader` are TEST-ONLY overrides; production uses continuity_pins() (all None today) and the real state-ref journal."""
@@ -535,6 +557,9 @@ def prepare(x, now):
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
     accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle)
     entries = {b["role"]: role_account(bundle, b["role"], os.environ.get("SUPABASE_URL")) for b in accounts}
+    reconciliation = verified_checkpoint(repo, req)
+    action_approval = occurrence_action_approval(facts, hashlib.sha256(req_raw).hexdigest(), reconciliation, req, nightly)
+    facts = dict(facts, actionApproval=action_approval)
     check_case10_bound(req, facts, cases, entries)
     # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.
     primary = "existing-disposable" if "existing-disposable" in entries else "maintained-read-only"
@@ -543,8 +568,6 @@ def prepare(x, now):
     scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route)
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
-    reconciliation = verified_checkpoint(repo, req)
-    check_action_approval(facts.get("actionApproval"), hashlib.sha256(req_raw).hexdigest(), reconciliation, req)
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
             "reconciliationBytes": reconciliation, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
