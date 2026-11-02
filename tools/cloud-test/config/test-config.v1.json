@@ -64,7 +64,7 @@
         "FREE_TEST_PASSWORD": "AHT-15 signs in with it in the run stage only; per-case isolation keeps it out of AHT-01 through AHT-14",
         "THROWAWAY_TEST_EMAIL": "case configs bind the throwaway account by variable NAME; the drivers sign in with it (run stage only)",
         "THROWAWAY_TEST_PASSWORD": "drivers sign in with it (run stage only); never needed to build the plan",
-        "VITE_SUPABASE_URL": "the publishable project URL admission binds to the reviewed target host (run stage only)",
+        "VITE_SUPABASE_URL": "the plan-phase account resolver binds the private role mapping to the reviewed project origin; the run stage also passes the same publishable URL to each selected case",
         "VITE_SUPABASE_ANON_KEY": "the publishable key the plan builder writes into the private case configs and the app uses; not a secret role key"
       },
       "alternatives": [

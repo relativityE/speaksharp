@@ -5,7 +5,8 @@
 # This script does not dispatch a workflow or grant operational authorization.
 # Stages: install-tools, build-plan, stimulus-preflight, build-plan-with-receipt, gate-and-validate, reserve (nightly), run, collect.
 # Credential discipline: each stage runs under `env -i` and receives ONLY the names config credentials.runEnvironment.stages allows for it (names are
-# copied from the caller's environment, never printed). The build-plan stages get the publishable key only; passwords reach the run stage only.
+# copied from the caller's environment, never printed). The build-plan child gets the publishable key only; its parent resolver receives the
+# reviewed project origin as an argument. Passwords reach the selected-role run stage only.
 # Every failure is a hard failure (BLOCKED_SETUP, exit 78). Nothing is ignored, retried or swallowed.
 set -euo pipefail
 STAGE="${1:-}"
