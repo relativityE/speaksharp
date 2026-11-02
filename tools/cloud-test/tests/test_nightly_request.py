@@ -178,7 +178,7 @@ class Derivation(unittest.TestCase):
         self.assertEqual(req["estimate"]["providerBillableRequests"],
                          {"coachingCap": 15, "basis": "SYNTHETIC reviewed coaching allowance"})
         self.assertEqual((req["estimate"]["identityReads"], req["estimate"]["starts"], req["estimate"]["takes"],
-                          req["estimate"]["paidActionsAuthorizedUsd"], req["estimate"]["githubRunnerMinutesMax"]), (32, 42, 30, 0, 353))
+                          req["estimate"]["paidActionsAuthorizedUsd"], req["estimate"]["githubRunnerMinutesMax"]), (32, 42, 30, 0, 359))
         self.assertEqual(req["approvedLimits"]["startPressCaps"], dict(C.FULL_MINIMA))
         self.assertEqual(req["proposedLimits"]["startPressCaps"], dict(C.FULL_MINIMA))
         self.assertEqual(req["proposedLimits"]["guardCaps"]["coaching"], 15)
@@ -216,10 +216,11 @@ class Derivation(unittest.TestCase):
 
     def test_the_runner_minute_need_is_the_actual_workflow_allowance(self):
         timeouts = N.workflow_job_timeouts(WF)
-        self.assertEqual(timeouts, {"nightly-gate": 3, "record-begin": 5, "live": 340, "record-complete": 5})
-        self.assertEqual(N.nightly_runner_minutes(WF), 353, "a nightly run's maximum allowance; a dispatch (no gate job) is 350")
-        refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 352}))
-        self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 353})))
+        self.assertEqual(timeouts, {"nightly-gate": 3, "record-begin": 5, "journal-reserve": 3, "live": 340,
+                                    "journal-settle": 3, "record-complete": 5})
+        self.assertEqual(N.nightly_runner_minutes(WF), 359, "a nightly run includes both serial journal transition jobs")
+        refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 358}))
+        self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 359})))
         refused(self, "nightly-workflow-timeouts", derive, wf=WF.replace("    timeout-minutes: 340", "    timeout: 340"))
 
     def test_the_whole_run_must_still_fit_from_now_using_the_callers_own_checks(self):

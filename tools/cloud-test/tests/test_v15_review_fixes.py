@@ -580,7 +580,8 @@ class VerdictIncludesSafetyChecks(unittest.TestCase):
 
     def test_the_pipeline_builds_the_summary_after_isolation_and_alerts(self):
         src = open(os.path.join(ROOT, "scripts", "pipeline.py"), encoding="utf-8").read()
-        order = [src.index(x) for x in ('run("check_isolation.py"', 'run("derive_alerts.py"', 'run("derive_summary.py"', "workflow_report.py")]
+        ordinary_route = src.index("# 9. isolation proof")
+        order = [src.index(x, ordinary_route) for x in ('run("check_isolation.py"', 'run("derive_alerts.py"', 'run("derive_summary.py"', "workflow_report.py")]
         self.assertEqual(order, sorted(order), "isolation, then alerts, then the summary, then the report")
         self.assertIn('"--alerts", alerts', src)
 

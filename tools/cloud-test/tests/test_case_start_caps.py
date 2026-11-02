@@ -116,10 +116,14 @@ class SyntheticBuilder:
         browser_identity = self.root / "browser-identity.json"
         browser_identity.write_text(json.dumps({"schema": "speaksharp.cloud-test.existing-browser.v1",
             "path": str(browser), "observedBinarySha256": digest(browser)}))
+        pdfjs = self.root / "synthetic-pdfjs"
+        (pdfjs / "legacy/build").mkdir(parents=True, exist_ok=True)
+        (pdfjs / "legacy/build/pdf.mjs").write_text("// SYNTHETIC-NOT-A-PARSER\n")
         self.env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "BP_PACKET": str(Path(ROOT) / "harness"),
                     "BP_CHECKOUT": REPO, "BP_PRIVATE": str(self.root / "private"),
                     "BP_ACCOUNT_BINDINGS_FILE": str(account_bindings), "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
                     "BP_BROWSER_IDENTITY": str(browser_identity),
+                    "BP_PDFJS_DIR": str(pdfjs),
                     "BP_TASK_ID": "SYNTHETIC", "BP_SOURCE_REFERENCE": "https://claude.ai/code/SYNTHETIC",
                     "BP_ENV_ID": "SYNTHETIC", "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE"}
         self.repin()

@@ -27,7 +27,7 @@ class NightlyJournalReservation(Journal):
         self.n = 0
 
     def use_scope(self, **ceilings):
-        c = {"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1200, "takes": 1200}
+        c = {"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1260, "takes": 1200}
         c.update(ceilings)
         self.scope_raw = json.dumps(rollup_scope(periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z", ceilings=c),
                                     sort_keys=True).encode()
@@ -87,8 +87,8 @@ class NightlyJournalReservation(Journal):
                              "spend": {"requests": 900, "identityReads": 20, "starts": 30, "takes": 25}}).encode()
         settled = self.execute("settle", campaignId=self.req["runId"], runId="123", record=record)
         self.assertEqual((settled["type"], settled["allocation"]["requests"], settled["allocation"]["coachingRequests"]),
-                         ("settle", 900, reserved["allocation"]["coachingRequests"]))  # unmeasured: settled at the reserved cap
-        self.assertEqual(journal_usage(self.approval, self.chain())["used"]["requests"], 900)
+                         ("settle", 920, reserved["allocation"]["coachingRequests"]))  # requests + identity reads; unmeasured stays reserved
+        self.assertEqual(journal_usage(self.approval, self.chain())["used"]["requests"], 920)
         self.refused("reservation-not-held", RES.journal_require, self.chain(), self.req["runId"], "123", self.sha)
 
     def test_production_is_not_activated(self):

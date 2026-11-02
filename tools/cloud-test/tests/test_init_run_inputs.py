@@ -1732,7 +1732,7 @@ class StandingEnvelope(Journal):
     def scoped(self, **over):
         """Writes the accepted period scope (the standing approval's own period and ceilings unless overridden)."""
         doc = rollup_scope(approvalRef=self.REF, periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z",
-                           ceilings={"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1200, "takes": 1200})
+                           ceilings={"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1260, "takes": 1200})
         doc.update(over)
         self.scope_raw = json.dumps(doc, sort_keys=True).encode()
         os.makedirs(os.path.join(self.checkout, I.CONTINUITY_DIR), exist_ok=True)
@@ -1812,14 +1812,15 @@ class StandingEnvelope(Journal):
     def test_insufficient_wrong_or_settled_held_reserves_refuse(self):
         need = self.need()
         # insufficient: the own reserve holds one Start fewer than the request needs
-        self.reserve_on_chain(allocation=dict(need, starts=need["starts"] - 1, coachingRequests=0, runnerMinutes=0))
+        held = dict(need, starts=need["starts"] - 1, coachingRequests=0, runnerMinutes=0)
+        self.reserve_on_chain(allocation=held)
         refused(self, "action-approval-standing-held-insufficient:starts", self.derive,
                 prior=I.reserved_occurrences(self.chain(), self.own()), own=self.own())
         # wrong run / wrong request: not this execution's reserve, so nothing is held for it
         self.assertIsNone(I.own_held_allocation(self.chain(), self.own(run="102")))
         self.assertIsNone(I.own_held_allocation(self.chain(), (self.req["runId"], "101", 1, "b" * 64)))
         # settled: once its settle is appended the reserve no longer holds anything, and the occurrence is a replay
-        self.reserve_on_chain(kind="settle", allocation=dict(need, coachingRequests=0, runnerMinutes=0), at="2026-11-02T03:30:00Z")
+        self.reserve_on_chain(kind="settle", allocation=held, at="2026-11-02T03:30:00Z")
         self.assertIsNone(I.own_held_allocation(self.chain(), self.own()))
         refused(self, "action-approval-standing-occurrence-replayed", self.derive,
                 prior=I.reserved_occurrences(self.chain(), self.own()), own=self.own())
@@ -2070,7 +2071,7 @@ class StandingEnvelope(Journal):
     def test_the_checkpoint_period_and_every_period_ceiling_must_be_the_standing_approvals_own(self):
         # RETURN 1793570165.380389: a different accounting scope can never extend the standing grant.
         self.assertTrue(self.derive())
-        ceilings = {"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1200, "takes": 1200}
+        ceilings = {"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1260, "takes": 1200}
         for label, over in (("period starts later", {"periodStartUtc": "2026-11-02T00:00:00Z"}),
                             ("period ends later", {"periodEndUtc": "2026-12-02T00:00:00Z"}),
                             ("higher accounting Starts ceiling", {"ceilings": dict(ceilings, starts=2000)}),

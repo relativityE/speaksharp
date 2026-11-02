@@ -188,6 +188,11 @@
       "reason": "full coverage: 14 required rows; closes GAP-04"
     }
   ],
+  "evidenceScope": {
+    "maxDeliveries": 8,
+    "maxSupabaseRequests": 16,
+    "maxTelemetryReads": 2
+  },
   "estimate": {
     "requests": {
       "planned": null,
