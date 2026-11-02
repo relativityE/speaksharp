@@ -13,7 +13,9 @@ is accepted (ACCEPTED_BOOTSTRAP_SHA256 / ACCEPTED_ROOT are None), no period scop
   receive     period usage = every settle plus every OUTSTANDING reservation (reserved, not yet settled or released) on the verified chain,
               inside the approved period. With carryover "historical", the bootstrap usage is added. Refuses an unaccepted or substituted
               bootstrap, a chain not rooted at the accepted root, an unapproved scope or carryover, a settle or reservation outside the scope,
-              a replayed settle, and any unresolved item whose G5 dimensions (requests, identity reads, Starts, takes) are unknown.
+              a replayed settle, and any unresolved item whose G5 dimensions (requests, identity reads, Starts, takes) are unknown. Historical
+              items may be MEASURED, or BOUNDED only when their full charged upper bound is tied to distinct reviewed source, enforcement
+              control and result digests. BOUNDED is retained as separate provenance and is never reported as MEASURED.
               Output is the reconciliation shape G5 consumes (check_gates.py stays the cap authority, unchanged), with the historical usage
               reported beside it, never folded in silently.
 Exit 78 on every refusal; no value is printed.
@@ -41,6 +43,8 @@ USAGE_KEYS = G5_KEYS + UNKNOWN_ALLOWED
 CEILING_KEYS = ("requests", "protectedReserveRequests", "identityReads", "starts", "takes")
 UNRESOLVED_KINDS = ("diagnostic", "evaluator-start", "reservation")
 DIGEST_REF = re.compile(r"(sha256|git):[0-9a-f]{40,64}")
+BOUND_SCHEMA = "speaksharp.cloud-test.accounting-upper-bound.v1"
+BOUND_METHODS = ("enforced-maximum", "exhaustive-accounting")
 # Sam 1793556731.837039: a GitHub run id is an UNRESOLVED item's LOCATOR only (which run to resolve), never digest evidence or acceptance;
 # it is admitted only on an UNRESOLVED item, whose usage stays null. A MEASURED item still needs a digest ref.
 RUN_LOCATOR = re.compile(r"gha-run:[1-9][0-9]{0,19}")
@@ -89,14 +93,34 @@ def parse_bootstrap(raw):
     _need(isinstance(auth, dict) and set(auth) == {"approvalRef", "expired"} and isinstance(auth["approvalRef"], str) and auth["approvalRef"]
           and type(auth["expired"]) is bool, "rollup-authority")
     _need(isinstance(doc["unresolved"], list), "rollup-unresolved")
+    bounded_results = set()
+    source_records = set(doc["sourceRecords"])
     for item in doc["unresolved"]:
-        _need(isinstance(item, dict) and set(item) == {"kind", "ref", "disposition", "usage"} and item["kind"] in UNRESOLVED_KINDS
-              and item["disposition"] in ("UNRESOLVED", "MEASURED") and isinstance(item["ref"], str)
-              and (DIGEST_REF.fullmatch(item["ref"]) or (item["disposition"] == "UNRESOLVED" and RUN_LOCATOR.fullmatch(item["ref"]))),
+        disposition = item.get("disposition") if isinstance(item, dict) else None
+        keys = {"kind", "ref", "disposition", "usage", "boundEvidence"} if disposition == "BOUNDED" else {
+            "kind", "ref", "disposition", "usage"
+        }
+        _need(isinstance(item, dict) and set(item) == keys and item["kind"] in UNRESOLVED_KINDS
+              and disposition in ("UNRESOLVED", "MEASURED", "BOUNDED") and isinstance(item["ref"], str)
+              and (DIGEST_REF.fullmatch(item["ref"]) or (disposition in ("UNRESOLVED", "BOUNDED") and RUN_LOCATOR.fullmatch(item["ref"]))),
               "rollup-unresolved")
-        _need((item["disposition"] == "MEASURED") == (item["usage"] is not None), "rollup-unresolved")
+        _need((disposition != "UNRESOLVED") == (item["usage"] is not None), "rollup-unresolved")
         if item["usage"] is not None:
             _usage(item["usage"], "rollup-unresolved")
+        if disposition == "BOUNDED":
+            evidence = item["boundEvidence"]
+            _need(isinstance(evidence, dict) and set(evidence) == {
+                "schema", "itemRef", "method", "sourceRef", "controlRef", "resultRef", "upperBound"
+            } and evidence["schema"] == BOUND_SCHEMA and evidence["itemRef"] == item["ref"]
+                  and evidence["method"] in BOUND_METHODS, "rollup-bound-evidence")
+            refs = (evidence["sourceRef"], evidence["controlRef"], evidence["resultRef"])
+            _need(all(isinstance(ref, str) and DIGEST_REF.fullmatch(ref) and ref in source_records for ref in refs)
+                  and len(set(refs)) == len(refs), "rollup-bound-evidence")
+            _usage(evidence["upperBound"], "rollup-bound-evidence")
+            _need(any(item["usage"][key] > 0 for key in G5_KEYS), "rollup-bound-zero")
+            _need(evidence["upperBound"] == item["usage"], "rollup-bound-understated")
+            _need(evidence["resultRef"] not in bounded_results, "rollup-bound-evidence-duplicate")
+            bounded_results.add(evidence["resultRef"])
     return doc
 
 
@@ -129,7 +153,7 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
     _need(pin is not None and root is not None, "rollup-not-accepted")
     _need(isinstance(bootstrap_raw, bytes) and hashlib.sha256(bootstrap_raw).hexdigest() == pin, "rollup-bootstrap-not-accepted")
     doc = parse_bootstrap(bootstrap_raw)
-    _need(all(item["disposition"] == "MEASURED" for item in doc["unresolved"]), "rollup-unresolved-usage")
+    _need(all(item["disposition"] in ("MEASURED", "BOUNDED") for item in doc["unresolved"]), "rollup-unresolved-usage")
     scope = parse_scope(scope)
     _need(isinstance(chain, list) and chain and chain[0][0] == root and chain[0][1] == [], "rollup-predecessor-gap")
     p_start, p_end = _utc(scope["periodStartUtc"]), _utc(scope["periodEndUtc"])
@@ -156,8 +180,12 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
     if scope["carryover"] == "historical":
         _add(counted, historical)
     c = scope["ceilings"]
+    resolution = [{"kind": item["kind"], "ref": item["ref"], "disposition": item["disposition"], "usage": item["usage"],
+                   **({"boundEvidence": {k: item["boundEvidence"][k] for k in ("method", "sourceRef", "controlRef", "resultRef")}}
+                      if item["disposition"] == "BOUNDED" else {})} for item in doc["unresolved"]]
     return {"source": "accepted-rollup", "bootstrapSha256": pin, "root": root, "headSha": chain[-1][0], "scopeApprovalRef": scope["approvalRef"],
             "carryover": scope["carryover"], "historical": historical, "period": period, "outstandingReservations": len(open_reservations),
+            "historicalResolution": resolution,
             "requests": {"conservativeUsed": counted["requests"], "ownerCounted": counted["requests"]},
             "identityReads": {"conservativeUsed": counted["identityReads"], "ownerCounted": counted["identityReads"]},
             "starts": {"ownerCounted": counted["starts"]}, "takes": {"ownerCounted": counted["takes"]},
