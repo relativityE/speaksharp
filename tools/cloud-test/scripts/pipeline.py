@@ -170,6 +170,7 @@ def main():
         if rg.returncode:
             sys.exit("accepted inputs failed ordinary gate evaluation")
         gate = load(O("gate-status.json"))
+        overrun = False
         if nightly and x.prior_state and (load(x.prior_state) or {}).get("history"):
             # the carried-forward history's comparison and its report section, through the same consumers the ordinary route uses
             rh = run("select_baselines.py", "--history-state", x.prior_state, "--request", x.request, "--out", O("nightly-baselines.json"))
@@ -183,9 +184,55 @@ def main():
                  O("nightly-history.json"))
             with open(O("nightly-history.html"), "w", encoding="utf-8") as f:
                 f.write(render_nightly_history({"nightlyHistory": nh}))
+        if nightly:
+            # Option A (owner-approved; Sam 1793616419.679859): the real executive summary and report on the accepted route, through the
+            # ordinary unchanged consumers. The gap ledger is receipt-free: historical verdicts from the verified accepted comparison, raw
+            # evidence and signals UNOBSERVABLE, no latest run (so no gap closes and coverage is never a full live run).
+            cat = os.path.join(ROOT, cfg["modes"]["full"]["assertionCatalog"]["file"])
+            steps = [("check_coverage.py", "--request", x.request, "--catalog", cat, "--out", O("coverage.json")),
+                     ("derive_ledger.py", "--ledger", A("gap-ledger"), "--config", x.config, "--release-verification", A("release-verification"),
+                      "--accepted-comparison", A("comparison-prior"), "--out", O("ledger-derived.json")),
+                     ("spend_report.py", "--request", x.request, "--config", x.config, "--reconciliation", A("reconciliation"), "--out", O("spend.json"),
+                      *sum((["--" + k.replace("_", "-"), getattr(x, k)] for k in ("run_record", "costs", "timings") if getattr(x, k)), [])),
+                     ("derive_features.py", "--features", os.path.join(ROOT, cfg["features"]["ledgerFile"]), "--catalog", cat,
+                      "--release-verification", A("release-verification"), "--config", x.config, "--out", O("features-derived.json")),
+                     ("check_isolation.py", "--request", x.request, "--config", x.config, "--out", O("isolation-result.json"), *now_args,
+                      *(["--isolation", x.isolation] if x.isolation else []), *(["--previous-isolation", x.previous_isolation] if x.previous_isolation else []))]
+            for script, *args in steps:
+                rc = run(script, *args).returncode
+                if script == "spend_report.py" and rc == 3:  # a reported cap overrun: the summary sees it; the job exits 3 last, as on the ordinary route
+                    overrun = True
+                elif rc:
+                    sys.exit("accepted summary/report input failed: " + script)
+            sm = ["--comparison", A("comparison-prior"), "--ledger-derived", O("ledger-derived.json"), "--release-verification", A("release-verification"),
+                  "--gates", O("gate-status.json"), "--spend", O("spend.json"), "--workflow", x.workflow, "--request", x.request,
+                  "--coverage", O("coverage.json"), "--isolation", O("isolation-result.json"), "--out", O("summary.json")]
+            if os.path.exists(O("nightly-baselines.json")):
+                sm += ["--nightly-baselines", O("nightly-baselines.json")]
+            if run("derive_summary.py", *sm).returncode:
+                sys.exit("accepted summary derivation failed")
+            rp = [os.path.join(ROOT, "report", "workflow_report.py"), "--request", x.request, "--ledger-derived", O("ledger-derived.json"),
+                  "--release-verification", A("release-verification"), "--reconciliation", A("reconciliation"), "--gates", O("gate-status.json"),
+                  "--spend", O("spend.json"), "--offline-proof", x.offline_proof or os.path.join(ROOT, req["harness"]["offlineProofFile"]),
+                  "--workflow", x.workflow, "--comparison", A("comparison-prior"), "--summary", O("summary.json"),
+                  "--labels", *cfg["history"]["comparisonBaselines"], "--generated-at", x.generated_at or now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  # the retained prior-run binding files are not carried on this route; the report copies only those present
+                  "--out", O("report"), "--bindings", *[b for b in (os.path.join(ROOT, p["bindingFile"]) for p in req["priorRuns"]) if os.path.isfile(b)],
+                  "--coverage", O("coverage.json"), "--isolation", O("isolation-result.json"), "--features", O("features-derived.json")]
+            if os.path.isfile(O("full-coverage-budget.json")):
+                rp += ["--budget", O("full-coverage-budget.json")]
+            if x.run_record:
+                rp += ["--run-record", x.run_record]
+            rr = subprocess.run([sys.executable, "-I"] + rp, capture_output=True, text=True, env={**os.environ})
+            sys.stdout.write(rr.stdout)
+            sys.stderr.write(rr.stderr)
+            if rr.returncode:
+                sys.exit("accepted report is INVALID or failed")
         if x.enforce_go and gate["decision"] != "GO":
             print("STOP EARLY: blocking gates not READY (%s). Nothing was spent." % ",".join(gate["blockingOpen"]))
             sys.exit(4)
+        if overrun:
+            sys.exit(3)
         return
     # 1. sealed receipts
     r = run("verify_receipts.py", "--config", x.config, "--root", x.receipts_root, "--out", O("receipts-verification.json"))

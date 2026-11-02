@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import _fixtures  # noqa: F401  (puts the scripts directory on the import path)
 from _fixtures import ROOT
@@ -28,6 +29,14 @@ class NightlyAcceptedRoute(unittest.TestCase):
         import copy
         import test_full_coverage as FC
         from _fixtures import approved, sample
+        # the receiver fixture's release verification, completed to the real verify_release.py shape the report renders, and re-pinned
+        rv = self.docs["release-verification"]
+        rv["frontend"] = dict(rv["frontend"], evidence="synthetic identity ledger", ageHours=1.0)
+        rv.setdefault("commitVerdicts", [])
+        data = json.dumps(rv, sort_keys=True).encode()
+        (self.root / "release-verification.json").write_bytes(data)
+        self.manifest["components"]["release-verification"]["sha256"] = hashlib.sha256(data).hexdigest()
+        self.manifest["bundleRootSha256"] = A.component_root(self.manifest["components"])
         req, _ = approved(FC.full_request(), sample()["ledger"])
         prop = req["proposedLimits"]
         req["approvedLimits"].update(runCapRequests=prop["runCapRequests"], cumulativeCeilingRequests=prop["cumulativeCeilingRequests"],
@@ -51,7 +60,7 @@ class NightlyAcceptedRoute(unittest.TestCase):
         e.update(over)
         return e
 
-    def run_route(self, with_recurring=True, events=None, env_over=None):
+    def run_route(self, with_recurring=True, events=None, env_over=None, nights=("P", "F")):
         self.nightly_bundle()
         root = self.root
         config = root / "active-config.json"; config.write_text(json.dumps(self.config))
@@ -64,8 +73,10 @@ class NightlyAcceptedRoute(unittest.TestCase):
                             "--request", str(request), "--config", str(config), "--out-dir", str(accepted)], capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         proof = root / "proof.json"
-        proof.write_text(json.dumps({"codeManifestSha256": self.request["harness"]["codeManifestSha256"],
-                                     "corrections": [{"id": "SYNTHETIC", "result": "PASS"}]}))
+        proof.write_text(json.dumps({"result": "PASS", "codeManifestSha256": self.request["harness"]["codeManifestSha256"], "testsPassed": 1, "testsFailed": 0,
+                                     "planControls": {"negative": 1, "negativeRefused": 1, "positive": 1, "positiveAccepted": 1},
+                                     "corrections": [{"id": "SYNTHETIC", "correction": "synthetic offline proof", "result": "PASS",
+                                                      "tests": [], "mutationControls": []}]}))
         checks = root / "checks.json"; checks.write_text('{"passed":true}\n')
         created = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
         stimulus = root / "stimulus.json"
@@ -74,7 +85,7 @@ class NightlyAcceptedRoute(unittest.TestCase):
         snapshot = root / "journal-snapshot.json"
         snapshot.write_text(json.dumps({"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": "c" * 40,
                                         "events": [self.reserve()] if events is None else events}))
-        prior = P.NightlyHistoryThroughTheRealPipeline.prior_state(self, tempfile.mkdtemp(dir=root), ["P", "F"])
+        prior = P.NightlyHistoryThroughTheRealPipeline.prior_state(self, tempfile.mkdtemp(dir=root), list(nights))
         argv = [sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", str(request), "--config", str(config),
                 "--workflow", os.path.join(ROOT, "workflow.json"), "--accepted-input-dir", str(accepted),
                 "--receiver-receipt", str(accepted / "receiver-receipt.json"), "--receiver-manifest", str(manifest),
@@ -214,6 +225,114 @@ class ExecutionRunId(unittest.TestCase):
         self.assertEqual(self.pick(GITHUB_ACTIONS="false", CT_EXECUTION_RUN_ID="999"), "999")
         for bad in ({}, {"CT_EXECUTION_RUN_ID": ""}, {"CT_EXECUTION_RUN_ID": "x"}, {"CT_EXECUTION_RUN_ID": "-1"}):
             self.assertIsNone(self.pick(GITHUB_RUN_ID="101", **bad), bad)
+
+
+class AcceptedSummaryAndReport(unittest.TestCase):
+    """Option A (owner-approved; Sam 1793616419.679859 / 1793616663.425479): the REAL executive summary and report are built on the nightly
+    accepted route from a receipt-free gap ledger. Historical verdicts come only from the verified accepted comparison; raw evidence and
+    signals stay UNOBSERVABLE or NOT RUN, latest stays PENDING, no gap closes, and the safety HOLD is unchanged."""
+    setUp = NightlyAcceptedRoute.setUp
+    nightly_bundle, run_route, reserve = NightlyAcceptedRoute.nightly_bundle, NightlyAcceptedRoute.run_route, NightlyAcceptedRoute.reserve
+
+    def outputs(self, nights=("P", "F")):
+        self.setUp()  # a fresh receiver root per route run (the accepted output directory must not exist)
+        r, out = self.run_route(nights=nights)
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        load = lambda n: json.loads((out / n).read_text())
+        return load("summary.json")["fields"], (out / "report" / "REPORT.html").read_text(encoding="utf-8"), load, out
+
+    def test_the_real_summary_and_report_are_built_and_missing_evidence_never_passes(self):
+        summary, html, load, out = self.outputs()
+        ledger, gates = load("ledger-derived.json"), load("gate-status.json")
+        self.assertIn("receipt-free", ledger["evidenceBasis"])
+        cmp = json.loads((Path(ROOT) / "tests/fixtures/accepted-comparison-R5-vs-R4C.json").read_text())
+        rows = {r["key"]: r for r in cmp["rows"]}
+        seen = {"PASS": 0, "FAIL": 0, "NOT RUN": 0, "UNOBSERVABLE": 0}
+        for g in ledger["gaps"]:
+            self.assertEqual(g["latest"]["result"], "PENDING", g["id"])  # no latest run on this route
+            self.assertNotEqual(g["status"], "CLOSED", g["id"])
+            for label, side in (("R4C", "prev"), ("R5", "cur")):
+                for o in g["history"][label]["observations"]:
+                    self.assertEqual(o["evidence"], [], g["id"])  # raw evidence is never carried, so never referenced
+                    seen[o["verdict"]] += 1
+                    if "unobservable" in o:
+                        self.assertEqual(o["verdict"], "UNOBSERVABLE")  # a signal is never PASS and never a count
+                        self.assertNotIn("count", o)
+                    else:
+                        row = rows.get("%s/%s" % (o["case"], o["assertion"]))
+                        expected = row[side] if row and row[side] in ("PASS", "FAIL") else "NOT RUN"
+                        self.assertEqual(o["verdict"], expected, (g["id"], label, o["case"], o["assertion"]))  # the historical verdict
+                if any("unobservable" in o for o in g["history"][label]["observations"]):
+                    self.assertIn(g["history"][label]["rollup"], ("FAIL", "UNOBSERVABLE"))  # an unobservable part never rolls up to PASS
+        self.assertTrue(seen["UNOBSERVABLE"] and seen["FAIL"])  # both semantics exercised on the real ledger
+        self.assertEqual(summary["provenGapsClosed"], [])
+        self.assertNotEqual(summary["status"], "READY")
+        self.assertFalse(load("coverage.json")["fullLiveRun"])  # no case results: never a full live run
+        self.assertEqual(gates["decision"], "NO-GO")
+        # the carried nightly FAIL (P→F) decides the headline exactly as on the ordinary route; the receipt-free ledger adds nothing to it
+        self.assertEqual((summary["status"], summary["recommendation"]), ("BLOCKED", "FIX AND RETEST"))
+        self.assertIn("UNOBSERVABLE", html)
+        self.assertIn("Gap-closure ledger", html)
+        self.assertIn("Nightly carried-forward history", html)
+
+    def test_a_later_pass_changes_the_real_accepted_summary_and_report(self):
+        failing, html_f, _, _ = self.outputs(("P", "F"))
+        self.assertEqual((failing["nightlyHistory"]["carriedFailRows"], failing["nightlyHistory"]["carriedFailCases"]), (1, ["AHT-05"]))
+        self.assertIn("1 comparable row(s) still FAIL", html_f)
+        fixed, html_p, _, _ = self.outputs(("P", "F", "P"))
+        self.assertEqual((fixed["nightlyHistory"]["carriedFailRows"], fixed["nightlyHistory"]["carriedFailCases"]), (0, []))
+        self.assertIn("0 comparable row(s) still FAIL", html_p)
+        self.assertNotEqual(failing["nightlyHistory"], fixed["nightlyHistory"])
+        self.assertEqual((failing["status"], failing["recommendation"]), ("BLOCKED", "FIX AND RETEST"))
+        # P→F→P: no carried FAIL, gates NO-GO: the safety HOLD stands; the later PASS never promotes the headline
+        self.assertEqual((fixed["status"], fixed["recommendation"]), ("BLOCKED", "HOLD"))
+
+
+class ReceiptFreeLedgerMode(unittest.TestCase):
+    """derive_ledger.py --accepted-comparison: refuses a latest run, a foreign pair and malformed rows; the receipt mode emits neither the
+    receipt-free basis nor UNOBSERVABLE (its observations come from the sealed receipts exactly as before)."""
+    def run_ledger(self, cmp, *extra):
+        d = tempfile.mkdtemp()
+        cp, rv, out = os.path.join(d, "c.json"), os.path.join(d, "rv.json"), os.path.join(d, "o.json")
+        with open(cp, "w") as f:
+            json.dump(cmp, f)
+        from _fixtures import fake_rv
+        with open(rv, "w") as f:
+            json.dump(fake_rv(), f)
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "derive_ledger.py"), "--ledger", os.path.join(ROOT, "config", "gap-ledger.json"),
+                            "--release-verification", rv, "--accepted-comparison", cp, "--out", out, *extra], capture_output=True, text=True)
+        return r, out
+
+    def fixture(self):
+        return json.loads((Path(ROOT) / "tests/fixtures/accepted-comparison-R5-vs-R4C.json").read_text())
+
+    def test_refusals(self):
+        good = self.fixture()
+        swapped = dict(good, previous=good["current"], current=good["previous"])
+        duplicated = dict(good, rows=good["rows"] + good["rows"][:1])
+        for name, cmp, extra in (("latest run", good, ("--latest-label", "R5")), ("foreign pair", swapped, ()),
+                                 ("duplicated rows", duplicated, ()), ("no rows", dict(good, rows=None), ())):
+            r, out = self.run_ledger(cmp, *extra)
+            self.assertNotEqual(r.returncode, 0, name)
+            self.assertFalse(os.path.exists(out), name)
+        r, _ = self.run_ledger(good)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_receipt_mode_carries_no_receipt_free_semantics(self):
+        from _fixtures import fake_rv
+        from _synthetic_history import shared as synthetic_history
+        d = tempfile.mkdtemp()
+        rv, out = os.path.join(d, "rv.json"), os.path.join(d, "o.json")
+        with open(rv, "w") as f:
+            json.dump(fake_rv(), f)
+        h = synthetic_history()
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "derive_ledger.py"), "--ledger", os.path.join(ROOT, "config", "gap-ledger.json"),
+                            "--release-verification", rv, "--out", out, "--config", h.config, "--receipts-root", h.receipts], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        doc = json.loads(open(out).read())
+        self.assertNotIn("evidenceBasis", doc)
+        self.assertNotIn("UNOBSERVABLE", json.dumps(doc))
+        self.assertTrue(any(e.get("sha256") for g in doc["gaps"] for h_ in g["history"].values() for o in h_["observations"] for e in o["evidence"]))
 
 
 if __name__ == "__main__":
