@@ -1790,6 +1790,25 @@ class StandingEnvelope(Journal):
         # the double-charge the RETURN found: without the execution identity the same chain refuses on its own reserve
         refused(self, "continuity-run-identity-exceeds-period", self.derive, prior=I.reserved_occurrences(self.chain(), self.own()))
 
+    def test_a_released_own_reserve_holds_nothing(self):
+        # Jensen's review of 7ab42417: a release returns the allocation exactly like a settle; it must not still count as held.
+        need = self.need()
+        self.reserve_on_chain(allocation=dict(need, coachingRequests=0, runnerMinutes=0))
+        self.assertIsNotNone(I.own_held_allocation(self.chain(), self.own()))
+        self.reserve_on_chain(kind="release", allocation=dict(need, coachingRequests=0, runnerMinutes=0), at="2026-11-02T03:10:00Z")
+        self.assertIsNone(I.own_held_allocation(self.chain(), self.own()))
+        refused(self, "action-approval-standing-occurrence-replayed", self.derive,
+                prior=I.reserved_occurrences(self.chain(), self.own()), own=self.own())
+
+    def test_two_own_open_reserves_are_ambiguous_and_refuse_rather_than_fall_back(self):
+        # The writer opens a key once, so a verified chain cannot carry this; the refusal is defensive, so the chain here is constructed.
+        own = self.own()
+        e = {"type": "reserve", "campaignId": own[0], "runId": own[1], "attempt": 1, "allocation": {}, "provenance": "request-sha256:" + own[3]}
+        chain = [("0" * 40, [e, dict(e)])]
+        refused(self, "action-approval-own-reserve-ambiguous", I.own_held_allocation, chain, own)
+        refused(self, "action-approval-own-reserve-ambiguous", I.reserved_occurrences, chain, own)
+        self.assertIsNone(I.own_held_allocation([("0" * 40, [])], own))  # zero matches keep the pre-reserve path
+
     def test_insufficient_wrong_or_settled_held_reserves_refuse(self):
         need = self.need()
         # insufficient: the own reserve holds one Start fewer than the request needs

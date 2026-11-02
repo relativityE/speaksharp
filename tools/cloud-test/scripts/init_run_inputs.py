@@ -510,21 +510,29 @@ def reserved_occurrences(chain, own=None):
     live job prepares, so that one verified, still-open reserve (exact campaign, run, attempt and request digest) is not a replay. Any other
     reserve of the occurrence (another run, another attempt, another request, or this reserve once settled) still makes it replayed."""
     events = chain[-1][1]
+    _own_open(events, own)  # an ambiguous own reserve refuses here too, never silently filtered
     return frozenset(e["campaignId"] for e in events if e["type"] == "reserve" and not _is_own_open(e, events, own))
 
 
 def _is_own_open(e, events, own):
-    settled = {(x["campaignId"], x["runId"], x["attempt"]) for x in events if x["type"] == "settle"}
+    # A settle OR a release closes a reserve (state_ref_writer.TYPES; accounting_rollup drops the open reservation on either).
+    closed = {(x["campaignId"], x["runId"], x["attempt"]) for x in events if x["type"] in ("settle", "release")}
     return (own is not None and e["type"] == "reserve" and (e["campaignId"], e["runId"], e["attempt"]) == tuple(own[:3])
-            and e.get("provenance") == "request-sha256:" + own[3] and tuple(own[:3]) not in settled)
+            and e.get("provenance") == "request-sha256:" + own[3] and tuple(own[:3]) not in closed)
+
+
+def _own_open(events, own):
+    """This execution's own open reserves; more than one is ambiguous and refuses (Jensen's review of 7ab42417) rather than falling back."""
+    found = [e for e in events if _is_own_open(e, events, own)]
+    _need(len(found) <= 1, "action-approval-own-reserve-ambiguous")
+    return found
 
 
 def own_held_allocation(chain, own):
     """Sam RETURN 1793625480.539669: the allocation THIS execution's verified, still-open reserve holds (None when there is none). The rollup
     already charges an open reserve against period headroom, so an admitted run is checked against what it holds, never charged twice."""
-    events = chain[-1][1]
-    held = [e["allocation"] for e in events if _is_own_open(e, events, own)]
-    return dict(held[0]) if len(held) == 1 else None
+    held = _own_open(chain[-1][1], own)
+    return dict(held[0]["allocation"]) if held else None
 
 
 def _standing_raw(repo, pin):
