@@ -313,6 +313,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
         # current release verification is derived; the final receiver then binds all three runtime inputs.
         self.assertIn('--retained-out-dir "$retained"', runner)
         self.assertIn('--ledger "$retained/gap-ledger.json"', runner)
+        self.assertIn('--phase admission-release', runner)
+        self.assertIn('--current-identity-ledger "$identity_ledger"', runner)
+        self.assertLess(runner.index('--phase admission-release'),
+                        runner.index('--current-identity-ledger "$identity_ledger"'))
         self.assertIn('occurrence_args=(--journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json"', runner)
         self.assertIn('--occurrence-release-verification "$OUT/release-verification.json")', runner)
         self.assertEqual(runner.count('${occurrence_args[@]+"${occurrence_args[@]}"}'), 2)

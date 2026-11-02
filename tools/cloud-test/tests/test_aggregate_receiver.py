@@ -266,12 +266,17 @@ class RecurringOccurrenceEnvelope(unittest.TestCase):
         return {"journalSnapshot": json.dumps(snapshot, sort_keys=True).encode(), "reconciliation": json.dumps(rc, sort_keys=True).encode(),
                 "releaseVerification": json.dumps(self.docs["release-verification"], sort_keys=True).encode()}
 
-    def authenticated_as(self, occurrence):
+    def authenticated_as(self, occurrence, parent_head=None):
         """The approved state ref, as G11's boundary would authenticate it, is exactly the supplied snapshot (unit controls of the reserve and
         checkpoint logic; the real-ref controls below authenticate through an actual state ref)."""
         from unittest import mock
         snap = json.loads(occurrence["journalSnapshot"])
-        return mock.patch.object(C, "authenticated_chain", lambda: (snap["headSha"], snap["events"]))
+        def transition(parent, current, events):
+            if parent_head is None or parent != parent_head or current != snap["headSha"] or events != snap["events"]:
+                raise __import__("state_ref_writer").Refused("journal-parent-transition")
+            return parent_head, events[:-1]
+        return mock.patch.multiple(C, authenticated_chain=lambda: (snap["headSha"], snap["events"]),
+                                   authenticated_parent_transition=transition)
 
     def nightly(self, campaign):
         request = dict(copy.deepcopy(self.request), priority="nightly-regression", runId=campaign)
@@ -337,8 +342,9 @@ class RecurringOccurrenceEnvelope(unittest.TestCase):
         # a manual request never uses the occurrence route, and v1 never accepts an envelope
         manual = dict(self.request, priority="full-coverage")
         manual_raw = json.dumps(manual, sort_keys=True).encode()
-        occurrence = self.occurrence(manual_raw, manual["runId"])
-        with self.authenticated_as(occurrence):
+        parent = "d" * 40
+        occurrence = self.occurrence(manual_raw, manual["runId"], reconciliation_head=parent)
+        with self.authenticated_as(occurrence, parent):
             docs, accepted, envelope = A.receive_bundle(raw, str(self.root), manual_raw, self.config, pins, occurrence)
         self.assertEqual(envelope["testedSha"], manual["release"]["testedSha"])
         self.assertEqual(accepted["release-verification"], occurrence["releaseVerification"])
@@ -350,6 +356,32 @@ class RecurringOccurrenceEnvelope(unittest.TestCase):
         with self.assertRaisesRegex(A.Refused, "aggregate-occurrence-unexpected"):
             A.receive_bundle(self.manifest_raw, str(self.root), self.request_raw, self.config, self.pins,
                              self.occurrence(self.request_raw, self.request["runId"]))
+
+    def test_manual_occurrence_requires_the_exact_parent_to_own_reserve_transition(self):
+        manual = dict(copy.deepcopy(self.request), priority="full-coverage", runId="R10-manual")
+        request_raw = json.dumps(manual, sort_keys=True).encode()
+        raw, pins = self.v2()
+        parent = "d" * 40
+        good = self.occurrence(request_raw, manual["runId"], reconciliation_head=parent)
+        with self.authenticated_as(good, parent):
+            _docs, _accepted, envelope = A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, good)
+        self.assertEqual(envelope["journalHeadSha"], "c" * 40)
+
+        later = self.occurrence(request_raw, manual["runId"], reconciliation_head=parent,
+                                events=lambda own: [own, dict(own, campaignId="foreign", runId="999",
+                                                               provenance="request-sha256:" + "0" * 64)])
+        with self.authenticated_as(later, parent), self.assertRaisesRegex(A.Refused, "aggregate-occurrence-reserve-transition"):
+            A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, later)
+        closed = self.occurrence(request_raw, manual["runId"], reconciliation_head=parent,
+                                 events=lambda own: [own, dict(own, type="settle")])
+        with self.authenticated_as(closed, parent), self.assertRaisesRegex(A.Refused, "aggregate-occurrence-reserve"):
+            A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, closed)
+        duplicate = self.occurrence(request_raw, manual["runId"], reconciliation_head=parent,
+                                    events=lambda own: [own, dict(own, runId="102")])
+        with self.authenticated_as(duplicate, parent), self.assertRaisesRegex(A.Refused, "aggregate-occurrence-reserve"):
+            A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, duplicate)
+        with self.authenticated_as(good, "e" * 40), self.assertRaisesRegex(A.Refused, "aggregate-occurrence-reconciliation"):
+            A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, good)
 
     def test_retained_preflight_pins_only_genuine_historical_components(self):
         raw, pins = self.v2()
@@ -395,10 +427,10 @@ class OccurrenceEnvelopeOnARealStateRef(unittest.TestCase):
         j = self.journal
         W.propose(j.repo, j.remote, W.fetch_head(j.repo, j.remote, j.remote), event, j.root, j.remote)
 
-    def real_occurrence(self, request_raw, head_events=None):
+    def real_occurrence(self, request_raw, head_events=None, reconciliation_head=None):
         head, events, _ = self.journal.chain()[-1]
         snapshot = {"schema": A.JOURNAL_SNAPSHOT_SCHEMA, "headSha": head, "events": events if head_events is None else head_events}
-        rc = dict(self.docs["reconciliation"], headSha=head)
+        rc = dict(self.docs["reconciliation"], headSha=reconciliation_head or head)
         return {"journalSnapshot": json.dumps(snapshot, sort_keys=True).encode(), "reconciliation": json.dumps(rc, sort_keys=True).encode(),
                 "releaseVerification": json.dumps(self.docs["release-verification"], sort_keys=True).encode()}
 
@@ -421,6 +453,15 @@ class OccurrenceEnvelopeOnARealStateRef(unittest.TestCase):
             _, accepted, envelope = self.receive_real(request_raw, self.real_occurrence(request_raw))
             self.assertEqual((envelope["campaignId"], envelope["executionRunId"], envelope["journalHeadSha"]),
                              (campaign, run, self.journal.chain()[-1][0]))
+
+    def test_a_real_manual_occurrence_binds_the_pre_reserve_parent_to_its_own_reserve_head(self):
+        request = dict(copy.deepcopy(self.request), priority="full-coverage", runId="R10-manual")
+        request_raw = json.dumps(request, sort_keys=True).encode()
+        parent = self.journal.chain()[-1][0]
+        self.push(self.reserve(request, request_raw, "101"))
+        occurrence = self.real_occurrence(request_raw, reconciliation_head=parent)
+        _docs, _accepted, envelope = self.receive_real(request_raw, occurrence)
+        self.assertEqual((envelope["campaignId"], envelope["executionRunId"]), ("R10-manual", "101"))
 
     def test_a_fabricated_reduced_stale_or_unauthenticated_snapshot_produces_no_receipt(self):
         # broken before: receive_occurrence parsed the supplied JSON alone, so a well-shaped fabrication was accepted

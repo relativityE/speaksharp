@@ -1567,6 +1567,10 @@ class ContinuityCheckpoint(Journal):
                                I.CONTINUITY_DIR + "/" + I.CONTINUITY_BOOTSTRAP: self.raw.decode(),
                                I.CONTINUITY_DIR + "/" + I.CONTINUITY_SCOPE: self.scope_raw.decode()})
         req["release"]["testedSha"] = release
+        # This composed control has no product delta after its synthetic tested
+        # release.  That lets the real release verifier isolate the current
+        # identity evidence and the occurrence binding under test.
+        req["release"]["lastRunTestedSha"] = release
         head = repo.commit({RUNS + "r6.json": req})
         request_sha = hashlib.sha256(repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()).hexdigest()
         pins = self.all_pins()
@@ -1604,6 +1608,69 @@ class ContinuityCheckpoint(Journal):
         with open(outputs, encoding="utf-8") as f:
             published = dict(line.split("=", 1) for line in f.read().splitlines())
         self.assertEqual((published["request_sha256"], published["reconciliation_sha256"]), (request_sha, hashlib.sha256(rc_bytes).hexdigest()))
+        # One composed, deterministic route: prepare's genuine pre-reserve
+        # reconciliation -> the authenticated own-reserve transition -> the
+        # existing identity-ledger producer (synthetic transport, no network)
+        # -> the real current-release verifier -> the real aggregate receiver.
+        # No future identity or current journal state is retained in the bundle.
+        private_identity = os.path.join(self.d, "identity-private")
+        os.mkdir(private_identity, 0o700)
+        identity_ledger = os.path.join(private_identity, "identity-ledger.json")
+        active_config_path = os.path.join(ROOT, "config", "test-config.v1.json")
+        active_config = J(active_config_path)
+        target = active_config["target"]["url"].rstrip("/") + "/"
+        identity_module = os.path.join(ROOT, "harness", "bundle", "harness", "identity-check.cjs")
+        identity_script = r"""
+const fs = require('node:fs');
+const { runIdentity } = require(process.argv[1]);
+const ledger = process.argv[2], url = process.argv[3], sha = process.argv[4];
+const body = Buffer.from('<!doctype html><script>window.__APP_RELEASE__ = ' + JSON.stringify(sha) + ';</script>');
+const transport = (_cmd, args) => {
+  const output = args[args.indexOf('--output') + 1];
+  fs.writeFileSync(output, body, { mode: 0o600 });
+  return { status: 0, stdout: `200 0 ${body.length}` };
+};
+const result = runIdentity({ ledger, binding: { url, expectedSha: sha, cap: 32, phase: 'admission-release' } }, transport);
+process.stdout.write(JSON.stringify(result.receipt));
+process.exitCode = result.exitCode;
+"""
+        identity = subprocess.run(["node", "-e", identity_script, identity_module, identity_ledger, target, release],
+                                  capture_output=True, text=True)
+        self.assertEqual(identity.returncode, 0, identity.stdout + identity.stderr)
+        self.assertEqual(stat.S_IMODE(os.lstat(identity_ledger).st_mode), 0o600)
+
+        release_out = os.path.join(self.d, "current-release-verification.json")
+        release_check = subprocess.run([
+            sys.executable, "-I", os.path.join(ROOT, "scripts", "verify_release.py"),
+            "--request", os.path.join(out, "request.json"),
+            "--ledger", os.path.join(ROOT, "config", "aggregate", "gap-ledger.json"),
+            "--config", active_config_path, "--repo", repo.dir,
+            "--current-identity-ledger", identity_ledger, "--out", release_out,
+        ], capture_output=True, text=True)
+        self.assertEqual(release_check.returncode, 0, release_check.stderr)
+        release_bytes = open(release_out, "rb").read()
+        self.assertEqual(json.loads(release_bytes)["needs"], [])
+
+        import aggregate_receiver as AR
+        state_chain = reader(self.root)
+        current_head, current_events, _current_raw = state_chain[-1]
+        occurrence = {
+            "journalSnapshot": json.dumps({"schema": AR.JOURNAL_SNAPSHOT_SCHEMA, "headSha": current_head,
+                                            "events": current_events}, sort_keys=True).encode(),
+            "reconciliation": open(os.path.join(out, "reconciliation.json"), "rb").read(),
+            "releaseVerification": release_bytes,
+        }
+        manifest_path = os.path.join(ROOT, "config", "aggregate", "manifest.json")
+        manifest_raw = open(manifest_path, "rb").read()
+        request_raw = open(os.path.join(out, "request.json"), "rb").read()
+        pins = active_config["aggregateReceiver"]
+        with mock.patch.object(C, "JOURNAL_URL", self.remote), mock.patch.object(C, "JOURNAL_ROOT", self.root):
+            _docs, accepted, envelope = AR.receive_bundle(manifest_raw, os.path.dirname(manifest_path), request_raw,
+                                                          active_config, pins, occurrence)
+        self.assertEqual((envelope["requestSha256"], envelope["reconciliationSha256"], envelope["testedSha"]),
+                         (request_sha, hashlib.sha256(rc_bytes).hexdigest(), release))
+        self.assertEqual(hashlib.sha256(accepted["release-verification"]).hexdigest(),
+                         envelope["releaseVerificationSha256"])
         # Placement (the workflow step copies these exact bytes), then the runner's own reader, then the real builder binding.
         ct_out = os.path.join(self.d, "ct-out")
         os.mkdir(ct_out, 0o700)

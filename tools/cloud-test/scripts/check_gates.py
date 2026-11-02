@@ -42,9 +42,8 @@ JOURNAL_URL = None
 JOURNAL_ROOT = None
 
 
-def authenticated_chain():
-    """(head, events) of the approved state ref, read through the producer's own boundary (reservations.py journal-snapshot): a fresh
-    fetch of the approved URL into a private repository and whole-chain validation from the reviewed root. Refuses while unpinned."""
+def authenticated_state_chain():
+    """The whole validated approved state-ref chain from its reviewed root."""
     import subprocess
     import tempfile
     import state_ref_writer as W
@@ -56,8 +55,29 @@ def authenticated_chain():
     env = {"PATH": os.environ.get("PATH", ""), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TEMPLATE_DIR": ""}
     if subprocess.run(["git", "init", "-q", repo], capture_output=True, env=env).returncode != 0:
         raise W.Refused("journal-repo")
-    chain = W.validate_chain(repo, W.fetch_head(repo, url, url), root)
+    return W.validate_chain(repo, W.fetch_head(repo, url, url), root)
+
+
+def authenticated_chain():
+    """(head, events) of the approved state ref, read through the producer's own boundary (reservations.py journal-snapshot): a fresh
+    fetch of the approved URL into a private repository and whole-chain validation from the reviewed root. Refuses while unpinned."""
+    chain = authenticated_state_chain()
     return chain[-1][0], chain[-1][1]
+
+
+def authenticated_parent_transition(parent_head, current_head, current_events):
+    """Authenticate the exact parent->current transition of a manual run.
+
+    The current commit must add exactly one final event to the approved parent's
+    event list.  The receiver separately proves that event is this execution's
+    one open reserve.
+    """
+    import state_ref_writer as W
+    chain = authenticated_state_chain()
+    if (len(chain) < 2 or chain[-1][0] != current_head or chain[-1][1] != current_events
+            or chain[-2][0] != parent_head or chain[-2][1] != current_events[:-1]):
+        raise W.Refused("journal-parent-transition")
+    return chain[-2][0], chain[-2][1]
 
 
 def admitted_snapshot(reservations, req, request_sha256, execution_run_id=None):

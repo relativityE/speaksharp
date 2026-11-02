@@ -42,14 +42,19 @@ class Fixture:
         cfg["history"]["comparisonBaselines"] = ["R5", "R5"]
         self.cfg = cfg
 
-    def verify(self, ledger, backend=None, tested=None, last=None):
+    def verify(self, ledger, backend=None, tested=None, last=None, current_identity=None):
         req = {"release": {"testedSha": tested or self.tested, "lastRunTestedSha": last or self.base,
                            "backend": backend or {"sha": tested or self.tested, "source": "owner-stated", "verifiedAtUtc": None, "evidenceRef": None}}}
         d = tempfile.mkdtemp()
         rp, lp, cp, op = (os.path.join(d, n) for n in ("req.json", "led.json", "cfg.json", "out.json"))
         wjson(rp, req); wjson(lp, ledger); wjson(cp, self.cfg)
         from _fixtures import run_py
-        r = run_py("scripts/verify_release.py", "--request", rp, "--ledger", lp, "--config", cp, "--repo", self.repo, "--receipts-root", self.root, "--now", NOW, "--out", op)
+        args = ["--request", rp, "--ledger", lp, "--config", cp, "--repo", self.repo, "--receipts-root", self.root, "--now", NOW, "--out", op]
+        if current_identity is not None:
+            identity = os.path.join(d, "current-identity.json")
+            wjson(identity, current_identity); os.chmod(identity, 0o600)
+            args += ["--current-identity-ledger", identity]
+        r = run_py("scripts/verify_release.py", *args)
         assert r.returncode == 0, r.stderr
         return load(op)
 
@@ -59,6 +64,40 @@ def verdict(out, subject_sha):
 
 
 class ReleaseGate(unittest.TestCase):
+    @staticmethod
+    def current_identity(f, **receipt_overrides):
+        receipt = {"reservation": 1, "phase": "admission-release", "startedAt": "2026-10-28T21:59:00Z",
+                   "endedAt": "2026-10-28T21:59:01Z", "result": "MATCH", "reason": None, "http": 200,
+                   "redirects": 0, "markerCount": 1, "servedSha": f.tested, "expectedSha": f.tested,
+                   "evidenceScope": "inert-text-marker-only"}
+        receipt.update(receipt_overrides)
+        target = f.cfg["target"]["url"].rstrip("/") + "/"
+        return {"version": 1, "url": target, "expectedSha": f.tested, "cap": 32, "identityGets": 1, "receipts": [receipt]}
+
+    def test_current_occurrence_identity_admits_a_new_release_without_historical_identity(self):
+        f = Fixture([("fix(a): retain guidance (#101)", ["frontend/src/a.ts"])], identity_for_tested=False)
+        out = f.verify(ledger_with(["101"]), current_identity=self.current_identity(f))
+        self.assertEqual((out["frontend"]["source"], out["frontend"]["servedSha"], out["frontend"]["reads"]),
+                         ("current-runtime-identity", f.tested, 1))
+        self.assertEqual(out["needs"], [])
+        self.assertEqual(out["commitVerdicts"][0]["decision"], "allowed")
+
+    def test_current_identity_refuses_wrong_release_phase_staleness_or_replay(self):
+        f = Fixture([("fix(a): retain guidance (#101)", ["frontend/src/a.ts"])], identity_for_tested=False)
+        cases = {
+            "wrong served": self.current_identity(f, servedSha="0" * 40),
+            "wrong expected": self.current_identity(f, expectedSha="0" * 40),
+            "wrong phase": self.current_identity(f, phase="before-AHT-01"),
+            "stale": self.current_identity(f, startedAt="2026-10-26T00:00:00Z", endedAt="2026-10-26T00:00:01Z"),
+        }
+        replay = self.current_identity(f); replay["identityGets"] = 2; replay["receipts"].append(dict(replay["receipts"][0], reservation=2))
+        cases["replay"] = replay
+        for label, identity in cases.items():
+            with self.subTest(label):
+                out = f.verify(ledger_with(["101"]), current_identity=identity)
+                self.assertTrue(any("frontend" in need for need in out["needs"]), out)
+                self.assertEqual(out["commitVerdicts"][0]["decision"], "rejected")
+
     def test_verified_deployed_fix_is_permitted(self):
         f = Fixture([("fix(a): retain guidance (#101)", ["frontend/src/a.ts", "frontend/src/__tests__/a.test.ts"])])
         out = f.verify(ledger_with(["101"]))

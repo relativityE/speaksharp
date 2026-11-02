@@ -205,6 +205,12 @@ class Credentials(unittest.TestCase):
 class Boundary(unittest.TestCase):
     """The model-evaluation project stays entirely separate: nothing here references its workflows, gates or authorizations."""
     TOKENS = ("model-downselection", "private-model-smoke", "gemini-model-currency", "comparison_cell", "comparison-authorization", "downselection", "rwt_writes_ack")
+    RETAINED = {
+        "case-costs": "case-costs.json",
+        "comparison-prior": "comparison-prior.json",
+        "gap-ledger": "gap-ledger.json",
+        "prior-run-verification": "prior-run-verification.json",
+    }
 
     @classmethod
     def boundary_offenders(cls, root):
@@ -218,10 +224,23 @@ class Boundary(unittest.TestCase):
         with open(os.path.join(root, "config", "test-config.v1.json"), encoding="utf-8") as f:
             receiver = (json.load(f).get("aggregateReceiver") or {})
         retained = set()
-        if receiver.get("activated") is True and hashlib.sha256(manifest_raw).hexdigest() == receiver.get("manifestSha256"):
-            for entry in (aggregate.get("components") or {}).values():
-                path = os.path.join(root, "config", "aggregate", entry["file"])
-                if os.path.isfile(path) and hashlib.sha256(open(path, "rb").read()).hexdigest() == entry.get("sha256"):
+        entries = aggregate.get("components") or {}
+        root_rows = [{"name": name, "sha256": entries.get(name, {}).get("sha256")} for name in sorted(entries)]
+        component_root = hashlib.sha256(json.dumps(root_rows, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+        valid_manifest = (
+            receiver.get("activated") is True
+            and hashlib.sha256(manifest_raw).hexdigest() == receiver.get("manifestSha256")
+            and aggregate.get("schema") == "speaksharp.cloud-test.aggregate-receiver.v2-occurrence"
+            and set(entries) == set(cls.RETAINED)
+            and component_root == aggregate.get("bundleRootSha256") == receiver.get("bundleRootSha256")
+        )
+        if valid_manifest:
+            for name, filename in cls.RETAINED.items():
+                entry = entries[name]
+                path = os.path.join(root, "config", "aggregate", filename)
+                if (set(entry) == {"file", "sha256"} and entry.get("file") == filename
+                        and os.path.isfile(path) and not os.path.islink(path)
+                        and hashlib.sha256(open(path, "rb").read()).hexdigest() == entry.get("sha256")):
                     retained.add(os.path.relpath(path, root))
         offenders = []
         for r, _, fs in os.walk(root):
@@ -249,21 +268,57 @@ class Boundary(unittest.TestCase):
             aggregate = os.path.join(root, "config", "aggregate")
             os.makedirs(aggregate)
             retained_bytes = b'{"historicalProducer":"model-downselection"}'
-            manifest = {"components": {"comparison-prior": {"file": "retained.json", "sha256": hashlib.sha256(retained_bytes).hexdigest()}}}
+            payloads = {name: (retained_bytes if name == "comparison-prior" else b'{}') for name in self.RETAINED}
+            entries = {name: {"file": filename, "sha256": hashlib.sha256(payloads[name]).hexdigest()}
+                       for name, filename in self.RETAINED.items()}
+            rows = [{"name": name, "sha256": entries[name]["sha256"]} for name in sorted(entries)]
+            root_sha = hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+            manifest = {"schema": "speaksharp.cloud-test.aggregate-receiver.v2-occurrence", "components": entries,
+                        "bundleRootSha256": root_sha}
             manifest_bytes = json.dumps(manifest).encode()
             with open(os.path.join(aggregate, "manifest.json"), "w", encoding="utf-8") as f:
                 f.write(manifest_bytes.decode())
             with open(os.path.join(root, "config", "test-config.v1.json"), "w", encoding="utf-8") as f:
-                json.dump({"aggregateReceiver": {"activated": True, "manifestSha256": hashlib.sha256(manifest_bytes).hexdigest()}}, f)
-            with open(os.path.join(aggregate, "retained.json"), "wb") as f:
-                f.write(retained_bytes)
+                json.dump({"aggregateReceiver": {"activated": True, "manifestSha256": hashlib.sha256(manifest_bytes).hexdigest(),
+                                                  "bundleRootSha256": root_sha}}, f)
+            for name, filename in self.RETAINED.items():
+                with open(os.path.join(aggregate, filename), "wb") as f:
+                    f.write(payloads[name])
             with open(os.path.join(aggregate, "unlisted.json"), "w", encoding="utf-8") as f:
                 f.write('{"runtime":"model-downselection"}')
             self.assertEqual(self.boundary_offenders(root), [(os.path.join("config", "aggregate", "unlisted.json"), "model-downselection"),
                                                              (os.path.join("config", "aggregate", "unlisted.json"), "downselection")])
-            with open(os.path.join(aggregate, "retained.json"), "w", encoding="utf-8") as f:
+            with open(os.path.join(aggregate, "comparison-prior.json"), "w", encoding="utf-8") as f:
                 f.write('{"historicalProducer":"model-downselection","changed":true}')
-            self.assertIn((os.path.join("config", "aggregate", "retained.json"), "model-downselection"), self.boundary_offenders(root))
+            self.assertIn((os.path.join("config", "aggregate", "comparison-prior.json"), "model-downselection"), self.boundary_offenders(root))
+
+    def test_traversal_or_executable_manifest_entries_never_gain_the_retained_exception(self):
+        with tempfile.TemporaryDirectory() as root:
+            aggregate = os.path.join(root, "config", "aggregate")
+            scripts = os.path.join(root, "config", "scripts")
+            os.makedirs(aggregate); os.makedirs(scripts)
+            runtime = b'# model-downselection executable\n'
+            runtime_path = os.path.join(scripts, "runtime.py")
+            with open(runtime_path, "wb") as f:
+                f.write(runtime)
+            entries = {name: {"file": filename, "sha256": hashlib.sha256(b'{}').hexdigest()}
+                       for name, filename in self.RETAINED.items()}
+            entries["comparison-prior"] = {"file": "../scripts/runtime.py", "sha256": hashlib.sha256(runtime).hexdigest()}
+            for name, filename in self.RETAINED.items():
+                if name != "comparison-prior":
+                    with open(os.path.join(aggregate, filename), "wb") as f:
+                        f.write(b'{}')
+            rows = [{"name": name, "sha256": entries[name]["sha256"]} for name in sorted(entries)]
+            root_sha = hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+            manifest = {"schema": "speaksharp.cloud-test.aggregate-receiver.v2-occurrence", "components": entries,
+                        "bundleRootSha256": root_sha}
+            manifest_bytes = json.dumps(manifest).encode()
+            with open(os.path.join(aggregate, "manifest.json"), "wb") as f:
+                f.write(manifest_bytes)
+            with open(os.path.join(root, "config", "test-config.v1.json"), "w", encoding="utf-8") as f:
+                json.dump({"aggregateReceiver": {"activated": True, "manifestSha256": hashlib.sha256(manifest_bytes).hexdigest(),
+                                                  "bundleRootSha256": root_sha}}, f)
+            self.assertIn((os.path.join("config", "scripts", "runtime.py"), "model-downselection"), self.boundary_offenders(root))
 
     def test_the_config_states_the_boundary(self):
         b = J("config", "test-config.v1.json").get("boundary") or {}

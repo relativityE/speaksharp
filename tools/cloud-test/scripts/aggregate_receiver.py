@@ -158,8 +158,9 @@ def receive_occurrence(request, request_raw, occurrence):
     snapshot is admitted only when its head and events are exactly the approved state ref as authenticated now, through the same boundary
     G11 uses (check_gates.authenticated_chain: a fresh fetch into a private repository and whole-chain validation from the reviewed root;
     Jensen RETURN 1793647288.547869), so a well-shaped fabricated, reduced or stale snapshot never yields an envelope or a receipt. That
-    journal must hold exactly one open reserve of THIS request (campaign and admitted request digest), and the occurrence's reconciliation
-    must be the accepted rollup at that same head. Returns (envelope, occurrence runtime bytes)."""
+    journal must hold exactly one open reserve of THIS request (campaign and admitted request digest). A nightly reconciliation is at the
+    reserved head; a manual reconciliation is the authenticated parent that immediately precedes this run's own final reserve. Returns
+    (envelope, occurrence runtime bytes)."""
     need(isinstance(occurrence, dict) and isinstance(occurrence.get("journalSnapshot"), bytes)
          and isinstance(occurrence.get("reconciliation"), bytes)
          and isinstance(occurrence.get("releaseVerification"), bytes), "aggregate-occurrence-missing")
@@ -180,8 +181,17 @@ def receive_occurrence(request, request_raw, occurrence):
            and e.get("campaignId") == request.get("runId") and (e["campaignId"], e.get("runId"), e.get("attempt")) not in closed]
     need(len(own) == 1, "aggregate-occurrence-reserve")
     rec = load_json(occurrence["reconciliation"], "aggregate-occurrence-reconciliation")
-    need(isinstance(rec, dict) and rec.get("source") == "accepted-rollup" and rec.get("headSha") == snap["headSha"],
-         "aggregate-occurrence-reconciliation")
+    need(isinstance(rec, dict) and rec.get("source") == "accepted-rollup", "aggregate-occurrence-reconciliation")
+    if request.get("priority") == "nightly-regression":
+        need(rec.get("headSha") == snap["headSha"], "aggregate-occurrence-reconciliation")
+    else:
+        need(request.get("priority") == "full-coverage" and snap["events"] and snap["events"][-1] == own[0],
+             "aggregate-occurrence-reserve-transition")
+        try:
+            parent_head, _parent_events = check_gates.authenticated_parent_transition(rec.get("headSha"), auth_head, auth_events)
+        except (state_ref_writer.Refused, OSError):
+            raise Refused("aggregate-occurrence-reconciliation")
+        need(parent_head == rec.get("headSha"), "aggregate-occurrence-reconciliation")
     release = load_json(occurrence["releaseVerification"], "aggregate-occurrence-release-verification")
     tested = (request.get("release") or {}).get("testedSha")
     need(release.get("needs") == [] and (release.get("testedSha") or release.get("releaseSha") or release.get("sourceSha")) == tested,

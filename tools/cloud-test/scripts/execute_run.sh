@@ -236,9 +236,19 @@ case "$STAGE" in
       # admit a request or a PASS result; the full receiver below still requires this occurrence's authenticated reserve and runtime evidence.
       run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
         --config "$CFG" --retained-out-dir "$retained"
+      plan="$OUT/plan/cfg/campaign-plan.json"
+      identity_url="$(python3 -I "$ROOT/scripts/cfg_get.py" "$plan" targetUrl)"
+      identity_sha="$(python3 -I "$ROOT/scripts/cfg_get.py" "$plan" servedSha)"
+      identity_ledger="$(python3 -I "$ROOT/scripts/cfg_get.py" "$plan" identityLedger)"
+      identity_cap="$(python3 -I "$ROOT/scripts/cfg_get.py" "$plan" identityCap)"
+      # The first of the approved identity reads proves the current served release before G2/G7. The same private ledger remains bound to
+      # the campaign and carries the per-case/final reads; identity-check reserves durably before its one network request and never retries.
+      run_stage gate-and-validate node "$HP/bundle/harness/identity-check.cjs" --authorize-identity-read true \
+        --url "$identity_url" --expect-sha "$identity_sha" --ledger "$identity_ledger" --cap "$identity_cap" --phase admission-release \
+        > "$OUT/admission-identity-receipt.json"
       run_stage gate-and-validate python3 -I "$ROOT/scripts/verify_release.py" --request "$REQ" \
         --ledger "$retained/gap-ledger.json" --config "$CFG" --receipts-root "$CT_RECEIPTS_ROOT" \
-        --repo "${CT_CHECKOUT:-$REPO}" --out "$OUT/release-verification.json"
+        --repo "${CT_CHECKOUT:-$REPO}" --current-identity-ledger "$identity_ledger" --out "$OUT/release-verification.json"
       # Both nightly and the approved manual full-coverage route authenticate their occurrence through the same reviewed state ref.
       run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
       RES_IN="$OUT/journal-snapshot.json"
