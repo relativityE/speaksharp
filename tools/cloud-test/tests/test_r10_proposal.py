@@ -1,5 +1,6 @@
 """The R10 manual all-15 request PROPOSAL (Sam 1793556832.735079) stays a proposal: the reviewed template's shape, all 15 journeys with the
-ledger's gaps, and no approval, release, harness pin or budget figure bound. Prepare refuses it, and its location is not the admitted one."""
+ledger's gaps and the current derived accounting figures, but no approval, release or harness pin. Prepare refuses it, and its location is not the
+admitted one."""
 import json
 import os
 import unittest
@@ -30,19 +31,25 @@ class R10Proposal(unittest.TestCase):
         self.assertEqual({(s["case"], g) for s in self.req["selection"] for g in s["gaps"]}, observed)
         self.assertEqual(self.req["targetedGaps"], sorted(g["id"] for g in ledger["gaps"]))
 
-    def test_nothing_is_approved_bound_or_typed(self):
+    def test_derived_figures_do_not_approve_or_bind_the_proposal(self):
         r = self.req
         self.assertTrue(all(v is None for v in r["approvedLimits"].values()))
         self.assertTrue(all(v is None for v in r["window"].values()))
         self.assertEqual((r["selectionApprovalRef"], r["release"]["testedSha"], r["release"]["lastRunTestedSha"]), (None, None, None))
         self.assertTrue(all(v is None for v in r["release"]["backend"].values()))
         self.assertTrue(all(v is None for v in r["harness"].values()))
-        self.assertTrue(all(s["plannedRequests"] is None and s["needsCaptureDevice"] is None for s in r["selection"]))
+        self.assertEqual([s["plannedRequests"] for s in r["selection"]],
+                         [340, 260, 230, 160, 320, 310, 360, 110, 260, 190, 330, 120, 130, 360, 130])
+        self.assertEqual([s["needsCaptureDevice"] for s in r["selection"]],
+                         [True, True, True, True, True, True, True, False, True, True, True, True, True, True, False])
         e = r["estimate"]
-        self.assertTrue(all(v is None for v in e["requests"].values()))
-        self.assertEqual([e[k] for k in ("identityReads", "starts", "takes", "githubRunnerMinutesMax")], [None] * 4)
+        self.assertEqual(e["requests"], {"planned": 3610, "cleanupReserve": 150, "pooledSlack": 550, "runCap": 4310})
+        self.assertEqual([e[k] for k in ("identityReads", "starts", "takes", "githubRunnerMinutesMax")], [32, 42, 31, 30])
+        self.assertEqual(e["window"], {"expectedMinutes": 111, "worstCaseMinutes": 304, "proposedMinutes": 330})
         self.assertEqual((e["paidActionsAuthorizedUsd"], r["proposedLimits"]["paidActionsUsd"]), (0, 0))
-        self.assertTrue(all(v is None for k, v in r["proposedLimits"].items() if k not in ("paidActionsUsd", "guardCaps")))
+        self.assertEqual({k: r["proposedLimits"][k] for k in ("cumulativeCeilingRequests", "identityCap", "startsCap", "takesCap", "runCapRequests")},
+                         {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 88, "takesCap": 55, "runCapRequests": 4310})
+        self.assertEqual(sum(r["proposedLimits"]["startPressCaps"].values()), e["starts"])
 
     def test_authenticated_evidence_scope_is_the_current_five_case_role_minimum(self):
         # AHT-01/02/03 each request coaching authority (one delivery, two Supabase reads).
