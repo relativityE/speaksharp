@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import load, dump, parse_utc, now_utc, ep_requirements, mode_limits  # noqa: E402
 from verify_receipts import verify_set  # noqa: E402
 from recurring_usage import check_caps  # noqa: E402
+from case_start_caps import reconcile_caps, request_caps
 
 READY, NOTREADY, OWNER, DEFERRED = "READY", "NOT-READY", "OWNER-INPUT-OPEN", "DEFERRED-TO-RUNNER"
 
@@ -66,6 +67,12 @@ def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=
 def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None):
     G = []
     now = now or now_utc()
+    try:
+        request_caps(req)
+    except (ValueError, TypeError, KeyError):
+        return {"schema": "speaksharp.cloud-test.gate-status.v2", "decision": "NO-GO", "stage": stage,
+                "gates": [gate("G5", NOTREADY, "invalid request binding structure")],
+                "blockingOpen": ["G5"], "ownerInputsOpen": [], "deferred": []}
     lim = mode_limits(cfg, req)
     h = req.get("harness") or {}
     appr = req.get("approvedLimits") or {}
@@ -130,7 +137,13 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         G.append(gate("G4", READY if not need else NOTREADY, "stimulus preflight ready" if not need else "stimulus preflight not ready", need))
     # G5: limits against the RECONCILED cumulative usage (a recurring nightly run is limited by the STANDING approval instead: gate G11)
     need, owner_missing = [], []
+    try:
+        reconcile_caps(req, rc)
+    except (ValueError, TypeError, KeyError):
+        need.append("exact per-case Start allocations are missing, invalid or unreconciled")
     recurring = req.get("priority") == "nightly-regression"
+    if appr.get("startPressCaps") is None and not recurring:
+        owner_missing.append("approvedLimits.startPressCaps not approved")
     for k in ("cumulativeCeilingRequests", "identityCap", "runCapRequests"):
         if appr.get(k) is None and not recurring:
             owner_missing.append("approvedLimits.%s not approved" % k)

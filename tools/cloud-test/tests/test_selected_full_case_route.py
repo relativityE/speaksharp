@@ -15,6 +15,7 @@ import hashlib
 
 from _fixtures import ROOT, REPO, J, sample, fake_rv
 import validate_run_request as validator
+from test_case_start_caps import synthetic_allocation, synthetic_reconciliation
 
 
 class SelectedFullCaseRoute(unittest.TestCase):
@@ -37,15 +38,19 @@ class SelectedFullCaseRoute(unittest.TestCase):
                                      "startsCap": 100, "takesCap": 100, "approvalRef": "SYNTHETIC-NOT-AUTHORIZATION", "approvedBy": "UNIT-FIXTURE"}
         request["window"] = {"startUtc": "2026-10-30T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "SYNTHETIC-NOT-AUTHORIZATION"}
         request["selectionApprovalRef"] = "SYNTHETIC-NOT-AUTHORIZATION"
+        synthetic_allocation(request)
         return base, request
 
     def environment(self, request):
         temporary = tempfile.TemporaryDirectory(prefix="selected-full-env-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name).resolve()
-        request_file, output = root / "request.json", root / "env.txt"
+        request_file, reconciliation_file, output = root / "request.json", root / "reconciliation.json", root / "env.txt"
         request_file.write_text(json.dumps(request))
-        result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", str(request_file), "--out", str(output)],
+        reconciliation_file.write_text(json.dumps(synthetic_reconciliation()))
+        request_sha = hashlib.sha256(request_file.read_bytes()).hexdigest()
+        result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", str(request_file),
+                                 "--request-sha256", request_sha, "--reconciliation", str(reconciliation_file), "--out", str(output)],
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         values = {}
@@ -63,16 +68,34 @@ class SelectedFullCaseRoute(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return directory, json.loads((directory / "cfg/campaign-plan.json").read_text())
 
-    def stage(self, request, stage, extra=None, capture=False, mislabel_reservation=False):
-        temporary = tempfile.TemporaryDirectory(prefix="selected-stage-")
-        self.addCleanup(temporary.cleanup)
-        root = Path(temporary.name).resolve()
+    def stage(self, request, stage, extra=None, capture=False, mislabel_reservation=False, substitute_plan=False, shared_root=None):
+        if shared_root is None:
+            temporary = tempfile.TemporaryDirectory(prefix="selected-stage-")
+            self.addCleanup(temporary.cleanup)
+            root = Path(temporary.name).resolve()
+        else:
+            root = Path(shared_root).resolve()
         output = root / "out"
-        output.mkdir(mode=0o700)
-        req, facts, uid = root / "request.json", root / "facts.json", root / "account.txt"
+        output.mkdir(mode=0o700, exist_ok=True)
+        req, facts, accounts = root / "request.json", root / "facts.json", root / "live-accounts.json"
         req.write_text(json.dumps(request)); req.chmod(0o600)
-        facts.write_text(json.dumps(J("tests", "fixtures", "plan-facts.PLACEHOLDER.json"))); facts.chmod(0o600)
-        uid.write_text("00000000-0000-4000-8000-000000000001"); uid.chmod(0o600)
+        reconciliation = output / "reconciliation.json"
+        reconciliation.write_text(json.dumps(synthetic_reconciliation()))
+        facts_value = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        request_sha = hashlib.sha256(req.read_bytes()).hexdigest()
+        reconciliation_sha = hashlib.sha256(reconciliation.read_bytes()).hexdigest()
+        facts_value["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1",
+            "requestSha256": request_sha, "reconciliationSha256": reconciliation_sha,
+            "approvalRef": request["approvedLimits"]["approvalRef"],
+            "approvedBy": request["approvedLimits"]["approvedBy"],
+            "selectionApprovalRef": request["selectionApprovalRef"]}
+        facts.write_text(json.dumps(facts_value)); facts.chmod(0o600)
+        project_ref = "yxlapjuovrsvjswkwnrk"
+        accounts.write_text(json.dumps({"version": 1, "projectRef": project_ref, "accounts": {
+            "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001", "email": "unit@example.invalid"},
+            "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002", "email": "maintained@example.invalid"}}}, sort_keys=True, separators=(",", ":")) + "\n")
+        accounts.chmod(0o600)
+        (root / "run-inputs").mkdir(mode=0o700, exist_ok=True)
         browser = root / "synthetic-browser"
         browser.write_bytes(b"synthetic browser identity; never executed\n")
         browser_identity = output / "browser-identity.json"
@@ -80,12 +103,14 @@ class SelectedFullCaseRoute(unittest.TestCase):
                                                 "path": str(browser.resolve()),
                                                 "observedBinarySha256": hashlib.sha256(browser.read_bytes()).hexdigest()}))
         env = {"PATH": os.environ["PATH"], "HOME": str(root), "CT_CONFIG": str(Path(ROOT) / "config/test-config.v1.json"),
-               "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),
-               "CT_ACCOUNT_ID_FILE": str(uid), "BP_BROWSER_IDENTITY": str(browser_identity),
+               "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_REQUEST_SHA256": request_sha, "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),
+               "CT_LIVE_ACCOUNTS_FILE": str(accounts), "CT_LIVE_ACCOUNTS_SHA256": hashlib.sha256(accounts.read_bytes()).hexdigest(),
+               "CT_PRIVATE_INPUT_DIR": str(root / "run-inputs"), "BP_BROWSER_IDENTITY": str(browser_identity),
                "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE",
-               "VITE_SUPABASE_URL": "https://project.supabase.co",
+               "VITE_SUPABASE_URL": "https://" + project_ref + ".supabase.co",
                "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40,
+               "FREE_TEST_EMAIL": "maintained@example.invalid", "FREE_TEST_PASSWORD": "SYNTHETIC-FREE-PASSWORD",
                "THROWAWAY_TEST_EMAIL": "unit@example.invalid", "THROWAWAY_TEST_PASSWORD": "SYNTHETIC-PASSWORD"}
         record = root / "invocation.json"
         if capture:
@@ -109,7 +134,11 @@ class SelectedFullCaseRoute(unittest.TestCase):
             python_shim.chmod(0o700)
             env["PATH"] = str(binary) + os.pathsep + env["PATH"]
             (output / "plan/cfg").mkdir(parents=True, mode=0o700)
-            (output / "plan/cfg/campaign-plan.json").write_text("{}")
+            plan_file = output / "plan/cfg/campaign-plan.json"
+            plan_file.write_text("{}")
+            (output / "plan/cfg/build-plan-consumption.json").write_text(json.dumps({"planSha256": hashlib.sha256(plan_file.read_bytes()).hexdigest()}))
+            if substitute_plan:
+                plan_file.write_text('{"substituted":true}')
             (output / "plan/producer-scope.json").write_text("{}")
             if request.get("priority") == "nightly-regression":
                 for name in ("CT_HISTORY_INDEX", "CT_COUNTERS", "CT_GAP_LEDGER", "CT_RECEIPTS_ROOT", "CT_RESERVATIONS", "CT_APPROVAL"):
@@ -198,6 +227,35 @@ class SelectedFullCaseRoute(unittest.TestCase):
         self.assertIn("actual GitHub job identity required", result.stderr)
         self.assertFalse((directory / "cfg/campaign-plan.json").exists())
 
+    def test_preexisting_account_bindings_are_refused_before_plan_build(self):
+        _, request = self.request()
+        with tempfile.TemporaryDirectory(prefix="prebuilt-bindings-") as directory:
+            prebuilt = Path(directory).resolve() / "account-bindings.json"
+            prebuilt.write_text('{"synthetic":"must-not-be-trusted"}')
+            prebuilt.chmod(0o600)
+            plan, result, _ = self.stage(request, "build-plan", {"CT_ACCOUNT_BINDINGS_FILE": str(prebuilt)})
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("prebuilt or replayed bindings are refused", result.stderr)
+        self.assertFalse((plan / "cfg/campaign-plan.json").exists())
+
+    def test_sequential_plan_builds_use_exclusive_bindings_from_the_same_bundle(self):
+        _, request = self.request()
+        with tempfile.TemporaryDirectory(prefix="sequential-plan-builds-") as directory:
+            root = Path(directory).resolve()
+            plan0, first, _ = self.stage(request, "build-plan", shared_root=root)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            (root / "out/stimulus-preflight-receipt.json").write_text('{"synthetic":"NOT-A-RUN"}\n')
+            plan, second, _ = self.stage(request, "build-plan-with-receipt", shared_root=root)
+            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+            bindings = sorted((root / "run-inputs").glob("account-bindings.*.json"))
+            self.assertEqual([path.name for path in bindings], [
+                "account-bindings.build-plan-with-receipt.json",
+                "account-bindings.build-plan.json",
+            ])
+            self.assertEqual(json.loads(bindings[0].read_text()), json.loads(bindings[1].read_text()))
+            self.assertTrue((plan0 / "cfg/campaign-plan.json").is_file())
+            self.assertTrue((plan / "cfg/campaign-plan.json").is_file())
+
     def test_run_stage_chooses_fixed_broker_only_for_evidence_cases_and_never_other_secrets(self):
         for producer in (False, True):
             with self.subTest(producer=producer):
@@ -219,6 +277,13 @@ class SelectedFullCaseRoute(unittest.TestCase):
                 identity_names = json.loads(record.with_name("identity-env.json").read_text())
                 for name in ("SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY", "THROWAWAY_TEST_PASSWORD", "UNKNOWN_SECRET"):
                     self.assertNotIn(name, identity_names)
+
+    def test_run_refuses_a_plan_substituted_after_build_without_starting_the_campaign_child(self):
+        _, request = self.request()
+        _, refused, record = self.stage(request, "run", capture=True, substitute_plan=True)
+        self.assertEqual(refused.returncode, 78, refused.stdout + refused.stderr)
+        self.assertIn("campaign plan changed after the build-time identity was retained", refused.stderr)
+        self.assertFalse(record.exists(), "the campaign child must not start after plan substitution")
 
     def test_nightly_prelude_and_all_python_children_never_receive_broker_keys_even_if_mislabeled(self):
         for mislabeled in (False, True):

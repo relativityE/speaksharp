@@ -60,7 +60,7 @@ run_stage() {
     [ -n "${!n:-}" ] || blocked "stage $stage needs $n and it is not set in the environment"
     e+=("$n=${!n}")
   done <<< "$names"
-  for n in CT_OUT CT_REQUEST CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_CHECKOUT CT_FACTS_FILE CT_ACCOUNT_ID_FILE CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
+  for n in CT_OUT CT_REQUEST CT_REQUEST_SHA256 CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_CHECKOUT CT_FACTS_FILE CT_LIVE_ACCOUNTS_FILE CT_LIVE_ACCOUNTS_SHA256 CT_ACCOUNT_BINDINGS_FILE CT_PRIVATE_INPUT_DIR CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
   for n in CT_EVIDENCE_SCOPE_FILE CT_EVIDENCE_SCOPE_SHA256; do
@@ -119,19 +119,46 @@ require_runtime_inputs() {
   fi
 }
 
-plan_env_file() { python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --out "$OUT/plan-env.txt" >/dev/null; }
+plan_env_file() {
+  [ -f "$OUT/reconciliation.json" ] || blocked "reconciliation.json is required before plan construction"
+  python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
+    --reconciliation "$OUT/reconciliation.json" --out "$OUT/plan-env.txt" >/dev/null
+}
+
+ensure_account_bindings() {
+  local bundle="${CT_LIVE_ACCOUNTS_FILE:-}" bundle_sha="${CT_LIVE_ACCOUNTS_SHA256:-}"
+  [ -n "$bundle" ] && [ -f "$bundle" ] || blocked "CT_LIVE_ACCOUNTS_FILE is required"
+  [ -n "$bundle_sha" ] || blocked "CT_LIVE_ACCOUNTS_SHA256 is required"
+  local private_inputs="${CT_PRIVATE_INPUT_DIR:-${RUNNER_TEMP:?RUNNER_TEMP is required}/run-inputs}"
+  CT_PRIVATE_INPUT_DIR="$private_inputs"
+  local bindings_base="${CT_ACCOUNT_BINDINGS_FILE:-$private_inputs/account-bindings.json}"
+  [ ! -e "$bindings_base" ] || blocked "account bindings output already exists; prebuilt or replayed bindings are refused"
+  case "$STAGE" in
+    build-plan) CT_ACCOUNT_BINDINGS_FILE="${bindings_base%.json}.build-plan.json" ;;
+    build-plan-with-receipt) CT_ACCOUNT_BINDINGS_FILE="${bindings_base%.json}.build-plan-with-receipt.json" ;;
+    *) blocked "account bindings may only be produced by a plan-build phase" ;;
+  esac
+  export CT_ACCOUNT_BINDINGS_FILE
+  [ ! -e "$CT_ACCOUNT_BINDINGS_FILE" ] || blocked "account bindings output already exists; prebuilt or replayed bindings are refused"
+  run_stage build-plan node "$ROOT/scripts/resolve_live_account_bindings.cjs" \
+    --bundle "$bundle" --bundle-sha256 "$bundle_sha" --project-origin "${VITE_SUPABASE_URL:?VITE_SUPABASE_URL is required}" \
+    --campaign-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)" --out "$CT_ACCOUNT_BINDINGS_FILE"
+}
 
 build() {
   local private="$1" with_receipt="${2:-}" builder="$REPO/$(python3 -I "$ROOT/scripts/cfg_get.py" "$CFG" harness.planBuilder)"
   [ -f "$builder" ] || blocked "plan builder missing at $builder"
-  for n in CT_CHECKOUT CT_FACTS_FILE CT_ACCOUNT_ID_FILE; do [ -n "${!n:-}" ] || blocked "$n is required to build the plan"; done
+  for n in CT_CHECKOUT CT_FACTS_FILE CT_REQUEST CT_REQUEST_SHA256; do [ -n "${!n:-}" ] || blocked "$n is required to build the plan"; done
+  ensure_account_bindings
   plan_env_file
   local stim=""
   [ "$with_receipt" = "with-receipt" ] && stim="$OUT/stimulus-preflight-receipt.json"
   run_stage build-plan bash -c '
     set -euo pipefail
     set -a; . "$CT_OUT/plan-env.txt"; set +a
-    export BP_PACKET="'"$HP"'" BP_CHECKOUT="$CT_CHECKOUT" BP_PRIVATE="'"$private"'" BP_FACTS="$CT_FACTS_FILE" BP_ACCOUNT_ID_FILE="$CT_ACCOUNT_ID_FILE" \
+    export BP_PACKET="'"$HP"'" BP_CHECKOUT="$CT_CHECKOUT" BP_PRIVATE="'"$private"'" BP_FACTS="$CT_FACTS_FILE" BP_ACCOUNT_BINDINGS_FILE="$CT_ACCOUNT_BINDINGS_FILE" \
+           BP_LIVE_ACCOUNTS_SHA256="$CT_LIVE_ACCOUNTS_SHA256" \
+           BP_REQUEST_FILE="$CT_REQUEST" BP_REQUEST_SHA256="$CT_REQUEST_SHA256" \
            BP_MEDIA_PARENT="${CT_MEDIA_PARENT:-/var/tmp/ss-media-cloud-test}" BP_BROWSER_IDENTITY="$CT_OUT/browser-identity.json" BP_LEASE_RPCS=1 BP_LEASE_READ=1
     if [ "$BP_RUNTIME" = "Claude SpeakSharp R4" ]; then
       export BP_TASK_ID="${CT_TASK_ID:?actual Claude task required}" BP_SOURCE_REFERENCE="${CT_SOURCE_REFERENCE:?actual Claude source reference required}" BP_ENV_ID="${CT_ENV_ID:?actual Claude environment required}"
@@ -194,15 +221,27 @@ case "$STAGE" in
     echo "final gates GO and the real runner accepts the plan" ;;
   reserve)
     require_runtime_inputs
+    execution_run_id="${GITHUB_RUN_ID:-${CT_EXECUTION_RUN_ID:-}}"
+    attempt="${GITHUB_RUN_ATTEMPT:-1}"
+    [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "reservation requires exact execution run and strict attempt 1"
     # a nightly run takes its reservation BEFORE it spends anything; any exhausted cap (requests, identity reads, Starts, takes, coaching, runner minutes, runs) refuses it
-    run_stage reserve python3 -I "$ROOT/scripts/reservations.py" reserve --request "$REQ" --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ;;
+    run_stage reserve python3 -I "$ROOT/scripts/reservations.py" reserve --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
+      --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ;;
   run)
     if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
       require_runtime_inputs
-      run_stage reserve python3 -I "$ROOT/scripts/reservations.py" require --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --run-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)"
+      execution_run_id="${GITHUB_RUN_ID:-${CT_EXECUTION_RUN_ID:-}}"
+      attempt="${GITHUB_RUN_ATTEMPT:-1}"
+      [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "run requires exact execution run and strict attempt 1"
+      run_stage reserve python3 -I "$ROOT/scripts/reservations.py" require --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
+        --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --run-id "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)"
     fi
     planfile="$OUT/plan/cfg/campaign-plan.json"
-    psha="$(sha256sum "$planfile" | cut -d' ' -f1)"
+    build_receipt="$OUT/plan/cfg/build-plan-consumption.json"
+    [ -f "$build_receipt" ] || blocked "retained build-time plan identity is missing"
+    psha="$(python3 -I "$ROOT/scripts/cfg_get.py" "$build_receipt" planSha256)" || blocked "retained build-time plan identity cannot be read"
+    actual_psha="$(sha256sum "$planfile" | cut -d' ' -f1)"
+    [ "$psha" = "$actual_psha" ] || blocked "campaign plan changed after the build-time identity was retained"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$OUT/started.txt"
     if [ "$ROUTE" = github-producer ]; then
       scopefile="$OUT/plan/producer-scope.json"
@@ -214,8 +253,12 @@ case "$STAGE" in
     fi ;;
   collect)
     started="$(cat "$OUT/started.txt")"
+    execution_run_id="${GITHUB_RUN_ID:-${CT_EXECUTION_RUN_ID:-}}"
+    attempt="${GITHUB_RUN_ATTEMPT:-1}"
+    [[ "$execution_run_id" =~ ^[0-9]+$ ]] && [ "$attempt" = 1 ] || blocked "collect requires exact execution run and strict attempt 1"
     printf '{"os":"%s","nodeVersion":"%s","taskId":"%s"}\n' "$(uname -sr)" "$(node -v)" "${CT_TASK_ID:-}" > "$OUT/runner.json"
-    run_stage collect python3 -I "$ROOT/scripts/collect_run_record.py" --request "$REQ" --case-results "$OUT/plan/run/case-results.json" --cases-dir "$OUT/plan/run/cases" --ledger-dir "$OUT/plan/ledgers" \
+    run_stage collect python3 -I "$ROOT/scripts/collect_run_record.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
+      --case-results "$OUT/plan/run/case-results.json" --cases-dir "$OUT/plan/run/cases" --ledger-dir "$OUT/plan/ledgers" \
       --gate-status "$OUT/final-gates/gate-status.json" --workflow "$ROOT/workflow.json" --runner-json "$OUT/runner.json" --started-utc "$started" --ended-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$OUT/run-record.json" ;;
   *) blocked "unknown stage $STAGE" ;;
 esac

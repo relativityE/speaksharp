@@ -5,6 +5,7 @@ tests/fixtures/plan-facts.PLACEHOLDER.json, with a dummy account id and a dummy 
 no network. The packet under test is the vendored harness unless --packet names another copy.
 Usage: proof_prep_cases.py --out NEW_DIR [--packet HARNESS_DIR]   (prints NEW_DIR/cases on success)"""
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -16,6 +17,44 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 REPO = os.path.abspath(os.path.join(ROOT, "..", ".."))
 DUMMY_ACCOUNT = "00000000-0000-4000-8000-000000000001"
+PROJECT_REF = "yxlapjuovrsvjswkwnrk"
+
+
+def synthetic_case10_record(request):
+    """The content-free Case 10 starting-state projection used only by this offline proof.
+
+    Bind it to the synthetic request before that request is hashed: the real builder
+    validates the same record and digest before emitting any plan output.
+    """
+    projection = {
+        "snapshotSizes": [3, 3, 4, 4, 5, 5], "leaseHeldIntervalsMs": [60000],
+        "scanObligationCounts": [10, 10], "loadQueueSizes": [2],
+        "saveEvaluationInvocations": 2, "distinctRetryDebtsUpperBound": 1,
+        "historyQueryLifecycles": 2, "recommendationSettlementInvocations": 1,
+        "leaseAcquisitions": 2, "leaseConfirmations": 2, "openAttemptAdvances": 1,
+        "cancelledAttempts": 1, "localRetrySkips": 4, "bootstrap": 5, "auth": 3,
+        "navigation": 4, "modelAcquisition": 2, "preflights": 2,
+        "successorSave": 3, "evidenceTail": 2,
+    }
+    return {
+        "schema": "speaksharp.cloud-test.case10-projection.v1",
+        "runId": request["runId"],
+        "sourceSha": request["release"]["testedSha"],
+        "accountSubjectSha256": hashlib.sha256(DUMMY_ACCOUNT.encode("utf-8")).hexdigest(),
+        "evidenceRef": "SYNTHETIC-NOT-A-RUN",
+        "projection": projection,
+    }
+
+
+def bind_synthetic_case10(request, facts):
+    record = synthetic_case10_record(request)
+    rows = [row for row in request["selection"] if row.get("case") == "AHT-10"]
+    if len(rows) != 1:
+        raise SystemExit("BLOCKED_SETUP: synthetic request must select Case 10 exactly once")
+    encoded = json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    rows[0]["requestBoundSha256"] = hashlib.sha256(encoded).hexdigest()
+    facts["case10RequestBound"] = record
+    return record
 
 
 def placeholder_request(packet):
@@ -27,6 +66,7 @@ def placeholder_request(packet):
                              "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
     req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
     req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
+    req["approvedLimits"]["startPressCaps"] = dict(req["proposedLimits"]["startPressCaps"])
     return req
 
 
@@ -51,21 +91,53 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
     if os.path.exists(out):
         raise SystemExit("--out must not exist")
     pdfjs = pinned_pdfjs()
-    work = tempfile.mkdtemp(prefix="ct-proof-prep-")
-    reqp, acct, envf = (os.path.join(work, n) for n in ("req.json", "acct.txt", "env.txt"))
+    # macOS exposes the per-user temporary directory through a /var symlink;
+    # run_env deliberately accepts only canonical input paths.
+    work = os.path.realpath(tempfile.mkdtemp(prefix="ct-proof-prep-"))
+    reqp, bindings, envf, rcp, factp = (os.path.join(work, n) for n in
+        ("req.json", "account-bindings.json", "env.txt", "reconciliation.json", "facts.json"))
+    request = placeholder_request(packet)
+    with open(os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), encoding="utf-8") as f:
+        facts = json.load(f)
+    bind_synthetic_case10(request, facts)
     with open(reqp, "w", encoding="utf-8") as f:
-        json.dump(placeholder_request(packet), f)
-    with open(acct, "w", encoding="utf-8") as f:
-        f.write(DUMMY_ACCOUNT + "\n")
-    os.chmod(acct, 0o600)
+        json.dump(request, f)
+    binding = {"schema": "speaksharp.cloud-test.live-account-bindings.v1", "projectRef": PROJECT_REF,
+               "projectOrigin": "https://%s.supabase.co" % PROJECT_REF, "sourceBundleSha256": "a" * 64,
+               "campaignId": request["runId"], "roles": {
+                   "existing-disposable": {"accountId": DUMMY_ACCOUNT, "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}},
+                   "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002", "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}}}
+    with open(bindings, "w", encoding="utf-8") as f:
+        json.dump(binding, f)
+    os.chmod(bindings, 0o600)
     base = {"PATH": os.environ["PATH"], "HOME": work}
-    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "run_env.py"), "--request", reqp, "--out", envf], capture_output=True, text=True, cwd=ROOT, env=base)
+    with open(reqp, "rb") as stream:
+        request_sha256 = hashlib.sha256(stream.read()).hexdigest()
+    reconciliation = {"synthetic": "PLACEHOLDER-NOT-A-RUN", "starts": {"ownerCounted": 0},
+        "ceilings": {"starts": 85, "requests": 20000, "identityReads": 200, "takes": 100,
+                     "protectedReserveRequests": 50}, "requests": {"conservativeUsed": 0},
+        "identityReads": {"conservativeUsed": 0}, "takes": {"ownerCounted": 0}}
+    with open(rcp, "w", encoding="utf-8") as f:
+        json.dump(reconciliation, f)
+    with open(rcp, "rb") as stream:
+        reconciliation_sha256 = hashlib.sha256(stream.read()).hexdigest()
+    facts["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1",
+        "requestSha256": request_sha256, "reconciliationSha256": reconciliation_sha256,
+        "approvalRef": request["approvedLimits"]["approvalRef"], "approvedBy": request["approvedLimits"]["approvedBy"],
+        "selectionApprovalRef": request["selectionApprovalRef"]}
+    with open(factp, "w", encoding="utf-8") as f:
+        json.dump(facts, f)
+    r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "run_env.py"), "--request", reqp,
+                        "--request-sha256", request_sha256, "--reconciliation", rcp, "--out", envf],
+                       capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
-        raise SystemExit("run_env.py failed (%d)" % r.returncode)
+        detail = (r.stderr or r.stdout or "no diagnostic output").strip().replace("\n", " | ")
+        raise SystemExit("run_env.py failed (%d): %s" % (r.returncode, detail[:500]))
     if "phase2" in phases and not browser_identity:
         raise SystemExit("BLOCKED_SETUP: phase2 requires this proof run's browser identity receipt")
-    env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"),
-               BP_ACCOUNT_ID_FILE=acct, BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
+    env = dict(base, BP_PACKET=packet, BP_CHECKOUT=REPO, BP_PRIVATE=out, BP_FACTS=factp,
+               BP_ACCOUNT_BINDINGS_FILE=bindings, BP_LIVE_ACCOUNTS_SHA256="a" * 64, BP_REQUEST_FILE=reqp, BP_REQUEST_SHA256=request_sha256,
+               BP_LEASE_RPCS="1", BP_LEASE_READ="1", BP_TASK_ID="PLACEHOLDER-task", BP_SOURCE_REFERENCE="https://claude.ai/code/PLACEHOLDER",
                BP_ENV_ID="env_PLACEHOLDER", BP_MEDIA_PARENT=os.path.join(work, "media"), VITE_SUPABASE_ANON_KEY="placeholder-publishable-key", BP_PDFJS_DIR=pdfjs)
     if browser_identity:
         env["BP_BROWSER_IDENTITY"] = os.path.abspath(browser_identity)

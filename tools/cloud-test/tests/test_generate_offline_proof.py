@@ -1,5 +1,6 @@
 """The in-job proof generator propagates every failure (Sam 1793385574): a truncated or failing suite, an incomplete plan-control run, any
 mutation refusal or uncaught control, or a proof that is not PASS means no accepted proof and a failing job. A pre-existing output is refused."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -42,6 +43,33 @@ def problems(**over):
 
 
 class Verdict(unittest.TestCase):
+    def test_synthetic_case10_projection_is_bound_before_the_request_digest(self):
+        import proof_prep_cases
+        import case_start_caps
+        req = proof_prep_cases.placeholder_request(str(SCRIPTS.parent / "harness"))
+        facts = {}
+        record = proof_prep_cases.bind_synthetic_case10(req, facts)
+        encoded = json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+        row = next(item for item in req["selection"] if item["case"] == "AHT-10")
+        self.assertEqual(row["requestBoundSha256"], hashlib.sha256(encoded).hexdigest())
+        request_bytes = json.dumps(req).encode()
+        approval = {"requestSha256": hashlib.sha256(request_bytes).hexdigest()}
+        self.assertEqual(approval["requestSha256"], hashlib.sha256(request_bytes).hexdigest())
+        report = case_start_caps.case10_execution_bound(req, facts, proof_prep_cases.DUMMY_ACCOUNT)
+        self.assertEqual((report["projectionSha256"], report["allowance"]), (row["requestBoundSha256"], 240))
+
+        facts["case10RequestBound"]["evidenceRef"] = "SYNTHETIC-CHANGED"
+        with self.assertRaisesRegex(case_start_caps.InputValidationError, "case10-bound-digest"):
+            case_start_caps.case10_execution_bound(req, facts, proof_prep_cases.DUMMY_ACCOUNT)
+
+    def test_synthetic_proof_request_uses_the_real_start_allocation_contract(self):
+        import proof_prep_cases
+        from case_start_caps import request_caps
+        req=proof_prep_cases.placeholder_request(str(SCRIPTS.parent/'harness'))
+        mode,caps=request_caps(req,execution=True)
+        self.assertEqual(mode,'full');self.assertEqual(sum(caps.values()),42)
+        self.assertEqual((caps['AHT-13'],caps['AHT-14']),(3,3))
+        self.assertIn('NOT-A-RUN',req['approvedLimits']['approvalRef'])
     def test_a_complete_clean_run_is_accepted(self):
         self.assertEqual(problems(), [])
 

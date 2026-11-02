@@ -21,6 +21,21 @@ PIN = J("config", "test-config.v1.json")["tools"]["pdfjs"]
 CATALOG = J("config", "assertion-catalog.json")
 RUNNER_PDF = os.path.join(ROOT, "runner", "node_modules", "pdfjs-dist")
 RECEIVING_SOURCE = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
+PROJECT_REF = "yxlapjuovrsvjswkwnrk"
+
+
+def write_account_bindings(path, campaign_id):
+    wjson(path, {"schema": "speaksharp.cloud-test.live-account-bindings.v1",
+                 "projectRef": PROJECT_REF,
+                 "projectOrigin": "https://%s.supabase.co" % PROJECT_REF,
+                 "sourceBundleSha256": "a" * 64,
+                 "campaignId": campaign_id,
+                 "roles": {
+                     "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001",
+                                               "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}},
+                     "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002",
+                                               "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}}})
+    os.chmod(path, 0o600)
 
 
 def selected_pdf_source():
@@ -123,7 +138,7 @@ class FullPlanProof(unittest.TestCase):
         prerequisite(cls.chrome, "the pinned browser installed and hash-verified (CT_CHROME)")
         cls.cwd = playwright_cwd()
         prerequisite(cls.cwd, "playwright installed from the lockfile")
-        cls.work = tempfile.mkdtemp(prefix="ct-fullplan-")
+        cls.work = os.path.realpath(tempfile.mkdtemp(prefix="ct-fullplan-"))
         cls.browser_identity = os.path.join(cls.work, "browser-identity.json")
         wjson(cls.browser_identity, {"schema": "speaksharp.cloud-test.existing-browser.v1", "path": os.path.realpath(cls.chrome),
                                     "observedBinarySha256": hashlib.sha256(Path(cls.chrome).read_bytes()).hexdigest()})
@@ -133,9 +148,11 @@ class FullPlanProof(unittest.TestCase):
         req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
         req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
         cls.req = req
-        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req)
-        cls.acct = os.path.join(cls.work, "acct.txt"); open(cls.acct, "w").write("00000000-0000-4000-8000-000000000001\n"); os.chmod(cls.acct, 0o600)
-        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--out", os.path.join(cls.work, "env.txt"))
+        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req); os.chmod(cls.reqp, 0o600)
+        cls.bindings = os.path.join(cls.work, "account-bindings.json")
+        write_account_bindings(cls.bindings, req["runId"])
+        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--request-sha256", hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
+                   "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
         cls.p0, out = cls.build("plan0")
         assert [o.returncode for o in out] == [0, 0], [o.stderr for o in out]
@@ -155,7 +172,9 @@ class FullPlanProof(unittest.TestCase):
         # overrides are exported AFTER the request-derived environment is sourced, otherwise the request's own values would win
         script += "".join("export %s=%s; " % (k, shlex.quote(v)) for k, v in (extra or {}).items())
         env = {"PATH": os.environ["PATH"], "HOME": cls.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
-               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": cls.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
+               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_BINDINGS_FILE": cls.bindings,
+               "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
+               "BP_REQUEST_FILE": cls.reqp, "BP_REQUEST_SHA256": hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(), "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(cls.work, "media"),
                "BP_BROWSER_IDENTITY": cls.browser_identity,
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key", "BP_PDFJS_DIR": cls.pdf_source}

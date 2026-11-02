@@ -13,6 +13,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -22,6 +23,7 @@ from _common import ROOT, load, parse_utc, now_utc  # noqa: E402
 
 LEDGER = os.path.join(ROOT, "config", "history", "reservations.json")
 CATS = ("requests", "identityReads", "starts", "takes", "coachingRequests", "runnerMinutes")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _blocked(code):
@@ -130,7 +132,8 @@ def state(led):
     out = {}
     for e in led.get("events", []):
         if e["event"] == "reserve":
-            out[e["runId"]] = {"status": "reserved", "caps": e["caps"], "reservedUtc": e["atUtc"], "ref": e.get("ref")}
+            out[e["runId"]] = {"status": "reserved", "caps": e["caps"], "reservedUtc": e["atUtc"], "ref": e.get("ref"),
+                               "requestConsumption": e.get("requestConsumption"), "reservationEntryHash": e.get("entryHash")}
         elif e["event"] == "release" and e["runId"] in out:
             out[e["runId"]].update(status="released", releasedUtc=e["atUtc"], reason=e.get("reason"), releaseRef=e.get("ref"))
     return out
@@ -152,6 +155,32 @@ def caps_of_request(req):
             "coachingRequests": (est.get("providerBillableRequests") or {}).get("coachingCap"), "runnerMinutes": est.get("githubRunnerMinutesMax")}
 
 
+def consumed_request(path, expected_sha256):
+    if not isinstance(path, str) or not os.path.isabs(path) or os.path.realpath(path) != path:
+        sys.exit("BLOCKED_SETUP: request path must be absolute and canonical")
+    if not SHA256.fullmatch(expected_sha256 or ""):
+        sys.exit("BLOCKED_SETUP: admitted request digest is missing or malformed")
+    with open(path, "rb") as stream:
+        request_bytes = stream.read()
+    actual = hashlib.sha256(request_bytes).hexdigest()
+    if actual != expected_sha256:
+        sys.exit("BLOCKED_SETUP: request changed since admission")
+    try:
+        request = json.loads(request_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        sys.exit("BLOCKED_SETUP: admitted request is not valid JSON")
+    return request
+
+
+def request_consumption(req, expected_sha256, execution_run_id, attempt, stamp, caps):
+    if not isinstance(execution_run_id, str) or not execution_run_id.isdecimal() or attempt != 1:
+        sys.exit("BLOCKED_SETUP: exact execution run and strict attempt 1 required")
+    if not isinstance(req.get("runId"), str) or not req["runId"]:
+        sys.exit("BLOCKED_SETUP: request campaign is missing")
+    return {"campaignId": req["runId"], "runId": execution_run_id, "attempt": 1, "consumer": "reservation",
+            "requestSha256": expected_sha256, "consumedAtUtc": stamp, "allocation": caps}
+
+
 def execute(x, now):
     led = load(x.ledger) if os.path.exists(x.ledger) else empty()
     errs = verify(led)
@@ -165,6 +194,11 @@ def execute(x, now):
         st = state(led).get(x.run_id)
         if not st or st["status"] != "reserved":
             sys.exit("BLOCKED_SETUP: %s has no open reservation: reserve its caps before the run (stage reserve)" % x.run_id)
+        expected = {"campaignId": x.run_id, "runId": x.execution_run_id, "attempt": x.attempt,
+                    "consumer": "reservation", "requestSha256": x.request_sha256}
+        consumption = st.get("requestConsumption") or {}
+        if x.attempt != 1 or any(consumption.get(key) != value for key, value in expected.items()):
+            sys.exit("BLOCKED_SETUP: reservation does not bind this admitted request/execution")
         print("reservation present for %s" % x.run_id)
         return
     if x.command == "release":
@@ -175,7 +209,7 @@ def execute(x, now):
         print("released", x.run_id)
         return
     from recurring_usage import check_caps
-    req = load(x.request)
+    req = consumed_request(x.request, x.request_sha256)
     if req.get("priority") != "nightly-regression":
         sys.exit("REFUSED: reservations are for nightly-regression requests")
     if req["runId"] in state(led):
@@ -187,14 +221,20 @@ def execute(x, now):
         for n in needs:
             print(" -", n)
         sys.exit(78)
-    atomic_dump(append(led, {"event": "reserve", "runId": req["runId"], "atUtc": stamp, "caps": caps_of_request(req), "ref": (approval or {}).get("approvalRef")}), x.ledger)
-    print("reserved %s: %s" % (req["runId"], json.dumps(caps_of_request(req))))
+    caps = caps_of_request(req)
+    consumption = request_consumption(req, x.request_sha256, x.execution_run_id, x.attempt, stamp, caps)
+    atomic_dump(append(led, {"event": "reserve", "runId": req["runId"], "atUtc": stamp, "caps": caps,
+                             "requestConsumption": consumption, "ref": (approval or {}).get("approvalRef")}), x.ledger)
+    print("reserved %s: %s" % (req["runId"], json.dumps(caps)))
 
 
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=["reserve", "release", "verify", "require"])
     a.add_argument("--request")
+    a.add_argument("--request-sha256")
+    a.add_argument("--execution-run-id")
+    a.add_argument("--attempt", type=int)
     a.add_argument("--approval", default=os.path.join(ROOT, "config", "recurring-approval.json"))
     a.add_argument("--index", default=os.path.join(ROOT, "config", "history", "index.json"))
     a.add_argument("--ledger", default=LEDGER)

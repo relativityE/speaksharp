@@ -2,18 +2,48 @@
 """Maps a validated run request to the plan-builder environment variables (names, not secrets). Offline.
 The names follow the harness plan builder (build_private_*.py): BP_CAMPAIGN, BP_T0/BP_T1, BP_TOTAL, BP_CLEANUP, BP_IDENT, BP_SELECT, BP_GATES, BP_EST,
 BP_SELECT_REF, BP_SELECT_REASON, BP_BACKEND_*. Credentials are NOT written here; the workflow supplies them at the build and run steps only.
-Usage: run_env.py --request R.json --out env.txt"""
+Usage: run_env.py --request R.json --request-sha256 SHA --reconciliation RC.json --out env.txt"""
 import argparse
+import hashlib
+import json
 import os
+import re
 import shlex
+import stat
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import load  # noqa: E402
+from case_start_caps import request_caps  # noqa: E402
 
 
 SAMPLE = {"partial": "minimal", "full": "full"}
 BP_MODE = dict(SAMPLE)   # the request's coverageMode is the only source; a request without one fails here
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def bound_request(path, expected_sha256):
+    if not isinstance(path, str) or not os.path.isabs(path) or os.path.realpath(path) != path:
+        sys.exit("BLOCKED_SETUP: request path must be absolute and canonical")
+    try:
+        info = os.lstat(path)
+    except OSError:
+        sys.exit("BLOCKED_SETUP: admitted request is unavailable")
+    if not stat.S_ISREG(info.st_mode) or os.path.islink(path) or info.st_nlink != 1:
+        sys.exit("BLOCKED_SETUP: admitted request must be a single private file")
+    if not SHA256.fullmatch(expected_sha256 or ""):
+        sys.exit("BLOCKED_SETUP: admitted request digest is missing or malformed")
+    with open(path, "rb") as stream:
+        raw = stream.read()
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        sys.exit("BLOCKED_SETUP: request changed since admission")
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        sys.exit("BLOCKED_SETUP: admitted request is not valid JSON")
+    if not isinstance(value, dict):
+        sys.exit("BLOCKED_SETUP: admitted request must be an object")
+    return value
 
 
 def cfg_pin():
@@ -28,9 +58,27 @@ def num(case):
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--request", required=True)
+    a.add_argument("--request-sha256", required=True)
+    a.add_argument("--reconciliation", required=True)
     a.add_argument("--out", required=True)
     x = a.parse_args()
-    r = load(x.request)
+    r = bound_request(x.request, x.request_sha256)
+    if not os.path.isabs(x.reconciliation) or os.path.realpath(x.reconciliation) != x.reconciliation:
+        sys.exit("BLOCKED_SETUP: reconciliation path must be absolute and canonical")
+    try:
+        reconciliation_info = os.lstat(x.reconciliation)
+        reconciliation_raw = open(x.reconciliation, "rb").read()
+        reconciliation = json.loads(reconciliation_raw)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        sys.exit("BLOCKED_SETUP: reconciliation is unavailable or invalid")
+    if not stat.S_ISREG(reconciliation_info.st_mode) or os.path.islink(x.reconciliation) or reconciliation_info.st_nlink != 1 \
+            or type(reconciliation) is not dict:
+        sys.exit("BLOCKED_SETUP: reconciliation must be one regular JSON object")
+    reconciliation_sha256 = hashlib.sha256(reconciliation_raw).hexdigest()
+    try:
+        contract_mode, _ = request_caps(r, execution=True)
+    except (KeyError, TypeError, ValueError):
+        sys.exit("BLOCKED_SETUP: invalid Start allocation")
     mode = r.get("coverageMode")
     if mode not in BP_MODE:
         sys.exit("coverageMode must be partial or full; the plan mode is never defaulted")
@@ -43,6 +91,8 @@ def main():
     if runtime not in ("Claude SpeakSharp R4", "GitHub Actions SpeakSharp"):
         sys.exit("executionRuntime must be an explicitly supported runtime")
     builder_mode = "selected-full" if mode == "partial" and r["sampleMode"] == "full" else BP_MODE[mode]
+    if contract_mode != builder_mode:
+        sys.exit("BLOCKED_SETUP: Start allocation mode differs from builder mode")
     est, sel, win, appr, rel = r["estimate"], r["selection"], r["window"], r["approvedLimits"], r["release"]
     gates = []
     for s in sel:
@@ -58,6 +108,8 @@ def main():
         "BP_SELECT_REF": r["selectionApprovalRef"], "BP_SELECT_REASON": r["purpose"][:200], "BP_SOURCE_SHA": rel["testedSha"],
         "BP_PDFJS_SHA": cfg_pin(),
         "BP_BACKEND_SOURCE": rel["backend"]["source"], "BP_BACKEND_VERIFIED": rel["backend"]["verifiedAtUtc"] or "-",
+        "BP_REQUEST_FILE": x.request, "BP_REQUEST_SHA256": x.request_sha256,
+        "BP_RECONCILIATION_FILE": x.reconciliation, "BP_RECONCILIATION_SHA256": reconciliation_sha256,
     }
     env["BP_BACKEND_VERIFIED"] = "" if env["BP_BACKEND_VERIFIED"] == "-" else env["BP_BACKEND_VERIFIED"]
     if builder_mode == "selected-full":

@@ -312,12 +312,15 @@ class MultiCaseGapsNeedEveryCase(unittest.TestCase):
     def test_a_request_must_select_every_case_of_a_targeted_gap(self):
         import validate_run_request as V
         from _fixtures import reconciliation
+        from test_case_start_caps import synthetic_allocation
         s = sample()
         req = copy.deepcopy(s["req"])
         req["targetedGaps"] = ["GAP-03", "GAP-06"]
         req["priority"] = "prove-deployed-fix"
         req["selection"][0]["gaps"] = ["GAP-03", "GAP-06"]
-        req["selection"].append({"order": 2, "case": "AHT-04", "gaps": ["GAP-06"], "role": "target", "needsCaptureDevice": True, "plannedRequests": 157, "gate": None, "reason": "x"})
+        req["selection"].append({"order": 2, "case": "AHT-04", "gaps": ["GAP-06"], "role": "target", "needsCaptureDevice": True,
+                                 "plannedRequests": 157, "gate": None, "reason": "x", "startPressCap": 2})
+        synthetic_allocation(req)
         errs = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation())[0]
         self.assertTrue(any("GAP-06 requires every one of its cases" in e and "AHT-13" in e and "AHT-14" in e for e in errs), errs)
         self.assertFalse(any("GAP-03 requires" in e for e in errs))
