@@ -197,6 +197,14 @@ class Derivation(unittest.TestCase):
         inconsistent = json.loads(budget())
         inconsistent["perCase"][0]["startsMin"] += 1
         refused(self, "nightly-budget-shape", derive, bud=json.dumps(inconsistent).encode())
+        duplicate = json.loads(budget())
+        duplicate["perCase"][1]["case"] = duplicate["perCase"][0]["case"]
+        refused(self, "nightly-budget-shape", derive, bud=json.dumps(duplicate).encode())
+        below_case_minimum = json.loads(budget())
+        below_case_minimum["perCase"][0]["startsMin"] -= 1
+        below_case_minimum["perCase"][1]["startsMin"] += 1
+        refused(self, "nightly-execution-contract", derive, bud=json.dumps(below_case_minimum).encode())
+        refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"starts": 41}))
         late_slot = datetime(2026, 11, 30, 21, 0, tzinfo=timezone.utc)
         refused(self, "nightly-window-outside-period", derive, slot=late_slot)
         refused(self, "nightly-occurrence-outside-period", derive, slot=datetime(2026, 12, 1, 3, 0, tzinfo=timezone.utc))
