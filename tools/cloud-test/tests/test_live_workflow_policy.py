@@ -370,9 +370,61 @@ class Case10ObserveCredentials(unittest.TestCase):
         init = next(st for st in yaml.safe_load(text)["jobs"]["live"]["steps"] if st.get("id") == "init")
         self.assertEqual(init["env"]["CT_CASE10_PASSWORD"], "${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}")
         self.assertEqual(init["env"]["CT_CASE10_ANON_KEY"], "${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}")
+        others = [st for job in yaml.safe_load(text)["jobs"].values() for st in job["steps"] if st is not init]
         for name in ("CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"):
-            self.assertEqual(text.count(name), 1, name)  # one env entry; no run script or other step names it
+            self.assertFalse(any(name in json.dumps(st) for st in others), name)  # no other step names it
         self.assertIn("case10_observation.py observe", init["run"])
+
+    def children(self, event):
+        """Sam 1793584373.385389, behavioural: the REAL init script, with python3 and base64 shadowed by shell functions that record the
+        environment each child would receive (exported variables only), then the real base64 runs."""
+        import base64
+        import shutil
+        import subprocess
+        import tempfile
+        import yaml
+        with open(YML, encoding="utf-8") as f:
+            init = next(st for st in yaml.safe_load(f)["jobs"]["live"]["steps"] if st.get("id") == "init")
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        calls = os.path.join(d, "calls")
+        os.mkdir(calls)
+        # the call index counts recorded files, so it survives the script's ( ... ) subshell
+        shadow = ('python3() { __n=$(command ls "$CALLS" | command wc -l | command tr -d " "); env > "$CALLS/$__n.python3.env"; '
+                  'printf "%s\\n" "$*" > "$CALLS/$__n.python3.argv"; }\n'
+                  'base64() { __n=$(command ls "$CALLS" | command wc -l | command tr -d " "); env > "$CALLS/$__n.base64.env"; command base64 "$@"; }\n')
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "CALLS": calls, "GITHUB_EVENT_NAME": event, "RUNNER_TEMP": d,
+               "PRIOR_STATE": "{}", "NIGHTLY_REQUEST_B64": base64.b64encode(b"{}").decode(), "NIGHTLY_REQUEST_SHA256": "a" * 64,
+               "REQUEST": "r.json", "FACTS": "f.json", "CT_CONFIG": "c.json", "GITHUB_WORKSPACE": d, "GITHUB_RUN_ID": "101",
+               "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "4" * 40, "GITHUB_ENV": os.path.join(d, "env"), "GITHUB_OUTPUT": os.path.join(d, "out"),
+               "CT_CASE10_PASSWORD": "case10-pw-value" if event == "schedule" else "", "CT_CASE10_ANON_KEY": "case10-anon-value" if event == "schedule" else ""}
+        p = subprocess.run(["bash", "-c", shadow + init["run"]], env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        out = {}
+        for fn in sorted(os.listdir(calls), key=lambda x: int(x.split(".")[0])):
+            if fn.endswith(".env"):
+                n, tool = fn.split(".")[:2]
+                argv = open(os.path.join(calls, "%s.python3.argv" % n)).read() if tool == "python3" else "base64"
+                out[(int(n), tool, argv.split()[1] if tool == "python3" else "base64")] = open(os.path.join(calls, fn)).read()
+        return out
+
+    def test_only_the_observe_child_receives_the_case10_credentials(self):
+        seen = self.children("schedule")
+        self.assertEqual([k[2] for k in sorted(seen)], ["base64", "tools/cloud-test/scripts/case10_observation.py",
+                                                        "tools/cloud-test/scripts/init_run_inputs.py"])
+        for (_, _, what), env in seen.items():
+            names = {line.split("=", 1)[0] for line in env.splitlines()}
+            if what.endswith("case10_observation.py"):
+                self.assertIn("CT_CASE10_PASSWORD=case10-pw-value", env.splitlines())
+                self.assertIn("CT_CASE10_ANON_KEY=case10-anon-value", env.splitlines())
+            else:  # base64 before it and prepare after it receive neither name nor value
+                self.assertFalse({"CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY", "C10_PASSWORD", "C10_ANON_KEY"} & names, what)
+                self.assertNotIn("case10-pw-value", env)
+                self.assertNotIn("case10-anon-value", env)
+        dispatch = self.children("workflow_dispatch")
+        self.assertEqual([k[2] for k in sorted(dispatch)], ["tools/cloud-test/scripts/init_run_inputs.py"])
+        for env in dispatch.values():
+            self.assertFalse({"CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"} & {line.split("=", 1)[0] for line in env.splitlines()})
 
 
 def writers_of(jobs, name):

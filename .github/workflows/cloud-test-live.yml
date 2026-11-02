@@ -242,6 +242,9 @@ jobs:
           CT_CASE10_ANON_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}
         run: |
           set -euo pipefail
+          # Sam 1793584373.385389: the Case 10 reader's credentials reach ONLY the observe child. They move into unexported shell variables at
+          # once, so no other child of this step (base64, prepare) inherits them, and are discarded right after the observation.
+          C10_PASSWORD="${CT_CASE10_PASSWORD-}"; C10_ANON_KEY="${CT_CASE10_ANON_KEY-}"; unset CT_CASE10_PASSWORD CT_CASE10_ANON_KEY
           printf '%s' "$PRIOR_STATE" > "$RUNNER_TEMP/prior-state.json"
           # A dispatch names its committed request and facts; a scheduled run admits exactly the gate's derived bytes (prepare checks their
           # digest) and reads its facts only from the pinned committed file (prepare refuses a facts input there).
@@ -252,13 +255,15 @@ jobs:
             # when the verified journal already holds the open reserve journal-reserve appended, and never pushes. Inactive: the step refuses
             # until a trusted reader and the activated writer exist, and writes nothing when the request pins no observation contract; prepare
             # and the builder then re-admit the record it placed.
-            python3 -I tools/cloud-test/scripts/case10_observation.py observe --request "$RUNNER_TEMP/nightly-request.json" \
+            CT_CASE10_PASSWORD="$C10_PASSWORD" CT_CASE10_ANON_KEY="$C10_ANON_KEY" \
+              python3 -I tools/cloud-test/scripts/case10_observation.py observe --request "$RUNNER_TEMP/nightly-request.json" \
               --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
               --repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/case10-observation.json"
             if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi
           else
             SRC=(--request "$REQUEST" --facts "$FACTS")
           fi
+          unset C10_PASSWORD C10_ANON_KEY
           python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \
             --checkpoint "$RUNNER_TEMP/prior-state.json" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --source-sha "$GITHUB_SHA" --job-timeout-minutes 340 --out "$RUNNER_TEMP/run-inputs" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
