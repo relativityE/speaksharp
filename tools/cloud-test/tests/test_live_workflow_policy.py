@@ -126,15 +126,29 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertNotRegex(self.text, r"vars\.%s\b" % name, name)
         self.assertNotRegex(self.text, r"vars\.[A-Z_]*(_EMAIL|_ACCOUNT_ID)\b")
         self.assertNotIn("secrets.THROWAWAY_TEST_EMAIL", self.text)
-        self.assertEqual(self.text.count("secrets.CLOUD_TEST_LIVE_ACCOUNTS"), 1)
+        self.assertEqual(self.text.count("secrets.CLOUD_TEST_MAIN_LIVE_ACCOUNTS"), 1)
         # A value derived from a Secret by an expression is not masked by Actions: the bundle is never parsed in a workflow expression.
         self.assertNotRegex(self.text, r"fromJSON\(\s*secrets\.")
-        self.assertIn("THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}", self.text)
+        self.assertIn("THROWAWAY_TEST_PASSWORD: ${{ secrets.CLOUD_TEST_MAIN_THROWAWAY_PASSWORD }}", self.text)
         # Case15 (Sam 1793554938.870679): the maintained-read-only role's password reaches the run step from its own Secret; its email
         # comes only from the private bundle, like THROWAWAY's.
-        self.assertEqual(self.text.count("FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}"), 1)
+        self.assertEqual(self.text.count("FREE_TEST_PASSWORD: ${{ secrets.CLOUD_TEST_MAIN_FREE_PASSWORD }}"), 1)
         self.assertNotIn("FREE_TEST_EMAIL: ${{", self.text)
         self.assertNotIn("throwaway-email-not-secret", self.text)
+
+    def test_live_credentials_use_protected_environment_only_secret_names(self):
+        protected = {
+            "CLOUD_TEST_MAIN_LIVE_ACCOUNTS",
+            "CLOUD_TEST_MAIN_SUPABASE_ANON_KEY",
+            "CLOUD_TEST_MAIN_THROWAWAY_PASSWORD",
+            "CLOUD_TEST_MAIN_FREE_PASSWORD",
+            "CLOUD_TEST_MAIN_SUPABASE_SERVICE_ROLE_KEY",
+            "CLOUD_TEST_MAIN_POSTHOG_PERSONAL_API_KEY",
+            "CLOUD_TEST_MAIN_POSTHOG_PROJECT_ID",
+        }
+        references = set(re.findall(r"secrets\.([A-Z0-9_]+)", self.text))
+        self.assertEqual(references, protected)
+        self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
 
     def test_the_record_jobs_bind_the_exact_issue_and_comment(self):
         # select at begin, select before the terminal write, and the readback verification after it: all bound to the one tracking issue
@@ -142,9 +156,14 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('--comment-id "$COMMENT_ID"', self.text)
 
     def test_producer_keys_reach_only_the_producer_route(self):
-        for name in ("SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY", "POSTHOG_PROJECT_ID"):
-            refs = [line.strip() for line in self.text.splitlines() if ("secrets.%s" % name) in line]
-            self.assertEqual(refs, ["%s: ${{ steps.init.outputs.route == 'github-producer' && secrets.%s || '' }}" % (name, name)])
+        protected = {
+            "SUPABASE_SERVICE_ROLE_KEY": "CLOUD_TEST_MAIN_SUPABASE_SERVICE_ROLE_KEY",
+            "POSTHOG_PERSONAL_API_KEY": "CLOUD_TEST_MAIN_POSTHOG_PERSONAL_API_KEY",
+            "POSTHOG_PROJECT_ID": "CLOUD_TEST_MAIN_POSTHOG_PROJECT_ID",
+        }
+        for name, secret in protected.items():
+            refs = [line.strip() for line in self.text.splitlines() if ("secrets.%s" % secret) in line]
+            self.assertEqual(refs, ["%s: ${{ steps.init.outputs.route == 'github-producer' && secrets.%s || '' }}" % (name, secret)])
         # Only the producer run step receives the project identifier; no other step or job mentions it.
         steps = [s for job in self.jobs.values() for s in job["steps"] if "POSTHOG_PROJECT_ID" in (s.get("env") or {})]
         self.assertEqual([s["run"].strip() for s in steps], ["bash tools/cloud-test/scripts/execute_run.sh run"])
@@ -404,7 +423,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertTrue(role_emails.isdisjoint(run["env"]))
         self.assertTrue(set(names) - role_emails <= set(run["env"]), set(names) - set(run["env"]))
         init = next(s for s in self.jobs["live"]["steps"] if s.get("id") == "init")
-        self.assertEqual(init["env"]["CLOUD_TEST_LIVE_ACCOUNTS"], "${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}")
+        self.assertEqual(init["env"]["CLOUD_TEST_LIVE_ACCOUNTS"], "${{ secrets.CLOUD_TEST_MAIN_LIVE_ACCOUNTS }}")
         self.assertEqual(init["env"]["SUPABASE_URL"], "${{ vars.SUPABASE_URL }}")
         holders = [s.get("name", s.get("uses")) for j in self.jobs.values() for s in j["steps"] if "CLOUD_TEST_LIVE_ACCOUNTS" in (s.get("env") or {})]
         self.assertEqual(holders, [init["name"]])
@@ -412,7 +431,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_plan_build_receives_the_project_url_needed_to_resolve_account_bindings(self):
         setup = next(s for s in self.jobs["live"]["steps"] if "for stage in install-tools build-plan" in s.get("run", ""))
         self.assertEqual(setup["env"]["VITE_SUPABASE_URL"], "${{ vars.SUPABASE_URL }}")
-        self.assertEqual(setup["env"]["VITE_SUPABASE_ANON_KEY"], "${{ secrets.SUPABASE_ANON_KEY }}")
+        self.assertEqual(setup["env"]["VITE_SUPABASE_ANON_KEY"], "${{ secrets.CLOUD_TEST_MAIN_SUPABASE_ANON_KEY }}")
 
     def test_the_approved_window_is_rechecked_immediately_before_the_run_step(self):
         steps = self.jobs["live"]["steps"]
@@ -557,8 +576,8 @@ class Case10ObserveCredentials(unittest.TestCase):
             text = f.read()
         doc = yaml.safe_load(text)
         init = next(st for st in doc["jobs"]["live"]["steps"] if st.get("id") == "init")
-        self.assertEqual(init["env"]["CT_CASE10_PASSWORD"], "${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}")
-        self.assertEqual(init["env"]["CT_CASE10_ANON_KEY"], "${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}")
+        self.assertEqual(init["env"]["CT_CASE10_PASSWORD"], "${{ github.event_name == 'schedule' && secrets.CLOUD_TEST_MAIN_THROWAWAY_PASSWORD || '' }}")
+        self.assertEqual(init["env"]["CT_CASE10_ANON_KEY"], "${{ github.event_name == 'schedule' && secrets.CLOUD_TEST_MAIN_SUPABASE_ANON_KEY || '' }}")
         others = [st for job in doc["jobs"].values() for st in job["steps"] if st is not init]
         for name in ("CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"):
             self.assertFalse(any(name in json.dumps(st) for st in others), name)  # no other step names it
