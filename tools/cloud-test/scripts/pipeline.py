@@ -26,6 +26,18 @@ CRED = re.compile(r"(PASSWORD|SECRET|TOKEN|_KEY$|SERVICE_ROLE|STRIPE|CREDENTIAL)
 BENIGN = re.compile(r"^(GITHUB_|ACTIONS_|RUNNER_|CI$|HOMEBREW|PIPX|PYTHONHASHSEED|LC_|SSH_AUTH)")
 
 
+RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
+
+
+def execution_run_id(env=None):
+    """THIS execution's run id for G11's reserve binding (Sam 1793593791.820389), one strict selector for both routes: inside GitHub
+    Actions only a valid GITHUB_RUN_ID counts (the offline override is never consulted there); outside GitHub only a valid
+    CT_EXECUTION_RUN_ID. Anything else is None, so check_gates refuses the snapshot rather than bind it to a guessed run."""
+    env = os.environ if env is None else env
+    value = env.get("GITHUB_RUN_ID") if env.get("GITHUB_ACTIONS") == "true" else env.get("CT_EXECUTION_RUN_ID")
+    return value if isinstance(value, str) and RUN_ID.fullmatch(value) else None
+
+
 def run(script, *args, check=False):
     r = subprocess.run([sys.executable, "-I", os.path.join(HERE, script)] + list(args), capture_output=True, text=True, env={**os.environ, "CT_NETGUARD_LOG": os.environ["CT_NETGUARD_LOG"]})
     sys.stdout.write(r.stdout)
@@ -147,8 +159,8 @@ def main():
             # Sam 1793589877.215059: a scheduled run on the accepted-input route still evaluates its recurring gates (G11 from the journal
             # snapshot the runner passes as --reservations, the history index and the standing approval) and G7 from the carried history.
             g += ["--approval", approval, "--reservations", reservations] + now_args
-            run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("CT_EXECUTION_RUN_ID")
-            if run_id:  # G11 binds the journal's reserve to THIS execution
+            run_id = execution_run_id()
+            if run_id:  # G11 binds the journal's reserve to THIS execution; without one it refuses the snapshot
                 g += ["--execution-run-id", run_id]
             if os.path.isfile(history_index):  # the retained file history is absent on a hosted accepted run; the journal snapshot suffices
                 g += ["--history-index", history_index]
@@ -207,8 +219,8 @@ def main():
         g += ["--stimulus-receipt", x.stimulus_receipt]
     if x.prior_state:
         g += ["--prior-state", x.prior_state]
-    if req.get("priority") == "nightly-regression" and (os.environ.get("GITHUB_RUN_ID") or os.environ.get("CT_EXECUTION_RUN_ID")):
-        g += ["--execution-run-id", os.environ.get("GITHUB_RUN_ID") or os.environ.get("CT_EXECUTION_RUN_ID")]
+    if req.get("priority") == "nightly-regression" and execution_run_id():
+        g += ["--execution-run-id", execution_run_id()]
     run("check_gates.py", *g)
     if x.prior_state and (load(x.prior_state) or {}).get("history"):
         # nightly from the third night: every row's baseline comes from the verified carried-forward history

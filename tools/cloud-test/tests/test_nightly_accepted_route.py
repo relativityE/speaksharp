@@ -51,14 +51,15 @@ class NightlyAcceptedRoute(unittest.TestCase):
         e.update(over)
         return e
 
-    def run_route(self, with_recurring=True, events=None):
+    def run_route(self, with_recurring=True, events=None, env_over=None):
         self.nightly_bundle()
         root = self.root
         config = root / "active-config.json"; config.write_text(json.dumps(self.config))
         request = root / "request.json"; request.write_bytes(self.request_raw)
         manifest = root / "manifest.json"; manifest.write_bytes(self.manifest_raw)
         accepted, output = root / "accepted", root / "pipeline-output"
-        env = {"PATH": os.environ["PATH"], "HOME": str(root), "GITHUB_RUN_ID": "101"}
+        env = {"PATH": os.environ["PATH"], "HOME": str(root), "GITHUB_ACTIONS": "true", "GITHUB_RUN_ID": "101", "CT_EXECUTION_RUN_ID": "999",
+               **(env_over or {})}
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "aggregate_receiver.py"), "--manifest", str(manifest),
                             "--request", str(request), "--config", str(config), "--out-dir", str(accepted)], capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -106,8 +107,8 @@ class NightlyAcceptedRoute(unittest.TestCase):
         self.assertFalse((out / "gate-status.json").exists())
 
 
-    def g11(self, events):
-        r, out = self.run_route(events=events)
+    def g11(self, events, env_over=None):
+        r, out = self.run_route(events=events, env_over=env_over)
         self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
         return next(g for g in json.loads((out / "gate-status.json").read_text())["gates"] if g["id"] == "G11")
 
@@ -182,6 +183,37 @@ class SnapshotAdmission(J.Journal):
             self.assertFalse(chain, name)
         self.assertEqual(self.admit(current)[1], [])  # the current authenticated ledger still admits this execution
         self.assertEqual(self.admit({"reservations": []}), (None, []))  # a legacy reservation file is not a snapshot
+
+
+class ExecutionRunIdOnTheRoute(unittest.TestCase):
+    """The strict selector on the real route: in GitHub context an empty GitHub run id never falls back to the valid offline override.
+    Reuses the route fixture without rerunning its tests."""
+    setUp = NightlyAcceptedRoute.setUp
+    nightly_bundle, run_route, g11, reserve = (NightlyAcceptedRoute.nightly_bundle, NightlyAcceptedRoute.run_route,
+                                               NightlyAcceptedRoute.g11, NightlyAcceptedRoute.reserve)
+    def test_an_empty_github_run_id_with_a_valid_override_leaves_g11_without_a_run(self):
+        g = self.g11(None, env_over={"GITHUB_RUN_ID": "", "CT_EXECUTION_RUN_ID": "101"})
+        self.assertEqual(g["status"], __import__("check_gates").NOTREADY)
+        self.assertIn("the current execution run id is unknown", json.dumps(g))
+
+
+class ExecutionRunId(unittest.TestCase):
+    """Sam 1793593791.820389: one strict run-id selector for both routes; the offline override never stands in for GitHub's own id."""
+    def pick(self, **env):
+        import pipeline
+        return pipeline.execution_run_id(env)
+
+    def test_github_context_requires_its_own_valid_run_id_and_ignores_the_override(self):
+        self.assertEqual(self.pick(GITHUB_ACTIONS="true", GITHUB_RUN_ID="41400000101", CT_EXECUTION_RUN_ID="999"), "41400000101")
+        for bad in ({}, {"GITHUB_RUN_ID": ""}, {"GITHUB_RUN_ID": "0123"}, {"GITHUB_RUN_ID": "12a"}, {"GITHUB_RUN_ID": "1" * 21},
+                    {"GITHUB_RUN_ID": " 101"}, {"GITHUB_RUN_ID": "101\n"}):
+            self.assertIsNone(self.pick(GITHUB_ACTIONS="true", CT_EXECUTION_RUN_ID="999", **bad), bad)
+
+    def test_outside_github_only_a_valid_offline_override_counts(self):
+        self.assertEqual(self.pick(CT_EXECUTION_RUN_ID="999", GITHUB_RUN_ID="101"), "999")  # not GitHub: GITHUB_RUN_ID is never read
+        self.assertEqual(self.pick(GITHUB_ACTIONS="false", CT_EXECUTION_RUN_ID="999"), "999")
+        for bad in ({}, {"CT_EXECUTION_RUN_ID": ""}, {"CT_EXECUTION_RUN_ID": "x"}, {"CT_EXECUTION_RUN_ID": "-1"}):
+            self.assertIsNone(self.pick(GITHUB_RUN_ID="101", **bad), bad)
 
 
 if __name__ == "__main__":
