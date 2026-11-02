@@ -130,7 +130,32 @@ function createOracles({context,guard,caseConfig:c,writeEvidence,readPrivateEvid
   const after=await recovery.readSnapshot(db(a.page),c.campaignId,c.account.id);const verdict=recovery.recoveryFenceRow(s.creates,s.captures,after,{state:'observed',value:a.savedSessionId??null},c.campaignId,c.account.id);s.creates.detach();return result('recovery-fence',verdict.status,{...verdict.evidence,continuousWorkerDrainNotAsserted:true});
  }
  async function takeoverLease(a){
-  if(a.phase==='begin'){const token='guard-'+Date.now().toString(36);const s={token,tabA:a.tabA,tabB:a.tabB,modelRequests:0,armed:false};state.takeover=s;s.modelListener=r=>{if(/\/models\//.test(r.url()))s.modelRequests++;};a.tabB.on('request',s.modelListener);s.cold=(await a.tabB.locator('html').getAttribute('data-model-status'))==='download-required';s.openA=await a.tabA.evaluate(lease.openObservationWindow,{token:token+'-a',recorderTestId:'recorder-bar'});s.openB=await a.tabB.evaluate(lease.openObservationWindow,{token:token+'-b',recorderTestId:'recorder-bar'});const first=await rows(db(a.tabA),'sessions','id,user_id,status,lease_id,recording_fenced_at,recording_fenced_reason',{});const active=first.filter(x=>x.status==='active');must(active.length===1,'first recording own-row binding ambiguous');s.firstId=active[0].id;return begin();}
+  if(a.phase==='before-first'){
+   must(!state.closed&&!state.takeoverFirst,'first recording observer already armed or closed');
+   const creates=new recovery.SessionCreateBinding(c.readback.origin,()=>c.account.id);
+   state.takeoverFirst={page:a.page,ownerId:c.account.id,creates};creates.arm('A');creates.attach(a.page);return begin();
+  }
+  if(a.phase==='begin'){
+   const capture=state.takeoverFirst;
+   must(!state.closed&&capture&&capture.page===a.tabA&&capture.ownerId===c.account.id,'first recording observer not armed on this owner/page');
+   must(!state.takeoverBeginStarted,'takeover observation already began');
+   const binding=capture.creates.binding('A');
+   must(binding.state==='observed','first recording request-bound creation unavailable');
+   // Consume synchronously before the first await. Failed/interrupted attempts
+   // remain consumed; a second caller must not open another observation window.
+   state.takeoverBeginStarted=true;
+   const first=await one(a.tabA,'sessions','id,user_id,status,lease_id,recording_fenced_at,recording_fenced_reason',{id:binding.sessionId});
+   must(first.id===binding.sessionId&&first.user_id===capture.ownerId&&first.lease_id===binding.leaseId&&first.status==='active'&&first.recording_fenced_at===null&&first.recording_fenced_reason===null,'first recording exact creation row inconsistent');
+   must(!state.closed,'first recording observer disposed');
+   const settled=capture.creates.binding('A');
+   must(settled.state==='observed'&&settled.sessionId===binding.sessionId&&settled.leaseId===binding.leaseId,'first recording creation changed during exact row read');
+   capture.creates.detach();
+   const token='guard-'+Date.now().toString(36);const s={token,tabA:a.tabA,tabB:a.tabB,firstId:binding.sessionId,modelRequests:0,armed:false};state.takeover=s;
+   s.modelListener=r=>{if(/\/models\//.test(r.url()))s.modelRequests++;};a.tabB.on('request',s.modelListener);
+   s.cold=(await a.tabB.locator('html').getAttribute('data-model-status'))==='download-required';must(!state.closed,'takeover observation disposed');
+   s.openA=await a.tabA.evaluate(lease.openObservationWindow,{token:token+'-a',recorderTestId:'recorder-bar'});must(!state.closed,'takeover observation disposed');
+   s.openB=await a.tabB.evaluate(lease.openObservationWindow,{token:token+'-b',recorderTestId:'recorder-bar'});must(!state.closed,'takeover observation disposed');return begin();
+  }
   const s=state.takeover;must(s,'takeover continuous observer missing');
   if(a.phase==='arm-gesture'){s.refusal=await a.tabB.getByText(lease.BLOCKED_COPY).isVisible();s.armed=await a.tabB.evaluate(lease.armTakeoverGesture,{});s.modelBefore=s.modelRequests;return begin();}
   if(a.phase==='after-gesture'){s.b=await a.tabB.evaluate(lease.closeObservationWindow,{});const ca=await lease.measureRealmClock(a.tabA),cb=await lease.measureRealmClock(a.tabB);s.boundary=s.b?.gestureAt!==null&&ca&&cb?lease.crossRealmBoundary(s.b.gestureAt,ca,cb):null;s.a=await a.tabA.evaluate(lease.closeObservationWindow,s.boundary||{});a.tabB.off('request',s.modelListener);return begin();}
@@ -141,7 +166,7 @@ function createOracles({context,guard,caseConfig:c,writeEvidence,readPrivateEvid
  const funcs={coaching,pdfOwnerTake,sameTarget,focusEvidence,focusControlBinding,feedbackReceived,feedbackAssociation,coachingAssociation,abandonmentLease,takeoverLease};
  // Every wrapper catches unavailable evidence as NOT RUN, not a synthetic success. Assertion-level callers persist FAIL.
  for(const [name,fn]of Object.entries(funcs))funcs[name]=async a=>{try{return await fn(a);}catch(e){if(e?.code==='NOT_RUN')throw e;const interrupted=await result(name,'HOLD',{observationInterrupted:true,...(name==='coaching'?{capture:captureDiagnostic(e)}:{})});return carryCaptureDiagnostic(e,interrupted);}};
- funcs.dispose=()=>{state.closed=true;state.coaching?.tap.detach?.();state.association?.detach?.();state.feedback?.tap.detach?.();state.feedbackAssociation?.detach?.();};
+ funcs.dispose=()=>{state.closed=true;state.coaching?.tap.detach?.();state.association?.detach?.();state.feedback?.tap.detach?.();state.feedbackAssociation?.detach?.();state.takeoverFirst?.creates.detach();if(state.takeover?.modelListener){try{state.takeover.tabB.off('request',state.takeover.modelListener);}catch{/* closed page */}}};
  return funcs;
 }
 module.exports={createOracles,preflight,canonical,captureDiagnostic,carryCaptureDiagnostic};

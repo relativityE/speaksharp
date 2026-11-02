@@ -2,6 +2,7 @@ import copy
 import unittest
 
 from _fixtures import fake_rv, reconciliation, sample
+from test_case_start_caps import synthetic_allocation
 import validate_run_request as V
 
 
@@ -51,7 +52,7 @@ class ValidateRunRequest(unittest.TestCase):
     def test_broad_rerun_refused(self):
         r = copy.deepcopy(self.req)
         r["selection"] = [{"order": i, "case": "AHT-%02d" % i, "gaps": ["GAP-03"], "role": "target", "plannedRequests": 50, "gate": None, "reason": "all"} for i in range(1, 16)]
-        self.expect(r, "exceeds the configured maximum")
+        self.expect(r, "selection exceeds the configured maximum 6")
 
     def test_case_not_tied_to_a_gap_refused(self):
         r = copy.deepcopy(self.req); r["selection"][0]["gaps"] = []; self.expect(r, "not tied to a targeted gap")
@@ -101,6 +102,7 @@ class ValidateRunRequest(unittest.TestCase):
         r["selection"] = [{"order": i + 1, "case": c, "gaps": ["GAP-03"], "role": "target", "plannedRequests": n, "gate": None, "reason": "x"} for i, (c, n) in enumerate([("AHT-12", 96), ("AHT-04", 157), ("AHT-13", 114), ("AHT-14", 179), ("AHT-03", 116)])]
         r["estimate"]["identityReads"] = 12
         r["proposedLimits"].update({"cumulativeCeilingRequests": 6990, "identityCap": 110, "runCapRequests": 780})
+        synthetic_allocation(r)
         self.expect(r, "without ceilingIncreaseJustification")
         r["proposedLimits"]["ceilingIncreaseJustification"] = "owner decision needed"
         r["proposedLimits"]["identityIncreaseJustification"] = "owner decision needed"

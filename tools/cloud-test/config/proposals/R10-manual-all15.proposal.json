@@ -1,0 +1,280 @@
+{
+  "schema": "speaksharp.cloud-test.run-request.v2",
+  "runId": "R10-manual-all15",
+  "proposal": true,
+  "coverageMode": "full",
+  "sampleMode": "full",
+  "workflowVersion": "1.5.0",
+  "configVersion": "1.4.0",
+  "createdUtc": "2026-11-01T18:29:00Z",
+  "purpose": "PROPOSAL ONLY, INADMISSIBLE: the first manual GitHub-hosted run of all 15 journeys and every required assertion row on the integrated release that carries the consolidated RCA fixes. Nothing here is approved; every approval, the window, the tested release, the harness pins and the derived budget stay unresolved until their owners bind them.",
+  "priority": "full-coverage",
+  "targetedGaps": [
+    "GAP-01",
+    "GAP-02",
+    "GAP-03",
+    "GAP-04",
+    "GAP-05",
+    "GAP-06"
+  ],
+  "notTargeted": [],
+  "selection": [
+    {
+      "order": 1,
+      "case": "AHT-01",
+      "gaps": [
+        "GAP-01"
+      ],
+      "role": "target",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 20 required rows; closes GAP-01"
+    },
+    {
+      "order": 2,
+      "case": "AHT-02",
+      "gaps": [
+        "GAP-02"
+      ],
+      "role": "target",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 33 required rows; closes GAP-02"
+    },
+    {
+      "order": 3,
+      "case": "AHT-03",
+      "gaps": [
+        "GAP-02"
+      ],
+      "role": "target",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 29 required rows; closes GAP-02"
+    },
+    {
+      "order": 4,
+      "case": "AHT-04",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 9 required rows; closes GAP-06"
+    },
+    {
+      "order": 5,
+      "case": "AHT-05",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 10 required rows"
+    },
+    {
+      "order": 6,
+      "case": "AHT-06",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 10 required rows"
+    },
+    {
+      "order": 7,
+      "case": "AHT-07",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 15 required rows"
+    },
+    {
+      "order": 8,
+      "case": "AHT-08",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 9 required rows"
+    },
+    {
+      "order": 9,
+      "case": "AHT-09",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 12 required rows"
+    },
+    {
+      "order": 10,
+      "case": "AHT-10",
+      "gaps": [
+        "GAP-05"
+      ],
+      "role": "target",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 10 required rows; closes GAP-05"
+    },
+    {
+      "order": 11,
+      "case": "AHT-11",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 9 required rows"
+    },
+    {
+      "order": 12,
+      "case": "AHT-12",
+      "gaps": [
+        "GAP-03"
+      ],
+      "role": "target",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 8 required rows; closes GAP-03"
+    },
+    {
+      "order": 13,
+      "case": "AHT-13",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 8 required rows; closes GAP-06"
+    },
+    {
+      "order": 14,
+      "case": "AHT-14",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 8 required rows; closes GAP-06"
+    },
+    {
+      "order": 15,
+      "case": "AHT-15",
+      "gaps": [
+        "GAP-04"
+      ],
+      "role": "target",
+      "needsCaptureDevice": null,
+      "plannedRequests": null,
+      "gate": null,
+      "reason": "full coverage: 14 required rows; closes GAP-04"
+    }
+  ],
+  "estimate": {
+    "requests": {
+      "planned": null,
+      "cleanupReserve": null,
+      "pooledSlack": null,
+      "runCap": null
+    },
+    "identityReads": null,
+    "starts": null,
+    "takes": null,
+    "paidActionsAuthorizedUsd": 0,
+    "providerBillableRequests": {
+      "coachingCap": null,
+      "basis": null
+    },
+    "window": {
+      "expectedMinutes": null,
+      "worstCaseMinutes": null,
+      "proposedMinutes": null
+    },
+    "githubRunnerMinutesMax": null
+  },
+  "proposedLimits": {
+    "cumulativeCeilingRequests": null,
+    "identityCap": null,
+    "startsCap": null,
+    "takesCap": null,
+    "runCapRequests": null,
+    "paidActionsUsd": 0,
+    "guardCaps": {
+      "coaching": null
+    }
+  },
+  "approvedLimits": {
+    "cumulativeCeilingRequests": null,
+    "identityCap": null,
+    "startsCap": null,
+    "takesCap": null,
+    "runCapRequests": null,
+    "approvalRef": null,
+    "approvedBy": null
+  },
+  "window": {
+    "startUtc": null,
+    "endUtc": null,
+    "approvalRef": null
+  },
+  "release": {
+    "testedSha": null,
+    "lastRunTestedSha": null,
+    "backend": {
+      "sha": null,
+      "source": null,
+      "verifiedAtUtc": null,
+      "evidenceRef": null
+    }
+  },
+  "harness": {
+    "codeManifestSha256": null,
+    "packetManifestSha256": null,
+    "ownerApprovalRef": null,
+    "offlineProofFile": null
+  },
+  "priorRuns": [
+    {
+      "label": "R4C",
+      "bindingFile": "config/history/binding-R4C.json"
+    },
+    {
+      "label": "R5",
+      "bindingFile": "config/history/binding-R5.json"
+    }
+  ],
+  "selectionApprovalRef": null,
+  "ownerInputs": {
+    "r10Binding": {
+      "status": "open",
+      "note": "Unresolved until bound by their owners: selectionApprovalRef, harness.ownerApprovalRef, window, approvedLimits and proposedLimits (Sam); release.testedSha and backend evidence (the integrated release from the 12-RCA consolidation); harness code/packet manifests and offline proof (that same head); the budget estimate and per-case plannedRequests and needsCaptureDevice (full_coverage_budget.py and the plan builder over the accepted aggregate inputs). Proposal only."
+    },
+    "retainedInputs": {
+      "status": "open",
+      "note": "gate-and-validate requires the retained runtime inputs (history index, counters, receipts root, reservations), which no GitHub caller supplies and which stay with their custodian. Content-free aggregate inputs were selected as the direction (Sam 1793557480.140279); the aggregate-mode interface is a PROPOSAL only (1793557643.810589). Unresolved: the aggregate files' bytes and pins; how G7 and the comparison step are satisfied, since existing comparison gates are kept and GO/baseline semantics are unchanged; and per-run accounting, since a bootstrap is not a reusable reservation ledger (1793557676.617329)."
+    }
+  },
+  "deviations": [],
+  "cleanupConditions": "every owned page, process and fixture closed and verified; guard ledgers reconciled; no marked orphan",
+  "approvedOmissions": [],
+  "synthetic": false,
+  "executionRuntime": "GitHub Actions SpeakSharp"
+}

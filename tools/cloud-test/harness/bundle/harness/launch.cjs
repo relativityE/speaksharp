@@ -10,6 +10,7 @@ const { createPrivateMedia } = require('./media-private.cjs');
 
 const {FORBIDDEN_FLAGS,guardFlags:browserFlags,childEnvironment}=require('./launch-boundary.cjs');
 const {ownedLaunch}=require('./launch-ownership.cjs');
+const {BrowserPrefix,attachPage:attachPrefixPage}=require('./browser-prefix.cjs');
 
 function readJson(p) { return JSON.parse(fs.readFileSync(p, 'utf8')); }
 
@@ -54,10 +55,14 @@ async function launchGuarded(opts) {
         headless:opts.headless!==false,args:browserFlags(guard.port,guard.spki).filter(f=>!PLAYWRIGHT_DEFAULT_GUARD_FLAGS.includes(f)).concat(media?media.flags:[]),downloadsPath:b.downloadsPath,handleSIGINT:false,handleSIGTERM:false,handleSIGHUP:false,timeout:30000});
     },
     createContext:async(browser,guard)=>{
+      const prefix=opts.downloadPrefixObservation===true?new BrowserPrefix({journal:event=>guard.durableLog(event)}):null;
+      if(prefix)guard.browserPrefixObserver=prefix;
       const newContext=browser.newContext.bind(browser);
       browser.newContext=async(o={})=>{
         if('proxy' in o||o.ignoreHTTPSErrors===true)throw new Error('context proxy/certificate override is not allowed');
-        const c=await newContext({...o,serviceWorkers:'block'});disableNodeSideNetwork(c,'context');c.on('page',p=>disableNodeSideNetwork(p,'page'));return c;
+        const c=await newContext({...o,serviceWorkers:'block'});disableNodeSideNetwork(c,'context');c.on('page',p=>disableNodeSideNetwork(p,'page'));
+        if(prefix){const makePage=c.newPage.bind(c);c.newPage=async()=>{const page=await makePage();try{await attachPrefixPage(c,page,prefix);return page;}catch(error){await page.close().catch(()=>{});throw error;}};}
+        return c;
       };
       browser.newPage=async()=>{throw new Error('use the guarded context');};
       const context=await browser.newContext(co);guard.offlineControl=value=>context.setOffline(value);return context;

@@ -18,6 +18,7 @@ import validate_run_request as V
 import check_gates as CG
 import derive_assertion_catalog as CAT
 from _common import sha256_file
+from test_case_start_caps import SyntheticBuilder
 
 # Costs and budgets come from the SYNTHETIC sealed history (tests/_synthetic_history.py over tests/fixtures/synthetic-history/inputs.v1.json).
 # The retained campaigns are read only by the historical-audit suite (tests/legacy_audit/audit_full_coverage.py).
@@ -126,7 +127,7 @@ class CaseCostsFromGuardLogs(unittest.TestCase):
 class AssertionCatalog(unittest.TestCase):
     def test_the_catalog_is_the_harness_contract_and_is_pinned(self):
         cat = catalog()
-        self.assertEqual((cat["totalAssertions"], cat["minimumStarts"], cat["minimumTakes"]), (204, 40, 31))
+        self.assertEqual((cat["totalAssertions"], cat["minimumStarts"], cat["minimumTakes"]), (204, 42, 31))
         self.assertEqual(sample()["cfg"]["modes"]["full"]["assertionCatalog"]["sha256"], sha256_file(os.path.join(ROOT, "config", "assertion-catalog.json")))
         # Current contract derivation is hermetic. Retained-row cross-checking
         # remains a separate history-only assertion below.
@@ -203,7 +204,7 @@ class DerivedBudget(unittest.TestCase):
         a = self.b["actions"]
         # The explicitly synthetic UsageHistory starts at zero actions, not
         # the private owner's historical 45 Starts / 24 takes.
-        self.assertEqual((a["startsRequired"], a["startsCap"], a["startsShortfall"]), (40, 50, 0))
+        self.assertEqual((a["startsRequired"], a["startsCap"], a["startsShortfall"]), (42, 50, 0))
         self.assertEqual((a["takesRequired"], a["takesCap"], a["takesShortfall"]), (31, 40, 0))
         self.assertEqual((a["ownerDecision"], self.b["identity"]["ownerDecision"]), ("not required", "required"))
 
@@ -332,7 +333,9 @@ class GatesForFullMode(unittest.TestCase):
     def approved(self, **w):
         req = full_request()
         req["approvedLimits"] = {"cumulativeCeilingRequests": EXPECTED["requiredCeiling"], "identityCap": 126, "startsCap": 85, "takesCap": 55,
-                                 "runCapRequests": EXPECTED["runCap"], "approvalRef": "owner-test", "approvedBy": "owner"}
+                                 "runCapRequests": EXPECTED["runCap"],
+                                 "startPressCaps": copy.deepcopy(req["proposedLimits"]["startPressCaps"]),
+                                 "approvalRef": "owner-test", "approvedBy": "owner"}
         req["window"] = {"startUtc": "2026-10-29T02:00:00Z", "endUtc": "2026-10-29T07:00:00Z", "approvalRef": "owner-test"}
         req["window"].update(w)
         return req
@@ -368,14 +371,19 @@ class GatesForFullMode(unittest.TestCase):
 class ModePassThrough(unittest.TestCase):
     def env(self, req):
         with tempfile.TemporaryDirectory() as d:
-            p, o = os.path.join(d, "r.json"), os.path.join(d, "env.txt")
+            d = os.path.realpath(d)
+            p, rc, o = os.path.join(d, "r.json"), os.path.join(d, "reconciliation.json"), os.path.join(d, "env.txt")
             wjson(p, req)
-            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", p, "--out", o], capture_output=True, text=True)
+            wjson(rc, reconciliation())
+            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", p,
+                                "--request-sha256", sha256_file(p), "--reconciliation", rc, "--out", o], capture_output=True, text=True)
             return r, (dict(l.split("=", 1) for l in open(o).read().splitlines()) if os.path.exists(o) else {})
 
     def full_request(self):
         req = r7()
-        req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55, "runCapRequests": 4310, "approvalRef": "o", "approvedBy": "o"}
+        req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55,
+                                 "runCapRequests": 4310, "startPressCaps": copy.deepcopy(req["proposedLimits"]["startPressCaps"]),
+                                 "approvalRef": "o", "approvedBy": "o"}
         req["window"] = {"startUtc": "2026-10-29T02:00:00Z", "endUtc": "2026-10-29T07:00:00Z", "approvalRef": "o"}
         req["selectionApprovalRef"] = "o"
         req["release"]["backend"]["verifiedAtUtc"] = "2026-10-29T00:00:00Z"
@@ -389,7 +397,9 @@ class ModePassThrough(unittest.TestCase):
         self.assertEqual(env["BP_TOTAL"], "4310")
         self.assertEqual(len(env["BP_EST"].split(",")), 15)
         part = sample()["req"]
-        part["approvedLimits"] = {"runCapRequests": 180}; part["window"] = {"startUtc": "2026-10-29T02:00:00Z", "endUtc": "2026-10-29T04:00:00Z", "approvalRef": "o"}
+        part["approvedLimits"] = {"runCapRequests": 180,
+                                  "startPressCaps": copy.deepcopy(part["proposedLimits"]["startPressCaps"])}
+        part["window"] = {"startUtc": "2026-10-29T02:00:00Z", "endUtc": "2026-10-29T04:00:00Z", "approvalRef": "o"}
         part["selectionApprovalRef"] = "o"; part["release"]["backend"]["verifiedAtUtc"] = "2026-10-29T00:00:00Z"
         r, env = self.env(part)
         self.assertEqual((r.returncode, env["BP_MODE"]), (0, "minimal"))
@@ -398,22 +408,46 @@ class ModePassThrough(unittest.TestCase):
         req = self.full_request(); del req["coverageMode"]
         r, _ = self.env(req)
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("never defaulted", r.stdout + r.stderr)
+        self.assertIn("invalid Start allocation", r.stdout + r.stderr)
+        self.assertNotIn("get(\"coverageMode\",", open(os.path.join(ROOT, "scripts", "run_env.py"), encoding="utf-8").read())
 
     def test_a_mismatched_sample_mode_is_refused(self):
         req = self.full_request(); req["sampleMode"] = "minimal"
         r, _ = self.env(req)
         self.assertNotEqual(r.returncode, 0)
 
+    def test_a_admitted_b_read_by_environment_then_a_restored_is_refused_before_builder(self):
+        with tempfile.TemporaryDirectory() as d:
+            request_file, output = os.path.realpath(os.path.join(d, "request.json")), os.path.join(d, "env.txt")
+            reconciliation_file = os.path.realpath(os.path.join(d, "reconciliation.json"))
+            admitted = self.full_request(); wjson(request_file, admitted)
+            wjson(reconciliation_file, reconciliation())
+            admitted_sha = sha256_file(request_file)
+            substituted = copy.deepcopy(admitted); substituted["approvedLimits"]["runCapRequests"] += 1
+            wjson(request_file, substituted)
+            result = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"),
+                                     "--request", request_file, "--request-sha256", admitted_sha,
+                                     "--reconciliation", reconciliation_file, "--out", output],
+                                    capture_output=True, text=True)
+            wjson(request_file, admitted)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("request changed since admission", result.stdout + result.stderr)
+            self.assertFalse(os.path.exists(output), "the substituted request must not produce builder inputs")
+
     def test_the_builder_refuses_to_run_without_a_mode_and_has_a_full_branch(self):
         path = os.path.join(ROOT, "harness-adapter", "build_plan.py")
-        r = subprocess.run([sys.executable, "-I", path, "phase1"], capture_output=True, text=True, env={"PATH": os.environ["PATH"], "BP_PACKET": "x", "BP_CHECKOUT": "x", "BP_PRIVATE": "x", "BP_SOURCE_SHA": "0" * 40})
-        self.assertEqual(r.returncode, 78)
-        self.assertIn("BP_MODE must be", r.stderr)
+        with tempfile.TemporaryDirectory(prefix="ct-full-coverage-missing-mode-") as temporary:
+            builder = SyntheticBuilder(temporary, cases=(12,))
+            before = builder.outputs()
+            builder.env.pop("BP_MODE")
+            r = builder.run()
+            self.assertEqual(r.returncode, 78, r.stdout + r.stderr)
+            self.assertIn("INVALID_BINDING_INPUT", r.stderr)
+            self.assertEqual(builder.outputs(), before, "missing BP_MODE must not create builder outputs")
         src = open(path, encoding="utf-8").read()
         # The full branch is shared with selected-full since 76457a64 (selected full-depth execution); it still refuses fewer than 15 cases.
         self.assertIn("if FULL or SELECTED_FULL:", src)
-        self.assertIn("full mode needs all 15 cases", src)
+        self.assertIn("if FULL and (sorted(BP_EST) != list(range(1, 16)) or SELECTED != list(range(1, 16)))", src)
         self.assertNotIn("sampleMode'] = 'minimal'\n        if FULL", src)
         self.assertNotIn("\"BP_MODE\": \"minimal\"", open(os.path.join(ROOT, "scripts", "run_env.py"), encoding="utf-8").read())
 
@@ -751,13 +785,30 @@ class StartsAndTakesAreRecordedForAFinishedRun(unittest.TestCase):
     def test_the_collector_counts_them_from_the_cases_directory(self):
         import shutil
         with tempfile.TemporaryDirectory() as d:
+            d = os.path.realpath(d)
             led = os.path.join(d, "ledgers"); os.makedirs(led)
             shutil.copy(os.path.join(RECEIPTS, "R5", "campaign-ledger.json"), led); shutil.copy(os.path.join(RECEIPTS, "R5", "identity-ledger.json"), led)
             gs = os.path.join(d, "g.json"); wjson(gs, {"decision": "GO"})
             rj = os.path.join(d, "runner.json"); wjson(rj, {})
-            req = os.path.join(d, "req.json"); wjson(req, r7())
+            request_doc = r7(); request_doc["runId"] = "R5"
+            req = os.path.join(d, "req.json"); wjson(req, request_doc)
+            request_sha256 = sha256_file(req)
+            case_results_doc = json.load(open(os.path.join(RECEIPTS, "R5", "case-results.json")))
+            for case in case_results_doc["cases"]:
+                case["executionReceipt"] = {
+                    "schema": "speaksharp.cloud-test.case-execution-receipt.v1",
+                    "campaignId": "R5", "runId": "41325698722", "attempt": 1,
+                    "caseId": case["caseId"], "requestSha256": request_sha256,
+                    "planSha256": "1" * 64, "configSha256": "2" * 64,
+                    "sourceSha": case_results_doc["sourceSha"], "servedSha": case_results_doc["servedSha"],
+                    "runtimeStartReceiptSha256": "3" * 64,
+                    "summarySha256": case["executionReceipt"]["summarySha256"],
+                }
+            case_results = os.path.join(d, "case-results.json"); wjson(case_results, case_results_doc)
             out = os.path.join(d, "rr.json")
-            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "collect_run_record.py"), "--request", req, "--case-results", os.path.join(RECEIPTS, "R5", "case-results.json"), "--cases-dir", os.path.join(RECEIPTS, "R5"),
+            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "collect_run_record.py"), "--request", req,
+                                "--request-sha256", request_sha256, "--execution-run-id", "41325698722", "--attempt", "1",
+                                "--case-results", case_results, "--cases-dir", os.path.join(RECEIPTS, "R5"),
                                 "--ledger-dir", led, "--gate-status", gs, "--workflow", os.path.join(ROOT, "workflow.json"), "--runner-json", rj, "--out", out], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             rec = json.load(open(out))
@@ -783,7 +834,7 @@ class GeneratedProposalRendering(unittest.TestCase):
                 "wallSeconds": 60, "lowerBound": False})
         run = {"campaignId": "SYNTHETIC-OFFLINE-NO-AUTHORITY", "cases": rows,
                "reconciliation": {"ok": True, "ledgerTotal": 2400, "sumOfCases": 2400},
-               "totals": {"requests": 2400, "startsPressed": 40, "takesSaved": 31,
+               "totals": {"requests": 2400, "startsPressed": 42, "takesSaved": 31,
                           "rowsExecuted": 204, "rowsTotal": 204, "runWallSeconds": 900,
                           "byCategory": {"coaching": 150}}}
         cls.synthetic_costs = {"runs": {"R4C": copy.deepcopy(run), "R5": copy.deepcopy(run)}}
@@ -805,7 +856,7 @@ class GeneratedProposalRendering(unittest.TestCase):
         text = DC.markdown(self.synthetic_costs)
         self.assertIn("SYNTHETIC-OFFLINE-NO-AUTHORITY", text)
         self.assertIn("| AHT-01 | 160 | 10 | 5 | 20 | 30 | 40 | 50 | 10 |", text)
-        self.assertIn("Totals: 2400 requests, 40 Starts, 31 takes, 204 of 204 rows executed", text)
+        self.assertIn("Totals: 2400 requests, 42 Starts, 31 takes, 204 of 204 rows executed", text)
         changed = copy.deepcopy(self.synthetic_costs)
         changed["runs"]["R5"]["reconciliation"]["ok"] = False
         self.assertIn("Reconciliation to the campaign ledger: MISMATCH", DC.markdown(changed))
@@ -822,7 +873,7 @@ class GeneratedProposalRendering(unittest.TestCase):
         rc = reconciliation()
         rc["starts"]["ownerCounted"], rc["takes"]["ownerCounted"] = 11, 10
         b = FB.compute(sample()["cfg"], self.synthetic_costs, self.cat, rc)
-        self.assertEqual((b["actions"]["startsRequired"], b["actions"]["startsShortfall"]), (51, 1))
+        self.assertEqual((b["actions"]["startsRequired"], b["actions"]["startsShortfall"]), (53, 3))
         self.assertEqual((b["actions"]["takesRequired"], b["actions"]["takesShortfall"]), (41, 1))
         self.assertEqual(b["actions"]["ownerDecision"], "required")
 
@@ -835,13 +886,13 @@ class FullModePipeline(unittest.TestCase):
         prerequisite(subprocess.run(["git", "-C", repo, "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True).stdout.strip() == "true", "git history")
         with tempfile.TemporaryDirectory() as d:
             # A synthetic, unapproved proposal over the synthetic history and owner counters (inputs.v1.json): conservative used 5840 (5800 measured
-            # + 40 unexplained), so the ceiling is 5840 + 3430 + 664 + 32 = 9966; Starts 30 owned + 40 planned = 70 and takes 30 + 31 = 61 exceed
+            # + 40 unexplained), so the ceiling is 5840 + 3430 + 664 + 32 = 9966; Starts 30 owned + 42 planned = 72 and takes 30 + 31 = 61 exceed
             # the synthetic caps 50/40, so both increases are proposed with their justification. NO LIVE APPROVAL.
             h = synthetic_history()
             proposal = full_request()
-            proposal["proposedLimits"].update(cumulativeCeilingRequests=5840 + 3430 + 664 + 32, startsCap=30 + 40, takesCap=30 + 31,
+            proposal["proposedLimits"].update(cumulativeCeilingRequests=5840 + 3430 + 664 + 32, startsCap=30 + 42, takesCap=30 + 31,
                                               ceilingIncreaseJustification="SYNTHETIC TEST ONLY: 5840 + 3430 + 664 + 32 = 9966; NO LIVE APPROVAL",
-                                              startsIncreaseJustification="SYNTHETIC TEST ONLY: 30 owned + 40 planned; NO LIVE APPROVAL",
+                                              startsIncreaseJustification="SYNTHETIC TEST ONLY: 30 owned + 42 planned; NO LIVE APPROVAL",
                                               takesIncreaseJustification="SYNTHETIC TEST ONLY: 30 owned + 31 planned; NO LIVE APPROVAL")
             source = os.path.join(d, "proposal.json"); wjson(source, proposal)
             request = h.request(source)

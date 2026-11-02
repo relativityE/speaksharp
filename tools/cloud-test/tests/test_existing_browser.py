@@ -161,6 +161,23 @@ class InstalledBrowserBaseline(unittest.TestCase):
                 staging.assert_not_called()
         return output.getvalue().strip()
 
+    def revalidate(self, *args, environment="github-hosted"):
+        source = self.root / "identity.json"
+        output_receipt = self.root / "revalidated.json"
+        argv = ["install_browser.py", "--config", str(self.config), "--received-installed-receipt", str(source),
+                "--baselines", str(self.baselines), "--environment", environment, "--source-sha", "a1" * 20,
+                "--run-id", "SYNTHETIC-offline-1", "--receipt", str(output_receipt), *map(str, args)]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(install_browser.urllib.request, "urlopen", side_effect=AssertionError("network forbidden")) as network, \
+                mock.patch.object(install_browser.zipfile, "ZipFile", side_effect=AssertionError("extraction forbidden")) as archive, \
+                mock.patch.object(install_browser.tempfile, "mkdtemp", side_effect=AssertionError("install staging forbidden")) as staging, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            try:
+                install_browser.main()
+            finally:
+                network.assert_not_called(); archive.assert_not_called(); staging.assert_not_called()
+        return output.getvalue().strip(), output_receipt
+
     def refused(self, *args, **kw):
         with self.assertRaises(SystemExit) as error:
             self.call(*args, **kw)
@@ -176,6 +193,31 @@ class InstalledBrowserBaseline(unittest.TestCase):
         self.assertEqual(r["observedBinarySha256"], hashlib.sha256(self.chrome.read_bytes()).hexdigest())
         self.assertEqual(r["baselinesSha256"], hashlib.sha256(self.baselines.read_bytes()).hexdigest())
         self.assertEqual((r["versionExecuted"], r["browserLaunched"], r["sourceSha"], r["runId"]), (True, False, "a1" * 20, "SYNTHETIC-offline-1"))
+
+    def test_the_discovery_receipt_is_revalidated_without_the_historical_binary_pin(self):
+        self.call()
+        path, receipt = self.revalidate()
+        self.assertEqual(path, str(self.chrome.resolve()))
+        self.assertTrue(json.loads(receipt.read_text())["revalidated"])
+
+    def test_revalidation_refuses_changed_bytes_binding_or_baseline(self):
+        self.call()
+        original = self.chrome.read_text()
+        cases = ("bytes", "source", "baseline")
+        for case in cases:
+            self.chrome.write_text(original)
+            if case == "bytes":
+                self.chrome.write_text(original + "# changed\n")
+                args = ()
+            elif case == "source":
+                args = ("--source-sha", "b2" * 20)
+            else:
+                self.write_baselines({"github-hosted": {"minimumMajor": 157, "candidates": [str(self.chrome)]}})
+                args = ()
+            with self.subTest(case=case), self.assertRaises(SystemExit) as error:
+                self.revalidate(*args)
+            self.assertEqual(error.exception.code, 78)
+            (self.root / "revalidated.json").unlink(missing_ok=True)
 
     def test_a_newer_browser_is_accepted_and_an_explicit_candidate_wins(self):
         newer = self.fake("chromium", "Chromium 157.0.1.2")

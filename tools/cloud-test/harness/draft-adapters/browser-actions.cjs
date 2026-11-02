@@ -11,6 +11,22 @@ async function pressStart(page,control,options={timeout:15000}){if(!START_CONTRO
   if(!ready)throw Object.assign(new Error('Start control '+control+' not visible and enabled before press'),{code:'START_CONTROL_NOT_READY'});
   await startRecorders.get(page)(control);await loc.click({timeout:5000});}
 const pageStages=new WeakMap(),failedStages=new WeakMap();
+const productsFailures=new WeakMap();
+async function productsSnapshot(page){
+ try{
+  const raw=await page.locator('html').evaluate(()=>{
+   const shown=el=>!!el&&el.getClientRects().length>0;
+   const trigger=['nav-products-button','nav-mobile-products-button'].map(id=>document.querySelector('[data-testid="'+id+'"]')).find(shown);
+   const box=trigger?.getBoundingClientRect(),x=box?box.left+box.width/2:-1,y=box?box.top+box.height/2:-1;
+   const inViewport=!!box&&box.width>0&&box.height>0&&x>=0&&y>=0&&x<innerWidth&&y<innerHeight;
+   const hit=inViewport?document.elementFromPoint(x,y):null;
+   return {triggerVisible:!!trigger,triggerEnabled:!!trigger&&!trigger.disabled&&trigger.getAttribute('aria-disabled')!=='true',inViewport,triggerIsHitTarget:!!trigger&&!!hit&&(trigger===hit||trigger.contains(hit)),pointerEventsEnabled:!!trigger&&getComputedStyle(trigger).pointerEvents!=='none',focusDialogVisible:shown(document.querySelector('[data-testid="objective-setup-dialog"]')),menuVisible:Array.from(document.querySelectorAll('[role="menu"]')).some(shown),focusIntent:new URL(location.href).searchParams.get('product')==='focus-points',onPractice:location.pathname==='/practice',onSession:location.pathname==='/session'};
+  },undefined,{timeout:1000});
+  const keys=['triggerVisible','triggerEnabled','inViewport','triggerIsHitTarget','pointerEventsEnabled','focusDialogVisible','menuVisible','focusIntent','onPractice','onSession'];
+  return Object.fromEntries(keys.map(key=>[key,typeof raw?.[key]==='boolean'?raw[key]:null]));
+ }catch{return null;}
+}
+function productsDiagnostic(error){return error&&typeof error==='object'?productsFailures.get(error)||null:null;}
 const STAGES=new Set(['idle','start-select','start-press','start-pressed','retry-setup-wait','start-recording-wait','products-trigger-wait','products-menu-wait','products-trigger-click','products-open-wait','products-item-click','stop-press','stop-clicked','stop-release-wait','save-wait','save-readback','save-complete','focus-dialog-wait','focus-dialog-focus-wait','focus-dialog-close','focus-dialog-hidden-wait','focus-intent-clear-wait']);
 const setStage=(page,stage)=>{if(!STAGES.has(stage))throw new Error('Unknown diagnostic phase');pageStages.set(page,stage);};
 function currentStage(page){return page&&pageStages.get(page)||'idle';}
@@ -32,17 +48,21 @@ async function login(page, c, credentials) {
 }
 async function products(page,item) {
  return atStage(page,'products-trigger-wait',async()=>{
+  let before=null;
+  try{
   const desktop=page.getByTestId('nav-products-button'), mobile=page.getByTestId('nav-mobile-products-button');
   await desktop.or(mobile).filter({visible:true}).first().waitFor({state:'visible',timeout:20000});
   setStage(page,'products-menu-wait');
   await page.getByRole('menu').waitFor({state:'detached',timeout:20000});
   const isDesktop=await desktop.isVisible(); const trigger=isDesktop?desktop:mobile;
   setStage(page,'products-trigger-click');
+  before=await productsSnapshot(page);
   await trigger.click({timeout:20000});
   setStage(page,'products-open-wait');
   await page.waitForFunction((id)=>document.querySelector('[data-testid="'+id+'"]')?.getAttribute('aria-expanded')==='true',isDesktop?'nav-products-button':'nav-mobile-products-button',{timeout:20000});
   setStage(page,'products-item-click');
   await page.getByTestId((isDesktop?'nav-products-':'nav-mobile-products-')+item).click({timeout:20000});
+  }catch(error){if(error&&typeof error==='object')productsFailures.set(error,Object.freeze({before,after:await productsSnapshot(page)}));throw error;}
  });
 }
 async function privateMode(page) {
@@ -162,4 +182,4 @@ function safeErrorSummary(error){try{const msg=String(error&&error.message||'');
   const kind=t?'timeout':/has been closed/.test(msg)?'target-closed':/not visible and enabled/.test(msg)?'control-not-ready':/strict mode violation/.test(msg)?'strict-mode':/net::ERR_/.test(msg)?'network-error':'other';
   const ids=[];for(const m of msg.matchAll(/getByTestId\('([a-z][a-z0-9-]{1,40})'\)/g)){const id=m[1];if(!/\d{6,}/.test(id)&&!ids.includes(id)&&ids.length<5)ids.push(id);}
   return {name,code,api:api&&/^[A-Za-z]{2,24}\.[A-Za-z]{2,24}$/.test(api)?api:null,kind,timeoutMs:t?Math.min(Number(t[1]),3600000):null,testIds:ids};}catch{return {name:'Error',code:null,api:null,kind:'other',timeoutMs:null,testIds:[]};}}
-module.exports={KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};
+module.exports={productsSnapshot,productsDiagnostic,KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};

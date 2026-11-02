@@ -152,7 +152,7 @@ test('I2 the report carries the run identity with the media and driver hash of e
 test('I3 the runner refuses a run whose loaded runner code differs from the identity the plan declares (real adapter hook)',async()=>{
   const runner=require(P+'/bundle/harness/campaign-runner.cjs'),bundle=P+'/bundle',crypto=require('node:crypto');
   const codeSha=crypto.createHash('sha256').update(fs.readFileSync(bundle+'/CODE.sha256')).digest('hex');
-  const p=plan({runIdentity:{frontend:{sourceSha:commit,servedSha:commit},runner:{codeManifestSha256:codeSha,packetManifestSha256:hash},backend}});
+  const p=plan({requestSha256:hash,executionIdentity:{runId:'UNIT-NOT-A-RUN',attempt:1},consumedPlanSha256:hash,runIdentity:{frontend:{sourceSha:commit,servedSha:commit},runner:{codeManifestSha256:codeSha,packetManifestSha256:hash},backend}});
   const a=runner.createAdapter({...p,runRoot:'/tmp/unused-r15'},bundle,{});
   await a.verifyRunIdentity(p);
   await assert.rejects(()=>a.verifyRunIdentity({...p,runIdentity:{...p.runIdentity,runner:{...p.runIdentity.runner,codeManifestSha256:hash}}}),/differs from the runner bundle CODE.sha256/);

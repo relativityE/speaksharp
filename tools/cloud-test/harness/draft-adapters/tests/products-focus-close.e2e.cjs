@@ -6,7 +6,7 @@ const ui=require('../browser-actions.cjs');
 // Real browser DOM, timers, focus, keyboard and navigation; no product account or product traffic.
 // Run explicitly with node --test; .e2e keeps it out of the offline *.test.cjs suite.
 test('Products return waits for delayed Focus mount, focus, dismissal and cleared intent',async()=>{
- const browser=await chromium.launch({headless:true,timeout:15000});
+ const browser=await chromium.launch({channel:'chrome',headless:true,timeout:15000});
  let closed=false;
  try{
   for(const delay of [1000,0]){
@@ -52,6 +52,14 @@ test('Products return waits for delayed Focus mount, focus, dismissal and cleare
     assert.equal(new URL(page.url()).searchParams.has('product'),false);
     // The dialog remains mounted but hidden, just as a controlled dialog may during exit.
     assert.equal(await page.getByTestId('objective-setup-dialog').isVisible(),false);
+    const ready=await ui.productsSnapshot(page);
+    assert.equal(ready.triggerEnabled,true);assert.equal(ready.inViewport,true);assert.equal(ready.triggerIsHitTarget,true);
+    assert.equal(ready.focusDialogVisible,false);assert.equal(ready.focusIntent,false);
+    // A rendered/enabled trigger can still be covered. Instrumentation must
+    // distinguish that case without increasing the real click's 20-second wait.
+    await page.evaluate(()=>{const cover=document.createElement('div');cover.id='synthetic-hit-cover';cover.style.cssText='position:fixed;inset:0;z-index:100';document.body.append(cover);});
+    const covered=await ui.productsSnapshot(page);assert.equal(covered.triggerEnabled,true);assert.equal(covered.triggerIsHitTarget,false);
+    await page.evaluate(()=>document.querySelector('#synthetic-hit-cover').remove());
     await ui.products(page,'open-mic');
     assert.equal(new URL(page.url()).pathname,'/session');
     assert.equal(forbiddenRequests,0);
