@@ -71,9 +71,32 @@ class Verdict(unittest.TestCase):
         self.assertEqual((caps['AHT-13'],caps['AHT-14']),(3,3))
         self.assertIn('NOT-A-RUN',req['approvedLimits']['approvalRef'])
 
-    def test_proof_prep_exports_the_explicit_synthetic_marker_after_request_environment(self):
-        source = (SCRIPTS / "proof_prep_cases.py").read_text(encoding="utf-8")
-        self.assertIn(". %s; set +a; export BP_SYNTHETIC_OFFLINE_PROOF=1;", source)
+    def test_proof_prep_builds_both_phases_but_the_result_is_not_executable(self):
+        import proof_prep_cases
+        with tempfile.TemporaryDirectory(prefix="sealed-offline-plan-") as root:
+            canonical_root = Path(os.path.realpath(root))
+            browser = canonical_root / "synthetic-browser"
+            browser.write_bytes(b"SYNTHETIC-NOT-A-BROWSER\n"); browser.chmod(0o700)
+            receipt = canonical_root / "browser-receipt.json"
+            receipt.write_text(json.dumps({"schema": "speaksharp.cloud-test.existing-browser.v1",
+                "path": str(browser), "observedBinarySha256": hashlib.sha256(browser.read_bytes()).hexdigest()}))
+            out = canonical_root / "plan"
+            cases = Path(proof_prep_cases.build(str(out), str(SCRIPTS.parent / "harness"),
+                phases=("phase1", "phase2"), browser_identity=str(receipt)))
+            self.assertEqual(len(list(cases.glob("AHT-*.json"))), 15)
+            plan = json.loads((out / "cfg/campaign-plan.json").read_text())
+            admission = json.loads((out / "cfg/admission.json").read_text())
+            approval = json.loads((out / "cfg/security-approval.json").read_text())
+            consumption = json.loads((out / "cfg/build-plan-consumption.json").read_text())
+            self.assertTrue(plan["syntheticOfflineProof"])
+            self.assertTrue(admission["syntheticOfflineProof"])
+            self.assertTrue(approval["syntheticOfflineProof"])
+            self.assertTrue(consumption["syntheticOfflineProof"])
+            self.assertEqual(approval["action"], "synthetic-offline-proof-only")
+            refused = subprocess.run(["node", str(SCRIPTS.parent / "harness/bundle/harness/approval-check.cjs"),
+                                      str(out / "cfg/security-approval.json")], capture_output=True, text=True)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("wrong action", refused.stderr)
     def test_a_complete_clean_run_is_accepted(self):
         self.assertEqual(problems(), [])
 

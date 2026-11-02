@@ -149,7 +149,8 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
         script = "set -euo pipefail; set -a; . %s; set +a; export BP_SYNTHETIC_OFFLINE_PROOF=1; %spython3 -I %s %s" % (shlex.quote(envf), stim, shlex.quote(os.path.join(ROOT, "harness-adapter", "build_plan.py")), phase)
         r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
         if r.returncode:
-            raise SystemExit("build_plan.py %s failed (%d)" % (phase, r.returncode))
+            detail = (r.stderr or r.stdout or "no diagnostic output").strip().replace("\n", " | ")
+            raise SystemExit("build_plan.py %s failed (%d): %s" % (phase, r.returncode, detail[:500]))
     cases = os.path.join(out, "cases")
     missing = [n for n in range(1, 16) if not os.path.isfile(os.path.join(cases, "AHT-%02d.json" % n))]
     if missing:

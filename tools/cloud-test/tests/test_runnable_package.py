@@ -167,6 +167,14 @@ class FeedbackDeliveryPolicy(unittest.TestCase):
         bad_facts = json.loads(json.dumps(facts)); bad_facts["actionApproval"]["selectionApprovalRef"] = "CHANGED"
         with self.assertRaisesRegex(ValueError, "synthetic-offline-proof"):
             _builder.synthetic_offline_proof(request, bad_facts, env)
+        # A real builder invocation cannot turn the ordinary synthetic fixture
+        # into the sealed proof merely by setting the environment marker.
+        with tempfile.TemporaryDirectory(prefix="not-the-offline-proof-") as root:
+            ordinary = SyntheticBuilder(root, cases=(7, 8))
+            ordinary.env["BP_SYNTHETIC_OFFLINE_PROOF"] = "1"
+            result = ordinary.run()
+            self.assertEqual(result.returncode, 78)
+            self.assertEqual(ordinary.outputs(), {})
 
     def test_generated_policy_uses_real_guard_matcher_and_cumulative_caps(self):
         def same_job(builder):

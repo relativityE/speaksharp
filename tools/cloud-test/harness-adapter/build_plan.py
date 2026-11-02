@@ -414,7 +414,12 @@ def read_binding_inputs(env, argv):
             cfg['rules'] = keep
         pol_sha = put(f'{PRIVATE}/cfg/policy.json', pol)
         # security approval
-        sa = {'version': 1, 'runtime': RUNTIME, 'action': 'ephemeral-browser-spki-exception', 'ownerApprovalReference': OWNER_REF,
+        sa = {'version': 1, 'runtime': RUNTIME,
+              # The proof plan must remain usable by the zero-product-traffic
+              # stimulus checker, but the real approval gate rejects this action
+              # before a browser guard or product request can start.
+              'action': 'synthetic-offline-proof-only' if SYNTHETIC_OFFLINE_PROOF else 'ephemeral-browser-spki-exception',
+              'syntheticOfflineProof': SYNTHETIC_OFFLINE_PROOF, 'ownerApprovalReference': OWNER_REF,
               'approvedBy': APPROVED_BY, 'approvalSource': 'explicit-user-message', 'reviewedCodeManifestSha256': shaf(f'{PACKET}/bundle/CODE.sha256'),
               'notBefore': T0, 'expiresAt': T1, 'allowedHosts': [*pol['hosts'], 'a.test', 'c.test', 'd.test'],
               'installTrustRoot': False, 'globalCertificateBypass': False, 'environmentSecurityChanges': False,
@@ -528,6 +533,7 @@ def read_binding_inputs(env, argv):
                     'campaignId': CAMPAIGN, 'privateMediaParent': MEDIA_PARENT, 'runtimeAttestationFile': f'{PRIVATE}/cfg/runtime-attestation.json',
                     'runtimeAttestationSha256': att_sha, 'ownerApprovalReference': OWNER_REF, 'qualificationMaxMs': QUAL_MS,
                     'cleanupReserveMs': CLEANUP_MS, 'runtimeEnvironmentId': att['immutableEnvironmentId']})
+        adm['syntheticOfflineProof'] = SYNTHETIC_OFFLINE_PROOF
         if RUNTIME == 'GitHub Actions SpeakSharp':
             adm['runtimeWorkflowSourceSha'] = att['workflowSourceSha']
         directories.add(f'{PRIVATE}/ledgers')
@@ -548,6 +554,7 @@ def read_binding_inputs(env, argv):
             rows.append(r)
         execution_run_id = att.get('runId') or att.get('taskId')
         plan = {'version': 1, 'campaignId': CAMPAIGN, 'requestSha256': binding['requestSha256'],
+                'syntheticOfflineProof': SYNTHETIC_OFFLINE_PROOF,
                 'executionIdentity': {'runId': execution_run_id, 'attempt': 1},
                 'runtime': RUNTIME, 'targetUrl': f'https://{HOST_APP}/', 'costCeilingUsd': 0,
                 'sourceSha': B, 'servedSha': B, 'admissionConfigFile': f'{PRIVATE}/cfg/admission.json', 'admissionConfigSha256': adm_sha,
@@ -608,6 +615,7 @@ def read_binding_inputs(env, argv):
             'runId': execution_run_id, 'attempt': 1,
             'requestSha256': binding['requestSha256'], 'planSha256': plan_sha,
             'admissionConfigSha256': adm_sha, 'sourceSha': B, 'servedSha': B,
+            'syntheticOfflineProof': SYNTHETIC_OFFLINE_PROOF,
             'consumedAtUtc': now(),
         })
 

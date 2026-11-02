@@ -1,8 +1,8 @@
 {
   "schema": "speaksharp.cloud-test.required-test-ids.v1",
-  "sourceHead": "a2fc832276fb13bb554908290fc3e08c21dfda5e",
-  "sourceTree": "20cd4cf6b6db0c891187b5fc7ca737ba43a24ab8",
-  "provenance": "loader recollection for the binary-binding successor of a2fc8322 (Sam 1793461084.388079 branch-scoped handoff; Jensen 16:08 inventory writer release): the f6f105af 689 minus the legacy real-archive install test plus 19 installed-browser baseline, receipt and native-binary controls; collected on a2fc8322 plus this commit's test changes",
+  "sourceHead": "2978dab6a6ac64fee837f6389fdfa113d035957c",
+  "sourceTree": "68e196816070faab531473e5c74c8f635f43e0ef",
+  "provenance": "mechanical inventory reconciliation for the sealed synthetic offline-proof correction on 2978dab6 (Sam RETURN after source review): preserves the prior required inventory and adds the two declared proof-boundary controls from that exact source head",
   "ids": [
     "package-unit-tests::test_check_gates.CheckGates.test_an_expected_pass_without_executable_requirements_blocks_g6",
     "package-unit-tests::test_check_gates.CheckGates.test_approved_ceiling_below_the_reconciled_need_blocks",
@@ -231,6 +231,7 @@
     "package-unit-tests::test_generate_offline_proof.Verdict.test_a_failing_or_crashed_suite_is_never_accepted",
     "package-unit-tests::test_generate_offline_proof.Verdict.test_a_truncated_packet_tap_with_passing_extras_is_never_accepted",
     "package-unit-tests::test_generate_offline_proof.Verdict.test_any_mutation_refusal_missing_or_uncaught_control_is_never_accepted",
+    "package-unit-tests::test_generate_offline_proof.Verdict.test_proof_prep_builds_both_phases_but_the_result_is_not_executable",
     "package-unit-tests::test_generate_offline_proof.Verdict.test_synthetic_case10_projection_is_bound_before_the_request_digest",
     "package-unit-tests::test_generate_offline_proof.Verdict.test_synthetic_proof_request_uses_the_real_start_allocation_contract",
     "package-unit-tests::test_generate_offline_proof.Verdict.test_the_plan_controls_must_complete_with_the_exact_inventory",
@@ -467,6 +468,7 @@
     "package-unit-tests::test_runnable_package.BrowserPin.test_wrong_archive_size_fails_closed",
     "package-unit-tests::test_runnable_package.BrowserPin.test_wrong_binary_hash_fails_closed",
     "package-unit-tests::test_runnable_package.FeedbackDeliveryPolicy.test_generated_policy_uses_real_guard_matcher_and_cumulative_caps",
+    "package-unit-tests::test_runnable_package.FeedbackDeliveryPolicy.test_only_the_explicit_placeholder_proof_can_generate_07_08_without_a_live_producer",
     "package-unit-tests::test_runnable_package.NothingIsIgnored.test_no_failure_is_swallowed_in_the_shell_scripts",
     "package-unit-tests::test_runnable_package.NothingIsIgnored.test_the_install_stage_runs_the_pinned_installer_and_the_lockfile_install",
     "package-unit-tests::test_runnable_package.NothingIsIgnored.test_the_runner_dependencies_are_locked_to_playwright_1_57_0",
