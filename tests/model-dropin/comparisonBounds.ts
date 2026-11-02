@@ -133,7 +133,12 @@ export class ComparisonBudget {
   private reservedStarts=0;
   private currentStartReserved=false;
   private maximumCaseAdmissions:number=LIMITS.takes;
-  constructor(private approval: ExecutionApproval, private now = Date.now) {
+  // Explicit fields, not parameter properties: Node's strip-only TypeScript (the native node:test route) cannot run those.
+  private approval: ExecutionApproval;
+  private now: () => number;
+  constructor(approval: ExecutionApproval, now: () => number = Date.now) {
+    this.approval = approval;
+    this.now = now;
     validateApproval(approval, now());
     this.requests=approval.reservedBeforeRun?.apiRequests??0;
     this.mutations=approval.reservedBeforeRun?.mutations??0;

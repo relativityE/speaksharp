@@ -72,11 +72,15 @@ test('actual Chrome reassembles bounded verified-cache ranges without large base
     const budget={admit:({url})=>assert.equal(new URL(url).origin,app.origin),admitCachedAsset:()=>admissions++,rejectTransport:code=>{throw Error(code);}};
     await context.route('**/*',async route=>{let response;try{response=await fetchAdmittedResponse(route,budget,cache);await route.fulfill({response});}finally{await response?.dispose();}});
     const fixture=fileURLToPath(new URL('../evidence/fixtures/corpus/fixture-001.wav',import.meta.url));
-    const oldPage=await context.newPage();const oldErrors=[];oldPage.on('pageerror',error=>oldErrors.push(error.message));
-    await injectAlignedFixtureAudio(oldPage,fixture,{playback:'controlled-once'});await oldPage.goto(app.origin+'/seed');
-    assert(oldErrors.some(message=>message.includes('__name')),'old serialized fixture reproduces missing closure');
-    assert.equal(await oldPage.evaluate(()=>navigator.mediaDevices.getUserMedia.toString().includes('__ss_fixtureGumCalls__')),false);
-    await oldPage.close();
+    // The missing-closure defect exists only where the loader keeps names with __name (tsx). Under Node's native type stripping (the
+    // full-evidence route) the serialized fixture carries no __name, so the broken-before control applies only when it does.
+    if(String(injectAlignedFixtureAudio).includes('__name')){
+      const oldPage=await context.newPage();const oldErrors=[];oldPage.on('pageerror',error=>oldErrors.push(error.message));
+      await injectAlignedFixtureAudio(oldPage,fixture,{playback:'controlled-once'});await oldPage.goto(app.origin+'/seed');
+      assert(oldErrors.some(message=>message.includes('__name')),'old serialized fixture reproduces missing closure');
+      assert.equal(await oldPage.evaluate(()=>navigator.mediaDevices.getUserMedia.toString().includes('__ss_fixtureGumCalls__')),false);
+      await oldPage.close();
+    }
     const fixturePage=comparisonInitPage(page);
     await fixturePage.addInitScript(installChunkedCachedModelFetch,{assets:[{url:pin.url,bytes:pin.bytes}],chunkBytes:4});
     await injectAlignedFixtureAudio(fixturePage,fixture,{playback:'controlled-once'});
