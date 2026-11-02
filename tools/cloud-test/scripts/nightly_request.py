@@ -31,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (offline)
+import case_start_caps as C  # noqa: E402
 import init_run_inputs as I  # noqa: E402
 import state_ref_writer  # noqa: E402
 
@@ -231,9 +232,21 @@ def derived_need(budget):
         need = {"runCapRequests": budget["requests"]["runCap"], "identityReads": budget["identity"]["readsThisRun"],
                 "starts": budget["actions"]["startsMinimum"], "takes": budget["actions"]["takesMinimum"],
                 "coachingRequests": budget["coaching"]["cap"], "windowMinutes": budget["window"]["proposedWindowMinutes"]}
+        coaching_basis = budget["coaching"]["basis"]
+        rows = budget["perCase"]
     except (KeyError, TypeError):
         raise Refused("nightly-budget-shape")
     _need(all(type(v) is int and v >= 0 for v in need.values()), "nightly-budget-shape")
+    _need(isinstance(coaching_basis, str) and coaching_basis.strip(), "nightly-budget-shape")
+    _need(isinstance(rows, list) and len(rows) == len(I.ALL_CASES), "nightly-budget-shape")
+    start_caps = {}
+    for expected, row in zip(I.ALL_CASES, rows):
+        _need(isinstance(row, dict) and row.get("case") == expected and type(row.get("startsMin")) is int
+              and row["startsMin"] >= 0, "nightly-budget-shape")
+        start_caps[expected] = row["startsMin"]
+    _need(sum(start_caps.values()) == need["starts"], "nightly-budget-shape")
+    need["startPressCaps"] = start_caps
+    need["coachingBasis"] = coaching_basis
     return need
 
 
@@ -250,6 +263,8 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
     key = occurrence_id(ap, slot)
     _need(isinstance(prior_occurrences, (set, frozenset)) and key not in prior_occurrences, "nightly-occurrence-replayed")
     caps, need = ap["perRunCaps"], dict(derived_need(budget), githubRunnerMinutes=nightly_runner_minutes(workflow_text))
+    start_caps = need.pop("startPressCaps")
+    coaching_basis = need.pop("coachingBasis")
     _need(all(need[k] <= caps[k] for k in need), "nightly-need-exceeds-approval")
     window_end = slot + timedelta(minutes=caps["windowMinutes"])
     _need(_utc(ap["validFromUtc"]) <= slot and window_end <= _utc(ap["expiresUtc"]), "nightly-window-outside-approval")
@@ -258,16 +273,31 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
     ref, occurrence = ap["approvalRef"], _iso(slot)
     req = copy.deepcopy(tpl)
     req.update(runId=key, createdUtc=occurrence, synthetic=False, executionRuntime=RUNTIME, selectionApprovalRef=ref)
+    for row in req["selection"]:
+        row["startPressCap"] = start_caps[row["case"]]
     req["window"] = {"startUtc": occurrence, "endUtc": _iso(window_end), "approvalRef": ref}
     req["harness"] = dict(req.get("harness") or {}, ownerApprovalRef=ref)
-    req["approvedLimits"] = {"runCapRequests": caps["runCapRequests"], "identityCap": caps["identityReads"],
-                             "cumulativeCeilingRequests": ap["periodCaps"]["requests"], "approvalRef": ref, "approvedBy": ap["approvedBy"]}
-    req["estimate"] = {"requests": {"runCap": need["runCapRequests"]}, "identityReads": need["identityReads"], "starts": need["starts"],
-                       "takes": need["takes"], "paidActionsAuthorizedUsd": 0}
+    req["proposedLimits"] = dict(req.get("proposedLimits") or {}, startPressCaps=copy.deepcopy(start_caps))
+    req["approvedLimits"] = dict(req.get("approvedLimits") or {}, runCapRequests=caps["runCapRequests"], identityCap=caps["identityReads"],
+                                 cumulativeCeilingRequests=ap["periodCaps"]["requests"], startPressCaps=copy.deepcopy(start_caps),
+                                 approvalRef=ref, approvedBy=ap["approvedBy"])
+    estimate = copy.deepcopy(req.get("estimate") or {})
+    estimate["requests"] = dict(estimate.get("requests") or {}, runCap=need["runCapRequests"])
+    estimate["providerBillableRequests"] = dict(estimate.get("providerBillableRequests") or {}, coachingCap=need["coachingRequests"],
+                                                 basis=coaching_basis)
+    estimate["window"] = dict(estimate.get("window") or {}, proposedMinutes=need["windowMinutes"])
+    estimate.update(identityReads=need["identityReads"], starts=need["starts"], takes=need["takes"],
+                    paidActionsAuthorizedUsd=0, githubRunnerMinutesMax=need["githubRunnerMinutes"])
+    req["estimate"] = estimate
     req["release"] = dict(req.get("release") or {}, testedSha=tested_sha)
     req["nightly"] = {"occurrence": occurrence, "occurrenceId": key, "runId": run_id, "attempt": 1,
                       "templateSha256": hashlib.sha256(template_raw).hexdigest(), "approvalSha256": hashlib.sha256(approval_raw).hexdigest(),
                       "budgetSha256": hashlib.sha256(budget_raw).hexdigest(), "standingApprovalRef": ref}
+    # The exact execution contract is checked before these bytes can be admitted; a derived request may not rely on a later planner failure.
+    try:
+        C.request_caps(req, execution=True)
+    except C.InputValidationError:
+        raise Refused("nightly-execution-contract")
     # The caller's own ceiling checks against the live job's actual timeout.
     I.check_ceilings(cfg, req, I.ALL_CASES, workflow_job_timeouts(workflow_text)["live"])
     return canon(req)
