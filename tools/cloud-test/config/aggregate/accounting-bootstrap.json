@@ -1,0 +1,24 @@
+{
+  "schema": "speaksharp.cloud-test.accounting-bootstrap.v1",
+  "asOfUtc": "2026-10-28T12:21:25Z",
+  "sourceRecords": [
+    "sha256:0ab9bad6340683dacc5dc79aee21a713d0acf0b2c2a1025d14dca3222beda3eb",
+    "sha256:31b915e4f9044bbfa5b657a11de513aac6ba3dc02d066c5c406c67054b31c55e",
+    "sha256:7319c26777cba765a09958d4775a75538e7a4ccbf804fbcebed227469f4afab6",
+    "sha256:7d774f741d05cea10c60cdac9144bebbf7713a142b936edb321a0fb2c039bc3f",
+    "sha256:c881b514a73cd3ae4ed298ff8a7bf166f572164e3ae3495a1b3d8fdb7bad37ca"
+  ],
+  "usage": {
+    "requests": 5529,
+    "identityReads": 94,
+    "starts": 46,
+    "takes": 24,
+    "coachingRequests": null,
+    "runnerMinutes": null
+  },
+  "authority": {
+    "approvalRef": "sha256:0ab9bad6340683dacc5dc79aee21a713d0acf0b2c2a1025d14dca3222beda3eb",
+    "expired": true
+  },
+  "unresolved": []
+}
