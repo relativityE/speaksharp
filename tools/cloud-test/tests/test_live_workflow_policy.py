@@ -82,6 +82,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write"})
         self.assertEqual(self.jobs["record-complete"]["permissions"], {"issues": "write", "actions": "read"})
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
+        self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
 
     def test_the_record_jobs_hold_no_live_credential(self):
         for name in ("record-begin", "record-complete"):
