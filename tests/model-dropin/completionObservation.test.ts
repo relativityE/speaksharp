@@ -12,7 +12,12 @@ it('uses actual RPC content without requiring the non-shipping selectedForSave d
   expect('selectedForSave' in lengthOnlyDiagnostics).toBe(false);
   expect(await observeCompletedSave(response(),api)).toEqual({sessionId:payload.p_session_id,transcript:payload.p_final_transcript});
 });
-it.each([{...payload,p_final_transcript:undefined},{...payload,p_status:'failed'},{...payload,p_session_id:'other'}])('rejects invalid completion content without exposing it',async body=>{
+// Each case is named: the efficacy gate requires unique test full names (an unnamed it.each collapses three cases into one name).
+it.each([
+  {label:'a missing final transcript',body:{...payload,p_final_transcript:undefined}},
+  {label:'a failed status',body:{...payload,p_status:'failed'}},
+  {label:'another session',body:{...payload,p_session_id:'other'}},
+])('rejects invalid completion content ($label) without exposing it',async ({body})=>{
   await expect(observeCompletedSave(response(body),api)).rejects.toThrow('completion_not_durably_retained');
 });
 it.each(['expired','not_captured','not_provided'])('rejects a successful HTTP response with %s outcome',async transcript_outcome=>{
