@@ -119,8 +119,8 @@ class Gate(unittest.TestCase):
     def test_attempt_writer_approval_and_trigger_guards(self):
         refused(self, "nightly-attempt", self.gate, attempt="2")
         refused(self, "state-writer-not-activated", self.gate, activated=False)
-        self.assertIsNone(N.state_ref_writer.REVIEWED_ROOT)
-        refused(self, "state-writer-not-activated", self.gate, activated=None)  # the real writer is not activated today
+        self.assertEqual(N.state_ref_writer.REVIEWED_ROOT, "92d6ebf902351750c368d7d513116c6b1f19f80c")
+        self.assertEqual(self.gate(activated=None)[1], SLOT)
         refused(self, "recurring-approval-unreadable", self.gate, path=os.path.join(self.d, "missing.json"))
         refused(self, "nightly-trigger-ambiguous", self.gate, trigger=SLOT + timedelta(minutes=31))
         refused(self, "nightly-trigger-ambiguous", self.gate, trigger=SLOT - timedelta(minutes=1))  # yesterday's slot, 23h59m before
@@ -143,7 +143,7 @@ class Gate(unittest.TestCase):
         code, out, err = run("--switch", "true", "--attempt", "2", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")
         self.assertEqual((code, out["code"], err.strip()), (78, "nightly-attempt", "BLOCKED_SETUP: nightly-attempt"))
         self.assertEqual(run("--switch", "true", "--attempt", "1", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")[:2],
-                         (78, {"admitted": "false", "code": "state-writer-not-activated", "request_sha256": "", "request_b64": ""}))
+                         (78, {"admitted": "false", "code": "recurring-approval-not-approved", "request_sha256": "", "request_b64": ""}))
 
     def test_an_admitted_gate_outputs_exactly_the_admitted_bytes_beside_their_digest(self):
         import base64

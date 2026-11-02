@@ -349,7 +349,8 @@ class ManualReservation(Journal):
         self.refused("manual-reservation-outside-period", self.execute, "reserve", dict(r, atUtc="2026-11-01T23:59:59Z"), "x4")
         self.refused("manual-reservation-outside-period", self.execute, "reserve", dict(r, atUtc="2026-12-02T00:00:00Z"), "x5")
         self.assertEqual(self.chain()[-1][1], [])
-        self.refused("manual-reservation-rollup-not-accepted", self.execute, "reserve", r, "x6", None, dict(self.all_pins, accepted_sha256=None))
+        self.refused("manual-reservation-rollup-bootstrap-not-accepted", self.execute, "reserve", r, "x6", None,
+                     dict(self.all_pins, accepted_sha256="0" * 64))
         # release: refused on the integrated path until never-started evidence can be verified
         self.execute("reserve", r, "x7")
         self.refused("manual-release-never-started-unverified", self.execute, "release", {"campaignId": "R7-full-coverage", "runId": RUN}, "x8")
@@ -375,13 +376,22 @@ class ManualReservation(Journal):
         self.refused("manual-release-approval", M.release, e, False, "free text", AT)
         self.assertEqual(M.release(e, False, "slack-1793556225.890759", AT)["allocation"], ALLOCATION)
 
-    def test_the_cli_refuses_while_the_writer_is_not_activated(self):
-        for command in ("reserve", "settle", "release"):
+    def test_the_activated_cli_still_refuses_unreadable_inputs(self):
+        expected = {
+            "reserve": "manual-reservation-inputs-unreadable",
+            "settle": "manual-settle-input-source",
+            "release": "manual-release-never-started-unverified",
+        }
+        for command, code in expected.items():
             p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "manual_reservation.py"), command, "--request", "/nonexistent"],
                                capture_output=True, text=True)
-            self.assertEqual((p.returncode, p.stdout, p.stderr.strip()), (78, "", "BLOCKED_SETUP: manual-reservation-not-activated"))
-        self.assertFalse(M.activated())
-        self.assertEqual((W.REVIEWED_ROOT, R.ACCEPTED_BOOTSTRAP_SHA256, R.ACCEPTED_ROOT, M.ACCEPTED_SCOPE_SHA256), (None, None, None, None))
+            self.assertEqual((p.returncode, p.stdout, p.stderr.strip()), (78, "", "BLOCKED_SETUP: " + code))
+        self.assertTrue(M.activated())
+        self.assertEqual((W.REVIEWED_ROOT, R.ACCEPTED_BOOTSTRAP_SHA256, R.ACCEPTED_ROOT, M.ACCEPTED_SCOPE_SHA256),
+                         ("92d6ebf902351750c368d7d513116c6b1f19f80c",
+                          "0a3e60271dc703f12cf02684450a9f74bc7f60d5c3f610a86bb9eaddc268f174",
+                          "92d6ebf902351750c368d7d513116c6b1f19f80c",
+                          "bc94411accaaabe5756303cf5a52bc772841eac0ca5fdc535ad5f78177ae8896"))
 
 
 if __name__ == "__main__":

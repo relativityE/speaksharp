@@ -42,8 +42,9 @@ G5_KEYS = ("requests", "identityReads", "starts", "takes")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 APPROVAL = re.compile(r"slack-[0-9]{10}\.[0-9]{6}")
 RUN_RECORD_SCHEMA = "speaksharp.cloud-test.run-record.v1"
-# The independently accepted period-scope bytes, pinned by a reviewed change together with the bootstrap and the writer root. None today.
-ACCEPTED_SCOPE_SHA256 = None
+# The exact PO-approved fresh-period scope, pinned with the bootstrap and writer
+# root.  A substituted scope is refused before any journal transition.
+ACCEPTED_SCOPE_SHA256 = "bc94411accaaabe5756303cf5a52bc772841eac0ca5fdc535ad5f78177ae8896"
 
 
 class Refused(ValueError):

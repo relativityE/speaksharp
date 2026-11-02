@@ -1,6 +1,6 @@
 {
   "schema": "speaksharp.cloud-test.manual-activation-proposal.v1",
-  "status": "PROPOSAL - NOT ACTIVATED",
+  "status": "SELECTED FOR ONE R10 MANUAL RUN",
   "trackingIssue": 1763,
   "stateRef": "refs/heads/cloud-test-state",
   "stateRoot": {
@@ -12,7 +12,7 @@
   },
   "bootstrap": {
     "path": "tools/cloud-test/config/aggregate/accounting-bootstrap.json",
-    "sha256": null
+    "sha256": "0a3e60271dc703f12cf02684450a9f74bc7f60d5c3f610a86bb9eaddc268f174"
   },
   "periodScope": {
     "periodStartUtc": "2026-11-02T20:15:00Z",
@@ -32,11 +32,11 @@
       "starts": 42,
       "takes": 31
     },
-    "approvalRef": null,
-    "sha256": null
+    "approvalRef": "slack:1793652421.513399",
+    "sha256": "bc94411accaaabe5756303cf5a52bc772841eac0ca5fdc535ad5f78177ae8896"
   },
-  "rootRefCreationSelected": false,
-  "activationPinsSelected": false,
+  "rootRefCreationSelected": true,
+  "activationPinsSelected": true,
   "knownLaterRunsResolved": false,
   "historicalDisposition": "The seven unresolved pre-period occurrences remain UNRESOLVED with null usage. Explicit carryover none excludes them from this fresh period without relabelling them zero or resolving them."
 }

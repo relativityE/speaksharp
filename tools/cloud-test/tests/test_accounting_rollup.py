@@ -296,8 +296,14 @@ class Rollup(Journal):
                 refused(self, code, R.receive, self.raw, sc, self.chain(), **self.pins)
 
     def test_anchor_negatives(self):
-        refused(self, "rollup-not-accepted", R.receive, self.raw, scope(), self.chain())  # the production pins are unset today
-        self.assertEqual((R.ACCEPTED_BOOTSTRAP_SHA256, R.ACCEPTED_ROOT), (None, None))
+        # The selected R10 source has production pins.  Removing either pin in
+        # isolation still refuses before any accounting is consumed.
+        from unittest import mock
+        with mock.patch.object(R, "ACCEPTED_BOOTSTRAP_SHA256", None), mock.patch.object(R, "ACCEPTED_ROOT", None):
+            refused(self, "rollup-not-accepted", R.receive, self.raw, scope(), self.chain())
+        self.assertEqual((R.ACCEPTED_BOOTSTRAP_SHA256, R.ACCEPTED_ROOT),
+                         ("0a3e60271dc703f12cf02684450a9f74bc7f60d5c3f610a86bb9eaddc268f174",
+                          "92d6ebf902351750c368d7d513116c6b1f19f80c"))
         refused(self, "rollup-bootstrap-not-accepted", R.receive, bootstrap(asOfUtc="2026-11-01T18:00:00Z"), scope(), self.chain(), **self.pins)
         refused(self, "rollup-predecessor-gap", R.receive, self.raw, scope(), self.chain(), accepted_sha256=self.pins["accepted_sha256"],
                 accepted_root="f" * 40)

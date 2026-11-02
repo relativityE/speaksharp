@@ -36,9 +36,11 @@ import state_ref_writer  # noqa: E402
 
 SCHEMA = "speaksharp.cloud-test.accounting-bootstrap.v1"
 SCOPE_SCHEMA = "speaksharp.cloud-test.period-scope.v1"
-# Independent acceptance: the exact bootstrap bytes and the state-ref root they anchor, pinned together by a reviewed change. None today.
-ACCEPTED_BOOTSTRAP_SHA256 = None
-ACCEPTED_ROOT = None
+# Independent acceptance for the single PO-approved R10 manual period.  The
+# historical bootstrap remains content-free and its unresolved entries remain
+# unresolved; the separately pinned scope selects carryover:none.
+ACCEPTED_BOOTSTRAP_SHA256 = "0a3e60271dc703f12cf02684450a9f74bc7f60d5c3f610a86bb9eaddc268f174"
+ACCEPTED_ROOT = "92d6ebf902351750c368d7d513116c6b1f19f80c"
 G5_KEYS = ("requests", "identityReads", "starts", "takes")
 UNKNOWN_ALLOWED = ("coachingRequests", "runnerMinutes")
 USAGE_KEYS = G5_KEYS + UNKNOWN_ALLOWED

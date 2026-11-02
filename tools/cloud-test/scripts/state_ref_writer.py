@@ -36,7 +36,9 @@ SCHEMA = "speaksharp.cloud-test.state-ledger.v1"
 LEDGER = "ledger.json"
 STATE_REF = "refs/heads/cloud-test-state"
 APPROVED_URL = "https://github.com/relativityE/speaksharp.git"
-REVIEWED_ROOT = None  # pinned only by an independently reviewed change; until then the CLI refuses
+# Independently reviewed parentless root selected for the single PO-approved
+# R10 manual period.  Any other root is refused before a journal transition.
+REVIEWED_ROOT = "92d6ebf902351750c368d7d513116c6b1f19f80c"
 OBSERVED = "refs/cloud-test-state/observed"
 MAX_CHAIN = 10000
 TYPES = ("reserve", "settle", "release")
