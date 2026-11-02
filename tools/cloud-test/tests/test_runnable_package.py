@@ -2,6 +2,7 @@
 plans the REAL vendored runner accepts; nothing ignores a failure; the control plane runs secret-free with no product traffic."""
 import datetime
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -16,10 +17,30 @@ import unittest
 import zipfile
 
 from _fixtures import NOW, REPO, REQUIRE, ROOT, TESTED, J, prerequisite, request_path, run_py, sample, wjson
+from test_case_start_caps import SyntheticBuilder
 import verify_harness as VH
 
 CFG = os.path.join(ROOT, "config", "test-config.v1.json")
 RECEIVING_SOURCE = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
+PROJECT_REF = "yxlapjuovrsvjswkwnrk"
+
+_builder_spec = importlib.util.spec_from_file_location("cloud_test_build_plan", os.path.join(ROOT, "harness-adapter", "build_plan.py"))
+_builder = importlib.util.module_from_spec(_builder_spec)
+_builder_spec.loader.exec_module(_builder)
+
+
+def write_account_bindings(path, campaign_id):
+    wjson(path, {"schema": "speaksharp.cloud-test.live-account-bindings.v1",
+                 "projectRef": PROJECT_REF,
+                 "projectOrigin": "https://%s.supabase.co" % PROJECT_REF,
+                 "sourceBundleSha256": "a" * 64,
+                 "campaignId": campaign_id,
+                 "roles": {
+                     "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001",
+                                               "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}},
+                     "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002",
+                                               "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}}})
+    os.chmod(path, 0o600)
 
 
 def sha(b):
@@ -91,6 +112,131 @@ class VendoredHarness(unittest.TestCase):
 
     def test_the_cli_exit_code_on_success(self):
         self.assertEqual(run_py("scripts/verify_harness.py", "--config", CFG).returncode, 0)
+
+
+class FeedbackDeliveryPolicy(unittest.TestCase):
+    def policy(self):
+        value = J("harness", "bundle", "config", "policy.production.TEMPLATE.json")
+        value["caps"] = {**value["caps"], "telemetry": None}
+        return value
+
+    def test_selected_07_or_08_gets_only_the_exact_reviewed_delivery_hosts_and_measured_cap(self):
+        for selected in ([7], [8], [7, 8]):
+            with self.subTest(selected=selected):
+                policy = _builder.select_feedback_delivery(self.policy(), selected, True)
+                self.assertEqual(policy["caps"]["telemetry"], 20)
+                self.assertEqual(policy["hosts"]["us-assets.i.posthog.com"]["rules"], [{
+                    "id": "posthog-sdk-array", "methods": ["GET"], "path": "^/static/array\\.js$", "cap": "telemetry",
+                    "effect": "read the exact PostHog array SDK asset observed on the reviewed production route",
+                    "review": True, "reviewedSourceSha": None,
+                }])
+                self.assertEqual(policy["hosts"]["us.i.posthog.com"]["rules"], [{
+                    "id": "posthog-event-ingest", "methods": ["POST"], "path": "^/(e|i/v0/e)/$", "cap": "telemetry",
+                    "effect": "send bounded non-PII product telemetry to either exact reviewed PostHog ingestion route",
+                    "review": True, "reviewedSourceSha": None,
+                }])
+
+    def test_unselected_or_unbound_delivery_never_widens_the_policy(self):
+        policy = _builder.select_feedback_delivery(self.policy(), [4, 13, 14], True)
+        self.assertEqual(policy["caps"]["telemetry"], 0)
+        for host in _builder.POSTHOG_DELIVERY_HOSTS:
+            self.assertNotIn(host, policy["hosts"])
+        with self.assertRaisesRegex(ValueError, "producer-unavailable"):
+            _builder.select_feedback_delivery(self.policy(), [7], False)
+
+    def test_only_the_explicit_placeholder_proof_can_generate_07_08_without_a_live_producer(self):
+        request = {"approvedLimits": {"approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"},
+                   "selectionApprovalRef": "PLACEHOLDER-NOT-A-RUN-selection"}
+        facts = {"ownerApprovalReference": "PLACEHOLDER-NOT-A-RUN-owner-approval", "approvedBy": "PLACEHOLDER-NOT-A-RUN",
+                 "actionApproval": {"approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER",
+                                    "selectionApprovalRef": "PLACEHOLDER-NOT-A-RUN-selection"}}
+        env = {"BP_SYNTHETIC_OFFLINE_PROOF": "1", "BP_RUNTIME": "Claude SpeakSharp R4", "BP_PRODUCER_MODE": "unavailable"}
+        self.assertTrue(_builder.synthetic_offline_proof(request, facts, env))
+        policy = _builder.select_feedback_delivery(self.policy(), [7, 8], False, True)
+        self.assertEqual(policy["caps"]["telemetry"], 20)
+        for changed in (
+            dict(env, BP_SYNTHETIC_OFFLINE_PROOF="0"),
+            dict(env, BP_RUNTIME="GitHub Actions SpeakSharp"),
+            dict(env, BP_PRODUCER_MODE="same-github-job"),
+        ):
+            with self.assertRaisesRegex(ValueError, "synthetic-offline-proof"):
+                _builder.synthetic_offline_proof(request, facts, changed)
+        bad_request = json.loads(json.dumps(request)); bad_request["approvedLimits"]["approvalRef"] = "REAL-APPROVAL"
+        with self.assertRaisesRegex(ValueError, "synthetic-offline-proof"):
+            _builder.synthetic_offline_proof(bad_request, facts, env)
+        bad_facts = json.loads(json.dumps(facts)); bad_facts["actionApproval"]["selectionApprovalRef"] = "CHANGED"
+        with self.assertRaisesRegex(ValueError, "synthetic-offline-proof"):
+            _builder.synthetic_offline_proof(request, bad_facts, env)
+        # A real builder invocation cannot turn the ordinary synthetic fixture
+        # into the sealed proof merely by setting the environment marker.
+        with tempfile.TemporaryDirectory(prefix="not-the-offline-proof-") as root:
+            ordinary = SyntheticBuilder(root, cases=(7, 8))
+            ordinary.env["BP_SYNTHETIC_OFFLINE_PROOF"] = "1"
+            result = ordinary.run()
+            self.assertEqual(result.returncode, 78)
+            self.assertEqual(ordinary.outputs(), {})
+
+    def test_generated_policy_uses_real_guard_matcher_and_cumulative_caps(self):
+        def same_job(builder):
+            facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+            facts["producerReviewReference"] = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"
+            builder.request["executionRuntime"] = "GitHub Actions SpeakSharp"
+            builder.repin(facts=facts)
+            packet = Path(ROOT) / "harness"
+            receiver = "draft-adapters/receivers/github-job-evidence-reader.cjs"
+            descriptor = {
+                "producerIdentity": "github-actions:relativityE/speaksharp:123:1:live", "jobId": "live",
+                "producerCodeSha256": sha((packet / "bundle/harness/authenticated-job-producer.cjs").read_bytes()),
+                "receiverSourceSha256": sha((packet / receiver).read_bytes()), "receiverRelativePath": receiver,
+                "workflowSourceSha": "b" * 40, "reviewReference": facts["producerReviewReference"],
+            }
+            descriptor_path = builder.root / "producer-descriptor.json"
+            descriptor_path.write_text(json.dumps(descriptor)); descriptor_path.chmod(0o600)
+            builder.env.update(BP_PRODUCER_MODE="same-github-job", BP_PRODUCER_DESCRIPTOR=str(descriptor_path),
+                BP_PRODUCER_DESCRIPTOR_SHA256=sha(descriptor_path.read_bytes()),
+                GITHUB_ACTIONS="true", GITHUB_REPOSITORY="relativityE/speaksharp", GITHUB_RUN_ID="123",
+                GITHUB_RUN_ATTEMPT="1", GITHUB_JOB="live", GITHUB_SHA="b" * 40)
+
+        with tempfile.TemporaryDirectory(prefix="feedback-guard-generated-") as root:
+            selected_root = Path(root) / "selected"; selected_root.mkdir()
+            selected = SyntheticBuilder(selected_root, cases=(7,))
+            same_job(selected)
+            results = [selected.run("phase1"), selected.run("phase2")]
+            self.assertEqual([r.returncode for r in results], [0, 0], [r.stderr for r in results])
+            policy = selected.root / "private/cfg/policy.json"
+            control = r'''
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {matchPolicyRule,Ledger}=require(process.argv[1]);
+const policy=JSON.parse(fs.readFileSync(process.argv[2],'utf8')),dir=process.argv[3];
+const allowed=[['us-assets.i.posthog.com','GET','/static/array.js'],['us.i.posthog.com','POST','/e/'],['us.i.posthog.com','POST','/i/v0/e/']];
+for(const input of allowed){const rule=matchPolicyRule(policy,...input);assert(rule);assert.equal(rule.cap,'telemetry');}
+for(const input of [['other.invalid','GET','/static/array.js'],['us-assets.i.posthog.com','POST','/static/array.js'],['us-assets.i.posthog.com','GET','/static/other.js'],['us.i.posthog.com','GET','/e/'],['us.i.posthog.com','POST','/e/extra']])assert.equal(matchPolicyRule(policy,...input),null);
+const telemetry=new Ledger(path.join(dir,'telemetry-ledger.json'),policy.caps);
+for(let i=0;i<20;i++)assert.equal(telemetry.tryReserve(['total','telemetry']),null);
+assert.equal(telemetry.tryReserve(['total','telemetry']),'telemetry');telemetry.release();
+const total=new Ledger(path.join(dir,'total-ledger.json'),policy.caps);
+for(let i=0;i<policy.caps.total;i++)assert.equal(total.tryReserve(['total']),null);
+assert.equal(total.tryReserve(['total']),'total');total.release();
+'''
+            result = subprocess.run(["node", "-e", control,
+                str(Path(ROOT) / "harness/bundle/harness/guard-proxy.cjs"), str(policy), os.path.realpath(root)],
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            unselected_root = Path(root) / "unselected"; unselected_root.mkdir()
+            unselected = SyntheticBuilder(unselected_root, cases=(13,))
+            unselected_results = [unselected.run("phase1"), unselected.run("phase2")]
+            self.assertEqual([r.returncode for r in unselected_results], [0, 0], [r.stderr for r in unselected_results])
+            unselected_policy = json.loads((unselected.root / "private/cfg/policy.json").read_text())
+            self.assertEqual(unselected_policy["caps"]["telemetry"], 0)
+            for host in _builder.POSTHOG_DELIVERY_HOSTS:
+                self.assertNotIn(host, unselected_policy["hosts"])
+
+            missing_root = Path(root) / "missing-producer"; missing_root.mkdir()
+            missing = SyntheticBuilder(missing_root, cases=(7,))
+            missing_results = [missing.run("phase1"), missing.run("phase2")]
+            self.assertEqual(missing_results[-1].returncode, 78)
+            self.assertFalse((missing.root / "private/cfg/policy.json").exists())
 
 
 class BrowserPin(unittest.TestCase):
@@ -191,7 +337,8 @@ class NothingIsIgnored(unittest.TestCase):
     def test_the_install_stage_runs_the_pinned_installer_and_the_lockfile_install(self):
         text = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
         self.assertIn("install_browser.py", text)
-        self.assertIn("--existing", text)
+        self.assertIn("--received-installed-receipt", text)
+        self.assertIn("--baselines", text)
         self.assertIn("--check-only", text)
         self.assertIn("acquire is unsupported", text)
         self.assertNotIn("ci --ignore-scripts", text)
@@ -257,7 +404,7 @@ class PlanBuilderProof(unittest.TestCase):
         prerequisite(node_ok(), "node")
         prerequisite(subprocess.run(["git", "-C", REPO, "cat-file", "-e", RECEIVING_SOURCE + "^{commit}"], capture_output=True).returncode == 0, "git history with the receiving-source SHA")
         prerequisite(os.path.isfile(os.path.join(REPO, "tests", "fixtures", "rwt", "open_mic_tts.wav")), "the reviewed speech fixtures in the checkout")
-        cls.work = tempfile.mkdtemp(prefix="ct-plan-")
+        cls.work = os.path.realpath(tempfile.mkdtemp(prefix="ct-plan-"))
         cls.browser = os.path.join(cls.work, "synthetic-browser")
         Path(cls.browser).write_bytes(b"synthetic browser identity; never executed\n")
         cls.browser_identity = os.path.join(cls.work, "browser-identity.json")
@@ -268,11 +415,37 @@ class PlanBuilderProof(unittest.TestCase):
         # same current source as FullPlanProof, not an obsolete request identity.
         req["release"]["testedSha"] = RECEIVING_SOURCE
         req["approvedLimits"] = {"cumulativeCeilingRequests": 6700, "identityCap": 98, "runCapRequests": 180, "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
+        start_caps = {"AHT-12": 3}
+        for row in req["selection"]:
+            row["startPressCap"] = start_caps[row["case"]]
+        req["estimate"]["starts"] = sum(start_caps.values())
+        req["proposedLimits"]["startPressCaps"] = dict(start_caps)
+        req["approvedLimits"]["startPressCaps"] = dict(start_caps)
         req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
         req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
-        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req)
-        cls.acct = os.path.join(cls.work, "acct.txt"); open(cls.acct, "w").write("00000000-0000-4000-8000-000000000001\n"); os.chmod(cls.acct, 0o600)
-        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--out", os.path.join(cls.work, "env.txt"))
+        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req); os.chmod(cls.reqp, 0o600)
+        cls.bindings = os.path.join(cls.work, "account-bindings.json")
+        write_account_bindings(cls.bindings, req["runId"])
+        cls.reconciliation = os.path.join(cls.work, "reconciliation.json")
+        wjson(cls.reconciliation, {"synthetic": "NOT-A-RUN", "starts": {"ownerCounted": 5},
+                                   "ceilings": {"starts": 100, "requests": 20000, "identityReads": 200,
+                                                "takes": 100, "protectedReserveRequests": 50},
+                                   "requests": {"conservativeUsed": 0},
+                                   "identityReads": {"conservativeUsed": 0},
+                                   "takes": {"ownerCounted": 0}})
+        os.chmod(cls.reconciliation, 0o600)
+        cls.facts = os.path.join(cls.work, "facts.json")
+        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        facts["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1",
+                                   "requestSha256": hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
+                                   "reconciliationSha256": hashlib.sha256(Path(cls.reconciliation).read_bytes()).hexdigest(),
+                                   "approvalRef": req["approvedLimits"]["approvalRef"],
+                                   "approvedBy": req["approvedLimits"]["approvedBy"],
+                                   "selectionApprovalRef": req["selectionApprovalRef"]}
+        wjson(cls.facts, facts)
+        os.chmod(cls.facts, 0o600)
+        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--request-sha256", hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
+                   "--reconciliation", cls.reconciliation, "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
 
     def build(self, name, extra=None, drop=()):
@@ -282,7 +455,9 @@ class PlanBuilderProof(unittest.TestCase):
         # as FullPlanProof already does; otherwise they silently exercise Claude.
         script += "".join("export %s=%s; " % (key, shlex.quote(value)) for key, value in (extra or {}).items() if key not in drop)
         env = {"PATH": os.environ["PATH"], "HOME": self.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
-               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": self.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
+               "BP_FACTS": self.facts, "BP_ACCOUNT_BINDINGS_FILE": self.bindings,
+               "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
+               "BP_REQUEST_FILE": self.reqp, "BP_REQUEST_SHA256": hashlib.sha256(Path(self.reqp).read_bytes()).hexdigest(), "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(self.work, "media"),
                "BP_BROWSER_IDENTITY": self.browser_identity,
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key"}
@@ -309,12 +484,26 @@ class PlanBuilderProof(unittest.TestCase):
         self.assertEqual((plan["requestBudget"]["runCap"], plan["requestBudget"]["cleanupReserve"], plan["identityCap"]), (180, 50, 4))
         pol = json.load(open(os.path.join(private, "cfg", "policy.json")))
         self.assertEqual((pol["caps"]["total"], pol["caps"]["coaching"], pol["caps"]["account-closure"]), (180, 0, 0))
+        self.assertEqual(pol["caps"]["telemetry"], 0)
+        self.assertNotIn("us-assets.i.posthog.com", pol["hosts"])
+        self.assertNotIn("us.i.posthog.com", pol["hosts"])
         self.assertEqual(plan["sourceSha"], RECEIVING_SOURCE)
+        consumption = json.load(open(os.path.join(private, "cfg/build-plan-consumption.json")))
+        self.assertEqual(consumption["schema"], "speaksharp.cloud-test.build-plan-consumption.v1")
+        self.assertEqual(consumption["planSha256"], sha(open(os.path.join(private, "cfg/campaign-plan.json"), "rb").read()))
+        self.assertEqual(consumption["requestSha256"], sha(open(self.reqp, "rb").read()))
 
     def job_inputs(self, name):
         review = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"
-        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        request = json.load(open(self.reqp))
+        request["executionRuntime"] = "GitHub Actions SpeakSharp"
+        request_path = os.path.join(self.work, name + "-request.json")
+        wjson(request_path, request)
+        os.chmod(request_path, 0o600)
+        request_sha = sha(open(request_path, "rb").read())
+        facts = json.load(open(self.facts))
         facts["producerReviewReference"] = review
+        facts["actionApproval"]["requestSha256"] = request_sha
         fp = os.path.join(self.work, name + "-facts.json"); wjson(fp, facts)
         packet = os.path.join(ROOT, "harness")
         receiver = "draft-adapters/receivers/github-job-evidence-reader.cjs"
@@ -323,7 +512,8 @@ class PlanBuilderProof(unittest.TestCase):
                       "receiverSourceSha256": sha(open(os.path.join(packet, receiver), "rb").read()),
                       "receiverRelativePath": receiver, "workflowSourceSha": "b" * 40, "reviewReference": review}
         dp = os.path.join(self.work, name + "-descriptor.json"); wjson(dp, descriptor)
-        return {"BP_RUNTIME": "GitHub Actions SpeakSharp", "BP_PRODUCER_MODE": "same-github-job", "BP_PRODUCER_DESCRIPTOR": dp,
+        return {"BP_RUNTIME": "GitHub Actions SpeakSharp", "BP_REQUEST_FILE": request_path,
+                "BP_REQUEST_SHA256": request_sha, "BP_PRODUCER_MODE": "same-github-job", "BP_PRODUCER_DESCRIPTOR": dp,
                 "BP_PRODUCER_DESCRIPTOR_SHA256": sha(open(dp, "rb").read()), "BP_FACTS": fp,
                 "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40}
 
@@ -339,6 +529,8 @@ class PlanBuilderProof(unittest.TestCase):
                 for producer in cfg["privateEvidenceProducers"].values():
                     self.assertEqual(producer["producerIdentity"], "github-actions:relativityE/speaksharp:123:1:live")
                     self.assertEqual(producer["deliveryKind"], "reviewed-authenticated-workflow-artifact")
+        case07 = json.load(open(next(c["configFile"] for c in plan["cases"] if c["id"] == "AHT-07")))
+        self.assertEqual(set(case07["privateEvidenceProducers"]), {"coaching-authority", "feedback-association", "feedback-received"})
         att = json.load(open(os.path.join(private, "cfg/runtime-attestation.json")))
         self.assertEqual(att["kind"], "github-actions-job-environment-receipt")
         self.assertEqual(att["immutableEnvironmentId"], "relativityE/speaksharp/123/1/live")
@@ -354,15 +546,15 @@ class PlanBuilderProof(unittest.TestCase):
 
     def test_same_job_descriptor_from_another_run_is_refused(self):
         inputs = self.job_inputs("other-job"); inputs["GITHUB_RUN_ID"] = "999"
-        _, out = self.build("p-other-job", extra=inputs)
-        self.assertNotEqual(out[-1].returncode, 0)
-        self.assertIn("producer belongs to another job", out[-1].stderr)
+        private, out = self.build("p-other-job", extra=inputs)
+        self.assertEqual((out[-1].returncode, out[-1].stderr.strip()), (78, "BLOCKED_SETUP: INVALID_BINDING_INPUT"))
+        self.assertFalse(os.path.exists(private))
 
     def test_same_run_descriptor_from_another_job_is_refused(self):
         inputs = self.job_inputs("other-job-same-run"); inputs["GITHUB_JOB"] = "other"
-        _, out = self.build("p-other-job-same-run", extra=inputs)
-        self.assertNotEqual(out[-1].returncode, 0)
-        self.assertIn("producer belongs to another job", out[-1].stderr)
+        private, out = self.build("p-other-job-same-run", extra=inputs)
+        self.assertEqual((out[-1].returncode, out[-1].stderr.strip()), (78, "BLOCKED_SETUP: INVALID_BINDING_INPUT"))
+        self.assertFalse(os.path.exists(private))
 
     def test_no_session_specific_value_is_embedded_in_the_generated_files(self):
         private, out = self.build("p-embed")
@@ -438,19 +630,19 @@ class PlanBuilderProof(unittest.TestCase):
 
     # ---- fail closed on missing inputs
     def test_missing_inputs_are_blocked_setup(self):
-        for name in ("BP_FACTS", "BP_ACCOUNT_ID_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY", "BP_SOURCE_SHA", "BP_SELECT_REF"):
-            private, out = self.build("p-miss-" + name.lower(), drop=(name,)) if name in ("BP_FACTS", "BP_ACCOUNT_ID_FILE", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY") else (None, None)
+        for name in ("BP_FACTS", "BP_ACCOUNT_BINDINGS_FILE", "BP_LIVE_ACCOUNTS_SHA256", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY", "BP_SOURCE_SHA", "BP_SELECT_REF"):
+            private, out = self.build("p-miss-" + name.lower(), drop=(name,)) if name in ("BP_FACTS", "BP_ACCOUNT_BINDINGS_FILE", "BP_LIVE_ACCOUNTS_SHA256", "BP_TASK_ID", "BP_SOURCE_REFERENCE", "BP_ENV_ID", "BP_CHECKOUT", "BP_BROWSER_IDENTITY") else (None, None)
             if out is None:
                 continue
             self.assertTrue(out[-1].returncode == 78, (name, out[-1].returncode, out[-1].stderr[-200:]))
 
     def test_a_facts_file_without_required_keys_is_blocked_setup(self):
-        bad = json.load(open(os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json")))
+        bad = json.load(open(self.facts))
         bad.pop("ownerApprovalReference")
         p = os.path.join(self.work, "facts-bad.json"); wjson(p, bad)
         _, out = self.build("p-facts", extra={"BP_FACTS": p})
         self.assertEqual(out[0].returncode, 78)
-        self.assertIn("facts file lacks", out[0].stderr)
+        self.assertEqual(out[0].stderr.strip(), "BLOCKED_SETUP: INVALID_BINDING_INPUT")
 
     def test_the_builder_never_overwrites_an_existing_private_directory(self):
         private, out = self.build("p-twice")

@@ -43,7 +43,7 @@ class Credentials(unittest.TestCase):
         self.assertEqual(st["build-plan"], ["VITE_SUPABASE_ANON_KEY"])
         for s in ("install-tools", "stimulus-preflight", "gate-and-validate", "collect"):
             self.assertEqual(st[s], [], s)
-        self.assertEqual(set(st["run"]), {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL",
+        self.assertEqual(set(st["run"]), {"FREE_TEST_EMAIL", "FREE_TEST_PASSWORD", "THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL",
                                           "VITE_SUPABASE_ANON_KEY"})
         for s, names in st.items():
             if s != "run":
@@ -86,12 +86,16 @@ class Credentials(unittest.TestCase):
                         self.assertIn(expected, r.stderr, (route, stage))
                         self.assertNotIn("value-not-printed", r.stdout + r.stderr)
 
-    def run_stage_env(self, stage, env, route="claude", fixed_parent=False):
+    def run_stage_env(self, stage, env, route="claude", fixed_parent=False, selected_cases=None):
         """Run the real run_stage() function and report which variable NAMES reach the stage (never values)."""
         script = open(SH, encoding="utf-8").read()
         fn = re.search(r"run_stage\(\) \{.*?\n\}\n", script, re.S).group(0)
         with tempfile.TemporaryDirectory(prefix="ct-stage-env-") as d:
             packet, out = os.path.join(d, "packet"), os.path.join(d, "out")
+            request = os.path.join(d, "request.json")
+            cases = ["AHT-%02d" % n for n in range(1, 16)] if selected_cases is None else selected_cases
+            with open(request, "w", encoding="utf-8") as f:
+                json.dump({"selection": [{"case": case} for case in cases]}, f)
             command = "bash -c 'env | cut -d= -f1 | sort'"
             path = os.environ["PATH"]
             if fixed_parent:
@@ -106,32 +110,51 @@ class Credentials(unittest.TestCase):
                 command = shlex.join(["node", os.path.join(packet, "bundle/harness/with-authenticated-evidence.cjs"),
                                       "--scope", scope, "--scope-sha256", "a" * 64,
                                       "--plan", os.path.join(out, "plan/cfg/campaign-plan.json"), "--plan-sha256", "b" * 64])
-            harness = ("set -euo pipefail\nROOT=%r\nCFG=%r\nROUTE=%r\nHP=%r\nOUT=%r\n"
+            harness = ("set -euo pipefail\nROOT=%r\nCFG=%r\nREQ=%r\nROUTE=%r\nHP=%r\nOUT=%r\n"
                        "ss_broker_service_role=\"${SUPABASE_SERVICE_ROLE_KEY:-}\"\n"
                        "ss_broker_telemetry_key=\"${POSTHOG_PERSONAL_API_KEY:-}\"\n"
                        "export -n ss_broker_service_role ss_broker_telemetry_key\n"
                        "unset SUPABASE_SERVICE_ROLE_KEY POSTHOG_PERSONAL_API_KEY\n"
                        "PYENV=(\"PATH=$PATH\" \"HOME=/tmp\")\nblocked() { echo \"BLOCKED_SETUP: $*\" >&2; exit 78; }\n%s\nrun_stage %s %s\n") % (
-                           ROOT, os.path.join(ROOT, "config", "test-config.v1.json"), route, packet, out, fn, stage, command)
+                           ROOT, os.path.join(ROOT, "config", "test-config.v1.json"), request, route, packet, out, fn, stage, command)
             return subprocess.run(["bash", "-c", harness], capture_output=True, text=True, env={**JOB, **env, "PATH": path})
 
     def test_a_stage_receives_only_its_allowlisted_credentials(self):
-        env = {"THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co",
+        env = {"FREE_TEST_EMAIL": "fe", "FREE_TEST_PASSWORD": "fp", "THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co",
                "VITE_SUPABASE_ANON_KEY": "k", "SUPABASE_SERVICE_ROLE_KEY": "s", "STRIPE_SECRET_KEY": "x", "AWS_SECRET_ACCESS_KEY": "a", "GH_TOKEN": "g"}
         for stage, expected in (("build-plan", {"VITE_SUPABASE_ANON_KEY"}), ("install-tools", set()), ("stimulus-preflight", set()), ("gate-and-validate", set()),
-                                ("run", {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"})):
+                                ("run", {"FREE_TEST_EMAIL", "FREE_TEST_PASSWORD", "THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"})):
             r = self.run_stage_env(stage, env)
             self.assertEqual(r.returncode, 0, r.stderr)
             names = set(r.stdout.split())
-            leaked = names & {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "STRIPE_SECRET_KEY", "AWS_SECRET_ACCESS_KEY", "GH_TOKEN"}
+            leaked = names & {"FREE_TEST_EMAIL", "FREE_TEST_PASSWORD", "THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "STRIPE_SECRET_KEY", "AWS_SECRET_ACCESS_KEY", "GH_TOKEN"}
             self.assertEqual(leaked, expected, stage)
 
     def test_a_stage_that_needs_a_credential_fails_when_it_is_missing(self):
         r = self.run_stage_env("run", {"THROWAWAY_TEST_EMAIL": "e"})
         self.assertEqual(r.returncode, 78)
 
+    def test_run_stage_requires_only_the_selected_account_roles(self):
+        env = {"FREE_TEST_EMAIL": "fe", "FREE_TEST_PASSWORD": "fp", "THROWAWAY_TEST_EMAIL": "e",
+               "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co",
+               "VITE_SUPABASE_ANON_KEY": "k"}
+        roles = {"FREE_TEST_EMAIL", "FREE_TEST_PASSWORD", "THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD"}
+        for cases, expected in ((["AHT-01"], {"THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD"}),
+                                (["AHT-15"], {"FREE_TEST_EMAIL", "FREE_TEST_PASSWORD"}),
+                                (["AHT-01", "AHT-15"], roles)):
+            with self.subTest(cases=cases):
+                r = self.run_stage_env("run", env, selected_cases=cases)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(set(r.stdout.split()) & roles, expected)
+
+    def test_run_stage_refuses_without_a_valid_selected_case_list(self):
+        env = {"VITE_SUPABASE_URL": "https://project.supabase.co", "VITE_SUPABASE_ANON_KEY": "k"}
+        for cases in ([], ["AHT-16"], ["AHT-01", "AHT-01"]):
+            with self.subTest(cases=cases):
+                self.assertNotEqual(self.run_stage_env("run", env, selected_cases=cases).returncode, 0)
+
     def test_even_producer_route_arbitrary_children_receive_no_broker_keys(self):
-        env = {"THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co", "VITE_SUPABASE_ANON_KEY": "k",
+        env = {"FREE_TEST_EMAIL": "fe", "FREE_TEST_PASSWORD": "fp", "THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co", "VITE_SUPABASE_ANON_KEY": "k",
                "SUPABASE_SERVICE_ROLE_KEY": "not-exported-service", "POSTHOG_PERSONAL_API_KEY": "not-exported-telemetry",
                "ss_broker_service_role": "not-exported-service", "ss_broker_telemetry_key": "not-exported-telemetry"}
         for route in ("claude", "github-direct", "github-producer"):
@@ -145,7 +168,7 @@ class Credentials(unittest.TestCase):
                 self.assertNotIn("not-exported-", r.stdout + r.stderr)
 
     def test_only_fixed_producer_run_command_receives_broker_keys(self):
-        env = {"THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co", "VITE_SUPABASE_ANON_KEY": "k",
+        env = {"FREE_TEST_EMAIL": "fe", "FREE_TEST_PASSWORD": "fp", "THROWAWAY_TEST_EMAIL": "e", "THROWAWAY_TEST_PASSWORD": "p", "VITE_SUPABASE_URL": "https://project.supabase.co", "VITE_SUPABASE_ANON_KEY": "k",
                "SUPABASE_SERVICE_ROLE_KEY": "not-printed-service", "POSTHOG_PERSONAL_API_KEY": "not-printed-telemetry",
                "AWS_SECRET_ACCESS_KEY": "not-printed-aws", "GH_TOKEN": "not-printed-github"}
         r = self.run_stage_env("run", env, route="github-producer", fixed_parent=True)
@@ -228,10 +251,9 @@ class NoNetworkImports(unittest.TestCase):
 
     def test_every_control_plane_script_loads_the_guard(self):
         for fn in os.listdir(os.path.join(ROOT, "scripts")):
-            if fn.endswith(".py") and fn not in ("_netguard.py", "_common.py", "install_browser.py", "cfg_get.py", "stage_env.py", "stimulus_preflight_retry.py"):
+            if fn.endswith(".py") and fn not in ("_netguard.py", "_common.py", "install_browser.py", "cfg_get.py", "stage_env.py", "stimulus_preflight_retry.py", "case_start_caps.py"):
                 text = open(os.path.join(ROOT, "scripts", fn), encoding="utf-8").read()
                 self.assertTrue("from _common import" in text or "import _netguard" in text or "import _common" in text or "from verify_receipts import" in text, fn)
-
 
 if __name__ == "__main__":
     unittest.main()

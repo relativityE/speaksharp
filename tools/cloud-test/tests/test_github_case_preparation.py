@@ -11,7 +11,8 @@ import unittest
 import datetime
 import hashlib
 
-from _fixtures import ROOT, REPO, J, wjson
+from _fixtures import ROOT, J, wjson
+from test_case_start_caps import SyntheticBuilder
 
 
 class IndependentGithubCasePreparation(unittest.TestCase):
@@ -19,41 +20,32 @@ class IndependentGithubCasePreparation(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="gh-case-prep-")
         self.addCleanup(temporary.cleanup)
         base = Path(temporary.name).resolve()
-        facts = base / "facts.json"
         facts_value = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
         facts_value["producerReviewReference"] = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"
-        wjson(str(facts), facts_value)
+        builder = SyntheticBuilder(base, cases=(case,))
+        builder.request["executionRuntime"] = "GitHub Actions SpeakSharp"
+        builder.repin(facts=facts_value)
         uid = base / "account.txt"
         uid.write_text("00000000-0000-4000-8000-000000000001")
-        browser = base / "synthetic-browser"
-        browser.write_bytes(b"synthetic browser identity; never executed\n")
-        browser_identity = base / "browser-identity.json"
-        wjson(str(browser_identity), {"schema": "speaksharp.cloud-test.existing-browser.v1", "path": str(browser.resolve()),
-                                      "observedBinarySha256": hashlib.sha256(browser.read_bytes()).hexdigest()})
-        output = base / "plan"
-        source = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
-        env = {
-            "PATH": os.environ["PATH"], "HOME": str(base),
-            "BP_PACKET": str(Path(ROOT) / "harness"), "BP_CHECKOUT": REPO,
-            "BP_PRIVATE": str(output), "BP_FACTS": str(facts), "BP_ACCOUNT_ID_FILE": str(uid),
-            "BP_BROWSER_IDENTITY": str(browser_identity),
-            "BP_SOURCE_SHA": source, "BP_CAMPAIGN": "SYNTHETIC-NOT-A-LIVE-RUN",
-            "BP_MODE": "breadth", "BP_CASES": str(case), "BP_SELECT": str(case),
-            "BP_SELECT_REF": "UNIT-SELECTION-NOT-A-RUN", "BP_SELECT_REASON": "unit preparation",
-            "BP_T0": "2026-01-01T00:00:00Z", "BP_T1": "2099-01-01T00:00:00Z",
-            "BP_TOTAL": "1000", "BP_COACHING_CAP": "1", "BP_IDENT": "4",
-            "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE-KEY",
+        output = Path(builder.env["BP_PRIVATE"])
+        env = builder.env
+        env.update({
+            "BP_ACCOUNT_ID_FILE": str(uid),
+            "BP_HOST_DB": "yxlapjuovrsvjswkwnrk.supabase.co",
             "BP_RUNTIME": "GitHub Actions SpeakSharp", "BP_PRODUCER_MODE": "unavailable",
             "GITHUB_ACTIONS": "true" if actual_job else "false",
             "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
             "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40,
-        }
+        })
         env.update(extra_env or {})
         results = []
         if bootstrap:
             now = datetime.datetime.now(datetime.timezone.utc)
-            env.update({"BP_T0": (now - datetime.timedelta(seconds=2)).isoformat(),
-                        "BP_T1": (now + datetime.timedelta(minutes=5)).isoformat()})
+            builder.request["window"] = {"startUtc": (now - datetime.timedelta(seconds=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                         "endUtc": (now + datetime.timedelta(minutes=60)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+            builder.repin(facts=facts_value)
+            env.update(builder.env)
+            source = env["BP_SOURCE_SHA"]
             scope = {"ownerAccountId": uid.read_text(), "sourceSha": source, "servedSha": source,
                      "campaignId": env["BP_CAMPAIGN"], "caseIds": ["AHT-%02d" % case],
                      "notBefore": env["BP_T0"], "deadlineAt": env["BP_T1"],
@@ -70,7 +62,7 @@ class IndependentGithubCasePreparation(unittest.TestCase):
                             capture_output=True, text=True, timeout=30))
             return output, results
         for phase in ("phase1", "phase2"):
-            result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "harness-adapter/build_plan.py"), phase], env=env, capture_output=True, text=True, timeout=30)
+            result = builder.run(phase)
             results.append(result)
             if result.returncode:
                 break
@@ -81,9 +73,11 @@ class IndependentGithubCasePreparation(unittest.TestCase):
         self.assertEqual([r.returncode for r in results], [0, 0], [r.stderr for r in results])
         plan = json.loads((directory / "cfg/campaign-plan.json").read_text())
         self.assertEqual(plan["runtime"], "GitHub Actions SpeakSharp")
-        self.assertEqual([c["id"] for c in plan["cases"]], ["AHT-04"])
-        self.assertNotIn("producerReceiverFile", plan["cases"][0])
-        config = json.loads(Path(plan["cases"][0]["configFile"]).read_text())
+        self.assertEqual([c["id"] for c in plan["cases"]], ["AHT-%02d" % n for n in range(1, 16)])
+        self.assertEqual(plan["selection"]["ids"], ["AHT-04"])
+        selected = next(c for c in plan["cases"] if c["id"] == "AHT-04")
+        self.assertNotIn("producerReceiverFile", selected)
+        config = json.loads(Path(selected["configFile"]).read_text())
         self.assertEqual((config["takeCap"], config["startPressCap"]), (1, 2))
         self.assertNotIn("sampleMode", config)
         self.assertIn("deliberate-recovery-saved", config["requiredAssertions"])
@@ -93,21 +87,23 @@ class IndependentGithubCasePreparation(unittest.TestCase):
         directory, results = self.build(15)
         self.assertEqual([r.returncode for r in results], [0, 0], [r.stderr for r in results])
         plan = json.loads((directory / "cfg/campaign-plan.json").read_text())
-        self.assertEqual([c["id"] for c in plan["cases"]], ["AHT-15"])
-        self.assertNotIn("producerReceiverFile", plan["cases"][0])
+        self.assertEqual([c["id"] for c in plan["cases"]], ["AHT-%02d" % n for n in range(1, 16)])
+        self.assertEqual(plan["selection"]["ids"], ["AHT-15"])
+        selected = next(c for c in plan["cases"] if c["id"] == "AHT-15")
+        self.assertNotIn("producerReceiverFile", selected)
 
     def test_evidence_dependent_cases_still_refuse_without_actual_producer(self):
         for case in (1, 2, 3, 7, 8):
             with self.subTest(case=case):
                 directory, results = self.build(case)
                 self.assertNotEqual(results[-1].returncode, 0)
-                self.assertIn("selected cases require actual same-job evidence", results[-1].stderr)
+                self.assertEqual(results[-1].stderr.strip(), "BLOCKED_SETUP: INVALID_BINDING_INPUT")
                 self.assertFalse((directory / "cfg/campaign-plan.json").exists())
 
     def test_ordinary_shell_cannot_claim_github_runtime(self):
         directory, results = self.build(4, actual_job=False)
         self.assertNotEqual(results[-1].returncode, 0)
-        self.assertIn("actual selected GitHub job required", results[-1].stderr)
+        self.assertEqual(results[-1].stderr.strip(), "BLOCKED_SETUP: INVALID_BINDING_INPUT")
         self.assertFalse((directory / "cfg/campaign-plan.json").exists())
 
     def test_bootstrap_invokes_both_real_builder_phases_and_stops_before_execution(self):
@@ -118,6 +114,8 @@ class IndependentGithubCasePreparation(unittest.TestCase):
         for key in ("plan", "scope", "descriptor"):
             self.assertEqual(hashlib.sha256(Path(receipt[key]["file"]).read_bytes()).hexdigest(), receipt[key]["sha256"])
         plan = json.loads((directory / "cfg/campaign-plan.json").read_text())
-        self.assertEqual([c["id"] for c in plan["cases"]], ["AHT-07"])
-        self.assertTrue(plan["cases"][0]["producerReceiverFile"].endswith("github-job-evidence-reader.cjs"))
+        self.assertEqual([c["id"] for c in plan["cases"]], ["AHT-%02d" % n for n in range(1, 16)])
+        self.assertEqual(plan["selection"]["ids"], ["AHT-07"])
+        selected = next(c for c in plan["cases"] if c["id"] == "AHT-07")
+        self.assertTrue(selected["producerReceiverFile"].endswith("github-job-evidence-reader.cjs"))
         self.assertFalse((directory / "run").exists())

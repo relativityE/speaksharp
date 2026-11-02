@@ -21,6 +21,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 import _netguard  # noqa: E402,F401
 import rr_render as R  # noqa: E402
+from _common import comparison_errors  # noqa: E402
 
 esc = R.esc
 SECRET_PATTERNS = [re.compile(p) for p in (r"eyJ[A-Za-z0-9_-]{20,}", r"sk_(live|test)_[A-Za-z0-9]{10,}", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", r"https?://[^\s\"']*[?&](token|key|code)=", r"-----BEGIN [A-Z ]*PRIVATE KEY-----")]
@@ -98,6 +99,13 @@ def build(a):
     wf, req, ld, rv, rc, gates, spend, proof = (load(getattr(a, k)) for k in ("workflow", "request", "ledger_derived", "release_verification", "reconciliation", "gates", "spend", "offline_proof"))
     cmp_prior = load(a.comparison)
     cmp_latest = load(a.latest_comparison) if a.latest_comparison else None
+    prior_errors = comparison_errors(cmp_prior, a.labels)
+    if prior_errors:
+        raise ValueError("comparison evidence is incomplete: " + "; ".join(prior_errors))
+    if cmp_latest:
+        latest_errors = comparison_errors(cmp_latest, [cmp_latest.get("previous", {}).get("label"), cmp_latest.get("current", {}).get("label")])
+        if latest_errors:
+            raise ValueError("latest comparison evidence is incomplete: " + "; ".join(latest_errors))
     cov = load(a.coverage) if a.coverage else None
     bud = load(a.budget) if a.budget else None
     alerts = load(a.alerts) if a.alerts else None

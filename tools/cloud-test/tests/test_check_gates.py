@@ -1,12 +1,21 @@
 import copy
+import hashlib
+import json
+import os
 import unittest
 
-from _fixtures import ROOT, approved, fake_rv, receipt, reconciliation, sample
+from _fixtures import ROOT, approved as base_approved, fake_rv, receipt, reconciliation, sample
 from _gate_fixtures import GateInputs
 import check_gates as C
 import validate_run_request as V
 
 NOW = "2026-10-28T22:00:00Z"
+
+
+def approved(req, ledger):
+    r, l = base_approved(req, ledger)
+    r["approvedLimits"]["startPressCaps"] = dict(r["proposedLimits"]["startPressCaps"])
+    return r, l
 
 
 class CheckGates(unittest.TestCase):
@@ -46,6 +55,41 @@ class CheckGates(unittest.TestCase):
         out = self.ev(r, l, receipt(r))
         self.assertEqual(out["blockingOpen"], [], out["gates"])
         self.assertEqual(out["decision"], "GO")
+
+    def test_g7_accepts_only_the_receiver_verified_exact_prior_run_inventory(self):
+        r, l = approved(self.req, self.ledger)
+        rows = [{"label": p["label"], "passed": True} for p in r["priorRuns"]]
+        prior = {"schema": "speaksharp.cloud-test.prior-run-verification.v1", "runs": rows}
+        with open(os.path.join(ROOT, "tests", "fixtures", "accepted-comparison-R5-vs-R4C.json"), encoding="utf-8") as f:
+            comparison = json.load(f)
+        request_sha = hashlib.sha256(json.dumps(r, sort_keys=True).encode()).hexdigest()
+        self.cfg["aggregateReceiver"] = {"activated": True, "manifestSha256": "a" * 64, "bundleRootSha256": "b" * 64}
+        receiver = {"schema": "speaksharp.cloud-test.aggregate-receiver-receipt.v1", "manifestSha256": "a" * 64,
+                    "bundleRootSha256": "b" * 64, "requestSha256": request_sha,
+                    "sourceSha": r["release"]["testedSha"], "acceptedSha256": {
+                        "prior-run-verification": C.canonical_sha(prior), "comparison-prior": C.canonical_sha(comparison)}}
+        from _common import parse_utc
+        out = C.evaluate(r, self.cfg, l, self.wf, {"valid": True, "errors": []}, {"passed": True}, receipt(r),
+                         str(self.inputs.root), "final", fake_rv(), self.rc, parse_utc(NOW), offline_proof=str(self.inputs.proof),
+                         prior_verification=prior, prior_comparison=comparison, receiver_receipt=receiver, request_sha256=request_sha)
+        self.assertEqual(self.status(out)["G7"], "NOT-READY", "a caller-authored self-hash receipt is never receiver proof")
+        out = C.evaluate(r, self.cfg, l, self.wf, {"valid": True, "errors": []}, {"passed": True}, receipt(r),
+                         str(self.inputs.root), "final", fake_rv(), self.rc, parse_utc(NOW), offline_proof=str(self.inputs.proof),
+                         prior_verification=prior, prior_comparison=comparison, receiver_receipt=receiver,
+                         request_sha256=request_sha, receiver_verified=True)
+        self.assertEqual(self.status(out)["G7"], "READY", "only the CLI's prior pinned-bundle verification may set this bit")
+        for bad in (dict(prior, runs=rows[:-1]), dict(prior, runs=[dict(rows[0], passed=False), *rows[1:]]),
+                    dict(prior, schema="other")):
+            with self.subTest(bad=bad):
+                out = C.evaluate(r, self.cfg, l, self.wf, {"valid": True, "errors": []}, {"passed": True}, receipt(r),
+                                 str(self.inputs.root), "final", fake_rv(), self.rc, parse_utc(NOW), offline_proof=str(self.inputs.proof),
+                                 prior_verification=bad, prior_comparison=comparison, receiver_receipt=receiver,
+                                 request_sha256=request_sha, receiver_verified=True)
+                self.assertEqual(self.status(out)["G7"], "NOT-READY")
+        out = C.evaluate(r, self.cfg, l, self.wf, {"valid": True, "errors": []}, {"passed": True}, receipt(r),
+                         str(self.inputs.root), "final", fake_rv(), self.rc, parse_utc(NOW), offline_proof=str(self.inputs.proof),
+                         prior_verification=prior, prior_comparison=comparison, receiver_receipt=None, request_sha256=request_sha)
+        self.assertEqual(self.status(out)["G7"], "NOT-READY")
 
     def test_preflight_stage_go_defers_only_g4(self):
         r, l = approved(self.req, self.ledger)
@@ -154,6 +198,13 @@ class CheckGates(unittest.TestCase):
         r, l = approved(self.req, self.ledger)
         r["harness"]["ownerApprovalRef"] = None
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G3"], "OWNER-INPUT-OPEN")
+
+    def test_g5_never_accepts_aggregate_only_start_permission(self):
+        r,l=approved(self.req,self.ledger)
+        r['approvedLimits']['startPressCaps']=None
+        self.assertEqual(self.status(self.ev(r,l,receipt(r)))['G5'],'OWNER-INPUT-OPEN')
+        r['approvedLimits']['startPressCaps']={'AHT-12':True}
+        self.assertEqual(self.status(self.ev(r,l,receipt(r)))['G5'],'NOT-READY')
 
 
 if __name__ == "__main__":

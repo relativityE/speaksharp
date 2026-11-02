@@ -40,7 +40,7 @@
   "takeCap": null,
   "startPressCap": null,
   "_minimumTakeCap": 1,
-  "_minimumStartPressCap": 2,
+  "_minimumStartPressCap": 3,
   "oracleBindings": {},
   "fixture": {
     "name": null,

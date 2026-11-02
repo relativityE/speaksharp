@@ -16,11 +16,27 @@ import hashlib
 from _fixtures import REPO, ROOT, TESTED, J, prerequisite, wjson
 from test_runnable_package import chrome_path, node_ok, playwright_cwd
 import install_pdfjs
+import proof_prep_cases
 
 PIN = J("config", "test-config.v1.json")["tools"]["pdfjs"]
 CATALOG = J("config", "assertion-catalog.json")
 RUNNER_PDF = os.path.join(ROOT, "runner", "node_modules", "pdfjs-dist")
 RECEIVING_SOURCE = J("harness", "draft-adapters", "SOURCE.sha256.json")["sourceSha"]
+PROJECT_REF = "yxlapjuovrsvjswkwnrk"
+
+
+def write_account_bindings(path, campaign_id):
+    wjson(path, {"schema": "speaksharp.cloud-test.live-account-bindings.v1",
+                 "projectRef": PROJECT_REF,
+                 "projectOrigin": "https://%s.supabase.co" % PROJECT_REF,
+                 "sourceBundleSha256": "a" * 64,
+                 "campaignId": campaign_id,
+                 "roles": {
+                     "existing-disposable": {"accountId": "00000000-0000-4000-8000-000000000001",
+                                               "credentialVars": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"}},
+                     "maintained-read-only": {"accountId": "00000000-0000-4000-8000-000000000002",
+                                               "credentialVars": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}}})
+    os.chmod(path, 0o600)
 
 
 def selected_pdf_source():
@@ -57,6 +73,11 @@ class PinnedPdfParser(unittest.TestCase):
         (self.pdf / "legacy/build").mkdir(parents=True)
         (self.pdf / "package.json").write_text('{"version":"4.10.38","synthetic":true}')
         (self.pdf / "legacy/build/pdf.mjs").write_text("// inert test fixture\n")
+        for package in install_pdfjs.PLAYWRIGHT_PACKAGES:
+            root = self.runner / "node_modules" / package
+            root.mkdir(parents=True)
+            (root / "package.json").write_text(json.dumps({"name": package, "version": "1.57.0", "main": "index.js"}))
+            (root / "index.js").write_text("module.exports = { synthetic: true };\n")
         self.pin = dict(PIN)
         self.pin["packageJsonSha256"] = hashlib.sha256((self.pdf / "package.json").read_bytes()).hexdigest()
         self.pin["pdfMjsSha256"] = hashlib.sha256((self.pdf / "legacy/build/pdf.mjs").read_bytes()).hexdigest()
@@ -110,6 +131,44 @@ class PinnedPdfParser(unittest.TestCase):
         self.assertIn("modes.full.assertionCatalog.file", sh)
         self.assertEqual(J("config", "test-config.v1.json")["modes"]["full"]["assertionCatalog"]["file"], "config/assertion-catalog.json")
 
+    def test_verified_playwright_pair_is_bound_into_the_tested_checkout(self):
+        with tempfile.TemporaryDirectory() as d:
+            result = self.call("--checkout", d, "--bind-playwright")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for package in install_pdfjs.PLAYWRIGHT_PACKAGES:
+                binding = Path(d) / "node_modules" / package
+                self.assertTrue(binding.is_symlink())
+                self.assertEqual(binding.resolve(), (self.runner / "node_modules" / package).resolve())
+            resolved = subprocess.run(["node", "-e", """
+const path=require('node:path');
+for(const name of ['playwright','playwright-core']){
+  const p=require.resolve(name+'/package.json',{paths:[process.argv[1]]});
+  const j=require(p); if(j.name!==name||j.version!=='1.57.0')process.exit(2);
+}
+""", d], capture_output=True, text=True)
+            self.assertEqual(resolved.returncode, 0, resolved.stderr)
+            self.assertEqual(self.call("--checkout", d, "--check-only", "--bind-playwright").returncode, 0)
+
+    def test_missing_or_conflicting_playwright_pair_refuses_before_binding(self):
+        with tempfile.TemporaryDirectory() as d:
+            core = self.runner / "node_modules/playwright-core"
+            held = self.root / "held-playwright-core"
+            core.rename(held)
+            try:
+                result = self.call("--checkout", d, "--bind-playwright")
+                self.assertEqual(result.returncode, 78)
+                self.assertFalse((Path(d) / "node_modules/playwright").exists())
+            finally:
+                held.rename(core)
+        with tempfile.TemporaryDirectory() as d:
+            conflict = Path(d) / "node_modules/playwright"
+            conflict.mkdir(parents=True)
+            (conflict / "package.json").write_text('{"name":"playwright","version":"wrong"}')
+            result = self.call("--checkout", d, "--bind-playwright")
+            self.assertEqual(result.returncode, 78)
+            self.assertIn("not overwritten", result.stderr)
+            self.assertFalse((Path(d) / "node_modules/playwright-core").exists())
+
 
 class FullPlanProof(unittest.TestCase):
     """Builds the complete full-coverage plan from the R7 request (placeholder owner inputs, clearly NOT A RUN) and has the real runner validate it."""
@@ -123,19 +182,34 @@ class FullPlanProof(unittest.TestCase):
         prerequisite(cls.chrome, "the pinned browser installed and hash-verified (CT_CHROME)")
         cls.cwd = playwright_cwd()
         prerequisite(cls.cwd, "playwright installed from the lockfile")
-        cls.work = tempfile.mkdtemp(prefix="ct-fullplan-")
+        cls.work = os.path.realpath(tempfile.mkdtemp(prefix="ct-fullplan-"))
         cls.browser_identity = os.path.join(cls.work, "browser-identity.json")
         wjson(cls.browser_identity, {"schema": "speaksharp.cloud-test.existing-browser.v1", "path": os.path.realpath(cls.chrome),
                                     "observedBinarySha256": hashlib.sha256(Path(cls.chrome).read_bytes()).hexdigest()})
-        req = J("config", "runs", "R7-full-coverage-proposal.json")
-        req["release"]["testedSha"] = RECEIVING_SOURCE
-        req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55, "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
-        req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
-        req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
+        # Use the same reviewed synthetic request/Case10 projection helpers as
+        # the proof producer. The old hand-built R7 fixture omitted both the
+        # admitted reconciliation and the action-approval binding.
+        req = proof_prep_cases.placeholder_request(os.path.join(ROOT, "harness"))
         cls.req = req
-        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req)
-        cls.acct = os.path.join(cls.work, "acct.txt"); open(cls.acct, "w").write("00000000-0000-4000-8000-000000000001\n"); os.chmod(cls.acct, 0o600)
-        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--out", os.path.join(cls.work, "env.txt"))
+        cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req); os.chmod(cls.reqp, 0o600)
+        cls.bindings = os.path.join(cls.work, "account-bindings.json")
+        write_account_bindings(cls.bindings, req["runId"])
+        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        proof_prep_cases.bind_synthetic_case10(req, facts)
+        wjson(cls.reqp, req)
+        request_sha = hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest()
+        cls.reconciliation = os.path.join(cls.work, "reconciliation.json")
+        wjson(cls.reconciliation, {"synthetic": "PLACEHOLDER-NOT-A-RUN", "starts": {"ownerCounted": 0},
+              "ceilings": {"starts": 85, "requests": 20000, "identityReads": 200, "takes": 100,
+                           "protectedReserveRequests": 50}, "requests": {"conservativeUsed": 0},
+              "identityReads": {"conservativeUsed": 0}, "takes": {"ownerCounted": 0}})
+        reconciliation_sha = hashlib.sha256(Path(cls.reconciliation).read_bytes()).hexdigest()
+        facts["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1", "requestSha256": request_sha,
+              "reconciliationSha256": reconciliation_sha, "approvalRef": req["approvedLimits"]["approvalRef"],
+              "approvedBy": req["approvedLimits"]["approvedBy"], "selectionApprovalRef": req["selectionApprovalRef"]}
+        cls.factp = os.path.join(cls.work, "facts.json"); wjson(cls.factp, facts)
+        r = run_py("scripts/run_env.py", "--request", cls.reqp, "--request-sha256", hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
+                   "--reconciliation", cls.reconciliation, "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
         cls.p0, out = cls.build("plan0")
         assert [o.returncode for o in out] == [0, 0], [o.stderr for o in out]
@@ -153,11 +227,15 @@ class FullPlanProof(unittest.TestCase):
         script = "set -euo pipefail; set -a; . %s; set +a; " % os.path.join(cls.work, "env.txt")
         import shlex
         # overrides are exported AFTER the request-derived environment is sourced, otherwise the request's own values would win
+        script += "export BP_SYNTHETIC_OFFLINE_PROOF=1; "
         script += "".join("export %s=%s; " % (k, shlex.quote(v)) for k, v in (extra or {}).items())
         env = {"PATH": os.environ["PATH"], "HOME": cls.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
-               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_ID_FILE": cls.acct, "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
+               "BP_FACTS": cls.factp, "BP_ACCOUNT_BINDINGS_FILE": cls.bindings,
+               "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
+               "BP_REQUEST_FILE": cls.reqp, "BP_REQUEST_SHA256": hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(), "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(cls.work, "media"),
                "BP_BROWSER_IDENTITY": cls.browser_identity,
+               "VITE_SUPABASE_URL": "https://%s.supabase.co" % PROJECT_REF,
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key", "BP_PDFJS_DIR": cls.pdf_source}
         for k in drop:
             env.pop(k, None)

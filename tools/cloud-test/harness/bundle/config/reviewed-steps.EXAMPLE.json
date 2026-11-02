@@ -36,11 +36,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -48,7 +48,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -92,7 +92,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -196,7 +196,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -234,11 +234,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -246,7 +246,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -290,7 +290,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -394,7 +394,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -432,11 +432,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -444,7 +444,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -488,7 +488,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -592,7 +592,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -630,11 +630,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -642,7 +642,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -686,7 +686,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -790,7 +790,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -828,11 +828,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -840,7 +840,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -884,7 +884,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -988,7 +988,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1026,11 +1026,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1038,7 +1038,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1082,7 +1082,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1186,7 +1186,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1224,11 +1224,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1236,7 +1236,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1280,7 +1280,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1384,7 +1384,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1422,11 +1422,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1434,7 +1434,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1478,7 +1478,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1582,7 +1582,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1620,11 +1620,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1632,7 +1632,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1676,7 +1676,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1780,7 +1780,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1818,11 +1818,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -1830,7 +1830,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -1874,7 +1874,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1978,7 +1978,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2016,11 +2016,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2028,7 +2028,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2072,7 +2072,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2176,7 +2176,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2214,11 +2214,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2226,7 +2226,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2270,7 +2270,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2374,7 +2374,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2412,11 +2412,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2424,7 +2424,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2468,7 +2468,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2572,7 +2572,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2610,11 +2610,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2622,7 +2622,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2666,7 +2666,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2770,7 +2770,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2808,11 +2808,11 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",
@@ -2820,7 +2820,7 @@
         },
         {
           "path": "draft-adapters/coaching-failure-policy.cjs",
-          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+          "sha256": "fed1bfbdfbf1e65c9def7d9c282d17a9bb72e8cea3c6685cd0a61373524f6a0e"
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
@@ -2864,7 +2864,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2968,7 +2968,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2978,11 +2978,11 @@
     },
     {
       "path": "draft-adapters/oracles/index.cjs",
-      "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d",
+      "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4",
       "dependencies": [
         {
           "path": "draft-adapters/browser-observers.cjs",
-          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+          "sha256": "878edc05f610c3eb46df39c682cb2da3d1a9c3427f08760c551855a37bd4eb6b"
         },
         {
           "path": "draft-adapters/browser-readback.cjs",

@@ -72,6 +72,14 @@ function validatePolicy(p) {
 // ---------- integrity-bound cumulative ledger (pre-send fsync reservations) ----------
 const {Ledger,plain,safeKey}=require('./campaign-ledger.cjs');
 
+// Keep route matching in one production-owned function so offline controls can
+// exercise the exact decision used by onRequest without opening a socket.
+function matchPolicyRule(policy,host,method,pathname) {
+  const rules=policy?.hosts?.[host]?.rules;
+  if(!Array.isArray(rules))return null;
+  return rules.find(r=>r.methods.includes(method)&&new RegExp(r.path).test(pathname))||null;
+}
+
 // ---------- ephemeral TLS identity: one key, one self-signed cert per allowed host ----------
 function makeTlsIdentity(hosts, dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -188,6 +196,7 @@ class Guard {
   }
   armDownloadFault(f) {
     const bound=validateDownloadFault(f,this.policy);if(bound.mode==='offline-mid-download'&&typeof this.offlineControl!=='function')throw new Error('HARNESS_LIMITED: guarded browser offline capability not bound');this.downloadFaults.push(bound);
+    if(bound.mode==='offline-mid-download'&&this.browserPrefixObserver)this.browserPrefixObserver.arm(bound);
     this.log({kind:'download-fault-armed',faultId:bound.id,mode:bound.mode,host:bound.host,path:this.pathRef(bound.pathname),afterBytes:bound.afterBytes||0});
     return bound.id;
   }
@@ -342,7 +351,7 @@ class Guard {
     if (this.closing) return this.deny(res, 'closing', ev);
     if (Date.now() >= this.deadline) return this.deny(res, 'deadline-passed', ev);
     if(!Object.hasOwn(this.policy.hosts,host))return this.deny(res,'unknown-host',ev);
-    const rule = this.policy.hosts[host].rules.find((r) => r.methods.includes(req.method) && new RegExp(r.path).test(u.pathname));
+    const rule = matchPolicyRule(this.policy,host,req.method,u.pathname);
     if (!rule) return this.deny(res, 'policy', ev);
     ev.rule = rule.id;
     if (!(await this.slot())) return this.deny(res, 'concurrency-wait', ev);
@@ -387,6 +396,10 @@ class Guard {
     }
     if (rec.outcome || this.closing || Date.now() >= this.deadline) { if(!rec.outcome) deadline(); return; }
     const downloadFault=selectDownloadFault(this.downloadFaults,{url:u.href,method:req.method});
+    if(downloadFault?.mode==='offline-mid-download'&&this.browserPrefixObserver){
+      try{downloadFault.browserPrefixBinding=await this.browserPrefixObserver.bind(downloadFault.id);}
+      catch{finish('harness-limited',{reason:'browser-prefix-request-not-established'});this.deny(res,'browser-prefix-request-not-established',ev);return;}
+    }
     if(downloadFault?.mode==='download-fails'){downloadFault.fired=true;this.log({...ev,kind:'download-fault',faultId:downloadFault.id,mode:downloadFault.mode,decision:'not-forwarded'});finish('fault-download-request-lost');req.resume();failConnection(req.socket);return;}
     if(observedCompletion){completionObservation=this.completionObserver.observe({host,method:req.method,pathname:u.pathname,bodyBuffer:requestBody,headers:req.headers});if(completionObservation){this.durableLog({kind:'completion-attempt-reserved',faultId:this.completionFaultId,...completionObservation});if(!completionObservation.permitted){finish('harness-limited',{reason:completionObservation.reason});this.deny(res,'unexpected-completion-attempt',ev);return;}}}
     if(feedbackCandidates.length){
@@ -465,6 +478,7 @@ class Guard {
             res.write(Buffer.concat(chunks),this.guardCallback(async()=>{
               if(rec.outcome)return;
               try {
+                if(this.browserPrefixObserver)downloadFault.browserPrefixReceipt=await this.browserPrefixObserver.received(downloadFault.browserPrefixBinding);
                 await this.offlineControl(true);
                 if(rec.outcome)return;
                 downloadFault.fired=true;downloadFault.browserOfflineApplied=true;downloadFault.bytesForwarded=held;
@@ -578,6 +592,7 @@ class Guard {
 
   cancelAll(reason) {
     if(this.cancelled)return;this.cancelled=true;this.closing=true;
+    this.browserPrefixObserver?.close();
     const safeReason=/^[a-z-]{1,48}$/.test(reason)?reason:'cancelled';
     try{this.log({kind:'cancel',reason:safeReason,inFlight:this.inFlight.size});}catch{}
     for(const w of this.waiters.splice(0)){clearTimeout(w.timer);try{w.resolve(false);}catch{}}
@@ -588,7 +603,7 @@ class Guard {
     }
   }
   summary() {
-    return { fatal:this.fatalState||null, caseAllowance:this.ledger?.caseAllowanceState?.()||null, port: this.port, spki: this.spki, feedbackFaults:(this.feedbackFaults||[]).map(f=>f.summary()), completionAttempts:this.completionObserver?.summary()||null, counters: this.c, ledgerUsed: this.ledger.state.used, caps: this.policy.caps, downloadFaults:this.downloadFaults.map(f=>({id:f.id,mode:f.mode,selected:f.selected,fired:f.fired,bytesForwarded:f.bytesForwarded,browserOfflineApplied:f.browserOfflineApplied===true,networkRestored:f.networkRestored===true})), faults: this.faults.map((f) => ({ id: f.id, mode: f.mode, fired: f.fired })) };
+    return { fatal:this.fatalState||null, caseAllowance:this.ledger?.caseAllowanceState?.()||null, port: this.port, spki: this.spki, feedbackFaults:(this.feedbackFaults||[]).map(f=>f.summary()), completionAttempts:this.completionObserver?.summary()||null, counters: this.c, ledgerUsed: this.ledger.state.used, caps: this.policy.caps, downloadFaults:this.downloadFaults.map(f=>({id:f.id,mode:f.mode,selected:f.selected,fired:f.fired,bytesForwarded:f.bytesForwarded,browserOfflineApplied:f.browserOfflineApplied===true,networkRestored:f.networkRestored===true,...(f.browserPrefixReceipt?{browserPrefixReceipt:f.browserPrefixReceipt}:{})})), faults: this.faults.map((f) => ({ id: f.id, mode: f.mode, fired: f.fired })) };
   }
   async close(reason = 'close') {
     if(this.closePromise)return this.closePromise;
@@ -653,4 +668,4 @@ function listenOwned(server,{signal,timeoutMs}={}) {
     try{server.listen(0,'127.0.0.1',()=>{if(settled){close();return;}settled=true;cleanup();resolve();});}catch{failed();}
   });
 }
-module.exports = { startGuard, validatePolicy, Ledger, Guard, failConnection, listenOwned };
+module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned };
