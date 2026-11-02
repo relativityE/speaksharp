@@ -108,6 +108,7 @@
     "package-unit-tests::test_comparison_automation.SealedReceipts.test_compare_refuses_a_tampered_set",
     "package-unit-tests::test_comparison_automation.SealedReceipts.test_seal_refuses_secrets_and_existing_directories",
     "package-unit-tests::test_comparison_automation.SealedReceipts.test_the_four_sealed_sets_verify_against_their_pinned_hashes",
+    "package-unit-tests::test_credentials_and_boundary.Boundary.test_only_manifest_listed_retained_evidence_gets_the_narrow_exception",
     "package-unit-tests::test_credentials_and_boundary.Boundary.test_package_code_and_config_do_not_reference_the_model_evaluation_project",
     "package-unit-tests::test_credentials_and_boundary.Boundary.test_the_config_states_the_boundary",
     "package-unit-tests::test_credentials_and_boundary.Boundary.test_the_package_never_dispatches_other_workflows",

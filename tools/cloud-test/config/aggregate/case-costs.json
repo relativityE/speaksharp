@@ -1,0 +1,1269 @@
+{
+ "schema": "speaksharp.cloud-test.case-costs.v1",
+ "derived": true,
+ "source": "sealed guard logs, action reservations and case results",
+ "runs": {
+  "R4C": {
+   "label": "R4C",
+   "campaignId": "R4C-2b48eabc-20261027",
+   "requestBudgetPlan": false,
+   "caseSampleMode": "unbudgeted",
+   "cases": [
+    {
+     "case": "AHT-01",
+     "startedAt": "2026-10-27T19:57:24.973Z",
+     "endedAt": "2026-10-27T20:00:14.779Z",
+     "wallSeconds": 169.806,
+     "reason": "completed",
+     "requests": {
+      "total": 157,
+      "byCategory": {
+       "public": 50,
+       "navigations": 2,
+       "preflight": 34,
+       "auth": 1,
+       "signed-in": 62,
+       "model": 9,
+       "coaching": 1
+      }
+     },
+     "refusedConnections": 33,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 4,
+     "takeLimit": 4,
+     "identityReads": 2,
+     "rows": {
+      "total": 20,
+      "executed": 3,
+      "pass": 3,
+      "fail": 0,
+      "notRun": 17
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "17 of 20 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-02",
+     "startedAt": "2026-10-27T20:00:15.720Z",
+     "endedAt": "2026-10-27T20:02:23.737Z",
+     "wallSeconds": 128.017,
+     "reason": "completed",
+     "requests": {
+      "total": 117,
+      "byCategory": {
+       "public": 33,
+       "navigations": 1,
+       "preflight": 28,
+       "auth": 1,
+       "signed-in": 47,
+       "model": 8,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 36,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 7,
+     "takeLimit": 7,
+     "identityReads": 2,
+     "rows": {
+      "total": 33,
+      "executed": 9,
+      "pass": 8,
+      "fail": 1,
+      "notRun": 24
+     },
+     "caseResult": "FAIL",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "24 of 33 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-03",
+     "startedAt": "2026-10-27T20:02:24.792Z",
+     "endedAt": "2026-10-27T20:04:04.720Z",
+     "wallSeconds": 99.928,
+     "reason": "completed",
+     "requests": {
+      "total": 106,
+      "byCategory": {
+       "public": 33,
+       "navigations": 1,
+       "preflight": 25,
+       "auth": 1,
+       "signed-in": 39,
+       "model": 8,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 33,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 4,
+     "takeLimit": 4,
+     "identityReads": 2,
+     "rows": {
+      "total": 29,
+      "executed": 9,
+      "pass": 8,
+      "fail": 1,
+      "notRun": 20
+     },
+     "caseResult": "FAIL",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "20 of 29 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-04",
+     "startedAt": "2026-10-27T20:04:05.892Z",
+     "endedAt": "2026-10-27T20:06:07.820Z",
+     "wallSeconds": 121.928,
+     "reason": "completed",
+     "requests": {
+      "total": 157,
+      "byCategory": {
+       "public": 55,
+       "navigations": 2,
+       "preflight": 30,
+       "auth": 1,
+       "signed-in": 62,
+       "model": 9,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 41,
+     "deniedRequests": 2,
+     "startsPressed": 2,
+     "takesSaved": 1,
+     "startLimit": 2,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 9,
+      "executed": 9,
+      "pass": 9,
+      "fail": 0,
+      "notRun": 0
+     },
+     "caseResult": "PASS",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": false,
+     "lowerBoundBecause": []
+    },
+    {
+     "case": "AHT-05",
+     "startedAt": "2026-10-27T20:06:08.897Z",
+     "endedAt": "2026-10-27T20:09:44.085Z",
+     "wallSeconds": 215.188,
+     "reason": "completed",
+     "requests": {
+      "total": 315,
+      "byCategory": {
+       "public": 94,
+       "navigations": 4,
+       "preflight": 60,
+       "auth": 1,
+       "signed-in": 148,
+       "model": 10,
+       "coaching": 2
+      }
+     },
+     "refusedConnections": 53,
+     "deniedRequests": 1,
+     "startsPressed": 2,
+     "takesSaved": 2,
+     "startLimit": 2,
+     "takeLimit": 2,
+     "identityReads": 2,
+     "rows": {
+      "total": 10,
+      "executed": 10,
+      "pass": 10,
+      "fail": 0,
+      "notRun": 0
+     },
+     "caseResult": "PASS",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": false,
+     "lowerBoundBecause": []
+    },
+    {
+     "case": "AHT-06",
+     "startedAt": "2026-10-27T20:09:44.940Z",
+     "endedAt": "2026-10-27T20:13:13.990Z",
+     "wallSeconds": 209.05,
+     "reason": "completed",
+     "requests": {
+      "total": 305,
+      "byCategory": {
+       "public": 94,
+       "navigations": 4,
+       "preflight": 56,
+       "auth": 1,
+       "signed-in": 143,
+       "model": 9,
+       "coaching": 2
+      }
+     },
+     "refusedConnections": 53,
+     "deniedRequests": 1,
+     "startsPressed": 2,
+     "takesSaved": 2,
+     "startLimit": 2,
+     "takeLimit": 2,
+     "identityReads": 2,
+     "rows": {
+      "total": 10,
+      "executed": 10,
+      "pass": 10,
+      "fail": 0,
+      "notRun": 0
+     },
+     "caseResult": "PASS",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": false,
+     "lowerBoundBecause": []
+    },
+    {
+     "case": "AHT-07",
+     "startedAt": "2026-10-27T20:13:14.895Z",
+     "endedAt": "2026-10-27T20:18:09.544Z",
+     "wallSeconds": 294.649,
+     "reason": "completed",
+     "requests": {
+      "total": 174,
+      "byCategory": {
+       "public": 51,
+       "navigations": 2,
+       "preflight": 40,
+       "auth": 1,
+       "signed-in": 72,
+       "model": 9,
+       "coaching": 1
+      }
+     },
+     "refusedConnections": 33,
+     "deniedRequests": 1,
+     "startsPressed": 2,
+     "takesSaved": 1,
+     "startLimit": 2,
+     "takeLimit": 2,
+     "identityReads": 2,
+     "rows": {
+      "total": 15,
+      "executed": 4,
+      "pass": 4,
+      "fail": 0,
+      "notRun": 11
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "11 of 15 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-08",
+     "startedAt": "2026-10-27T20:18:10.689Z",
+     "endedAt": "2026-10-27T20:18:18.073Z",
+     "wallSeconds": 7.384,
+     "reason": "completed",
+     "requests": {
+      "total": 77,
+      "byCategory": {
+       "public": 37,
+       "navigations": 2,
+       "preflight": 17,
+       "auth": 1,
+       "signed-in": 22,
+       "model": 0,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 24,
+     "deniedRequests": 1,
+     "startsPressed": 0,
+     "takesSaved": 0,
+     "startLimit": 0,
+     "takeLimit": 0,
+     "identityReads": 2,
+     "rows": {
+      "total": 9,
+      "executed": 4,
+      "pass": 4,
+      "fail": 0,
+      "notRun": 5
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "5 of 9 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-09",
+     "startedAt": "2026-10-27T20:18:19.119Z",
+     "endedAt": "2026-10-27T20:20:58.314Z",
+     "wallSeconds": 159.195,
+     "reason": "completed",
+     "requests": {
+      "total": 238,
+      "byCategory": {
+       "public": 80,
+       "navigations": 3,
+       "preflight": 52,
+       "auth": 1,
+       "signed-in": 96,
+       "model": 9,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 45,
+     "deniedRequests": 4,
+     "startsPressed": 2,
+     "takesSaved": 2,
+     "startLimit": 3,
+     "takeLimit": 2,
+     "identityReads": 2,
+     "rows": {
+      "total": 12,
+      "executed": 9,
+      "pass": 9,
+      "fail": 0,
+      "notRun": 3
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "3 of 12 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-10",
+     "startedAt": "2026-10-27T20:20:59.211Z",
+     "endedAt": "2026-10-27T20:21:54.428Z",
+     "wallSeconds": 55.217,
+     "reason": "completed",
+     "requests": {
+      "total": 127,
+      "byCategory": {
+       "public": 47,
+       "navigations": 2,
+       "preflight": 29,
+       "auth": 1,
+       "signed-in": 42,
+       "model": 8,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 28,
+     "deniedRequests": 2,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 3,
+     "takeLimit": 2,
+     "identityReads": 2,
+     "rows": {
+      "total": 10,
+      "executed": 5,
+      "pass": 4,
+      "fail": 1,
+      "notRun": 5
+     },
+     "caseResult": "FAIL",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "5 of 10 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-11",
+     "startedAt": "2026-10-27T20:21:55.347Z",
+     "endedAt": "2026-10-27T20:23:06.658Z",
+     "wallSeconds": 71.311,
+     "reason": "completed",
+     "requests": {
+      "total": 231,
+      "byCategory": {
+       "public": 114,
+       "navigations": 5,
+       "preflight": 38,
+       "auth": 2,
+       "signed-in": 68,
+       "model": 9,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 54,
+     "deniedRequests": 1,
+     "startsPressed": 2,
+     "takesSaved": 1,
+     "startLimit": 4,
+     "takeLimit": 2,
+     "identityReads": 2,
+     "rows": {
+      "total": 9,
+      "executed": 4,
+      "pass": 4,
+      "fail": 0,
+      "notRun": 5
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "5 of 9 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-12",
+     "startedAt": "2026-10-27T20:23:07.612Z",
+     "endedAt": "2026-10-27T20:38:45.185Z",
+     "wallSeconds": 937.573,
+     "reason": "completed",
+     "requests": {
+      "total": 96,
+      "byCategory": {
+       "public": 43,
+       "navigations": 2,
+       "preflight": 22,
+       "auth": 1,
+       "signed-in": 30,
+       "model": 0,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 36,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 0,
+     "startLimit": 2,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 8,
+      "executed": 5,
+      "pass": 4,
+      "fail": 1,
+      "notRun": 3
+     },
+     "caseResult": "FAIL",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "3 of 8 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-13",
+     "startedAt": "2026-10-27T20:38:46.472Z",
+     "endedAt": "2026-10-27T20:42:27.138Z",
+     "wallSeconds": 220.666,
+     "reason": "completed",
+     "requests": {
+      "total": 114,
+      "byCategory": {
+       "public": 49,
+       "navigations": 2,
+       "preflight": 22,
+       "auth": 1,
+       "signed-in": 30,
+       "model": 12,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 33,
+     "deniedRequests": 1,
+     "startsPressed": 2,
+     "takesSaved": 0,
+     "startLimit": 2,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 8,
+      "executed": 6,
+      "pass": 5,
+      "fail": 1,
+      "notRun": 2
+     },
+     "caseResult": "FAIL",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "2 of 8 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-14",
+     "startedAt": "2026-10-27T20:42:28.272Z",
+     "endedAt": "2026-10-27T20:48:05.174Z",
+     "wallSeconds": 336.902,
+     "reason": "completed",
+     "requests": {
+      "total": 179,
+      "byCategory": {
+       "public": 47,
+       "navigations": 2,
+       "preflight": 24,
+       "auth": 1,
+       "signed-in": 99,
+       "model": 8,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 32,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 2,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 8,
+      "executed": 3,
+      "pass": 3,
+      "fail": 0,
+      "notRun": 5
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "5 of 8 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-15",
+     "startedAt": "2026-10-27T20:48:06.144Z",
+     "endedAt": "2026-10-27T20:48:20.390Z",
+     "wallSeconds": 14.246,
+     "reason": "completed",
+     "requests": {
+      "total": 127,
+      "byCategory": {
+       "public": 55,
+       "navigations": 2,
+       "preflight": 27,
+       "auth": 2,
+       "signed-in": 43,
+       "model": 0,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 49,
+     "deniedRequests": 1,
+     "startsPressed": 0,
+     "takesSaved": 0,
+     "startLimit": 0,
+     "takeLimit": 0,
+     "identityReads": 2,
+     "rows": {
+      "total": 14,
+      "executed": 14,
+      "pass": 14,
+      "fail": 0,
+      "notRun": 0
+     },
+     "caseResult": "PASS",
+     "plannedRequests": null,
+     "requestAllowance": null,
+     "lowerBound": false,
+     "lowerBoundBecause": []
+    }
+   ],
+   "totals": {
+    "requests": 2520,
+    "byCategory": {
+     "public": 882,
+     "navigations": 36,
+     "preflight": 504,
+     "auth": 17,
+     "signed-in": 1003,
+     "model": 108,
+     "coaching": 6
+    },
+    "startsPressed": 20,
+    "takesSaved": 14,
+    "casesWallSeconds": 3041.06,
+    "runWallSeconds": 3055.417,
+    "rowsTotal": 204,
+    "rowsExecuted": 104,
+    "identityReadsLedger": 32
+   },
+   "reconciliation": {
+    "ledgerTotal": 2520,
+    "sumOfCases": 2520,
+    "totalMatches": true,
+    "categoriesMatch": true,
+    "mismatches": {},
+    "ok": true
+   }
+  },
+  "R5": {
+   "label": "R5",
+   "campaignId": "R5-4c85b006-20261028-A2",
+   "requestBudgetPlan": true,
+   "caseSampleMode": "budgeted-minimal-or-breadth",
+   "cases": [
+    {
+     "case": "AHT-01",
+     "startedAt": "2026-10-28T11:59:08.950Z",
+     "endedAt": "2026-10-28T12:02:12.195Z",
+     "wallSeconds": 183.245,
+     "reason": "completed",
+     "requests": {
+      "total": 174,
+      "byCategory": {
+       "public": 50,
+       "navigations": 2,
+       "preflight": 40,
+       "auth": 1,
+       "signed-in": 73,
+       "model": 9,
+       "coaching": 1
+      }
+     },
+     "refusedConnections": 33,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 2,
+     "takeLimit": 2,
+     "identityReads": 2,
+     "rows": {
+      "total": 20,
+      "executed": 3,
+      "pass": 3,
+      "fail": 0,
+      "notRun": 17
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 350,
+     "requestAllowance": 440,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "17 of 20 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-02",
+     "startedAt": "2026-10-28T12:02:13.807Z",
+     "endedAt": "2026-10-28T12:04:38.808Z",
+     "wallSeconds": 145.001,
+     "reason": "completed",
+     "requests": {
+      "total": 127,
+      "byCategory": {
+       "public": 33,
+       "navigations": 1,
+       "preflight": 30,
+       "auth": 1,
+       "signed-in": 55,
+       "model": 8,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 37,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 1,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 33,
+      "executed": 9,
+      "pass": 8,
+      "fail": 1,
+      "notRun": 24
+     },
+     "caseResult": "FAIL",
+     "plannedRequests": 190,
+     "requestAllowance": 240,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "24 of 33 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-03",
+     "startedAt": "2026-10-28T12:04:40.811Z",
+     "endedAt": "2026-10-28T12:06:32.261Z",
+     "wallSeconds": 111.45,
+     "reason": "completed",
+     "requests": {
+      "total": 116,
+      "byCategory": {
+       "public": 33,
+       "navigations": 1,
+       "preflight": 27,
+       "auth": 1,
+       "signed-in": 47,
+       "model": 8,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 35,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 1,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 29,
+      "executed": 9,
+      "pass": 8,
+      "fail": 1,
+      "notRun": 20
+     },
+     "caseResult": "FAIL",
+     "plannedRequests": 170,
+     "requestAllowance": 220,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "20 of 29 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-04",
+     "startedAt": "2026-10-28T12:06:34.238Z",
+     "endedAt": "2026-10-28T12:07:22.669Z",
+     "wallSeconds": 48.431,
+     "reason": "completed",
+     "requests": {
+      "total": 92,
+      "byCategory": {
+       "public": 43,
+       "navigations": 2,
+       "preflight": 17,
+       "auth": 1,
+       "signed-in": 31,
+       "model": 0,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 30,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 0,
+     "startLimit": 1,
+     "takeLimit": 0,
+     "identityReads": 2,
+     "rows": {
+      "total": 9,
+      "executed": 3,
+      "pass": 3,
+      "fail": 0,
+      "notRun": 6
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 90,
+     "requestAllowance": 120,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "6 of 9 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-05",
+     "startedAt": "2026-10-28T12:07:24.417Z",
+     "endedAt": "2026-10-28T12:09:47.868Z",
+     "wallSeconds": 143.451,
+     "reason": "completed",
+     "requests": {
+      "total": 162,
+      "byCategory": {
+       "public": 48,
+       "navigations": 2,
+       "preflight": 33,
+       "auth": 1,
+       "signed-in": 71,
+       "model": 8,
+       "coaching": 1
+      }
+     },
+     "refusedConnections": 32,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 1,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 10,
+      "executed": 8,
+      "pass": 8,
+      "fail": 0,
+      "notRun": 2
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 160,
+     "requestAllowance": 200,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "2 of 10 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-06",
+     "startedAt": "2026-10-28T12:09:49.234Z",
+     "endedAt": "2026-10-28T12:12:09.988Z",
+     "wallSeconds": 140.754,
+     "reason": "completed",
+     "requests": {
+      "total": 174,
+      "byCategory": {
+       "public": 48,
+       "navigations": 2,
+       "preflight": 40,
+       "auth": 1,
+       "signed-in": 76,
+       "model": 8,
+       "coaching": 1
+      }
+     },
+     "refusedConnections": 32,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 1,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 10,
+      "executed": 8,
+      "pass": 8,
+      "fail": 0,
+      "notRun": 2
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 160,
+     "requestAllowance": 200,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "2 of 10 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-07",
+     "startedAt": "2026-10-28T12:12:11.624Z",
+     "endedAt": "2026-10-28T12:14:31.387Z",
+     "wallSeconds": 139.763,
+     "reason": "completed",
+     "requests": {
+      "total": 188,
+      "byCategory": {
+       "public": 66,
+       "navigations": 3,
+       "preflight": 35,
+       "auth": 1,
+       "signed-in": 78,
+       "model": 8,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 38,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 1,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 15,
+      "executed": 5,
+      "pass": 5,
+      "fail": 0,
+      "notRun": 10
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 150,
+     "requestAllowance": 190,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "10 of 15 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-08",
+     "startedAt": "2026-10-28T12:14:33.215Z",
+     "endedAt": "2026-10-28T12:14:42.077Z",
+     "wallSeconds": 8.862,
+     "reason": "completed",
+     "requests": {
+      "total": 78,
+      "byCategory": {
+       "public": 37,
+       "navigations": 2,
+       "preflight": 17,
+       "auth": 1,
+       "signed-in": 23,
+       "model": 0,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 25,
+     "deniedRequests": 1,
+     "startsPressed": 0,
+     "takesSaved": 0,
+     "startLimit": 0,
+     "takeLimit": 0,
+     "identityReads": 2,
+     "rows": {
+      "total": 9,
+      "executed": 4,
+      "pass": 4,
+      "fail": 0,
+      "notRun": 5
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 90,
+     "requestAllowance": 120,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "5 of 9 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-09",
+     "startedAt": "2026-10-28T12:14:43.654Z",
+     "endedAt": "2026-10-28T12:16:12.937Z",
+     "wallSeconds": 89.283,
+     "reason": "completed",
+     "requests": {
+      "total": 203,
+      "byCategory": {
+       "public": 74,
+       "navigations": 3,
+       "preflight": 40,
+       "auth": 1,
+       "signed-in": 79,
+       "model": 9,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 38,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 1,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 12,
+      "executed": 10,
+      "pass": 10,
+      "fail": 0,
+      "notRun": 2
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 190,
+     "requestAllowance": 240,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "2 of 12 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-10",
+     "startedAt": "2026-10-28T12:16:14.652Z",
+     "endedAt": "2026-10-28T12:17:18.956Z",
+     "wallSeconds": 64.304,
+     "reason": "allowance-exhausted",
+     "requests": {
+      "total": 150,
+      "byCategory": {
+       "public": 70,
+       "navigations": 3,
+       "preflight": 23,
+       "auth": 1,
+       "signed-in": 48,
+       "model": 8,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 34,
+     "deniedRequests": 2,
+     "startsPressed": 1,
+     "takesSaved": 1,
+     "startLimit": 1,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 10,
+      "executed": 6,
+      "pass": 6,
+      "fail": 0,
+      "notRun": 4
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 120,
+     "requestAllowance": 150,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "stopped by its request allowance",
+      "4 of 10 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-11",
+     "startedAt": "2026-10-28T12:17:20.505Z",
+     "endedAt": "2026-10-28T12:18:43.810Z",
+     "wallSeconds": 83.305,
+     "reason": "allowance-exhausted",
+     "requests": {
+      "total": 220,
+      "byCategory": {
+       "public": 114,
+       "navigations": 5,
+       "preflight": 31,
+       "auth": 2,
+       "signed-in": 64,
+       "model": 9,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 53,
+     "deniedRequests": 2,
+     "startsPressed": 2,
+     "takesSaved": 1,
+     "startLimit": 3,
+     "takeLimit": 1,
+     "identityReads": 2,
+     "rows": {
+      "total": 9,
+      "executed": 4,
+      "pass": 4,
+      "fail": 0,
+      "notRun": 5
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 170,
+     "requestAllowance": 220,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "stopped by its request allowance",
+      "5 of 9 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-12",
+     "startedAt": "2026-10-28T12:18:45.178Z",
+     "endedAt": "2026-10-28T12:19:51.395Z",
+     "wallSeconds": 66.217,
+     "reason": "completed",
+     "requests": {
+      "total": 96,
+      "byCategory": {
+       "public": 43,
+       "navigations": 2,
+       "preflight": 20,
+       "auth": 1,
+       "signed-in": 32,
+       "model": 0,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 30,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 0,
+     "startLimit": 1,
+     "takeLimit": 0,
+     "identityReads": 2,
+     "rows": {
+      "total": 8,
+      "executed": 3,
+      "pass": 3,
+      "fail": 0,
+      "notRun": 5
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 100,
+     "requestAllowance": 130,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "5 of 8 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-13",
+     "startedAt": "2026-10-28T12:19:53.067Z",
+     "endedAt": "2026-10-28T12:20:30.004Z",
+     "wallSeconds": 36.937,
+     "reason": "completed",
+     "requests": {
+      "total": 92,
+      "byCategory": {
+       "public": 43,
+       "navigations": 2,
+       "preflight": 17,
+       "auth": 1,
+       "signed-in": 31,
+       "model": 0,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 30,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 0,
+     "startLimit": 1,
+     "takeLimit": 0,
+     "identityReads": 2,
+     "rows": {
+      "total": 8,
+      "executed": 3,
+      "pass": 3,
+      "fail": 0,
+      "notRun": 5
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 115,
+     "requestAllowance": 150,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "5 of 8 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-14",
+     "startedAt": "2026-10-28T12:20:31.473Z",
+     "endedAt": "2026-10-28T12:21:08.137Z",
+     "wallSeconds": 36.664,
+     "reason": "completed",
+     "requests": {
+      "total": 92,
+      "byCategory": {
+       "public": 43,
+       "navigations": 2,
+       "preflight": 17,
+       "auth": 1,
+       "signed-in": 31,
+       "model": 0,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 29,
+     "deniedRequests": 1,
+     "startsPressed": 1,
+     "takesSaved": 0,
+     "startLimit": 1,
+     "takeLimit": 0,
+     "identityReads": 2,
+     "rows": {
+      "total": 8,
+      "executed": 3,
+      "pass": 3,
+      "fail": 0,
+      "notRun": 5
+     },
+     "caseResult": "NOT RUN",
+     "plannedRequests": 125,
+     "requestAllowance": 160,
+     "lowerBound": true,
+     "lowerBoundBecause": [
+      "5 of 8 rows NOT RUN (their steps were not driven)"
+     ]
+    },
+    {
+     "case": "AHT-15",
+     "startedAt": "2026-10-28T12:21:09.771Z",
+     "endedAt": "2026-10-28T12:21:25.126Z",
+     "wallSeconds": 15.355,
+     "reason": "completed",
+     "requests": {
+      "total": 121,
+      "byCategory": {
+       "public": 55,
+       "navigations": 2,
+       "preflight": 25,
+       "auth": 2,
+       "signed-in": 39,
+       "model": 0,
+       "coaching": 0
+      }
+     },
+     "refusedConnections": 51,
+     "deniedRequests": 1,
+     "startsPressed": 0,
+     "takesSaved": 0,
+     "startLimit": 0,
+     "takeLimit": 0,
+     "identityReads": 2,
+     "rows": {
+      "total": 14,
+      "executed": 14,
+      "pass": 14,
+      "fail": 0,
+      "notRun": 0
+     },
+     "caseResult": "PASS",
+     "plannedRequests": 125,
+     "requestAllowance": 160,
+     "lowerBound": false,
+     "lowerBoundBecause": []
+    }
+   ],
+   "totals": {
+    "requests": 2085,
+    "byCategory": {
+     "public": 800,
+     "navigations": 34,
+     "preflight": 412,
+     "auth": 17,
+     "signed-in": 778,
+     "model": 75,
+     "coaching": 3
+    },
+    "startsPressed": 14,
+    "takesSaved": 9,
+    "casesWallSeconds": 1313.022,
+    "runWallSeconds": 1336.176,
+    "rowsTotal": 204,
+    "rowsExecuted": 92,
+    "identityReadsLedger": 32
+   },
+   "reconciliation": {
+    "ledgerTotal": 2085,
+    "sumOfCases": 2085,
+    "totalMatches": true,
+    "categoriesMatch": true,
+    "mismatches": {},
+    "ok": true
+   }
+  }
+ }
+}

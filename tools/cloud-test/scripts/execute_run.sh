@@ -227,7 +227,24 @@ case "$STAGE" in
   gate-and-validate)
     require_runtime_inputs
     RES_IN="${CT_RESERVATIONS:-}"
-    if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
+    priority="$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)"
+    occurrence_args=()
+    if [ -n "${CT_RETAINED_GATE_MANIFEST:-}" ] && \
+       [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$CT_RETAINED_GATE_MANIFEST" schema)" = speaksharp.cloud-test.aggregate-receiver.v2-occurrence ]; then
+      retained="$OUT/retained-source"
+      # Verify the immutable historical half before it is allowed to influence current release verification. The retained receipt does not
+      # admit a request or a PASS result; the full receiver below still requires this occurrence's authenticated reserve and runtime evidence.
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
+        --config "$CFG" --retained-out-dir "$retained"
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/verify_release.py" --request "$REQ" \
+        --ledger "$retained/gap-ledger.json" --config "$CFG" --receipts-root "$CT_RECEIPTS_ROOT" \
+        --repo "${CT_CHECKOUT:-$REPO}" --out "$OUT/release-verification.json"
+      # Both nightly and the approved manual full-coverage route authenticate their occurrence through the same reviewed state ref.
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
+      RES_IN="$OUT/journal-snapshot.json"
+      occurrence_args=(--journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json" \
+        --occurrence-release-verification "$OUT/release-verification.json")
+    elif [ "$priority" = nightly-regression ]; then
       # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN 1793572741.370569), not a file ledger;
       # both gate routes below consume this one snapshot (Sam 1793589877.215059)
       run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
@@ -237,10 +254,6 @@ case "$STAGE" in
       accepted="$OUT/retained-gate-inputs"
       # #1772 Code finding 4446324167: a recurring run's request/campaign binding and reconciliation are its occurrence envelope, derived
       # from the verified journal snapshot and the admitted checkpoint; the retained manifest pins only the historical components.
-      occurrence_args=()
-      if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
-        occurrence_args=(--journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json")
-      fi
       run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
         --request "$REQ" --config "$CFG" --out-dir "$accepted" ${occurrence_args[@]+"${occurrence_args[@]}"}
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"

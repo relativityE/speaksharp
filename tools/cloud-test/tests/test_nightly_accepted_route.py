@@ -64,9 +64,9 @@ class NightlyAcceptedRoute(unittest.TestCase):
         return e
 
     def occurrence_manifest(self):
-        """#1772 Code finding 4446324167: ONE pinned v2 manifest (historical components + release only), for every occurrence."""
-        entries = {n: e for n, e in self.manifest["components"].items() if n != "reconciliation"}
-        manifest = {"schema": A.OCCURRENCE_SCHEMA, "sourceSha": self.manifest["sourceSha"], "workflowVersion": self.manifest["workflowVersion"],
+        """ONE pinned v2 manifest contains historical components only; all current identity is occurrence evidence."""
+        entries = {n: e for n, e in self.manifest["components"].items() if n in A.RETAINED_OCCURRENCE}
+        manifest = {"schema": A.OCCURRENCE_SCHEMA, "workflowVersion": self.manifest["workflowVersion"],
                     "codeManifestSha256": self.manifest["codeManifestSha256"], "components": entries, "bundleRootSha256": A.component_root(entries)}
         self.manifest_raw = json.dumps(manifest, sort_keys=True).encode()
         self.pins = {"activated": True, "manifestSha256": hashlib.sha256(self.manifest_raw).hexdigest(), "bundleRootSha256": manifest["bundleRootSha256"]}
@@ -128,7 +128,8 @@ class NightlyAcceptedRoute(unittest.TestCase):
         snapshot.write_text(json.dumps({"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": "c" * 40,
                                         "events": [self.reserve()] if events is None else events}))
         v2 = occurrence is not None and occurrence[1] == "v2"
-        occ = ["--journal-snapshot", str(snapshot), "--occurrence-reconciliation", str(root / "reconciliation.json")] if v2 else []
+        occ = ["--journal-snapshot", str(snapshot), "--occurrence-reconciliation", str(root / "reconciliation.json"),
+               "--occurrence-release-verification", str(root / "release-verification.json")] if v2 else []
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "aggregate_receiver.py"), "--manifest", str(manifest),
                             "--request", str(request), "--config", str(config), "--out-dir", str(accepted)] + occ, capture_output=True, text=True, env=env)
         if occurrence is not None and occurrence[1] in ("v1-of-another-occurrence", "v2"):

@@ -1,9 +1,9 @@
 {
  "aggregateReceiver": {
-  "activated": false,
-  "manifestSha256": null,
-  "bundleRootSha256": null,
-  "note": "Inactive fail-closed receiver for a custodian-produced content-free bundle. Activation and exact digests require a separate reviewed change; no production bytes are accepted by this source checkpoint."
+  "activated": true,
+  "manifestSha256": "ffaabb0a414a4aa94f1ba94235d985fcfd7840fe7356566e6e1dc62700c71032",
+  "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
+  "note": "Active fail-closed receiver for the reviewed retained four-file aggregate. Current request, served-release identity, journal head and reconciliation remain occurrence-bound runtime evidence and are never admitted from this retained bundle."
  },
   "schema": "speaksharp.cloud-test.config.v1",
   "configVersion": "1.4.0",

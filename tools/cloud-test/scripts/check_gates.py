@@ -319,16 +319,16 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         rows = prior_verification.get("runs") if isinstance(prior_verification, dict) else None
         expected = [p.get("label") for p in req.get("priorRuns") or []]
         rr = receiver_receipt if isinstance(receiver_receipt, dict) else {}
-        # #1772 Code finding 4447009633: a manual run's v1 receipt names the request at its top level; a recurring run's v2 receipt binds it
-        # only through its authenticated occurrence envelope (aggregate_receiver.receive_occurrence), which must name this request's digest
-        # AND campaign. Each schema is accepted only in its own shape; the verified re-derivation (receiver_verified) is required for both.
+        # A legacy manual v1 receipt names the request at its top level. A nightly or approved full-coverage manual v2 receipt binds it only
+        # through its authenticated occurrence envelope, which names this request, campaign and genuinely verified tested release.
         occurrence = rr.get("occurrence") if isinstance(rr.get("occurrence"), dict) else {}
         if rr.get("schema") == "speaksharp.cloud-test.aggregate-receiver-receipt.v1":
             bound = "occurrence" not in rr and rr.get("requestSha256") == request_sha256
         elif rr.get("schema") == "speaksharp.cloud-test.aggregate-receiver-receipt.v2":
-            bound = ("requestSha256" not in rr and req.get("priority") == "nightly-regression"
+            bound = ("requestSha256" not in rr and req.get("priority") in ("nightly-regression", "full-coverage")
                      and occurrence.get("schema") == "speaksharp.cloud-test.aggregate-receiver.v2-occurrence"
-                     and occurrence.get("requestSha256") == request_sha256 and occurrence.get("campaignId") == req.get("runId"))
+                     and occurrence.get("requestSha256") == request_sha256 and occurrence.get("campaignId") == req.get("runId")
+                     and occurrence.get("testedSha") == (req.get("release") or {}).get("testedSha"))
         else:
             bound = False
         if not receiver_verified or not bound or not request_sha256 or rr.get("sourceSha") != (req.get("release") or {}).get("testedSha"):
@@ -389,7 +389,7 @@ def main():
     for k in ("request", "config", "ledger", "workflow", "release-verification", "reconciliation", "base", "out"):
         a.add_argument("--" + k, required=True)
     for k in ("validation", "offline-checks", "offline-proof", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "prior-verification", "prior-comparison", "receiver-receipt", "receiver-manifest", "accepted-input-dir", "prior-state", "execution-run-id",
-              "journal-snapshot", "occurrence-reconciliation"):
+              "journal-snapshot", "occurrence-reconciliation", "occurrence-release-verification"):
         a.add_argument("--" + k)
     a.add_argument("--stage", choices=["preflight", "final"], default="final")
     x = a.parse_args()
@@ -416,7 +416,8 @@ def main():
             a.error("received prior-run inputs require --receiver-manifest and --accepted-input-dir")
         import aggregate_receiver
         try:
-            occurrence = aggregate_receiver.read_occurrence(x.journal_snapshot, x.occurrence_reconciliation)
+            occurrence = aggregate_receiver.read_occurrence(x.journal_snapshot, x.occurrence_reconciliation,
+                                                            x.occurrence_release_verification)
             docs, _, receiver = aggregate_receiver.verified_accepted(x.receiver_manifest, x.request, x.accepted_input_dir, cfg, occurrence)
         except aggregate_receiver.Refused as err:
             print("BLOCKED_SETUP: " + str(err), file=sys.stderr)

@@ -1,4 +1,5 @@
 """Credential exposure (owner item 5) and the boundary with the model-evaluation project."""
+import hashlib
 import json
 import os
 import re
@@ -205,21 +206,64 @@ class Boundary(unittest.TestCase):
     """The model-evaluation project stays entirely separate: nothing here references its workflows, gates or authorizations."""
     TOKENS = ("model-downselection", "private-model-smoke", "gemini-model-currency", "comparison_cell", "comparison-authorization", "downselection", "rwt_writes_ack")
 
-    def test_package_code_and_config_do_not_reference_the_model_evaluation_project(self):
+    @classmethod
+    def boundary_offenders(cls, root):
+        # Retained comparison evidence can truthfully name the historical
+        # producer that created it.  Exempt only files listed by the digest-
+        # pinned aggregate manifest; executable code, the manifest itself and
+        # any unlisted file under config/aggregate remain inside this boundary.
+        manifest_path = os.path.join(root, "config", "aggregate", "manifest.json")
+        manifest_raw = open(manifest_path, "rb").read()
+        aggregate = json.loads(manifest_raw)
+        with open(os.path.join(root, "config", "test-config.v1.json"), encoding="utf-8") as f:
+            receiver = (json.load(f).get("aggregateReceiver") or {})
+        retained = set()
+        if receiver.get("activated") is True and hashlib.sha256(manifest_raw).hexdigest() == receiver.get("manifestSha256"):
+            for entry in (aggregate.get("components") or {}).values():
+                path = os.path.join(root, "config", "aggregate", entry["file"])
+                if os.path.isfile(path) and hashlib.sha256(open(path, "rb").read()).hexdigest() == entry.get("sha256"):
+                    retained.add(os.path.relpath(path, root))
         offenders = []
-        for r, _, fs in os.walk(ROOT):
+        for r, _, fs in os.walk(root):
             if os.sep + "harness" in r or os.sep + "report" + os.sep + "tests" in r or os.sep + "tests" in r or os.sep + "history" in r or os.sep + "samples" in r:
                 continue
             for fn in fs:
                 if not fn.endswith((".py", ".sh", ".json", ".cjs")):
                     continue
+                rel = os.path.relpath(os.path.join(r, fn), root)
+                if rel in retained:
+                    continue
                 text = open(os.path.join(r, fn), encoding="utf-8").read()
                 if fn == "test-config.v1.json":
                     cfg = json.loads(text); cfg.pop("boundary", None); text = json.dumps(cfg)
-                for t in self.TOKENS:
+                for t in cls.TOKENS:
                     if t in text:
-                        offenders.append((os.path.relpath(os.path.join(r, fn), ROOT), t))
-        self.assertEqual(offenders, [])
+                        offenders.append((rel, t))
+        return offenders
+
+    def test_package_code_and_config_do_not_reference_the_model_evaluation_project(self):
+        self.assertEqual(self.boundary_offenders(ROOT), [])
+
+    def test_only_manifest_listed_retained_evidence_gets_the_narrow_exception(self):
+        with tempfile.TemporaryDirectory() as root:
+            aggregate = os.path.join(root, "config", "aggregate")
+            os.makedirs(aggregate)
+            retained_bytes = b'{"historicalProducer":"model-downselection"}'
+            manifest = {"components": {"comparison-prior": {"file": "retained.json", "sha256": hashlib.sha256(retained_bytes).hexdigest()}}}
+            manifest_bytes = json.dumps(manifest).encode()
+            with open(os.path.join(aggregate, "manifest.json"), "w", encoding="utf-8") as f:
+                f.write(manifest_bytes.decode())
+            with open(os.path.join(root, "config", "test-config.v1.json"), "w", encoding="utf-8") as f:
+                json.dump({"aggregateReceiver": {"activated": True, "manifestSha256": hashlib.sha256(manifest_bytes).hexdigest()}}, f)
+            with open(os.path.join(aggregate, "retained.json"), "wb") as f:
+                f.write(retained_bytes)
+            with open(os.path.join(aggregate, "unlisted.json"), "w", encoding="utf-8") as f:
+                f.write('{"runtime":"model-downselection"}')
+            self.assertEqual(self.boundary_offenders(root), [(os.path.join("config", "aggregate", "unlisted.json"), "model-downselection"),
+                                                             (os.path.join("config", "aggregate", "unlisted.json"), "downselection")])
+            with open(os.path.join(aggregate, "retained.json"), "w", encoding="utf-8") as f:
+                f.write('{"historicalProducer":"model-downselection","changed":true}')
+            self.assertIn((os.path.join("config", "aggregate", "retained.json"), "model-downselection"), self.boundary_offenders(root))
 
     def test_the_config_states_the_boundary(self):
         b = J("config", "test-config.v1.json").get("boundary") or {}
