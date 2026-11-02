@@ -411,3 +411,31 @@ class OccurrenceEnvelopeOnARealStateRef(unittest.TestCase):
             self.receive_real(request_raw, current, pinned=False)  # no reviewed root: nothing can be authenticated
         self.assertEqual(self.receive_real(request_raw, current)[2]["journalHeadSha"], cur["headSha"])  # the current ref still admits it
         self.assertNotEqual(snap["headSha"], cur["headSha"])
+
+    def test_the_final_g7_gate_accepts_the_authenticated_v2_receipt_and_refuses_a_mismatched_one(self):
+        # #1772 Code finding 4447009633 (broken before: G7 accepted only a v1 receipt with a top-level requestSha256, so a real nightly v2
+        # occurrence receipt could never pass the final gate). The v2 receipt is bound through its authenticated occurrence envelope.
+        request, request_raw = self.nightly("nightly-2026-11-03")
+        self.push(self.reserve(request, request_raw, "101"))
+        docs, accepted, envelope = self.receive_real(request_raw, self.real_occurrence(request_raw))
+        raw, pins = self.v2()
+        receipt = A.receiver_receipt(raw, request_raw, accepted, pins, envelope)
+        sha = hashlib.sha256(request_raw).hexdigest()
+
+        def g7(rr, req=request, digest=sha):
+            gate = C.evaluate(req, self.config, docs["gap-ledger"], self.workflow, {"valid": True, "errors": []}, {"passed": True}, None,
+                              str(self.root), rv=docs["release-verification"], rc=docs["reconciliation"],
+                              prior_verification=docs["prior-run-verification"], prior_comparison=docs["comparison-prior"],
+                              receiver_receipt=rr, request_sha256=digest, receiver_verified=True)
+            return next(g["status"] for g in gate["gates"] if g["id"] == "G7")
+        self.assertEqual(g7(receipt), "READY", "fixed after: the real authenticated v2 receipt passes the final gate")
+        other = dict(receipt, occurrence=dict(envelope, requestSha256="b" * 64))
+        for label, rr, req, digest in (
+                ("another request in the envelope", other, request, sha),
+                ("another campaign in the envelope", dict(receipt, occurrence=dict(envelope, campaignId="nightly-other")), request, sha),
+                ("the receipt of another request", receipt, request, "c" * 64),
+                ("a v2 receipt for a manual request", receipt, dict(request, priority="manual"), sha),
+                ("a v2 receipt that also claims a top-level request", dict(receipt, requestSha256=sha), request, sha),
+                ("a v1 receipt carrying an envelope", dict(receipt, schema="speaksharp.cloud-test.aggregate-receiver-receipt.v1",
+                                                           requestSha256=sha), request, sha)):
+            self.assertNotEqual(g7(rr, req, digest), "READY", label)

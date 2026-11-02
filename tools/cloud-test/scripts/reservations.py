@@ -213,6 +213,23 @@ def nightly_journal_request(request_raw, admitted_sha256):
     return req, dict(caps, requests=lim["runCapRequests"] + caps["identityReads"])
 
 
+def original_record_digest(raw, record_digest):
+    """#1772 Code finding 4447377718: the journal binds a settlement to the ORIGINAL collector record. The scheduled route hands
+    journal-settle the closed settle input (settle_input.py), whose own digest is a projection's; there the validated embedded recordSha256
+    is the evidence. Bytes that are not a closed settle input (a collector record) keep their own digest."""
+    import settle_input
+    try:
+        doc = json.loads(raw)
+    except (TypeError, ValueError):
+        return record_digest
+    if not (isinstance(doc, dict) and set(doc) == settle_input.KEYS):
+        return record_digest
+    try:
+        return settle_input.validate(raw)["recordSha256"]
+    except settle_input.Refused as err:
+        raise JournalRefused("reservation-" + str(err))
+
+
 def journal_reserve(request_raw, admitted_sha256, github_run_id, attempt, approval, rollup, chain, expected_head, at_utc):
     """The nightly campaign's reserve event for the state-ref journal (RETURN 1793572741.370569), or a refusal: attempt 1; the accepted
     rollup recomputed at exactly `expected_head` (the head it will be appended on) holds G5's charge; and G11's standing-approval limits
@@ -256,6 +273,7 @@ def journal_execute(command, inputs, repo, url, root, journal, out, pins, approv
             _jneed(command == "settle", "reservation-command")
             reserved = M._reserved_on_chain(chain, inputs["campaignId"], inputs["runId"])
             usage, evidence = M.usage_from_record(inputs["record"], reserved)
+            evidence = original_record_digest(inputs["record"], evidence)
             event = M.settle(reserved, usage, evidence, inputs["atUtc"])
         W.propose_to_files(repo, url, head, event, root, journal, out, approved_url)
         persisted = W.validate_chain(repo, W.fetch_head(repo, url, approved_url), root)
