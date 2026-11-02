@@ -15,9 +15,12 @@ session binding (no session_id claim, or a subject other than the bound account)
 BEFORE invoking the reader (case10_observation.reserve_then_read), so the login happens only after a persisted reserve. Nothing is retained
 but the numeric projection: no rows, ids, tokens, emails or response bodies.
 """
+import argparse
 import base64
 import json
+import os
 import re
+import sys
 from urllib.parse import urlencode
 
 # The approved project, pinned at activation: {"origin": "https://<ref>.supabase.co"}. None today: every reader refuses.
@@ -170,9 +173,14 @@ def make_reader(transport, account_id, credentials, anon_key, budget, approved=N
     return read
 
 
+def activated():
+    """The reader is trusted only once the approved project origin and the reviewed schedule are both pinned (neither is today)."""
+    return APPROVED is not None and SCHEDULE is not None
+
+
 def urllib_transport(method, url, headers, body):
-    """The live transport: no redirects, no proxies, no cookies, 15 s timeout, bounded body. Unreachable today (no reader is registered,
-    and the observe path imports _netguard)."""
+    """The admitted live transport: no redirects, no proxies, no cookies, 15 s timeout, bounded body. It runs only in this module's own `read`
+    subprocess (never in the _netguard-blocked observe process), behind the closed allowlist and caps above."""
     import urllib.error
     import urllib.request
 
@@ -187,3 +195,38 @@ def urllib_transport(method, url, headers, body):
             return r.status, dict(r.headers), r.read(MAX_BODY + 1)
     except urllib.error.HTTPError as e:
         return e.code, dict(e.headers or {}), b""
+
+
+# The subprocess interface (Sam 1793582780.014609): the observe process keeps the blanket _netguard; the ONE admitted network path is this
+# module run as `python3 -I case10_reader.py read`, which never imports _netguard and enforces the closed allowlist and caps itself. Its whole
+# environment is these names, set by case10_observation from the private bundle and the step's Secrets; nothing is printed but the numeric
+# projection.
+CHILD_ENV = ("CT_CASE10_ACCOUNT_ID", "CT_CASE10_EMAIL", "CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY")
+
+
+def main(argv, environ=None, transport=None):
+    env = os.environ if environ is None else environ
+    a = argparse.ArgumentParser()
+    a.add_argument("command", choices=("read",))
+    a.add_argument("--budget", required=True)  # the contract's readBudget, as JSON
+    a.add_argument("--keys", required=True)  # the contract's projection keys, comma-separated
+    x = a.parse_args(argv[1:])
+    try:
+        try:
+            budget = json.loads(x.budget)
+        except ValueError:
+            raise Refused("case10-reader-budget")
+        def credentials():
+            email, password = env.get("CT_CASE10_EMAIL"), env.get("CT_CASE10_PASSWORD")
+            _need(isinstance(email, str) and email != "" and isinstance(password, str) and password != "", "case10-reader-credentials")
+            return email, password
+        read = make_reader(transport or urllib_transport, env.get("CT_CASE10_ACCOUNT_ID"), credentials, env.get("CT_CASE10_ANON_KEY"), budget)
+        print(json.dumps(read(x.keys.split(",")), sort_keys=True))
+        return 0
+    except Refused as e:
+        print("BLOCKED_SETUP: " + str(e), file=sys.stderr)
+        return 78
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

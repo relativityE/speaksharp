@@ -80,7 +80,8 @@ FULL = [("POST", "/auth/v1/token"), ("GET", "/auth/v1/user"), ("HEAD", "/rest/v1
 
 class Reader(unittest.TestCase):
     def test_production_pins_nothing_so_every_reader_refuses_before_any_request(self):
-        self.assertEqual((C.APPROVED, C.SCHEDULE, O.READERS), (None, None, {}))
+        self.assertEqual((C.APPROVED, C.SCHEDULE, C.activated(), O.TRUSTED_READERS), (None, None, False, frozenset()))
+        self.assertIs(O.READERS[C.READER_ID], O.subprocess_reader)  # registered, but trusted only once both pins exist
         t, cred = Synthetic(), Credentials()
         refused(self, "case10-reader-not-activated", C.make_reader, t, ACCOUNT, cred, ANON, BUDGET)
         self.assertEqual((t.sent, cred.calls), ([], 0))
@@ -180,6 +181,72 @@ class Reader(unittest.TestCase):
         refused(self, "case10-reader-account", make, t, account="not-a-uuid")
         refused(self, "case10-reader-keys", make(t), KEYS[:-1])
         self.assertEqual(t.sent, [])
+
+
+class AdmittedTransport(unittest.TestCase):
+    """Sam 1793582780.014609: the registered reader's production path. The observe process keeps the blanket _netguard; the one admitted
+    network path is case10_reader's own subprocess, whose environment is built from scratch and which prints only the projection."""
+    CHILD = {"CT_CASE10_PASSWORD": PASSWORD, "CT_CASE10_ANON_KEY": ANON, "PATH": "/usr/bin:/bin", "HOME": "/home/x",
+             "CLOUD_TEST_LIVE_ACCOUNTS": "{private bundle}", "THROWAWAY_TEST_PASSWORD": "other-secret", "GITHUB_TOKEN": "ghs_token"}
+
+    def test_the_observe_process_is_still_netguarded_and_the_reader_module_never_imports_the_guard(self):
+        import socket
+        import _netguard
+        self.assertIs(socket.create_connection, _netguard._deny)  # case10_observation imported the guard: this process has no network
+        with open(O.READER_SCRIPT, encoding="utf-8") as f:
+            self.assertNotIn("_netguard", "".join(line for line in f if line.startswith(("import", "from"))))
+
+    def test_the_subprocess_gets_exactly_the_named_environment_and_returns_only_the_projection(self):
+        calls = []
+
+        def run(argv, env, capture_output, timeout):
+            calls.append((argv, env))
+            import subprocess
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"snapshotSizes": [1] * 6}).encode(), b"")
+        read = O.subprocess_reader(ACCOUNT, BUDGET, EMAIL, environ=self.CHILD, run=run)
+        self.assertEqual(read(["snapshotSizes"]), {"snapshotSizes": [1] * 6})
+        argv, env = calls[0]
+        self.assertEqual(argv[1:4], ["-I", O.READER_SCRIPT, "read"])
+        self.assertEqual(set(env), {"PATH"} | set(C.CHILD_ENV))
+        self.assertEqual((env["CT_CASE10_ACCOUNT_ID"], env["CT_CASE10_EMAIL"], env["CT_CASE10_PASSWORD"], env["CT_CASE10_ANON_KEY"]),
+                         (ACCOUNT, EMAIL, PASSWORD, ANON))
+        self.assertFalse(any(v in " ".join(argv) for v in (PASSWORD, ANON, EMAIL, ACCOUNT)))  # no credential or identity in argv
+
+    def test_a_refusing_or_failing_subprocess_raises_so_the_reservation_stays_counted(self):
+        import subprocess
+        for rc in (78, 1):
+            read = O.subprocess_reader(ACCOUNT, BUDGET, EMAIL, environ=self.CHILD,
+                                       run=lambda argv, **k: subprocess.CompletedProcess(argv, rc, b"", b"BLOCKED_SETUP: x"))
+            with self.assertRaises(O.Refused):
+                read(KEYS)
+
+    def test_the_real_subprocess_refuses_unpinned_before_any_request_and_prints_no_credential(self):
+        import subprocess
+        import sys
+        env = {"PATH": "/usr/bin:/bin", "CT_CASE10_ACCOUNT_ID": ACCOUNT, "CT_CASE10_EMAIL": EMAIL, "CT_CASE10_PASSWORD": PASSWORD,
+               "CT_CASE10_ANON_KEY": ANON}
+        p = subprocess.run([sys.executable, "-I", O.READER_SCRIPT, "read", "--budget", json.dumps(BUDGET), "--keys", ",".join(KEYS)],
+                           env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual((p.returncode, p.stdout, p.stderr.strip()), (78, "", "BLOCKED_SETUP: case10-reader-not-activated"))
+
+    def test_once_pinned_the_cli_reads_through_the_closed_allowlist_and_prints_only_numbers(self):
+        out = []
+        t = Synthetic(count=5)
+        env = {"CT_CASE10_ACCOUNT_ID": ACCOUNT, "CT_CASE10_EMAIL": EMAIL, "CT_CASE10_PASSWORD": PASSWORD, "CT_CASE10_ANON_KEY": ANON}
+        from unittest import mock
+        with mock.patch.object(C, "APPROVED", APPROVED), mock.patch.object(C, "SCHEDULE", SCHEDULE), \
+                mock.patch("builtins.print", lambda *a, **k: out.append(a[0])):
+            rc = C.main(["case10_reader.py", "read", "--budget", json.dumps(BUDGET), "--keys", ",".join(KEYS)], environ=env, transport=t)
+        self.assertEqual((rc, t.paths()), (0, FULL))
+        self.assertEqual(json.loads(out[0])["snapshotSizes"], [5, 5, 6, 6, 7, 7])
+        for secret in (TOKEN, EMAIL, PASSWORD, ANON, ACCOUNT):
+            self.assertNotIn(secret, out[0])
+        with mock.patch.object(C, "APPROVED", APPROVED), mock.patch.object(C, "SCHEDULE", SCHEDULE), \
+                mock.patch("builtins.print", lambda *a, **k: out.append(a[0])):
+            t2 = Synthetic()
+            rc = C.main(["case10_reader.py", "read", "--budget", json.dumps(BUDGET), "--keys", ",".join(KEYS)],
+                        environ=dict(env, CT_CASE10_PASSWORD=""), transport=t2)
+        self.assertEqual((rc, t2.sent, out[-1]), (78, [], "BLOCKED_SETUP: case10-reader-credentials"))
 
 
 class LoginOnlyAfterTheReserve(Journal):

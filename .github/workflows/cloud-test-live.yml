@@ -236,6 +236,10 @@ jobs:
           NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
           CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # Case 10 observation (Sam 1793582780.014609): the AHT-10 role's password and the project's anon key, scheduled runs only. The
+          # observe step hands them, with the bundle's account id and email, to case10_reader's own subprocess and to nothing else.
+          CT_CASE10_PASSWORD: ${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}
+          CT_CASE10_ANON_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}
         run: |
           set -euo pipefail
           printf '%s' "$PRIOR_STATE" > "$RUNNER_TEMP/prior-state.json"

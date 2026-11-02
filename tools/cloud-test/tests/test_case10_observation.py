@@ -344,7 +344,7 @@ class ObserveCli(unittest.TestCase):
         self.assertEqual(self.run_cli(request(), command="settle", extra=("--settle-input", missing)), (0, "", False))
 
     def test_production_refuses_before_any_read_and_writes_nothing(self):
-        self.assertEqual((O.READERS, O.TRUSTED_READERS), ({}, frozenset()))
+        self.assertEqual((sorted(O.READERS), O.TRUSTED_READERS), (["speaksharp:case10-owner-state@1"], frozenset()))
         self.assertFalse(O.activated())
         self.assertEqual(self.run_cli(request()), (78, "BLOCKED_SETUP: case10-observation-not-activated", False))
 

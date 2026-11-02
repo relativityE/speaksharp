@@ -360,6 +360,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
 
 
+class Case10ObserveCredentials(unittest.TestCase):
+    """Sam 1793582780.014609: the observe step's credential environment. Scheduled runs only, from Secrets, on the one step that already
+    holds the private bundle, under names nothing else reads; the reader subprocess receives them by explicit hand-off only."""
+    def test_the_case10_credentials_reach_only_the_init_step_on_scheduled_runs(self):
+        import yaml
+        with open(YML, encoding="utf-8") as f:
+            text = f.read()
+        init = next(st for st in yaml.safe_load(text)["jobs"]["live"]["steps"] if st.get("id") == "init")
+        self.assertEqual(init["env"]["CT_CASE10_PASSWORD"], "${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}")
+        self.assertEqual(init["env"]["CT_CASE10_ANON_KEY"], "${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}")
+        for name in ("CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"):
+            self.assertEqual(text.count(name), 1, name)  # one env entry; no run script or other step names it
+        self.assertIn("case10_observation.py observe", init["run"])
+
+
 def writers_of(jobs, name):
     return next(st["run"] for st in jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))
 

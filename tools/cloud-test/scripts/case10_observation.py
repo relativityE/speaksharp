@@ -29,11 +29,38 @@ RESERVATION_SUFFIX = ".case10-observation"
 MAX_READ_BUDGET = {"requests": 50, "identityReads": 2}
 RECORD_KEYS = {"schema", "requestSha256", "campaignId", "runId", "attempt", "sourceSha", "accountSubjectSha256", "reader", "observedAtUtc",
                "projection"}
-# The reviewed readers: identity -> factory(account id, read budget) -> callable(projection keys) -> projection (case10_reader.make_reader
-# is the only real one). EMPTY today (no credentialed live read is authorized), so admit() refuses every record and observe refuses before
-# any reserve until a reviewed reader is registered here.
-READERS = {}
-TRUSTED_READERS = frozenset(READERS)
+READER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "case10_reader.py")
+READ_TIMEOUT_SECONDS = 120
+
+
+def subprocess_reader(account_id, budget, email=None, environ=None, run=None):
+    """The registered reader (Sam 1793582780.014609): the read runs in case10_reader's own subprocess, the one admitted network path, while
+    this process keeps the blanket _netguard. Its environment is built from scratch: PATH plus exactly case10_reader.CHILD_ENV (the account
+    id and email from the private bundle, the password and anon key from this step's Secrets); nothing else is inherited. Only the numeric
+    projection comes back; a refusal or any failure raises, so the reservation stays counted. `environ`/`run` are TEST-ONLY."""
+    import subprocess
+    env = os.environ if environ is None else environ
+    child = {"PATH": env.get("PATH", "/usr/bin:/bin"), "CT_CASE10_ACCOUNT_ID": account_id, "CT_CASE10_EMAIL": email or "",
+             "CT_CASE10_PASSWORD": env.get("CT_CASE10_PASSWORD", ""), "CT_CASE10_ANON_KEY": env.get("CT_CASE10_ANON_KEY", "")}
+
+    def read(keys):
+        argv = [sys.executable, "-I", READER_SCRIPT, "read", "--budget", json.dumps(budget, sort_keys=True), "--keys", ",".join(keys)]
+        p = (run or subprocess.run)(argv, env=child, capture_output=True, timeout=READ_TIMEOUT_SECONDS)
+        _need(p.returncode == 0, "case10-observation-read-failed")
+        return json.loads(p.stdout)
+    return read
+
+
+def _registered():
+    import case10_reader
+    return {case10_reader.READER_ID: subprocess_reader}, case10_reader.activated()
+
+
+# The reviewed readers: identity -> factory(account id, read budget, email) -> callable(projection keys) -> projection. The real reader is
+# registered; it is TRUSTED only once its project origin and schedule are pinned (case10_reader.activated(), false today), so admit()
+# refuses every record and observe refuses before any reserve until then.
+READERS, _READER_PINNED = _registered()
+TRUSTED_READERS = frozenset(READERS) if _READER_PINNED else frozenset()
 MAX_AGE_SECONDS = 3600
 READER_ID = re.compile(r"[a-z0-9][a-z0-9.:@/-]{2,99}")
 SHA40 = re.compile(r"[0-9a-f]{40}")
@@ -264,12 +291,12 @@ def _read_account(path):
     return account
 
 
-def _bundle_account():
-    """The Case 10 role's account id from the private CLOUD_TEST_LIVE_ACCOUNTS bundle, through prepare's own validators (masked there)."""
+def _bundle_account(field="accountId"):
+    """The Case 10 role's account id (or email) from the private CLOUD_TEST_LIVE_ACCOUNTS bundle, through prepare's own validators."""
     import init_run_inputs as I
     try:
         bundle = I.parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
-        return I.role_account(bundle, I.ROLE["AHT-10"], os.environ.get("SUPABASE_URL"))["accountId"]
+        return I.role_account(bundle, I.ROLE["AHT-10"], os.environ.get("SUPABASE_URL"))[field]
     except I.Refused:
         raise Refused("case10-observation-account")
 
@@ -340,7 +367,9 @@ def main(argv):
             journal.propose(settlement_for(reserved, digest, now), journal.head())
             return 0
         account = _read_account(x.account_id_file) if x.account_id_file else _bundle_account()
-        record, _ = read_reserved(READERS[c["reader"]](account, c["readBudget"]), events, req, x.request_sha256, x.run_id, 1, account, now)
+        email = None if x.account_id_file else _bundle_account("email")
+        reader = READERS[c["reader"]](account, c["readBudget"], email)
+        record, _ = read_reserved(reader, events, req, x.request_sha256, x.run_id, 1, account, now)
         fd = os.open(x.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(json.dumps(record, sort_keys=True))
