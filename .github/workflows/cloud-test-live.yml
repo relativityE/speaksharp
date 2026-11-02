@@ -28,6 +28,11 @@ name: Cloud Test live journeys (manual, GitHub-hosted)
 # NOT ACTIVE: TRACKING_ISSUE is empty until activation. The selected record container is PR #1763's conversation (Sam 1793472499.701439); the record
 # jobs refuse while it is empty, and before every update they verify the comment's issue, author, marker and id.
 on:
+  # Activation wiring: the reviewed proposed cron (config/nightly/schedule.proposed.yml), registered. Every scheduled invocation first passes the
+  # credential-free nightly-gate job, which stays quiet while vars.CLOUD_TEST_NIGHTLY_ENABLED is not exactly "true", and refuses until the
+  # writer root, standing approval, template and budget are pinned; nothing downstream (secrets, record, reserve, live) runs before it admits.
+  schedule:
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       request:
@@ -50,7 +55,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TRACKING_ISSUE: ''
+  # The selected record container: PR #1763's conversation (Sam 1793472499.701439).
+  TRACKING_ISSUE: '1763'
 
 jobs:
   nightly-gate:

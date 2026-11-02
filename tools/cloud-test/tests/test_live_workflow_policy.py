@@ -27,13 +27,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_manual_dispatch_only_with_one_active_run(self):
         on = self.doc.get("on", self.doc.get(True))
-        self.assertEqual(list(on), ["workflow_dispatch"])
+        self.assertEqual(list(on), ["schedule", "workflow_dispatch"])
+        # the registered cron is exactly the reviewed proposed one, from which nightly_request derives the occurrence slot
+        import yaml
+        with open(os.path.join(ROOT, "config", "nightly", "schedule.proposed.yml"), encoding="utf-8") as f:
+            proposed = yaml.safe_load(f)
+        proposed_on = proposed.get("on", proposed.get(True))
+        self.assertEqual(on["schedule"], proposed_on["schedule"])
         self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
 
-    def test_a_scheduled_run_is_gated_before_any_record_secret_or_live_job_and_no_cron_is_registered(self):
-        # Sam 1793553158.013909: the cron stays a proposed artifact; nothing here is registered.
+    def test_a_scheduled_run_is_gated_before_any_record_secret_or_live_job(self):
+        # Activation wiring: the cron is registered, and every scheduled invocation is gated by the credential-free nightly-gate job first.
         on = self.doc.get("on", self.doc.get(True))
-        self.assertNotIn("schedule", on)
+        self.assertEqual(on["schedule"], [{"cron": "0 3 * * *"}])
+        self.assertEqual(self.jobs["nightly-gate"]["if"], "github.event_name == 'schedule'")
+        self.assertNotIn("secrets.", json.dumps(self.jobs["nightly-gate"]))
         with open(os.path.join(ROOT, "config", "nightly", "schedule.proposed.yml"), encoding="utf-8") as f:
             self.assertIn("cron: '0 3 * * *'", f.read())
         self.assertEqual(set(self.jobs), {"nightly-gate", "record-begin", "journal-reserve", "live", "journal-settle", "record-complete"})
@@ -110,8 +118,8 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertEqual(len(checkouts), 1, name)
             self.assertEqual(checkouts[0]["with"]["ref"], "${{ github.sha }}")
 
-    def test_the_latest_record_is_inactive_until_the_tracking_issue_is_bound(self):
-        self.assertEqual(self.doc["env"]["TRACKING_ISSUE"], "")
+    def test_the_latest_record_is_bound_to_the_selected_tracking_issue(self):
+        self.assertEqual(self.doc["env"]["TRACKING_ISSUE"], "1763")  # Sam 1793472499.701439: PR #1763's conversation
         self.assertIn('[ -n "$TRACKING_ISSUE" ] || { echo "BLOCKED_SETUP: tracking-issue-not-bound"; exit 78; }', self.text)
 
     def test_a_rerun_attempt_and_an_unconfirmed_dispatch_are_refused_before_any_effect(self):
