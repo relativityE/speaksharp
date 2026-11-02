@@ -92,8 +92,9 @@ jobs:
   record-begin:
     name: Record the attempt (latest-record comment; no live credentials)
     needs: nightly-gate
-    # A dispatch skips the gate; a scheduled run proceeds only when the gate admitted it. Every later job needs this one to succeed.
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
+    # Privileged issue writes and every downstream credential-bearing job are admitted only from the server-reported protected main ref.
+    # A dispatch skips the nightly gate; a scheduled run proceeds only when that gate admitted it. Every later job needs this one to succeed.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -121,6 +122,8 @@ jobs:
           [ -n "$TRACKING_ISSUE" ] || { echo "BLOCKED_SETUP: tracking-issue-not-bound"; exit 78; }
       - uses: actions/checkout@v6
         with:
+          # Control code is the immutable SHA already admitted by the protected-main job condition, never a request-selected release.
+          ref: ${{ github.sha }}
           persist-credentials: false
           sparse-checkout: tools/cloud-test/scripts
       - name: Begin the attempt in the latest record
@@ -149,7 +152,7 @@ jobs:
     name: Reserve the nightly run on the state-ref journal (scheduled runs only; the one push before the run)
     needs: record-begin
     # J1 (PO approval recorded 1793578273.517019, scope 1793578116.842849): only a scheduled run of this reviewed workflow, never a PR or fork.
-    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.record-begin.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && github.event_name == 'schedule' && needs.record-begin.result == 'success' }}
     runs-on: ubuntu-latest
     # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
     timeout-minutes: 3
@@ -159,6 +162,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Append the reserve (expected-head lease, persisted readback; refuses before any read until the writer is activated)
         env:
@@ -179,9 +183,10 @@ jobs:
   live:
     name: Selected live journeys (existing stage runner; preinstalled browser)
     needs: [record-begin, journal-reserve]
-    # A scheduled run starts only after its reserve landed; a dispatch (no journal reserve) proceeds as before.
-    if: ${{ !cancelled() && needs.record-begin.result == 'success' && (needs.journal-reserve.result == 'success' || (github.event_name != 'schedule' && needs.journal-reserve.result == 'skipped')) }}
+    # A scheduled run starts only after its journal reserve landed; a dispatch (no journal reserve) proceeds as before. Protected main only.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.record-begin.result == 'success' && (needs.journal-reserve.result == 'success' || (github.event_name != 'schedule' && needs.journal-reserve.result == 'skipped')) }}
     runs-on: ubuntu-latest
+    environment: trusted-main-credentials
     # 329 minutes fit all 15 cases (sum of caseMaxMs 272 + admission 20 + inter-case 10 + cleanup 2 + setup 15 + collect 10); prepare refuses any
     # selection that does not fit and bounds the run step to its live minutes, so collect and the record always keep their reserve.
     timeout-minutes: 340
@@ -200,9 +205,17 @@ jobs:
       CT_RETAINED_GATE_MANIFEST: ${{ github.workspace }}/tools/cloud-test/config/aggregate/manifest.json
       CT_ACCOUNTING_BOOTSTRAP: ${{ github.workspace }}/tools/cloud-test/config/aggregate/accounting-bootstrap.json
       CT_PERIOD_SCOPE: ${{ github.workspace }}/tools/cloud-test/config/aggregate/period-scope.json
+      # The retained-input route must still receive the recurring gate's independently reviewed usage inputs. They intentionally remain
+      # missing until activation; execute_run refuses before evaluation rather than falling back to repository defaults.
+      CT_HISTORY_INDEX: ${{ github.workspace }}/tools/cloud-test/config/history/index.json
+      CT_RESERVATIONS: ${{ github.workspace }}/tools/cloud-test/config/history/reservations.json
+      CT_APPROVAL: ${{ github.workspace }}/tools/cloud-test/config/recurring-approval.json
+      CT_RECEIPTS_ROOT: ${{ github.workspace }}/tools/cloud-test/config/history/receipts
     steps:
       - uses: actions/checkout@v6
         with:
+          # Trusted runner/control code stays pinned to protected main. Admission later creates a separate checkout at TESTED_SHA.
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Bind private runner paths and initialize the inactive accounting workspace
@@ -312,7 +325,7 @@ jobs:
           [ "$(git -C "$tested" rev-parse HEAD)" = "$TESTED_SHA" ]
           [ -z "$(git -C "$tested" status --porcelain)" ]
           python3 -I "$GITHUB_WORKSPACE/tools/cloud-test/scripts/install_pdfjs.py" \
-            --config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"
+            --config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright
           [ -z "$(git -C "$tested" status --porcelain --untracked-files=no)" ]
           {
             echo "CT_CHECKOUT=$tested"
@@ -360,8 +373,9 @@ jobs:
           LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
           REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
         run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"
-      - name: Reserve the admitted manual run before product execution
-        # manual runs only: a scheduled run is reserved by the journal-reserve job, and manual_reservation refuses nightly requests
+      - name: Reserve the admitted run through its priority-specific path before product execution
+        # A scheduled (recurring) run is reserved before this job by journal-reserve, the only job that can write the state ref; the live job
+        # (contents: read) reserves manual runs only, and manual_reservation refuses nightly requests.
         if: ${{ github.event_name != 'schedule' }}
         env:
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
@@ -465,7 +479,7 @@ jobs:
     needs: [record-begin, journal-reserve, live]
     # Runs whenever the run was reserved; with no run record (cancelled or missing collection) it appends nothing and the reservation stays
     # open, so the period keeps counting it at its caps.
-    if: ${{ always() && github.event_name == 'schedule' && needs.journal-reserve.result == 'success' }}
+    if: ${{ always() && github.ref == 'refs/heads/main' && github.ref_protected == true && github.event_name == 'schedule' && needs.journal-reserve.result == 'success' }}
     runs-on: ubuntu-latest
     # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
     timeout-minutes: 3
@@ -474,6 +488,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:

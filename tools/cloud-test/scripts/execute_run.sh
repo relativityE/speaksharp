@@ -114,6 +114,14 @@ require_runtime_inputs() {
   if [ -n "${CT_RETAINED_GATE_MANIFEST:-}" ]; then
     [ -n "${CT_OFFLINE_CHECKS:-}" ] && [ -f "$CT_OFFLINE_CHECKS" ] || blocked "CT_OFFLINE_CHECKS is required for the retained-input receiver"
     [ -n "${CT_OFFLINE_PROOF:-}" ] && [ -f "$CT_OFFLINE_PROOF" ] || blocked "CT_OFFLINE_PROOF is required for the retained-input receiver"
+    if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
+      local recurring
+      # D2(a): the approval and receipt root are required; reservations come from the authenticated journal snapshot (gate-and-validate), so
+      # neither the legacy reservations file nor the history index is required on this route.
+      for recurring in CT_APPROVAL CT_RECEIPTS_ROOT; do
+        [ -n "${!recurring:-}" ] && [ -e "${!recurring}" ] || blocked "$recurring is required for retained-input recurring gates"
+      done
+    fi
     return
   fi
   local n
@@ -230,10 +238,17 @@ case "$STAGE" in
       run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
         --request "$REQ" --config "$CFG" --out-dir "$accepted"
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
+      # Only inputs actually present are forwarded (unset-safe under set -u); a nightly run's are required above. The history index is
+      # optional: on the verified journal-snapshot route G11 admits the snapshot without it.
+      retained_args=()
+      [ -n "${CT_PRIOR_STATE:-}" ] && retained_args+=(--prior-state "$CT_PRIOR_STATE")
+      [ -n "${RES_IN:-}" ] && retained_args+=(--reservations "$RES_IN")
+      [ -n "${CT_APPROVAL:-}" ] && retained_args+=(--approval "$CT_APPROVAL")
+      [ -n "${CT_RECEIPTS_ROOT:-}" ] && retained_args+=(--receipts-root "$CT_RECEIPTS_ROOT")
+      [ -n "${CT_HISTORY_INDEX:-}" ] && [ -e "$CT_HISTORY_INDEX" ] && retained_args+=(--history-index "$CT_HISTORY_INDEX")
       run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --request "$REQ" --config "$CFG" \
         --workflow "$ROOT/workflow.json" --accepted-input-dir "$accepted" --receiver-receipt "$accepted/receiver-receipt.json" \
-        --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" ${CT_PRIOR_STATE:+--prior-state "$CT_PRIOR_STATE"} \
-        ${CT_HISTORY_INDEX:+--history-index "$CT_HISTORY_INDEX"} ${CT_APPROVAL:+--approval "$CT_APPROVAL"} ${RES_IN:+--reservations "$RES_IN"} \
+        --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" ${retained_args[@]+"${retained_args[@]}"} \
         --offline-checks "$CT_OFFLINE_CHECKS" --offline-proof "$CT_OFFLINE_PROOF" \
         --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" --stage final --out-dir "$OUT/final-gates" \
         --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free

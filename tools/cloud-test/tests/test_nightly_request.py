@@ -14,7 +14,12 @@ from datetime import datetime, timedelta, timezone
 
 from _fixtures import REPO, ROOT
 import nightly_request as N
+import case_start_caps as C
+import check_gates as G
 import state_ref_writer as W
+from _common import parse_utc
+from _fixtures import fake_rv, receipt, reconciliation, sample
+from _gate_fixtures import GateInputs
 
 SLOT = datetime(2026, 11, 2, 3, 0, tzinfo=timezone.utc)
 SHA = "4" * 40
@@ -26,28 +31,26 @@ TEMPLATE_PIN = hashlib.sha256(TEMPLATE).hexdigest()
 with open(os.path.join(REPO, ".github", "workflows", "cloud-test-live.yml"), encoding="utf-8") as _f:
     WF = _f.read()
 OCCURRENCE = "nightly-20261101T0000Z-20261102T0300Z"
-# The reviewed per-case Start caps the synthetic template carries (sum 42); the standing approval must state them identically.
-START_CAPS = {"AHT-%02d" % n: c for n, c in zip(range(1, 16), (4, 7, 4, 2, 2, 2, 2, 0, 3, 3, 4, 3, 3, 3, 0))}
 
 
 def approval(**over):
-    """Synthetic standing approval within the package's full-mode limits (6000 requests, 32 identity reads, 330 minutes, 350 runner minutes)."""
+    """Synthetic standing approval within the package's full-mode limits (6000 requests, 32 identity reads, 330 minutes, 360 runner minutes)."""
     ap = {"schema": "speaksharp.cloud-test.recurring-approval.v1", "status": "APPROVED", "approvedBy": "owner", "approvalRef": "slack:1793553158.013909",
           "approvedAtUtc": "2026-10-31T12:00:00Z", "validFromUtc": "2026-10-31T12:00:00Z", "expiresUtc": "2026-12-15T00:00:00Z",
           "periodStartUtc": "2026-11-01T00:00:00Z", "cadence": {"runsPerPeriod": 30, "period": "30 days"},
-          "startPressCaps": dict(START_CAPS),
-          "perRunCaps": {"runCapRequests": 4400, "identityReads": 32, "starts": 45, "takes": 40, "coachingRequests": 15, "windowMinutes": 330,
+          "perRunCaps": {"runCapRequests": 4400, "identityReads": 32, "starts": 42, "takes": 40, "coachingRequests": 15, "windowMinutes": 330,
                          "githubRunnerMinutes": 360, "paidActionsUsd": 0},
-          "periodCaps": {"requests": 132000, "identityReads": 960, "starts": 1200, "takes": 1200, "coachingRequests": 450, "githubRunnerMinutes": 10500}}
+          "periodCaps": {"requests": 132000, "identityReads": 960, "starts": 1260, "takes": 1200, "coachingRequests": 450, "githubRunnerMinutes": 10800}}
     for k, v in over.items():
         ap[k] = dict(ap[k], **v) if isinstance(v, dict) and isinstance(ap.get(k), dict) else v
     return json.dumps(ap, sort_keys=True).encode()
 
 
 def budget(**over):
-    b = {"requests": {"runCap": 4310, "plannedSumOfEstimates": 3610, "cleanupReserve": 150, "pooledSlack": 550}, "identity": {"readsThisRun": 30},
-         "actions": {"startsMinimum": 30, "takesMinimum": 30}, "coaching": {"cap": 15, "basis": "SYNTHETIC-NOT-A-BUDGET"},
-         "window": {"proposedWindowMinutes": 329, "expectedMinutes": 111, "worstCaseMinutes": 294}}
+    starts = dict(C.FULL_MINIMA)
+    b = {"requests": {"runCap": 4310, "plannedSumOfEstimates": 3610, "cleanupReserve": 150, "pooledSlack": 550}, "identity": {"readsThisRun": 32}, "actions": {"startsMinimum": sum(starts.values()), "takesMinimum": 30},
+         "coaching": {"cap": 15, "basis": "SYNTHETIC reviewed coaching allowance"}, "window": {"proposedWindowMinutes": 329},
+         "perCase": [{"case": cid, "startsMin": starts[cid]} for cid in C.CASE_IDS]}
     for k, v in over.items():
         b[k] = dict(b[k], **v)
     return json.dumps(b, sort_keys=True).encode()
@@ -171,12 +174,16 @@ class Derivation(unittest.TestCase):
         req = json.loads(raw)
         self.assertEqual((req["runId"], req["window"]["startUtc"], req["window"]["endUtc"], req["synthetic"]),
                          (OCCURRENCE, "2026-11-02T03:00:00Z", "2026-11-02T08:30:00Z", False))
-        self.assertEqual(req["estimate"], {"requests": {"planned": 3610, "cleanupReserve": 150, "pooledSlack": 550, "runCap": 4310},
-                                           "providerBillableRequests": {"coachingCap": 15, "basis": "SYNTHETIC-NOT-A-BUDGET"},
-                                           "window": {"expectedMinutes": 111, "worstCaseMinutes": 294, "proposedMinutes": 329},
-                                           "identityReads": 30, "starts": 42, "takes": 30, "githubRunnerMinutesMax": N.nightly_runner_minutes(WF),
-                                           "paidActionsAuthorizedUsd": 0})
-        self.assertLessEqual(req["estimate"]["githubRunnerMinutesMax"], json.loads(approval())["perRunCaps"]["githubRunnerMinutes"])
+        self.assertEqual(req["estimate"]["requests"]["runCap"], 4310)
+        self.assertEqual(req["estimate"]["providerBillableRequests"],
+                         {"coachingCap": 15, "basis": "SYNTHETIC reviewed coaching allowance"})
+        self.assertEqual((req["estimate"]["identityReads"], req["estimate"]["starts"], req["estimate"]["takes"],
+                          req["estimate"]["paidActionsAuthorizedUsd"], req["estimate"]["githubRunnerMinutesMax"]), (32, 42, 30, 0, 353))
+        self.assertEqual(req["approvedLimits"]["startPressCaps"], dict(C.FULL_MINIMA))
+        self.assertEqual(req["proposedLimits"]["startPressCaps"], dict(C.FULL_MINIMA))
+        self.assertEqual(req["proposedLimits"]["guardCaps"]["coaching"], 15)
+        self.assertEqual({row["case"]: row["startPressCap"] for row in req["selection"]}, dict(C.FULL_MINIMA))
+        self.assertEqual(C.request_caps(req, execution=True), ("full", dict(C.FULL_MINIMA)))
         self.assertEqual((req["nightly"]["occurrenceId"], req["nightly"]["budgetSha256"]), (OCCURRENCE, hashlib.sha256(budget()).hexdigest()))
         self.assertEqual(N.verify(raw, TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF, template_pin=TEMPLATE_PIN,
                                   budget_pin=hashlib.sha256(budget()).hexdigest()), hashlib.sha256(raw).hexdigest())
@@ -188,17 +195,31 @@ class Derivation(unittest.TestCase):
                 refused(self, "nightly-need-exceeds-approval", derive, bud=budget(**over))
         refused(self, "nightly-budget-shape", derive, bud=json.dumps({"requests": {}}).encode())
         refused(self, "nightly-budget-shape", derive, bud=budget(coaching={"cap": 1.5}))
+        refused(self, "nightly-budget-shape", derive, bud=budget(coaching={"basis": ""}))
+        missing_row = json.loads(budget())
+        missing_row["perCase"].pop()
+        refused(self, "nightly-budget-shape", derive, bud=json.dumps(missing_row).encode())
+        inconsistent = json.loads(budget())
+        inconsistent["perCase"][0]["startsMin"] += 1
+        refused(self, "nightly-budget-shape", derive, bud=json.dumps(inconsistent).encode())
+        duplicate = json.loads(budget())
+        duplicate["perCase"][1]["case"] = duplicate["perCase"][0]["case"]
+        refused(self, "nightly-budget-shape", derive, bud=json.dumps(duplicate).encode())
+        below_case_minimum = json.loads(budget())
+        below_case_minimum["perCase"][0]["startsMin"] -= 1
+        below_case_minimum["perCase"][1]["startsMin"] += 1
+        refused(self, "nightly-execution-contract", derive, bud=json.dumps(below_case_minimum).encode())
+        refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"starts": 41}))
         late_slot = datetime(2026, 11, 30, 21, 0, tzinfo=timezone.utc)
         refused(self, "nightly-window-outside-period", derive, slot=late_slot)
         refused(self, "nightly-occurrence-outside-period", derive, slot=datetime(2026, 12, 1, 3, 0, tzinfo=timezone.utc))
 
     def test_the_runner_minute_need_is_the_actual_workflow_allowance(self):
         timeouts = N.workflow_job_timeouts(WF)
-        self.assertEqual(timeouts, {"nightly-gate": 3, "record-begin": 5, "journal-reserve": 3, "live": 340, "journal-settle": 3, "record-complete": 5})
-        # 353 plus the two 3-minute journal jobs (J1): still within the approved 360 per run
-        self.assertEqual(N.nightly_runner_minutes(WF), 359, "a nightly run's maximum allowance; a dispatch (no gate or journal jobs) is 350")
-        refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 358}))
-        self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 359})))
+        self.assertEqual(timeouts, {"nightly-gate": 3, "record-begin": 5, "live": 340, "record-complete": 5})
+        self.assertEqual(N.nightly_runner_minutes(WF), 353, "a nightly run's maximum allowance; a dispatch (no gate job) is 350")
+        refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 352}))
+        self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 353})))
         refused(self, "nightly-workflow-timeouts", derive, wf=WF.replace("    timeout-minutes: 340", "    timeout: 340"))
 
     def test_the_whole_run_must_still_fit_from_now_using_the_callers_own_checks(self):
@@ -212,6 +233,15 @@ class Derivation(unittest.TestCase):
         self.assertEqual(json.loads(wide)["window"]["endUtc"], "2026-11-02T09:00:00Z")
         self.assertEqual(N.check_fit(wide, SLOT + timedelta(minutes=31), CFG, WF), 304)
         refused(self, "nightly-run-would-outlast-window", N.check_fit, wide, SLOT + timedelta(minutes=31, seconds=1), CFG, WF)
+        self.assertEqual(G.NIGHTLY_MAX_WINDOW_MINUTES, N.NIGHTLY_MAX_WINDOW_MINUTES)
+        req = json.loads(wide)
+        inputs = GateInputs(sample())
+        self.addCleanup(inputs.close)
+        result = G.evaluate(req, CFG, sample()["ledger"], sample()["wf"], {"valid": True, "errors": []},
+                            {"passed": True}, receipt(req), str(inputs.root), "final", fake_rv(), reconciliation(),
+                            parse_utc("2026-11-02T03:31:00Z"), receipts_root=str(inputs.receipts))
+        g5 = next(g for g in result["gates"] if g["id"] == "G5")
+        self.assertEqual(g5["status"], G.READY, g5)
         self.assertEqual(raw, derive(), "the request bytes never depend on when admission ran")
 
     def test_template_approval_budget_and_request_substitution_never_verify(self):
@@ -247,6 +277,49 @@ class Derivation(unittest.TestCase):
         refused(self, "nightly-occurrence-replayed", derive, prior=[OCCURRENCE])  # a caller-supplied list is not ledger state
 
 
+class NightlyChecks(unittest.TestCase):
+    """The two nightly-only checks layered on #1772's derivation (Sam 1793617478.811419)."""
+    def test_the_estimate_split_is_the_accepted_budgets_and_the_template_rows_own(self):
+        q = json.loads(derive())["estimate"]["requests"]
+        self.assertEqual((q["planned"], q["cleanupReserve"], q["pooledSlack"], q["runCap"]), (3610, 150, 550, 4310))
+        for label, bud in (("slack differs", budget(requests={"pooledSlack": 551})),
+                           ("planned differs from the template rows", budget(requests={"plannedSumOfEstimates": 3600, "pooledSlack": 560})),
+                           ("cleanup differs", budget(requests={"cleanupReserve": 140, "pooledSlack": 560})),
+                           ("split missing", json.dumps(dict(json.loads(budget()), requests={"runCap": 4310}), sort_keys=True).encode())):
+            with self.subTest(label):
+                refused(self, "nightly-estimate-not-the-budget", derive, bud=bud)
+
+    def test_the_case10_row_pins_the_observation_contract(self):
+        import case10_observation
+        self.assertEqual(case10_observation.contract_of(json.loads(derive()))["readBudget"], {"requests": 12, "identityReads": 1})
+        tpl = json.loads(TEMPLATE)
+        next(r for r in tpl["selection"] if r["case"] == "AHT-10").pop("observationContract")
+        raw = json.dumps(tpl).encode()
+        refused(self, "nightly-case10-observation-contract", derive, tpl=raw, tpl_pin=hashlib.sha256(raw).hexdigest())
+
+
+class Case10PerOccurrence(unittest.TestCase):
+    """#1772 thread 4442216949: a recurring run cannot reuse one pinned Case 10 projection bound to a single occurrence. Every derived
+    occurrence's AHT-10 row pins the observation contract, so the bound takes only that occurrence's own fresh observation (admitted for
+    its sealed request digest, run, attempt and time; see test_case10_observation) and refuses a pinned projection as a second source."""
+    def test_consecutive_occurrences_each_take_case10_only_from_their_own_observation(self):
+        account = "00000000-0000-4000-8000-000000000010"
+        for run_id, slot in (("101", SLOT), ("102", SLOT + timedelta(days=1))):
+            raw = derive(run_id=run_id, slot=slot)
+            req = json.loads(raw)
+            row = next(r for r in req["selection"] if r["case"] == "AHT-10")
+            self.assertIn("observationContract", row, run_id)
+            for facts, code in (({"case10RequestBound": {"runId": req["runId"]}}, "case10-observation-two-sources"),
+                                ({}, "case10-observation-missing")):
+                with self.assertRaises(C.InputValidationError) as e:
+                    C.case10_execution_bound(req, facts, account, hashlib.sha256(raw).hexdigest(), run_id, _iso(slot))
+                self.assertEqual(str(e.exception), code, run_id)
+
+
+def _iso(t):
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class ReplayThroughTheRealWriter(unittest.TestCase):
     """Occurrence state from the VERIFIED state-ref chain (temporary bare repo; the real writer); a second run id for the same occurrence refuses."""
 
@@ -278,65 +351,6 @@ class ReplayThroughTheRealWriter(unittest.TestCase):
         for run_id in ("102", "999999"):
             refused(self, "nightly-occurrence-replayed", derive, run_id=run_id, prior=seen)
         self.assertTrue(derive(slot=SLOT + timedelta(days=1), run_id="103", prior=seen), "the next night is a new occurrence")
-
-
-class StartAllocation(unittest.TestCase):
-    """Sam 1793569757.991869: the derived request carries the reviewed per-case Start caps, matched to the standing approval's explicit
-    caps, in both limit maps and the summed estimate; any disagreement refuses and no cap is invented."""
-    def test_the_derived_request_passes_the_stage_runners_own_start_allocation_contract(self):
-        import case_start_caps
-        req = json.loads(derive())
-        self.assertEqual(req["approvedLimits"]["startPressCaps"], START_CAPS)
-        self.assertEqual(req["proposedLimits"]["startPressCaps"], START_CAPS)
-        self.assertEqual({r["case"]: r["startPressCap"] for r in req["selection"]}, START_CAPS)
-        self.assertEqual(req["estimate"]["starts"], sum(START_CAPS.values()))
-        self.assertEqual(case_start_caps.request_caps(req, execution=True)[0], "full")
-
-    def test_approval_disagreement_or_a_sum_outside_need_or_approval_refuses(self):
-        refused(self, "nightly-start-caps-not-approved", derive, ap=approval(startPressCaps=dict(START_CAPS, **{"AHT-02": 8})))
-        no_caps = json.loads(approval())
-        del no_caps["startPressCaps"]
-        refused(self, "nightly-start-caps-not-approved", derive, ap=json.dumps(no_caps, sort_keys=True).encode())
-        refused(self, "nightly-start-caps-outside-need-or-approval", derive, ap=approval(perRunCaps={"starts": 41}))
-        refused(self, "nightly-start-caps-outside-need-or-approval", derive, bud=budget(actions={"startsMinimum": 43}))
-
-    def test_the_template_must_carry_its_reviewed_caps_identically(self):
-        for label, mutate in (("row cap below the minimum", lambda t: t["selection"][1].update(startPressCap=6)),
-                              ("row cap missing", lambda t: t["selection"][0].pop("startPressCap")),
-                              ("proposed map differs", lambda t: t["proposedLimits"]["startPressCaps"].update({"AHT-01": 5}))):
-            with self.subTest(label):
-                tpl = json.loads(TEMPLATE)
-                mutate(tpl)
-                raw = json.dumps(tpl).encode()
-                refused(self, "nightly-template-start-caps", derive, tpl=raw, tpl_pin=hashlib.sha256(raw).hexdigest())
-
-    def test_the_estimate_is_complete_for_the_runner_and_the_budget_must_be_the_templates(self):
-        est = json.loads(derive())["estimate"]
-        self.assertEqual((est["requests"]["cleanupReserve"], est["providerBillableRequests"]["coachingCap"], est["window"]["worstCaseMinutes"]),
-                         (150, 15, 294))
-        refused(self, "nightly-budget-shape", derive, bud=budget(requests={"pooledSlack": 551}))  # run cap no longer the sum
-        refused(self, "nightly-budget-shape", derive, bud=budget(coaching={"basis": ""}))
-        refused(self, "nightly-budget-not-the-template", derive,
-                bud=budget(requests={"plannedSumOfEstimates": 3600, "pooledSlack": 560}))
-
-    def test_the_template_carries_its_reviewed_evidence_scope_limits(self):
-        self.assertEqual(json.loads(derive())["evidenceScope"], {"maxDeliveries": 64, "maxSupabaseRequests": 128, "maxTelemetryReads": 8})
-        for label, mutate in (("missing", lambda t: t.pop("evidenceScope")),
-                              ("above a limit", lambda t: t["evidenceScope"].update(maxTelemetryReads=17)),
-                              ("extra key", lambda t: t["evidenceScope"].update(other=1))):
-            with self.subTest(label):
-                tpl = json.loads(TEMPLATE)
-                mutate(tpl)
-                raw = json.dumps(tpl).encode()
-                refused(self, "nightly-template-evidence-scope", derive, tpl=raw, tpl_pin=hashlib.sha256(raw).hexdigest())
-
-    def test_the_case10_row_pins_the_observation_contract(self):
-        import case10_observation
-        self.assertEqual(case10_observation.contract_of(json.loads(derive()))["readBudget"], {"requests": 12, "identityReads": 1})
-        tpl = json.loads(TEMPLATE)
-        next(r for r in tpl["selection"] if r["case"] == "AHT-10").pop("observationContract")
-        raw = json.dumps(tpl).encode()
-        refused(self, "nightly-case10-observation-contract", derive, tpl=raw, tpl_pin=hashlib.sha256(raw).hexdigest())
 
 
 if __name__ == "__main__":

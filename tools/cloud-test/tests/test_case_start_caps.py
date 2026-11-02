@@ -281,6 +281,17 @@ core.runCampaign(plan,io,{executeR0:true}).then(result=>{
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(json.loads((self.f.root / "private/cfg/campaign-plan.json").read_text())["cases"]), 15)
 
+    def test_account_selection_follows_the_selected_credential_role(self):
+        for cases, expected in (((15,), "free"), ((1,), "throwaway"), ((1, 15), "throwaway")):
+            with self.subTest(cases=cases), tempfile.TemporaryDirectory(prefix="r5-account-selection-") as root:
+                fixture = SyntheticBuilder(root, cases=cases)
+                phase1 = fixture.run()
+                self.assertEqual(phase1.returncode, 0, phase1.stderr)
+                phase2 = fixture.run("phase2")
+                self.assertEqual(phase2.returncode, 0, phase2.stderr)
+                admission = json.loads((fixture.root / "private/cfg/admission.json").read_text())
+                self.assertEqual(admission["accountSelection"], expected)
+
     def test_changed_phase_two_binding_preserves_phase_one_without_new_outputs(self):
         self.assertEqual(self.f.run().returncode, 0)
         self.f.env["BP_GATES"] = "13:99:fake"

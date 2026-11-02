@@ -151,7 +151,13 @@ def append(led, event):
 
 def caps_of_request(req):
     est = req.get("estimate") or {}
-    return {"requests": (est.get("requests") or {}).get("runCap"), "identityReads": est.get("identityReads"), "starts": est.get("starts"), "takes": est.get("takes"),
+    estimated_requests = (est.get("requests") or {}).get("runCap")
+    approved_requests = (req.get("approvedLimits") or {}).get("runCapRequests")
+    # A derived nightly request may enforce a standing-approved maximum above
+    # its estimate. Reservations and cumulative admission must charge the same
+    # maximum the browser guard can spend, never the lower estimate.
+    requests = approved_requests if req.get("priority") == "nightly-regression" and type(approved_requests) is int else estimated_requests
+    return {"requests": requests, "identityReads": est.get("identityReads"), "starts": est.get("starts"), "takes": est.get("takes"),
             "coachingRequests": (est.get("providerBillableRequests") or {}).get("coachingCap"), "runnerMinutes": est.get("githubRunnerMinutesMax")}
 
 

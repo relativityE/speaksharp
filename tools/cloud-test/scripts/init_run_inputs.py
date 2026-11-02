@@ -77,7 +77,10 @@ RECEIPT_KEYS = {"pre", "rls", "analytics", "disp", "fence", "review"}  # build_p
 BACKEND_KEYS = {"manifestRef", "generation", "completion", "migration129"}
 FACT_REQUIRED = {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "accounts"}
 FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic", "actionApproval", "case10RequestBound"}
-# The builder's Start/take action approval (case_start_caps.bind_inputs), supplied by its approver; prepare admits it, never builds it.
+# A manual run's builder Start/take action approval (case_start_caps.bind_inputs) is supplied by its approver.  A scheduled run instead
+# derives the occurrence-bound envelope from the exact request emitted by the credential-free nightly gate and the admitted reconciliation;
+# the standing approval already bound into that request remains the authority.  No reusable committed facts file can predict a future
+# occurrence digest.
 ACTION_APPROVAL_SCHEMA = "speaksharp.case-start-approval.v1"
 ACTION_APPROVAL_KEYS = {"schema", "requestSha256", "reconciliationSha256", "approvalRef", "approvedBy", "selectionApprovalRef"}
 # The ONE reviewed location for live run requests (Sam RETURN 3e0279d6 finding 1); nothing else counts as request-only lineage.
@@ -586,6 +589,27 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
     return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
 
 
+def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req, nightly=False, standing=None):
+    """Return the exact builder envelope for this occurrence.
+
+    Manual dispatches retain the approver-supplied, byte-bound envelope. Scheduled executions must not carry a reusable envelope in their
+    pinned facts. D1(a) (Sam 1793622282.584849): a nightly envelope is derived ONLY through `standing` (standing_envelope), which checks the
+    pinned standing grant, attempt, occurrence and replay, cases, window, per-run limits, period headroom and references BEFORE the envelope
+    exists; the derived envelope is the request/reconciliation-bound one, and the ordinary checker validates it for both routes.
+    """
+    supplied = facts.get("actionApproval")
+    if nightly:
+        _need(supplied is None, "nightly-action-approval-must-be-derived")
+        _need(standing is not None, "action-approval-standing-not-pinned")
+        envelope = standing()
+        lim = req.get("approvedLimits") or {}
+        _need(envelope.get("requestSha256") == request_sha256 and envelope.get("approvalRef") == lim.get("approvalRef")
+              and envelope.get("approvedBy") == lim.get("approvedBy") and envelope.get("selectionApprovalRef") == req.get("selectionApprovalRef"),
+              "action-approval-standing-reference")
+        return envelope
+    return check_action_approval(supplied, request_sha256, reconciliation_bytes, req)
+
+
 def checkpoint_and_scope(repo, req, pins=None, chain_reader=None):
     """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, with the accepted period scope they were
     received under (the standing derivation binds its period), or a continuity-* refusal. `pins` and
@@ -651,7 +675,19 @@ def prepare(x, now):
     accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle)
     entries = {b["role"]: role_account(bundle, b["role"], os.environ.get("SUPABASE_URL")) for b in accounts}
     observation = read_case10_observation(getattr(x, "case10_observation", None))
-    check_case10_bound(req, facts, cases, entries, hashlib.sha256(req_raw).hexdigest(), x.run_id, now, observation)
+    chains = []
+
+    def read_chain(root):
+        chains.append(state_chain(root))
+        return chains[-1]
+    reconciliation, accepted_scope = checkpoint_and_scope(repo, req, chain_reader=read_chain)
+    request_sha256 = hashlib.sha256(req_raw).hexdigest()
+    action_approval = occurrence_action_approval(
+        facts, request_sha256, reconciliation, req, nightly,
+        standing=lambda: standing_envelope(repo, req, request_sha256, reconciliation, accepted_scope, cases, cfg, now, x.attempt,
+                                           reserved_occurrences(chains[-1])))
+    facts = dict(facts, actionApproval=action_approval)
+    check_case10_bound(req, facts, cases, entries, request_sha256, x.run_id, now, observation)
     # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.
     primary = "existing-disposable" if "existing-disposable" in entries else "maintained-read-only"
     account_id = entries[primary]["accountId"]
@@ -661,20 +697,6 @@ def prepare(x, now):
     scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route)
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
-    chains = []
-
-    def read_chain(root):
-        chains.append(state_chain(root))
-        return chains[-1]
-    reconciliation, accepted_scope = checkpoint_and_scope(repo, req, chain_reader=read_chain)
-    request_sha256, supplied = hashlib.sha256(req_raw).hexdigest(), facts.get("actionApproval")
-    if nightly and supplied is None:
-        # Option A: derived for THIS occurrence under the pinned standing grant (refuses while the production pin is unset).
-        builder_facts = dict(builder_facts, actionApproval=standing_envelope(repo, req, request_sha256, reconciliation, accepted_scope, cases,
-                                                                             cfg, now, x.attempt, reserved_occurrences(chains[-1])))
-    else:
-        _need(not (nightly and standing_grant_in_force(repo)), "action-approval-two-sources")
-        check_action_approval(supplied, request_sha256, reconciliation, req)
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
             "reconciliationBytes": reconciliation, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,

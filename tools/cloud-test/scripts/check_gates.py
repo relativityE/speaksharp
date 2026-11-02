@@ -19,6 +19,9 @@ from recurring_usage import check_caps  # noqa: E402
 from case_start_caps import reconcile_caps, request_caps
 
 READY, NOTREADY, OWNER, DEFERRED = "READY", "NOT-READY", "OWNER-INPUT-OPEN", "DEFERRED-TO-RUNNER"
+# A recurring nightly window may include GitHub's reviewed 30-minute trigger
+# delay. Manual/full requests retain the package's 330-minute ceiling.
+NIGHTLY_MAX_WINDOW_MINUTES = 360
 
 
 def canonical_sha(value):
@@ -253,8 +256,9 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         owner_missing.append("run window (start, end, approval reference) not set")
     else:
         mins = (parse_utc(win["endUtc"]) - parse_utc(win["startUtc"])).total_seconds() / 60
-        if mins <= 0 or mins > lim["maxWindowMinutes"]:
-            need.append("window length %.0f min is outside 1..%d" % (mins, lim["maxWindowMinutes"]))
+        window_limit = NIGHTLY_MAX_WINDOW_MINUTES if recurring else lim["maxWindowMinutes"]
+        if mins <= 0 or mins > window_limit:
+            need.append("window length %.0f min is outside 1..%d" % (mins, window_limit))
         if parse_utc(win["endUtc"]) <= now:
             need.append("window has ended")
         wm = (est.get("window") or {}).get("worstCaseMinutes")

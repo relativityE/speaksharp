@@ -98,9 +98,8 @@ def check_caps(req, approval, index, ledger, now, journal_chain=None):
     """Reasons the run must be refused (empty list: it may proceed)."""
     need = []
     est = req.get("estimate") or {}
-    rq = est.get("requests") or {}
-    asked = {"requests": rq.get("runCap"), "identityReads": est.get("identityReads"), "starts": est.get("starts"), "takes": est.get("takes"),
-             "coachingRequests": (est.get("providerBillableRequests") or {}).get("coachingCap"), "runnerMinutes": est.get("githubRunnerMinutesMax")}
+    from reservations import caps_of_request
+    asked = caps_of_request(req)
     pr, pc = approval.get("perRunCaps") or {}, approval.get("periodCaps") or {}
     for k in PERRUN:
         v = asked[k]

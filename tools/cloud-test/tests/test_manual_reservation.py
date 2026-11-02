@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+from unittest import mock
 
 from _fixtures import ROOT, request_path
 import accounting_rollup as R
@@ -33,7 +34,9 @@ def scope_raw(**over):
 class ManualReservation(Journal):
     def setUp(self):
         super().setUp()
-        self.req = read(request_path("R7-full-coverage-proposal.json"))
+        request = json.loads(read(request_path("R7-full-coverage-proposal.json")))
+        request["approvedLimits"]["runCapRequests"] = request["estimate"]["requests"]["runCap"]
+        self.req = json.dumps(request, sort_keys=True).encode()
         self.sha = hashlib.sha256(self.req).hexdigest()
         self.scope = scope_raw()
         self.all_pins = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope).hexdigest())
@@ -90,19 +93,22 @@ class ManualReservation(Journal):
                 else:
                     self.refused("manual-reservation-exceeds-headroom", M.reserve, self.req, self.sha, RUN, rollup, self.head(), AT)
 
-    def test_a_measured_settlement_counts_as_measured_without_adding_identity_reads_again(self):
+    def test_a_measured_settlement_charges_campaign_requests_plus_identity_reads_once(self):
         e = self.reserved()
         usage, evidence = M.usage_from_record(self.record(), e)
-        self.assertEqual((usage, evidence), ({"requests": 2900, "identityReads": 30, "starts": 15, "takes": 14, "coachingRequests": None,
+        self.assertEqual((usage, evidence), ({"requests": 2930, "identityReads": 30, "starts": 15, "takes": 14, "coachingRequests": None,
                                               "runnerMinutes": None}, hashlib.sha256(self.record()).hexdigest()))
         s = M.settle(e, usage, evidence, "2026-11-02T06:00:00Z")
-        self.assertEqual(s["allocation"], dict(ALLOCATION, requests=2900, identityReads=30, starts=15, takes=14),
+        self.assertEqual(s["allocation"], dict(ALLOCATION, requests=2930, identityReads=30, starts=15, takes=14),
                          "unmeasured coaching and runner minutes settle at the reserved cap, never 0")
         self.push(s)
         out = self.receive()
-        self.assertEqual((out["outstandingReservations"], out["requests"]["conservativeUsed"], out["identityReads"]["conservativeUsed"]), (0, 2900, 30))
-        unmeasured, _ = M.usage_from_record(self.record(requests=None, identityReads=None), e)
-        self.assertEqual(M.settle(e, unmeasured, EVIDENCE, AT)["allocation"]["requests"], 4342, "unmeasured requests settle at the full G5 charge")
+        self.assertEqual((out["outstandingReservations"], out["requests"]["conservativeUsed"], out["identityReads"]["conservativeUsed"]), (0, 2930, 30))
+        for unknown in ({"requests": None}, {"identityReads": None}, {"requests": None, "identityReads": None}):
+            unmeasured, _ = M.usage_from_record(self.record(**unknown), e)
+            self.assertIsNone(unmeasured["requests"])
+            self.assertEqual(M.settle(e, unmeasured, EVIDENCE, AT)["allocation"]["requests"], 4342,
+                             "either unknown component keeps the full reserved G5 request charge")
 
     def test_headroom_is_recomputed_at_the_proposed_head(self):
         self.refused("manual-reservation-exceeds-headroom", M.reserve, self.req, self.sha, RUN, self.receive(scope(carryover="historical")), self.head(), AT)
@@ -125,6 +131,22 @@ class ManualReservation(Journal):
         self.refused("manual-reservation-caps-unknown", M.reserve, unknown, hashlib.sha256(unknown).hexdigest(), *args)
         self.refused("manual-reservation-event-run-id", M.reserve, self.req, self.sha, "0123", *args[1:])
         self.refused("manual-reservation-event-run-id", M.reserve, self.req, self.sha, 41400000001, *args[1:])
+
+    def test_the_reservation_holds_the_enforced_approved_request_cap(self):
+        doc = json.loads(self.req)
+        doc["approvedLimits"]["runCapRequests"] = 4400
+        raw = json.dumps(doc, sort_keys=True).encode()
+        event = M.reserve(raw, hashlib.sha256(raw).hexdigest(), RUN, self.receive(), self.head(), AT)
+        self.assertEqual(event["allocation"]["requests"], 4432,
+                         "the approved browser allowance plus identity reads is reserved")
+
+        for value in (None, True, 4309):
+            with self.subTest(approved=value):
+                bad = json.loads(self.req)
+                bad["approvedLimits"]["runCapRequests"] = value
+                encoded = json.dumps(bad, sort_keys=True).encode()
+                self.refused("manual-reservation-approved-request-cap", M.reserve, encoded,
+                             hashlib.sha256(encoded).hexdigest(), RUN, self.receive(), self.head(), AT)
 
     def test_settlement_is_bound_to_the_record_bytes_and_the_reservation(self):
         e = self.reserved()
@@ -150,8 +172,8 @@ class ManualReservation(Journal):
         self.assertEqual((self.receive()["outstandingReservations"], self.receive()["requests"]["conservativeUsed"]), (1, 4342))
         settle = {"campaignId": "R7-full-coverage", "runId": RUN, "record": self.record(), "scope": self.scope, "atUtc": AT}
         s = self.execute("settle", settle, "s1")
-        self.assertEqual((s["allocation"]["requests"], s["provenance"]), (2900, "evidence-sha256:" + hashlib.sha256(self.record()).hexdigest()))
-        self.assertEqual((self.receive()["outstandingReservations"], self.receive()["requests"]["conservativeUsed"]), (0, 2900))
+        self.assertEqual((s["allocation"]["requests"], s["provenance"]), (2930, "evidence-sha256:" + hashlib.sha256(self.record()).hexdigest()))
+        self.assertEqual((self.receive()["outstandingReservations"], self.receive()["requests"]["conservativeUsed"]), (0, 2930))
         self.refused("manual-reservation-transition-without-open-reservation", self.execute, "settle", settle, "s2")
         self.refused("manual-reservation-not-reserved", self.execute, "settle", dict(settle, runId="41400000009"), "s3")
 
@@ -191,6 +213,69 @@ class ManualReservation(Journal):
         self.assertEqual(read(settle_receipt), settle_receipt_bytes)
         self.assertEqual([event["type"] for event in self.chain()[-1][1]], ["reserve", "settle"],
                          "an exact settle retry must not append a duplicate transition")
+
+    def test_a_landed_transition_with_a_durable_journal_recovers_its_missing_receipt(self):
+        directory = os.path.join(self.d, "interrupted-publication")
+        os.mkdir(directory)
+        journal = os.path.join(directory, "reserve-journal.json")
+        receipt = os.path.join(directory, "reserve-receipt.json")
+        original_publish = W.publish_atomic
+
+        def interrupt_receipt(path, body, conflict):
+            if path == receipt:
+                raise RuntimeError("synthetic interruption after remote append")
+            return original_publish(path, body, conflict)
+
+        before = self.head()
+        with mock.patch.object(W, "publish_atomic", side_effect=interrupt_receipt):
+            with self.assertRaisesRegex(RuntimeError, "synthetic interruption"):
+                M.execute("reserve", self.reserve_inputs(), self.repo, self.remote, self.root,
+                          journal, receipt, self.all_pins, self.remote)
+        landed = self.head()
+        self.assertNotEqual(landed, before, "the interruption must occur after the append lands")
+        self.assertTrue(os.path.isfile(journal))
+        self.assertFalse(os.path.exists(receipt))
+        journal_bytes = read(journal)
+
+        os.unlink(journal)
+        with self.assertRaises(M.Refused):
+            M.execute("reserve", self.reserve_inputs(), self.repo, self.remote, self.root,
+                      journal, receipt, self.all_pins, self.remote)
+        self.assertEqual(self.head(), landed, "a missing journal cannot authorize recovery or append a duplicate")
+        with open(journal, "wb") as f:
+            f.write(journal_bytes)
+
+        changed_event = dict(self.reserve_inputs(), atUtc="2026-11-02T04:00:01Z")
+        with self.assertRaises(M.Refused):
+            M.execute("reserve", changed_event, self.repo, self.remote, self.root,
+                      journal, receipt, self.all_pins, self.remote)
+        self.assertEqual(self.head(), landed, "a changed event cannot be recovered through the old journal")
+
+        recovered = M.execute("reserve", self.reserve_inputs(), self.repo, self.remote, self.root,
+                              journal, receipt, self.all_pins, self.remote)
+        self.assertEqual(recovered, self.chain()[-1][1][-1])
+        self.assertEqual(read(journal), journal_bytes)
+        with open(receipt, encoding="utf-8") as f:
+            self.assertTrue(W.verify(self.repo, self.remote, json.load(f), recovered, self.root, self.remote)["verified"])
+        self.assertEqual(self.head(), landed, "receipt recovery must preserve the already-landed head")
+        self.assertEqual([event["type"] for event in self.chain()[-1][1]], ["reserve"],
+                         "receipt recovery must not append a duplicate transition")
+
+        with open(receipt, "w", encoding="utf-8") as f:
+            f.write("conflicting output\n")
+        self.refused("manual-reservation-receipt-conflict", M.execute, "reserve", self.reserve_inputs(),
+                     self.repo, self.remote, self.root, journal, receipt, self.all_pins, self.remote)
+        self.assertEqual(self.head(), landed)
+
+        os.unlink(receipt)
+        changed = json.loads(journal_bytes)
+        changed["newSha"] = "f" * 40
+        with open(journal, "w", encoding="utf-8") as f:
+            json.dump(changed, f)
+        self.refused("manual-reservation-receipt-commit-not-on-state-ref", M.execute, "reserve", self.reserve_inputs(),
+                     self.repo, self.remote, self.root, journal, receipt, self.all_pins, self.remote)
+        self.assertFalse(os.path.exists(receipt), "a non-matching journal must not recreate a receipt")
+        self.assertEqual([event["type"] for event in self.chain()[-1][1]], ["reserve"])
 
     def test_the_integrated_path_keeps_the_trust_boundaries(self):
         r = self.reserve_inputs()

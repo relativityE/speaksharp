@@ -1355,6 +1355,51 @@ class NightlyMode(unittest.TestCase):
             x.facts = None
             refused(self, "nightly-facts-not-pinned", I.prepare, x, self.slot + timedelta(minutes=1))
 
+    def test_each_nightly_occurrence_derives_its_own_action_envelope_from_the_admitted_request(self):
+        from test_nightly_request import derive as nightly_derive
+        first = json.loads(self.raw)
+        second_raw = nightly_derive(run_id="102", sha=self.sha)
+        second = json.loads(second_raw)
+        reconciliation = b'{"accepted":"synthetic-unit-control"}\n'
+        committed = facts(ownerApprovalReference="slack:1793553158.013909")
+        self.assertNotIn("actionApproval", committed)
+        def standing(request, raw):
+            # D1(a): the stand-in for standing_envelope, whose gates are controlled in StandingEnvelope; it returns the request- and
+            # reconciliation-bound envelope that derivation produces once every gate has passed.
+            lim = request["approvedLimits"]
+            return lambda: I.check_action_approval(
+                {"schema": I.ACTION_APPROVAL_SCHEMA, "requestSha256": hashlib.sha256(raw).hexdigest(),
+                 "reconciliationSha256": hashlib.sha256(reconciliation).hexdigest(), "approvalRef": lim["approvalRef"],
+                 "approvedBy": lim["approvedBy"], "selectionApprovalRef": request["selectionApprovalRef"]},
+                hashlib.sha256(raw).hexdigest(), reconciliation, request)
+        one = I.occurrence_action_approval(committed, hashlib.sha256(self.raw).hexdigest(), reconciliation, first, nightly=True,
+                                           standing=standing(first, self.raw))
+        two = I.occurrence_action_approval(committed, hashlib.sha256(second_raw).hexdigest(), reconciliation, second, nightly=True,
+                                           standing=standing(second, second_raw))
+        self.assertNotEqual(one["requestSha256"], two["requestSha256"])
+        self.assertEqual(one["reconciliationSha256"], hashlib.sha256(reconciliation).hexdigest())
+        for envelope, request in ((one, first), (two, second)):
+            self.assertEqual(envelope["approvalRef"], request["approvedLimits"]["approvalRef"])
+            self.assertEqual(envelope["approvedBy"], request["approvedLimits"]["approvedBy"])
+            self.assertEqual(envelope["selectionApprovalRef"], request["selectionApprovalRef"])
+        refused(self, "nightly-action-approval-must-be-derived", I.occurrence_action_approval,
+                dict(committed, actionApproval=one), one["requestSha256"], reconciliation, first, True, standing(first, self.raw))
+        # Without the standing gate nothing is derived; a gate that returns another occurrence's envelope refuses.
+        refused(self, "action-approval-standing-not-pinned", I.occurrence_action_approval, committed, one["requestSha256"],
+                reconciliation, first, True)
+        refused(self, "action-approval-standing-reference", I.occurrence_action_approval, committed, one["requestSha256"],
+                reconciliation, first, True, standing(second, second_raw))
+
+    def test_manual_action_envelopes_remain_approver_supplied_and_occurrence_bound(self):
+        request = live_request(["AHT-05"])
+        reconciliation = b'{"accepted":"manual-unit-control"}\n'
+        digest = "4" * 64
+        supplied = action_approval(request, digest, reconciliation)
+        self.assertEqual(I.occurrence_action_approval(dict(facts(), actionApproval=supplied), digest,
+                                                      reconciliation, request), supplied)
+        refused(self, "action-approval-shape", I.occurrence_action_approval, facts(), digest,
+                reconciliation, request)
+
 
 from test_accounting_rollup import Journal, bootstrap as rollup_bootstrap, scope as rollup_scope  # noqa: E402
 import state_ref_writer as W  # noqa: E402
@@ -1969,7 +2014,7 @@ class StandingEnvelope(Journal):
                 self.append("release", "4140000000%d" % I.STANDING_PERIOD_DIMENSIONS.index(k), use, at="2026-11-01T12:00:01Z")
                 self.assertTrue(self.derive())
 
-    def test_prepare_derives_only_without_a_supplied_envelope_and_refuses_two_sources(self):
+    def test_prepare_derives_only_through_the_standing_gate_and_refuses_any_supplied_nightly_envelope(self):
         # The prepare branch itself: the admission steps before it are stubbed to a nightly result; the checkpoint, the derivation and the
         # supplied-envelope path are the real ones.
         import contextlib
@@ -1999,8 +2044,8 @@ class StandingEnvelope(Journal):
 
         # Granted and pinned, nothing supplied: derived for this occurrence; the result equals the envelope an approver would have supplied.
         self.assertEqual(prepare(facts(), self.pin)["facts"]["actionApproval"], supplied)
-        # Two sources refuse; the production pin unset refuses derivation by name.
-        refused(self, "action-approval-two-sources", prepare, facts(actionApproval=supplied), self.pin)
+        # D1(a): a supplied nightly envelope always refuses (no fallback); the production pin unset refuses derivation by name.
+        refused(self, "nightly-action-approval-must-be-derived", prepare, facts(actionApproval=supplied), self.pin)
         refused(self, "action-approval-standing-not-pinned", prepare, facts(), None)
         # A pinned approval WITHOUT a grant: the supplied path is unchanged, and nothing is derived when nothing is supplied.
         self.use(self.nightly_approval())
@@ -2008,10 +2053,10 @@ class StandingEnvelope(Journal):
         with open(path, "wb") as f:
             f.write(self.req_raw)
         supplied.update(requestSha256=request_sha)
-        self.assertEqual(prepare(facts(actionApproval=supplied), self.pin)["facts"]["actionApproval"], supplied)
+        # D1(a): no grant means no envelope; a supplied one is refused whether or not the pin is set (the older fallback is not restored).
+        refused(self, "nightly-action-approval-must-be-derived", prepare, facts(actionApproval=supplied), self.pin)
         refused(self, "action-approval-standing-not-granted", prepare, facts(), self.pin)
-        # An unset pin never makes a supplied nightly envelope a second source.
-        self.assertEqual(prepare(facts(actionApproval=supplied), None)["facts"]["actionApproval"], supplied)
+        refused(self, "nightly-action-approval-must-be-derived", prepare, facts(actionApproval=supplied), None)
 
 
 class Case10Bound(unittest.TestCase):

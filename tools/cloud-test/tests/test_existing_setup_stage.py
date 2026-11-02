@@ -28,10 +28,27 @@ class ExistingSetupCaller(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.violation = self.root / "acquisition-attempted.txt"
+        revalidator = self.root / "received-browser-revalidator.py"
+        revalidator.write_text(
+            "import hashlib,json,os,sys\n"
+            "def arg(name):\n"
+            " i=sys.argv.index(name); return sys.argv[i+1]\n"
+            "try:\n"
+            " source=json.load(open(arg('--received-installed-receipt')))\n"
+            " browser=os.path.realpath(os.environ['CT_CHROME'])\n"
+            " assert source['schema']=='speaksharp.cloud-test.installed-browser.v1'\n"
+            " assert source['path']==browser and source['sourceSha']==arg('--source-sha') and source['runId']==arg('--run-id')\n"
+            " assert source['observedBinarySha256']==hashlib.sha256(open(browser,'rb').read()).hexdigest()\n"
+            " output=dict(source,revalidated=True)\n"
+            " with open(arg('--receipt'),'x') as f: json.dump(output,f,sort_keys=True); f.write('\\n')\n"
+            " print(browser)\n"
+            "except Exception as error:\n"
+            " print('BLOCKED_SETUP: synthetic received-browser contract refused: '+str(error),file=sys.stderr); raise SystemExit(78)\n")
         guard = self.bin / "python3"
         reject = "printf acquisition >> " + shlex.quote(str(self.violation)) + "; exit 97"
         guard.write_text("#!/bin/sh\ncase \"$*\" in\n"
-                         " *install_browser.py*) case \" $* \" in *' --existing '*) ;; *) " + reject + ";; esac;;\n"
+                         " *install_browser.py*) case \" $* \" in *' --received-installed-receipt '*) exec " +
+                         shlex.quote(sys.executable) + " " + shlex.quote(str(revalidator)) + " \"$@\";; *) " + reject + ";; esac;;\n"
                          " *install_pdfjs.py*) case \" $* \" in *' --check-only '*) ;; *) " + reject + ";; esac;;\n"
                          "esac\nexec " + shlex.quote(sys.executable) + " \"$@\"\n")
         guard.chmod(0o700)
@@ -41,6 +58,15 @@ class ExistingSetupCaller(unittest.TestCase):
         self.browser = self.root / "inert-browser"
         self.browser.write_bytes(b"not a real browser; never executed\n")
         self.browser.chmod(0o700)
+        self.received_browser_receipt = self.root / "installed-browser-discovery.json"
+        self.received_browser_receipt.write_text(json.dumps({
+            "schema": "speaksharp.cloud-test.installed-browser.v1",
+            "environment": "github-hosted",
+            "path": str(self.browser),
+            "observedBinarySha256": hashlib.sha256(self.browser.read_bytes()).hexdigest(),
+            "sourceSha": "a1" * 20,
+            "runId": "SYNTHETIC-setup-1",
+        }))
         self.checkout = self.root / "synthetic-checkout"
         playwright = self.checkout / "node_modules/playwright"
         playwright.mkdir(parents=True)
@@ -85,6 +111,7 @@ class ExistingSetupCaller(unittest.TestCase):
         env = {"PATH": str(self.bin) + os.pathsep + os.environ["PATH"], "HOME": str(self.root),
                "CT_CONFIG": str(self.config_path), "CT_OUT": str(self.out), "CT_REQUEST": str(self.request_path),
                "CT_CHROME": str(self.browser), "CT_CHECKOUT": str(self.checkout),
+               "CT_BROWSER_RECEIPT": str(self.received_browser_receipt),
                "CT_SOURCE_SHA": "a1" * 20, "CT_EXECUTION_RUN_ID": "SYNTHETIC-setup-1"}
         for key in omit:
             env.pop(key)
@@ -100,6 +127,7 @@ class ExistingSetupCaller(unittest.TestCase):
         receipt = json.loads((self.out / "browser-identity.json").read_text())
         self.assertEqual(receipt["sourceSha"], "a1" * 20)
         self.assertEqual(receipt["runId"], "SYNTHETIC-setup-1")
+        self.assertTrue(receipt["revalidated"])
         self.assertEqual((self.out / "chrome-path.txt").read_text().strip(), str(self.browser))
         self.assertIn("nothing installed", result.stdout)
 
@@ -127,8 +155,35 @@ class ExistingSetupCaller(unittest.TestCase):
         self.browser.write_bytes(b"different bytes")
         result = self.run_stage()
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
-        self.assertIn("existing browser binary sha256 differs from the pin", result.stderr)
+        self.assertIn("installed-browser receipt revalidation failed", result.stderr)
         self.assertFalse((self.out / "chrome-path.txt").exists())
+
+    def test_missing_received_browser_receipt_is_refused_without_any_acquisition(self):
+        result = self.run_stage(omit=("CT_BROWSER_RECEIPT",))
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("installed-browser discovery receipt is required", result.stderr)
+        self.assertFalse((self.out / "browser-identity.json").exists())
+
+    def test_substituted_received_browser_receipt_is_refused_without_any_acquisition(self):
+        receipt = json.loads(self.received_browser_receipt.read_text())
+        receipt["schema"] = "speaksharp.cloud-test.unrelated-browser.v1"
+        self.received_browser_receipt.write_text(json.dumps(receipt))
+        result = self.run_stage()
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("installed-browser receipt revalidation failed", result.stderr)
+        self.assertFalse((self.out / "browser-identity.json").exists())
+
+    def test_received_browser_receipt_refuses_source_or_run_substitution(self):
+        original = json.loads(self.received_browser_receipt.read_text())
+        for field, value in (("sourceSha", "b2" * 20), ("runId", "SYNTHETIC-other-run")):
+            with self.subTest(field=field):
+                changed = dict(original, **{field: value})
+                self.received_browser_receipt.write_text(json.dumps(changed))
+                result = self.run_stage()
+                self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+                self.assertIn("installed-browser receipt revalidation failed", result.stderr)
+                self.assertFalse((self.out / "browser-identity.json").exists())
+        self.received_browser_receipt.write_text(json.dumps(original))
 
     def test_missing_playwright_is_refused_and_not_installed(self):
         self.playwright_manifest.unlink()
@@ -155,7 +210,7 @@ class ExistingSetupCaller(unittest.TestCase):
     def test_missing_run_binding_is_refused_without_acquisition(self):
         result = self.run_stage(omit=("CT_EXECUTION_RUN_ID",))
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
-        self.assertIn("--existing requires --receipt, exact --source-sha and safe --run-id", result.stderr)
+        self.assertIn("installed-browser receipt revalidation failed", result.stderr)
         self.assertFalse((self.out / "browser-identity.json").exists())
 
     def test_unknown_setup_mode_is_not_treated_as_acquisition(self):
@@ -185,7 +240,7 @@ class ExistingSetupCaller(unittest.TestCase):
         receipt.write_text("retained bytes")
         result = self.run_stage()
         self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
-        self.assertIn("cannot create the NEW existing-browser identity receipt", result.stderr)
+        self.assertIn("installed-browser receipt revalidation failed", result.stderr)
         self.assertEqual(receipt.read_text(), "retained bytes")
         self.assertFalse((self.out / "chrome-path.txt").exists())
 

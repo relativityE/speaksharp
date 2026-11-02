@@ -148,6 +148,9 @@ def main():
              "--prior-comparison", A("comparison-prior"), "--receiver-receipt", receiver,
              "--receiver-manifest", x.receiver_manifest, "--accepted-input-dir", accepted_snapshot,
              "--stage", x.stage, "--base", ROOT, "--out", O("gate-status.json")]
+        if req.get("priority") == "nightly-regression":
+            g += ["--receipts-root", x.receipts_root, "--history-index", history_index,
+                  "--approval", approval, "--reservations", reservations]
         if x.offline_checks:
             g += ["--offline-checks", x.offline_checks]
         if x.offline_proof:

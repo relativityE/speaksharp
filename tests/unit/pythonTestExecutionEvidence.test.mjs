@@ -86,6 +86,17 @@ test('real Python reporter credits only the exact input actually consumed by its
   } finally {fs.rmSync(f.root,{recursive:true,force:true});}
 });
 
+test('nightly synthetic template is bound only to the test that reads it',()=>{
+  const contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('nightly-template.synthetic.json'));
+  assert.deepEqual(contract,{
+    inputFile:'tools/cloud-test/tests/fixtures/nightly-template.synthetic.json',
+    testFile:'tools/cloud-test/tests/test_nightly_request.py',
+  });
+  assert.deepEqual(selectPythonContracts([contract.inputFile]),[
+    {testFile:contract.testFile,sourceFiles:[contract.inputFile],batch:0},
+  ]);
+});
+
 test('real Python reporter credits nonempty lines returned by readlines',()=>{
   const f=fixture(),contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
   try {

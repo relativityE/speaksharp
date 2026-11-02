@@ -76,7 +76,8 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \\\n  --checkpoint', init["run"])
         self.assertEqual(init["run"].count("--facts"), 1, "a scheduled run never passes a facts input")
         self.assertEqual(begin["needs"], "nightly-gate")
-        self.assertEqual(begin["if"], "${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && "
+        self.assertEqual(begin["if"], "${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && "
+                                      "(github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && "
                                       "needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}")
         self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || '
                       '{ echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }', begin["steps"][0]["run"])
@@ -91,10 +92,23 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write"})
         self.assertEqual(self.jobs["record-complete"]["permissions"], {"issues": "write", "actions": "read"})
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
+        self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
 
     def test_the_record_jobs_hold_no_live_credential(self):
         for name in ("record-begin", "record-complete"):
             self.assertIsNone(SECRET_REF.search(str(self.jobs[name])), name)
+        protected_main = "github.ref == 'refs/heads/main' && github.ref_protected == true"
+        self.assertIn(protected_main, self.jobs["record-begin"]["if"])
+        self.assertIn(protected_main, self.jobs["live"]["if"])
+        self.assertIn("needs.record-begin.result == 'success'", self.jobs["live"]["if"])
+        # the two state-ref writer jobs run on protected main only, like the jobs they serve
+        for name in ("journal-reserve", "journal-settle"):
+            self.assertIn(protected_main, self.jobs[name]["if"], name)
+        # The privileged jobs execute control code only from the immutable SHA admitted by those job-level checks.
+        for name in ("record-begin", "live", "journal-reserve", "journal-settle"):
+            checkouts = [s for s in self.jobs[name]["steps"] if s.get("uses", "").startswith("actions/checkout@")]
+            self.assertEqual(len(checkouts), 1, name)
+            self.assertEqual(checkouts[0]["with"]["ref"], "${{ github.sha }}")
 
     def test_the_latest_record_is_inactive_until_the_tracking_issue_is_bound(self):
         self.assertEqual(self.doc["env"]["TRACKING_ISSUE"], "")
@@ -178,6 +192,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         script = steps[copy]["run"]
         self.assertIn('git -C "$GITHUB_WORKSPACE" worktree add --detach "$tested" "$TESTED_SHA"', script)
         self.assertIn('--config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"', script)
+        self.assertIn('--bind-playwright', script)
         self.assertIn('echo "CT_CHECKOUT=$tested"', script)
         self.assertEqual(steps[copy]["env"], {"TESTED_SHA": "${{ steps.init.outputs.tested_sha }}"})
         env = self.jobs["live"]["env"]
@@ -192,6 +207,14 @@ class LiveWorkflowPolicy(unittest.TestCase):
             "CT_EXISTING_PDFJS_DIR": "${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist",
         })
         self.assertIn('CT_PROOF_FILE="$RUNNER_TEMP/offline-proof.json" python3 -I scripts/run_offline_checks.py', evidence["run"])
+
+    def test_the_tested_release_resolves_verified_playwright_without_a_second_install(self):
+        steps = self.jobs["live"]["steps"]
+        provision = next(s for s in steps if "install_pdfjs.py" in s.get("run", "") and "--checkout" in s.get("run", ""))
+        self.assertIn('--runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', provision["run"])
+        self.assertNotRegex(provision["run"], r"\b(npm|npx|pnpm|yarn|pip|apt|brew)\b")
+        stage = next(i for i, s in enumerate(steps) if "for stage in install-tools build-plan" in s.get("run", ""))
+        self.assertLess(steps.index(provision), stage)
 
     def test_no_browser_or_unreviewed_package_is_installed_or_downloaded(self):
         low = self.text.lower().replace(self.B4_INSTALL, "").replace(self.PY_YAML_INSTALL, "")
@@ -216,6 +239,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_retained_inputs_are_connected_and_manual_accounting_stays_explicitly_inactive(self):
         env = self.jobs["live"]["env"]
         self.assertEqual(env["CT_RETAINED_GATE_MANIFEST"], "${{ github.workspace }}/tools/cloud-test/config/aggregate/manifest.json")
+        self.assertEqual(env["CT_HISTORY_INDEX"], "${{ github.workspace }}/tools/cloud-test/config/history/index.json")
+        self.assertEqual(env["CT_RESERVATIONS"], "${{ github.workspace }}/tools/cloud-test/config/history/reservations.json")
+        self.assertEqual(env["CT_APPROVAL"], "${{ github.workspace }}/tools/cloud-test/config/recurring-approval.json")
+        self.assertEqual(env["CT_RECEIPTS_ROOT"], "${{ github.workspace }}/tools/cloud-test/config/history/receipts")
         with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {"activated": False, "manifestSha256": None, "bundleRootSha256": None,
@@ -223,7 +250,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         steps = self.jobs["live"]["steps"]
         bind = next(i for i, s in enumerate(steps) if s.get("name") == "Bind private runner paths and initialize the inactive accounting workspace")
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
-        reserve = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
+        reserve = next(i for i, s in enumerate(steps) if s.get("name") == "Reserve the admitted run through its priority-specific path before product execution")
         collect = next(s for s in steps if s.get("name", "").startswith("Collect, verify the binding"))["run"]
         self.assertLess(bind, reserve)
         workspace = steps[bind]["run"]
@@ -238,12 +265,23 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('echo "CT_STATE_JOURNAL_SETTLE=$RUNNER_TEMP/cloud-test-state-settle.json"', workspace)
         self.assertNotIn('CT_STATE_JOURNAL=', workspace)
         self.assertLess(reserve, run)
+        # Composed with J1 (#1772 thread 4442216960): a scheduled run's recurring reserve is the journal-reserve job, the only state-ref writer,
+        # appended and read back BEFORE the live job; the live job's priority-specific reserve step is the manual path and never runs on a
+        # schedule, so no checkout-local ledger stands in for durable state.
+        self.assertEqual(steps[reserve]["if"], "${{ github.event_name != 'schedule' }}")
+        self.assertEqual(steps[reserve]["run"].strip(), "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
+        self.assertIn("reservations.py journal-reserve", writers_of(self.jobs, "journal-reserve"))
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" != schedule ]', collect)
         self.assertLess(collect.index("execute_run.sh collect"), collect.index("execute_run.sh manual-settle"))
         self.assertNotIn("manual-release", self.text)
         runner = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
         self.assertIn('--accepted-input-dir "$accepted"', runner)
         self.assertIn('--receiver-receipt "$accepted/receiver-receipt.json"', runner)
         self.assertIn('--receiver-manifest "$CT_RETAINED_GATE_MANIFEST"', runner)
+        for token in ('--history-index "$CT_HISTORY_INDEX"', '--reservations "$CT_RESERVATIONS"',
+                      '--approval "$CT_APPROVAL"', '--receipts-root "$CT_RECEIPTS_ROOT"'):
+            self.assertIn(token, runner)
+        self.assertIn('blocked "$recurring is required for retained-input recurring gates"', runner)
         self.assertIn('cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json"', runner)
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         manual = open(os.path.join(ROOT, "scripts", "manual_reservation.py"), encoding="utf-8").read()
@@ -380,6 +418,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         steps = self.jobs["live"]["steps"]
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         reserve = steps[run - 1]
+        self.assertEqual(reserve["name"], "Reserve the admitted run through its priority-specific path before product execution")
         self.assertEqual(reserve["run"].strip(), "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
         check = steps[run - 2]
         self.assertEqual(check["run"].strip(), 'python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" '
