@@ -187,11 +187,17 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_handoff_artifact_is_short_lived_and_not_the_authoritative_record(self):
         up = [s for s in self.jobs["live"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
-        self.assertEqual(len(up), 2)  # the closed record (record job) and, on schedule only, the run record for journal-settle (J1)
+        self.assertEqual(len(up), 2)  # the closed record (record job) and, on schedule only, the closed settle input for journal-settle (J1)
         self.assertTrue(all(u["with"]["retention-days"] == 1 for u in up))
-        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in up), ["latest-record.json", "run-record.json"])
-        settle = next(u for u in up if u["with"]["path"].endswith("run-record.json"))
+        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in up), ["latest-record.json", "settle-input.json"])
+        settle = next(u for u in up if u["with"]["path"].endswith("settle-input.json"))
         self.assertIn("github.event_name == 'schedule'", settle["if"])
+        # Sam 1793580806.654369: the public artifact is the closed projection, never the collector's run record; journal-settle validates it
+        project = next(st for st in self.jobs["live"]["steps"] if "settle_input.py project" in st.get("run", ""))
+        self.assertIn('--record "$CT_OUT/run-record.json"', project["run"])
+        self.assertFalse(any(u["with"]["path"].endswith("run-record.json") for u in up))
+        settle_run = next(st["run"] for st in self.jobs["journal-settle"]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))
+        self.assertLess(settle_run.index("settle_input.py validate"), settle_run.index("reservations.py journal-settle"))
 
     def test_the_dispatch_names_a_committed_request_and_never_generates_one(self):
         on = self.doc.get("on", self.doc.get(True))
@@ -336,6 +342,13 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertIn("reservations.py journal-%s" % name.split("-")[1], writers[0]["run"])
         self.assertEqual(self.text.count("CT_STATE_PUSH_TOKEN"), 2, "the token reaches only the two writer steps")
         self.assertEqual(jobs["live"]["permissions"], {"contents": "read"})
+        # Case 10 (Sam 1793580806.654369): the observation reserve and settle run in the write jobs; the live job only observes, read-only
+        self.assertIn("case10_observation.py reserve", writers_of(jobs, "journal-reserve"))
+        self.assertIn("case10_observation.py settle", writers_of(jobs, "journal-settle"))
+        live_runs = " ".join(st.get("run", "") for st in jobs["live"]["steps"])
+        self.assertIn("case10_observation.py observe", live_runs)
+        self.assertNotIn("case10_observation.py reserve", live_runs)
+        self.assertNotIn("case10_observation.py settle", live_runs)
         self.assertNotIn("execute_run.sh reserve", self.text)
         self.assertNotIn("execute_run.sh settle", self.text)
         self.assertEqual(jobs["live"]["needs"], ["record-begin", "journal-reserve"])
@@ -345,6 +358,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
         # write is never granted at the workflow level or to any other job
         self.assertEqual([n for n, j in jobs.items() if (j.get("permissions") or {}).get("contents") == "write"], ["journal-reserve", "journal-settle"])
 
+
+
+def writers_of(jobs, name):
+    return next(st["run"] for st in jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))
 
 
 class PdfjsComposition(unittest.TestCase):
