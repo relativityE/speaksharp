@@ -17,7 +17,7 @@ CAPS = {"requests": 800, "identityReads": 20, "starts": 6, "takes": 4, "coaching
 SHA_REF = "sha256:" + "a" * 64
 BOUND_SOURCE = "sha256:" + "c" * 64
 BOUND_CONTROL = "sha256:" + "d" * 64
-BOUND_RESULT = "sha256:" + "e" * 64
+BOUND_REVIEW = "sha256:" + "e" * 64
 
 
 def usage(**over):
@@ -26,12 +26,17 @@ def usage(**over):
     return value
 
 
-def bounded(ref="gha-run:41071743003", bound=None, **evidence_over):
-    value = usage() if bound is None else bound
-    evidence = {"schema": R.BOUND_SCHEMA, "itemRef": ref, "method": "enforced-maximum", "sourceRef": BOUND_SOURCE,
-                "controlRef": BOUND_CONTROL, "resultRef": BOUND_RESULT, "upperBound": copy.deepcopy(value)}
-    evidence.update(evidence_over)
-    return {"kind": "diagnostic", "ref": ref, "disposition": "BOUNDED", "usage": value, "boundEvidence": evidence}
+def bounded_pair(ref="gha-run:41071743003", bound=None, observed=None, result_over=None, item_over=None):
+    """One charged item and the exact content-free result artifact that independently bounds it."""
+    value = usage() if bound is None else copy.deepcopy(bound)
+    result = {"schema": R.BOUND_SCHEMA, "itemRef": ref, "method": "enforced-maximum", "sourceRef": BOUND_SOURCE,
+              "controlRef": BOUND_CONTROL, "reviewRef": BOUND_REVIEW,
+              "observedMinimum": copy.deepcopy(value if observed is None else observed), "upperBound": copy.deepcopy(value)}
+    result.update(result_over or {})
+    item = {"kind": "diagnostic", "ref": ref, "disposition": "BOUNDED", "usage": value,
+            "boundResultRef": R._bound_result_ref(result)}
+    item.update(item_over or {})
+    return item, result
 
 
 def bootstrap(**over):
@@ -45,8 +50,16 @@ def bootstrap(**over):
     return json.dumps(doc, sort_keys=True).encode()
 
 
-def bounded_bootstrap(items=None, **over):
-    return bootstrap(sourceRecords=[SHA_REF, BOUND_SOURCE, BOUND_CONTROL, BOUND_RESULT], unresolved=items or [bounded()], **over)
+def bounded_bootstrap(items=None, results=None, source_records=None, **over):
+    if items is None and results is None:
+        item, result = bounded_pair()
+        items, results = [item], [result]
+    items, results = items or [], results or []
+    records = [SHA_REF]
+    for result in results:
+        records.extend((result.get("sourceRef"), result.get("controlRef"), result.get("reviewRef"), R._bound_result_ref(result)))
+    records = list(dict.fromkeys(ref for ref in records if isinstance(ref, str))) if source_records is None else source_records
+    return bootstrap(sourceRecords=records, unresolved=items, boundResults=results, **over)
 
 
 def scope(**over):
@@ -100,56 +113,100 @@ class Journal(unittest.TestCase):
 
 class Rollup(Journal):
     def test_evidence_backed_upper_bound_is_distinct_and_fully_charged(self):
-        raw = bounded_bootstrap()
+        item, result = bounded_pair()
+        raw = bounded_bootstrap([item], [result])
         out = R.receive(raw, scope(carryover="historical"), self.chain(), accepted_sha256=hashlib.sha256(raw).hexdigest(),
                         accepted_root=self.root)
         self.assertEqual((out["historical"]["requests"], out["requests"]["conservativeUsed"]), (7996, 7996))
         self.assertEqual(out["historicalResolution"], [{"kind": "diagnostic", "ref": "gha-run:41071743003",
                                                         "disposition": "BOUNDED", "usage": usage(),
-                                                        "boundEvidence": {"method": "enforced-maximum", "sourceRef": BOUND_SOURCE,
-                                                                          "controlRef": BOUND_CONTROL, "resultRef": BOUND_RESULT}}])
+                                                        "boundEvidence": {"resultRef": R._bound_result_ref(result),
+                                                                          "method": "enforced-maximum", "sourceRef": BOUND_SOURCE,
+                                                                          "controlRef": BOUND_CONTROL, "reviewRef": BOUND_REVIEW}}])
 
     def test_measured_and_bounded_items_keep_provenance_and_both_count(self):
         measured = {"kind": "diagnostic", "ref": "sha256:" + "b" * 64, "disposition": "MEASURED", "usage": usage(requests=5)}
-        raw = bounded_bootstrap([measured, bounded(bound=usage(requests=7))])
+        item, result = bounded_pair(bound=usage(requests=7))
+        raw = bounded_bootstrap([measured, item], [result])
         out = R.receive(raw, scope(carryover="historical"), self.chain(), accepted_sha256=hashlib.sha256(raw).hexdigest(),
                         accepted_root=self.root)
         self.assertEqual(out["historical"]["requests"], 7968)
         self.assertEqual([item["disposition"] for item in out["historicalResolution"]], ["MEASURED", "BOUNDED"])
 
-    def test_a_bound_requires_independent_digest_evidence_and_an_enforcement_or_exhaustive_basis(self):
-        missing = bounded()
-        missing.pop("boundEvidence")
-        refused(self, "rollup-unresolved", R.parse_bootstrap, bounded_bootstrap([missing]))
-        bad = (
-            bounded(method="nominal-ceiling"),
-            bounded(sourceRef="gha-run:41071743003"),
-            bounded(controlRef=BOUND_SOURCE),
-            bounded(resultRef="sha256:" + "f" * 64),
-            bounded(itemRef="gha-run:41115876890"),
-        )
-        for item in bad:
-            with self.subTest(evidence=item["boundEvidence"]):
-                refused(self, "rollup-bound-evidence", R.parse_bootstrap, bounded_bootstrap([item]))
+    def test_a_bound_requires_the_actual_reviewed_result_artifact_and_exact_bindings(self):
+        item, result = bounded_pair()
+        refused(self, "rollup-bound-evidence-missing", R.parse_bootstrap, bounded_bootstrap([item], []))
+
+        for change, code in (
+            ({"method": "nominal-ceiling"}, "rollup-bound-result"),
+            ({"sourceRef": "gha-run:41071743003"}, "rollup-source-records"),
+            ({"controlRef": BOUND_SOURCE}, "rollup-bound-result"),
+            ({"reviewRef": BOUND_CONTROL}, "rollup-bound-result"),
+        ):
+            bad_item, bad_result = bounded_pair(result_over=change)
+            with self.subTest(result=change):
+                refused(self, code, R.parse_bootstrap, bounded_bootstrap([bad_item], [bad_result]))
+
+        unrelated_item, unrelated_result = bounded_pair(result_over={"itemRef": "gha-run:41115876890"})
+        refused(self, "rollup-bound-evidence-unrelated", R.parse_bootstrap,
+                bounded_bootstrap([unrelated_item], [unrelated_result]))
+
+        result_ref = R._bound_result_ref(result)
+        unanchored = [SHA_REF, BOUND_SOURCE, BOUND_CONTROL, BOUND_REVIEW]
+        self.assertNotIn(result_ref, unanchored)
+        refused(self, "rollup-bound-result-unanchored", R.parse_bootstrap,
+                bounded_bootstrap([item], [result], source_records=unanchored))
+
+        extra_item, extra_result = bounded_pair(ref="gha-run:41115876890")
+        refused(self, "rollup-bound-evidence-unrelated", R.parse_bootstrap,
+                bounded_bootstrap([item], [result, extra_result]))
 
     def test_a_bound_cannot_understate_or_substitute_the_usage_it_charges(self):
-        item = bounded(upperBound=usage(requests=39))
-        refused(self, "rollup-bound-understated", R.parse_bootstrap, bounded_bootstrap([item]))
+        item, result = bounded_pair(bound=usage(requests=40))
+        item["usage"] = usage(requests=39)
+        refused(self, "rollup-bound-understated", R.parse_bootstrap, bounded_bootstrap([item], [result]))
+
+        joint_item, joint_result = bounded_pair(bound=usage(requests=39), observed=usage(requests=40))
+        refused(self, "rollup-bound-understated", R.parse_bootstrap,
+                bounded_bootstrap([joint_item], [joint_result]))
+
+        for dimension, observed_value in (("coachingRequests", 10), ("runnerMinutes", 12)):
+            upper = usage(**{dimension: 0})
+            observed = usage(**{dimension: observed_value})
+            joint_item, joint_result = bounded_pair(bound=upper, observed=observed)
+            with self.subTest(dimension=dimension):
+                refused(self, "rollup-bound-understated", R.parse_bootstrap,
+                        bounded_bootstrap([joint_item], [joint_result]))
+
+        unknown_item, unknown_result = bounded_pair(
+            bound=usage(coachingRequests=None, runnerMinutes=None),
+            observed=usage(coachingRequests=None, runnerMinutes=None),
+        )
+        self.assertEqual(
+            R.parse_bootstrap(bounded_bootstrap([unknown_item], [unknown_result]))["unresolved"][0]["usage"],
+            usage(coachingRequests=None, runnerMinutes=None),
+            "unknown dimensions remain null rather than being coerced to zero",
+        )
+
         # Changing accepted bytes remains a bootstrap substitution even when the changed document is internally well formed.
         accepted = bounded_bootstrap()
-        substituted = bounded_bootstrap([bounded(bound=usage(requests=41), upperBound=usage(requests=41))])
+        substituted_item, substituted_result = bounded_pair(bound=usage(requests=41))
+        substituted = bounded_bootstrap([substituted_item], [substituted_result])
         refused(self, "rollup-bootstrap-not-accepted", R.receive, substituted, scope(), self.chain(),
                 accepted_sha256=hashlib.sha256(accepted).hexdigest(), accepted_root=self.root)
 
     def test_bound_results_are_unique_and_unknown_usage_is_never_zeroed(self):
-        second = bounded(ref="gha-run:41115876890")
-        refused(self, "rollup-bound-evidence-duplicate", R.parse_bootstrap, bounded_bootstrap([bounded(), second]))
+        item, result = bounded_pair()
+        refused(self, "rollup-bound-evidence-duplicate", R.parse_bootstrap,
+                bounded_bootstrap([item], [result, copy.deepcopy(result)]))
+        refused(self, "rollup-bound-evidence-duplicate", R.parse_bootstrap,
+                bounded_bootstrap([item, copy.deepcopy(item)], [result]))
         unresolved = bootstrap(unresolved=[{"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "UNRESOLVED", "usage": None}])
         refused(self, "rollup-unresolved-usage", R.receive, unresolved, scope(), self.chain(),
                 accepted_sha256=hashlib.sha256(unresolved).hexdigest(), accepted_root=self.root)
-        zeroed = bounded(bound=usage(requests=0, identityReads=0, starts=0, takes=0),
-                         upperBound=usage(requests=0, identityReads=0, starts=0, takes=0))
-        refused(self, "rollup-bound-zero", R.parse_bootstrap, bounded_bootstrap([zeroed]))
+        zeroed_item, zeroed_result = bounded_pair(bound=usage(requests=0, identityReads=0, starts=0, takes=0))
+        refused(self, "rollup-bound-zero", R.parse_bootstrap,
+                bounded_bootstrap([zeroed_item], [zeroed_result]))
 
     def test_historical_usage_stays_distinct_and_is_counted_only_under_an_approved_carryover(self):
         none = self.receive()

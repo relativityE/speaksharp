@@ -78,12 +78,26 @@ def _usage(u, code):
     return u
 
 
+def _canon(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("ascii")
+
+
+def _bound_result_ref(result):
+    """Digest of the exact, content-free result bytes embedded in the accepted bootstrap."""
+    return "sha256:" + hashlib.sha256(_canon(result)).hexdigest()
+
+
+def _bound_result_map(doc):
+    return {_bound_result_ref(result): result for result in doc.get("boundResults", [])}
+
+
 def parse_bootstrap(raw):
     try:
         doc = json.loads(raw)
     except (TypeError, ValueError):
         raise Refused("rollup-bootstrap-unreadable")
-    _need(isinstance(doc, dict) and set(doc) == {"schema", "asOfUtc", "sourceRecords", "usage", "authority", "unresolved"}
+    base_keys = {"schema", "asOfUtc", "sourceRecords", "usage", "authority", "unresolved"}
+    _need(isinstance(doc, dict) and set(doc) in (base_keys, base_keys | {"boundResults"})
           and doc["schema"] == SCHEMA, "rollup-bootstrap-shape")
     _utc(doc["asOfUtc"])
     _need(isinstance(doc["sourceRecords"], list) and doc["sourceRecords"] and all(isinstance(r, str) and DIGEST_REF.fullmatch(r)
@@ -93,11 +107,28 @@ def parse_bootstrap(raw):
     _need(isinstance(auth, dict) and set(auth) == {"approvalRef", "expired"} and isinstance(auth["approvalRef"], str) and auth["approvalRef"]
           and type(auth["expired"]) is bool, "rollup-authority")
     _need(isinstance(doc["unresolved"], list), "rollup-unresolved")
-    bounded_results = set()
+    results = {}
     source_records = set(doc["sourceRecords"])
+    for result in doc.get("boundResults", []):
+        _need(isinstance(result, dict) and set(result) == {
+            "schema", "itemRef", "method", "sourceRef", "controlRef", "reviewRef", "observedMinimum", "upperBound"
+        } and result["schema"] == BOUND_SCHEMA and result["method"] in BOUND_METHODS, "rollup-bound-result")
+        refs = (result["sourceRef"], result["controlRef"], result["reviewRef"])
+        _need(all(isinstance(ref, str) and DIGEST_REF.fullmatch(ref) and ref in source_records for ref in refs)
+              and len(set(refs)) == len(refs), "rollup-bound-result")
+        observed = _usage(result["observedMinimum"], "rollup-bound-result")
+        upper = _usage(result["upperBound"], "rollup-bound-result")
+        _need(all(observed[key] is None or (upper[key] is not None and upper[key] >= observed[key])
+                  for key in USAGE_KEYS), "rollup-bound-understated")
+        result_ref = _bound_result_ref(result)
+        _need(result_ref in source_records, "rollup-bound-result-unanchored")
+        _need(result_ref not in refs, "rollup-bound-result")
+        _need(result_ref not in results, "rollup-bound-evidence-duplicate")
+        results[result_ref] = result
+    used_results = set()
     for item in doc["unresolved"]:
         disposition = item.get("disposition") if isinstance(item, dict) else None
-        keys = {"kind", "ref", "disposition", "usage", "boundEvidence"} if disposition == "BOUNDED" else {
+        keys = {"kind", "ref", "disposition", "usage", "boundResultRef"} if disposition == "BOUNDED" else {
             "kind", "ref", "disposition", "usage"
         }
         _need(isinstance(item, dict) and set(item) == keys and item["kind"] in UNRESOLVED_KINDS
@@ -108,19 +139,16 @@ def parse_bootstrap(raw):
         if item["usage"] is not None:
             _usage(item["usage"], "rollup-unresolved")
         if disposition == "BOUNDED":
-            evidence = item["boundEvidence"]
-            _need(isinstance(evidence, dict) and set(evidence) == {
-                "schema", "itemRef", "method", "sourceRef", "controlRef", "resultRef", "upperBound"
-            } and evidence["schema"] == BOUND_SCHEMA and evidence["itemRef"] == item["ref"]
-                  and evidence["method"] in BOUND_METHODS, "rollup-bound-evidence")
-            refs = (evidence["sourceRef"], evidence["controlRef"], evidence["resultRef"])
-            _need(all(isinstance(ref, str) and DIGEST_REF.fullmatch(ref) and ref in source_records for ref in refs)
-                  and len(set(refs)) == len(refs), "rollup-bound-evidence")
-            _usage(evidence["upperBound"], "rollup-bound-evidence")
+            result_ref = item["boundResultRef"]
+            _need(isinstance(result_ref, str) and DIGEST_REF.fullmatch(result_ref) and result_ref in results,
+                  "rollup-bound-evidence-missing")
+            evidence = results[result_ref]
+            _need(evidence["itemRef"] == item["ref"], "rollup-bound-evidence-unrelated")
             _need(any(item["usage"][key] > 0 for key in G5_KEYS), "rollup-bound-zero")
             _need(evidence["upperBound"] == item["usage"], "rollup-bound-understated")
-            _need(evidence["resultRef"] not in bounded_results, "rollup-bound-evidence-duplicate")
-            bounded_results.add(evidence["resultRef"])
+            _need(result_ref not in used_results, "rollup-bound-evidence-duplicate")
+            used_results.add(result_ref)
+    _need(used_results == set(results), "rollup-bound-evidence-unrelated")
     return doc
 
 
@@ -180,8 +208,11 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
     if scope["carryover"] == "historical":
         _add(counted, historical)
     c = scope["ceilings"]
+    bound_results = _bound_result_map(doc)
     resolution = [{"kind": item["kind"], "ref": item["ref"], "disposition": item["disposition"], "usage": item["usage"],
-                   **({"boundEvidence": {k: item["boundEvidence"][k] for k in ("method", "sourceRef", "controlRef", "resultRef")}}
+                   **({"boundEvidence": {"resultRef": item["boundResultRef"], **{
+                       k: bound_results[item["boundResultRef"]][k]
+                       for k in ("method", "sourceRef", "controlRef", "reviewRef")}}}
                       if item["disposition"] == "BOUNDED" else {})} for item in doc["unresolved"]]
     return {"source": "accepted-rollup", "bootstrapSha256": pin, "root": root, "headSha": chain[-1][0], "scopeApprovalRef": scope["approvalRef"],
             "carryover": scope["carryover"], "historical": historical, "period": period, "outstandingReservations": len(open_reservations),
