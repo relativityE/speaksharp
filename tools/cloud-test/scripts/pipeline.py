@@ -142,10 +142,32 @@ def main():
             g += ["--offline-proof", x.offline_proof]
         if x.stimulus_receipt:
             g += ["--stimulus-receipt", x.stimulus_receipt]
+        nightly = req.get("priority") == "nightly-regression"
+        if nightly:
+            # Sam 1793589877.215059: a scheduled run on the accepted-input route still evaluates its recurring gates (G11 from the journal
+            # snapshot the runner passes as --reservations, the history index and the standing approval) and G7 from the carried history.
+            g += ["--approval", approval, "--reservations", reservations] + now_args
+            if os.path.isfile(history_index):  # the retained file history is absent on a hosted accepted run; the journal snapshot suffices
+                g += ["--history-index", history_index]
+            if x.prior_state:
+                g += ["--prior-state", x.prior_state]
         rg = run("check_gates.py", *g)
         if rg.returncode:
             sys.exit("accepted inputs failed ordinary gate evaluation")
         gate = load(O("gate-status.json"))
+        if nightly and x.prior_state and (load(x.prior_state) or {}).get("history"):
+            # the carried-forward history's comparison and its report section, through the same consumers the ordinary route uses
+            rh = run("select_baselines.py", "--history-state", x.prior_state, "--request", x.request, "--out", O("nightly-baselines.json"))
+            if rh.returncode:
+                sys.exit("the carried-forward history could not provide baselines")
+            import derive_summary
+            sys.path.insert(0, os.path.join(ROOT, "report"))
+            from workflow_report import render_nightly_history
+            nh = derive_summary.nightly_history(load(O("nightly-baselines.json")))
+            dump({"schema": "speaksharp.cloud-test.accepted-nightly-history.v1", "nightlyHistory": nh, "gateDecision": gate["decision"]},
+                 O("nightly-history.json"))
+            with open(O("nightly-history.html"), "w", encoding="utf-8") as f:
+                f.write(render_nightly_history({"nightlyHistory": nh}))
         if x.enforce_go and gate["decision"] != "GO":
             print("STOP EARLY: blocking gates not READY (%s). Nothing was spent." % ",".join(gate["blockingOpen"]))
             sys.exit(4)

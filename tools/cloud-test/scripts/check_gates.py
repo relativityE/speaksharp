@@ -298,8 +298,13 @@ def main():
     a.add_argument("--stage", choices=["preflight", "final"], default="final")
     x = a.parse_args()
     req = load(x.request)
-    if req.get("priority") == "nightly-regression" and not (x.history_index and x.reservations and x.approval):
-        a.error("recurring gates require explicit --history-index, --reservations and --approval inputs")
+    if req.get("priority") == "nightly-regression":
+        # a verified journal snapshot carries G11's usage itself (journal_usage); only a legacy reservation file also needs the history index
+        from recurring_usage import snapshot_chain
+        snapshot = bool(x.reservations) and os.path.isfile(x.reservations) and snapshot_chain(load(x.reservations)) is not None
+        if not (x.reservations and x.approval and (x.history_index or snapshot)):
+            a.error("recurring gates require explicit --reservations and --approval inputs, and --history-index unless the reservations are "
+                    "a verified journal snapshot")
     rec = load(x.stimulus_receipt) if x.stimulus_receipt and os.path.exists(x.stimulus_receipt) else None
     cfg = load(x.config)
     verified = False

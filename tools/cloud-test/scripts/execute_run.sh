@@ -218,6 +218,13 @@ case "$STAGE" in
   build-plan-with-receipt) build "$OUT/plan" with-receipt ;;
   gate-and-validate)
     require_runtime_inputs
+    RES_IN="${CT_RESERVATIONS:-}"
+    if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
+      # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN 1793572741.370569), not a file ledger;
+      # both gate routes below consume this one snapshot (Sam 1793589877.215059)
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
+      RES_IN="$OUT/journal-snapshot.json"
+    fi
     if [ -n "${CT_RETAINED_GATE_MANIFEST:-}" ]; then
       accepted="$OUT/retained-gate-inputs"
       run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
@@ -226,18 +233,13 @@ case "$STAGE" in
       run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --request "$REQ" --config "$CFG" \
         --workflow "$ROOT/workflow.json" --accepted-input-dir "$accepted" --receiver-receipt "$accepted/receiver-receipt.json" \
         --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" ${CT_PRIOR_STATE:+--prior-state "$CT_PRIOR_STATE"} \
+        ${CT_HISTORY_INDEX:+--history-index "$CT_HISTORY_INDEX"} ${CT_APPROVAL:+--approval "$CT_APPROVAL"} ${RES_IN:+--reservations "$RES_IN"} \
         --offline-checks "$CT_OFFLINE_CHECKS" --offline-proof "$CT_OFFLINE_PROOF" \
         --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" --stage final --out-dir "$OUT/final-gates" \
         --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free
       [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$OUT/final-gates/gate-status.json" decision)" = GO ] || blocked "retained aggregate gates are not GO"
     else
-      RES_IN="$CT_RESERVATIONS"
-      if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
-        # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN 1793572741.370569), not a file ledger
-        run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
-        RES_IN="$OUT/journal-snapshot.json"
-      fi
-      run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --config "$CFG" --ledger "$CT_GAP_LEDGER" --history-index "$CT_HISTORY_INDEX" --counters "$CT_COUNTERS" --receipts-root "$CT_RECEIPTS_ROOT" --reservations "$RES_IN" \
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --config "$CFG" --ledger "$CT_GAP_LEDGER" --history-index "$CT_HISTORY_INDEX" --counters "$CT_COUNTERS" --receipts-root "$CT_RECEIPTS_ROOT" --reservations "${RES_IN:-$CT_RESERVATIONS}" \
         ${CT_APPROVAL:+--approval "$CT_APPROVAL"} ${CT_PRIOR_STATE:+--prior-state "$CT_PRIOR_STATE"} --request "$REQ" --out-dir "$OUT/final-gates" --stage final --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" \
         ${CT_OFFLINE_CHECKS:+--offline-checks "$CT_OFFLINE_CHECKS"} ${CT_OFFLINE_PROOF:+--offline-proof "$CT_OFFLINE_PROOF"} \
         --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free
