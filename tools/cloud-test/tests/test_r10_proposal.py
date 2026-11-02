@@ -48,7 +48,9 @@ class R10Proposal(unittest.TestCase):
         self.assertEqual(e["window"], {"expectedMinutes": 111, "worstCaseMinutes": 304, "proposedMinutes": 330})
         self.assertEqual((e["paidActionsAuthorizedUsd"], r["proposedLimits"]["paidActionsUsd"]), (0, 0))
         self.assertEqual({k: r["proposedLimits"][k] for k in ("cumulativeCeilingRequests", "identityCap", "startsCap", "takesCap", "runCapRequests")},
-                         {"cumulativeCeilingRequests": None, "identityCap": None, "startsCap": None, "takesCap": None, "runCapRequests": 4310})
+                         {"cumulativeCeilingRequests": 4342, "identityCap": 32, "startsCap": 42, "takesCap": 31, "runCapRequests": 4310})
+        self.assertIn("0 period usage + 4310 run cap + 0 protected reserve + 32 identity reads = 4342",
+                      r["proposedLimits"]["ceilingIncreaseJustification"])
         self.assertEqual(sum(r["proposedLimits"]["startPressCaps"].values()), e["starts"])
 
     def test_authenticated_evidence_scope_is_the_current_five_case_role_minimum(self):

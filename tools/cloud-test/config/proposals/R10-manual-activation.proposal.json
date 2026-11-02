@@ -17,13 +17,26 @@
   "periodScope": {
     "periodStartUtc": "2026-11-02T20:00:00Z",
     "periodEndUtc": "2026-11-03T12:00:00Z",
-    "carryover": "historical",
-    "knownMinimumCeilings": null,
-    "ceilings": null,
+    "carryover": "none",
+    "knownMinimumCeilings": {
+      "requests": 4342,
+      "protectedReserveRequests": 0,
+      "identityReads": 32,
+      "starts": 42,
+      "takes": 31
+    },
+    "ceilings": {
+      "requests": 4342,
+      "protectedReserveRequests": 0,
+      "identityReads": 32,
+      "starts": 42,
+      "takes": 31
+    },
     "approvalRef": null,
     "sha256": null
   },
   "rootRefCreationSelected": false,
   "activationPinsSelected": false,
-  "knownLaterRunsResolved": false
+  "knownLaterRunsResolved": false,
+  "historicalDisposition": "The seven unresolved pre-period occurrences remain UNRESOLVED with null usage. Explicit carryover none excludes them from this fresh period without relabelling them zero or resolving them."
 }

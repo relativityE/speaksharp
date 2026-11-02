@@ -7,7 +7,7 @@
   "workflowVersion": "1.5.0",
   "configVersion": "1.4.0",
   "createdUtc": "2026-11-01T18:29:00Z",
-  "purpose": "PROPOSAL ONLY, INADMISSIBLE: the first manual GitHub-hosted run of all 15 journeys and every required assertion row on the integrated release that carries the consolidated RCA fixes. The current retained-accounting inputs now derive the estimates and proposed caps below; no limit, time window, tested release, harness pin or execution is approved until its owner binds it.",
+  "purpose": "PROPOSAL ONLY, INADMISSIBLE: the first manual GitHub-hosted run of all 15 journeys and every required assertion row on the integrated release that carries the consolidated RCA fixes. The exact one-run limits below are for a separately approved fresh accounting period with no historical carryover; the unresolved pre-period occurrences remain visibly unresolved and are not converted to zero. No limit, time window, tested release, harness pin or execution is approved until its owner binds it.",
   "priority": "full-coverage",
   "targetedGaps": [
     "GAP-01",
@@ -216,14 +216,14 @@
     "githubRunnerMinutesMax": 359
   },
   "proposedLimits": {
-    "cumulativeCeilingRequests": null,
-    "ceilingIncreaseJustification": "Pending resolution or bounded accounting of every post-R5 diagnostic and evaluator occurrence; no cumulative ceiling is proposed from the incomplete historical total.",
-    "identityCap": null,
-    "identityIncreaseJustification": "Pending resolution or bounded accounting of every post-R5 diagnostic and evaluator occurrence.",
-    "startsCap": null,
-    "startsIncreaseJustification": "Pending resolution or bounded accounting of every post-R5 diagnostic and evaluator occurrence.",
-    "takesCap": null,
-    "takesIncreaseJustification": "Pending resolution or bounded accounting of every post-R5 diagnostic and evaluator occurrence.",
+    "cumulativeCeilingRequests": 4342,
+    "ceilingIncreaseJustification": "Fresh period, carryover none: 0 period usage + 4310 run cap + 0 protected reserve + 32 identity reads = 4342. Historical unknowns remain unresolved outside this period.",
+    "identityCap": 32,
+    "identityIncreaseJustification": "Fresh period exact one-run identity allowance; historical unknowns remain unresolved outside this period.",
+    "startsCap": 42,
+    "startsIncreaseJustification": "Fresh period exact one-run Start allowance derived from the per-case caps.",
+    "takesCap": 31,
+    "takesIncreaseJustification": "Fresh period exact one-run take allowance derived from the retained full-coverage budget.",
     "runCapRequests": 4310,
     "paidActionsUsd": 0,
     "guardCaps": {
@@ -292,11 +292,11 @@
   "ownerInputs": {
     "r10Binding": {
       "status": "open",
-      "note": "Derived but not approved: per-case plannedRequests, capture-device needs, estimates and proposed limits come from the retained R4C/R5 accounting, current reconciliation/catalog and full_coverage_budget.py. Still unresolved until bound by their owners: selectionApprovalRef, harness.ownerApprovalRef, the exact 330-minute UTC window, approvedLimits, release.testedSha and backend evidence (the guarded integrated release), and harness code/packet manifests and offline proof for that same served head. Proposal only."
+      "note": "Derived but not approved: per-case plannedRequests, capture-device needs, estimates and the exact fresh-period one-run limits come from the retained full-coverage budget. Historical carryover is explicitly none; seven pre-period occurrences remain unresolved and visible. Still unbound: selectionApprovalRef, harness.ownerApprovalRef, the exact 330-minute UTC window, approvedLimits, release.testedSha and backend evidence (the guarded integrated release), and harness code/packet manifests and offline proof for that same served head. Proposal only."
     },
     "retainedInputs": {
       "status": "open",
-      "note": "gate-and-validate requires the retained runtime inputs (history index, counters, receipts root, reservations), which no GitHub caller supplies and which stay with their custodian. Content-free aggregate inputs were selected as the direction (Sam 1793557480.140279); the aggregate-mode interface is a PROPOSAL only (1793557643.810589). Unresolved: the aggregate files' bytes and pins; how G7 and the comparison step are satisfied, since existing comparison gates are kept and GO/baseline semantics are unchanged; and per-run accounting, since a bootstrap is not a reusable reservation ledger (1793557676.617329)."
+      "note": "The content-free aggregate bootstrap, scope and state journal supply the runtime accounting inputs. Their exact bytes and activation pins remain unselected. The fresh period has no historical carryover, but all historical unknowns remain visible in the bootstrap and rollup. G7/comparison behavior and GO/baseline semantics remain unchanged."
     }
   },
   "deviations": [],

@@ -64,8 +64,10 @@ class R10ActivationProposal(unittest.TestCase):
             "events": 0,
         })
         scope = self.proposal["periodScope"]
-        self.assertIsNone(scope["knownMinimumCeilings"])
-        self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]), (None, None, None))
+        expected = {"requests": 4342, "protectedReserveRequests": 0, "identityReads": 32, "starts": 42, "takes": 31}
+        self.assertEqual(scope["carryover"], "none")
+        self.assertEqual(scope["knownMinimumCeilings"], expected)
+        self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]), (expected, None, None))
         self.assertFalse(self.proposal["rootRefCreationSelected"])
         self.assertFalse(self.proposal["activationPinsSelected"])
         self.assertFalse(self.proposal["knownLaterRunsResolved"])
@@ -75,8 +77,11 @@ class R10ActivationProposal(unittest.TestCase):
         measured = doc["unresolved"][0]["usage"]
         known_used = {key: doc["usage"][key] + measured[key] for key in ("requests", "identityReads", "starts", "takes")}
         self.assertEqual(known_used, {"requests": 7951, "identityReads": 120, "starts": 64, "takes": 38})
-        self.assertIsNone(self.proposal["periodScope"]["knownMinimumCeilings"])
-        self.assertIsNone(self.proposal["periodScope"]["ceilings"])
+        expected = {"requests": 4342, "protectedReserveRequests": 0, "identityReads": 32, "starts": 42, "takes": 31}
+        self.assertEqual(self.proposal["periodScope"]["knownMinimumCeilings"], expected)
+        self.assertEqual(self.proposal["periodScope"]["ceilings"], expected)
+        self.assertFalse(self.proposal["knownLaterRunsResolved"])
+        self.assertIn("remain UNRESOLVED", self.proposal["historicalDisposition"])
 
 
 if __name__ == "__main__":
