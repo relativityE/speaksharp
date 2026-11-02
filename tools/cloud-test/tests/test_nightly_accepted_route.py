@@ -274,6 +274,50 @@ class AcceptedSummaryAndReport(unittest.TestCase):
         self.assertIn("UNOBSERVABLE", html)
         self.assertIn("Gap-closure ledger", html)
         self.assertIn("Nightly carried-forward history", html)
+        # Sam 1793618201.181979: the receipt-free provenance reaches the rendering; no caption claims sealed-receipt evidence
+        self.assertEqual(json.loads((out / "report" / "report.json").read_text())["evidenceMode"]["mode"], "receipt-free")
+        for claim in ("derived from sealed receipts", "sealed receipts: R4C", "evidence from the sealed receipts"):
+            self.assertNotIn(claim, html)
+        for honest in ("raw receipts are not carried", "accepted comparison (receipts unobservable): R4C, R5", "evidence from the verified accepted comparison"):
+            self.assertIn(honest, html)
+
+    def resummarize(self, out, decision="GO", isolation=None, within_cap=None):
+        """The REAL summary and report re-derived from the route's own outputs, with only the gate decision, the isolation result or the
+        spend cap verdict changed: the inputs a run with every gate GO would hand them."""
+        d = Path(tempfile.mkdtemp(dir=self.root))
+        gates = json.loads((out / "gate-status.json").read_text())
+        gates.update(decision=decision, blockingOpen=[] if decision == "GO" else gates["blockingOpen"])
+        if decision == "GO":
+            for g in gates["gates"]:
+                g["status"] = "READY"
+        (d / "gates.json").write_text(json.dumps(gates))
+        iso = json.loads((out / "isolation-result.json").read_text())
+        if isolation:
+            iso["status"] = isolation
+        (d / "isolation.json").write_text(json.dumps(iso))
+        spend = json.loads((out / "spend.json").read_text())
+        if within_cap is not None:
+            spend["withinCap"] = within_cap
+        (d / "spend.json").write_text(json.dumps(spend))
+        acc = out / "accepted-snapshot"
+        sm = [sys.executable, "-I", os.path.join(ROOT, "scripts", "derive_summary.py"), "--comparison", str(acc / "comparison-prior.json"),
+              "--ledger-derived", str(out / "ledger-derived.json"), "--release-verification", str(acc / "release-verification.json"),
+              "--gates", str(d / "gates.json"), "--spend", str(d / "spend.json"), "--workflow", os.path.join(ROOT, "workflow.json"),
+              "--request", str(self.root / "request.json"), "--coverage", str(out / "coverage.json"), "--isolation", str(d / "isolation.json"),
+              "--nightly-baselines", str(out / "nightly-baselines.json"), "--out", str(d / "summary.json")]
+        r = subprocess.run(sm, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return json.loads((d / "summary.json").read_text())["fields"]
+
+    def test_a_known_safety_failure_holds_even_with_every_gate_go_and_latest_pending(self):
+        _, _, _, out = self.outputs(("P", "F", "P"))  # no carried FAIL, so the gate decision and safety decide the headline
+        clean = self.resummarize(out)
+        self.assertEqual((clean["status"], clean["recommendation"]), ("LIMITED", "PROCEED"))  # the control: GO alone does proceed
+        for name, kw in (("isolation failed", {"isolation": "failed"}), ("usage over a cap", {"within_cap": False})):
+            held = self.resummarize(out, **kw)
+            self.assertEqual((held["status"], held["recommendation"]), ("BLOCKED", "HOLD"), name)
+            self.assertTrue(held["readinessBasis"]["safety"]["blocks"], name)
+            self.assertIn("known failure", held["readiness"], name)  # the nightly headline restates impact from history; readiness keeps it
 
     def test_a_later_pass_changes_the_real_accepted_summary_and_report(self):
         failing, html_f, _, _ = self.outputs(("P", "F"))

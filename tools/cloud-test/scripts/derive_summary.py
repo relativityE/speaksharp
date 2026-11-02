@@ -150,9 +150,13 @@ def derive(cmp_prior, cmp_latest, ld, rv, gates, spend, wf, req, limit=None, cov
     if latest:
         readiness += "; safety: " + safety["text"]
     if pre:
-        status = "BLOCKED" if gates["decision"] != "GO" else "LIMITED"
+        held = gates["decision"] != "GO" or safety["blocks"]  # a known safety failure holds even when every gate is GO
+        status = "BLOCKED" if held else "LIMITED"
         impact = "No run result exists since %s; customers have the release %s tested, and no change since then is customer-facing." % (labels[1], labels[1]) if not (sl or []) else "No run result exists yet for the %d change(s) since the last run." % len(sl)
-        rec = "HOLD" if gates["decision"] != "GO" else "PROCEED"
+        rec = "HOLD" if held else "PROCEED"
+        if safety["blocks"]:
+            impact = "A safety check failed: %s." % safety["text"]
+            readiness += "; safety: " + safety["text"]
     else:
         status = "BLOCKED" if (failed or regressed or gates_open or safety["blocks"]) else ("READY" if ready else "LIMITED")
         impact = ("%d journey(s) FAIL or regressed in %s: %s." % (len(failed) + len(regressed), labels[1], ", ".join(cap(regressed + failed, 4))) if (failed or regressed)
@@ -185,7 +189,14 @@ def safety_state(latest, spend, alerts, isolation, req):
     """The safety verdict of the latest run. blocks: a failed safety check (isolation failed, usage over a cap, a critical alert, a blocking high alert, stale evidence).
     blocksReady: anything that stops READY, including isolation that is merely not proven and evidence whose freshness is unknown for a nightly run."""
     if not latest:
-        return {"isolation": None, "overCap": None, "alertsBlocking": [], "evidenceStale": None, "evidenceAgeHours": None, "blocks": False, "blocksReady": False, "text": "no latest run"}
+        # Sam 1793618201.181979: a KNOWN failure stays authoritative while latest is PENDING (failed isolation, usage over a cap); freshness
+        # and alerts belong to a latest run and stay unassessed. Without a known failure the result is exactly as before.
+        iso_failed = (isolation or {}).get("status") == "failed"
+        over = (spend or {}).get("withinCap") is False
+        known = (["isolation FAILED"] if iso_failed else []) + (["usage OVER A CAP"] if over else [])
+        return {"isolation": "failed" if iso_failed else None, "overCap": True if over else None, "alertsBlocking": [], "evidenceStale": None,
+                "evidenceAgeHours": None, "blocks": bool(known), "blocksReady": bool(known),
+                "text": "no latest run" + ("; known failure: " + ", ".join(known) if known else "")}
     iso = (isolation or {}).get("status") or ("proven" if (isolation or {}).get("proven") else ("not-proven" if isolation is not None else "not-proven"))
     over = (spend or {}).get("withinCap") is False
     al = (alerts or {}).get("alerts") or []
