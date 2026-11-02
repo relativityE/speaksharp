@@ -165,7 +165,11 @@ class ReserveBeforeRead(Journal):
         return W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote), event, self.root, self.remote)
 
     def counted(self):
-        sc = rollup_scope(periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z")
+        # This is the fresh synthetic period, so its boundary must follow the
+        # retained bootstrap cutoff (2026-11-01T17:00Z). Starting it before
+        # that cutoff correctly triggers the production overlap refusal and
+        # prevents these controls from observing their accepted reservation.
+        sc = rollup_scope(periodStartUtc="2026-11-02T00:00:00Z", periodEndUtc="2026-12-02T00:00:00Z")
         return R.receive(self.raw, sc, self.chain(), **self.pins)
 
     def test_the_read_happens_only_after_the_journal_accepted_exactly_this_reserve(self):

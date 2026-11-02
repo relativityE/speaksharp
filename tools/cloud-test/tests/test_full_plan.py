@@ -74,10 +74,10 @@ class PinnedPdfParser(unittest.TestCase):
         (self.pdf / "legacy/build").mkdir(parents=True)
         (self.pdf / "package.json").write_text('{"version":"4.10.38","synthetic":true}')
         (self.pdf / "legacy/build/pdf.mjs").write_text("// inert test fixture\n")
-        for package in install_pdfjs.PLAYWRIGHT_PACKAGES:
+        for package, version in install_pdfjs.BOUND_PACKAGE_VERSIONS.items():
             root = self.runner / "node_modules" / package
             root.mkdir(parents=True)
-            (root / "package.json").write_text(json.dumps({"name": package, "version": "1.57.0", "main": "index.js"}))
+            (root / "package.json").write_text(json.dumps({"name": package, "version": version, "main": "index.js"}))
             (root / "index.js").write_text("module.exports = { synthetic: true };\n")
         self.pin = dict(PIN)
         self.pin["packageJsonSha256"] = hashlib.sha256((self.pdf / "package.json").read_bytes()).hexdigest()
@@ -142,9 +142,10 @@ class PinnedPdfParser(unittest.TestCase):
                 self.assertEqual(binding.resolve(), (self.runner / "node_modules" / package).resolve())
             resolved = subprocess.run(["node", "-e", """
 const path=require('node:path');
-for(const name of ['playwright','playwright-core']){
+for(const name of ['@sentry/react','playwright','playwright-core','posthog-js','react','pino','tsx','esbuild','get-tsconfig','resolve-pkg-maps']){
   const p=require.resolve(name+'/package.json',{paths:[process.argv[1]]});
-  const j=require(p); if(j.name!==name||j.version!=='1.57.0')process.exit(2);
+  const j=require(p); const expected={'@sentry/react':'10.27.0',playwright:'1.57.0','playwright-core':'1.57.0','posthog-js':'1.298.1',react:'18.3.1',pino:'9.14.0',tsx:'4.20.6',esbuild:'0.25.12','get-tsconfig':'4.13.0','resolve-pkg-maps':'1.0.0'};
+  if(j.name!==name||j.version!==expected[name])process.exit(2);
 }
 """, d], capture_output=True, text=True)
             self.assertEqual(resolved.returncode, 0, resolved.stderr)
@@ -169,6 +170,48 @@ for(const name of ['playwright','playwright-core']){
             self.assertEqual(result.returncode, 78)
             self.assertIn("not overwritten", result.stderr)
             self.assertFalse((Path(d) / "node_modules/playwright-core").exists())
+        with tempfile.TemporaryDirectory() as d:
+            manifest = self.runner / "node_modules/tsx/package.json"
+            original = manifest.read_text()
+            manifest.write_text(json.dumps({"name": "tsx", "version": "4.20.5"}))
+            try:
+                result = self.call("--checkout", d, "--bind-playwright")
+                self.assertEqual(result.returncode, 78)
+                self.assertIn("tsx package is not version 4.20.6", result.stderr)
+                self.assertFalse((Path(d) / "node_modules/playwright").exists())
+            finally:
+                manifest.write_text(original)
+
+    def test_governed_telemetry_reader_reaches_closed_missing_credentials_hold(self):
+        runner = Path(ROOT) / "runner"
+        for package in install_pdfjs.PLAYWRIGHT_PACKAGES:
+            prerequisite((runner / "node_modules" / package / "package.json").is_file(), "npm ci in tools/cloud-test/runner")
+        with tempfile.TemporaryDirectory(prefix="ct-reader-binding-") as d:
+            checkout = Path(d) / "checkout"
+            checkout.mkdir()
+            (checkout / "scripts").mkdir()
+            shutil.copy2(Path(REPO) / "scripts/telemetry-readback-qualification.mts",
+                         checkout / "scripts/telemetry-readback-qualification.mts")
+            shutil.copytree(Path(REPO) / "frontend/src", checkout / "frontend/src")
+            shutil.copy2(Path(REPO) / "frontend/package.json", checkout / "frontend/package.json")
+            command = ["node", "--import", "tsx", str(checkout / "scripts/telemetry-readback-qualification.mts"),
+                       "--release-sha", "a" * 40, "--journey-id", "binding-control", "--traffic-type", "canary"]
+            clean_env = {"PATH": os.environ["PATH"], "HOME": d}
+            before = subprocess.run(command, cwd=checkout, env=clean_env, capture_output=True, text=True)
+            self.assertNotEqual(before.returncode, 0)
+            self.assertIn("ERR_MODULE_NOT_FOUND", before.stderr)
+            self.assertNotIn("TELEMETRY_READBACK_QUALIFICATION_EVIDENCE", before.stdout)
+
+            bound = run_py("scripts/install_pdfjs.py", "--checkout", str(checkout), "--runner-dir", str(runner), "--bind-playwright")
+            self.assertEqual(bound.returncode, 0, bound.stderr)
+            after = subprocess.run(command, cwd=checkout, env=clean_env, capture_output=True, text=True)
+            self.assertEqual(after.returncode, 1, after.stderr)
+            evidence_lines = [line for line in after.stdout.splitlines()
+                              if line.startswith("TELEMETRY_READBACK_QUALIFICATION_EVIDENCE ")]
+            self.assertEqual(len(evidence_lines), 1, after.stdout + after.stderr)
+            evidence = json.loads(evidence_lines[0].split(" ", 1)[1])
+            self.assertEqual(evidence["verdict"], "HOLD")
+            self.assertIn("POSTHOG_PROJECT_ID is not set", evidence["reasons"][0])
 
 
 class FullPlanProof(unittest.TestCase):
