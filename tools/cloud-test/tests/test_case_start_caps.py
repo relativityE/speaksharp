@@ -339,7 +339,8 @@ core.runCampaign(plan,io,{executeR0:true}).then(result=>{
         rc['starts']['ownerCounted'] = 1260  # every Start counted, including this request's reservation of `ask`
         with self.assertRaisesRegex(ValueError, 'cumulative-starts'):
             reconcile_caps(r, rc, execution=True)  # the defect: no own-reservation accounting charges the ask twice
-        held = lambda sha, count=1, starts=ask, campaign=r["runId"]: {sha: {campaign: {"count": count, "starts": starts, "takes": 0}}}
+        held = lambda sha, count=1, starts=ask, campaign=r["runId"]: {sha: {campaign: {"count": count, "requests": 0, "identityReads": 0,
+                                                                                     "starts": starts, "takes": 0}}}
         rc['openReservationsByRequest'] = held(own_sha)
         self.assertEqual(reconcile_caps(r, rc, execution=True, request_sha256=own_sha)[1], {'AHT-13': ask})
         for label, reservations, code in (("unrelated request", held('b' * 64), 'cumulative-starts'),
@@ -349,8 +350,9 @@ core.runCampaign(plan,io,{executeR0:true}).then(result=>{
             with self.assertRaisesRegex(ValueError, code, msg=label):
                 reconcile_caps(r, rc, execution=True, request_sha256=own_sha)
         # Review 4446862226: the Case 10 observation reserve shares the provenance under its own campaign; it is never this run's own.
-        rc['openReservationsByRequest'] = {own_sha: {r["runId"]: {"count": 1, "starts": ask, "takes": 0},
-                                                     r["runId"] + ".case10-observation": {"count": 1, "starts": 0, "takes": 0}}}
+        rc['openReservationsByRequest'] = {own_sha: {r["runId"]: held(own_sha)[own_sha][r["runId"]],
+                                                     r["runId"] + ".case10-observation": {"count": 1, "requests": 50, "identityReads": 2,
+                                                                                          "starts": 0, "takes": 0}}}
         self.assertEqual(reconcile_caps(r, rc, execution=True, request_sha256=own_sha)[1], {'AHT-13': ask})
         rc['openReservationsByRequest'] = held(own_sha, campaign=r["runId"] + ".case10-observation")  # only the observation: no discount
         with self.assertRaisesRegex(ValueError, 'cumulative-starts'):

@@ -215,14 +215,16 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
     # the reservation's campaign, so a run's own reservation, already counted above, is not charged again by its Start check. Review
     # 4446862226: a Case 10 observation reserve shares the request's provenance under its own campaign (<runId>.case10-observation), so the
     # campaign is part of the key; a second open reserve of the SAME request and campaign stays visible (count 2) and the consumer refuses it.
+    # Review 4447628949: every G5 dimension of the held allocation is carried (G5_KEYS), so requests and identity reads are discounted
+    # once exactly like Starts/takes.
     by_request = {}
     for key, allocation in open_reservations.items():
         provenance = open_provenance.get(key, "")
         if provenance.startswith("request-sha256:"):
-            slot = by_request.setdefault(provenance[len("request-sha256:"):], {}).setdefault(key[0], {"count": 0, "starts": 0, "takes": 0})
+            slot = by_request.setdefault(provenance[len("request-sha256:"):], {}).setdefault(key[0], {"count": 0, **{k: 0 for k in G5_KEYS}})
             slot["count"] += 1
-            slot["starts"] += allocation["starts"]
-            slot["takes"] += allocation["takes"]
+            for k in G5_KEYS:
+                slot[k] += allocation[k]
     counted = dict(period)
     if scope["carryover"] == "historical":
         _add(counted, historical)

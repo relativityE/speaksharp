@@ -96,25 +96,31 @@ def request_caps(request, *, execution=False):
     return mode, caps
 
 
+# accounting_rollup.G5_KEYS: the dimensions its openReservationsByRequest carries per held reservation (a test pins the equality).
+OWN_DIMENSIONS = ("requests", "identityReads", "starts", "takes")
+
+
 def own_reservation(reconciliation, request_sha256, campaign_id=None):
-    """#1772 review 4446137335: the (starts, takes) of THIS request's one open campaign reservation, which the accepted rollup already counts
-    as used; (0, 0) when it holds none. Keyed by the admitted request digest (the reserve's provenance) and the request's own campaign
+    """#1772 review 4446137335: THIS request's one open campaign reservation, which the accepted rollup already counts as used, as
+    {requests, identityReads, starts, takes} (review 4447628949: all four G5 dimensions, `requests` being the reserved G5 charge of run cap
+    plus identity reads); all zero when it holds none. Keyed by the admitted request digest (the reserve's provenance) and the request's own campaign
     (review 4446862226: a Case 10 observation reserve shares the provenance under its own .case10-observation campaign and is never this
     one), so another request's or another campaign's reservation is never returned; two open reservations of the same request and campaign
-    are ambiguous and refuse. Every Start/take consumer subtracts it once, here."""
+    are ambiguous and refuse. Every G5 consumer subtracts each dimension once, against its own counter."""
     rc = obj(reconciliation, "reconciliation-object")
+    none = {k: 0 for k in OWN_DIMENSIONS}
     if request_sha256 is None or "openReservationsByRequest" not in rc:
-        return 0, 0
+        return none
     require(isinstance(campaign_id, str) and campaign_id, "own-reservation-campaign")
     by_campaign = obj(rc["openReservationsByRequest"], "reconciliation-open-reservations").get(request_sha256)
     if by_campaign is None:
-        return 0, 0
+        return none
     held = obj(by_campaign, "reconciliation-own-reservation").get(campaign_id)
     if held is None:
-        return 0, 0
+        return none
     held = obj(held, "reconciliation-own-reservation")
     require(integer(held.get("count"), "own-reservation-count") == 1, "own-reservation-ambiguous")
-    return integer(held.get("starts"), "own-reservation-starts"), integer(held.get("takes"), "own-reservation-takes")
+    return {k: integer(held.get(k), "own-reservation-" + k) for k in OWN_DIMENSIONS}
 
 
 def reconcile_caps(request, reconciliation, *, execution=False, request_sha256=None):
@@ -132,7 +138,7 @@ def reconcile_caps(request, reconciliation, *, execution=False, request_sha256=N
         integer(value, "reconciliation-ceiling")
     used = integer(starts.get("ownerCounted"), "starts-used")
     # The run's own already-counted reservation is replaced by its ask below, never charged twice (own_reservation).
-    own, _ = own_reservation(rc, request_sha256, request.get("runId"))
+    own = own_reservation(rc, request_sha256, request.get("runId"))["starts"]
     require(own <= used, "own-reservation-exceeds-counted")
     used -= own
     current = integer(ceilings.get("starts"), "starts-ceiling")

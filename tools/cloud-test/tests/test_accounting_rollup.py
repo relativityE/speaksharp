@@ -237,8 +237,9 @@ class Rollup(Journal):
         self.append("reserve", "102", dict(CAPS, starts=2, takes=1), provenance="request-sha256:" + other)
         self.append("reserve", "103", CAPS)  # an approval-provenance reserve names no request and is never attributed to one
         out = self.receive()
-        self.assertEqual(out["openReservationsByRequest"], {own: {"R10-manual": {"count": 1, "starts": 6, "takes": 4}},
-                                                            other: {"R10-manual": {"count": 1, "starts": 2, "takes": 1}}})
+        self.assertEqual(out["openReservationsByRequest"], {
+            own: {"R10-manual": {"count": 1, "requests": 800, "identityReads": 20, "starts": 6, "takes": 4}},
+            other: {"R10-manual": {"count": 1, "requests": 800, "identityReads": 20, "starts": 2, "takes": 1}}})  # review 4447628949: all four
         self.assertEqual(out["starts"]["ownerCounted"], 14, "every open reservation is still counted as used")
         self.append("settle", "101", dict(CAPS, starts=4, takes=3), provenance="evidence-sha256:" + "c" * 64)
         self.append("release", "102", dict(CAPS, starts=2, takes=1))
@@ -256,11 +257,14 @@ class Rollup(Journal):
                                           "provenance": "request-sha256:" + own, "atUtc": "2026-11-02T04:00:00Z"})
         self.append("reserve", "101", observation["allocation"], provenance=observation["provenance"], campaign=observation["campaignId"])
         out = self.receive()
-        self.assertEqual(out["openReservationsByRequest"][own], {"R10-manual": {"count": 1, "starts": 6, "takes": 4},
-                                                                 "R10-manual.case10-observation": {"count": 1, "starts": 0, "takes": 0}})
-        self.assertEqual(CS.own_reservation(out, own, "R10-manual"), (6, 4))  # the campaign's own reservation, unambiguous
+        self.assertEqual(out["openReservationsByRequest"][own], {
+            "R10-manual": {"count": 1, "requests": 800, "identityReads": 20, "starts": 6, "takes": 4},
+            "R10-manual.case10-observation": {"count": 1, "requests": 50, "identityReads": 2, "starts": 0, "takes": 0}})
+        # the campaign's own reservation, unambiguous, in all four G5 dimensions (review 4447628949)
+        self.assertEqual(CS.own_reservation(out, own, "R10-manual"), {"requests": 800, "identityReads": 20, "starts": 6, "takes": 4})
+        self.assertEqual(CS.OWN_DIMENSIONS, R.G5_KEYS)
         self.assertEqual(out["requests"]["conservativeUsed"], 800 + 50, "the observation's request charge is still counted")
-        self.assertEqual(CS.own_reservation(out, "b" * 64, "R10-manual"), (0, 0))  # an unrelated request holds nothing
+        self.assertEqual(CS.own_reservation(out, "b" * 64, "R10-manual"), dict.fromkeys(R.G5_KEYS, 0))  # an unrelated request holds nothing
         # a duplicate open reserve of the SAME request and campaign stays ambiguous
         self.append("reserve", "102", CAPS, provenance="request-sha256:" + own)
         with self.assertRaisesRegex(ValueError, "own-reservation-ambiguous"):
