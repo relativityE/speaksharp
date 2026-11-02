@@ -151,6 +151,17 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
     [coachingTest]:'b27cc9bf1b50d4d584528ec31a13270c90c3f9a12c97eec431e7ef1abc392150',
     'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2'}},
+  // #1773: the provider call moved behind providers/ (descriptor catalogue, Gemini adapter family, registry), so the handler's local
+  // import closure now includes those four modules; the test, decoder, retry and contract bytes are unchanged.
+  {id:'coaching-provider-adapter-1773',files:{...coachingClosure,
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'6216addf51bbf99e4c961f79b2ebbe9eba4d24bd4527a311c71c3fff747be877',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'b27cc9bf1b50d4d584528ec31a13270c90c3f9a12c97eec431e7ef1abc392150',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb'}},
 ]);
 export function nativeDenoPolicy(file) {
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:[],
