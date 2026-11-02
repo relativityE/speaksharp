@@ -24,6 +24,7 @@ export const SOURCE_CONTRACTS=Object.freeze([
 const CASE07_SQL=Object.freeze({
   [CASE07_APPLY]:Object.freeze({
     operation:'grant',
+    sha256:'153c3140f6b5da3f80b315fe00d5f41f566f9552603de586de5df3e6d5358ab7',
     required:Object.freeze([
       "SET LOCAL lock_timeout='3s';",
       "SET LOCAL statement_timeout='10s';",
@@ -43,6 +44,7 @@ const CASE07_SQL=Object.freeze({
   }),
   [CASE07_ROLLBACK]:Object.freeze({
     operation:'revoke',
+    sha256:'0e217dcde39415b41eb947595fb2dda3a0c448c87d7f86ca7bd7d43f06344a2a',
     required:Object.freeze([
       "SET LOCAL lock_timeout='3s';",
       "SET LOCAL statement_timeout='10s';",
@@ -107,6 +109,8 @@ export function sourceContractApplicability(root,file) {
 function inspectCase07Sql(file,source) {
   const contract=CASE07_SQL[file];
   if(!contract) throw new Error('Unregistered Case 07 SQL review candidate');
+  const sourceSha256=hash(source);
+  if(sourceSha256!==contract.sha256) throw new Error(`Case 07 reviewed SQL bytes changed: ${file}`);
   const code=source.replace(/--[^\n]*/g,'').replace(/\/\*[\s\S]*?\*\//g,'');
   if(code.split('BEGIN;').length!==2 || code.split('COMMIT;').length!==2
     || !/^\s*BEGIN;/.test(code) || !/COMMIT;\s*$/.test(code)
@@ -122,8 +126,8 @@ function inspectCase07Sql(file,source) {
     || /\b(?:INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+(?:public\.)?[A-Za-z_][A-Za-z0-9_]*\s+SET)\b/i.test(code)) {
     throw new Error(`Case 07 SQL contains an unreviewed operation: ${file}`);
   }
-  return {file,sha256:hash(source),kind:'sql-review-candidate',operation:contract.operation,
-    checks:contract.required.length+5,detectedFaults:contract.required.length+5,
+  return {file,sha256:sourceSha256,kind:'sql-review-candidate',operation:contract.operation,
+    checks:contract.required.length,
     databaseExecution:'NOT RUN',productionExecution:'NOT AUTHORIZED'};
 }
 

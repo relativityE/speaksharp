@@ -143,6 +143,10 @@ test('Case 07 grant and rollback candidates retain the exact bounded ACL contrac
     const proof=inspectSourceContract(root,file,source);
     assert.equal(proof.operation,operation);assert.equal(proof.databaseExecution,'NOT RUN');
     assert.equal(proof.productionExecution,'NOT AUTHORIZED');
+    assert.equal(proof.sha256,file===CASE07_APPLY
+      ?'153c3140f6b5da3f80b315fe00d5f41f566f9552603de586de5df3e6d5358ab7'
+      :'0e217dcde39415b41eb947595fb2dda3a0c448c87d7f86ca7bd7d43f06344a2a');
+    assert.equal('detectedFaults' in proof,false);
     const route=executionRoute(file,root);
     assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true);
   }
@@ -155,6 +159,8 @@ test('Case 07 grant and rollback candidates retain the exact bounded ACL contrac
     ['TO authenticated;','TO service_role;'],
   ]) assert.throws(()=>inspectSourceContract(root,CASE07_APPLY,apply.replace(from,to)),/Case 07/);
   for(const widened of [
+    apply.replace("THEN RAISE EXCEPTION 'CASE07_STOP_POLICY_DRIFT';",'THEN NULL;'),
+    apply.replace('IF NOT EXISTS(SELECT 1 FROM pg_class','IF EXISTS(SELECT 1 FROM pg_class'),
     apply.replace('TO authenticated;','TO authenticated WITH GRANT OPTION;'),
     apply.replace('COMMIT;','ALTER TABLE public.user_goals DISABLE ROW LEVEL SECURITY;\nCOMMIT;'),
     apply.replace('COMMIT;','DELETE FROM public.user_goals;\nCOMMIT;'),
