@@ -337,7 +337,8 @@ class NothingIsIgnored(unittest.TestCase):
     def test_the_install_stage_runs_the_pinned_installer_and_the_lockfile_install(self):
         text = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
         self.assertIn("install_browser.py", text)
-        self.assertIn("--existing", text)
+        self.assertIn("--received-installed-receipt", text)
+        self.assertIn("--baselines", text)
         self.assertIn("--check-only", text)
         self.assertIn("acquire is unsupported", text)
         self.assertNotIn("ci --ignore-scripts", text)

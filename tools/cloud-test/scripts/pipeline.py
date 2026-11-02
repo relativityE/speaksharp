@@ -44,7 +44,7 @@ def main():
     a.add_argument("--request", required=True)
     a.add_argument("--out-dir", required=True)
     a.add_argument("--stage", choices=["preflight", "final"], default="preflight")
-    for k in ("latest-label", "offline-checks", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations"):
+    for k in ("latest-label", "offline-checks", "offline-proof", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations", "accepted-input-dir", "receiver-receipt"):
         a.add_argument("--" + k)
     a.add_argument("--repo", default=os.path.abspath(os.path.join(ROOT, "..", "..")))
     a.add_argument("--config", default=os.path.join(ROOT, "config", "test-config.v1.json"))
@@ -79,6 +79,51 @@ def main():
     if creds and x.require_secret_free:
         print("STOP: credential-like variables are present in a secret-free stage: %s" % ", ".join(creds))
         sys.exit(5)
+    if x.accepted_input_dir:
+        # Content-free retained-input route. aggregate_receiver.py has already
+        # checked the reviewed manifest and preserved each accepted producer's
+        # bytes. This branch still invokes the ordinary budget, request-validation
+        # and gate consumers; it does not trust a supplied `valid` or `passed` flag.
+        A = lambda n: os.path.join(x.accepted_input_dir, n + ".json")
+        required = ("reconciliation", "release-verification", "gap-ledger", "prior-run-verification",
+                    "comparison-prior", "case-costs")
+        if any(not os.path.isfile(A(n)) for n in required):
+            sys.exit("accepted input set is incomplete")
+        receiver = x.receiver_receipt or A("receiver-receipt")
+        if not os.path.isfile(receiver):
+            sys.exit("accepted receiver receipt is missing")
+        if load(x.request).get("coverageMode") == "full":
+            rb = run("full_coverage_budget.py", "--config", x.config, "--costs", A("case-costs"),
+                     "--catalog", os.path.join(ROOT, load(x.config)["modes"]["full"]["assertionCatalog"]["file"]),
+                     "--reconciliation", A("reconciliation"), "--out", O("full-coverage-budget.json"),
+                     "--markdown", O("full-coverage-budget.md"))
+            if rb.returncode:
+                sys.exit("accepted case-costs failed the ordinary budget consumer")
+        rv = run("validate_run_request.py", "--request", x.request, "--config", x.config,
+                 "--ledger", A("gap-ledger"), "--workflow", x.workflow,
+                 "--release-verification", A("release-verification"), "--reconciliation", A("reconciliation"),
+                 "--case-costs", A("case-costs"), "--out", O("request-validation.json"))
+        if rv.returncode:
+            sys.exit("accepted inputs failed ordinary request validation")
+        g = ["--request", x.request, "--config", x.config, "--ledger", A("gap-ledger"), "--workflow", x.workflow,
+             "--release-verification", A("release-verification"), "--reconciliation", A("reconciliation"),
+             "--validation", O("request-validation.json"), "--prior-verification", A("prior-run-verification"),
+             "--prior-comparison", A("comparison-prior"), "--receiver-receipt", receiver,
+             "--stage", x.stage, "--base", ROOT, "--out", O("gate-status.json")]
+        if x.offline_checks:
+            g += ["--offline-checks", x.offline_checks]
+        if x.offline_proof:
+            g += ["--offline-proof", x.offline_proof]
+        if x.stimulus_receipt:
+            g += ["--stimulus-receipt", x.stimulus_receipt]
+        rg = run("check_gates.py", *g)
+        if rg.returncode:
+            sys.exit("accepted inputs failed ordinary gate evaluation")
+        gate = load(O("gate-status.json"))
+        if x.enforce_go and gate["decision"] != "GO":
+            print("STOP EARLY: blocking gates not READY (%s). Nothing was spent." % ",".join(gate["blockingOpen"]))
+            sys.exit(4)
+        return
     # 1. sealed receipts
     r = run("verify_receipts.py", "--config", x.config, "--root", x.receipts_root, "--out", O("receipts-verification.json"))
     if r.returncode:
@@ -105,6 +150,8 @@ def main():
          "--validation", O("request-validation.json"), "--stage", x.stage, "--base", ROOT, "--receipts-root", x.receipts_root, "--history-index", history_index, "--approval", approval, "--reservations", reservations, "--out", O("gate-status.json")] + now_args
     if x.offline_checks:
         g += ["--offline-checks", x.offline_checks]
+    if x.offline_proof:
+        g += ["--offline-proof", x.offline_proof]
     if x.stimulus_receipt:
         g += ["--stimulus-receipt", x.stimulus_receipt]
     run("check_gates.py", *g)
@@ -203,7 +250,7 @@ def main():
     run("derive_summary.py", *sm)
     # 10. report
     rp = [os.path.join(ROOT, "report", "workflow_report.py"), "--request", x.request, "--ledger-derived", O("ledger-derived.json"), "--release-verification", O("release-verification.json"), "--reconciliation", O("reconciliation.json"),
-          "--gates", O("gate-status.json"), "--spend", O("spend.json"), "--offline-proof", os.path.join(ROOT, req["harness"]["offlineProofFile"]), "--workflow", x.workflow, "--comparison", O("comparison-prior/comparison.json"),
+          "--gates", O("gate-status.json"), "--spend", O("spend.json"), "--offline-proof", x.offline_proof or os.path.join(ROOT, req["harness"]["offlineProofFile"]), "--workflow", x.workflow, "--comparison", O("comparison-prior/comparison.json"),
           "--summary", O("summary.json"), "--labels", base_labels[0], base_labels[1], "--generated-at", gen, "--out", O("report"),
           "--bindings"] + [os.path.join(ROOT, p["bindingFile"]) for p in req["priorRuns"]]
     rp += ["--coverage", O("coverage.json")]

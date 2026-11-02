@@ -165,6 +165,13 @@ jobs:
       # ephemeral runner only; execute_run's existing-only setup then re-verifies the Playwright version and the pdf.mjs/package pins.
       CT_EXISTING_DEPENDENCY_ROOT: ${{ github.workspace }}/tools/cloud-test/runner
       CT_EXISTING_PDFJS_DIR: ${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist
+      # Source-only receiver wiring. The manifest and accepted digests are intentionally absent/unaccepted; the receiver refuses before
+      # reading inputs until a separately reviewed custodian handoff activates exact bytes.
+      CT_RETAINED_GATE_MANIFEST: ${{ github.workspace }}/tools/cloud-test/config/aggregate/manifest.json
+      CT_ACCOUNTING_BOOTSTRAP: ${{ github.workspace }}/tools/cloud-test/config/aggregate/accounting-bootstrap.json
+      CT_PERIOD_SCOPE: ${{ github.workspace }}/tools/cloud-test/config/aggregate/period-scope.json
+      CT_STATE_REPO: ${{ runner.temp }}/cloud-test-state
+      CT_STATE_JOURNAL: ${{ runner.temp }}/cloud-test-state-journal.json
     steps:
       - uses: actions/checkout@v6
         with:
@@ -193,6 +200,17 @@ jobs:
             --baselines config/browser-baselines.v1.json --source-sha "$GITHUB_SHA" --run-id "$CT_EXECUTION_RUN_ID" \
             --receipt "$RUNNER_TEMP/browser-receipt.json" > "$RUNNER_TEMP/chrome-path.txt"
           echo "CT_CHROME=$(cat "$RUNNER_TEMP/chrome-path.txt")" >> "$GITHUB_ENV"
+          echo "CT_BROWSER_RECEIPT=$RUNNER_TEMP/browser-receipt.json" >> "$GITHUB_ENV"
+      - name: Generate the exact-head browser-bound proof and offline checks
+        run: |
+          set -euo pipefail
+          cd tools/cloud-test
+          python3 -I scripts/generate_offline_proof.py --work "$RUNNER_TEMP/offline-proof-work" \
+            --proof-out "$RUNNER_TEMP/offline-proof.json" --chrome "$CT_CHROME" \
+            --browser-receipt "$CT_BROWSER_RECEIPT" --playwright-cwd "$CT_EXISTING_DEPENDENCY_ROOT"
+          CT_PROOF_FILE="$RUNNER_TEMP/offline-proof.json" python3 -I scripts/run_offline_checks.py --out "$RUNNER_TEMP/offline-checks.json"
+          echo "CT_OFFLINE_PROOF=$RUNNER_TEMP/offline-proof.json" >> "$GITHUB_ENV"
+          echo "CT_OFFLINE_CHECKS=$RUNNER_TEMP/offline-checks.json" >> "$GITHUB_ENV"
       - name: Select the committed request and bind this run's inputs
         id: init
         env:
@@ -253,6 +271,11 @@ jobs:
           LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
           REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
         run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"
+      - name: Reserve the admitted manual run before product execution
+        env:
+          CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
+          CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
+        run: bash tools/cloud-test/scripts/execute_run.sh manual-reserve
       - name: Stage runner (run), bounded to the selected cases' live minutes
         timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
         env:
@@ -286,6 +309,7 @@ jobs:
         run: |
           set -euo pipefail
           bash tools/cloud-test/scripts/execute_run.sh collect
+          bash tools/cloud-test/scripts/execute_run.sh manual-settle
           HP="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$CT_CONFIG" harness.packetDir)"
           Q=()
           # qualify freezes every verifier input into a new private snapshot, runs the REAL verify_run_binding.py on that snapshot only (exit 0,

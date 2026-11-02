@@ -7,6 +7,8 @@ run passes when it is a verified deployed fix tied to a gap with expected-PASS c
 Usage: check_gates.py --request R.json --config C.json --ledger L.json --workflow W.json --release-verification RV.json --reconciliation RC.json
                       [--validation V.json] [--offline-checks OC.json] [--stimulus-receipt S.json] [--stage preflight|final] [--now ISO] --base DIR --out gate-status.json"""
 import argparse
+import hashlib
+import json
 import os
 import sys
 
@@ -17,6 +19,15 @@ from recurring_usage import check_caps  # noqa: E402
 from case_start_caps import reconcile_caps, request_caps
 
 READY, NOTREADY, OWNER, DEFERRED = "READY", "NOT-READY", "OWNER-INPUT-OPEN", "DEFERRED-TO-RUNNER"
+
+
+def canonical_sha(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+
+
+def file_sha(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
 
 def gate(gid, status, detail, needs=None):
@@ -64,7 +75,7 @@ def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=
     return gate("G11", READY if not need else NOTREADY, "within the standing approval of recurring cost (period usage so far: %d run(s), %s requests, %s Starts, %s takes, %s coaching calls, %s runner minutes; %d open reservation(s))" % (u["runs"], used["requests"], used["starts"], used["takes"], used["coachingRequests"], used["runnerMinutes"], len(u["openReservations"])) if not need else "outside the standing approval of recurring cost", need)
 
 
-def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None):
+def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None, offline_proof=None, prior_verification=None, prior_comparison=None, receiver_receipt=None, request_sha256=None):
     G = []
     now = now or now_utc()
     try:
@@ -97,8 +108,8 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
                   "deployment of the tested SHA verified; %d change(s) since the last run, each allowed" % len((rv or {}).get("sinceLastRun") or []) if not need else "release or deployment not verified", need))
     # G3
     need = []
-    op = os.path.join(base, h.get("offlineProofFile") or "")
-    if not h.get("offlineProofFile") or not os.path.exists(op):
+    op = offline_proof or os.path.join(base, h.get("offlineProofFile") or "")
+    if not op or not os.path.exists(op):
         need.append("offline proof file missing")
     else:
         proof = load(op)
@@ -200,23 +211,43 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
     G.append(gate("G6", READY if not need else (OWNER if only_owner else NOTREADY), "expected PASS defined before testing for every targeted gap" if not need else "expected PASS not final", need))
     # G7: sealed, hash-pinned receipts of the compared runs and their binding verification
     need = []
-    root = receipts_root or os.path.join(base, "config", "history", "receipts")
-    runs = {r["label"]: r for r in cfg["history"]["runs"]}
-    for pr_ in req.get("priorRuns") or []:
-        lab = pr_.get("label")
-        if lab not in runs:
-            need.append("%s is not in the config history" % lab)
-            continue
-        errs, n = verify_set(os.path.join(root, lab), runs[lab].get("receiptsManifestSha256"))
-        if errs:
-            need.append("%s receipts: %s" % (lab, "; ".join(errs[:2])))
-        bf = os.path.join(base, pr_.get("bindingFile") or "")
-        if not pr_.get("bindingFile") or not os.path.exists(bf):
-            need.append("%s binding verification missing" % lab)
-        else:
-            b = load(bf)
-            if b.get("failed") != 0 or not b.get("passed"):
-                need.append("%s binding verification has %s failed checks" % (lab, b.get("failed")))
+    if prior_verification is not None:
+        rows = prior_verification.get("runs") if isinstance(prior_verification, dict) else None
+        expected = [p.get("label") for p in req.get("priorRuns") or []]
+        rr = receiver_receipt if isinstance(receiver_receipt, dict) else {}
+        accepted = rr.get("acceptedSha256") if isinstance(rr.get("acceptedSha256"), dict) else {}
+        pins = cfg.get("aggregateReceiver") or {}
+        if rr.get("schema") != "speaksharp.cloud-test.aggregate-receiver-receipt.v1" or \
+                rr.get("manifestSha256") != pins.get("manifestSha256") or rr.get("bundleRootSha256") != pins.get("bundleRootSha256") or \
+                rr.get("requestSha256") != request_sha256 or rr.get("sourceSha") != (req.get("release") or {}).get("testedSha") or \
+                accepted.get("prior-run-verification") != canonical_sha(prior_verification) or \
+                accepted.get("comparison-prior") != canonical_sha(prior_comparison):
+            need.append("accepted prior-run inputs are not bound to the reviewed receiver receipt")
+        if prior_verification.get("schema") != "speaksharp.cloud-test.prior-run-verification.v1" or not isinstance(rows, list) or \
+                [r.get("label") for r in rows] != expected or not all(r.get("passed") is True for r in rows):
+            need.append("accepted prior-run verification does not cover the request")
+        baseline = cfg["history"]["comparisonBaselines"]
+        if not isinstance(prior_comparison, dict) or prior_comparison.get("schema") != "speaksharp.run-comparison.v1" or \
+                [((prior_comparison.get("previous") or {}).get("label")), ((prior_comparison.get("current") or {}).get("label"))] != baseline:
+            need.append("accepted comparison does not cover the configured baselines")
+    else:
+        root = receipts_root or os.path.join(base, "config", "history", "receipts")
+        runs = {r["label"]: r for r in cfg["history"]["runs"]}
+        for pr_ in req.get("priorRuns") or []:
+            lab = pr_.get("label")
+            if lab not in runs:
+                need.append("%s is not in the config history" % lab)
+                continue
+            errs, n = verify_set(os.path.join(root, lab), runs[lab].get("receiptsManifestSha256"))
+            if errs:
+                need.append("%s receipts: %s" % (lab, "; ".join(errs[:2])))
+            bf = os.path.join(base, pr_.get("bindingFile") or "")
+            if not pr_.get("bindingFile") or not os.path.exists(bf):
+                need.append("%s binding verification missing" % lab)
+            else:
+                b = load(bf)
+                if b.get("failed") != 0 or not b.get("passed"):
+                    need.append("%s binding verification has %s failed checks" % (lab, b.get("failed")))
     G.append(gate("G7", READY if not need else NOTREADY, "last two runs' sealed receipts verified against their pinned hashes and bindings" if not need else "prior-run receipts not verified", need))
     # G8
     need = []
@@ -244,7 +275,7 @@ def main():
     a = argparse.ArgumentParser()
     for k in ("request", "config", "ledger", "workflow", "release-verification", "reconciliation", "base", "out"):
         a.add_argument("--" + k, required=True)
-    for k in ("validation", "offline-checks", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval"):
+    for k in ("validation", "offline-checks", "offline-proof", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "prior-verification", "prior-comparison", "receiver-receipt"):
         a.add_argument("--" + k)
     a.add_argument("--stage", choices=["preflight", "final"], default="final")
     x = a.parse_args()
@@ -255,7 +286,11 @@ def main():
     out = evaluate(req, load(x.config), load(x.ledger), load(x.workflow), load(x.validation) if x.validation else None,
                    load(x.offline_checks) if x.offline_checks else None, rec, x.base, x.stage, load(x.release_verification), load(x.reconciliation),
                    parse_utc(x.now) if x.now else None, x.receipts_root, load(x.history_index) if x.history_index else None,
-                   load(x.reservations) if x.reservations else None, x.approval)
+                   load(x.reservations) if x.reservations else None, x.approval, x.offline_proof,
+                   load(x.prior_verification) if x.prior_verification else None,
+                   load(x.prior_comparison) if x.prior_comparison else None,
+                   load(x.receiver_receipt) if x.receiver_receipt else None,
+                   file_sha(x.request))
     dump(out, x.out)
     print("decision:", out["decision"], "| blocking open:", ",".join(out["blockingOpen"]) or "none")
 

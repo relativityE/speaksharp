@@ -289,17 +289,20 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None):
     return errs, warns
 
 
-def derive_budget(cfg, rc, receipts_root):
+def derive_budget(cfg, rc, receipts_root, case_costs=None):
     """The full-coverage budget, derived from the sealed receipts, the hash-pinned assertion catalog and the reconciliation. None when an input is unusable."""
     try:
-        from derive_case_costs import derive_run
         from full_coverage_budget import compute
         spec = cfg["modes"]["full"]["assertionCatalog"]
         path = os.path.join(ROOT, spec["file"])
         if sha256_file(path) != spec["sha256"]:
             return None
         cat = load(path)
-        costs = {"runs": {lab: derive_run(receipts_root, lab) for lab in cfg["modes"]["full"]["budgetModel"]["basisRuns"]}}
+        if case_costs:
+            costs = load(case_costs)
+        else:
+            from derive_case_costs import derive_run
+            costs = {"runs": {lab: derive_run(receipts_root, lab) for lab in cfg["modes"]["full"]["budgetModel"]["basisRuns"]}}
         out = compute(cfg, costs, cat, rc)
         out["_catalog"] = cat
         return out
@@ -312,9 +315,10 @@ def main():
     for k in ("request", "config", "ledger", "workflow", "release-verification", "reconciliation", "out"):
         a.add_argument("--" + k, required=True)
     a.add_argument("--receipts-root", default=os.path.join(ROOT, "config", "history", "receipts"))
+    a.add_argument("--case-costs")
     x = a.parse_args()
     req, cfg, rc = load(x.request), load(x.config), load(x.reconciliation)
-    budget = derive_budget(cfg, rc, x.receipts_root) if request_mode(req) == "full" else None
+    budget = derive_budget(cfg, rc, x.receipts_root, x.case_costs) if request_mode(req) == "full" else None
     errs, warns = validate(req, cfg, load(x.ledger), load(x.workflow), load(x.release_verification), rc, budget)
     out = {"schema": "speaksharp.cloud-test.request-validation.v2", "request": os.path.basename(x.request), "valid": not errs, "errors": errs, "warnings": warns}
     dump(out, x.out)

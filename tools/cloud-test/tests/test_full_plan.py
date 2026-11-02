@@ -16,6 +16,7 @@ import hashlib
 from _fixtures import REPO, ROOT, TESTED, J, prerequisite, wjson
 from test_runnable_package import chrome_path, node_ok, playwright_cwd
 import install_pdfjs
+import proof_prep_cases
 
 PIN = J("config", "test-config.v1.json")["tools"]["pdfjs"]
 CATALOG = J("config", "assertion-catalog.json")
@@ -142,17 +143,30 @@ class FullPlanProof(unittest.TestCase):
         cls.browser_identity = os.path.join(cls.work, "browser-identity.json")
         wjson(cls.browser_identity, {"schema": "speaksharp.cloud-test.existing-browser.v1", "path": os.path.realpath(cls.chrome),
                                     "observedBinarySha256": hashlib.sha256(Path(cls.chrome).read_bytes()).hexdigest()})
-        req = J("config", "runs", "R7-full-coverage-proposal.json")
-        req["release"]["testedSha"] = RECEIVING_SOURCE
-        req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55, "runCapRequests": req["estimate"]["requests"]["runCap"], "approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"}
-        req["window"] = {"startUtc": "2026-01-01T00:00:00Z", "endUtc": "2099-01-01T00:00:00Z", "approvalRef": "PLACEHOLDER-NOT-A-RUN"}
-        req["selectionApprovalRef"] = "PLACEHOLDER-NOT-A-RUN-selection"
+        # Use the same reviewed synthetic request/Case10 projection helpers as
+        # the proof producer. The old hand-built R7 fixture omitted both the
+        # admitted reconciliation and the action-approval binding.
+        req = proof_prep_cases.placeholder_request(os.path.join(ROOT, "harness"))
         cls.req = req
         cls.reqp = os.path.join(cls.work, "req.json"); wjson(cls.reqp, req); os.chmod(cls.reqp, 0o600)
         cls.bindings = os.path.join(cls.work, "account-bindings.json")
         write_account_bindings(cls.bindings, req["runId"])
+        facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+        proof_prep_cases.bind_synthetic_case10(req, facts)
+        wjson(cls.reqp, req)
+        request_sha = hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest()
+        cls.reconciliation = os.path.join(cls.work, "reconciliation.json")
+        wjson(cls.reconciliation, {"synthetic": "PLACEHOLDER-NOT-A-RUN", "starts": {"ownerCounted": 0},
+              "ceilings": {"starts": 85, "requests": 20000, "identityReads": 200, "takes": 100,
+                           "protectedReserveRequests": 50}, "requests": {"conservativeUsed": 0},
+              "identityReads": {"conservativeUsed": 0}, "takes": {"ownerCounted": 0}})
+        reconciliation_sha = hashlib.sha256(Path(cls.reconciliation).read_bytes()).hexdigest()
+        facts["actionApproval"] = {"schema": "speaksharp.case-start-approval.v1", "requestSha256": request_sha,
+              "reconciliationSha256": reconciliation_sha, "approvalRef": req["approvedLimits"]["approvalRef"],
+              "approvedBy": req["approvedLimits"]["approvedBy"], "selectionApprovalRef": req["selectionApprovalRef"]}
+        cls.factp = os.path.join(cls.work, "facts.json"); wjson(cls.factp, facts)
         r = run_py("scripts/run_env.py", "--request", cls.reqp, "--request-sha256", hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(),
-                   "--out", os.path.join(cls.work, "env.txt"))
+                   "--reconciliation", cls.reconciliation, "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
         cls.p0, out = cls.build("plan0")
         assert [o.returncode for o in out] == [0, 0], [o.stderr for o in out]
@@ -170,13 +184,15 @@ class FullPlanProof(unittest.TestCase):
         script = "set -euo pipefail; set -a; . %s; set +a; " % os.path.join(cls.work, "env.txt")
         import shlex
         # overrides are exported AFTER the request-derived environment is sourced, otherwise the request's own values would win
+        script += "export BP_SYNTHETIC_OFFLINE_PROOF=1; "
         script += "".join("export %s=%s; " % (k, shlex.quote(v)) for k, v in (extra or {}).items())
         env = {"PATH": os.environ["PATH"], "HOME": cls.work, "BP_PACKET": os.path.join(ROOT, "harness"), "BP_CHECKOUT": REPO, "BP_PRIVATE": private,
-               "BP_FACTS": os.path.join(ROOT, "tests", "fixtures", "plan-facts.PLACEHOLDER.json"), "BP_ACCOUNT_BINDINGS_FILE": cls.bindings,
+               "BP_FACTS": cls.factp, "BP_ACCOUNT_BINDINGS_FILE": cls.bindings,
                "BP_LIVE_ACCOUNTS_SHA256": "a" * 64,
                "BP_REQUEST_FILE": cls.reqp, "BP_REQUEST_SHA256": hashlib.sha256(Path(cls.reqp).read_bytes()).hexdigest(), "BP_LEASE_RPCS": "1", "BP_LEASE_READ": "1",
                "BP_TASK_ID": "PLACEHOLDER-task", "BP_SOURCE_REFERENCE": "https://claude.ai/code/PLACEHOLDER", "BP_ENV_ID": "env_PLACEHOLDER", "BP_MEDIA_PARENT": os.path.join(cls.work, "media"),
                "BP_BROWSER_IDENTITY": cls.browser_identity,
+               "VITE_SUPABASE_URL": "https://%s.supabase.co" % PROJECT_REF,
                "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key", "BP_PDFJS_DIR": cls.pdf_source}
         for k in drop:
             env.pop(k, None)

@@ -1,4 +1,10 @@
 {
+ "aggregateReceiver": {
+  "activated": false,
+  "manifestSha256": null,
+  "bundleRootSha256": null,
+  "note": "Inactive fail-closed receiver for a custodian-produced content-free bundle. Activation and exact digests require a separate reviewed change; no production bytes are accepted by this source checkpoint."
+ },
   "schema": "speaksharp.cloud-test.config.v1",
   "configVersion": "1.4.0",
   "workflowVersion": "1.5.0",
@@ -57,7 +63,9 @@
           "VITE_SUPABASE_ANON_KEY"
         ],
         "collect": [],
-        "reserve": []
+   "reserve": [],
+   "manual-reserve": [],
+   "manual-settle": []
       },
       "why": {
         "FREE_TEST_EMAIL": "AHT-15 signs into its maintained read-only account by variable NAME in the run stage only",

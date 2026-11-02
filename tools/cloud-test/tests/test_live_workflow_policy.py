@@ -166,6 +166,43 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn("--installed --environment github-hosted", self.text)
         self.assertIn("--baselines config/browser-baselines.v1.json", self.text)
 
+    def test_the_discovered_browser_generates_the_exact_head_proof_consumed_by_both_g3_and_g10(self):
+        steps = self.jobs["live"]["steps"]
+        discover = next(i for i, s in enumerate(steps) if "--installed --environment github-hosted" in s.get("run", ""))
+        proof = next(i for i, s in enumerate(steps) if "generate_offline_proof.py" in s.get("run", ""))
+        setup = next(i for i, s in enumerate(steps) if "for stage in install-tools build-plan" in s.get("run", ""))
+        self.assertLess(discover, proof); self.assertLess(proof, setup)
+        script = steps[proof]["run"]
+        for token in ('--browser-receipt "$CT_BROWSER_RECEIPT"', 'CT_PROOF_FILE="$RUNNER_TEMP/offline-proof.json"',
+                      'CT_OFFLINE_PROOF=$RUNNER_TEMP/offline-proof.json', 'CT_OFFLINE_CHECKS=$RUNNER_TEMP/offline-checks.json'):
+            self.assertIn(token, script)
+        self.assertIn('CT_BROWSER_RECEIPT=$RUNNER_TEMP/browser-receipt.json', steps[discover]["run"])
+
+    def test_retained_inputs_are_connected_and_manual_accounting_stays_explicitly_inactive(self):
+        env = self.jobs["live"]["env"]
+        self.assertEqual(env["CT_RETAINED_GATE_MANIFEST"], "${{ github.workspace }}/tools/cloud-test/config/aggregate/manifest.json")
+        with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:
+            receiver = json.load(f)["aggregateReceiver"]
+        self.assertEqual(receiver, {"activated": False, "manifestSha256": None, "bundleRootSha256": None,
+                                    "note": receiver["note"]})
+        steps = self.jobs["live"]["steps"]
+        run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
+        reserve = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
+        collect = next(s for s in steps if s.get("name", "").startswith("Collect, verify the binding"))["run"]
+        self.assertLess(reserve, run)
+        self.assertLess(collect.index("execute_run.sh collect"), collect.index("execute_run.sh manual-settle"))
+        self.assertNotIn("manual-release", self.text)
+        runner = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
+        self.assertIn('--accepted-input-dir "$accepted"', runner)
+        self.assertIn('--receiver-receipt "$accepted/receiver-receipt.json"', runner)
+        self.assertIn('cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json"', runner)
+        self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
+        manual = open(os.path.join(ROOT, "scripts", "manual_reservation.py"), encoding="utf-8").read()
+        state = open(os.path.join(ROOT, "scripts", "state_ref_writer.py"), encoding="utf-8").read()
+        self.assertLess(manual.index('_need(activated(), "manual-reservation-not-activated")'),
+                        manual.index('_read(x.request)'))
+        self.assertIn("REVIEWED_ROOT = None", state)
+
     def test_only_reviewed_actions_are_used(self):
         uses = sorted({s["uses"].split("@")[0] for j in self.jobs.values() for s in j["steps"] if "uses" in s})
         self.assertEqual(uses, ["actions/checkout", "actions/download-artifact", "actions/setup-node", "actions/setup-python", "actions/upload-artifact"])
@@ -218,7 +255,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_the_approved_window_is_rechecked_immediately_before_the_run_step(self):
         steps = self.jobs["live"]["steps"]
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
-        check = steps[run - 1]
+        reserve = steps[run - 1]
+        self.assertEqual(reserve["run"].strip(), "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
+        check = steps[run - 2]
         self.assertEqual(check["run"].strip(), 'python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" '
                                                '--live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"')
         self.assertEqual(check["env"], {"LIVE_MINUTES": "${{ steps.init.outputs.live_minutes }}",
@@ -280,7 +319,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         want = {"CT_REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}",
                 "CT_LIVE_ACCOUNTS_SHA256": "${{ steps.init.outputs.live_accounts_sha256 }}"}
         runner = [s for s in self.jobs["live"]["steps"] if "execute_run.sh" in s.get("run", "")]
-        self.assertEqual(len(runner), 3, "setup stages, run, collect")
+        self.assertEqual(len(runner), 4, "setup stages, manual reserve, run, collect/settle")
         for step in runner:
             self.assertEqual({k: step["env"].get(k) for k in want}, want, step.get("name"))
 
