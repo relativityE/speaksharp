@@ -21,10 +21,16 @@ from _common import comparison_errors  # noqa: E402
 SHA256 = re.compile(r"[0-9a-f]{64}")
 SHA40 = re.compile(r"[0-9a-f]{40}")
 SCHEMA = "speaksharp.cloud-test.aggregate-receiver.v1"
+# #1772 Code finding 4446324167: a recurring (nightly) request's bytes and campaign change every occurrence, so its retained manifest pins
+# only the historical components and the release; the request/campaign binding and the reconciliation come from an OCCURRENCE envelope
+# derived from the verified journal (receive_occurrence), recorded apart from the retained components. A manual request keeps v1.
+OCCURRENCE_SCHEMA = "speaksharp.cloud-test.aggregate-receiver.v2-occurrence"
+JOURNAL_SNAPSHOT_SCHEMA = "speaksharp.cloud-test.journal-snapshot.v1"
 REQUIRED = (
     "reconciliation", "release-verification", "gap-ledger",
     "prior-run-verification", "comparison-prior", "case-costs",
 )
+RETAINED_OCCURRENCE = tuple(name for name in REQUIRED if name != "reconciliation")
 
 
 class Refused(ValueError):
@@ -116,8 +122,44 @@ def validate_documents(docs, request, config):
          "aggregate-case-costs")
 
 
-def receiver_receipt(manifest_raw, request_raw, accepted_bytes, pins):
+def receive_occurrence(request, request_raw, occurrence):
+    """#1772 Code finding 4446324167: the occurrence envelope of a recurring request, derived only from verified inputs: the journal snapshot
+    (verified state-ref head and events) must hold exactly one open reserve of THIS request (campaign and admitted request digest), and the
+    occurrence's reconciliation must be the accepted rollup at that same head. Returns (envelope, reconciliation bytes)."""
+    need(isinstance(occurrence, dict) and isinstance(occurrence.get("journalSnapshot"), bytes)
+         and isinstance(occurrence.get("reconciliation"), bytes), "aggregate-occurrence-missing")
+    snap = load_json(occurrence["journalSnapshot"], "aggregate-occurrence-journal")
+    need(isinstance(snap, dict) and snap.get("schema") == JOURNAL_SNAPSHOT_SCHEMA and SHA40.fullmatch(str(snap.get("headSha", "")))
+         and isinstance(snap.get("events"), list), "aggregate-occurrence-journal")
+    provenance = "request-sha256:" + digest(request_raw)
+    closed = {(e.get("campaignId"), e.get("runId"), e.get("attempt")) for e in snap["events"] if isinstance(e, dict)
+              and e.get("type") in ("settle", "release")}
+    own = [e for e in snap["events"] if isinstance(e, dict) and e.get("type") == "reserve" and e.get("provenance") == provenance
+           and e.get("campaignId") == request.get("runId") and (e["campaignId"], e.get("runId"), e.get("attempt")) not in closed]
+    need(len(own) == 1, "aggregate-occurrence-reserve")
+    rec = load_json(occurrence["reconciliation"], "aggregate-occurrence-reconciliation")
+    need(isinstance(rec, dict) and rec.get("source") == "accepted-rollup" and rec.get("headSha") == snap["headSha"],
+         "aggregate-occurrence-reconciliation")
+    envelope = {"schema": OCCURRENCE_SCHEMA, "requestSha256": digest(request_raw), "campaignId": request.get("runId"),
+                "executionRunId": own[0].get("runId"), "journalHeadSha": snap["headSha"],
+                "reconciliationSha256": digest(occurrence["reconciliation"])}
+    return envelope, occurrence["reconciliation"]
+
+
+def receiver_receipt(manifest_raw, request_raw, accepted_bytes, pins, envelope=None):
     manifest = load_json(manifest_raw, "aggregate-manifest")
+    if envelope is not None:
+        return {
+            "schema": "speaksharp.cloud-test.aggregate-receiver-receipt.v2",
+            "manifestSha256": digest(manifest_raw),
+            "bundleRootSha256": pins["bundleRootSha256"],
+            # the retained, pinned historical components, kept apart from the occurrence envelope
+            "retainedComponentSha256": {name: manifest["components"][name]["sha256"] for name in RETAINED_OCCURRENCE},
+            "occurrence": envelope,
+            "acceptedSha256": {name: digest(accepted_bytes[name]) for name in REQUIRED},
+            "sourceSha": load_json(request_raw, "aggregate-request")["release"]["testedSha"],
+            "acceptedComponents": list(REQUIRED),
+        }
     return {
         "schema": "speaksharp.cloud-test.aggregate-receiver-receipt.v1",
         "manifestSha256": digest(manifest_raw),
@@ -130,21 +172,32 @@ def receiver_receipt(manifest_raw, request_raw, accepted_bytes, pins):
     }
 
 
-def receive_bundle(manifest_raw, bundle_dir, request_raw, config, pins):
-    """Return validated documents. ``pins`` is injectable only for unit controls;
-    the CLI always takes it from the reviewed config and refuses while inactive."""
+def receive_bundle(manifest_raw, bundle_dir, request_raw, config, pins, occurrence=None):
+    """Return validated documents and the accepted bytes (plus the occurrence envelope, or None). ``pins`` is injectable only for unit
+    controls; the CLI always takes it from the reviewed config and refuses while inactive. ``occurrence`` (journal snapshot and reconciliation
+    bytes) is required for, and only accepted with, a v2 manifest of a recurring request."""
     need(pins.get("activated") is True and SHA256.fullmatch(str(pins.get("manifestSha256", ""))) and
          SHA256.fullmatch(str(pins.get("bundleRootSha256", ""))), "aggregate-receiver-not-activated")
     need(digest(manifest_raw) == pins["manifestSha256"], "aggregate-manifest-not-pinned")
     manifest = load_json(manifest_raw, "aggregate-manifest")
     request = load_json(request_raw, "aggregate-request")
-    need(manifest.get("schema") == SCHEMA and set(manifest.get("components") or {}) == set(REQUIRED), "aggregate-manifest-shape")
-    need(manifest.get("requestSha256") == digest(request_raw) and manifest.get("runId") == request.get("runId"), "aggregate-request-binding")
+    recurring = manifest.get("schema") == OCCURRENCE_SCHEMA
+    envelope = None
+    if recurring:
+        # the pinned historical part names no request or campaign; the occurrence envelope binds them from the verified journal
+        need(request.get("priority") == "nightly-regression", "aggregate-occurrence-not-recurring")
+        need(set(manifest.get("components") or {}) == set(RETAINED_OCCURRENCE)
+             and "requestSha256" not in manifest and "runId" not in manifest, "aggregate-manifest-shape")
+        envelope, occurrence_reconciliation = receive_occurrence(request, request_raw, occurrence)
+    else:
+        need(occurrence is None, "aggregate-occurrence-unexpected")
+        need(manifest.get("schema") == SCHEMA and set(manifest.get("components") or {}) == set(REQUIRED), "aggregate-manifest-shape")
+        need(manifest.get("requestSha256") == digest(request_raw) and manifest.get("runId") == request.get("runId"), "aggregate-request-binding")
     need(manifest.get("sourceSha") == (request.get("release") or {}).get("testedSha") and
          manifest.get("workflowVersion") == request.get("workflowVersion") and
          manifest.get("codeManifestSha256") == (request.get("harness") or {}).get("codeManifestSha256"), "aggregate-source-binding")
     entries, docs, original = manifest["components"], {}, {}
-    for name in REQUIRED:
+    for name in (RETAINED_OCCURRENCE if recurring else REQUIRED):
         entry = entries[name]
         need(isinstance(entry, dict) and set(entry) == {"file", "sha256"} and SHA256.fullmatch(str(entry["sha256"])),
              "aggregate-component-entry")
@@ -155,18 +208,27 @@ def receive_bundle(manifest_raw, bundle_dir, request_raw, config, pins):
         original[name] = data
         docs[name] = load_json(data, "aggregate-component-json:" + name)
     need(component_root(entries) == pins["bundleRootSha256"] == manifest.get("bundleRootSha256"), "aggregate-root-not-pinned")
+    if recurring:
+        original["reconciliation"] = occurrence_reconciliation
+        docs["reconciliation"] = load_json(occurrence_reconciliation, "aggregate-occurrence-reconciliation")
     validate_documents(docs, request, config)
     accepted = dict(original)
     accepted["prior-run-verification"] = json.dumps(docs["prior-run-verification"], sort_keys=True).encode() + b"\n"
-    return docs, accepted
+    return docs, accepted, envelope
 
 
-def receive(manifest_raw, bundle_dir, request_raw, config, pins):
+def receive(manifest_raw, bundle_dir, request_raw, config, pins, occurrence=None):
     """Compatibility wrapper used by focused unit controls."""
-    return receive_bundle(manifest_raw, bundle_dir, request_raw, config, pins)[0]
+    return receive_bundle(manifest_raw, bundle_dir, request_raw, config, pins, occurrence)[0]
 
 
-def verified_accepted(manifest_path, request_path, accepted_dir, config):
+def read_occurrence(journal_snapshot_path, reconciliation_path):
+    """The occurrence inputs (journal snapshot, reconciliation), both or neither."""
+    need(bool(journal_snapshot_path) == bool(reconciliation_path), "aggregate-occurrence-missing")
+    return {"journalSnapshot": raw(journal_snapshot_path), "reconciliation": raw(reconciliation_path)} if journal_snapshot_path else None
+
+
+def verified_accepted(manifest_path, request_path, accepted_dir, config, occurrence=None):
     """Re-verify the pinned source bundle and the exact accepted consumer bytes.
 
     The consumer calls this at its own boundary.  It never treats a receipt that
@@ -176,7 +238,7 @@ def verified_accepted(manifest_path, request_path, accepted_dir, config):
     """
     pins = config.get("aggregateReceiver") or {}
     manifest_raw, request_raw = raw(manifest_path), raw(request_path)
-    docs, expected = receive_bundle(manifest_raw, os.path.dirname(os.path.realpath(manifest_path)), request_raw, config, pins)
+    docs, expected, envelope = receive_bundle(manifest_raw, os.path.dirname(os.path.realpath(manifest_path)), request_raw, config, pins, occurrence)
     accepted = {}
     for name in REQUIRED:
         accepted[name] = raw(os.path.join(accepted_dir, name + ".json"))
@@ -184,7 +246,7 @@ def verified_accepted(manifest_path, request_path, accepted_dir, config):
     receipt_path = os.path.join(accepted_dir, "receiver-receipt.json")
     receipt_raw = raw(receipt_path)
     receipt = load_json(receipt_raw, "aggregate-receiver-receipt")
-    expected_receipt = receiver_receipt(manifest_raw, request_raw, expected, pins)
+    expected_receipt = receiver_receipt(manifest_raw, request_raw, expected, pins, envelope)
     need(receipt == expected_receipt, "aggregate-receiver-receipt")
     return docs, accepted, receipt
 
@@ -208,6 +270,8 @@ def main():
     a.add_argument("--request", required=True)
     a.add_argument("--config", required=True)
     a.add_argument("--out-dir", required=True)
+    a.add_argument("--journal-snapshot")
+    a.add_argument("--occurrence-reconciliation")
     x = a.parse_args()
     try:
         with open(x.config, encoding="utf-8") as f:
@@ -216,7 +280,9 @@ def main():
         # Activation is checked before manifest/request bytes are read.
         need(pins.get("activated") is True, "aggregate-receiver-not-activated")
         manifest_raw, request_raw = raw(x.manifest), raw(x.request)
-        docs, accepted = receive_bundle(manifest_raw, os.path.dirname(os.path.realpath(x.manifest)), request_raw, config, pins)
+        occurrence = read_occurrence(x.journal_snapshot, x.occurrence_reconciliation)
+        docs, accepted, envelope = receive_bundle(manifest_raw, os.path.dirname(os.path.realpath(x.manifest)), request_raw, config, pins,
+                                                  occurrence)
         os.mkdir(x.out_dir, 0o700)
         for name in REQUIRED:
             path = os.path.join(x.out_dir, name + ".json")
@@ -225,7 +291,7 @@ def main():
             with open(path, "xb") as f:
                 f.write(accepted[name])
         with open(os.path.join(x.out_dir, "receiver-receipt.json"), "x", encoding="utf-8") as f:
-            json.dump(receiver_receipt(manifest_raw, request_raw, accepted, pins), f, sort_keys=True)
+            json.dump(receiver_receipt(manifest_raw, request_raw, accepted, pins, envelope), f, sort_keys=True)
             f.write("\n")
         return 0
     except Refused as e:

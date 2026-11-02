@@ -82,7 +82,7 @@ class AggregateReceiver(unittest.TestCase):
         self.assertEqual(set(docs), set(A.REQUIRED))
         self.assertTrue(all(r["passed"] for r in docs["prior-run-verification"]["runs"]))
         self.assertTrue(all(r["reconciliation"]["ok"] for r in docs["case-costs"]["runs"].values()))
-        _, accepted = A.receive_bundle(self.manifest_raw, str(self.root), self.request_raw, self.config, self.pins)
+        _, accepted, _envelope = A.receive_bundle(self.manifest_raw, str(self.root), self.request_raw, self.config, self.pins)
         receipt = A.receiver_receipt(self.manifest_raw, self.request_raw, accepted, self.pins)
         self.assertEqual((receipt["requestSha256"], receipt["sourceSha"]),
                          (hashlib.sha256(self.request_raw).hexdigest(), "a" * 40))
@@ -250,3 +250,76 @@ class AggregateReceiver(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecurringOccurrenceEnvelope(AggregateReceiver):
+    """#1772 Code finding 4446324167: each nightly occurrence has new request bytes and a new campaign, so a v1 manifest pinned to one
+    occurrence refuses the next (aggregate-request-binding). A v2 manifest pins only the historical components and the release; the
+    request/campaign binding and the reconciliation come from an occurrence envelope derived from the verified journal snapshot."""
+
+    def occurrence(self, request_raw, campaign, head="c" * 40, events=None, reconciliation_head=None):
+        own = {"type": "reserve", "campaignId": campaign, "runId": "101", "attempt": 1, "allocation": {},
+               "provenance": "request-sha256:" + hashlib.sha256(request_raw).hexdigest(), "atUtc": "2026-11-02T03:00:30Z"}
+        snapshot = {"schema": A.JOURNAL_SNAPSHOT_SCHEMA, "headSha": head, "events": [own] if events is None else events(own)}
+        rc = dict(self.docs["reconciliation"], headSha=reconciliation_head or head)
+        return {"journalSnapshot": json.dumps(snapshot, sort_keys=True).encode(), "reconciliation": json.dumps(rc, sort_keys=True).encode()}
+
+    def nightly(self, campaign):
+        request = dict(copy.deepcopy(self.request), priority="nightly-regression", runId=campaign)
+        return request, json.dumps(request, sort_keys=True).encode()
+
+    def v2(self):
+        entries = {name: e for name, e in self.manifest["components"].items() if name != "reconciliation"}
+        manifest = {"schema": A.OCCURRENCE_SCHEMA, "sourceSha": "a" * 40, "workflowVersion": self.request["workflowVersion"],
+                    "codeManifestSha256": self.request["harness"]["codeManifestSha256"], "components": entries,
+                    "bundleRootSha256": A.component_root(entries)}
+        raw = json.dumps(manifest, sort_keys=True).encode()
+        return raw, {"activated": True, "manifestSha256": hashlib.sha256(raw).hexdigest(), "bundleRootSha256": manifest["bundleRootSha256"]}
+
+    def test_one_pinned_manifest_serves_every_occurrence_through_its_verified_envelope(self):
+        first, first_raw = self.nightly("nightly-2026-11-02")
+        second, second_raw = self.nightly("nightly-2026-11-03")
+        # broken before: the v1 manifest names one occurrence's request, so the next occurrence refuses
+        v1 = dict(self.manifest, requestSha256=hashlib.sha256(first_raw).hexdigest(), runId=first["runId"])
+        v1_raw = json.dumps(v1, sort_keys=True).encode()
+        v1_pins = {"activated": True, "manifestSha256": hashlib.sha256(v1_raw).hexdigest(), "bundleRootSha256": v1["bundleRootSha256"]}
+        with self.assertRaisesRegex(A.Refused, "aggregate-request-binding"):
+            A.receive_bundle(v1_raw, str(self.root), second_raw, self.config, v1_pins)
+        # fixed after: ONE pinned v2 manifest admits both occurrences, each bound by its own envelope
+        raw, pins = self.v2()
+        for request, request_raw in ((first, first_raw), (second, second_raw)):
+            occurrence = self.occurrence(request_raw, request["runId"])
+            docs, accepted, envelope = A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, occurrence)
+            self.assertEqual((envelope["requestSha256"], envelope["campaignId"], envelope["journalHeadSha"], envelope["executionRunId"]),
+                             (hashlib.sha256(request_raw).hexdigest(), request["runId"], "c" * 40, "101"))
+            self.assertEqual(accepted["reconciliation"], occurrence["reconciliation"], "the occurrence's checkpoint, not a pinned one")
+            receipt = A.receiver_receipt(raw, request_raw, accepted, pins, envelope)
+            # the retained historical components are recorded apart from the occurrence envelope
+            self.assertNotIn("reconciliation", receipt["retainedComponentSha256"])
+            self.assertEqual(receipt["occurrence"], envelope)
+
+    def test_the_envelope_binds_only_this_requests_own_open_reserve_and_its_checkpoint(self):
+        request, request_raw = self.nightly("nightly-2026-11-03")
+        raw, pins = self.v2()
+        other = self.nightly("nightly-2026-11-04")[1]
+        cases = (
+            ("no occurrence inputs", None, "aggregate-occurrence-missing"),
+            ("no own reserve", self.occurrence(request_raw, request["runId"], events=lambda own: []), "aggregate-occurrence-reserve"),
+            ("another request's reserve", self.occurrence(other, request["runId"]), "aggregate-occurrence-reserve"),
+            ("another campaign", self.occurrence(request_raw, "nightly-other"), "aggregate-occurrence-reserve"),
+            ("own reserve already settled", self.occurrence(request_raw, request["runId"],
+                                                            events=lambda own: [own, dict(own, type="settle")]), "aggregate-occurrence-reserve"),
+            ("two own reserves", self.occurrence(request_raw, request["runId"], events=lambda own: [own, dict(own, runId="102")]),
+             "aggregate-occurrence-reserve"),
+            ("checkpoint at another head", self.occurrence(request_raw, request["runId"], reconciliation_head="d" * 40),
+             "aggregate-occurrence-reconciliation"),
+        )
+        for label, occurrence, code in cases:
+            with self.assertRaisesRegex(A.Refused, code, msg=label):
+                A.receive_bundle(raw, str(self.root), request_raw, self.config, pins, occurrence)
+        # a manual request never uses the occurrence route, and v1 never accepts an envelope
+        with self.assertRaisesRegex(A.Refused, "aggregate-occurrence-not-recurring"):
+            A.receive_bundle(raw, str(self.root), self.request_raw, self.config, pins, self.occurrence(self.request_raw, self.request["runId"]))
+        with self.assertRaisesRegex(A.Refused, "aggregate-occurrence-unexpected"):
+            A.receive_bundle(self.manifest_raw, str(self.root), self.request_raw, self.config, self.pins,
+                             self.occurrence(self.request_raw, self.request["runId"]))

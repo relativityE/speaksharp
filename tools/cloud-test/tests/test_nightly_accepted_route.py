@@ -60,8 +60,23 @@ class NightlyAcceptedRoute(unittest.TestCase):
         e.update(over)
         return e
 
-    def run_route(self, with_recurring=True, events=None, env_over=None, nights=("P", "F")):
+    def occurrence_manifest(self):
+        """#1772 Code finding 4446324167: ONE pinned v2 manifest (historical components + release only), for every occurrence."""
+        entries = {n: e for n, e in self.manifest["components"].items() if n != "reconciliation"}
+        manifest = {"schema": A.OCCURRENCE_SCHEMA, "sourceSha": self.manifest["sourceSha"], "workflowVersion": self.manifest["workflowVersion"],
+                    "codeManifestSha256": self.manifest["codeManifestSha256"], "components": entries, "bundleRootSha256": A.component_root(entries)}
+        self.manifest_raw = json.dumps(manifest, sort_keys=True).encode()
+        self.pins = {"activated": True, "manifestSha256": hashlib.sha256(self.manifest_raw).hexdigest(), "bundleRootSha256": manifest["bundleRootSha256"]}
+        self.config["aggregateReceiver"] = dict(self.pins)
+
+    def run_route(self, with_recurring=True, events=None, env_over=None, nights=("P", "F"), occurrence=None):
         self.nightly_bundle()
+        if occurrence is not None:  # (campaign id, manifest mode): a later occurrence's own request bytes and campaign
+            campaign, mode = occurrence
+            self.request = dict(self.request, runId=campaign)
+            self.request_raw = json.dumps(self.request, sort_keys=True).encode()
+            if mode == "v2":
+                self.occurrence_manifest()
         root = self.root
         config = root / "active-config.json"; config.write_text(json.dumps(self.config))
         request = root / "request.json"; request.write_bytes(self.request_raw)
@@ -69,8 +84,15 @@ class NightlyAcceptedRoute(unittest.TestCase):
         accepted, output = root / "accepted", root / "pipeline-output"
         env = {"PATH": os.environ["PATH"], "HOME": str(root), "GITHUB_ACTIONS": "true", "GITHUB_RUN_ID": "101", "CT_EXECUTION_RUN_ID": "999",
                **(env_over or {})}
+        snapshot = root / "journal-snapshot.json"
+        snapshot.write_text(json.dumps({"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": "c" * 40,
+                                        "events": [self.reserve()] if events is None else events}))
+        v2 = occurrence is not None and occurrence[1] == "v2"
+        occ = ["--journal-snapshot", str(snapshot), "--occurrence-reconciliation", str(root / "reconciliation.json")] if v2 else []
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "aggregate_receiver.py"), "--manifest", str(manifest),
-                            "--request", str(request), "--config", str(config), "--out-dir", str(accepted)], capture_output=True, text=True, env=env)
+                            "--request", str(request), "--config", str(config), "--out-dir", str(accepted)] + occ, capture_output=True, text=True, env=env)
+        if occurrence is not None and occurrence[1] == "v1-of-another-occurrence":
+            return r, None
         self.assertEqual(r.returncode, 0, r.stderr)
         proof = root / "proof.json"
         proof.write_text(json.dumps({"result": "PASS", "codeManifestSha256": self.request["harness"]["codeManifestSha256"], "testsPassed": 1, "testsFailed": 0,
@@ -82,9 +104,6 @@ class NightlyAcceptedRoute(unittest.TestCase):
         stimulus = root / "stimulus.json"
         stimulus.write_text(json.dumps({"createdAt": created, "productTraffic": 0, "codeManifestSha256": self.request["harness"]["codeManifestSha256"],
                                         "cases": {s["case"]: {"ready": True} for s in self.request["selection"] if s.get("needsCaptureDevice")}}))
-        snapshot = root / "journal-snapshot.json"
-        snapshot.write_text(json.dumps({"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": "c" * 40,
-                                        "events": [self.reserve()] if events is None else events}))
         prior = P.NightlyHistoryThroughTheRealPipeline.prior_state(self, tempfile.mkdtemp(dir=root), list(nights))
         argv = [sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", str(request), "--config", str(config),
                 "--workflow", os.path.join(ROOT, "workflow.json"), "--accepted-input-dir", str(accepted),
@@ -93,7 +112,25 @@ class NightlyAcceptedRoute(unittest.TestCase):
                 "--prior-state", prior, "--stage", "final", "--out-dir", str(output), "--require-secret-free"]
         if with_recurring:
             argv += ["--reservations", str(snapshot)]
+        argv += occ
         return subprocess.run(argv, capture_output=True, text=True, env=env), output
+
+    def test_one_pinned_v2_manifest_carries_every_occurrence_to_the_gates(self):
+        # #1772 Code finding 4446324167. Broken before: a manifest pinned to one occurrence refuses the next occurrence's request.
+        self.nightly_bundle()
+        first = self.request["runId"]
+        r, _ = self.run_route(occurrence=(first + "-next", "v1-of-another-occurrence"))
+        self.assertEqual(r.returncode, 78)
+        self.assertIn("aggregate-request-binding", r.stderr)
+        # Fixed after: the same pinned v2 manifest admits two different occurrences end to end (real receiver CLI, real pipeline and gates).
+        for campaign in ("nightly-2026-11-03", "nightly-2026-11-04"):
+            self.setUp()
+            r, out = self.run_route(occurrence=(campaign, "v2"))
+            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+            gates = {g["id"] for g in json.loads((out / "gate-status.json").read_text())["gates"]}
+            self.assertTrue({"G7", "G11"} <= gates)
+            receipt = json.loads((self.root / "accepted" / "receiver-receipt.json").read_text())
+            self.assertEqual((receipt["occurrence"]["campaignId"], receipt["occurrence"]["journalHeadSha"]), (campaign, "c" * 40))
 
     def test_a_nightly_accepted_run_reaches_g7_and_g11_and_the_carried_history_consumers(self):
         # Sam RETURN 1793624502.797169 #1: the valid authenticated-snapshot route with NO history index file reaches the real check_gates

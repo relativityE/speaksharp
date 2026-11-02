@@ -303,6 +303,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertIn(token, runner)
         self.assertIn('blocked "$recurring is required for retained-input recurring gates"', runner)
         self.assertIn('cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json"', runner)
+        # #1772 Code finding 4446324167: a recurring run hands the receiver and the gates its occurrence envelope inputs
+        self.assertIn('occurrence_args=(--journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json")', runner)
+        self.assertEqual(runner.count('${occurrence_args[@]+"${occurrence_args[@]}"}'), 2)
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         manual = open(os.path.join(ROOT, "scripts", "manual_reservation.py"), encoding="utf-8").read()
         state = open(os.path.join(ROOT, "scripts", "state_ref_writer.py"), encoding="utf-8").read()

@@ -235,8 +235,14 @@ case "$STAGE" in
     fi
     if [ -n "${CT_RETAINED_GATE_MANIFEST:-}" ]; then
       accepted="$OUT/retained-gate-inputs"
+      # #1772 Code finding 4446324167: a recurring run's request/campaign binding and reconciliation are its occurrence envelope, derived
+      # from the verified journal snapshot and the admitted checkpoint; the retained manifest pins only the historical components.
+      occurrence_args=()
+      if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" = nightly-regression ]; then
+        occurrence_args=(--journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json")
+      fi
       run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
-        --request "$REQ" --config "$CFG" --out-dir "$accepted"
+        --request "$REQ" --config "$CFG" --out-dir "$accepted" ${occurrence_args[@]+"${occurrence_args[@]}"}
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
       # Only inputs actually present are forwarded (unset-safe under set -u); a nightly run's are required above. The history index is
       # optional: on the verified journal-snapshot route G11 admits the snapshot without it.
@@ -248,7 +254,7 @@ case "$STAGE" in
       [ -n "${CT_HISTORY_INDEX:-}" ] && [ -e "$CT_HISTORY_INDEX" ] && retained_args+=(--history-index "$CT_HISTORY_INDEX")
       run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --request "$REQ" --config "$CFG" \
         --workflow "$ROOT/workflow.json" --accepted-input-dir "$accepted" --receiver-receipt "$accepted/receiver-receipt.json" \
-        --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" ${retained_args[@]+"${retained_args[@]}"} \
+        --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" ${retained_args[@]+"${retained_args[@]}"} ${occurrence_args[@]+"${occurrence_args[@]}"} \
         --offline-checks "$CT_OFFLINE_CHECKS" --offline-proof "$CT_OFFLINE_PROOF" \
         --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" --stage final --out-dir "$OUT/final-gates" \
         --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free

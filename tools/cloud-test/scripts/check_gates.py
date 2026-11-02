@@ -374,7 +374,8 @@ def main():
     a = argparse.ArgumentParser()
     for k in ("request", "config", "ledger", "workflow", "release-verification", "reconciliation", "base", "out"):
         a.add_argument("--" + k, required=True)
-    for k in ("validation", "offline-checks", "offline-proof", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "prior-verification", "prior-comparison", "receiver-receipt", "receiver-manifest", "accepted-input-dir", "prior-state", "execution-run-id"):
+    for k in ("validation", "offline-checks", "offline-proof", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "prior-verification", "prior-comparison", "receiver-receipt", "receiver-manifest", "accepted-input-dir", "prior-state", "execution-run-id",
+              "journal-snapshot", "occurrence-reconciliation"):
         a.add_argument("--" + k)
     a.add_argument("--stage", choices=["preflight", "final"], default="final")
     x = a.parse_args()
@@ -401,7 +402,8 @@ def main():
             a.error("received prior-run inputs require --receiver-manifest and --accepted-input-dir")
         import aggregate_receiver
         try:
-            docs, _, receiver = aggregate_receiver.verified_accepted(x.receiver_manifest, x.request, x.accepted_input_dir, cfg)
+            occurrence = aggregate_receiver.read_occurrence(x.journal_snapshot, x.occurrence_reconciliation)
+            docs, _, receiver = aggregate_receiver.verified_accepted(x.receiver_manifest, x.request, x.accepted_input_dir, cfg, occurrence)
         except aggregate_receiver.Refused as err:
             print("BLOCKED_SETUP: " + str(err), file=sys.stderr)
             sys.exit(78)
