@@ -235,7 +235,6 @@ def nightly_headline(f, nh, gates, limit=None):
     f["comparisonBasis"] = "nightly carried-forward history (%d qualified occurrence(s), sequence %s); the R4C/R5 bootstrap comparison is historical only" % (
         nh["occurrences"], nh["sequence"])
     f["deployedSinceLastRun"] = "the latest retained nightly evidence is the comparison basis; the bootstrap releases are historical"
-    go = gates.get("decision") == "GO"
     if nh["carriedFailRows"]:
         cases = ", ".join(cap(nh["carriedFailCases"], 4))
         f["customerImpact"] = "%d comparable row(s) still FAIL in the latest retained nightly evidence: %s." % (nh["carriedFailRows"], cases)
@@ -244,13 +243,15 @@ def nightly_headline(f, nh, gates, limit=None):
         f["readiness"] = "Not ready: the retained nightly evidence carries a FAIL in %s." % cases
         f["status"], f["recommendation"] = "BLOCKED", "FIX AND RETEST"
     else:
+        # RETURN 1793578066.007679: carried history can only LOWER the headline. Without a carried FAIL, the status, readiness and
+        # recommendation derived from the fresh-full-run and safety conditions stand (never promoted to READY/PROCEED by history, never a
+        # safety HOLD overridden); only a FIX AND RETEST that rested on the historical bootstrap failures becomes HOLD.
         f["customerImpact"] = "No comparable row carries a FAIL in the latest retained nightly evidence (%d of %d rows comparable)." % (
             nh["comparableRows"], nh["rowsTotal"])
         f["bad"] = ["none in the retained nightly evidence"]
         f["good"] = ["%d of %d rows comparable, none carrying a FAIL" % (nh["comparableRows"], nh["rowsTotal"])]
-        f["readiness"] = ("Gates open: %s." % ", ".join(f["blockers"])) if not go else "Gates GO on the retained nightly basis."
-        f["status"] = "BLOCKED" if not go else ("READY" if nh["comparableRows"] == nh["rowsTotal"] else "LIMITED")
-        f["recommendation"] = "PROCEED" if go else "HOLD"
+        if f["recommendation"] == "FIX AND RETEST":
+            f["recommendation"] = "HOLD"
     if limit:
         for n in (3, 2, 1):
             f2 = dict(f)

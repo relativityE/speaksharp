@@ -103,6 +103,25 @@ class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
     def setUpClass(cls):
         prerequisite(os.system("git -C %s cat-file -e %s 2>/dev/null" % (REPO, TESTED)) == 0, "git history of the repository")
 
+    def all_pass_state(self, d):
+        """One retained night with every one of the 204 catalog rows PASS, under the current identities."""
+        import publish_latest_record as P
+        import select_baselines as SB
+        req = json.load(open(synthetic_history().request(REQ)))
+        catalog = J("config", "assertion-catalog.json")
+        widths = {cid: len(c["requiredAssertions"]) for cid, c in catalog["cases"].items()}
+        day = "2026-11-01T08:00:00Z"
+        rec = {"runId": "800", "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40, "campaignId": "nightly-all",
+               "coverage": "full", "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": "2026-11-01T03:00:00Z", "endedUtc": day,
+               "outcome": "passed", "cases": [{"caseId": cid, "result": "PASS", "rows": {"pass": w, "fail": 0, "notRun": 0}, "codes": []}
+                                              for cid, w in widths.items()], "codes": [],
+               "rowVerdicts": {cid: "P" * w for cid, w in widths.items()}, "comparability": SB.current_identities(req),
+               "evidence": {"planSha256": "7" * 64, "caseResultsSha256": "8" * 64}}
+        state = P.complete(P.begin(P.parse_body(""), "800", 1, "a" * 40, "2026-11-01T03:00:00Z"), rec)
+        path = os.path.join(d, "prior-state.json")
+        wjson(path, state)
+        return path
+
     def prior_state(self, d, nights):
         import publish_latest_record as P
         import select_baselines as SB
@@ -131,7 +150,7 @@ class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
     def outputs(self, nights):
         d = tempfile.mkdtemp(prefix="ct-nh-")
         r, out = pipeline(["--prior-state", self.prior_state(d, nights)])
-        self.assertTrue(os.path.exists(os.path.join(out, "summary.json")), r.stdout[-1500:] + r.stderr[-1500:])
+        self.assertEqual(r.returncode, 0, r.stdout[-1500:] + r.stderr[-1500:])
         summary = json.load(open(os.path.join(out, "summary.json")))["fields"]
         html = open(os.path.join(out, "report", "REPORT.html"), encoding="utf-8").read()
         return summary, html, json.load(open(os.path.join(out, "nightly-baselines.json")))
@@ -145,6 +164,30 @@ class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
         self.assertEqual((fixed["nightlyHistory"]["carriedFailRows"], fixed["nightlyHistory"]["carriedFailCases"]), (0, []))
         self.assertIn("0 comparable row(s) still FAIL", html_p)
         self.assertNotIn("Cases carrying a comparable FAIL", html_p)
+
+    def test_all_retained_rows_passing_without_a_fresh_full_run_is_limited_never_ready(self):
+        # RETURN 1793578066.007679: carried history never grants READY / PROCEED by itself; the real pipeline completes and the report validates.
+        d = tempfile.mkdtemp(prefix="ct-nh-all-")
+        r, out = pipeline(["--prior-state", self.all_pass_state(d)])
+        self.assertEqual(r.returncode, 0, r.stdout[-1500:] + r.stderr[-1500:])
+        summary = json.load(open(os.path.join(out, "summary.json")))["fields"]
+        gates = json.load(open(os.path.join(out, "gate-status.json")))
+        self.assertEqual(summary["nightlyHistory"]["comparableRows"], 204)
+        # the synthetic sealed history's gates are NO-GO (G1/G3/G5/G6 open): 204 passing retained rows lift nothing
+        self.assertEqual(gates["decision"], "NO-GO")
+        self.assertEqual((summary["status"], summary["recommendation"]), ("BLOCKED", "HOLD"))
+
+    def test_with_gates_go_and_no_fresh_full_run_the_headline_stays_limited(self):
+        # the GO case on the real derivation: the fresh-run LIMITED / PROCEED stands; carried history never promotes it to READY
+        import derive_summary as DS
+        f = {"status": "LIMITED", "recommendation": "PROCEED", "readiness": "Not a fresh full run.", "customerImpact": "x", "deployedSinceLastRun": "x",
+             "good": ["x"], "bad": ["x"], "unknown": ["none"], "blockers": ["none"], "spend": "x", "provenGapsClosed": [], "purpose": "x"}
+        nh = {"occurrences": 1, "sequence": 1, "comparableRows": 204, "rowsTotal": 204, "carriedFailRows": 0, "carriedFailCases": [],
+              "journeysWithoutLastKnownGood": []}
+        out = DS.nightly_headline(f, nh, {"decision": "GO"})
+        self.assertEqual((out["status"], out["recommendation"], out["readiness"]), ("LIMITED", "PROCEED", "Not a fresh full run."))
+        held = DS.nightly_headline(dict(f, status="BLOCKED", recommendation="HOLD", readiness="safety HOLD"), nh, {"decision": "GO"})
+        self.assertEqual((held["status"], held["recommendation"]), ("BLOCKED", "HOLD"))  # a safety HOLD is never overridden
 
     def test_the_headline_never_contradicts_the_carried_nightly_outcome(self):
         # RETURN 1793577431.476549: the headline is derived from the retained nightly evidence; the bootstrap is labelled historical.
