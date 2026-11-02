@@ -101,9 +101,9 @@ class Journal(unittest.TestCase):
     def chain(self):
         return W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), self.root)
 
-    def append(self, kind, run, allocation, at="2026-11-02T04:00:00Z", provenance="approval:slack-1793553421.029269"):
+    def append(self, kind, run, allocation, at="2026-11-02T04:00:00Z", provenance="approval:slack-1793553421.029269", campaign="R10-manual"):
         head = W.fetch_head(self.repo, self.remote, self.remote)
-        e = {"type": kind, "campaignId": "R10-manual", "runId": run, "attempt": 1, "allocation": dict(allocation),
+        e = {"type": kind, "campaignId": campaign, "runId": run, "attempt": 1, "allocation": dict(allocation),
              "provenance": provenance, "atUtc": at}
         return W.propose(self.repo, self.remote, head, e, self.root, self.remote)
 
@@ -237,12 +237,34 @@ class Rollup(Journal):
         self.append("reserve", "102", dict(CAPS, starts=2, takes=1), provenance="request-sha256:" + other)
         self.append("reserve", "103", CAPS)  # an approval-provenance reserve names no request and is never attributed to one
         out = self.receive()
-        self.assertEqual(out["openReservationsByRequest"], {own: {"count": 1, "starts": 6, "takes": 4},
-                                                            other: {"count": 1, "starts": 2, "takes": 1}})
+        self.assertEqual(out["openReservationsByRequest"], {own: {"R10-manual": {"count": 1, "starts": 6, "takes": 4}},
+                                                            other: {"R10-manual": {"count": 1, "starts": 2, "takes": 1}}})
         self.assertEqual(out["starts"]["ownerCounted"], 14, "every open reservation is still counted as used")
         self.append("settle", "101", dict(CAPS, starts=4, takes=3), provenance="evidence-sha256:" + "c" * 64)
         self.append("release", "102", dict(CAPS, starts=2, takes=1))
         self.assertEqual(self.receive()["openReservationsByRequest"], {}, "a settled or released reservation is no longer held")
+
+    def test_a_case10_observation_reserve_under_the_same_request_is_not_a_second_own_reservation(self):
+        # #1772 review 4446862226 (broken before: both reserves were counted under the request digest alone, so the Start check refused
+        # own-reservation-ambiguous). The real observation reserve uses its own campaign and a zero-Start read budget.
+        import case_start_caps as CS
+        import case10_observation as O
+        own = "a" * 64
+        self.append("reserve", "101", CAPS, provenance="request-sha256:" + own)
+        observation = O.W.validate_event({"type": "reserve", "campaignId": "R10-manual" + O.RESERVATION_SUFFIX, "runId": "101", "attempt": 1,
+                                          "allocation": dict({k: 0 for k in O.W.CATS}, requests=50, identityReads=2),
+                                          "provenance": "request-sha256:" + own, "atUtc": "2026-11-02T04:00:00Z"})
+        self.append("reserve", "101", observation["allocation"], provenance=observation["provenance"], campaign=observation["campaignId"])
+        out = self.receive()
+        self.assertEqual(out["openReservationsByRequest"][own], {"R10-manual": {"count": 1, "starts": 6, "takes": 4},
+                                                                 "R10-manual.case10-observation": {"count": 1, "starts": 0, "takes": 0}})
+        self.assertEqual(CS.own_reservation(out, own, "R10-manual"), (6, 4))  # the campaign's own reservation, unambiguous
+        self.assertEqual(out["requests"]["conservativeUsed"], 800 + 50, "the observation's request charge is still counted")
+        self.assertEqual(CS.own_reservation(out, "b" * 64, "R10-manual"), (0, 0))  # an unrelated request holds nothing
+        # a duplicate open reserve of the SAME request and campaign stays ambiguous
+        self.append("reserve", "102", CAPS, provenance="request-sha256:" + own)
+        with self.assertRaisesRegex(ValueError, "own-reservation-ambiguous"):
+            CS.own_reservation(self.receive(), own, "R10-manual")
 
     def test_scope_and_carryover_must_be_explicitly_approved(self):
         for sc, code in ((None, "rollup-period-scope-unapproved"), ({}, "rollup-period-scope-unapproved"),

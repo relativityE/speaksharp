@@ -96,14 +96,20 @@ def request_caps(request, *, execution=False):
     return mode, caps
 
 
-def own_reservation(reconciliation, request_sha256):
-    """#1772 review 4446137335: the (starts, takes) of THIS request's one open reservation, which the accepted rollup already counts as used;
-    (0, 0) when it holds none. Keyed by the admitted request digest (the reserve's provenance), so another request's reservation is never
-    returned; two open reservations of the same request are ambiguous and refuse. Every Start/take consumer subtracts it once, here."""
+def own_reservation(reconciliation, request_sha256, campaign_id=None):
+    """#1772 review 4446137335: the (starts, takes) of THIS request's one open campaign reservation, which the accepted rollup already counts
+    as used; (0, 0) when it holds none. Keyed by the admitted request digest (the reserve's provenance) and the request's own campaign
+    (review 4446862226: a Case 10 observation reserve shares the provenance under its own .case10-observation campaign and is never this
+    one), so another request's or another campaign's reservation is never returned; two open reservations of the same request and campaign
+    are ambiguous and refuse. Every Start/take consumer subtracts it once, here."""
     rc = obj(reconciliation, "reconciliation-object")
     if request_sha256 is None or "openReservationsByRequest" not in rc:
         return 0, 0
-    held = obj(rc["openReservationsByRequest"], "reconciliation-open-reservations").get(request_sha256)
+    require(isinstance(campaign_id, str) and campaign_id, "own-reservation-campaign")
+    by_campaign = obj(rc["openReservationsByRequest"], "reconciliation-open-reservations").get(request_sha256)
+    if by_campaign is None:
+        return 0, 0
+    held = obj(by_campaign, "reconciliation-own-reservation").get(campaign_id)
     if held is None:
         return 0, 0
     held = obj(held, "reconciliation-own-reservation")
@@ -126,7 +132,7 @@ def reconcile_caps(request, reconciliation, *, execution=False, request_sha256=N
         integer(value, "reconciliation-ceiling")
     used = integer(starts.get("ownerCounted"), "starts-used")
     # The run's own already-counted reservation is replaced by its ask below, never charged twice (own_reservation).
-    own, _ = own_reservation(rc, request_sha256)
+    own, _ = own_reservation(rc, request_sha256, request.get("runId"))
     require(own <= used, "own-reservation-exceeds-counted")
     used -= own
     current = integer(ceilings.get("starts"), "starts-ceiling")

@@ -274,7 +274,7 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         # #1772 review 4446137335 (Jensen 1793644594.204599): this request's own open reservation is already in ownerCounted, so it is
         # replaced by the plan here exactly as in reconcile_caps; another request's reservation still counts in full.
         try:
-            own_starts, own_takes = own_reservation(rc, request_sha256)
+            own_starts, own_takes = own_reservation(rc, request_sha256, req.get("runId"))
         except (ValueError, TypeError, KeyError):
             own_starts = own_takes = None
             need.append("this request's own open reservation is ambiguous or invalid in the reconciliation")

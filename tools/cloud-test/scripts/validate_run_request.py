@@ -221,7 +221,7 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         # #1772 review 4446137335: this request's own counted reservation is replaced by its plan, never added twice (own_reservation;
         # an invalid or ambiguous one is already refused by reconcile_caps above).
         try:
-            own_starts, own_takes = own_reservation(rc, request_sha256)
+            own_starts, own_takes = own_reservation(rc, request_sha256, req.get("runId"))
         except InputValidationError:
             own_starts = own_takes = 0
         used_starts = rc["starts"]["ownerCounted"] - min(own_starts, rc["starts"]["ownerCounted"])
