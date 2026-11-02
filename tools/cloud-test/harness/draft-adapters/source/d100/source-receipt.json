@@ -1,0 +1,54 @@
+{
+  "sourceSha": "d1003559242570023e0d9a8c335d05fe67c3d788",
+  "scope": "Source only; no production schema application, RLS qualification, browser run or release equivalence asserted",
+  "entries": [
+    {
+      "path": "frontend/src/components/progress/ProgressPanel.tsx",
+      "sourceSha": "d1003559242570023e0d9a8c335d05fe67c3d788",
+      "expectedGitBlob": "62460ac6f094ad58b7fa6075451d00301763cd92",
+      "gitBlobSha1": "62460ac6f094ad58b7fa6075451d00301763cd92",
+      "sha256": "1d89559000a161393666ed667b3b9dcce80e317291118202b0110c32cbecdb73",
+      "sourceEvidence": "Authorized exact-ref GitHub connector read; ProgressPanel/loadSessionProgress hashes checked against current-source-delta; other paths unchanged in exact70e-to-d100 compare and match preserved main70e tree."
+    },
+    {
+      "path": "frontend/src/services/progress/loadSessionProgress.ts",
+      "sourceSha": "d1003559242570023e0d9a8c335d05fe67c3d788",
+      "expectedGitBlob": "e42c772dc88958649e6b7d99c5b60d6c590c2049",
+      "gitBlobSha1": "e42c772dc88958649e6b7d99c5b60d6c590c2049",
+      "sha256": "f430efe3af8e23e069057b568cf7f4affdd979d81393a48710e0f785aaa7cbd4",
+      "sourceEvidence": "Authorized exact-ref GitHub connector read; ProgressPanel/loadSessionProgress hashes checked against current-source-delta; other paths unchanged in exact70e-to-d100 compare and match preserved main70e tree."
+    },
+    {
+      "path": "frontend/src/services/progress/buildProgressEvaluation.ts",
+      "sourceSha": "d1003559242570023e0d9a8c335d05fe67c3d788",
+      "expectedGitBlob": "4e972ff375ac63881286a568a60ef662b558d4be",
+      "gitBlobSha1": "4e972ff375ac63881286a568a60ef662b558d4be",
+      "sha256": "f562c249f25daaf52fc1cc5aec2b740b985a8b4200298cbc906b5053db8ceaad",
+      "sourceEvidence": "Authorized exact-ref GitHub connector read; ProgressPanel/loadSessionProgress hashes checked against current-source-delta; other paths unchanged in exact70e-to-d100 compare and match preserved main70e tree."
+    },
+    {
+      "path": "frontend/src/services/progress/recordProgress.ts",
+      "sourceSha": "d1003559242570023e0d9a8c335d05fe67c3d788",
+      "expectedGitBlob": "491acfca8352aabba4c912f6f1867b85f9380e49",
+      "gitBlobSha1": "491acfca8352aabba4c912f6f1867b85f9380e49",
+      "sha256": "cc07c705a298dd9c10e982ebef6083dba8017409443c2b7ddb7c85f75c351b65",
+      "sourceEvidence": "Authorized exact-ref GitHub connector read; ProgressPanel/loadSessionProgress hashes checked against current-source-delta; other paths unchanged in exact70e-to-d100 compare and match preserved main70e tree."
+    },
+    {
+      "path": "backend/supabase/migrations/20260731120000_session_progress_evaluations.sql",
+      "sourceSha": "d1003559242570023e0d9a8c335d05fe67c3d788",
+      "expectedGitBlob": "14f9df76d05482c1dbd85f8626509d7bee5cd4e2",
+      "gitBlobSha1": "14f9df76d05482c1dbd85f8626509d7bee5cd4e2",
+      "sha256": "c5ebe8354c9b949045229d668197ebfe875c56204703382191a90a378fe9672f",
+      "sourceEvidence": "Authorized exact-ref GitHub connector read; ProgressPanel/loadSessionProgress hashes checked against current-source-delta; other paths unchanged in exact70e-to-d100 compare and match preserved main70e tree."
+    },
+    {
+      "path": "backend/supabase/migrations/20260731130000_progress_recommendations.sql",
+      "sourceSha": "d1003559242570023e0d9a8c335d05fe67c3d788",
+      "expectedGitBlob": "ec0d0ea71aa493ac70455a1c635275025a4a791a",
+      "gitBlobSha1": "ec0d0ea71aa493ac70455a1c635275025a4a791a",
+      "sha256": "a4c0d2f0fccab9601e6d7b79f367d017ee74cedcaeda7ef865b4b65c0203f169",
+      "sourceEvidence": "Authorized exact-ref GitHub connector read; ProgressPanel/loadSessionProgress hashes checked against current-source-delta; other paths unchanged in exact70e-to-d100 compare and match preserved main70e tree."
+    }
+  ]
+}

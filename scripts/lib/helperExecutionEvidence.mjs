@@ -42,6 +42,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtRecoveryCapture.ts',testFile:'tests/unit/rwtRecoveryCapture1593.test.ts',
   callables:['SessionCreateBinding#onRequest','SessionCreateBinding#binding','SessionCreateBinding#readBinding',
     'SessionCreateBinding#detach','recoveryFenceRow'],
+}, {
+  helperFile:'tests/live/helpers/rwtDocumentIdentity.ts',testFile:'tests/unit/rwtWatchdog1593.test.ts',
+  callables:['trackDocuments','documentTrackerOf'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 

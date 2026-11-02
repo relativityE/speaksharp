@@ -1,0 +1,406 @@
+TAP version 13
+# Subtest: G03 separately exact d100 qualified; no final-release or main70e alias
+ok 1 - G03 separately exact d100 qualified; no final-release or main70e alias
+  ---
+  duration_ms: 3.744246
+  type: 'test'
+  ...
+# Subtest: exact source precision filler_rate 3 2
+ok 2 - exact source precision filler_rate 3 2
+  ---
+  duration_ms: 0.48611
+  type: 'test'
+  ...
+# Subtest: exact source precision pace 120 130
+ok 3 - exact source precision pace 120 130
+  ---
+  duration_ms: 0.10644
+  type: 'test'
+  ...
+# Subtest: exact source precision clear_delivery 80 80.2
+ok 4 - exact source precision clear_delivery 80 80.2
+  ---
+  duration_ms: 0.133891
+  type: 'test'
+  ...
+# Subtest: exact source precision filler_rate 0.3 0.2997002997002997
+ok 5 - exact source precision filler_rate 0.3 0.2997002997002997
+  ---
+  duration_ms: 1.581365
+  type: 'test'
+  ...
+# Subtest: exact source precision clear_delivery 1 1.00000001
+ok 6 - exact source precision clear_delivery 1 1.00000001
+  ---
+  duration_ms: 0.175173
+  type: 'test'
+  ...
+# Subtest: exact source precision filler_rate 0 0
+ok 7 - exact source precision filler_rate 0 0
+  ---
+  duration_ms: 0.118418
+  type: 'test'
+  ...
+# Subtest: persisted source value, linked next evaluation, and stored units used instead of target or history
+ok 8 - persisted source value, linked next evaluation, and stored units used instead of target or history
+  ---
+  duration_ms: 1.974855
+  type: 'test'
+  ...
+# Subtest: persisted metric pace
+ok 9 - persisted metric pace
+  ---
+  duration_ms: 0.909386
+  type: 'test'
+  ...
+# Subtest: persisted metric clear_delivery
+ok 10 - persisted metric clear_delivery
+  ---
+  duration_ms: 0.474502
+  type: 'test'
+  ...
+# Subtest: persisted metric filler_rate
+ok 11 - persisted metric filler_rate
+  ---
+  duration_ms: 0.244617
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL Filler rate: 2.0 → 3.0 % of words (original session → linked repeat).
+ok 12 - wrong or missing rendered values FAIL Filler rate: 2.0 → 3.0 % of words (original session → linked repeat).
+  ---
+  duration_ms: 0.328553
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL Filler rate: 3.0 → 2.0 wpm (original session → linked repeat).
+ok 13 - wrong or missing rendered values FAIL Filler rate: 3.0 → 2.0 wpm (original session → linked repeat).
+  ---
+  duration_ms: 0.294712
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL Filler rate: 3 → 2 % of words (original session → linked repeat).
+ok 14 - wrong or missing rendered values FAIL Filler rate: 3 → 2 % of words (original session → linked repeat).
+  ---
+  duration_ms: 0.31318
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL Filler rate: 3.0 → 99.0 % of words (original session → linked repeat).
+ok 15 - wrong or missing rendered values FAIL Filler rate: 3.0 → 99.0 % of words (original session → linked repeat).
+  ---
+  duration_ms: 0.169074
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL The original and repeat values for this comparison are not available.
+ok 16 - wrong or missing rendered values FAIL The original and repeat values for this comparison are not available.
+  ---
+  duration_ms: 0.410747
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL 
+ok 17 - wrong or missing rendered values FAIL 
+  ---
+  duration_ms: 0.242795
+  type: 'test'
+  ...
+# Subtest: observed numeric contradiction {"count":0}
+ok 18 - observed numeric contradiction {"count":0}
+  ---
+  duration_ms: 0.282605
+  type: 'test'
+  ...
+# Subtest: observed numeric contradiction {"count":2}
+ok 19 - observed numeric contradiction {"count":2}
+  ---
+  duration_ms: 0.384998
+  type: 'test'
+  ...
+# Subtest: observed numeric contradiction {"visible":false}
+ok 20 - observed numeric contradiction {"visible":false}
+  ---
+  duration_ms: 0.232229
+  type: 'test'
+  ...
+# Subtest: observed numeric contradiction {"pathMatches":false}
+ok 21 - observed numeric contradiction {"pathMatches":false}
+  ---
+  duration_ms: 0.138979
+  type: 'test'
+  ...
+# Subtest: unknown observation NOT RUN {"readable":false}
+ok 22 - unknown observation NOT RUN {"readable":false}
+  ---
+  duration_ms: 0.195634
+  type: 'test'
+  ...
+# Subtest: unknown observation NOT RUN {"settled":false}
+ok 23 - unknown observation NOT RUN {"settled":false}
+  ---
+  duration_ms: 0.259911
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendations{"user_id":"other"}
+ok 24 - wrong persisted binding FAIL progress_recommendations{"user_id":"other"}
+  ---
+  duration_ms: 0.153
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendation_attempts{"user_id":"other"}
+ok 25 - wrong persisted binding FAIL progress_recommendation_attempts{"user_id":"other"}
+  ---
+  duration_ms: 0.079259
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendation_attempts{"practice_session_id":"old"}
+ok 26 - wrong persisted binding FAIL progress_recommendation_attempts{"practice_session_id":"old"}
+  ---
+  duration_ms: 0.065118
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendation_attempts{"id":"other-attempt"}
+ok 27 - wrong persisted binding FAIL progress_recommendation_attempts{"id":"other-attempt"}
+  ---
+  duration_ms: 0.075504
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendation_attempts{"next_comparable_session_id":"old"}
+ok 28 - wrong persisted binding FAIL progress_recommendation_attempts{"next_comparable_session_id":"old"}
+  ---
+  duration_ms: 0.076114
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL session_progress_evaluations{"user_id":"other"}
+ok 29 - wrong persisted binding FAIL session_progress_evaluations{"user_id":"other"}
+  ---
+  duration_ms: 0.070525
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL session_progress_evaluations{"user_id":"other"}
+ok 30 - wrong persisted binding FAIL session_progress_evaluations{"user_id":"other"}
+  ---
+  duration_ms: 2.071785
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"target_metric":"constructor"}
+ok 31 - source unavailable cannot become numeric PASS progress_recommendations{"target_metric":"constructor"}
+  ---
+  duration_ms: 0.120221
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"target_direction":"unknown"}
+ok 32 - source unavailable cannot become numeric PASS progress_recommendations{"target_direction":"unknown"}
+  ---
+  duration_ms: 0.088663
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"target_value":null}
+ok 33 - source unavailable cannot become numeric PASS progress_recommendations{"target_value":null}
+  ---
+  duration_ms: 0.241222
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"target_units":""}
+ok 34 - source unavailable cannot become numeric PASS progress_recommendations{"target_units":""}
+  ---
+  duration_ms: 0.121733
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"shown_text":""}
+ok 35 - source unavailable cannot become numeric PASS progress_recommendations{"shown_text":""}
+  ---
+  duration_ms: 0.170386
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"source_metric_value":null}
+ok 36 - source unavailable cannot become numeric PASS progress_recommendations{"source_metric_value":null}
+  ---
+  duration_ms: 0.156064
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"source_metric_value":null}
+ok 37 - source unavailable cannot become numeric PASS progress_recommendations{"source_metric_value":null}
+  ---
+  duration_ms: 0.090586
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendation_attempts{"lifecycle":"pending","outcome":null}
+ok 38 - source unavailable cannot become numeric PASS progress_recommendation_attempts{"lifecycle":"pending","outcome":null}
+  ---
+  duration_ms: 0.056995
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendation_attempts{"outcome":"not_comparable"}
+ok 39 - source unavailable cannot become numeric PASS progress_recommendation_attempts{"outcome":"not_comparable"}
+  ---
+  duration_ms: 0.050025
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendation_attempts{"accepted_at":"invalid"}
+ok 40 - source unavailable cannot become numeric PASS progress_recommendation_attempts{"accepted_at":"invalid"}
+  ---
+  duration_ms: 0.210936
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"eligible":false}
+ok 41 - source unavailable cannot become numeric PASS session_progress_evaluations{"eligible":false}
+  ---
+  duration_ms: 0.069335
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"eligible":false}
+ok 42 - source unavailable cannot become numeric PASS session_progress_evaluations{"eligible":false}
+  ---
+  duration_ms: 0.06671
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"cohort_key":"other"}
+ok 43 - source unavailable cannot become numeric PASS session_progress_evaluations{"cohort_key":"other"}
+  ---
+  duration_ms: 0.067061
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":null}
+ok 44 - source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":null}
+  ---
+  duration_ms: 0.076124
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":-1}
+ok 45 - source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":-1}
+  ---
+  duration_ms: 0.065178
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":1.1}
+ok 46 - source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":1.1}
+  ---
+  duration_ms: 0.067962
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"word_count":0}
+ok 47 - source unavailable cannot become numeric PASS session_progress_evaluations{"word_count":0}
+  ---
+  duration_ms: 0.065508
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"clarity_raw":null}
+ok 48 - source unavailable cannot become numeric PASS session_progress_evaluations{"clarity_raw":null}
+  ---
+  duration_ms: 0.060982
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"wpm":null}
+ok 49 - source unavailable cannot become numeric PASS session_progress_evaluations{"wpm":null}
+  ---
+  duration_ms: 0.061562
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"error_marker_count":null}
+ok 50 - source unavailable cannot become numeric PASS session_progress_evaluations{"error_marker_count":null}
+  ---
+  duration_ms: 0.119028
+  type: 'test'
+  ...
+# Subtest: missing persisted progress_recommendations NOT RUN
+ok 51 - missing persisted progress_recommendations NOT RUN
+  ---
+  duration_ms: 0.095914
+  type: 'test'
+  ...
+# Subtest: missing persisted progress_recommendation_attempts NOT RUN
+ok 52 - missing persisted progress_recommendation_attempts NOT RUN
+  ---
+  duration_ms: 0.053711
+  type: 'test'
+  ...
+# Subtest: missing persisted session_progress_evaluations NOT RUN
+ok 53 - missing persisted session_progress_evaluations NOT RUN
+  ---
+  duration_ms: 0.051227
+  type: 'test'
+  ...
+# Subtest: denied progress_recommendations no fallback
+ok 54 - denied progress_recommendations no fallback
+  ---
+  duration_ms: 0.211238
+  type: 'test'
+  ...
+# Subtest: denied progress_recommendation_attempts no fallback
+ok 55 - denied progress_recommendation_attempts no fallback
+  ---
+  duration_ms: 0.076304
+  type: 'test'
+  ...
+# Subtest: denied session_progress_evaluations no fallback
+ok 56 - denied session_progress_evaluations no fallback
+  ---
+  duration_ms: 0.068532
+  type: 'test'
+  ...
+# Subtest: newer unrelated attempt cannot borrow earlier numbers
+ok 57 - newer unrelated attempt cannot borrow earlier numbers
+  ---
+  duration_ms: 0.184768
+  type: 'test'
+  ...
+# Subtest: tied latest attempts cannot invent order
+ok 58 - tied latest attempts cannot invent order
+  ---
+  duration_ms: 0.157567
+  type: 'test'
+  ...
+# Subtest: source extraction provenance hashes and exact declarations remain bound
+ok 59 - source extraction provenance hashes and exact declarations remain bound
+  ---
+  duration_ms: 1.50501
+  type: 'test'
+  ...
+# Subtest: all three same-target contracts require numeric row and hard source preflight
+ok 60 - all three same-target contracts require numeric row and hard source preflight
+  ---
+  duration_ms: 10.330191
+  type: 'test'
+  ...
+# Subtest: own-account whitelist includes only actual persisted numeric fields and excludes prototype tables
+ok 61 - own-account whitelist includes only actual persisted numeric fields and excludes prototype tables
+  ---
+  duration_ms: 0.194582
+  type: 'test'
+  ...
+# Subtest: output never exposes expected numeric values, rendered text, session IDs or target text
+ok 62 - output never exposes expected numeric values, rendered text, session IDs or target text
+  ---
+  duration_ms: 0.254983
+  type: 'test'
+  ...
+# Subtest: browser observation uses actual selector and does not write/read via native transport
+ok 63 - browser observation uses actual selector and does not write/read via native transport
+  ---
+  duration_ms: 0.547952
+  type: 'test'
+  ...
+# Subtest: browser read exception cannot manufacture missing-selector FAIL or PASS
+ok 64 - browser read exception cannot manufacture missing-selector FAIL or PASS
+  ---
+  duration_ms: 0.252709
+  type: 'test'
+  ...
+# Subtest: numeric source snapshot survives page close and FAIL is sticky in original oracle
+ok 65 - numeric source snapshot survives page close and FAIL is sticky in original oracle
+  ---
+  duration_ms: 0.162644
+  type: 'test'
+  ...
+# Subtest: actual source confirms completed attempt uses same bound practice and next-comparable session
+ok 66 - actual source confirms completed attempt uses same bound practice and next-comparable session
+  ---
+  duration_ms: 0.214752
+  type: 'test'
+  ...
+1..66
+# tests 66
+# suites 0
+# pass 66
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 166.753297

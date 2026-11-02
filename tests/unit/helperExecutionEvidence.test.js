@@ -26,6 +26,7 @@ test('registers explicit canary and reader callable consumers without a generic 
     ['tests/live/helpers/returningSignInAttempt.ts','tests/unit/returningSignInAttempt1495.test.ts'],
     ['tests/live/helpers/repeatMetricWording.ts','tests/unit/repeatMetricWording1548.test.ts'],
     ['tests/db/c1CatalogStages.js','tests/unit/exactMigrationGate.test.js'],
+    ['tests/live/helpers/rwtDocumentIdentity.ts','tests/unit/rwtWatchdog1593.test.ts'],
   ]) {
     const found=HELPER_CONTRACTS.find(item=>item.helperFile===helperFile);
     assert.equal(found?.testFile,testFile,`${helperFile} requires its actual consumer`);
@@ -102,7 +103,7 @@ function fixture() {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'helper-evidence-')));
   const write = (name, content) => {fs.mkdirSync(path.dirname(path.join(directory,name)),{recursive:true}); fs.writeFileSync(path.join(directory,name),content);};
   const files = ['scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/efficacy-helper-vitest.config.mjs',
-    'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+    'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
     'scripts/run-test-efficacy.mjs','scripts/efficacy-reporter.mjs','scripts/write-software-quality-evidence.mjs','scripts/coverage-thresholds.mjs',
     'pnpm-lock.yaml','package.json',...dependencyPaths(root,TEST_EFFICACY_CONTRACTS[0].testFile)];
   for (const file of files) write(file,fs.readFileSync(path.join(root,file)));

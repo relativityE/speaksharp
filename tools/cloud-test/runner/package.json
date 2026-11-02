@@ -1,0 +1,13 @@
+{
+  "name": "cloud-test-runner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned runner dependencies for the Cloud test harness stages (stimulus preflight needs playwright). The browser binary is pinned separately by sha256 in ../config/test-config.v1.json.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "pdfjs-dist": "4.10.38",
+    "playwright": "1.57.0"
+  }
+}

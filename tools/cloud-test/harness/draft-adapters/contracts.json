@@ -1,0 +1,3102 @@
+{
+  "status": "BLOCKED_FINAL_SOURCE_REVERSION_REV5_OFFLINE_IMPLEMENTATION_ONLY",
+  "cases": [
+    {
+      "caseId": "AHT-01",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "fresh-first-session",
+        "saved-once",
+        "grounded-coaching",
+        "review-reopen",
+        "pdf-owner-take",
+        "same-target-repeat",
+        "analytics-repeat-opens-product",
+        "rapid-repeat-gate",
+        "rapid-repeat-release",
+        "next-start",
+        "next-start-release",
+        "probe-save-isolation",
+        "same-target-numeric",
+        "open-mic-review-presentation",
+        "open-mic-coaching-length",
+        "open-mic-coaching-distinct",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [
+        "coaching",
+        "pdfOwnerTake",
+        "sameTarget"
+      ],
+      "minimumAuthorizedTakes": 4,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "oracleBindings for each required oracle: module, sha256, reviewReceipt",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [
+        "coaching",
+        "pdfOwnerTake",
+        "sameTarget"
+      ],
+      "requiredTakeCap": 4,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "analytics-repeat-opens-product"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1581,
+            1621
+          ],
+          "observations": [
+            "actual saved-review-practice click",
+            "session route reached",
+            "Focus ordered labels and every pending status, not set membership"
+          ],
+          "implementation": "repeat-probes.cjs:pendingSameSet + source-adapters.cjs",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "same-target-repeat"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1622,
+            1658
+          ],
+          "observations": [
+            "deliberate Start",
+            "seven-second source save take",
+            "Stop",
+            "new saved take identity"
+          ],
+          "implementation": "source-adapters.cjs + oracles/index.cjs:sameTarget",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "rapid-repeat-gate",
+            "rapid-repeat-release"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1666,
+            1718
+          ],
+          "oracleSource": "tests/live/helpers/rwtJourney.ts:1767-1822",
+          "observations": [
+            "actual completed-review repeat button",
+            "offered and recording timings each below 15000ms",
+            "never observed enabled while Finishing up shown at source 250ms sampling granularity",
+            "one immediate Stop and observed zero live tracks",
+            "lost samples or unreadable mic never zero/PASS",
+            "watch deactivates synchronously before Stop; pending sample drains only after Stop",
+            "named stopToSaveMs/saveToGateClearMs/pressToWarmupDoneMs/pressToRecordingMs are measured or honest null",
+            "B witness capture is passive and does not postpone the rapid press"
+          ],
+          "implementation": "repeat-probes.cjs:rapidRepeat + pure/extendedJourney.cjs:repeatStartVerdict",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "next-start",
+            "next-start-release"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1343,
+            1385
+          ],
+          "oracleSource": "tests/live/helpers/rwtJourney.ts:1825-1835",
+          "observations": [
+            "fresh session route and mic ready",
+            "actual Start and recording below 15000ms",
+            "no observed Finishing up",
+            "one immediate Stop and actual live-track release"
+          ],
+          "implementation": "repeat-probes.cjs:nextStart",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "probe-save-isolation"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1632,
+            1632
+          ],
+          "oracleSource": "tests/live/helpers/rwtFocusPointsJourney.ts:866-871",
+          "observations": [
+            "source short probes are intended to stop below the five-second persistence guard",
+            "after both probes, actual own-account completed rows contain no new saved take beyond first/repeat",
+            "unexpected completion fails before extended recordings and cannot silently expire repeat evidence"
+          ],
+          "implementation": "source-adapters.cjs after rapid + next probes",
+          "tests": "extended-controls.offline.test.cjs",
+          "adaptation": "Extra explicit isolation assertion protects the source no-additional-save assumption; guarded own-row read, not timing inference."
+        },
+        {
+          "cases": [
+            "AHT-01"
+          ],
+          "assertions": [
+            "open-mic-coaching-length",
+            "open-mic-coaching-distinct",
+            "open-mic-review-presentation"
+          ],
+          "source": "tests/live/rwt-open-mic-first-session.live.spec.ts",
+          "lines": [
+            588,
+            653
+          ],
+          "oracleSource": "tests/live/helpers/rwtJourney.ts:1133,1853-1854; coachingExternal.ts:successDependentRow",
+          "observations": [
+            "terminal actual ai-suggestions-card ready/error/blocked",
+            "actual visible accepted-heading paragraphs held in memory only",
+            "two phrases required; 8\u201310 word band recorded as quality-only, not standalone failure",
+            "source normalized same-pair duplication FAIL; unavailable pair NOT RUN, never EXTERNAL/PASS by assumption"
+          ],
+          "implementation": "presentation-controls.cjs:openMicReview/openMicVerdicts; oracles/pure/presentationSelected.cjs; source-adapters.cjs",
+          "tests": "presentation-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-05",
+            "AHT-06",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [],
+          "source": "frontend/src/lib/storage.ts",
+          "lines": [
+            345,
+            367
+          ],
+          "observations": [
+            "rendered available transcript uses outer trim; saved/readback/DOM restored-view digests now share that exact normalization",
+            "internal whitespace unchanged; raw exact completion payload/durable-save oracle not modified"
+          ],
+          "implementation": "browser-readback.cjs + browser-actions.cjs:fingerprint + focus-controls.cjs:digest",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "same-target-numeric"
+          ],
+          "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+          "source": [
+            "frontend/src/components/progress/ProgressPanel.tsx:12-14,44-76,199-224",
+            "frontend/src/services/progress/loadSessionProgress.ts:15-22,110-131,255-310,369-403",
+            "frontend/src/services/progress/buildProgressEvaluation.ts:20,115-125",
+            "frontend/src/services/progress/recordProgress.ts:659-670",
+            "backend/supabase/migrations/20260731120000_session_progress_evaluations.sql:22-47,89-95",
+            "backend/supabase/migrations/20260731130000_progress_recommendations.sql:22-65,238-279"
+          ],
+          "implementation": "progress-numeric.cjs; exact AST-selected formatter/metric/complete-evidence/loadRepeatResult; owner-query closed GET projections; retained sameTarget phase numeric observation",
+          "requiredness": "REQUIRED_FINITE_G03_NUMERIC_COMPARISON",
+          "status": "IMPLEMENTED_OFFLINE_ONLY; BLOCKED_FINAL_SOURCE_REVERSION",
+          "acceptance": "Actual progress-attempt-values must be visible exactly once and match persisted original source_metric_value \u2192 latest bound attempt next_comparable evaluation, exact stored units and dynamic precision/disclaimer. Missing/wrong/stale rendered values FAIL when numeric comparison prerequisites are observed. Missing eligible comparable or unreadable owner evidence is NOT RUN, never an invented zero. Raw numeric/DOM content remains memory-only.",
+          "nonEquivalence": "Driver remains main70e hard-bound while numeric module hard-requires d100; no source admits AHT01\u201303 until a separately reviewed final-source reversion. Not a runtime or whole-source PASS."
+        }
+      ],
+      "requiredUnimplemented": [
+        {
+          "caseIds": [
+            "AHT-01"
+          ],
+          "assertionId": "open-mic-review-presentation",
+          "classification": "REQUIRED_SOURCE_TECHNICAL_UNIMPLEMENTED",
+          "sourceAssertionIds": [
+            "coaching length",
+            "coaching phrases distinct"
+          ],
+          "source": "tests/live/rwt-open-mic-first-session.live.spec.ts",
+          "lines": [
+            642,
+            653
+          ],
+          "packet": "cloud-test-prompt.txt:41-42 (inspect useful 1+1 review)",
+          "reason": "Prompt binding and character ceilings do not test the source word-target verdict or within-pair distinction. Not classified optional; finite technical row remains NOT RUN pending implementation or explicit owner scope disposition."
+        }
+      ],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 4,
+      "minimumAuthorizedStartPresses": 4,
+      "additionalSourceRequirements": {
+        "sameTargetNumeric": "4c85b006ac05e180521fd6e7d807f736987cafe8"
+      }
+    },
+    {
+      "caseId": "AHT-02",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "focus-final",
+        "focus-live-durable",
+        "saved-once",
+        "grounded-coaching",
+        "review-reopen",
+        "same-target-repeat",
+        "focus-edit-cancel-save",
+        "focus-new-set",
+        "open-mic-isolation",
+        "focus-back-reload",
+        "analytics-repeat-opens-product",
+        "rapid-repeat-gate",
+        "rapid-repeat-release",
+        "next-start",
+        "next-start-release",
+        "probe-save-isolation",
+        "same-target-numeric",
+        "focus-switch-isolation",
+        "focus-presentation-contract",
+        "focus-pace-guide",
+        "focus-rail-before",
+        "focus-rail-legend",
+        "focus-pending-labelled",
+        "focus-next-point-marked",
+        "focus-no-red-before-stop",
+        "focus-not-detected-explained",
+        "focus-coverage-count",
+        "focus-average-per-point",
+        "focus-final-rail-colours-words",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [
+        "focusEvidence",
+        "coaching",
+        "sameTarget"
+      ],
+      "minimumAuthorizedTakes": 7,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "oracleBindings for each required oracle: module, sha256, reviewReceipt",
+        "focus.topic/points/expectedFinal",
+        "focus.newPoints/editedPoints",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [
+        "focusEvidence",
+        "coaching",
+        "sameTarget"
+      ],
+      "requiredTakeCap": 7,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "analytics-repeat-opens-product"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1581,
+            1621
+          ],
+          "observations": [
+            "actual saved-review-practice click",
+            "session route reached",
+            "Focus ordered labels and every pending status, not set membership"
+          ],
+          "implementation": "repeat-probes.cjs:pendingSameSet + source-adapters.cjs",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "same-target-repeat"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1622,
+            1658
+          ],
+          "observations": [
+            "deliberate Start",
+            "seven-second source save take",
+            "Stop",
+            "new saved take identity"
+          ],
+          "implementation": "source-adapters.cjs + oracles/index.cjs:sameTarget",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "rapid-repeat-gate",
+            "rapid-repeat-release"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1666,
+            1718
+          ],
+          "oracleSource": "tests/live/helpers/rwtJourney.ts:1767-1822",
+          "observations": [
+            "actual completed-review repeat button",
+            "offered and recording timings each below 15000ms",
+            "never observed enabled while Finishing up shown at source 250ms sampling granularity",
+            "one immediate Stop and observed zero live tracks",
+            "lost samples or unreadable mic never zero/PASS",
+            "watch deactivates synchronously before Stop; pending sample drains only after Stop",
+            "named stopToSaveMs/saveToGateClearMs/pressToWarmupDoneMs/pressToRecordingMs are measured or honest null",
+            "B witness capture is passive and does not postpone the rapid press"
+          ],
+          "implementation": "repeat-probes.cjs:rapidRepeat + pure/extendedJourney.cjs:repeatStartVerdict",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "next-start",
+            "next-start-release"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1343,
+            1385
+          ],
+          "oracleSource": "tests/live/helpers/rwtJourney.ts:1825-1835",
+          "observations": [
+            "fresh session route and mic ready",
+            "actual Start and recording below 15000ms",
+            "no observed Finishing up",
+            "one immediate Stop and actual live-track release"
+          ],
+          "implementation": "repeat-probes.cjs:nextStart",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "focus-back-reload"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            576,
+            610
+          ],
+          "oracleSource": "tests/live/helpers/rwtOracles.ts:589-608; rwtJourney.ts:1954-2017",
+          "observations": [
+            "first saved take before retention expiry",
+            "Progress control and browser Back",
+            "mic read immediately after Back",
+            "same saved session, transcript, review and no idle recorder after reload",
+            "saved point verdicts unchanged and no new coaching request"
+          ],
+          "implementation": "focus-controls.cjs:backReload + pure/extendedJourney.cjs:focusBackReloadVerdict",
+          "tests": "extended-controls.offline.test.cjs + source-derived pure validator"
+        },
+        {
+          "cases": [
+            "AHT-02"
+          ],
+          "assertions": [
+            "open-mic-isolation",
+            "focus-switch-isolation"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            750,
+            819
+          ],
+          "oracleSource": "tests/live/helpers/rwtOracles.ts:485-563",
+          "observations": [
+            "full Open Mic take after product switch",
+            "actual saved transcript recognizes points 2\u20134 independently",
+            "new Focus set pending and no stale coaching before Start",
+            "short take source-bound between point one end and point two start",
+            "only point one detected",
+            "new owned Focus session",
+            "Open Mic identity preserved or explicit expiry after positive witness"
+          ],
+          "implementation": "focus-controls.cjs:extendedFocus + pure/extendedJourney.cjs:switchIsolationVerdict",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-02"
+          ],
+          "assertions": [
+            "focus-new-set",
+            "focus-edit-cancel-save"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            822,
+            934
+          ],
+          "oracleSource": "tests/live/helpers/rwtOracles.ts:423-483",
+          "observations": [
+            "New Set from immediate predecessor live completed review",
+            "goal/topic/every point blank",
+            "source two spoken + one unspoken new set",
+            "Edit seeded, candidate cancel probe preserves old value, then Save spoken replacement",
+            "full edited take duration speech plus ten seconds",
+            "rail and durable ordered edited labels all3 covered/detected",
+            "new brief and take identities",
+            "first take durable point verdicts unchanged"
+          ],
+          "implementation": "focus-controls.cjs:extendedFocus + pure/extendedJourney.cjs:newSetEditVerdicts",
+          "tests": "extended-controls.offline.test.cjs",
+          "adaptation": "Edit cancel is required by AHT02 packet; source full journey covers Edit/save, and the candidate retains the explicit cancel boundary without creating another take."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "probe-save-isolation"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1632,
+            1632
+          ],
+          "oracleSource": "tests/live/helpers/rwtFocusPointsJourney.ts:866-871",
+          "observations": [
+            "source short probes are intended to stop below the five-second persistence guard",
+            "after both probes, actual own-account completed rows contain no new saved take beyond first/repeat",
+            "unexpected completion fails before extended recordings and cannot silently expire repeat evidence"
+          ],
+          "implementation": "source-adapters.cjs after rapid + next probes",
+          "tests": "extended-controls.offline.test.cjs",
+          "adaptation": "Extra explicit isolation assertion protects the source no-additional-save assumption; guarded own-row read, not timing inference."
+        },
+        {
+          "cases": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "focus-pace-guide",
+            "focus-rail-before",
+            "focus-rail-legend",
+            "focus-pending-labelled"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            370,
+            413
+          ],
+          "oracleSource": "tests/live/helpers/rwtPaceGuide.ts:9-17; rwtJourney.ts:2405-2437",
+          "observations": [
+            "pace read from completed setup before Submit; semantic minutes parser requires default60seconds",
+            "actual before-speaking statuses allpending",
+            "actual visible legend includes four source words and pending markers carry visible Not heard yet"
+          ],
+          "implementation": "presentation-controls.cjs:paceGuide/beforeFocus; browser-actions.cjs:setupFocus beforeSubmit; source-adapters.cjs",
+          "tests": "presentation-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "focus-next-point-marked",
+            "focus-no-red-before-stop"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            428,
+            484
+          ],
+          "observations": [
+            "passive page-side 500ms sampling of the actual Still to cover marker; r14 (R5 correction 2026-10-28): the marker must sit on the FIRST UNCOVERED (pending) point at every sample and be absent only when every point is covered; movement is not required, so a marker that stays on point 0 while later points change is correct. Recognition progress is a separate diagnostic, never a requirement row",
+            "token-bound sampling frozen before Stop; missing/unreadable window NOT RUN",
+            "actual final-red marker count before Stop must be zero; observed FAIL retained after safe Stop"
+          ],
+          "implementation": "presentation-controls.cjs:beginFocusLive/freezeFocusLive/liveVerdicts; source-adapters.cjs",
+          "tests": "presentation-controls.offline.test.cjs",
+          "adaptation": "Page-side500ms sampling preserves next-sequence criterion without Node timing/network reads; actual runtime observer qualification remains R0."
+        },
+        {
+          "cases": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "focus-not-detected-explained",
+            "focus-coverage-count",
+            "focus-average-per-point",
+            "focus-final-rail-colours-words",
+            "focus-presentation-contract"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            497,
+            526
+          ],
+          "oracleSource": "tests/live/helpers/rwtJourney.ts:2405-2450; rwtFocusPointsJourney.ts:89-92,119-122",
+          "observations": [
+            "each missing point carries own not-detected explanation",
+            "covered+partial independent expected count equals shown numerator and denominator",
+            "measured m:ss average equals observed recording elapsed/detected \u00b14seconds, not defaultguideecho",
+            "rendered marker backgrounds/border match actual page brand roles with source visible words",
+            "group requires all10 exact before/during/after presentation assertions; no absent/duplicate assertion PASS"
+          ],
+          "implementation": "presentation-controls.cjs:afterFocus/afterVerdicts/group; source-adapters.cjs",
+          "tests": "presentation-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-05",
+            "AHT-06",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [],
+          "source": "frontend/src/lib/storage.ts",
+          "lines": [
+            345,
+            367
+          ],
+          "observations": [
+            "rendered available transcript uses outer trim; saved/readback/DOM restored-view digests now share that exact normalization",
+            "internal whitespace unchanged; raw exact completion payload/durable-save oracle not modified"
+          ],
+          "implementation": "browser-readback.cjs + browser-actions.cjs:fingerprint + focus-controls.cjs:digest",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "same-target-numeric"
+          ],
+          "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+          "source": [
+            "frontend/src/components/progress/ProgressPanel.tsx:12-14,44-76,199-224",
+            "frontend/src/services/progress/loadSessionProgress.ts:15-22,110-131,255-310,369-403",
+            "frontend/src/services/progress/buildProgressEvaluation.ts:20,115-125",
+            "frontend/src/services/progress/recordProgress.ts:659-670",
+            "backend/supabase/migrations/20260731120000_session_progress_evaluations.sql:22-47,89-95",
+            "backend/supabase/migrations/20260731130000_progress_recommendations.sql:22-65,238-279"
+          ],
+          "implementation": "progress-numeric.cjs; exact AST-selected formatter/metric/complete-evidence/loadRepeatResult; owner-query closed GET projections; retained sameTarget phase numeric observation",
+          "requiredness": "REQUIRED_FINITE_G03_NUMERIC_COMPARISON",
+          "status": "IMPLEMENTED_OFFLINE_ONLY; BLOCKED_FINAL_SOURCE_REVERSION",
+          "acceptance": "Actual progress-attempt-values must be visible exactly once and match persisted original source_metric_value \u2192 latest bound attempt next_comparable evaluation, exact stored units and dynamic precision/disclaimer. Missing/wrong/stale rendered values FAIL when numeric comparison prerequisites are observed. Missing eligible comparable or unreadable owner evidence is NOT RUN, never an invented zero. Raw numeric/DOM content remains memory-only.",
+          "nonEquivalence": "Driver remains main70e hard-bound while numeric module hard-requires d100; no source admits AHT01\u201303 until a separately reviewed final-source reversion. Not a runtime or whole-source PASS."
+        }
+      ],
+      "requiredUnimplemented": [
+        {
+          "caseIds": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertionId": "focus-presentation-contract",
+          "classification": "REQUIRED_SOURCE_TECHNICAL_UNIMPLEMENTED",
+          "sourceAssertionIds": [
+            "pace guide",
+            "next point marked",
+            "no red before Stop",
+            "not-detected explained",
+            "coverage count",
+            "average per point",
+            "railStateRows before/during/after"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            370,
+            524
+          ],
+          "packet": "cloud-test-prompt.txt:43-46 (truthful full/partial points and order)",
+          "reason": "Current live/durable point oracle proves timing and identity, not every required visible counter/average/explanation/rail assertion. The missing group is an explicit NOT RUN denominator, not optional or inferred from final point IDs."
+        }
+      ],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 7,
+      "minimumAuthorizedStartPresses": 7,
+      "additionalSourceRequirements": {
+        "sameTargetNumeric": "4c85b006ac05e180521fd6e7d807f736987cafe8"
+      }
+    },
+    {
+      "caseId": "AHT-03",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "focus-final",
+        "focus-live-durable",
+        "saved-once",
+        "grounded-coaching",
+        "review-reopen",
+        "same-target-repeat",
+        "analytics-repeat-opens-product",
+        "rapid-repeat-gate",
+        "rapid-repeat-release",
+        "next-start",
+        "next-start-release",
+        "probe-save-isolation",
+        "same-target-numeric",
+        "focus-back-reload",
+        "focus-presentation-contract",
+        "focus-pace-guide",
+        "focus-rail-before",
+        "focus-rail-legend",
+        "focus-pending-labelled",
+        "focus-next-point-marked",
+        "focus-no-red-before-stop",
+        "focus-not-detected-explained",
+        "focus-coverage-count",
+        "focus-average-per-point",
+        "focus-final-rail-colours-words",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [
+        "focusEvidence",
+        "coaching",
+        "sameTarget"
+      ],
+      "minimumAuthorizedTakes": 4,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "oracleBindings for each required oracle: module, sha256, reviewReceipt",
+        "focus.topic/points/expectedFinal",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [
+        "focusEvidence",
+        "coaching",
+        "sameTarget"
+      ],
+      "requiredTakeCap": 4,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "analytics-repeat-opens-product"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1581,
+            1621
+          ],
+          "observations": [
+            "actual saved-review-practice click",
+            "session route reached",
+            "Focus ordered labels and every pending status, not set membership"
+          ],
+          "implementation": "repeat-probes.cjs:pendingSameSet + source-adapters.cjs",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "same-target-repeat"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1622,
+            1658
+          ],
+          "observations": [
+            "deliberate Start",
+            "seven-second source save take",
+            "Stop",
+            "new saved take identity"
+          ],
+          "implementation": "source-adapters.cjs + oracles/index.cjs:sameTarget",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "rapid-repeat-gate",
+            "rapid-repeat-release"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1666,
+            1718
+          ],
+          "oracleSource": "tests/live/helpers/rwtJourney.ts:1767-1822",
+          "observations": [
+            "actual completed-review repeat button",
+            "offered and recording timings each below 15000ms",
+            "never observed enabled while Finishing up shown at source 250ms sampling granularity",
+            "one immediate Stop and observed zero live tracks",
+            "lost samples or unreadable mic never zero/PASS",
+            "watch deactivates synchronously before Stop; pending sample drains only after Stop",
+            "named stopToSaveMs/saveToGateClearMs/pressToWarmupDoneMs/pressToRecordingMs are measured or honest null",
+            "B witness capture is passive and does not postpone the rapid press"
+          ],
+          "implementation": "repeat-probes.cjs:rapidRepeat + pure/extendedJourney.cjs:repeatStartVerdict",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "next-start",
+            "next-start-release"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1343,
+            1385
+          ],
+          "oracleSource": "tests/live/helpers/rwtJourney.ts:1825-1835",
+          "observations": [
+            "fresh session route and mic ready",
+            "actual Start and recording below 15000ms",
+            "no observed Finishing up",
+            "one immediate Stop and actual live-track release"
+          ],
+          "implementation": "repeat-probes.cjs:nextStart",
+          "tests": "extended-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "focus-back-reload"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            576,
+            610
+          ],
+          "oracleSource": "tests/live/helpers/rwtOracles.ts:589-608; rwtJourney.ts:1954-2017",
+          "observations": [
+            "first saved take before retention expiry",
+            "Progress control and browser Back",
+            "mic read immediately after Back",
+            "same saved session, transcript, review and no idle recorder after reload",
+            "saved point verdicts unchanged and no new coaching request"
+          ],
+          "implementation": "focus-controls.cjs:backReload + pure/extendedJourney.cjs:focusBackReloadVerdict",
+          "tests": "extended-controls.offline.test.cjs + source-derived pure validator"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "probe-save-isolation"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            1632,
+            1632
+          ],
+          "oracleSource": "tests/live/helpers/rwtFocusPointsJourney.ts:866-871",
+          "observations": [
+            "source short probes are intended to stop below the five-second persistence guard",
+            "after both probes, actual own-account completed rows contain no new saved take beyond first/repeat",
+            "unexpected completion fails before extended recordings and cannot silently expire repeat evidence"
+          ],
+          "implementation": "source-adapters.cjs after rapid + next probes",
+          "tests": "extended-controls.offline.test.cjs",
+          "adaptation": "Extra explicit isolation assertion protects the source no-additional-save assumption; guarded own-row read, not timing inference."
+        },
+        {
+          "cases": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "focus-pace-guide",
+            "focus-rail-before",
+            "focus-rail-legend",
+            "focus-pending-labelled"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            370,
+            413
+          ],
+          "oracleSource": "tests/live/helpers/rwtPaceGuide.ts:9-17; rwtJourney.ts:2405-2437",
+          "observations": [
+            "pace read from completed setup before Submit; semantic minutes parser requires default60seconds",
+            "actual before-speaking statuses allpending",
+            "actual visible legend includes four source words and pending markers carry visible Not heard yet"
+          ],
+          "implementation": "presentation-controls.cjs:paceGuide/beforeFocus; browser-actions.cjs:setupFocus beforeSubmit; source-adapters.cjs",
+          "tests": "presentation-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "focus-next-point-marked",
+            "focus-no-red-before-stop"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            428,
+            484
+          ],
+          "observations": [
+            "passive page-side 500ms sampling of the actual Still to cover marker; r14 (R5 correction 2026-10-28): the marker must sit on the FIRST UNCOVERED (pending) point at every sample and be absent only when every point is covered; movement is not required, so a marker that stays on point 0 while later points change is correct. Recognition progress is a separate diagnostic, never a requirement row",
+            "token-bound sampling frozen before Stop; missing/unreadable window NOT RUN",
+            "actual final-red marker count before Stop must be zero; observed FAIL retained after safe Stop"
+          ],
+          "implementation": "presentation-controls.cjs:beginFocusLive/freezeFocusLive/liveVerdicts; source-adapters.cjs",
+          "tests": "presentation-controls.offline.test.cjs",
+          "adaptation": "Page-side500ms sampling preserves next-sequence criterion without Node timing/network reads; actual runtime observer qualification remains R0."
+        },
+        {
+          "cases": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "focus-not-detected-explained",
+            "focus-coverage-count",
+            "focus-average-per-point",
+            "focus-final-rail-colours-words",
+            "focus-presentation-contract"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            497,
+            526
+          ],
+          "oracleSource": "tests/live/helpers/rwtJourney.ts:2405-2450; rwtFocusPointsJourney.ts:89-92,119-122",
+          "observations": [
+            "each missing point carries own not-detected explanation",
+            "covered+partial independent expected count equals shown numerator and denominator",
+            "measured m:ss average equals observed recording elapsed/detected \u00b14seconds, not defaultguideecho",
+            "rendered marker backgrounds/border match actual page brand roles with source visible words",
+            "group requires all10 exact before/during/after presentation assertions; no absent/duplicate assertion PASS"
+          ],
+          "implementation": "presentation-controls.cjs:afterFocus/afterVerdicts/group; source-adapters.cjs",
+          "tests": "presentation-controls.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-05",
+            "AHT-06",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [],
+          "source": "frontend/src/lib/storage.ts",
+          "lines": [
+            345,
+            367
+          ],
+          "observations": [
+            "rendered available transcript uses outer trim; saved/readback/DOM restored-view digests now share that exact normalization",
+            "internal whitespace unchanged; raw exact completion payload/durable-save oracle not modified"
+          ],
+          "implementation": "browser-readback.cjs + browser-actions.cjs:fingerprint + focus-controls.cjs:digest",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertions": [
+            "same-target-numeric"
+          ],
+          "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+          "source": [
+            "frontend/src/components/progress/ProgressPanel.tsx:12-14,44-76,199-224",
+            "frontend/src/services/progress/loadSessionProgress.ts:15-22,110-131,255-310,369-403",
+            "frontend/src/services/progress/buildProgressEvaluation.ts:20,115-125",
+            "frontend/src/services/progress/recordProgress.ts:659-670",
+            "backend/supabase/migrations/20260731120000_session_progress_evaluations.sql:22-47,89-95",
+            "backend/supabase/migrations/20260731130000_progress_recommendations.sql:22-65,238-279"
+          ],
+          "implementation": "progress-numeric.cjs; exact AST-selected formatter/metric/complete-evidence/loadRepeatResult; owner-query closed GET projections; retained sameTarget phase numeric observation",
+          "requiredness": "REQUIRED_FINITE_G03_NUMERIC_COMPARISON",
+          "status": "IMPLEMENTED_OFFLINE_ONLY; BLOCKED_FINAL_SOURCE_REVERSION",
+          "acceptance": "Actual progress-attempt-values must be visible exactly once and match persisted original source_metric_value \u2192 latest bound attempt next_comparable evaluation, exact stored units and dynamic precision/disclaimer. Missing/wrong/stale rendered values FAIL when numeric comparison prerequisites are observed. Missing eligible comparable or unreadable owner evidence is NOT RUN, never an invented zero. Raw numeric/DOM content remains memory-only.",
+          "nonEquivalence": "Driver remains main70e hard-bound while numeric module hard-requires d100; no source admits AHT01\u201303 until a separately reviewed final-source reversion. Not a runtime or whole-source PASS."
+        }
+      ],
+      "requiredUnimplemented": [
+        {
+          "caseIds": [
+            "AHT-02",
+            "AHT-03"
+          ],
+          "assertionId": "focus-presentation-contract",
+          "classification": "REQUIRED_SOURCE_TECHNICAL_UNIMPLEMENTED",
+          "sourceAssertionIds": [
+            "pace guide",
+            "next point marked",
+            "no red before Stop",
+            "not-detected explained",
+            "coverage count",
+            "average per point",
+            "railStateRows before/during/after"
+          ],
+          "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+          "lines": [
+            370,
+            524
+          ],
+          "packet": "cloud-test-prompt.txt:43-46 (truthful full/partial points and order)",
+          "reason": "Current live/durable point oracle proves timing and identity, not every required visible counter/average/explanation/rail assertion. The missing group is an explicit NOT RUN denominator, not optional or inferred from final point IDs."
+        }
+      ],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 4,
+      "minimumAuthorizedStartPresses": 4,
+      "additionalSourceRequirements": {
+        "sameTargetNumeric": "4c85b006ac05e180521fd6e7d807f736987cafe8"
+      }
+    },
+    {
+      "caseId": "AHT-04",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "cold-pending-observed",
+        "pending-leave-no-mic",
+        "pending-leave-no-session",
+        "return-no-resume",
+        "deliberate-recovery-saved",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [],
+      "minimumAuthorizedTakes": 1,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "coldModelRequired",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [],
+      "requiredTakeCap": 1,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 2,
+      "minimumAuthorizedStartPresses": 2,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-05",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "fault-exercised",
+        "recovery-truthful",
+        "retry-saved-once",
+        "review-reopen",
+        "next-take-isolated",
+        "completion-attempts",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [],
+      "minimumAuthorizedTakes": 2,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "faultBinding exact operation/body/readback binding",
+        "reviewed dynamicSessionBinding oracle config; actual new session/body captured at runtime, no precomputed final payload",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [],
+      "requiredTakeCap": 2,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-05",
+            "AHT-06"
+          ],
+          "assertions": [
+            "fault-exercised",
+            "retry-saved-once",
+            "completion-attempts"
+          ],
+          "source": "tests/live/helpers/rwtRecoveryCapture.ts",
+          "lines": [
+            140,
+            212
+          ],
+          "oracleSource": "frontend/src/lib/storage.ts; backend/supabase/migrations/20261025021046_content_free_retention_evidence.sql; candidate docs/save-source",
+          "observations": [
+            "passive creation request/response capture before Start",
+            "one actual own new session and lease after Start",
+            "arm only before Stop with actual account/session hashes",
+            "exact completion payload captured by guard, not guessed before recording",
+            "retry matches same UI take and exact durable payload semantics",
+            "explicit retry authorization immediately before click; exactly two matching guarded boundary attempts through final bounded observation, not independent backend invocation count"
+          ],
+          "implementation": "save-fault-binding.cjs + durable-save-oracle.cjs + source-adapters.cjs",
+          "tests": "save-fault.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-05",
+            "AHT-06",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [],
+          "source": "frontend/src/lib/storage.ts",
+          "lines": [
+            345,
+            367
+          ],
+          "observations": [
+            "rendered available transcript uses outer trim; saved/readback/DOM restored-view digests now share that exact normalization",
+            "internal whitespace unchanged; raw exact completion payload/durable-save oracle not modified"
+          ],
+          "implementation": "browser-readback.cjs + browser-actions.cjs:fingerprint + focus-controls.cjs:digest",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 2,
+      "minimumAuthorizedStartPresses": 2,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-06",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "fault-exercised",
+        "recovery-truthful",
+        "retry-saved-once",
+        "review-reopen",
+        "next-take-isolated",
+        "completion-attempts",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [],
+      "minimumAuthorizedTakes": 2,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "faultBinding exact operation/body/readback binding",
+        "reviewed dynamicSessionBinding oracle config; actual new session/body captured at runtime, no precomputed final payload",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [],
+      "requiredTakeCap": 2,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-05",
+            "AHT-06"
+          ],
+          "assertions": [
+            "fault-exercised",
+            "retry-saved-once",
+            "completion-attempts"
+          ],
+          "source": "tests/live/helpers/rwtRecoveryCapture.ts",
+          "lines": [
+            140,
+            212
+          ],
+          "oracleSource": "frontend/src/lib/storage.ts; backend/supabase/migrations/20261025021046_content_free_retention_evidence.sql; candidate docs/save-source",
+          "observations": [
+            "passive creation request/response capture before Start",
+            "one actual own new session and lease after Start",
+            "arm only before Stop with actual account/session hashes",
+            "exact completion payload captured by guard, not guessed before recording",
+            "retry matches same UI take and exact durable payload semantics",
+            "explicit retry authorization immediately before click; exactly two matching guarded boundary attempts through final bounded observation, not independent backend invocation count"
+          ],
+          "implementation": "save-fault-binding.cjs + durable-save-oracle.cjs + source-adapters.cjs",
+          "tests": "save-fault.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-05",
+            "AHT-06",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [],
+          "source": "frontend/src/lib/storage.ts",
+          "lines": [
+            345,
+            367
+          ],
+          "observations": [
+            "rendered available transcript uses outer trim; saved/readback/DOM restored-view digests now share that exact normalization",
+            "internal whitespace unchanged; raw exact completion payload/durable-save oracle not modified"
+          ],
+          "implementation": "browser-readback.cjs + browser-actions.cjs:fingerprint + focus-controls.cjs:digest",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 2,
+      "minimumAuthorizedStartPresses": 2,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-07",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "fresh-acknowledgment",
+        "feedback-stored-once",
+        "older-take-association",
+        "older-coaching-association",
+        "received-feedback-proof",
+        "feedback-failure-retry-form",
+        "feedback-transport-form-retry",
+        "feedback-rejection-form-retry",
+        "feedback-response-lost-form-retry",
+        "feedback-attempts",
+        "feedback-readback-preflight",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [
+        "feedbackReceived",
+        "feedbackAssociation",
+        "coachingAssociation"
+      ],
+      "minimumAuthorizedTakes": 2,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "oracleBindings for each required oracle: module, sha256, reviewReceipt",
+        "feedbackAttemptCap >= 7 (six controlled + one final normal insert attempt)",
+        "feedbackNewReportCap >= 4 (three controlled drafts + one final association draft)",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [
+        "feedbackReceived",
+        "feedbackAssociation",
+        "coachingAssociation"
+      ],
+      "requiredTakeCap": 2,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-07"
+          ],
+          "assertions": [
+            "feedback-transport-form-retry",
+            "feedback-rejection-form-retry",
+            "feedback-response-lost-form-retry",
+            "feedback-failure-retry-form",
+            "feedback-attempts"
+          ],
+          "source": "tests/e2e/feedback-diagnostics-journey.e2e.spec.ts",
+          "lines": [
+            110,
+            163
+          ],
+          "oracleSource": "delta-rev5/feedback-source/tests/e2e/helpers/feedbackDiagnosticsJourney.ts; frontend/src/services/issueReportService.ts; frontend/src/services/telemetry/feedbackTelemetry.ts:124-139",
+          "observations": [
+            "exact approved older session/account/type/description hashed before arm; real insert idempotency captured",
+            "transport-before-send, controlledsynthetic42501 and stored-response-lost each preserve draft/type/session, show truthful failure with no fresh success, and permit one explicit unchanged Retry",
+            "each mode preserves exact immutable draft/key across one explicit Retry; lost ACK requires complete actual201 then actual named409; hidden/changed replays denied; HTTP does not prove persisted association/cardinality",
+            "each negative mode requires local four-event attempted/storage_failed/attempted/storage_ok source sequence; generic successful vendorstage is not asserted for a negative scenario",
+            "final success is armed observe-once immediately before actual submit click without an injected fault; post-received finalize proves all seven exact guarded attempts (six controlled + one normal) and causal HTTP delivery; separate final trusted-runner projection proves actual persisted association; independent backend invocation count UNKNOWN",
+            "minimum7insertattempts/4newreports budget explicitly bound, recordings remain2"
+          ],
+          "implementation": "feedback-retry-controls.cjs + bundle/harness/feedback-fault.cjs + source-adapters.cjs",
+          "tests": "bundle/selftest/feedback-fault.test.cjs + tests/presentation-controls.offline.test.cjs integration",
+          "adaptation": "Original mocked form contract retained. Successor uses qualified proxy causal HTTP boundaries, not browser SELECT. Synthetic42501 is not real backend rejection/RLS proof. Final persisted association requires actual authenticated existing-runner read. Negative-mode vendor proof NOT_CLAIMED; backend invocation count UNKNOWN."
+        },
+        {
+          "cases": [
+            "AHT-07",
+            "AHT-08"
+          ],
+          "assertions": [
+            "received-feedback-proof"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            2129,
+            2130
+          ],
+          "oracleSource": "frontend/src/services/telemetry/feedbackTelemetry.ts:124-139; IssueReportDialog.tsx",
+          "observations": [
+            "ordinary acknowledged feedback emits exactly two local sourceevents attempted+storage_ok, same actual submit_seq/journey/boot/source",
+            "AHT07 final success starts on new guarded page after closing negative-scenario page; no prior-page batched events admitted as final evidence",
+            "source-qualified independent share_feedback receipt remains required; its generic received_counts must not be relabeled as exact vendorfeedback event cardinality"
+          ],
+          "implementation": "oracles/index.cjs + oracles/passive-telemetry.cjs + oracles/receipts.cjs (coordinating worker) + source-adapters.cjs page isolation",
+          "tests": "coordinating worker receiver tests + presentation-controls.offline.test.cjs integration",
+          "runtimeStatus": "NOT RUN; existing producer capability and latest deployed source/schema bindings required"
+        },
+        {
+          "cases": [
+            "AHT-07"
+          ],
+          "assertions": [
+            "feedback-readback-preflight"
+          ],
+          "source": "frontend/src/services/issueReportService.ts + current source feedback readback projection",
+          "observations": [
+            "after actual approved-account login, before microphone/takes, verify existing authenticated association receiving capability is bound; no browser SELECT probe",
+            "missing receiver binding blocks before takes; actual delivery is not proved by capability declaration",
+            "independent final owner+actual draft-key server projection remains mandatory; no new customer grant, credential or workflow"
+          ],
+          "implementation": "oracles/index.cjs:feedbackAssociation capability + source-adapters.cjs owner-bound branch",
+          "tests": "bundle/selftest/feedback-fault.test.cjs + tests/presentation-controls.offline.test.cjs integration",
+          "adaptation": "Supersedes packet-created feedback SELECT prerequisite; preserves existing INSERT-only product behavior and separate persisted server evidence."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-07"
+          ],
+          "assertions": [
+            "feedback-stored-once",
+            "older-take-association",
+            "older-coaching-association"
+          ],
+          "source": "tests/live/rwt-feedback-association-boundaries.live.spec.ts",
+          "lines": [
+            127,
+            181
+          ],
+          "observations": [
+            "existing trusted-runner owner report read adapted to actual observed final idempotency key and strict observation freshness, limit2",
+            "real stored NULL and malformed/valid coaching references preserved, not replaced by outbound body",
+            "stored-once PASS deferred until normal received proof and final passive insert count recheck; missing clock/freshness stays NOT RUN"
+          ],
+          "implementation": "oracles/feedback-association.cjs; oracles/index.cjs; bundle/harness/existing-runner-projection.cjs; producer-evidence.cjs",
+          "tests": "tests/existing-producer.offline.test.cjs; bundle/selftest/existing-runner-projection.test.cjs",
+          "runtimeStatus": "NOT RUN; actual permitted current-case existing-runner invocation/authenticated delivery UNBOUND"
+        }
+      ],
+      "requiredUnimplemented": [
+        {
+          "caseIds": [
+            "AHT-07"
+          ],
+          "assertionId": "feedback-failure-retry-form",
+          "classification": "REQUIRED_PACKET_TECHNICAL_UNIMPLEMENTED",
+          "sourceAssertionIds": [
+            "a storage failure is told truthfully, keeps the draft, and the retry stores exactly one row",
+            "a SERVER-REJECTED insert is told truthfully, logged once, keeps the draft, and the retry stores one row",
+            "a stored report whose reply was lost is not stored twice"
+          ],
+          "source": "tests/e2e/feedback-diagnostics-journey.e2e.spec.ts",
+          "lines": [
+            110,
+            163
+          ],
+          "packet": "cloud-test-prompt.txt:53-54 explicitly requires preserved failure/retry form",
+          "reason": "Current live older-take driver executes a successful submission, not the mocked failure/retry controls. No reviewed live feedback fault boundary/authority is supplied; this row is NOT RUN and prevents AHT07 PASS. Save faults do not substitute."
+        }
+      ],
+      "unimplementedRequiredAssertions": [],
+      "requiredFeedbackAttemptCap": 7,
+      "requiredFeedbackNewReportCap": 4,
+      "requiredStartPressCap": 2,
+      "minimumAuthorizedStartPresses": 2,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-08",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "fresh-acknowledgment",
+        "feedback-stored-once",
+        "no-session-association",
+        "no-coaching-association",
+        "received-feedback-proof",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [
+        "feedbackReceived",
+        "feedbackAssociation"
+      ],
+      "minimumAuthorizedTakes": 0,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "oracleBindings for each required oracle: module, sha256, reviewReceipt",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [
+        "feedbackReceived",
+        "feedbackAssociation"
+      ],
+      "requiredTakeCap": 0,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-07",
+            "AHT-08"
+          ],
+          "assertions": [
+            "received-feedback-proof"
+          ],
+          "source": "tests/live/helpers/rwtJourney.ts",
+          "lines": [
+            2129,
+            2130
+          ],
+          "oracleSource": "frontend/src/services/telemetry/feedbackTelemetry.ts:124-139; IssueReportDialog.tsx",
+          "observations": [
+            "ordinary acknowledged feedback emits exactly two local sourceevents attempted+storage_ok, same actual submit_seq/journey/boot/source",
+            "AHT07 final success starts on new guarded page after closing negative-scenario page; no prior-page batched events admitted as final evidence",
+            "source-qualified independent share_feedback receipt remains required; its generic received_counts must not be relabeled as exact vendorfeedback event cardinality"
+          ],
+          "implementation": "oracles/index.cjs + oracles/passive-telemetry.cjs + oracles/receipts.cjs (coordinating worker) + source-adapters.cjs page isolation",
+          "tests": "coordinating worker receiver tests + presentation-controls.offline.test.cjs integration",
+          "runtimeStatus": "NOT RUN; existing producer capability and latest deployed source/schema bindings required"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-08"
+          ],
+          "assertions": [
+            "feedback-stored-once",
+            "no-session-association",
+            "no-coaching-association"
+          ],
+          "source": "tests/live/rwt-feedback-association-boundaries.live.spec.ts",
+          "lines": [
+            127,
+            181
+          ],
+          "observations": [
+            "existing trusted-runner owner report read adapted to actual observed final idempotency key and strict observation freshness, limit2",
+            "real stored NULL and malformed/valid coaching references preserved, not replaced by outbound body",
+            "stored-once PASS deferred until normal received proof and final passive insert count recheck; missing clock/freshness stays NOT RUN"
+          ],
+          "implementation": "oracles/feedback-association.cjs; oracles/index.cjs; bundle/harness/existing-runner-projection.cjs; producer-evidence.cjs",
+          "tests": "tests/existing-producer.offline.test.cjs; bundle/selftest/existing-runner-projection.test.cjs",
+          "runtimeStatus": "NOT RUN; actual permitted current-case existing-runner invocation/authenticated delivery UNBOUND"
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 0,
+      "minimumAuthorizedStartPresses": 0,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-09",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "recording-before-leave",
+        "leave-released",
+        "return-no-resume",
+        "recovery-truthful",
+        "left-take-saved-once",
+        "next-take-isolated",
+        "lease-fenced",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed",
+        "navigation-ready"
+      ],
+      "requiredOracleImplementations": [
+        "abandonmentLease"
+      ],
+      "minimumAuthorizedTakes": 2,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "oracleBindings for each required oracle: module, sha256, reviewReceipt",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [
+        "abandonmentLease"
+      ],
+      "requiredTakeCap": 2,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-09"
+          ],
+          "assertions": [
+            "navigation-ready"
+          ],
+          "source": "tests/live/rwt-abandon-and-two-tabs.live.spec.ts",
+          "lines": [
+            188,
+            207
+          ],
+          "oracleSource": "same file:231-235; tests/e2e/helpers.ts:330-335",
+          "observations": [
+            "accepted leave dialog remains attached through destination URL wait",
+            "leave path /practice?product=focus-points and app-visible-ready observed before microphone state read",
+            "source3second release observation window, visible setup dismissal, explicit /session URL+app-visible-ready and source3second return window before noResume"
+          ],
+          "implementation": "navigation-controls.cjs:ready + source-adapters.cjs AHT09",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 3,
+      "minimumAuthorizedStartPresses": 3,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-10",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "recording-before-leave",
+        "leave-released",
+        "return-no-resume",
+        "recovery-truthful",
+        "next-take-isolated",
+        "lease-fenced",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [
+        "abandonmentLease"
+      ],
+      "minimumAuthorizedTakes": 2,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "oracleBindings for each required oracle: module, sha256, reviewReceipt",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [
+        "abandonmentLease"
+      ],
+      "requiredTakeCap": 2,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 3,
+      "minimumAuthorizedStartPresses": 3,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-11",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "same-browser-refused",
+        "independent-context-refused",
+        "lease-before-model-window",
+        "takeover-fences-old-owner",
+        "two-takes-isolated",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [
+        "takeoverLease"
+      ],
+      "minimumAuthorizedTakes": 2,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "oracleBindings for each required oracle: module, sha256, reviewReceipt",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [
+        "takeoverLease"
+      ],
+      "requiredTakeCap": 2,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 4,
+      "minimumAuthorizedStartPresses": 4,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-12",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "press-bound-denial",
+        "denial-truthful-no-mic",
+        "allowed-recovery-saved",
+        "review-reopen",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [],
+      "minimumAuthorizedTakes": 1,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "permissionQualification.denialThenGrantSameContext/receipt",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [],
+      "requiredTakeCap": 1,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-05",
+            "AHT-06",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [],
+          "source": "frontend/src/lib/storage.ts",
+          "lines": [
+            345,
+            367
+          ],
+          "observations": [
+            "rendered available transcript uses outer trim; saved/readback/DOM restored-view digests now share that exact normalization",
+            "internal whitespace unchanged; raw exact completion payload/durable-save oracle not modified"
+          ],
+          "implementation": "browser-readback.cjs + browser-actions.cjs:fingerprint + focus-controls.cjs:digest",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 3,
+      "minimumAuthorizedStartPresses": 3,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-13",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "download-fault-exercised",
+        "download-failure-truthful",
+        "deliberate-recovery-saved",
+        "review-reopen",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [],
+      "minimumAuthorizedTakes": 1,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "coldModelRequired",
+        "downloadFault exact app-origin model URL and mode",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [],
+      "requiredTakeCap": 1,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-05",
+            "AHT-06",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [],
+          "source": "frontend/src/lib/storage.ts",
+          "lines": [
+            345,
+            367
+          ],
+          "observations": [
+            "rendered available transcript uses outer trim; saved/readback/DOM restored-view digests now share that exact normalization",
+            "internal whitespace unchanged; raw exact completion payload/durable-save oracle not modified"
+          ],
+          "implementation": "browser-readback.cjs + browser-actions.cjs:fingerprint + focus-controls.cjs:digest",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 2,
+      "minimumAuthorizedStartPresses": 2,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-14",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "download-fault-exercised",
+        "download-failure-truthful",
+        "deliberate-recovery-saved",
+        "review-reopen",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed"
+      ],
+      "requiredOracleImplementations": [],
+      "minimumAuthorizedTakes": 1,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "fixture.sha256/launchSha256/speechDurationMs",
+        "coldModelRequired",
+        "downloadFault exact app-origin model URL and mode",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)"
+      ],
+      "requiredOracles": [],
+      "requiredTakeCap": 1,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-05",
+            "AHT-06",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [],
+          "source": "frontend/src/lib/storage.ts",
+          "lines": [
+            345,
+            367
+          ],
+          "observations": [
+            "rendered available transcript uses outer trim; saved/readback/DOM restored-view digests now share that exact normalization",
+            "internal whitespace unchanged; raw exact completion payload/durable-save oracle not modified"
+          ],
+          "implementation": "browser-readback.cjs + browser-actions.cjs:fingerprint + focus-controls.cjs:digest",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 2,
+      "minimumAuthorizedStartPresses": 2,
+      "additionalSourceRequirements": {}
+    },
+    {
+      "caseId": "AHT-15",
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "requiredAssertions": [
+        "owner-bound",
+        "history-preserved",
+        "switches-mic-off",
+        "signed-out",
+        "return-owner-preserved",
+        "no-recording-or-session-write",
+        "start-press-budget",
+        "no-cloud-stt",
+        "owned-pages-closed",
+        "return-entry-mic-off",
+        "deep-link-exact-return",
+        "deep-link-rendered-own-detail",
+        "deep-link-mic-off",
+        "return-signed-out"
+      ],
+      "requiredOracleImplementations": [],
+      "minimumAuthorizedTakes": 0,
+      "requiredInputs": [
+        "caseId",
+        "requiredAssertions (exact denominator)",
+        "sourceSha and servedSha",
+        "targetUrl exact HTTPS origin",
+        "account.id and account.mode",
+        "account.preprovisionReceipt",
+        "account.analyticsExclusionReceipt",
+        "account.dispositionReceipt",
+        "account.effectiveFeatureAccessApproved",
+        "readback.origin/projectRef/anonKey/schemaSha256/ownerReadApproved/rlsReadQualificationReceipt",
+        "observerSourceReviewed/observerQualificationReceipt",
+        "takeCap",
+        "approved credentials supplied only by capability",
+        "startPressCap (explicit approved integer >= requiredStartPressCap, distinct from takeCap)",
+        "maintained account existing completed own session with available nonempty transcript for rendered detail witness"
+      ],
+      "requiredOracles": [],
+      "requiredTakeCap": 0,
+      "sourceAssertions": [
+        {
+          "cases": [
+            "AHT-15"
+          ],
+          "assertions": [
+            "history-preserved",
+            "return-entry-mic-off",
+            "deep-link-exact-return",
+            "deep-link-rendered-own-detail",
+            "deep-link-mic-off",
+            "return-signed-out"
+          ],
+          "source": "tests/live/rwt-products-navigation.live.spec.ts",
+          "lines": [
+            240,
+            345
+          ],
+          "oracleSource": "tests/live/helpers/returningSignInAttempt.ts:deepLinkLanding; frontend/src/components/AnalyticsDashboard.tsx:967-991; frontend/src/lib/storage.ts:345-367",
+          "observations": [
+            "nonempty verified completed history and actual listed own target; existing readable owned transcript needed for positive rendered identity witness",
+            "real signed-out legacy /analytics/id?g04=1#history link; sign-in form preserves target rather than resetting to /auth/signin",
+            "canonical /progress/id, full query and hash compared independently",
+            "actual saved-review and transcript elements rendered and digest equals owned saved text under source trim semantics",
+            "same deep-link document spans authentication through render; mic acquisitions/tracks/recording remainzero; final second session signsout",
+            "full baseline identities/status/transcript state/digests remain unchanged and session-create/complete POST countzero"
+          ],
+          "implementation": "navigation-controls.cjs + source-adapters.cjs + browser-actions.cjs",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "runtimeBinding": "Maintained read-only account must already contain a completed own session with a readable transcript; otherwise NOT RUN, never seed/create/grant."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "start-press-budget"
+          ],
+          "source": "source-adapters.cjs actual finite source-derived control sequence",
+          "observations": [
+            "private per-case fsynced capability reservation BEFORE each actual mic-start/mic-download/mic-retry/verdict-practice-again/focus-points-retry gesture across all owned pages/contexts",
+            "Start minima4/7/4/2/2/2/2/0/3/3/4/3/2/2/0 sum40; conditional refusal+takeover presses count too",
+            "recording/create attempt takeCap remains separate; no Stop counted; no min value treated as owner authorization",
+            "exhaustion START_PRESS_CAP propagates as NOT RUN plus typed safety signal, never as a product gate failure"
+          ],
+          "implementation": "browser-actions.cjs:bindStartPressRecorder/pressStart + source-adapters.cjs + repeat-probes.cjs; coordinating run-guarded action-budget journal",
+          "tests": "claude-adapter-delta.offline.test.cjs + coordinating action-budget controls"
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-04",
+            "AHT-05",
+            "AHT-06",
+            "AHT-07",
+            "AHT-08",
+            "AHT-09",
+            "AHT-10",
+            "AHT-11",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [
+            "owner-bound"
+          ],
+          "source": "tests/live/helpers/returningSignInAttempt.ts",
+          "lines": [
+            36,
+            84
+          ],
+          "observations": [
+            "one submitted main-frame password-grant request bound by exact approved auth origin/path/grant_type",
+            "only source400 invalid_credentials classification emits AUTH_REJECTED; network/rate-limit/unknown/ambiguous remain inconclusive",
+            "no automatic retry; successful token response bodies never leave browser; actual owner session still read as boolean in page",
+            "driver returns executionSignals.authenticationRejected and NOT RUN; campaign consuming flag stops latercases"
+          ],
+          "implementation": "auth-controls.cjs + browser-actions.cjs + source-adapters.cjs; campaign STOP coordinating worker",
+          "tests": "claude-adapter-delta.offline.test.cjs",
+          "scopeLimit": "This is source-confirmed rejection handling plus existing owner/landing check, not a claim to port every G18 successful token-body verdict."
+        },
+        {
+          "cases": [
+            "AHT-01",
+            "AHT-02",
+            "AHT-03",
+            "AHT-05",
+            "AHT-06",
+            "AHT-12",
+            "AHT-13",
+            "AHT-14",
+            "AHT-15"
+          ],
+          "assertions": [],
+          "source": "frontend/src/lib/storage.ts",
+          "lines": [
+            345,
+            367
+          ],
+          "observations": [
+            "rendered available transcript uses outer trim; saved/readback/DOM restored-view digests now share that exact normalization",
+            "internal whitespace unchanged; raw exact completion payload/durable-save oracle not modified"
+          ],
+          "implementation": "browser-readback.cjs + browser-actions.cjs:fingerprint + focus-controls.cjs:digest",
+          "tests": "claude-adapter-delta.offline.test.cjs"
+        }
+      ],
+      "requiredUnimplemented": [],
+      "unimplementedRequiredAssertions": [],
+      "requiredStartPressCap": 0,
+      "minimumAuthorizedStartPresses": 0,
+      "additionalSourceRequirements": {}
+    }
+  ],
+  "offlineControls": {
+    "passed": 218,
+    "failed": 0,
+    "skipped": 0,
+    "liveExecuted": false,
+    "scope": "draft-adapters/tests/*.test.cjs only",
+    "receipt": "offline-controls.tap"
+  },
+  "activationBlockers": [
+    "actual guarded-browser/R0 qualification not run",
+    "final selected merged/deployed release/schema/media/account/proxy/caps not bound",
+    "existing independently authenticated fresh producer capability not supplied",
+    "full-source extras listed explicitly in source-control-crosswalk.json are not automatic PASS",
+    "finite required technical unimplemented rows in AHT01/02/03/07 explicitly return NOT RUN; no optional waiver"
+  ],
+  "sourceControlCrosswalk": "source-control-crosswalk.json",
+  "finiteAcceptanceDenominator": "finite-aht-denominator.json",
+  "sourceBindings": {
+    "driver": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "sameTargetNumeric": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "coherentFinalSourceReversion": "REVALIDATED_FOR_2b48eabc: see docs/source-revalidation-2b48eabc.json"
+  }
+}

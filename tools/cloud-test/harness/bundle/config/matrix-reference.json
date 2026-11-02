@@ -1,0 +1,15 @@
+{
+  "path": "../../run-packet/requirements-traceability.matrix.json",
+  "sha256": "44b9456c0adb1386930e4b99933471a324c03b15093c43101baebb6d42073921",
+  "totalRows": 621,
+  "activeValidationRows": 151,
+  "perCategory": {
+    "PG01": 20,
+    "PG02": 25,
+    "PG03": 29,
+    "PG04": 19,
+    "PG05": 12,
+    "PG06": 29,
+    "PG07": 17
+  }
+}

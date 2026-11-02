@@ -1,0 +1,58 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "caseId": "AHT-11",
+  "campaignId": null,
+  "sourceSha": null,
+  "servedSha": null,
+  "targetUrl": "https://speaksharp-public.vercel.app",
+  "requiredAssertions": [
+    "owner-bound",
+    "same-browser-refused",
+    "independent-context-refused",
+    "lease-before-model-window",
+    "takeover-fences-old-owner",
+    "two-takes-isolated",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+  ],
+  "credentialVars": {
+    "email": "THROWAWAY_TEST_EMAIL",
+    "password": "THROWAWAY_TEST_PASSWORD"
+  },
+  "account": {
+    "id": null,
+    "mode": "existing-disposable",
+    "preprovisionReceipt": null,
+    "analyticsExclusionReceipt": null,
+    "dispositionReceipt": null,
+    "effectiveFeatureAccessApproved": null
+  },
+  "readback": {
+    "origin": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+    "projectRef": "yxlapjuovrsvjswkwnrk",
+    "anonKey": null,
+    "schemaSha256": null,
+    "ownerReadApproved": null,
+    "rlsReadQualificationReceipt": null
+  },
+  "observerSourceReviewed": null,
+  "observerQualificationReceipt": null,
+  "takeCap": null,
+  "startPressCap": null,
+  "_minimumTakeCap": 2,
+  "_minimumStartPressCap": 4,
+  "oracleBindings": {
+    "takeoverLease": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    }
+  },
+  "fixture": {
+    "name": null,
+    "sha256": null,
+    "launchSha256": null,
+    "speechDurationMs": null
+  }
+}

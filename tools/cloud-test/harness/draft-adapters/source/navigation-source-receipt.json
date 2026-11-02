@@ -1,0 +1,35 @@
+{
+  "sourceSha": "70e194a4422dd7b6a13ed542134941d1eaa9ea87",
+  "files": [
+    {
+      "path": "tests/live/helpers/returningSignInAttempt.ts",
+      "file": "source/returningSignInAttempt.ts",
+      "expectedGitBlobSha1": "acb58b0fb28f7deed47645cc4a6847d7831fd7f3"
+    },
+    {
+      "path": "frontend/src/pages/SignInPage.tsx",
+      "file": "source/SignInPage.tsx",
+      "expectedGitBlobSha1": "85029a343e3ecbbd91575846362d6c6847709b81"
+    },
+    {
+      "path": "frontend/src/pages/AnalyticsPage.tsx",
+      "file": "source/AnalyticsPage.tsx",
+      "expectedGitBlobSha1": "b12a8af6e734afb26e3011f8b0bd1af457d98db6"
+    },
+    {
+      "path": "frontend/src/components/AnalyticsDashboard.tsx",
+      "file": "source/AnalyticsDashboard.tsx",
+      "expectedGitBlobSha1": "0c5edec2e38fcf61d14953e64481d568238d8a97"
+    },
+    {
+      "path": "frontend/src/constants/transcriptState.ts",
+      "file": "source/transcriptState.ts",
+      "expectedGitBlobSha1": "c92681dd86376b6d2527fd084e99c9210cf6bc9a"
+    },
+    {
+      "path": "frontend/src/components/analytics/SavedPracticeLoopReview.tsx",
+      "file": "source/SavedPracticeLoopReview.tsx",
+      "expectedGitBlobSha1": "7a83fb6c3df7093e6b431c94aac5cfb04db5609e"
+    }
+  ]
+}

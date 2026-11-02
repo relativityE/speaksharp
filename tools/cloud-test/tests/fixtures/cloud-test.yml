@@ -1,0 +1,127 @@
+name: Cloud Test control plane (manual, secret-free)
+
+# Manually dispatched ONLY, and it holds NO credentials: this workflow references no secret, no variable, no Environment and no write permission.
+# It is the control plane of the Cloud test: offline checks, sealed-receipt verification, release verification from git, cumulative-usage
+# reconciliation, gate evaluation, automatic latest-versus-prior comparison, spend/cost reporting and the report. It never contacts the product.
+# The live run itself happens in the Claude task environment (the only runtime the harness admission accepts), driven by tools/cloud-test/scripts/execute_run.sh.
+#
+#   mode=preflight (default): evaluates every gate for the request and builds the report with Latest = PENDING.
+#   mode=report: after a run's receipts were sealed into config/history/receipts/<latest_label>/ (and pinned in the config), compares Latest against the
+#                previous run automatically and derives gap status, spend and the summary from that evidence.
+#
+# Network use: setup downloads only (PyPI pyyaml pinned, the npm lockfile, the pinned browser archive verified by sha256). The control-plane scripts run
+# under a network guard; the attestation artifact records secret-free: true, network attempts: 0 and product hosts contacted: 0.
+on:
+  workflow_dispatch:
+    inputs:
+      run_request:
+        description: Path of the run request inside this repository (tools/cloud-test/config/runs/<id>.json)
+        required: true
+        default: tools/cloud-test/config/runs/R6-aht12-prove-1744.json
+      mode:
+        description: preflight evaluates gates and reports with Latest pending; report compares a sealed latest run automatically
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - report
+      latest_label:
+        description: For mode=report only, the sealed receipt label of the latest run (for example R6). Leave empty for preflight.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-test-control-plane
+  cancel-in-progress: false
+
+jobs:
+  control-plane:
+    name: Offline checks, gates, comparison and report (no secrets, no product traffic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Validate dispatch inputs
+        env:
+          RUN_REQUEST: ${{ inputs.run_request }}
+          MODE: ${{ inputs.mode }}
+          LATEST_LABEL: ${{ inputs.latest_label }}
+        run: |
+          python3 -I - <<'PY'
+          import os, re, sys
+          p, mode, lab = os.environ["RUN_REQUEST"], os.environ["MODE"], os.environ["LATEST_LABEL"]
+          if not re.fullmatch(r"tools/cloud-test/config/runs/[A-Za-z0-9._-]+\.json", p) or ".." in p:
+              sys.exit("invalid run_request path")
+          if mode == "report" and not re.fullmatch(r"[A-Za-z0-9._-]{1,32}", lab):
+              sys.exit("mode=report needs latest_label")
+          if mode == "preflight" and lab:
+              sys.exit("latest_label is only for mode=report")
+          PY
+      - name: Record job start (usage account)
+        run: python3 -I tools/cloud-test/scripts/record_timing.py start --job control-plane --dir "$RUNNER_TEMP/timings"
+      - name: Install the test dependency (pinned)
+        run: python -m pip install --quiet pyyaml==6.0.2
+      - name: Install the pinned browser (sha256-verified archive and binary; any mismatch fails the job)
+        run: |
+          mkdir -p "$RUNNER_TEMP/browsers"
+          CHROME="$(PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/browsers" python3 -I tools/cloud-test/scripts/install_browser.py --config tools/cloud-test/config/test-config.v1.json)"
+          echo "CT_CHROME=$CHROME" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/browsers" >> "$GITHUB_ENV"
+      - name: Install runner dependencies from the lockfile
+        run: npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund
+      - name: Verify the vendored reviewed harness against the approved hashes
+        run: python3 -I tools/cloud-test/scripts/verify_harness.py --config tools/cloud-test/config/test-config.v1.json
+      - name: Offline checks (package tests, report tests, workflow policy, integration proof on loopback)
+        working-directory: tools/cloud-test
+        env:
+          CT_REQUIRE_INTEGRATION: '1'
+        run: python3 -I scripts/run_offline_checks.py --out "$RUNNER_TEMP/offline-checks.json"
+      - name: Record job end (usage account)
+        run: python3 -I tools/cloud-test/scripts/record_timing.py end --job control-plane --dir "$RUNNER_TEMP/timings"
+      - name: Control-plane pipeline (secret-free; stops if a credential-like variable is present)
+        working-directory: tools/cloud-test
+        env:
+          RUN_REQUEST: ${{ inputs.run_request }}
+          MODE: ${{ inputs.mode }}
+          LATEST_LABEL: ${{ inputs.latest_label }}
+        run: |
+          set -euo pipefail
+          ARGS=(--request "../../$RUN_REQUEST" --out-dir "$RUNNER_TEMP/control-plane" --offline-checks "$RUNNER_TEMP/offline-checks.json" --timings "$RUNNER_TEMP/timings" --require-secret-free)
+          if [ "$MODE" = "report" ]; then ARGS+=(--latest-label "$LATEST_LABEL"); fi
+          python3 -I scripts/pipeline.py "${ARGS[@]}"
+      - name: Assert the attestation (secret-free, no network attempts, no product host)
+        run: |
+          python3 -I - <<'PY'
+          import json, os, sys
+          a = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "control-plane", "preflight-attestation.json")))
+          bad = [k for k, ok in (("secretFree", a["secretFree"] is True), ("networkAttempts", a["networkAttempts"] == 0), ("productHostsContacted", a["productHostsContacted"] == 0)) if not ok]
+          if bad:
+              sys.exit("attestation failed: %s" % bad)
+          print("attestation ok: secret-free, 0 network attempts, 0 product hosts")
+          PY
+      - name: Upload the control-plane outputs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: cloud-test-control-plane
+          path: |
+            ${{ runner.temp }}/control-plane/report/**
+            ${{ runner.temp }}/control-plane/*.json
+            ${{ runner.temp }}/control-plane/*.md
+            ${{ runner.temp }}/offline-checks.json
+            ${{ runner.temp }}/timings/**
+          retention-days: 14
+          if-no-files-found: error

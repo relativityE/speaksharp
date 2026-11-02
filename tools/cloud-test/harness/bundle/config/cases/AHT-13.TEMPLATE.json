@@ -1,0 +1,58 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "caseId": "AHT-13",
+  "campaignId": null,
+  "sourceSha": null,
+  "servedSha": null,
+  "targetUrl": "https://speaksharp-public.vercel.app",
+  "requiredAssertions": [
+    "owner-bound",
+    "download-fault-exercised",
+    "download-failure-truthful",
+    "deliberate-recovery-saved",
+    "review-reopen",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+  ],
+  "credentialVars": {
+    "email": "THROWAWAY_TEST_EMAIL",
+    "password": "THROWAWAY_TEST_PASSWORD"
+  },
+  "account": {
+    "id": null,
+    "mode": "existing-disposable",
+    "preprovisionReceipt": null,
+    "analyticsExclusionReceipt": null,
+    "dispositionReceipt": null,
+    "effectiveFeatureAccessApproved": null
+  },
+  "readback": {
+    "origin": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+    "projectRef": "yxlapjuovrsvjswkwnrk",
+    "anonKey": null,
+    "schemaSha256": null,
+    "ownerReadApproved": null,
+    "rlsReadQualificationReceipt": null
+  },
+  "observerSourceReviewed": null,
+  "observerQualificationReceipt": null,
+  "takeCap": null,
+  "startPressCap": null,
+  "_minimumTakeCap": 1,
+  "_minimumStartPressCap": 2,
+  "oracleBindings": {},
+  "fixture": {
+    "name": null,
+    "sha256": null,
+    "launchSha256": null,
+    "speechDurationMs": null
+  },
+  "coldModelRequired": true,
+  "downloadFault": {
+    "mode": "download-fails",
+    "url": null,
+    "afterBytes": null,
+    "qualificationReceipt": null
+  }
+}

@@ -1,0 +1,262 @@
+{
+  "sourceSha": "70e194a4422dd7b6a13ed542134941d1eaa9ea87",
+  "basis": [
+    "paid-launch-cloud-packet-v1/cloud-test-prompt.txt:37-70 (fifteen named technical cases)",
+    "paid-launch-cloud-packet-v1/user-value-acceptance.md:15-17,77-88 (separate AHT/HUM evidence layers)",
+    "paid-launch-cloud-packet-v1/cloud-test-prompt.txt:71-74 (fifteen cases do not replace selected matrix/regression requirements)"
+  ],
+  "rule": "Case PASS requires every exact requiredAssertions entry in contracts.json PASS. Source extras and human/admin lanes are not silently waived or represented by another case. Every unimplemented required technical group below is an explicit NOT RUN row and prevents that AHT case PASS. A scope change requires owner disposition, not config booleans.",
+  "requiredUnimplemented": [],
+  "separateRequiredLanes": [
+    {
+      "caseIds": [
+        "AHT-01"
+      ],
+      "ids": [
+        "HUM-01",
+        "HUM-04",
+        "HUM-06"
+      ],
+      "classification": "SEPARATELY_REQUIRED_HUMAN_NOT_AUTOMATED_AHT",
+      "status": "NOT RUN",
+      "sourceAssertionIds": [
+        "open_mic_coaching_relevant",
+        "real spoken uh",
+        "real-phone Stop save and review"
+      ],
+      "source": "tests/live/helpers/rwtCoachingConsistency.ts:1-6; paid-launch-cloud-packet-v1/user-value-acceptance.md:77-88",
+      "reason": "Packet explicitly separates technical AHT and named-person/physical observations. AHT technical PASS cannot close these rows or launch acceptance."
+    },
+    {
+      "caseIds": [
+        "AHT-02",
+        "AHT-03"
+      ],
+      "ids": [
+        "HUM-02",
+        "HUM-03",
+        "HUM-06"
+      ],
+      "classification": "SEPARATELY_REQUIRED_HUMAN_NOT_AUTOMATED_AHT",
+      "status": "NOT RUN",
+      "sourceAssertionIds": [
+        "focus_coaching_covers_points",
+        "full Focus usefulness",
+        "partial Focus usefulness"
+      ],
+      "source": "tests/live/helpers/rwtCoachingConsistency.ts:1-6,60-81; paid-launch-cloud-packet-v1/user-value-acceptance.md:83-88",
+      "reason": "Synthetic prompt/identity checks cannot adjudicate actual human usefulness or physical phone UX."
+    },
+    {
+      "caseIds": [
+        "AHT-12"
+      ],
+      "ids": [
+        "HUM-05"
+      ],
+      "classification": "SEPARATELY_REQUIRED_PHYSICAL_PERMISSION",
+      "status": "NOT RUN",
+      "sourceAssertionIds": [
+        "actual-device microphone Deny then Allow"
+      ],
+      "source": "paid-launch-cloud-packet-v1/cloud-test-prompt.txt:63-64; user-value-acceptance.md:87",
+      "reason": "The AHT paragraph explicitly says fixture permissions do not close HUM05. Browser permission qualification is not native physical evidence."
+    },
+    {
+      "caseIds": [
+        "AHT-01",
+        "AHT-02",
+        "AHT-03"
+      ],
+      "ids": [
+        "account-provision-canary-disposition"
+      ],
+      "classification": "AUTHORIZED_EXISTING_ACCOUNT_ALTERNATIVE_WITH_REQUIRED_R0_RECEIPTS",
+      "status": "NOT RUN until actual account/analytics/disposition receipts are bound",
+      "sourceAssertionIds": [
+        "signup",
+        "sign-in",
+        "canary claim",
+        "run-owned account cleanup"
+      ],
+      "source": "tests/live/rwt-open-mic-first-session.live.spec.ts:423-444; tests/live/helpers/rwtFocusPointsJourney.ts:332-347,301-309",
+      "packet": "cloud-test-prompt.txt:41-46; parent existing-disposable account instruction",
+      "reason": "Packet says enter/sign in and owner authorized existing disposable accounts. Source browser signup/admin canary/deletion helpers are not imported or newly authorized. Existing-account identity is exercised; administrative effects are not called optional or silently executed."
+    },
+    {
+      "caseIds": [
+        "AHT-01",
+        "AHT-02",
+        "AHT-03"
+      ],
+      "ids": [
+        "source-model-entitlement-acquisition"
+      ],
+      "classification": "REQUIRED_SETUP_SOURCE_EVIDENCE_OUTSIDE_FINITE_AHT_ROWS_NOT_OPTIONAL",
+      "status": "NOT RUN / source equivalence not claimed",
+      "sourceAssertionIds": [
+        "model identity",
+        "model download vs setup timing",
+        "new-account entitlement"
+      ],
+      "source": "tests/live/helpers/rwtJourney.ts:1251-1257,1420-1434,2182-2205; rwt-open-mic-first-session.live.spec.ts:479-483; rwtFocusPointsJourney.ts:400",
+      "reason": "R0 must bind selected target, approved model, effective access and budgets before payload. Current adapters do not emit these full source verdicts. AHT success cannot be promoted to these source/setup claims; owner must bind the required R0 acceptance evidence, not assume from config labels."
+    },
+    {
+      "caseIds": [
+        "AHT-01"
+      ],
+      "ids": [
+        "source-filler-progress-regressions"
+      ],
+      "classification": "SEPARATE_MATRIX_REGRESSION_REQUIREMENTS_NOT_OPTIONAL",
+      "status": "NOT RUN / not closed by AHT01",
+      "sourceAssertionIds": [
+        "live filler highlighting",
+        "filler transcript / display / saved",
+        "filler display matches saved (all words)",
+        "coachable filler headline",
+        "coaching consistent with saved fillers",
+        "filler vs corpus",
+        "filler count reference vs product",
+        "Progress evaluation",
+        "Progress debt"
+      ],
+      "source": "tests/live/rwt-open-mic-first-session.live.spec.ts:528,711-784,879-899",
+      "packet": "cloud-test-prompt.txt:71-74 explicitly requires selected matrix/regression procedures separately",
+      "reason": "These selected regression/value rows remain distinct required evidence; the finite AHT driver does not run every source regression or close the 151-row matrix. Not optional and never copied from a neighboring green row."
+    },
+    {
+      "caseIds": [
+        "AHT-01",
+        "AHT-02",
+        "AHT-03"
+      ],
+      "ids": [
+        "source-full-telemetry-inventory"
+      ],
+      "classification": "SEPARATE_RELEASE_READBACK_REQUIREMENTS_NOT_OPTIONAL",
+      "status": "NOT RUN / full telemetry acceptance not claimed",
+      "sourceAssertionIds": [
+        "telemetry sent",
+        "coaching telemetry sent",
+        "coverage_evaluation sent",
+        "inventory events sent",
+        "Practice again press \u2192 arrival (sent)",
+        "feedback outcome (sent)",
+        "revisit is not a generation"
+      ],
+      "source": "tests/live/rwt-open-mic-first-session.live.spec.ts:317-386; tests/live/helpers/rwtFocusPointsJourney.ts:236-286",
+      "reason": "The received-feedback oracle in AHT07/08 establishes only its observed action identity, not every other journey's full stage/cardinality/vendor readback. Those exact-source rows remain separate NOT RUN evidence, not waived."
+    },
+    {
+      "caseIds": [
+        "AHT-02"
+      ],
+      "ids": [
+        "source-focus-own-take-feedback-chain"
+      ],
+      "classification": "SOURCE_EXTRA_SCOPE_UNRESOLVED_NOT_OPTIONAL",
+      "status": "NOT RUN / not closed by AHT07 or AHT08",
+      "sourceAssertionIds": [
+        "share feedback",
+        "feedback diagnostic chain"
+      ],
+      "source": "tests/live/helpers/rwtFocusPointsJourney.ts:665-678",
+      "reason": "Finite AHT02 paragraph covers setup/record/review/repeat/Edit/NewSet/isolation; other feedback cases do not prove association to AHT02's own take. This source-specific extra needs explicit owner disposition or additional approved observation, not a silent waiver."
+    }
+  ],
+  "requiredImplemented": [
+    {
+      "caseIds": [
+        "AHT-01"
+      ],
+      "assertionId": "open-mic-review-presentation",
+      "classification": "REQUIRED_SOURCE_TECHNICAL_IMPLEMENTED_RUNTIME_NOT_RUN",
+      "sourceAssertionIds": [
+        "coaching length",
+        "coaching phrases distinct"
+      ],
+      "source": "tests/live/rwt-open-mic-first-session.live.spec.ts",
+      "lines": [
+        642,
+        653
+      ],
+      "packet": "cloud-test-prompt.txt:41-42 (inspect useful 1+1 review)",
+      "status": "Implementation and offline controls only; runtime NOT RUN; selected release revalidation required",
+      "implementation": "presentation-controls.cjs + source-adapters.cjs",
+      "tests": "tests/presentation-controls.offline.test.cjs"
+    },
+    {
+      "caseIds": [
+        "AHT-02",
+        "AHT-03"
+      ],
+      "assertionId": "focus-presentation-contract",
+      "classification": "REQUIRED_SOURCE_TECHNICAL_IMPLEMENTED_RUNTIME_NOT_RUN",
+      "sourceAssertionIds": [
+        "pace guide",
+        "rail before speaking",
+        "rail legend",
+        "pending points labelled",
+        "next point marked",
+        "no red before Stop",
+        "not-detected explained",
+        "coverage count",
+        "average per point",
+        "final rail colours and words"
+      ],
+      "source": "tests/live/helpers/rwtFocusPointsJourney.ts",
+      "lines": [
+        370,
+        524
+      ],
+      "packet": "cloud-test-prompt.txt:43-46 (truthful full/partial points and order)",
+      "status": "Implementation and offline controls only; runtime NOT RUN; selected release revalidation required",
+      "implementation": "presentation-controls.cjs + source-adapters.cjs",
+      "tests": "tests/presentation-controls.offline.test.cjs",
+      "railHelperSource": "tests/live/helpers/rwtJourney.ts:2405-2450 (before/after only; during next/red checks are in rwtFocusPointsJourney.ts)"
+    },
+    {
+      "caseIds": [
+        "AHT-07"
+      ],
+      "assertionId": "feedback-failure-retry-form",
+      "classification": "REQUIRED_PACKET_TECHNICAL_IMPLEMENTED_RUNTIME_NOT_RUN",
+      "sourceAssertionIds": [
+        "a storage failure is told truthfully, keeps the draft, and the retry stores exactly one row",
+        "a SERVER-REJECTED insert is told truthfully, logged once, keeps the draft, and the retry stores one row",
+        "a stored report whose reply was lost is not stored twice"
+      ],
+      "source": "tests/e2e/feedback-diagnostics-journey.e2e.spec.ts",
+      "lines": [
+        110,
+        163
+      ],
+      "packet": "cloud-test-prompt.txt:53-54 explicitly requires preserved failure/retry form",
+      "status": "Implementation and offline controls only; runtime NOT RUN; selected release and guard qualification required",
+      "implementation": "feedback-retry-controls.cjs + bundle/harness/feedback-fault.cjs + source-adapters.cjs",
+      "tests": "feedback-fault.test.cjs + presentation-controls.offline.test.cjs integration",
+      "boundary": "Three controlled proxy fault scenarios (transport-before-send, synthetic42501, stored-response-lost), exact guarded draft/key causal201-to-real409 delivery (not persisted-field readback), truthful preserved form, explicit Retry, exact local4-event sequence. Negative-mode vendor receipts NOT_CLAIMED. Final isolated-page success keeps separately required source-qualified received stage; not exactly-once vendor feedback cardinality.",
+      "requiredBudgets": {
+        "takes": 2,
+        "feedbackAttemptCap": 7,
+        "feedbackNewReportCap": 4
+      }
+    }
+  ],
+  "runtimeAdmissionStatus": "BLOCKED_FINAL_SOURCE_REVERSION",
+  "additionalRequiredImplemented": [
+    {
+      "assertionId": "same-target-numeric",
+      "caseIds": [
+        "AHT-01",
+        "AHT-02",
+        "AHT-03"
+      ],
+      "sourceSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "source": "source-control-crosswalk.json same-target-numeric",
+      "status": "IMPLEMENTED_OFFLINE_ONLY; main70e driver vs d100 numeric fail-closed until coherent final-source reversion"
+    }
+  ]
+}

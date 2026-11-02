@@ -1,0 +1,18 @@
+{
+  "sourceCommit": "70e194a4422dd7b6a13ed542134941d1eaa9ea87",
+  "treeSha": "70e194a4422dd7b6a13ed542134941d1eaa9ea87",
+  "readOnlyConnector": true,
+  "files": [
+    {
+      "path": "tests/live/helpers/coachingExternal.ts",
+      "expectedGitBlobSha1": "a01042f3ee0742a3980872c301cd2df1a46b9386",
+      "size": 21275
+    },
+    {
+      "path": "tests/live/helpers/rwtPaceGuide.ts",
+      "expectedGitBlobSha1": "501c757fc39c1bb982ed1a67facfd9af590726c1",
+      "size": 1038
+    }
+  ],
+  "verification": "Local Git blob SHA-1 computed over exact UTF-8 bytes matches both tree entries; full-content SHA-256 in presentationSelected.provenance.json. No live execution."
+}

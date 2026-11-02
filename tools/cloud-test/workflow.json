@@ -1,0 +1,534 @@
+{
+  "schema": "speaksharp.cloud-test-workflow.v1",
+  "version": "1.5.0",
+  "released": "2026-10-29",
+  "owner": "Product Owner (approves changes); Cloud test agent (maintains)",
+  "statusVocabulary": {
+    "READY": "No blocking gate open; the deployed product meets the expected-PASS criteria of every targeted gap or the run found no regression; customers can rely on the tested areas.",
+    "LIMITED": "The product works for the tested areas but material areas are untested, inconclusive or have open non-critical gaps; state exactly what customers can and cannot rely on.",
+    "BLOCKED": "A blocking gate is open (before a run) or a release-blocking product failure is demonstrated (after a run)."
+  },
+  "recommendationVocabulary": [
+    "PROCEED",
+    "FIX AND RETEST",
+    "HOLD"
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Intake and scope",
+      "steps": [
+        "Name the workflow version being followed and open the run record.",
+        "Identify the last two completed runs (verified originals with receipts and binding manifests) and the run id for this one.",
+        "List the product gaps in scope (gap ledger) and the cases they need."
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Release and deployment verification",
+      "steps": [
+        "Record the tested commit and list every commit on main since the last run; classify each as customer-facing or not-customer-facing from the diff.",
+        "Record frontend and backend deployment identity with its source: owner-stated or cloud-verified (with a verification time).",
+        "At admission: live identity read must MATCH the tested SHA; drift stops the run."
+      ]
+    },
+    {
+      "id": "P2",
+      "name": "Harness verification",
+      "steps": [
+        "Packet code manifest and packet manifest recomputed and recorded; earlier packets unchanged.",
+        "Offline suites, mutation controls, real-browser real-media controls and the local A6 executed on the final hash; results indexed per correction (offline proof).",
+        "Selected-case plan validated offline with the real runner; positive and negative controls recorded.",
+        "Owner approval of the exact harness hash recorded."
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Preflight",
+      "steps": [
+        "Stimulus preflight receipt (capture device, denial, no-device control, audible speech, fixture alignment) fresh and ready for every selected Start-pressing case.",
+        "Media, account and backend setup recorded; reusable account state checked and not reset.",
+        "Budget arithmetic reconciled (cumulative ceiling, protected reserve, identity cap, Starts, takes, cost) and the run window and cleanup conditions approved.",
+        "Expected-PASS criteria defined and timestamped BEFORE the run for every targeted gap.",
+        "Gate check produces gate-status.json; any blocking gate not READY means no run."
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Admission",
+      "steps": [
+        "Runner admission checks (configuration, integrity, clean source, tools, credentials, browser setup, guard self-test, identity) pass with receipts.",
+        "Any admission failure stops the run with nothing further spent."
+      ]
+    },
+    {
+      "id": "P5",
+      "name": "Execution",
+      "steps": [
+        "Run only the selected cases in the approved order; stimulus gates skip dependent cases when a trigger is not established.",
+        "Per-case request allowance, action budgets and the window are enforced by the guard; follow the stop rules."
+      ]
+    },
+    {
+      "id": "P6",
+      "name": "Evidence capture and integrity",
+      "steps": [
+        "Raw results immutable and hashed; release, runner, media and backend bindings recorded; stimulus proof, request accounting and cleanup receipts kept.",
+        "Screenshots and traces only as short-lived review artifacts unless the owner approves keeping them.",
+        "No credential, account identifier, transcript or capability URL in shared evidence."
+      ]
+    },
+    {
+      "id": "P7",
+      "name": "Comparison",
+      "steps": [
+        "Compare against the last two runs with the class rules; separate product fixes, harness corrections and newly tested behaviour.",
+        "Update every gap-ledger row: prior FAIL, fix, verified deployed inclusion, expected PASS, latest result; FAIL to NOT RUN or a changed observer never counts as a fix."
+      ]
+    },
+    {
+      "id": "P8",
+      "name": "Report",
+      "steps": [
+        "Build the report from the template: status, executive summary (250 words maximum), the two tables, gap ledger, gates, plan and identities, offline proof, deviations, appendix.",
+        "Validate the report automatically (word limit, required sections, denominators, hashes, workflow version, deviations)."
+      ]
+    },
+    {
+      "id": "P9",
+      "name": "Closeout and monitoring",
+      "steps": [
+        "Leave each gap OPEN until deployed inclusion and its expected-PASS test both have proof.",
+        "Record deviations and lessons; propose workflow changes through the change process."
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "G1",
+      "name": "Product PR and docs closeout",
+      "blocking": true,
+      "phase": "P1",
+      "ownerInput": true,
+      "check": "run-record.ownerInputs.prDocsCloseout.status == closed with evidence"
+    },
+    {
+      "id": "G2",
+      "name": "Release and deployment verified",
+      "blocking": true,
+      "phase": "P1",
+      "check": "git-verified: every commit since the last run is classified mechanically; a customer-facing commit is allowed only as a verified deployed fix (linked to a gap with expected-PASS criteria, an ancestor of the tested SHA, deployment verified: frontend served SHA from sealed identity reads, fresh; backend evidence when it touches backend paths); unlinked customer-facing changes and unverified deployment are rejected; product changes are never rejected for being product changes"
+    },
+    {
+      "id": "G3",
+      "name": "Harness verified and approved",
+      "blocking": true,
+      "phase": "P2",
+      "check": "offline proof PASS for every correction and the owner approval of the exact hash recorded"
+    },
+    {
+      "id": "G4",
+      "name": "Stimulus preflight ready",
+      "blocking": true,
+      "phase": "P3",
+      "check": "receipt fresh, zero product traffic, ready for every selected Start-pressing case"
+    },
+    {
+      "id": "G5",
+      "name": "Budget and window approved",
+      "blocking": true,
+      "phase": "P3",
+      "ownerInput": true,
+      "check": "approval references present; the RECONCILED conservative usage (larger of measured sealed ledgers and owner counters) + run cap + protected reserve + identity reads <= approved ceiling; reconciled identity used + 2k+2 <= approved identity cap; window set"
+    },
+    {
+      "id": "G6",
+      "name": "Expected PASS defined before testing",
+      "blocking": true,
+      "phase": "P3",
+      "check": "every targeted gap has criteria, stimulus, observer and a definition time earlier than the window start"
+    },
+    {
+      "id": "G7",
+      "name": "Prior-run receipts bound",
+      "blocking": true,
+      "phase": "P0",
+      "check": "sealed receipts of the compared runs verify against the hash pinned in the config (no changed, added or removed file) and their binding verification has zero failures"
+    },
+    {
+      "id": "G8",
+      "name": "Workflow version and deviations declared",
+      "blocking": true,
+      "phase": "P0",
+      "check": "run record names this workflow version and lists deviations (possibly none)"
+    },
+    {
+      "id": "G9",
+      "name": "Purpose, targeted gaps, estimated cost and cap submitted",
+      "blocking": true,
+      "phase": "P3",
+      "check": "run request states a purpose of at least the configured length, a priority (prove-deployed-fix or restore-missing-evidence), the targeted gaps, an estimated cost within the run cap and the configured maximum, and every selected case is tied to a targeted gap or a declared prerequisite"
+    },
+    {
+      "id": "G10",
+      "name": "Offline checks passed before any launch",
+      "blocking": true,
+      "phase": "P2",
+      "check": "offline proof, package tests and report validation completed on the commit that holds this run request; execute mode refuses to start otherwise"
+    },
+    {
+      "id": "G11",
+      "name": "Standing approval of recurring cost (nightly runs only)",
+      "blocking": true,
+      "phase": "P3",
+      "check": "a nightly-regression request runs under the owner's standing approval (config/recurring-approval.json): approved by a named owner with a reference, in force now, per-run caps at least the request's, period caps not exceeded by the usage so far in the period plus this run, paid actions $0, and the cadence consistent with the period caps. Not applicable to any other request. For a nightly run this approval replaces the one-time cumulative ceiling of gate G5."
+    }
+  ],
+  "runtimeGates": [
+    {
+      "id": "R1",
+      "name": "Live identity read matches the tested SHA before and after each case"
+    },
+    {
+      "id": "R2",
+      "name": "Admission A0 to A7 pass"
+    }
+  ],
+  "stopRules": [
+    {
+      "id": "S1",
+      "when": "Any live identity read differs from the tested SHA or cannot be proven",
+      "action": "Stop; no repin and no retry; remaining cases NOT RUN."
+    },
+    {
+      "id": "S2",
+      "when": "A guard cap denial, ownership or cleanup safety condition",
+      "action": "Stop the campaign; report as a safety stop, not a product result."
+    },
+    {
+      "id": "S3",
+      "when": "A case reaches its request allowance",
+      "action": "Stop and clean up that case; its affected checks are NOT RUN; continue only after verified cleanup."
+    },
+    {
+      "id": "S4",
+      "when": "Authentication is rejected",
+      "action": "Stop; do not retry credentials."
+    },
+    {
+      "id": "S5",
+      "when": "Actual spending would exceed the approved allowance, or reconciliation fails",
+      "action": "HOLD and report; never reset or overwrite ledgers."
+    },
+    {
+      "id": "S6",
+      "when": "A stimulus gate prerequisite was not established",
+      "action": "Do not dispatch the dependent case; no requests, identity reads or time spent."
+    },
+    {
+      "id": "S7",
+      "when": "Insufficient approved time remains for a case, its identity reads and cleanup",
+      "action": "Do not start it; the hard stop includes cleanup."
+    },
+    {
+      "id": "S8",
+      "when": "Any step needs an action outside the approved scope (merge, deploy, migration, new accounts, deletion, payments, credential change)",
+      "action": "Stop and ask; never infer approval."
+    }
+  ],
+  "classes": {
+    "journeyAndArea": [
+      "improved",
+      "regressed",
+      "unchanged",
+      "inconclusive"
+    ],
+    "rules": [
+      "improved: a previously FAIL or NOT RUN signal now PASSes, or a previously failing row passes, with the same stimulus and a valid and unchanged observer in both runs",
+      "regressed: a previously PASS row now FAILs with a valid stimulus and observer in both runs",
+      "unchanged: the rows retained in both runs have the same verdicts under the same conditions",
+      "inconclusive: the stimulus was not established, the observer, oracle, harness or driver changed, media or capture binding differs, the row was omitted by design or interrupted by an allowance, or the prior original receipt is not in the bundle",
+      "NOT RUN replacing a PASS or FAIL is coverage lost (inconclusive), never an improvement",
+      "an unchanged FAIL on a disputed oracle is not scored as a regression"
+    ],
+    "gapStatus": [
+      "OPEN",
+      "DEPLOYED-AWAITING-TEST",
+      "CLOSED",
+      "FAILED-RETEST",
+      "INCONCLUSIVE",
+      "HARNESS-ONLY"
+    ],
+    "gapKinds": [
+      "product-fix",
+      "harness-correction",
+      "evidence-restoration",
+      "newly-tested-behavior"
+    ]
+  },
+  "report": {
+    "executiveSummaryMaxWords": 250,
+    "summaryFields": [
+      "status",
+      "purpose",
+      "customerImpact",
+      "deployedSinceLastRun",
+      "good",
+      "bad",
+      "unknown",
+      "readiness",
+      "provenGapsClosed",
+      "spend",
+      "blockers",
+      "recommendation"
+    ],
+    "sectionsInOrder": [
+      "header",
+      "executive-summary",
+      "run-kind-and-coverage",
+      "alerts",
+      "safety-checks",
+      "concerns-1488-1757",
+      "reviewed-features",
+      "full-coverage-budget",
+      "purpose-and-cost",
+      "product-area-table",
+      "journey-table",
+      "gap-closure-ledger",
+      "release-verification",
+      "gates-and-blockers",
+      "plan-and-identities",
+      "offline-proof",
+      "deviations",
+      "appendix",
+      "evidence-index"
+    ],
+    "productAreaTableColumns": [
+      "Product area",
+      "R-2",
+      "R-1",
+      "Latest",
+      "What improved or worsened",
+      "Remaining gap"
+    ],
+    "journeyTableColumns": [
+      "Journey",
+      "R-2",
+      "R-1",
+      "Latest",
+      "Change classification",
+      "Evidence"
+    ],
+    "gapLedgerColumns": [
+      "Gap",
+      "Prior FAIL and evidence",
+      "Fix PR or commit",
+      "Verified deployed inclusion",
+      "Expected PASS (defined before testing)",
+      "Latest result and evidence",
+      "Status"
+    ],
+    "gapLedgerNote": "Every ledger cell is derived: prior verdicts and evidence from sealed receipts (file and sha256), deployed inclusion from git and identity ledgers, latest from the latest sealed run, status from the rules."
+  },
+  "versioning": {
+    "scheme": "MAJOR.MINOR.PATCH",
+    "major": "changes the comparison classes, required report sections or gate meanings (earlier runs may no longer be directly comparable; say so in the change log)",
+    "minor": "adds a step, gate, check or optional field without changing earlier meanings",
+    "patch": "wording and clarification only",
+    "process": "Requests update WORKFLOW.md, workflow.json and the report template together, add a CHANGELOG entry, and bump the version. Each run record names the version it followed and lists any deviation with the step, reason, approver and effect on comparability."
+  },
+  "runRules": [
+    {
+      "id": "RR1",
+      "rule": "Every run has one stated purpose and priority: prove-deployed-fix, restore-missing-evidence or (full mode only) full-coverage. A run whose only purpose is another report is refused."
+    },
+    {
+      "id": "RR2",
+      "rule": "Every run has a cost cap (requests, identity reads, Starts, takes, dollars). The estimate is submitted with the targeted gaps before launch and must fit inside the cap and the configured maximums."
+    },
+    {
+      "id": "RR3",
+      "rule": "Finish offline checks first (offline proof, package tests, run-request validation, gate check). No paid or live step starts until they pass."
+    },
+    {
+      "id": "RR4",
+      "rule": "Stop early. If preflight or any blocking gate is not READY, the execute job does not start and nothing is spent."
+    },
+    {
+      "id": "RR5",
+      "rule": "After the run, report actual spend against the estimate and cap, and the remaining balance (cumulative ceiling, protected reserve, identity cap, Starts, takes)."
+    },
+    {
+      "id": "RR6",
+      "rule": "No broad reruns merely to produce another report. Only cases tied to a targeted gap, or a declared prerequisite of such a case, may be selected; the configured maximum number of selected cases applies."
+    },
+    {
+      "id": "RR7",
+      "rule": "A run is manually dispatched. Nothing in the package schedules, retries or starts a paid run automatically."
+    },
+    {
+      "id": "RR8",
+      "rule": "Cost is reported in four separate accounts: guarded request counts, provider cost, GitHub Actions usage, Cloud-agent cost. Only request counts are measured. A cost that is not measured is reported as unknown, never as zero; a dollar figure is accepted only with its source and time. Paid actions are authorized at $0 and reported as executed or not."
+    },
+    {
+      "id": "RR9",
+      "rule": "Cumulative limits are reconciled before approval: sealed guard ledgers (measured) against the owner counters; unreconciled usage counts as used; a ceiling above the current one is a flagged owner decision with a justification."
+    },
+    {
+      "id": "RR10",
+      "rule": "Prior-run receipts are sealed, hash-pinned and immutable. Latest-versus-prior comparison, gap-ledger evidence and the executive summary are generated from them; none is typed by hand."
+    },
+    {
+      "id": "RR11",
+      "rule": "The release gate rejects unverified deployment and unreviewed customer-facing changes. It permits a verified deployed fix with its expected-PASS criteria."
+    },
+    {
+      "id": "RR12",
+      "rule": "The control plane holds no credentials. The run environment gives each stage only the credentials it needs; the service-role key is forbidden everywhere."
+    },
+    {
+      "id": "RR13",
+      "rule": "Counters are frozen before a run; the run's actual usage is added once. READY is never stated while an existing failure, incomplete coverage, an open tracked gap or an open gate remains. A multi-case gap closes only when every required case passes with evidence and proven comparability. READY additionally needs a full live run (RR15): partial and carried-forward results never qualify."
+    },
+    {
+      "id": "RR14",
+      "rule": "A run is exactly one mode, named in the request (coverageMode partial or full) and passed through to the plan builder; there is no default. Partial: at most six journeys, minimal sample, its own limits. Full: all 15 journeys, every required assertion, its own limits and a budget derived from the sealed guard logs. Full-mode limits are never reached by raising the partial limits."
+    },
+    {
+      "id": "RR15",
+      "rule": "A full live run is full mode, results that belong to the request (campaign id and tested SHA), all 15 journeys present, no safety stop, and EVERY row of the pinned assertion catalog executed (PASS or FAIL: 204 of 204). An approved omission is a named, approved gap and never coverage: it stays visible in the report as incomplete coverage and the run is not a full live run. Partial results, carried-forward verdicts and NOT RUN rows never count as the full live run; they stay in the report, labelled."
+    },
+    {
+      "id": "RR16",
+      "rule": "Every full-mode ceiling, identity cap, Starts cap, takes cap, coaching cap and window is a PROPOSAL derived by full_coverage_budget.py until the Product Owner approves it with a reference; a figure above the current ceiling carries a written justification, and counters stay frozen with the latest run added once."
+    },
+    {
+      "id": "RR17",
+      "rule": "Every row is compared with the most recent earlier run that has a verdict for it (PASS or FAIL); runs where it was NOT RUN are skipped, so a defect that failed in R4C and was NOT RUN in R5 is compared with R4C. A gap never closes from a comparison with a run that has no verdict for its rows. A row no earlier run ever tested is recorded as a first observation."
+    },
+    {
+      "id": "RR18",
+      "rule": "The owner's unexplained usage is carried forward: conservative used = measured from the sealed ledgers through the frozen run + the owner's unexplained difference at the run the counters were stated through (92 measured + 2 unexplained = 94; 4 more = 98, not 96). A snapshot that does not say which run it covers, or is frozen earlier than that run, is rejected; Starts and takes of later runs are counted from their reservation logs."
+    },
+    {
+      "id": "RR19",
+      "rule": "Ordinary regression is a first-class purpose: priority nightly-regression is a full-coverage run that needs no known bug, is bound to the deployed version (every identity read MATCHes the tested SHA), is compared with the previous run and the last known good run, is alerted on (alerts.json and alerts.md; delivery channels need owner approval) and runs under a standing approval of recurring cost (G11). Nothing is scheduled by this package."
+    },
+    {
+      "id": "RR20",
+      "rule": "History is retained and append-only: config/history/index.json is a hash chain recomputed from the sealed receipts; new runs are appended and old entries never change. The assertion catalog is versioned and additive: a new row, journey or higher minimum is a new version; removing, renaming or relaxing one is refused; a run is judged against the catalog version it was measured with."
+    },
+    {
+      "id": "RR21",
+      "rule": "Isolation is proven, never assumed: a recurring run uses a dedicated account and a run-named data marker; the clean-start query found no marked records, the post-cleanup query (after the run ended) found zero, created equals deleted, and no owned page or process remains. With no isolation.json the answer is 'not proven' and an ISOLATION-RESIDUE alert is raised."
+    },
+    {
+      "id": "RR22",
+      "rule": "Acceptance of the recurring regression needs, in order: (1) a complete live run (204 of 204 rows, bound to the deployed version); (2) a repeat run with clean isolation (different marker, clean-start query zero, post-cleanup zero both times); (3) an intentionally broken control that produces the expected failure report and alert (REGRESSION naming the last known good run). Live execution and recurring spend need the owner's approval; the offline controls and fixtures do not replace them."
+    },
+    {
+      "id": "RR23",
+      "rule": "Every recurring limit is enforced from history, not from a fresh zero: requests, identity reads, Starts, takes, coaching requests and runner minutes are summed over the period from the sealed history index AND the open reservations, with a run whose actual was not recorded counted at its per-run cap. A run is refused (exit 78, gate G11) when ANY of those caps, the cadence or the per-run window would be exceeded, even when the request budget has room. A reservation is held until the run is sealed and is then replaced by its actual usage."
+    },
+    {
+      "id": "RR24",
+      "rule": "The headline verdict includes the safety checks. The summary is produced after isolation, alerts and staleness are known; READY cannot be stated when isolation failed or is not proven, a high or critical alert is open, the latest evidence is stale (nightly) or a recurring cap is exceeded. The report validator refuses a READY that contradicts any of them, and the status is BLOCKED when a safety check fails."
+    },
+    {
+      "id": "RR25",
+      "rule": "Isolation evidence is account-bound and fresh (schema isolation.v2): the account digest equals the approved nightly account; the 'before' query is valid UTC, precedes the run's start and is within the permitted lead; it covers the whole account scope and counts residue from earlier runs and other markers, not only the new marker; the 'after' query follows the run's end; created equals deleted and matches the sealed ledger's run window; evidence older than the freshness limit, or for another account or run, is rejected. Probe output is assembled by isolation_assemble.py (hashed identifiers only). The guarded probe that produces it is not part of the vendored harness and needs a reviewed change."
+    },
+    {
+      "id": "RR26",
+      "rule": "Reviewed new features enter regression without a known bug: the release check still requires every customer-facing change to map to a known bug, OR to a reviewed feature with an approved named review (reviewer, reference, time), an expected behaviour, and a test-coverage route (existing catalog rows or promised new rows) and a verified deployment. An unlinked change is still rejected. Feature status is derived from the latest run (derive_features.py); an uncovered or failing feature raises an alert."
+    },
+    {
+      "id": "RR27",
+      "rule": "Remaining concerns named by the Product Owner (#1488, #1757) are observed alongside the existing journeys from the evidence the approved harness already records, with no new campaign, traffic or cost: each sub-observation is OBSERVED CLEAN, OBSERVED PROBLEM or NOT OBSERVABLE, with journey, UTC time, sanitized evidence (file, hash, counts; matched text is never reproduced) and reproduction steps. Missing visibility is not proof of safety and is not by itself a product failure."
+    }
+  ],
+  "changeLog": [
+    {
+      "version": "1.5.0",
+      "date": "2026-10-29",
+      "changes": [
+        "Fix 1 (every recurring limit): Starts, takes, coaching requests and runner minutes now accumulate from the sealed history and open reservations instead of starting at zero (recurring_usage.py, reservations.py, history index entries version 2); consumed runs and reservations are both counted; a run refuses when any cap is exhausted even with request budget left.",
+        "Fix 2 (verdict includes safety): pipeline order is spend, features, concerns, isolation, alerts, THEN the summary; derive_summary.py and the report validator refuse READY when isolation failed or is not proven, a high or critical alert is open, evidence is stale or a cap is exceeded.",
+        "Fix 3 (isolation evidence): check_isolation.py v2 is account-bound, requires a valid before-timestamp preceding the run, checks old-run residue across the whole account scope, rejects stale evidence and mismatched accounts; isolation_assemble.py builds the evidence from three probes. The guarded probe producer is still unbuilt.",
+        "Fix 4 (reviewed features): verify_release.py accepts a reviewed feature with expected behaviour and a coverage route; derive_features.py reports its status; unlinked customer-facing changes are still rejected.",
+        "Addendum: concern observations for #1488 and #1757 (derive_concerns.py, config/concerns.json) reported inside the existing report, observed clean, observed problem or NOT OBSERVABLE; included in alerts.",
+        "New rules RR23 to RR27. Comparison classes are unchanged."
+      ]
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-10-29",
+      "changes": [
+        "Fix 1 (baseline selection): every required row is compared with the most recent earlier run that has a verdict for it (select_baselines.py), the pipeline runs one pairwise comparison per baseline needed, and derive_ledger judges comparability row by row; R5 alone can no longer make a verified fix of a defect that R5 never tested.",
+        "Fix 2 (unexplained usage): reconcile_cumulative.py carries the owner's unexplained difference forward instead of taking max(measured, owner); the counters name the run they were stated through (statedThroughRun) and a stale or inconsistent snapshot is rejected.",
+        "Fix 3 (full means executed): an approved omission is incomplete coverage and never a full 204-row pass; fullLiveRun is true only when every catalog row was executed and every result is bound to the deployed version.",
+        "Fix 4 (the actual full plan): pdfjs-dist 4.10.38 is pinned in the runner lockfile and provided to the checkout without a network install (install_pdfjs.py); the complete 15-journey plan is built from the full request and validated by the real vendored runner (structure, request budget bound to the guard cap, run identity, stimulus receipt for all 13 capture journeys, every case preflight, assertion catalog and failure caps), with negative controls. The stimulus preflight is retried at most three times with every attempt recorded.",
+        "Nightly regression alignment (offline parts): priority nightly-regression; previous-run and last-known-good comparison; alerts (derive_alerts.py); deployed-version binding; append-only retained history (history_index.py) and additive-only versioned catalog (verify_catalog_history.py); isolation proof (check_isolation.py); standing approval of recurring cost (gate G11, recurring_budget.py). A schedule is proposed (proposals/) and not installed; no alert channel is configured.",
+        "Test-suite fix: a gate test used the wall clock for a fixed evaluation time and failed on a later day; fixtures now follow the fixed time.",
+        "Comparison classes are unchanged; new rules RR17 to RR22 and gate G11."
+      ]
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-10-29",
+      "changes": [
+        "Separate full-coverage mode (RR14 to RR16): config modes.partial and modes.full with their own limits; the request names coverageMode and sampleMode, run_env.py passes the mode to the plan builder (no hard-coded minimal; the builder refuses to run without BP_MODE) and build_plan.py has a full mode with a funded per-case request budget. maxSelectedCases was not raised in place.",
+        "Completeness: config/assertion-catalog.json (204 rows, 39 Starts, 31 takes) is derived from the vendored harness contract and pinned by hash; check_coverage.py decides whether the latest run is a full live run; the report shows the run kind and rows executed of 204; READY needs a full live run, so partial and carried-forward results can no longer produce READY.",
+        "Budget: derive_case_costs.py derives per-case costs from the sealed guard logs (reconciled to the ledgers: R4C 2,520, R5 2,085) and full_coverage_budget.py derives the exact full-coverage calculation (estimates, failure allowances, cleanup, slack, run cap, cumulative ceiling, identity, Starts, takes, coaching cap, window, dollars). The validator recomputes it, so a request cannot trim the numbers. Larger ceilings, identity cap, Starts and takes are explicit owner decisions with justifications (startsCap/takesCap added to the approved limits and gate G5).",
+        "Accounting fixes from self-review: Starts and takes are now counted from each case's action-reservations.jsonl (they were always null, so no run ever consumed the Starts and takes caps); category overlap (navigations inside public) is stated; a run over its Starts or takes estimate is over cap.",
+        "Comparability: classes unchanged."
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "date": "2026-10-28",
+      "changes": [
+        "Fix 1: counters are frozen before the run (owner-counters.json frozen.throughRun); the latest run's actual usage is added exactly once, from its run record cross-checked against its sealed ledger. A sealed latest run is no longer inside the frozen figure, so identity reads and requests are not double-counted.",
+        "Fix 2: the summary can say READY only when no gate is open, all 15 journeys PASS on the release under test (carried-forward verdicts only from a run on the same release), no journey fails anywhere (including unchanged failures outside the selected test), no coverage is incomplete, no selected journey is inconclusive and every tracked gap is CLOSED. The report refuses a READY that contradicts its readiness basis. New summary field: readiness.",
+        "Fix 3: a gap's expected PASS is executable: expectedPass.requirements lists every required case and its assertions. A targeted gap requires every one of its cases to be selected; the gap closes only with a PASS in every required case, evidence for every case and explicitly proven comparability for every case. Missing evidence, missing comparison or an unproven case stays inconclusive. GAP-06 now requires AHT-04, 13 and 14; GAP-02 requires AHT-02 and AHT-03.",
+        "Comparability: classes unchanged. Gap status rules tightened (a PASS without proven comparability can no longer close a gap)."
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-10-28",
+      "changes": [
+        "Item 1: prior-run receipts sealed and hash-pinned (config/history/receipts); latest-versus-prior comparison generated automatically from them; gap-ledger evidence and the executive summary derived from evidence (the sample ledger and summary values are gone).",
+        "Item 2: spend report v2 with four separate accounts, unknown stays unknown, no hard-coded $0 actual; cumulative usage reconciled (measured 5,421 vs owner-counted 5,529; 108 unreconciled; conservative figure used).",
+        "Item 3: release gate G2 rewritten: git-verified, mechanical classification; a verified deployed fix with expected-PASS criteria is permitted; unverified deployment and unreviewed customer-facing changes are rejected.",
+        "Item 4: reviewed harness vendored and verified byte-identical; parametric plan builder proven against the real runner; pinned browser (archive and binary sha256) installer that fails closed; the ignored install failure is removed; control-plane workflow is secret-free with a network guard and attestation.",
+        "Item 5: the GitHub workflow holds no credentials. The service-role key was passed to three steps in 1.1.0; that was wrong (admission A4 forbids it) and it is removed everywhere. Run-environment stages receive only their allowlisted credentials.",
+        "Correction: the 1.1.0 execute job could not have passed admission (the harness accepts only a Claude task-environment runtime attestation). Live runs happen in the Claude task environment; GitHub is the control plane.",
+        "Comparability: classes unchanged; G2, G5 and G7 meanings tightened (the old G2 rejected any customer-facing change). Earlier runs remain comparable."
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-10-28",
+      "changes": [
+        "Added run purpose, priority and cost cap (RR1-RR2), offline-first (RR3), early stop (RR4), actual spend and remaining balance (RR5), no broad reruns (RR6), manual dispatch only (RR7).",
+        "Added gates G9 (purpose, targeted gaps, estimated cost) and G10 (offline checks passed).",
+        "Added gap kind evidence-restoration.",
+        "Added the GitHub package: cloud-test.yml, config, validators, gate check, spend report, report builder, tests, README.",
+        "Comparability: classes and gate meanings for G1-G8 unchanged, so runs under 1.0.0 stay comparable."
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-10-28",
+      "changes": [
+        "First version: phases P0-P9, gates G1-G8, stop rules S1-S8, comparison classes, report specification."
+      ]
+    }
+  ],
+  "architecture": {
+    "controlPlane": "GitHub Actions (.github/workflows/cloud-test.yml): manual, secret-free, read-only, no Environment. Offline checks, sealed-receipt verification, release verification from git, cumulative reconciliation, gates, automatic comparison, spend and report. Never contacts the product.",
+    "runEnvironment": "The Claude task environment, the only runtime the harness admission accepts (it requires an authoritative Claude task-environment receipt and stops on a service-role key). Driven by scripts/execute_run.sh stages; each stage receives only the credentials it needs.",
+    "handoff": "The control plane reports GO/NO-GO and the exact limits; the run environment re-checks the gates at stage final with the stimulus receipt before it spends anything; after the run the receipts are sealed into config/history/receipts/<label>/, pinned in the config, and the control plane reports with Latest compared automatically."
+  }
+}

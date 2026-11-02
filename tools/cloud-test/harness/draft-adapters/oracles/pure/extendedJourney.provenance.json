@@ -1,0 +1,25 @@
+{
+  "sourceSha": "70e194a4422dd7b6a13ed542134941d1eaa9ea87",
+  "method": "TypeScript AST declaration selection and transpile; no source execution",
+  "sources": {
+    "rwtOracles.ts": {
+      "sha256": "ee5e633b65de3d0ece7dabdbda5ce6f5a669a684a35d8bc903ed73ca7fb77a62",
+      "selectedDeclarations": [
+        "newSetSourcePoints",
+        "newSetEditVerdicts",
+        "setupIsBlank",
+        "labelHeardIn",
+        "switchIsolationVerdict",
+        "focusBackReloadVerdict"
+      ]
+    },
+    "rwtJourney.ts": {
+      "sha256": "2c44541ecb5f9846f2ede45a6f1aca2b8f181d2a34855eab6053ce5a8e34a168",
+      "selectedDeclarations": [
+        "REPEAT_START_CEILING_MS",
+        "repeatStartVerdict",
+        "sameOrderedPendingSet"
+      ]
+    }
+  }
+}

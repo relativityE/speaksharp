@@ -1,0 +1,37 @@
+{
+  "scope": "Complete-file actual Git comparison only; no served/backend/live proof",
+  "files": [
+    {
+      "snapshot": "buildProgressEvaluation.ts",
+      "path": "frontend/src/services/progress/buildProgressEvaluation.ts",
+      "actualSourceSha": "66328703bf47e865b730e229005411e78481d34c",
+      "sameExactBytes": true,
+      "snapshotSha256": "f562c249f25daaf52fc1cc5aec2b740b985a8b4200298cbc906b5053db8ceaad",
+      "actualSha256": "f562c249f25daaf52fc1cc5aec2b740b985a8b4200298cbc906b5053db8ceaad"
+    },
+    {
+      "snapshot": "loadSessionProgress.ts",
+      "path": "frontend/src/services/progress/loadSessionProgress.ts",
+      "actualSourceSha": "66328703bf47e865b730e229005411e78481d34c",
+      "sameExactBytes": true,
+      "snapshotSha256": "f430efe3af8e23e069057b568cf7f4affdd979d81393a48710e0f785aaa7cbd4",
+      "actualSha256": "f430efe3af8e23e069057b568cf7f4affdd979d81393a48710e0f785aaa7cbd4"
+    },
+    {
+      "snapshot": "ProgressPanel.tsx",
+      "path": "frontend/src/components/progress/ProgressPanel.tsx",
+      "actualSourceSha": "66328703bf47e865b730e229005411e78481d34c",
+      "sameExactBytes": true,
+      "snapshotSha256": "1d89559000a161393666ed667b3b9dcce80e317291118202b0110c32cbecdb73",
+      "actualSha256": "1d89559000a161393666ed667b3b9dcce80e317291118202b0110c32cbecdb73"
+    },
+    {
+      "snapshot": "recordProgress.ts",
+      "path": "frontend/src/services/progress/recordProgress.ts",
+      "actualSourceSha": "66328703bf47e865b730e229005411e78481d34c",
+      "sameExactBytes": true,
+      "snapshotSha256": "cc07c705a298dd9c10e982ebef6083dba8017409443c2b7ddb7c85f75c351b65",
+      "actualSha256": "cc07c705a298dd9c10e982ebef6083dba8017409443c2b7ddb7c85f75c351b65"
+    }
+  ]
+}
