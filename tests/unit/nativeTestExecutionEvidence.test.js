@@ -692,7 +692,8 @@ test('default proof generation owns both children and deletes inputs only after 
   const result=generatedProofCases(root,{CT_EXISTING_PDFJS_DIR:root},{children});
   assert.equal(result.files.length,15);assert.equal(calls.length,2);
   assert.ok(calls.every(call=>call.options.detached===true&&call.options.killSignal==='SIGKILL'));
-  assert.ok(calls.every(call=>call.options.env.PYTHONDONTWRITEBYTECODE==='1'));
+  assert.ok(calls.every(call=>call.command.includes('-B')));
+  assert.ok(result.command.includes('-B'));
   assert.ok(!fs.existsSync(retained),'verified proof-generation inputs are removed after both drains');
 });
 
@@ -718,14 +719,21 @@ test('proof generation ignores Python bytecode churn but binds reviewed source c
     return generatedProofCases(copy,{CT_EXISTING_PDFJS_DIR:copy},{children});
   };
   try {
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','bound source inside cache directory');
     const initial=generate();
     write('tools/cloud-test/harness-adapter/__pycache__/reviewed.cpython-312.pyc','first cache bytes');
     const cached=generate();
     assert.deepEqual(cached.sources,initial.sources);
-    assert.equal(cached.sources.some(item=>item.file.includes('__pycache__')),false);
+    assert.equal(cached.sources.some(item=>item.file.endsWith('/__pycache__/reviewed.py')),true);
+    assert.equal(cached.sources.some(item=>item.file.endsWith('.pyc')),false);
     write('tools/cloud-test/harness-adapter/__pycache__/reviewed.cpython-312.pyc','changed cache bytes');
     assert.deepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','changed bound source inside cache directory');
+    assert.notDeepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','bound source inside cache directory');
     write('tools/cloud-test/harness-adapter/reviewed.py','changed reviewed source');
+    assert.notDeepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness/new-reviewed.py','added reviewed source');
     assert.notDeepEqual(generate().sources,initial.sources);
   } finally {fs.rmSync(copy,{recursive:true,force:true});}
 });
