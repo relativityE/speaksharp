@@ -49,7 +49,9 @@ if(approval.resume){
 }
 if (!process.env.SPEAKSHARP_INTERLOCK_HELD || process.env.SPEAKSHARP_INTERLOCK === 'off'
   || process.env.GITHUB_ACTIONS === 'true') throw Error('bounded_requires_shared_host_lock');
-if(process.cwd()!=='/Users/fibonacci/Documents/Codex/2026-10-29')throw Error('bounded_requires_fixed_coordinator_cwd');
+// The fixed shared coordinator comes from the executor's environment (an absolute path), never a committed personal path.
+const COORDINATOR_ROOT=process.env.EVAL_COORDINATOR_ROOT||'';
+if(!COORDINATOR_ROOT||resolve(COORDINATOR_ROOT)!==COORDINATOR_ROOT||process.cwd()!==COORDINATOR_ROOT)throw Error('bounded_requires_fixed_coordinator_cwd');
 for (const name of ['EVAL_TEST_EMAIL','EVAL_TEST_PASSWORD','EVAL_SOURCE_ROOT','EVAL_RELEASE_SHA',
   'EVAL_SOURCE_DELTA_SHA256','EVAL_SOURCE_UNTRACKED_SHA256','EVAL_PRIVATE_OUTPUT','EVAL_ASSET_CACHE_RECEIPT',
   'EVAL_APP_URL','EVAL_API_ORIGIN','VITE_SUPABASE_ANON_KEY','EVAL_BACKEND_CONTRACT_RECEIPT']) {

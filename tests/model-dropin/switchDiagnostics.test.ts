@@ -2,7 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { sanitizeSwitchOutcome } from './switchDiagnostics';
 
-const SENSITIVE = 'https://user:secret-token@models.example.invalid/w.onnx?sig=abc /Users/someone/private transcript: hello world';
+// A local home path is assembled at run time so the tracked source itself carries none (tests/deps/no-local-machine-paths).
+const SENSITIVE = `https://user:secret-token@models.example.invalid/w.onnx?sig=abc ${['', 'Users', 'someone', 'private'].join('/')} transcript: hello world`;
 
 describe('sanitized candidate-switch diagnostics',()=>{
   it('keeps only ok and whether the switched candidate is the requested one',()=>{

@@ -41,8 +41,9 @@ const sourceRoot = process.env.EVAL_SOURCE_ROOT || '';
 const apiOrigin = process.env.EVAL_API_ORIGIN || '';
 const email = process.env.EVAL_TEST_EMAIL || '';
 const password = process.env.EVAL_TEST_PASSWORD || '';
-const SHARED_COORDINATOR_ROOT = '/Users/fibonacci/Documents/Codex/2026-10-29';
-const coordinatorRoot = process.env.EVAL_COORDINATOR_ROOT || SHARED_COORDINATOR_ROOT;
+// The fixed shared coordinator is named by the executor's environment (EVAL_COORDINATOR_ROOT, an absolute path), never committed:
+// the tree carries no personal machine path. run-bounded-comparison.mjs requires its cwd to be exactly that root.
+const coordinatorRoot = process.env.EVAL_COORDINATOR_ROOT || '';
 const driverFiles = ['EXECUTION.md', 'cachedModelAssets.test.ts', 'cachedModelAssets.ts', 'comparisonBounds.test.ts', 'comparisonBounds.ts',
     'completionObservation.test.ts','completionObservation.ts','inAppComparison.live.spec.ts','ownedCleanup.mjs','ownedCleanup.node.test.mjs',
     'playwright.in-app.config.ts', 'productCollectorIntegration.test.ts', 'run-bounded-comparison.mjs','transportBoundary.node.test.mjs','transportBoundary.ts'];
@@ -106,7 +107,7 @@ async function acquisitions(page: Page, candidate: string, sinceEpochMs: number)
 
 test.beforeAll(async () => {
     const wrapperPid = process.env.SPEAKSHARP_INTERLOCK_HELD;
-    if (coordinatorRoot !== SHARED_COORDINATOR_ROOT || !wrapperPid || !/^\d+$/.test(wrapperPid)
+    if (!coordinatorRoot || !path.isAbsolute(coordinatorRoot) || path.resolve(coordinatorRoot) !== coordinatorRoot || !wrapperPid || !/^\d+$/.test(wrapperPid)
         || process.env.SPEAKSHARP_INTERLOCK === 'off' || process.env.GITHUB_ACTIONS === 'true') {
         throw new Error('The allocated local benchmark slot must hold the coordinator host interlock');
     }

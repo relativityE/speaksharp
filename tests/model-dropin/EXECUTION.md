@@ -184,7 +184,8 @@ alphabetically sorted relative filenames and file hashes, using the same line
 formula: all fifteen declared files under tests/model-dropin, in alphabetic
 basename order (the exact array is retained in inAppComparison.live.spec.ts).
 
-Invoke from the fixed shared coordinator `/Users/fibonacci/Documents/Codex/2026-10-29`:
+Invoke from the fixed shared coordinator, whose absolute path the executor supplies as `EVAL_COORDINATOR_ROOT` (it is not committed;
+the runner requires its working directory to be exactly that path):
 
 ```sh
 node <candidate>/scripts/host-interlock.mjs hold benchmark -- \
