@@ -48,6 +48,10 @@ CAMPAIGN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
 PROVENANCE = re.compile(r"approval:slack-[0-9]{10}\.[0-9]{6}|request-sha256:[0-9a-f]{64}|evidence-sha256:[0-9a-f]{64}")
 UTC = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+# J1 (Sam 1793580621.313599): the job's ephemeral token, consumed ONLY by the one leased https push, as a per-process config entry scoped to
+# the approved URL. Never an argument, never written to any git config, never seen by fetch or any other git call (_git inherits no env).
+PUSH_TOKEN_ENV = "CT_STATE_PUSH_TOKEN"
+PUSH_TOKEN = re.compile(r"[A-Za-z0-9_.-]{20,255}")
 IDENT = {"GIT_AUTHOR_NAME": "cloud-test-state", "GIT_AUTHOR_EMAIL": "cloud-test-state@invalid",
          "GIT_COMMITTER_NAME": "cloud-test-state", "GIT_COMMITTER_EMAIL": "cloud-test-state@invalid"}
 
@@ -227,11 +231,23 @@ def _child(repo, parent, events, event):
     return _out(repo, "commit-tree", tree, "-p", parent, data=msg.encode(), extra={**IDENT, **dates}), new
 
 
+def _push_auth(url, scheme):
+    """The push's only credential: for https, the token in CT_STATE_PUSH_TOKEN as an Authorization header for exactly `url`, passed through
+    GIT_CONFIG_COUNT to the push subprocess alone. A missing or malformed token refuses before anything is sent; a file remote gets none."""
+    if scheme != "https":
+        return {}
+    import base64
+    token = os.environ.get(PUSH_TOKEN_ENV)
+    _need(isinstance(token, str) and PUSH_TOKEN.fullmatch(token) is not None, "push-token-missing")
+    basic = base64.b64encode(("x-access-token:" + token).encode()).decode()
+    return {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.%s.extraheader" % url, "GIT_CONFIG_VALUE_0": "AUTHORIZATION: basic " + basic}
+
+
 def _push(repo, url, new, expected, scheme):
     """Exact expected-old-SHA lease and no '+': lands only when the ref is exactly `expected` (never on a missing, deleted or rewound ref),
-    and `new`'s sole parent is `expected`, so the update is always an append."""
+    and `new`'s sole parent is `expected`, so the update is always an append. The token reaches this one subprocess only (_push_auth)."""
     rc, _ = _git(repo, "push", "--quiet", "--no-verify", "--force-with-lease=%s:%s" % (STATE_REF, expected), "--", url,
-                 "%s:%s" % (new, STATE_REF), scheme=scheme)
+                 "%s:%s" % (new, STATE_REF), scheme=scheme, extra=_push_auth(url, scheme))
     return rc
 
 
