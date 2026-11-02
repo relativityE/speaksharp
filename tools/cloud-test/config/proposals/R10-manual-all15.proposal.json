@@ -28,6 +28,7 @@
       "role": "target",
       "needsCaptureDevice": true,
       "plannedRequests": 340,
+      "startPressCap": 4,
       "gate": null,
       "reason": "full coverage: 20 required rows; closes GAP-01"
     },
@@ -40,6 +41,7 @@
       "role": "target",
       "needsCaptureDevice": true,
       "plannedRequests": 260,
+      "startPressCap": 7,
       "gate": null,
       "reason": "full coverage: 33 required rows; closes GAP-02"
     },
@@ -52,6 +54,7 @@
       "role": "target",
       "needsCaptureDevice": true,
       "plannedRequests": 230,
+      "startPressCap": 4,
       "gate": null,
       "reason": "full coverage: 29 required rows; closes GAP-02"
     },
@@ -64,6 +67,7 @@
       "role": "target",
       "needsCaptureDevice": true,
       "plannedRequests": 160,
+      "startPressCap": 2,
       "gate": null,
       "reason": "full coverage: 9 required rows; closes GAP-06"
     },
@@ -74,6 +78,7 @@
       "role": "coverage",
       "needsCaptureDevice": true,
       "plannedRequests": 320,
+      "startPressCap": 2,
       "gate": null,
       "reason": "full coverage: 10 required rows"
     },
@@ -84,6 +89,7 @@
       "role": "coverage",
       "needsCaptureDevice": true,
       "plannedRequests": 310,
+      "startPressCap": 2,
       "gate": null,
       "reason": "full coverage: 10 required rows"
     },
@@ -94,6 +100,7 @@
       "role": "coverage",
       "needsCaptureDevice": true,
       "plannedRequests": 360,
+      "startPressCap": 2,
       "gate": null,
       "reason": "full coverage: 15 required rows"
     },
@@ -104,6 +111,7 @@
       "role": "coverage",
       "needsCaptureDevice": false,
       "plannedRequests": 110,
+      "startPressCap": 0,
       "gate": null,
       "reason": "full coverage: 9 required rows"
     },
@@ -114,6 +122,7 @@
       "role": "coverage",
       "needsCaptureDevice": true,
       "plannedRequests": 260,
+      "startPressCap": 3,
       "gate": null,
       "reason": "full coverage: 12 required rows"
     },
@@ -126,6 +135,7 @@
       "role": "target",
       "needsCaptureDevice": true,
       "plannedRequests": 190,
+      "startPressCap": 3,
       "gate": null,
       "reason": "full coverage: 10 required rows; closes GAP-05"
     },
@@ -136,6 +146,7 @@
       "role": "coverage",
       "needsCaptureDevice": true,
       "plannedRequests": 330,
+      "startPressCap": 4,
       "gate": null,
       "reason": "full coverage: 9 required rows"
     },
@@ -148,6 +159,7 @@
       "role": "target",
       "needsCaptureDevice": true,
       "plannedRequests": 120,
+      "startPressCap": 3,
       "gate": null,
       "reason": "full coverage: 8 required rows; closes GAP-03"
     },
@@ -160,6 +172,7 @@
       "role": "target",
       "needsCaptureDevice": true,
       "plannedRequests": 130,
+      "startPressCap": 3,
       "gate": null,
       "reason": "full coverage: 8 required rows; closes GAP-06"
     },
@@ -172,6 +185,7 @@
       "role": "target",
       "needsCaptureDevice": true,
       "plannedRequests": 360,
+      "startPressCap": 3,
       "gate": null,
       "reason": "full coverage: 8 required rows; closes GAP-06"
     },
@@ -184,6 +198,7 @@
       "role": "target",
       "needsCaptureDevice": false,
       "plannedRequests": 130,
+      "startPressCap": 0,
       "gate": null,
       "reason": "full coverage: 14 required rows; closes GAP-04"
     }

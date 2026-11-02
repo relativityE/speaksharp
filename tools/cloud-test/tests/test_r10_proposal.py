@@ -52,6 +52,8 @@ class R10Proposal(unittest.TestCase):
         self.assertIn("0 period usage + 4310 run cap + 0 protected reserve + 32 identity reads = 4342",
                       r["proposedLimits"]["ceilingIncreaseJustification"])
         self.assertEqual(sum(r["proposedLimits"]["startPressCaps"].values()), e["starts"])
+        selection_caps = {row["case"]: row["startPressCap"] for row in r["selection"]}
+        self.assertEqual(selection_caps, r["proposedLimits"]["startPressCaps"])
 
     def test_authenticated_evidence_scope_is_the_current_five_case_role_minimum(self):
         # AHT-01/02/03 each request coaching authority (one delivery, two Supabase reads).
