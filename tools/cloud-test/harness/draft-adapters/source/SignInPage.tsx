@@ -1,0 +1,255 @@
+import React, { useState, FormEvent, ChangeEvent } from 'react';
+import { getSupabaseClient } from '@/lib/supabaseClient';
+import { useAuthProvider } from '@/contexts/AuthProvider';
+import { useLocation } from 'react-router-dom';
+import { safeDeepLink } from '@/services/postAuthRouting';
+import { PostAuthRedirect } from '@/components/practice/practiceRouting';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Mail } from 'lucide-react';
+import logger from '../lib/logger';
+
+const getSafeSignInError = (err: unknown): string => {
+    const rawMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+    const message = rawMessage.toLowerCase();
+
+    if (err instanceof TypeError && message.includes('failed to fetch')) {
+        return 'Unable to reach sign-in. Check your connection and try again.';
+    }
+    if (message.includes('invalid login') || message.includes('invalid credentials') || message.includes('email not confirmed')) {
+        return 'Email or password not recognized. Check your details or use a sign-in link.';
+    }
+    if (message.includes('rate') || message.includes('too many')) {
+        return 'Too many sign-in attempts. Please wait a moment and try again.';
+    }
+
+    return 'Sign-in could not be completed. Please try again.';
+};
+
+const isEmailFormatValid = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+// Sign In page – supports both password and magic link
+export default function SignInPage() {
+    const { session, loading, setSession } = useAuthProvider();
+    const location = useLocation();
+    const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+    // Magic-link return target: a safe deep-link wins; otherwise the email returns to the PUBLIC
+    // continuation route /auth/continue, which waits for the recovered session and then applies the same
+    // default as password sign-in — /practice. Routing never consults PostHog.
+    const magicLinkPath = safeDeepLink(fromLocation) ?? '/auth/continue';
+
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const [message, setMessage] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isSendingMagicLink, setIsSendingMagicLink] = useState(false);
+    const [isSendingReset, setIsSendingReset] = useState(false);
+
+    const handleForgotPassword = async () => {
+        // Clear any prior error/success message FIRST so an early-return validation error never
+        // leaves a stale success message (e.g. from a previous reset/sign-in-link) on screen.
+        setError(null);
+        setMessage(null);
+        const normalizedEmail = email.trim();
+        if (!normalizedEmail) {
+            setError('Please enter your email address first');
+            return;
+        }
+        // Mirror the magic-link path: block obviously malformed input client-side (format ≠ existence,
+        // so this does not enable enumeration) instead of letting it round-trip to the provider.
+        if (!isEmailFormatValid(normalizedEmail)) {
+            setError('Email not valid');
+            return;
+        }
+        setIsSendingReset(true);
+        try {
+            const supabase = getSupabaseClient();
+            // Anti-enumeration: fire the provider reset (only emails a registered, verified address)
+            // and ALWAYS show the same neutral response. The link lands on /auth/reset. No email or
+            // token is logged.
+            await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+                redirectTo: `${window.location.origin}/auth/reset`,
+            });
+        } catch (err: unknown) {
+            logger.warn({ name: (err as { name?: string })?.name }, '[SignInPage] password reset request error (suppressed from UI)');
+        } finally {
+            setMessage("If an account exists for this email, we'll send reset instructions.");
+            setIsSendingReset(false);
+        }
+    };
+
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        setError(null);
+        setMessage(null);
+        try {
+            const supabase = getSupabaseClient();
+            const { error: authError, data } = await supabase.auth.signInWithPassword({ email, password });
+            if (authError) throw authError;
+            if (data.session) {
+                // Set the session; the authenticated redirect is handled by <PostAuthRedirect> on the
+                // next render, which waits for the authed identity + flags before choosing the default.
+                setSession(data.session);
+            }
+        } catch (err: unknown) {
+            logger.error({ err }, '[SignInPage] handleSubmit failed');
+            setError(getSafeSignInError(err));
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleMagicLink = async () => {
+        // Clear any prior error/success message FIRST so an early-return validation error never
+        // leaves a stale success message (e.g. from a previous reset/sign-in-link) on screen.
+        setError(null);
+        setMessage(null);
+        const normalizedEmail = email.trim();
+        if (!normalizedEmail) {
+            setError('Please enter your email address first');
+            return;
+        }
+        if (!isEmailFormatValid(normalizedEmail)) {
+            setError('Email not valid');
+            return;
+        }
+        setIsSendingMagicLink(true);
+        try {
+            const supabase = getSupabaseClient();
+            // Anti-circumvention: `shouldCreateUser: false` issues a sign-in link ONLY to an
+            // already-registered user. Without it, Supabase defaults to creating an account for an
+            // unknown email — letting a new user / attacker use the magic link to auto-provision an
+            // account and bypass the signup flow. Anti-enumeration: suppress the provider outcome and
+            // ALWAYS show the same neutral message (an unknown email now errors with "Signups not
+            // allowed for otp"; surfacing that would reveal whether the account exists) — mirrors the
+            // password-reset path above.
+            await supabase.auth.signInWithOtp({
+                email: normalizedEmail,
+                options: {
+                    shouldCreateUser: false,
+                    emailRedirectTo: `${window.location.origin}${magicLinkPath}`,
+                },
+            });
+        } catch (err: unknown) {
+            logger.warn({ name: (err as { name?: string })?.name }, '[SignInPage] magic-link request error (suppressed from UI)');
+        } finally {
+            setMessage("If an account exists for this email, we'll send a sign-in link.");
+            setIsSendingMagicLink(false);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-background flex items-center justify-center">
+                <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        );
+    }
+    if (session) return <PostAuthRedirect from={fromLocation} />;
+
+    return (
+        <div className="min-h-screen bg-background px-4 pb-16 pt-28">
+            <div className="mx-auto flex w-full max-w-md flex-col items-center space-y-8">
+                <div className="text-center space-y-2">
+                    <h1 className="text-4xl font-extrabold tracking-tight text-foreground">SpeakSharp</h1>
+                    <p className="text-lg font-medium text-muted-foreground">Master your communication skills.</p>
+                </div>
+                <Card className="w-full">
+                    <CardHeader className="space-y-1 text-center pb-8">
+                        <CardTitle className="text-2xl font-bold tracking-tight">Welcome back</CardTitle>
+                        <CardDescription className="text-base">Enter your credentials to access your account</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4" data-testid="auth-form">
+                            <div className="space-y-2">
+                                <Label htmlFor="email">Email</Label>
+                                <Input
+                                    id="email"
+                                    type="email"
+                                    autoComplete="email"
+                                    placeholder="name@example.com"
+                                    required
+                                    value={email}
+                                    data-testid="email-input"
+                                    onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <Label htmlFor="password">Password</Label>
+                                    <Button
+                                        variant="link"
+                                        type="button"
+                                        onClick={() => { void handleForgotPassword(); }}
+                                        disabled={isSendingReset}
+                                        className="px-0 font-normal text-xs text-muted-foreground hover:text-signature-text h-auto"
+                                        data-testid="forgot-password-button"
+                                    >
+                                        {isSendingReset ? 'Sending...' : 'Forgot Password? Reset'}
+                                    </Button>
+                                </div>
+                                <Input
+                                    id="password"
+                                    type="password"
+                                    autoComplete="current-password"
+                                    required
+                                    value={password}
+                                    data-testid="password-input"
+                                    onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                                />
+                            </div>
+                            {error && (
+                                <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm font-medium" data-testid="auth-error-message">
+                                    {error}
+                                </div>
+                            )}
+                            {message && (
+                                <div className="p-3 rounded-md bg-success/12 text-success border border-success/30 text-sm font-medium" data-testid="auth-message">
+                                    {message}
+                                </div>
+                            )}
+                            <Button type="submit" className="w-full h-11 text-base font-semibold" disabled={isSubmitting} data-testid="sign-in-submit">
+                                {isSubmitting ? 'Signing in...' : 'Sign In'}
+                            </Button>
+                        </form>
+
+                        {/* Divider */}
+                        <div className="relative">
+                            <div className="absolute inset-0 flex items-center">
+                                <span className="w-full border-t border-border" />
+                            </div>
+                            <div className="relative flex justify-center text-xs uppercase">
+                                <span className="bg-card px-2 text-muted-foreground">Or sign in with email</span>
+                            </div>
+                        </div>
+
+                        {/* Email sign-in link section */}
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full h-11 text-base font-medium"
+                            onClick={() => { void handleMagicLink(); }}
+                            disabled={isSendingMagicLink || !email}
+                            data-testid="magic-link-button"
+                        >
+                            <Mail className="mr-2 h-4 w-4" />
+                            {isSendingMagicLink ? 'Sending...' : 'Send sign-in link'}
+                        </Button>
+                        {!email && (
+                            <p className="text-center text-xs font-medium text-muted-foreground">
+                                Enter your email to send a sign-in link.
+                            </p>
+                        )}
+                    </CardContent>
+                </Card>
+                <div className="text-center text-sm text-muted-foreground">
+                    <p>Don't have an account? <Button variant="link" asChild><a href="/auth/signup">Create an account</a></Button></p>
+                </div>
+            </div>
+        </div>
+    );
+}

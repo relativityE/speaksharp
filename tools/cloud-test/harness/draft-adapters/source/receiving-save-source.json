@@ -1,0 +1,23 @@
+{
+  "scope": "Read-only complete source comparison, not deployed catalog or runtime/save evidence",
+  "sourceSha": "66328703bf47e865b730e229005411e78481d34c",
+  "migrationTreeChanged": false,
+  "files": [
+    {
+      "path": "frontend/src/lib/storage.ts",
+      "previousSource": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "sourceSha": "66328703bf47e865b730e229005411e78481d34c",
+      "identicalCompleteFiles": true,
+      "bytes": 33705,
+      "sha256": "d4369f42c72200a304a518c7d704d544ea5d9fec51dcd8e65b90d69735bd495a"
+    },
+    {
+      "path": "backend/supabase/migrations/20261025021046_content_free_retention_evidence.sql",
+      "previousSource": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "sourceSha": "66328703bf47e865b730e229005411e78481d34c",
+      "identicalCompleteFiles": true,
+      "bytes": 72029,
+      "sha256": "37af792f8abeeb0e073e229ec25cd294a20050058632f793c4635ba3af37f47d"
+    }
+  ]
+}

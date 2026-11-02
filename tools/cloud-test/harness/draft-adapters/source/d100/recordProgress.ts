@@ -1,0 +1,933 @@
+/**
+ * #1045 — the consumer that connects the Progress records to the real save journey.
+ *
+ * Thin wrappers over the guarded RPCs. All authority lives in the database (ownership, eligibility, the
+ * clarity computation, lifecycle transitions) — these functions pass only ids, so a compromised or buggy
+ * client can neither claim another user's session nor self-assert eligibility.
+ *
+ * WHEN TO CALL `recordProgressEvaluation`: ONLY after a session is fully persisted with its delivery
+ * metrics AND its attribution has resolved to `verified`. Calling earlier would write an immutable
+ * `ineligible / no_clarity_evidence` row that could never be corrected. `wireProgressEvaluationOnSave`
+ * below is the single, deliberate seam; it is a no-op unless the save reached that state.
+ */
+import { getSupabaseClient } from '@/lib/supabaseClient';
+import logger from '@/lib/logger';
+import { useSessionStore } from '@/stores/useSessionStore';
+import { hasCompleteEligibleProgressEvidence, PROGRESS_FORMULA_VERSION, type ProgressEvaluation } from './buildProgressEvaluation';
+import { buildTakeaways } from './progressPresentation';
+import {
+    enqueueProgressReconcile,
+    clearProgressReconcileEntry,
+    getQueueEntriesForUser,
+    recordProgressReconcileAttempt,
+    releaseProgressReconcileEntry,
+    type QueueEntry,
+} from './progressReconcileQueue';
+import type { ProgressDebtReason } from './progressDebtVocabulary';
+import { emitProgressDebt, progressDebtAgeMs } from '@/services/telemetry/progressDebtTelemetry';
+import { getOpenAttemptForUser, clearOpenAttemptIfMatches, setOpenAttempt } from './openAttempt';
+import {
+    clearRecommendationObligationIfMatches,
+    listRecommendationObligations,
+    recordRecommendationObligation,
+} from './progressRecommendationObligation';
+import { withAttemptOwnership } from './progressAttemptOwnership';
+
+/** A minimal view of a persisted session — the fields the on-load reconciler needs. */
+export interface ReconcilableSession {
+    id: string;
+    status?: string | null;
+    attribution_status?: string | null;
+    created_at?: string | null;
+}
+
+/**
+ * RWT-20: the same call, CLASSIFIED. A failed attempt carries a closed reason — never the error body, which can echo
+ * request material — so a debt that keeps failing is diagnosable from telemetry alone.
+ */
+async function recordProgressEvaluationDetailed(
+    sessionId: string,
+): Promise<{ id: string | null; reason: ProgressDebtReason | null }> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.rpc('record_progress_evaluation', { p_session_id: sessionId });
+    if (error) {
+        // Progress recording must NEVER break the save journey — log and move on.
+        logger.warn({ error, sessionId }, '[progress] record_progress_evaluation failed (non-fatal)');
+        return { id: null, reason: 'rpc_error' };
+    }
+    const id = (data as string | null) ?? null;
+    return id ? { id, reason: null } : { id: null, reason: 'rpc_empty' };
+}
+
+/** Record (or return the existing) Progress evaluation for a completed, metrics-persisted session. */
+export async function recordProgressEvaluation(sessionId: string): Promise<string | null> {
+    return (await recordProgressEvaluationDetailed(sessionId)).id;
+}
+
+/**
+ * Create the immutable recommendation tied to an eligible evaluation of the caller's own session. The
+ * source metric value is NOT passed — the RPC DERIVES it from the persisted evaluation, so a later
+ * comparison is always against the number the evaluation actually recorded (never a client value).
+ */
+export async function recordProgressRecommendation(args: {
+    sourceSessionId: string;
+    targetMetric: 'filler_rate' | 'pace' | 'clear_delivery';
+    targetDirection: 'decrease' | 'increase' | 'maintain';
+    targetValue: number;
+    targetUnits: string;
+    shownText: string;
+}): Promise<string | null> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.rpc('record_progress_recommendation', {
+        p_source_session_id: args.sourceSessionId,
+        p_target_metric: args.targetMetric,
+        p_target_direction: args.targetDirection,
+        p_target_value: args.targetValue,
+        p_target_units: args.targetUnits,
+        p_shown_text: args.shownText,
+    });
+    if (error) { logger.warn({ error }, '[progress] record_progress_recommendation failed'); return null; }
+    return (data as string | null) ?? null;
+}
+
+/** Accept a recommendation ("Practice this next"): create one pending attempt. */
+export async function recordRecommendationAttempt(recommendationId: string): Promise<string | null> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.rpc('record_recommendation_attempt', {
+        p_recommendation_id: recommendationId,
+    });
+    if (error) { logger.warn({ error }, '[progress] record_recommendation_attempt failed'); return null; }
+    return (data as string | null) ?? null;
+}
+
+export type PendingAttemptReadback =
+    | { status: 'none' }
+    | { status: 'one'; attemptId: string }
+    | { status: 'blocked' };
+
+/** Owner-scoped/RLS readback used before retrying acceptance after an uncertain RPC response. */
+export async function readPendingRecommendationAttempt(recommendationId: string): Promise<PendingAttemptReadback> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+        .from('progress_recommendation_attempts')
+        .select('id, recommendation_id, lifecycle')
+        .eq('recommendation_id', recommendationId)
+        .eq('lifecycle', 'pending')
+        .limit(2);
+    if (error || !data) return { status: 'blocked' };
+    const matches = (data as Array<{ id?: unknown; recommendation_id?: unknown; lifecycle?: unknown }>)
+        .filter((row) => typeof row.id === 'string'
+            && row.recommendation_id === recommendationId && row.lifecycle === 'pending');
+    if (matches.length === 0) return { status: 'none' };
+    if (matches.length !== 1) return { status: 'blocked' };
+    return { status: 'one', attemptId: matches[0].id as string };
+}
+
+/**
+ * Advance an attempt through a validated lifecycle transition. The OUTCOME is never supplied by the client
+ * — the RPC derives `moved`/`did_not_move` by comparing the recommendation's recorded source value against
+ * the next eligible, same-cohort evaluation, and returns the derived outcome (null on failure).
+ */
+export async function advanceRecommendationAttempt(args: {
+    attemptId: string;
+    lifecycle: 'completed' | 'not_comparable' | 'abandoned';
+    practiceSessionId?: string | null;
+    nextComparableSessionId?: string | null;
+}): Promise<string | null> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.rpc('advance_recommendation_attempt', {
+        p_attempt_id: args.attemptId,
+        p_lifecycle: args.lifecycle,
+        p_practice_session_id: args.practiceSessionId ?? null,
+        p_next_comparable_session_id: args.nextComparableSessionId ?? null,
+    });
+    if (error) { logger.warn({ error }, '[progress] advance_recommendation_attempt failed'); return null; }
+    return (data as string | null) ?? null;
+}
+
+type AttemptAdvanceResult =
+    | { ok: true; outcome: string }
+    | { ok: false; kind: 'not_comparable' | 'technical' };
+
+async function advanceRecommendationAttemptResult(args: Parameters<typeof advanceRecommendationAttempt>[0]): Promise<AttemptAdvanceResult> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.rpc('advance_recommendation_attempt', {
+        p_attempt_id: args.attemptId,
+        p_lifecycle: args.lifecycle,
+        p_practice_session_id: args.practiceSessionId ?? null,
+        p_next_comparable_session_id: args.nextComparableSessionId ?? null,
+    });
+    if (!error && data) return { ok: true, outcome: data as string };
+    const message = typeof error === 'object' && error && 'message' in error ? String(error.message) : '';
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+    const authoritativeMismatch = code === '22023' && message.includes('use not_comparable');
+    const alreadyTerminal = code === '22023' && message.includes('attempt already resolved');
+    if (alreadyTerminal) {
+        const { data: row, error: readError } = await supabase
+            .from('progress_recommendation_attempts')
+            .select('id, lifecycle, outcome, practice_session_id, next_comparable_session_id')
+            .eq('id', args.attemptId)
+            .maybeSingle();
+        if (!readError && row && row.id === args.attemptId) {
+            const practiceMatches = row.practice_session_id === (args.practiceSessionId ?? null);
+            const completed = row.lifecycle === 'completed'
+                && practiceMatches
+                && row.next_comparable_session_id === (args.nextComparableSessionId ?? null)
+                && (row.outcome === 'moved' || row.outcome === 'did_not_move');
+            const notComparable = row.lifecycle === 'not_comparable'
+                && practiceMatches && row.outcome === 'not_comparable';
+            const abandoned = row.lifecycle === 'abandoned';
+            if (completed || notComparable || abandoned) return { ok: true, outcome: String(row.outcome ?? row.lifecycle) };
+        }
+    }
+    logger.warn({ error, attemptId: args.attemptId }, '[progress] advance_recommendation_attempt failed');
+    return { ok: false, kind: authoritativeMismatch ? 'not_comparable' : 'technical' };
+}
+
+/** Terminally abandon a server attempt when its local handoff could not be established. */
+export async function abandonRecommendationAttempt(attemptId: string): Promise<boolean> {
+    const result = await advanceRecommendationAttemptResult({ attemptId, lifecycle: 'abandoned' });
+    return result.ok;
+}
+
+/** #1033 attribution reaches a TERMINAL state at `verified` or `unverified` (`pending` is not terminal). */
+function isTerminalAttribution(status: string | null | undefined): boolean {
+    return status === 'verified' || status === 'unverified';
+}
+
+/**
+ * Record the evaluation, retrying a NONFATAL failure a few times. Progress recording must never break the
+ * save journey, but a transient RPC error must not silently drop the record either. The RPC is idempotent
+ * per (session, formula_version), so a retry can never create a duplicate.
+ */
+/**
+ * #1354 — per-attempt NETWORK DEADLINE.
+ *
+ * Three attempts bound the COUNT, not the TIME. A `supabase.rpc(...)` promise that never settles — a
+ * dead connection, a proxy holding the socket open — would hang the whole completion path: the session
+ * never finishes saving, the gate stays `resolving` forever, and the user can neither record again nor
+ * reach the durable retry that exists precisely for this case. An unbounded await is the one failure
+ * the bounded-attempt loop cannot recover from.
+ *
+ * The obligation is already written and readback-verified BEFORE any attempt runs, so timing out is
+ * safe: the debt survives, reconciliation retries it, and the seam reports `queued` rather than pretending.
+ */
+export const PROGRESS_RPC_ATTEMPT_TIMEOUT_MS = 10_000;
+
+/**
+ * Resolve to `null` if `work` has not settled within `ms`.
+ *
+ * NOTE: this bounds the WAIT, not the request — the underlying call is not cancelled, because it is
+ * issued inside the Supabase client and we hold no AbortController for it. A late resolution is simply
+ * ignored; it cannot unlock anything, since the gate is published from the value we actually returned.
+ */
+async function withAttemptDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            work,
+            new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); }),
+        ]);
+    } finally {
+        if (timer !== undefined) clearTimeout(timer);
+    }
+}
+
+interface EvaluationAttempt { id: string | null; reason: ProgressDebtReason | null; latencyMs: number }
+
+/** One deadline-bounded attempt, classified: `rpc_timeout` when the call never settled within the deadline. */
+async function attemptProgressEvaluation(sessionId: string): Promise<EvaluationAttempt> {
+    const started = Date.now();
+    // A THROWN call is a failed attempt like an error result — never the end of the retry schedule (Codex 4004302937).
+    const call = recordProgressEvaluationDetailed(sessionId).catch((err: unknown) => {
+        logger.warn({ err }, '[progress] record_progress_evaluation threw (non-fatal)');
+        return { id: null, reason: 'rpc_error' as const };
+    });
+    const settled = await withAttemptDeadline(call, PROGRESS_RPC_ATTEMPT_TIMEOUT_MS);
+    const latencyMs = Math.max(0, Date.now() - started);
+    if (settled === null) return { id: null, reason: 'rpc_timeout', latencyMs };
+    return { id: settled.id, reason: settled.reason, latencyMs };
+}
+
+async function recordProgressEvaluationWithRetry(
+    sessionId: string,
+    attempts = 3,
+): Promise<EvaluationAttempt & { attempts: number }> {
+    let last: EvaluationAttempt = { id: null, reason: null, latencyMs: 0 };
+    let latencyMs = 0;
+    for (let i = 0; i < attempts; i++) {
+        last = await attemptProgressEvaluation(sessionId);
+        latencyMs += last.latencyMs;
+        if (last.id) return { ...last, latencyMs, attempts: i + 1 };
+        if (i < attempts - 1) await new Promise((r) => setTimeout(r, 250 * (i + 1)));
+    }
+    return { ...last, latencyMs, attempts };
+}
+
+/**
+ * If the persisted evaluation is ELIGIBLE, derive the deterministic recommendation from it and record it.
+ * The action (metric + direction + target + copy) comes from the provisional policy in
+ * `buildTakeaways`; the SOURCE metric value is derived server-side by the RPC. No-op when the evaluation
+ * is missing or ineligible (an ineligible session has no comparison and no action to record).
+ */
+export async function reconcileProgressRecommendation(sessionId: string): Promise<string | null> {
+    const result = await reconcileProgressRecommendationDetailed(sessionId);
+    return result.kind === 'recorded' ? result.id : null;
+}
+
+/**
+ * #1258 RH-13 — the same reconciliation, with an EVIDENTIARY outcome, because only a proven terminal result may retire
+ * a durable recommendation obligation:
+ *   • `recorded`     — an authoritative readback returned the recommendation (existing, created, or a lost success);
+ *   • `not_eligible` — the evaluation was read successfully and is authoritatively not eligible for one;
+ *   • `failed`       — anything unconfirmed: a read error, an absent evaluation, a failed RPC with no row on readback,
+ *                      or a failed final readback. Retryable; never a reason to clear.
+ */
+export type RecommendationReconcileResult =
+    | { kind: 'recorded'; id: string }
+    | { kind: 'not_eligible' }
+    | { kind: 'failed' };
+
+export async function reconcileProgressRecommendationDetailed(sessionId: string): Promise<RecommendationReconcileResult> {
+    try {
+        const supabase = getSupabaseClient();
+        const readExisting = async (): Promise<{ ok: true; id: string | null } | { ok: false }> => {
+            const { data, error } = await supabase
+                .from('progress_recommendations')
+                .select('id')
+                .eq('source_session_id', sessionId)
+                .eq('formula_version', PROGRESS_FORMULA_VERSION)
+                .maybeSingle();
+            if (error) return { ok: false };
+            return {
+                ok: true,
+                id: typeof (data as { id?: unknown } | null)?.id === 'string' ? (data as { id: string }).id : null,
+            };
+        };
+
+        // Avoid a duplicate write on ordinary retries. The RPC also enforces uniqueness, so a concurrent creator — or a
+        // first read that failed — remains safe; the FINAL readback is the authority for every path.
+        const existing = await readExisting();
+        if (existing.ok && existing.id) return { kind: 'recorded', id: existing.id };
+
+        const { data, error } = await supabase
+            .from('session_progress_evaluations')
+            .select('eligible, word_count, filler_count, error_marker_count, wpm, clarity_raw, cohort_key, engine, engine_version, model_name, attribution_status')
+            .eq('session_id', sessionId)
+            .eq('formula_version', PROGRESS_FORMULA_VERSION)
+            .maybeSingle();
+        // An unreadable or ABSENT evaluation is unconfirmed, not ineligible.
+        if (error || !data) return { kind: 'failed' };
+        if (!data.eligible) return { kind: 'not_eligible' };
+
+        const current: ProgressEvaluation = {
+            sessionId,
+            userId: '',
+            formulaVersion: PROGRESS_FORMULA_VERSION,
+            snapshotOrigin: 'at_save',
+            durationSeconds: 0,
+            wordCount: data.word_count ?? 0,
+            clarityEvidenceAvailable: true,
+            engine: data.engine ?? null,
+            engineVersion: data.engine_version ?? null,
+            modelName: data.model_name ?? null,
+            attributionStatus: data.attribution_status ?? null,
+            eligible: true,
+            exclusionReasons: [],
+            clarityRaw: data.clarity_raw ?? null,
+            fillerCount: data.filler_count ?? null,
+            errorMarkerCount: data.error_marker_count ?? null,
+            wpm: data.wpm ?? null,
+            cohortKey: data.cohort_key ?? null,
+        };
+
+        // Decided from the authoritative row alone, so it is as terminal as `eligible: false`.
+        if (!hasCompleteEligibleProgressEvidence(current)) return { kind: 'not_eligible' };
+
+        const { target, practiceThisNext } = buildTakeaways(current, null);
+        await recordProgressRecommendation({
+            sourceSessionId: sessionId,
+            targetMetric: target.metric,
+            targetDirection: target.direction,
+            targetValue: target.targetValue,
+            targetUnits: target.units,
+            shownText: practiceThisNext,
+        });
+        const after = await readExisting();
+        return after.ok && after.id ? { kind: 'recorded', id: after.id } : { kind: 'failed' };
+    } catch (err) {
+        logger.warn({ err }, '[progress] recommendation reconciliation threw');
+        return { kind: 'failed' };
+    }
+}
+
+/**
+ * Settle one durable recommendation obligation: reconcile, and retire THIS generation only on a proven terminal result.
+ * A failure leaves it for the next authenticated load. Never throws.
+ */
+async function settleRecommendationObligation(userId: string, sessionId: string, generation: string): Promise<void> {
+    const result = await reconcileProgressRecommendationDetailed(sessionId);
+    if (result.kind === 'failed') {
+        logger.warn('[progress] recommendation still owed — retried on the next load');
+        return;
+    }
+    if (!clearRecommendationObligationIfMatches(userId, sessionId, generation)) {
+        logger.warn('[progress] recommendation settled but its obligation was not retired (superseded or unwritable)');
+    }
+}
+
+/**
+ * The single deliberate wiring seam into the completed-session save journey. Call this once the session's
+ * delivery metrics are persisted AND its attribution has reached a TERMINAL state (`verified` or
+ * `unverified`) — NOT while attribution is still `pending`, which would write a premature immutable row.
+ *
+ * Every completed future session then receives a record: an ELIGIBLE evaluation (verified) OR an
+ * AUDITABLE EXCLUSION (e.g. unverified → `unverified_attribution`). The RPC decides eligibility and is
+ * idempotent, so this may be invoked defensively (including from attribution-retry resolution).
+ */
+/**
+ * #1354 — the seam's BEHAVIOURAL result.
+ *
+ * The previous signature was `Promise<void>` and every caller was fire-and-forget, so "the evaluation
+ * is durably recorded" was indistinguishable from "the call was made and something happened". That is
+ * what let a third recording start while an older session's Progress evidence was still in flight, and
+ * the server then correctly refused to retain the new transcript under strict newest-two.
+ *
+ * Durability is REPORTED, never inferred from the absence of an exception.
+ *
+ * Content-free by construction: only these discriminants and an optional accepted-reason token cross
+ * this boundary — never transcript text, error bodies, or customer content.
+ *
+ * DELIBERATE DEVIATION from #1354's "at least" list: there is no `already_present` discriminant.
+ * `record_progress_evaluation` is idempotent and returns the SAME id whether it created the row or
+ * found it, and no client-side read of `progress_evaluations` exists — so the two are indistinguishable
+ * here without adding a query and a round-trip to every save. They are also behaviourally identical for
+ * this gate: both mean a terminal evaluation is durable, and both unlock the recorder. Shipping a
+ * variant that can never occur would be unreachable and therefore unfalsifiable, which is the exact
+ * pattern this ticket's falsification requirements exist to eliminate. Flagged for PM acceptance.
+ */
+export type ProgressEvaluationOutcome =
+    /** A terminal evaluation is durably recorded. The next recording may start. */
+    | { kind: 'recorded' }
+    /** Durably queued for reconciliation. The next recording must NOT start; surface an actionable retry. */
+    | { kind: 'queued' }
+    /** No evaluation is owed, for an explicitly accepted terminal reason. The next recording may start. */
+    | { kind: 'not_applicable'; reason: ProgressNotApplicableReason }
+    /** Unknown / still resolving / failed WITHOUT a durable queue. Fail closed: block the next recording. */
+    | { kind: 'unresolved'; reason: ProgressUnresolvedReason };
+
+export type ProgressNotApplicableReason = 'not_completed';
+export type ProgressUnresolvedReason =
+    | 'missing_session'
+    | 'metrics_not_persisted'
+    | 'attribution_not_terminal'
+    | 'queue_unavailable'
+    /** #1258 RH-13: the accepted "Practice this next" attempt could not be durably bound to this take — fail closed. */
+    | 'attempt_binding_unavailable';
+
+/**
+ * `not_applicable` and `unresolved` are BOTH "no evaluation was written", and only the first may unlock
+ * the recorder. Keeping them as distinct discriminants is the point: a session that legitimately owes no
+ * evaluation is not the same as one whose evaluation we simply could not resolve, and collapsing them
+ * would silently re-open the defect.
+ */
+export function progressOutcomeAllowsNextRecording(o: ProgressEvaluationOutcome): boolean {
+    return o.kind === 'recorded' || o.kind === 'not_applicable';
+}
+
+/**
+ * The single deliberate wiring seam into the completed-session save journey. Call this once the session's
+ * delivery metrics are persisted AND its attribution has reached a TERMINAL state (`verified` or
+ * `unverified`) — NOT while attribution is still `pending`, which would write a premature immutable row.
+ *
+ * Every completed future session then receives a record: an ELIGIBLE evaluation (verified) OR an
+ * AUDITABLE EXCLUSION (e.g. unverified -> `unverified_attribution`). The RPC decides eligibility and is
+ * idempotent, so this may be invoked defensively (including from attribution-retry resolution).
+ */
+export async function wireProgressEvaluationOnSave(ctx: {
+    sessionId: string | null | undefined;
+    status: string | null | undefined;
+    attributionStatus: string | null | undefined;
+    metricsPersisted: boolean;
+    userId?: string | null;
+    /** #1258 (Codex P1 r4273828969): when this take's recording began — the boundary an acceptance is compared with. */
+    takeStartedAtIso?: string | null;
+}): Promise<ProgressEvaluationOutcome> {
+    if (!ctx.sessionId) return { kind: 'unresolved', reason: 'missing_session' };
+    // An aborted/incomplete session owes no evaluation — an accepted terminal reason, so it unlocks.
+    if (ctx.status !== 'completed') return { kind: 'not_applicable', reason: 'not_completed' };
+    // Without durable metrics there is nothing to evaluate AND nothing to queue: fail closed.
+    if (!ctx.metricsPersisted) return { kind: 'unresolved', reason: 'metrics_not_persisted' };
+    // Still resolving. Deferring is correct, but it is NOT terminal, so it must not unlock the recorder.
+    if (!isTerminalAttribution(ctx.attributionStatus)) {
+        return { kind: 'unresolved', reason: 'attribution_not_terminal' };
+    }
+
+    // #1354 WRITE-AHEAD OBLIGATION. The debt is recorded BEFORE the attempt, not after it fails.
+    //
+    // The previous order — evaluate, then queue only on failure — lost the obligation in two ways.
+    // If the tab closed or crashed mid-evaluation nothing had been written, so a reload found an empty
+    // queue and concluded nothing was owed. And when the evaluation failed AND the enqueue also failed,
+    // the only record was an in-memory gate that a reload erased. In both cases ABSENCE OF AN ENTRY was
+    // being read as PROOF OF COMPLETION, which it never was: the session may still owe evidence.
+    //
+    // Writing first inverts that. From here on, an entry means "this session owes evidence until proven
+    // otherwise", and only a VERIFIED removal after terminal evidence may retire it.
+    const obligationAtIso = new Date().toISOString();
+    const obligation = ctx.userId
+        ? enqueueProgressReconcile(ctx.sessionId, ctx.userId, obligationAtIso, ctx.takeStartedAtIso)
+        : ({ ok: false } as const);
+
+    // Cross-tab ownership (Codex 4003555358): the save's own evaluation and its settlement run under the same owner+session
+    // boundary as load/retry rounds, so another tab's retry cannot evaluate or settle this debt at the same time.
+    const { sessionId, userId } = { sessionId: ctx.sessionId, userId: ctx.userId };
+    // PM 6174115505: the boundary is the take's recording start, and ONLY that. Unknown (a take this page did not start —
+    // e.g. completed after a reload) is not guessed from the seam: the attempt is left unbound for a take that knows it.
+    const takeBoundaryIso = ctx.takeStartedAtIso ?? null;
+    const owned = userId && obligation.ok
+        ? await withAttemptOwnership(userId, sessionId, async () => {
+            const result = await recordProgressEvaluationWithRetry(sessionId);
+            return {
+                evaluation: result,
+                settled: result.id ? settleDurableEvaluation(userId, sessionId, takeBoundaryIso, { trigger: 'save' }) : null,
+            };
+        })
+        : { owned: true as const, value: { evaluation: await recordProgressEvaluationWithRetry(sessionId), settled: null } };
+    // Another context owns this debt's attempt right now: the obligation is durable, and that owner records it.
+    if (!owned.owned) return { kind: 'queued' };
+    const evaluation = owned.value.evaluation;
+    const evalId = evaluation.id;
+    if (!evalId) {
+        // The evaluation failed. Whether this is retryable depends ENTIRELY on whether the obligation
+        // is durable: `queued` promises a retry, so it may only be claimed when one can actually run.
+        // Without a durable obligation there is no record of the debt at all — fail closed.
+        if (!obligation.ok) return { kind: 'unresolved', reason: 'queue_unavailable' };
+        // RWT-20: from here the debt is real and durable, so it is REPORTED — an outstanding obligation is never
+        // invisible again. Only on this failure path: a save that records its evaluation owes nothing.
+        emitProgressDebt({
+            phase: 'enqueued',
+            trigger: 'save',
+            attempt: evaluation.attempts,
+            reason: evaluation.reason,
+            ageMs: progressDebtAgeMs(obligationAtIso, Date.now()),
+            latencyMs: evaluation.latencyMs,
+        });
+        return { kind: 'queued' };
+    }
+    // No owner: nothing could be queued, bound or owed, exactly as before — the recommendation is attempted once.
+    if (!userId) {
+        void reconcileProgressRecommendationDetailed(sessionId);
+        return { kind: 'recorded' };
+    }
+    // When the debt could not be made durable, no settlement ran — but the attempt binding is still decided here, the same
+    // way, before anything is dispatched (Codex P1 r4272602941: resolution no longer binds on its own).
+    if (!owned.value.settled && bindOpenAttemptForTake(userId, sessionId, takeBoundaryIso, { trigger: 'save' }) === 'failed') {
+        return { kind: 'unresolved', reason: 'attempt_binding_unavailable' };
+    }
+    const settled = owned.value.settled ?? ({ ok: false, reason: 'queue_unavailable', generation: null } as const);
+    // #1258 RH-13: the attempt could not be bound to this take, so nothing non-blocking was published and nothing may
+    // advance it. The debt stays blocking; the round that retries it binds before it clears (`settleDurableEvaluation`).
+    if (!settled.ok && settled.reason === 'attempt_binding_unavailable') return { kind: 'unresolved', reason: settled.reason };
+
+    // #1354: evaluation durability — not recommendation creation — controls unlocking. #1258 RH-13: that is now true of
+    // TIME as well as outcome. The downstream work is dispatched, never awaited here, so its round trips cannot hold
+    // "Finishing up". It is still dispatched when the queue could not be settled (a storage hiccup must not cost the
+    // user their recommendation); that path stays blocked below.
+    dispatchProgressDownstream(userId, sessionId, settled.generation);
+    if (!settled.ok) return { kind: 'unresolved', reason: 'queue_unavailable' };
+    return { kind: 'recorded' };
+}
+
+/**
+ * #1258 RH-13 — retire a durably evaluated debt in the ONLY safe order (PM 6155702425):
+ *   1. bind any accepted "Practice this next" attempt this take resolves — readback-verified, BEFORE anything
+ *      non-blocking exists, because another tab re-reads durable storage at Start;
+ *   2. write the recommendation obligation — readback-verified, in a namespace no shipped client can retire;
+ *   3. clear the queue entry — verified. This is the publication that lets Start reopen.
+ * Synchronous, so it completes inside the caller's attempt ownership. The first step that fails stops the sequence:
+ * nothing after it is published, and the debt keeps blocking.
+ */
+type SettleResult =
+    | { ok: true; generation: string }
+    | { ok: false; reason: 'attempt_binding_unavailable'; generation: null }
+    | { ok: false; reason: 'queue_unavailable'; generation: string | null };
+
+function settleDurableEvaluation(
+    userId: string,
+    sessionId: string,
+    boundaryIso: string | null,
+    how: { trigger: 'save' } | { trigger: 'load' | 'retry'; ownerEntries: readonly QueueEntry[] },
+): SettleResult {
+    if (bindOpenAttemptForTake(userId, sessionId, boundaryIso, how) === 'failed') {
+        logger.warn('[progress] attempt binding could not be persisted — Start stays blocked');
+        return { ok: false, reason: 'attempt_binding_unavailable', generation: null };
+    }
+    const owed = recordRecommendationObligation(userId, sessionId, new Date().toISOString());
+    if (!owed.ok) return { ok: false, reason: 'queue_unavailable', generation: null };
+    const cleared = clearProgressReconcileEntry(sessionId, userId);
+    if (!cleared.ok) return { ok: false, reason: 'queue_unavailable', generation: owed.generation };
+    return { ok: true, generation: owed.generation };
+}
+
+/**
+ * #1258 (Codex P1 r4273828969): the moment a queued take is ordered against an acceptance — its recording start. An
+ * entry without one (older entries, or an older tab's rewrite that dropped the field) is unknown: null, never guessed.
+ */
+const takeBoundaryOf = (e: QueueEntry): string | null => e.takeStartedAtIso ?? null;
+
+/**
+ * Bind the owner's accepted attempt to THIS take when it is the take that resolves it. Returns `failed` only when a bind
+ * was due and could not be readback-verified.
+ *
+ * The boundary is when the take's RECORDING began (Codex P1 r4273828969) — not the Progress seam, which runs after the
+ * save and so cannot order a take against an acceptance made meanwhile. On save, an attempt accepted after this take
+ * began belongs to a later take. A reconcile round binds only an attempt that records when it was accepted, and only to
+ * the FIRST owed take that began after that moment; an attempt from before `acceptedAtIso` existed is left to the next
+ * save, exactly as before. A take whose start is unknown is never bound (fail closed): the attempt waits for a take that
+ * knows its own start.
+ */
+function bindOpenAttemptForTake(
+    userId: string,
+    sessionId: string,
+    boundaryIso: string | null,
+    how: { trigger: 'save' } | { trigger: 'load' | 'retry'; ownerEntries: readonly QueueEntry[] },
+): 'not_due' | 'bound' | 'failed' {
+    const open = getOpenAttemptForUser(userId);
+    if (!open || open.sourceSessionId === sessionId) return 'not_due'; // never resolve a recommendation against itself
+    if (open.resolutionSessionId) return open.resolutionSessionId === sessionId ? 'bound' : 'not_due';
+    // Fail closed on an UNKNOWN boundary: never bind on a guess (PM 6174115505).
+    if (boundaryIso === null) return 'not_due';
+    const accepted = open.acceptedAtIso;
+    if (how.trigger === 'save') {
+        if (accepted && accepted > boundaryIso) return 'not_due';
+    } else {
+        if (!accepted || boundaryIso < accepted) return 'not_due';
+        const earlier = how.ownerEntries.some((e) => {
+            const other = takeBoundaryOf(e);
+            // Another owed take that began after acceptance and before this one is the practice take; one whose start is
+            // unknown but was queued after acceptance makes the order ambiguous — both leave this take unbound.
+            return e.sessionId !== sessionId && (other === null ? e.enqueuedAtIso >= accepted : other >= accepted && other < boundaryIso);
+        });
+        if (earlier) return 'not_due';
+    }
+    return setOpenAttempt({ ...open, resolutionSessionId: sessionId }) ? 'bound' : 'failed';
+}
+
+/**
+ * Dispatch the work a durable evaluation still owes, AFTER the unlock: the recommendation (through its durable
+ * obligation when one was written) and the bound attempt's advance. Never awaited by a gate; never rejects.
+ */
+function dispatchProgressDownstream(userId: string, sessionId: string, generation: string | null): void {
+    const recommendation = generation
+        ? settleRecommendationObligation(userId, sessionId, generation)
+        : reconcileProgressRecommendationDetailed(sessionId).then(() => undefined);
+    void recommendation.catch((err) => logger.warn({ err }, '[progress] recommendation reconciliation failed (non-fatal)'));
+    void resolveOpenAttemptWith(userId, sessionId).catch((err) => logger.warn({ err }, '[progress] attempt resolution failed (non-fatal)'));
+}
+
+/**
+ * #1258 RH-13 — one advance per (owner, attempt) on this page. A later take's save, the load reconciler and the round
+ * that bound the attempt all join the same flight; it is removed in `finally`, so a rejection or retry starts afresh and
+ * no other owner or attempt can ever join it. Across tabs and reloads the server is the authority: the advance RPC is
+ * idempotent for the bound session (`attempt already resolved` is confirmed by readback in `advanceRecommendationAttemptResult`).
+ */
+const advancesInFlight = new Map<string, Promise<void>>();
+
+/**
+ * Close the "Practice this next" loop: if the user accepted a recommendation and has now saved a new
+ * session, resolve that pending attempt against this session. The RPC derives the outcome and enforces
+ * comparability; when the new session is not an eligible same-cohort comparison the attempt is resolved as
+ * `not_comparable` — either way the practice session is associated and the attempt is closed exactly once.
+ */
+async function resolveOpenAttemptWith(userId: string, newSessionId: string): Promise<void> {
+    const open = getOpenAttemptForUser(userId);
+    if (!open || open.sourceSessionId === newSessionId) return; // never resolve a recommendation against itself
+    // Codex P1 r4272602941: this ADVANCES an attempt that is already bound; it never binds one. Binding is decided once,
+    // by `bindOpenAttemptForTake`, before anything non-blocking is published. Binding here as well bound an attempt that
+    // decision had found NOT due (accepted after this save began, or a queued take that predates acceptance) to the wrong
+    // take, and left the take the user actually practised unlinked. An unbound attempt waits for the take it belongs to.
+    if (!open.resolutionSessionId) return;
+    const resolutionSessionId = open.resolutionSessionId;
+    const key = `${userId}\u0000${open.attemptId}`;
+    const existing = advancesInFlight.get(key);
+    if (existing) return existing;
+    const flight = advanceBoundAttempt(userId, open.attemptId, resolutionSessionId).finally(() => advancesInFlight.delete(key));
+    advancesInFlight.set(key, flight);
+    return flight;
+}
+
+async function advanceBoundAttempt(userId: string, attemptId: string, resolutionSessionId: string): Promise<void> {
+    const result = await advanceRecommendationAttemptResult({
+        attemptId,
+        lifecycle: 'completed',
+        practiceSessionId: resolutionSessionId,
+        nextComparableSessionId: resolutionSessionId,
+    });
+    if (!result.ok && result.kind === 'not_comparable') {
+        const terminal = await advanceRecommendationAttemptResult({
+            attemptId,
+            lifecycle: 'not_comparable',
+            practiceSessionId: resolutionSessionId,
+        });
+        // #1258 RH-13: retire only THIS owner's THIS attempt — a late answer must never erase a newer acceptance.
+        if (terminal.ok) clearOpenAttemptIfMatches(userId, attemptId);
+        return;
+    }
+    // Technical/storage/network failure remains pending and retryable; never falsify it as a speaking result.
+    if (result.ok) clearOpenAttemptIfMatches(userId, attemptId);
+}
+
+/**
+ * DURABLE on-load recovery. Called once per authenticated user after their session list is available.
+ *
+ * One authoritative, idempotent recovery path: drain the owner-scoped localStorage queue for sessions whose
+ * save path established mode + rich-metrics persistence and then observed a transient evaluation failure.
+ * There is deliberately no generic session sweep: absence alone cannot prove a recording's practice mode.
+ */
+/**
+ * Clear the visible gate for one resolved (session, owner) pair.
+ *
+ * Owner- AND session-scoped: another account's reconciliation, or a different session's, must never
+ * unlock the gate a live session is holding.
+ */
+function releaseProgressGateFor(sessionId: string, userId: string): void {
+    const store = useSessionStore.getState();
+    const gate = store.progressGate;
+    if (gate && gate.sessionId === sessionId && gate.ownerId === userId) store.setProgressGate(null);
+}
+
+/** RWT-20 — the outcome of one attempt round over an owner's durable Progress debt. */
+export interface ProgressDebtRoundResult {
+    drained: number;
+    /** Sessions this round actually attempted; a debt the other trigger is already attempting is skipped. */
+    attempted: ReadonlySet<string>;
+    /** Entries still holding Start (not yet released) after this round. */
+    remainingBlocking: number;
+    unreadable: boolean;
+}
+
+const roundsInFlight = new Map<string, Promise<ProgressDebtRoundResult>>();
+
+/**
+ * RWT-20 — owner + session keys whose evaluation attempt is in flight, across BOTH triggers (Codex 4002837036). A round
+ * that meets one skips that debt: no second RPC, and no second persisted attempt, clear or telemetry for it.
+ */
+const evaluationsInFlight = new Set<string>();
+
+/**
+ * RWT-20 — ONE attempt round over this owner's durable debt, single-flight per owner and trigger.
+ *
+ * `load` rounds (once per authenticated load) try EVERY owed entry, including released ones: release frees Start,
+ * it never forgives the debt. `retry` rounds (the bounded in-page schedule) chase only entries still holding Start.
+ * Every failed attempt is persisted on its entry, and every outcome is reported content-free.
+ */
+export function attemptProgressDebtRound(
+    userId: string,
+    trigger: 'load' | 'retry',
+    onlySessionIds?: ReadonlySet<string>,
+): Promise<ProgressDebtRoundResult> {
+    // A retry round must never join a load round: the load round also chases retained released entries and awaits
+    // their recommendation work, which would consume or suspend the release bound (Codex 4002546939).
+    const key = `${trigger}:${userId}`;
+    const existing = roundsInFlight.get(key);
+    if (existing) return existing;
+    const run = runProgressDebtRound(userId, trigger, onlySessionIds).finally(() => roundsInFlight.delete(key));
+    roundsInFlight.set(key, run);
+    return run;
+}
+
+async function runProgressDebtRound(
+    userId: string,
+    trigger: 'load' | 'retry',
+    onlySessionIds?: ReadonlySet<string>,
+): Promise<ProgressDebtRoundResult> {
+    // An UNREADABLE queue is not an empty one. Draining zero entries because storage is unavailable or
+    // corrupt would report a clean reconciliation while real Progress debts remain, so the read result
+    // is inspected rather than coerced to a list.
+    const owed = getQueueEntriesForUser(userId);
+    if (!owed.ok) {
+        logger.warn({ failure: owed.failure }, '[progress] reconcile queue unreadable — not draining');
+        return { drained: 0, attempted: new Set<string>(), remainingBlocking: 0, unreadable: true };
+    }
+    // A retry round chases only the entries whose own backoff is due, so each entry's budget is spent on its own clock.
+    const targets = trigger === 'retry'
+        ? owed.entries.filter((e) => !e.releasedAtIso && (!onlySessionIds || onlySessionIds.has(e.sessionId)))
+        : owed.entries;
+    let drained = 0;
+    const attempted = new Set<string>();
+    const loadDownstream: Array<Promise<void>> = [];
+    const attemptOne = async (entry: QueueEntry): Promise<void> => {
+        // Cross-tab ownership (Codex 4003281159): the RPC, its persist/clear, terminal telemetry and the recommendation
+        // dispatch run while this context exclusively owns owner+session. A contender skips the debt this round.
+        const owned = await withAttemptOwnership(userId, entry.sessionId, async () => {
+            const flightKey = `${userId}:${entry.sessionId}`;
+            if (evaluationsInFlight.has(flightKey)) return null; // this tab's other trigger is attempting it right now
+            // Re-read under ownership: another tab may have cleared it, released it, or attempted it since this round read
+            // the queue (then it is no longer due). The load round still retries retained released debt, by contract.
+            const read = getQueueEntriesForUser(userId);
+            const current = read.ok ? read.entries.find((e) => e.sessionId === entry.sessionId) : undefined;
+            if (!current) return null;
+            if (trigger === 'retry' && (current.releasedAtIso || (current.attempts ?? 0) !== (entry.attempts ?? 0))) return null;
+            evaluationsInFlight.add(flightKey);
+            attempted.add(entry.sessionId);
+            let attempt: EvaluationAttempt;
+            try {
+                attempt = await attemptProgressEvaluation(entry.sessionId);
+            } finally {
+                // Released here because everything from this point to the recommendation dispatch is synchronous: this
+                // attempt's persist/clear and telemetry complete before this tab's other trigger can start on the same debt.
+                evaluationsInFlight.delete(flightKey);
+            }
+            const now = Date.now();
+            const ageMs = progressDebtAgeMs(current.enqueuedAtIso, now);
+            const attemptNumber = (current.attempts ?? 0) + 1;
+            if (!attempt.id) {
+                // Still failing — the debt stays queued. The attempt is recorded so the count and age survive a reload.
+                const persisted = recordProgressReconcileAttempt(entry.sessionId, userId, new Date(now).toISOString());
+                if (!persisted.ok) logger.warn({ failure: persisted.failure }, '[progress] reconcile attempt could not be recorded');
+                emitProgressDebt({ phase: 'attempt_failed', trigger, attempt: attemptNumber, reason: attempt.reason, ageMs, latencyMs: attempt.latencyMs });
+                return null;
+            }
+            // #1354: the clear must be VERIFIED before this counts as drained. An entry that could not be
+            // removed survives the next reload, so reporting a clean drain would unlock the recorder on a
+            // debt that still exists.
+            // #1258 RH-13: retire it in the same order as a save — bind, write the recommendation obligation, clear — so a
+            // round can never reopen Start ahead of the binding or drop the recommendation it still owes.
+            const settled = settleDurableEvaluation(userId, entry.sessionId, takeBoundaryOf(current), {
+                trigger,
+                ownerEntries: read.ok ? read.entries : [],
+            });
+            if (!settled.ok) {
+                logger.warn({ reason: settled.reason }, '[progress] evaluation recorded but the debt could not be retired');
+                emitProgressDebt({ phase: 'attempt_failed', trigger, attempt: attemptNumber, reason: 'clear_failed', ageMs, latencyMs: attempt.latencyMs });
+                return null;
+            }
+            drained++;
+            emitProgressDebt({ phase: 'attempt_succeeded', trigger, attempt: attemptNumber, ageMs, latencyMs: attempt.latencyMs });
+            // Release the VISIBLE gate only now, and only if it belongs to this exact owner+session.
+            // Without this the user stays blocked after a successful retry — the debt is gone but the UI
+            // still says otherwise.
+            releaseProgressGateFor(entry.sessionId, userId);
+            // Dispatched once, under ownership — but never awaited while owning: recommendation work has no deadline.
+            return {
+                recommendation: Promise.all([
+                    settleRecommendationObligation(userId, entry.sessionId, settled.generation),
+                    resolveOpenAttemptWith(userId, entry.sessionId),
+                ]).then(() => undefined),
+            };
+        });
+        if (!owned.owned && owned.unavailable && trigger === 'retry') {
+            // The lock API failed (Codex 4004302937): no evaluation runs unowned and no RPC outcome is reported, but the failed
+            // attempt is recorded so this entry's own budget advances and it is released within the bound.
+            const read = getQueueEntriesForUser(userId);
+            const current = read.ok ? read.entries.find((e) => e.sessionId === entry.sessionId) : undefined;
+            if (!current || current.releasedAtIso || (current.attempts ?? 0) !== (entry.attempts ?? 0)) return;
+            attempted.add(entry.sessionId);
+            const persisted = recordProgressReconcileAttempt(entry.sessionId, userId, new Date().toISOString());
+            if (!persisted.ok) logger.warn({ failure: persisted.failure }, '[progress] reconcile attempt could not be recorded');
+            return;
+        }
+        const recommendation = owned.owned ? owned.value?.recommendation : undefined;
+        if (!recommendation) return;
+        if (trigger === 'retry') {
+            // Release-critical: recommendation work has no deadline, so it must not hold this round, or Start, open.
+            void recommendation.catch((err) => logger.warn({ err }, '[progress] recommendation reconciliation failed (non-fatal)'));
+        } else {
+            // Codex P2 r4276808814: a load round still finishes its downstream work, but only AFTER every blocking entry
+            // has been evaluated — one slow recommendation or attempt advance must not keep a later debt queued.
+            loadDownstream.push(recommendation);
+        }
+    };
+    // Due debts are attempted independently (Codex 4003746545): serially, each was charged the others' RPC deadlines and
+    // missed its own release bound. Per-session ownership still prevents same-session overlap. Load rounds stay serial.
+    if (trigger === 'retry') {
+        const outcomes = await Promise.allSettled(targets.map(attemptOne));
+        const failure = outcomes.find((o): o is PromiseRejectedResult => o.status === 'rejected');
+        if (failure) throw failure.reason;
+    } else {
+        for (const entry of targets) await attemptOne(entry);
+        for (const outcome of await Promise.allSettled(loadDownstream)) {
+            if (outcome.status === 'rejected') logger.warn({ err: outcome.reason }, '[progress] recommendation reconciliation failed (non-fatal)');
+        }
+    }
+    const after = getQueueEntriesForUser(userId);
+    return {
+        drained,
+        attempted,
+        remainingBlocking: after.ok ? after.entries.filter((e) => !e.releasedAtIso).length : 0,
+        unreadable: !after.ok,
+    };
+}
+
+/**
+ * RWT-20 — the ONE honest terminal state for an entry that has spent its retry budget: it is RELEASED.
+ *
+ * Only the entry the caller names is released, and only by the tab that owns it (another tab's release is `skipped`);
+ * debt that has not had its own budget keeps blocking. The entry stays durable and is retried on later loads; only its
+ * hold on Start ends. A release that cannot be written is `refused` — that entry keeps blocking, as an unreadable queue does.
+ */
+export async function releaseProgressDebtEntry(
+    userId: string,
+    entry: QueueEntry,
+): Promise<'released' | 'skipped' | 'refused'> {
+    const release = async () => {
+        // Re-read under ownership: another tab may already have released or cleared this debt.
+        const read = getQueueEntriesForUser(userId);
+        const current = read.ok ? read.entries.find((e) => e.sessionId === entry.sessionId) : undefined;
+        if (!current || current.releasedAtIso) return 'skipped' as const;
+        const now = Date.now();
+        const result = releaseProgressReconcileEntry(entry.sessionId, userId, new Date(now).toISOString());
+        if (!result.ok) {
+            logger.warn({ failure: result.failure }, '[progress] debt release could not be recorded — Start stays blocked');
+            return 'refused' as const;
+        }
+        emitProgressDebt({ phase: 'released', trigger: 'retry', attempt: current.attempts ?? 0, ageMs: progressDebtAgeMs(current.enqueuedAtIso, now) });
+        releaseProgressGateFor(entry.sessionId, userId);
+        return 'released' as const;
+    };
+    const owned = await withAttemptOwnership(userId, entry.sessionId, release);
+    // The lock API failed (Codex 4004302937): a spent debt's release — a re-read and one verified write, no RPC — still runs.
+    if (!owned.owned && owned.unavailable) return release();
+    return owned.owned ? owned.value : 'skipped';
+}
+
+export async function reconcileProgressEvaluations(
+    userId: string,
+    sessions: ReconcilableSession[],
+): Promise<{ queueDrained: number; swept: number }> {
+    let queueDrained = 0;
+
+    // Reload reconciliation retries the exact durable attempt/repeat pair before considering later saves.
+    const pendingResolution = getOpenAttemptForUser(userId)?.resolutionSessionId;
+    if (pendingResolution) await resolveOpenAttemptWith(userId, pendingResolution);
+
+    // #1258 RH-13: recommendations a durable evaluation still owes from an EARLIER page — a save or round that unlocked
+    // and then closed before finishing one. Their own namespace, so no older client can have retired them. Listed BEFORE
+    // this load's round, so an obligation the round itself writes is settled once, by the round, not again here.
+    const owedRecommendations = listRecommendationObligations(userId);
+
+    // ── Layer 1: one attempt round over the durable Open Mic queue (transient eval failures) for this user. ──
+    // RWT-20: this is the same round code the bounded in-page retry schedule runs (`progressDebtRetry.ts`), so load and
+    // retry share one code path and one telemetry vocabulary — but not one lock: a retry round never waits behind this
+    // load round. An UNREADABLE queue is still not an empty one: the round reports it rather than draining zero.
+    const round = await attemptProgressDebtRound(userId, 'load');
+    queueDrained = round.drained;
+
+    // Codex P2 r4275389965: the listed recommendations are settled only AFTER the round — recommendation latency is
+    // non-blocking, so a slow or hung recommendation call must never hold Start behind blocking evaluation debt.
+    if (owedRecommendations.ok) {
+        for (const o of owedRecommendations.entries) await settleRecommendationObligation(userId, o.sessionId, o.generation);
+    }
+
+    // #1265: the generic active-era sweep was REMOVED. It evaluated any completed session missing an
+    // evaluation, but it CANNOT positively identify the practice mode before writing the IMMUTABLE
+    // evaluation — so a Focus Points recording whose objective registration failed or was unconfirmed could
+    // be permanently stamped 'freeform'. "No evaluation" is safer than false provenance. Recovery is limited
+    // to the owner-scoped durable queue above, which is authoritative about mode by construction: a Focus
+    // Points session is enqueued ONLY after its objective registration succeeds (so a later re-evaluation is
+    // correctly cohorted 'objective' — record_progress_evaluation reads objective_source_recording), while a
+    // registration failure writes and enqueues nothing. There is no objective-registration retry in this MVP,
+    // so a failed registration means Progress is simply unavailable for that take — never mislabeled.
+    void sessions; // retained for API compatibility; no longer swept (see above)
+    return { queueDrained, swept: 0 };
+}

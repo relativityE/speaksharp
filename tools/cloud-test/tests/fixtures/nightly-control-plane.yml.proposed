@@ -1,0 +1,12 @@
+# SYNTHETIC policy fixture only. Not installed; no dispatch or run authority.
+name: Synthetic proposed offline control-plane schedule
+on:
+  schedule:
+    - cron: '0 3 * * *'
+permissions:
+  contents: read
+jobs:
+  proposal-only:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'SYNTHETIC PROPOSAL ONLY - NOT INSTALLED'

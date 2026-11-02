@@ -1,0 +1,51 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "caseId": "AHT-15",
+  "campaignId": null,
+  "sourceSha": null,
+  "servedSha": null,
+  "targetUrl": "https://speaksharp-public.vercel.app",
+  "requiredAssertions": [
+    "owner-bound",
+    "history-preserved",
+    "switches-mic-off",
+    "signed-out",
+    "return-owner-preserved",
+    "no-recording-or-session-write",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed",
+    "return-entry-mic-off",
+    "deep-link-exact-return",
+    "deep-link-rendered-own-detail",
+    "deep-link-mic-off",
+    "return-signed-out"
+  ],
+  "credentialVars": {
+    "email": "THROWAWAY_TEST_EMAIL",
+    "password": "THROWAWAY_TEST_PASSWORD"
+  },
+  "account": {
+    "id": null,
+    "mode": "maintained-read-only",
+    "preprovisionReceipt": null,
+    "analyticsExclusionReceipt": null,
+    "dispositionReceipt": null,
+    "effectiveFeatureAccessApproved": null
+  },
+  "readback": {
+    "origin": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+    "projectRef": "yxlapjuovrsvjswkwnrk",
+    "anonKey": null,
+    "schemaSha256": null,
+    "ownerReadApproved": null,
+    "rlsReadQualificationReceipt": null
+  },
+  "observerSourceReviewed": null,
+  "observerQualificationReceipt": null,
+  "takeCap": null,
+  "startPressCap": null,
+  "_minimumTakeCap": 0,
+  "_minimumStartPressCap": 0,
+  "oracleBindings": {}
+}

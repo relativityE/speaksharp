@@ -1,0 +1,3087 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "_graphLimit": "Static literal relative require graph only; reviewer must inspect dynamic/package/native code and add actual UNBOUND receiver + its dependency graph. Hash examples are not review or authority.",
+  "version": 1,
+  "scope": "trusted-reviewed-node-not-sandbox",
+  "reviewer": null,
+  "reviewedAt": null,
+  "steps": [
+    {
+      "path": "draft-adapters/AHT-01.cjs",
+      "sha256": "2c9ef27ea5e7af4c93a88b21ba67f0b92db580e8ddfe72a4809c0d1a2120742e",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-02.cjs",
+      "sha256": "a68fa1d58c19a9988ad31082e25c57601d23c19100f33f319da5dff30ed927a5",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-03.cjs",
+      "sha256": "7e17416e47501d8ce39dcd005ff96a4ea0e4b7b51dc8436dece917ddcae91d77",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-04.cjs",
+      "sha256": "b6ebbfb5b4ee83973723fc9436b22fa401c0e25f05510be112f2e2710a24b072",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-05.cjs",
+      "sha256": "8bb595bb1526a1b2388302ed20e24f50a24b02c2f254236f603d9828b4c20f07",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-06.cjs",
+      "sha256": "33935d19ad25d45a7db8df5d36c665231e2ad7972b79b1e85394343730cde0a4",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-07.cjs",
+      "sha256": "b6d643d6137bd1ba3a0602a1e314c831ba484387bde3e16e449f3e69f2fb85d5",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-08.cjs",
+      "sha256": "356547ac29863037122fe08ad4a87ca10daa772e90c3481f5b9d7f033ba7c29f",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-09.cjs",
+      "sha256": "e13c58f4f0f909b8160b61cc592b8d3edbb50b74267a871a2865a1b37d13949e",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-10.cjs",
+      "sha256": "2abf82986bae59561b7ec1105f00f1f6fd9d708e4fff492da67790dc4c0b8616",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-11.cjs",
+      "sha256": "f2a82c4db52fd131b5d53fc1d6ca3d67533b1129c560ec0480705f4cb1b8b40a",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-12.cjs",
+      "sha256": "f545ec83d7b18c3425dc0b95088ff9207d97c683ba188861347550e65fb2b53f",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-13.cjs",
+      "sha256": "0864ec1999fc49d2c7bac305caddd52f1eb8c69197c34d6df9b18f7289e820db",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-14.cjs",
+      "sha256": "b86f09e7bb6e607141495998497cd01ee8e4efbacfed61718fdf25fbe9e3459c",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/AHT-15.cjs",
+      "sha256": "8c523cf2fc17793d7c4b49ccc90b2eb9f17e957b0e096d2587758da9018cbfe1",
+      "dependencies": [
+        {
+          "path": "bundle/harness/fault-contract.cjs",
+          "sha256": "d1e829f91e262316c0201dd6eb10bd22c8540c7a4378604c2c3ad1fff45bfbbe"
+        },
+        {
+          "path": "bundle/harness/feedback-fault.cjs",
+          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+        },
+        {
+          "path": "bundle/harness/reviewed-oracle-loader.cjs",
+          "sha256": "fb236d87e24f6418c5fa1e1652bd5bde601d95b8b27cc217cf5cbe889b997272"
+        },
+        {
+          "path": "bundle/harness/reviewed-step.cjs",
+          "sha256": "1bb1898a1b27508e7f88d902aa4a06fcc9729406ff6f43bea644b1540cdd119e"
+        },
+        {
+          "path": "draft-adapters/audio-timing.cjs",
+          "sha256": "75c38e4483044aac94b84030b9a695c9a579741541139923311aadfb75c80130"
+        },
+        {
+          "path": "draft-adapters/auth-controls.cjs",
+          "sha256": "d683db10146c3539a1fb4c9d2489a694ff85b53ecc80686668fe090d4b595cc6"
+        },
+        {
+          "path": "draft-adapters/browser-actions.cjs",
+          "sha256": "651151ab2d68d2a8544c251b16491d01c2b082d5ce8cc66da3e8ddd1b0e07b59"
+        },
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/coaching-failure-policy.cjs",
+          "sha256": "efe36a073868138cff11b5b22c1d6f5246454a171a051b6bd74b1fcc4c0eab71"
+        },
+        {
+          "path": "draft-adapters/durable-save-oracle.cjs",
+          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+        },
+        {
+          "path": "draft-adapters/feedback-retry-controls.cjs",
+          "sha256": "d077ae12b448ca566115e563caee8b191fa6bdf77a2dac32ae20eaa76d2abdb5"
+        },
+        {
+          "path": "draft-adapters/finite-aht-denominator.json",
+          "sha256": "5cee75412d8b6e29b4c1fc8cd23c4107addf5a5194930775f65ed2e07f66b4c2"
+        },
+        {
+          "path": "draft-adapters/fixture-activity.json",
+          "sha256": "e80d400c17cc49a200d2b82ae84329dbdfafb7f667db036e7193d3405f1a986d"
+        },
+        {
+          "path": "draft-adapters/focus-controls.cjs",
+          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+        },
+        {
+          "path": "draft-adapters/focus-oracle.cjs",
+          "sha256": "67d6d2fb54fd192db9e8b337acc8b90b982663d37981cf4ecdf7f2e4a7ad6a80"
+        },
+        {
+          "path": "draft-adapters/navigation-controls.cjs",
+          "sha256": "8a1fa5380e601848f3f0de28a2921d931576662132d120bad360e71a068e71a5"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/index.cjs",
+          "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/extendedJourney.cjs",
+          "sha256": "d26ffee9c33753855ba7f0d11ad590da97fde7e62b8944426e93bfa9be2c3c8c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/navigationSelected.cjs",
+          "sha256": "4f7c1024f51eac81f99825401f255a6b4dc7e4cacf838b8ad1120c8383f08e3a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/presentationSelected.cjs",
+          "sha256": "5ff5e6ff8f794af05a31f8f2d5f8416ac67aebcd5e9cb593b5515f83b0f7348d"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/presentation-controls.cjs",
+          "sha256": "b5b998de4a339a822323b19887e07882039b133a4d9f4a01c1b45ccea28b0790"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        },
+        {
+          "path": "draft-adapters/repeat-probes.cjs",
+          "sha256": "b486fbc59dc2ff3b92fc9584d018f87435b91e568445954bc17897c5e76b684b"
+        },
+        {
+          "path": "draft-adapters/save-fault-binding.cjs",
+          "sha256": "a81cf11c88453d147e357c181dd57891279bc1fd58d85714c2334f3a34f32a8d"
+        },
+        {
+          "path": "draft-adapters/source-adapters.cjs",
+          "sha256": "b95c08d282c0a890477ee05d7463845ee6415cc071c6a896bd0c9a28f2dfc760"
+        },
+        {
+          "path": "draft-adapters/source-control-crosswalk.json",
+          "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/oracles/index.cjs",
+      "sha256": "182af3a755d4f45b045b59c5459b96d1fe087d43ef669f2ca3830e99a1d7a07d",
+      "dependencies": [
+        {
+          "path": "draft-adapters/browser-observers.cjs",
+          "sha256": "32724d7e9cb28766e4b069b356a1fdbab84e824538d355426912e66376968a5f"
+        },
+        {
+          "path": "draft-adapters/browser-readback.cjs",
+          "sha256": "18730e6f6535f2905ebf213107fb0c9603cd82b6c6c450ff5dff60a41406e782"
+        },
+        {
+          "path": "draft-adapters/oracles/coaching-readiness.cjs",
+          "sha256": "ff13a7e24027d43cbf7e2fcfa9cfa22cdc31c34e33a74fc9b476e5aa38d6dd56"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-association.cjs",
+          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+        },
+        {
+          "path": "draft-adapters/oracles/feedback-sequence.cjs",
+          "sha256": "7ea7abce2f95908869df66e93be80388f598c2e6e3e34192ef64184ef29ccbbf"
+        },
+        {
+          "path": "draft-adapters/oracles/owner-query.cjs",
+          "sha256": "1281d5bcd9b5bcde540ad011afaceffec28beaf19ae9749a2412dcb32b27fbb6"
+        },
+        {
+          "path": "draft-adapters/oracles/passive-telemetry.cjs",
+          "sha256": "6766a65dd65902931324a45d7090d94790f8234e0a53f60efbfe9bee2d409d1a"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coaching-contract.json",
+          "sha256": "5799613e82a2fdc79b2d61b5537a524bcdf74da3c871796607059346b7e98de0"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingCollectorSelected.cjs",
+          "sha256": "dedd7575b781fc12c1e38c04d403f616fd0648d05d6725950ec5e14104be6baa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/coachingGenerationTap.cjs",
+          "sha256": "5e93e4a57b8b644af45357b445a65dd04ce8864d1f9af817a8aa098548f227ea"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/feedbackDiagnosticRef.cjs",
+          "sha256": "95bf195ae2e1e69dd3b795bdaeb5cffc0070893cac9fbbfafb154c024bd330f3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/fixture-manifest.json",
+          "sha256": "32b6bc7a14cde441879976a832cf059f791ed25ae4cf1454f6728aaa2d262f79"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/progressNumericSelected.cjs",
+          "sha256": "336a7f04419f8e4c343ab1d6d4ced03410623e511188e68a24d94da0797623e3"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/repeatMetricWording.cjs",
+          "sha256": "439c6460e7e5444e8da43d96f513ba73e4ac464d60607785f91616a0658fdcc1"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
+          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
+          "sha256": "1aaa6db6dd4aefc478a5a4d2a714b271739a6fd4202a9d750201ba0e18b3245c"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtCoachingEvidence.cjs",
+          "sha256": "37d1b29ed87ab65a8550545e593963e34b899e968e38b4fdf4037631fe771ec8"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtMarkerObserver.cjs",
+          "sha256": "1cc822f84b3592ebb983597f01d52f342232ffec7ae3a0e551f812b6244b51f2"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryCapture.cjs",
+          "sha256": "e0033c267ee4157009efe2e97f2efcbaf245480c8a7e54317efe5db5894a5f5f"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtRecoveryFence1593.cjs",
+          "sha256": "2de1d207eb49735d82a395f95b0f797c1de18b5b2422f322b137c96ccd02a9fc"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/rwtSavedFocusIdentity.cjs",
+          "sha256": "1b7f354575e20c0d209788dd94514a9c5bf1b19ac7ca205dc035dfd55c578865"
+        },
+        {
+          "path": "draft-adapters/oracles/receipts.cjs",
+          "sha256": "39aabbc59f56445eb522f1595e8105a4147d17bf5c828cc84a62688dbe23e2b7"
+        },
+        {
+          "path": "draft-adapters/oracles/repeat-target-retention.cjs",
+          "sha256": "510d6651da8c8d842ce9b89d80f128915e45fbfbf3861fd87efcea368a6664a3"
+        },
+        {
+          "path": "draft-adapters/progress-numeric.cjs",
+          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+        }
+      ]
+    },
+    {
+      "path": "draft-adapters/durable-save-oracle.cjs",
+      "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d",
+      "dependencies": []
+    }
+  ]
+}

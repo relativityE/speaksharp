@@ -1,0 +1,40 @@
+{
+  "schema": "speaksharp.cloud-test.recurring-approval.v1",
+  "status": "NOT APPROVED",
+  "note": "The Product Owner's standing approval of recurring (nightly) cost. Every value is null until the owner supplies it with a reference; gate G11 compares a nightly request, and the usage so far in the period, with it. Nothing in this package fills these in.",
+  "approvedBy": null,
+  "approvalRef": null,
+  "approvedAtUtc": null,
+  "validFromUtc": null,
+  "expiresUtc": null,
+  "cadence": {
+    "runsPerPeriod": null,
+    "period": "30 days"
+  },
+  "perRunCaps": {
+    "runCapRequests": null,
+    "identityReads": null,
+    "starts": null,
+    "takes": null,
+    "coachingRequests": null,
+    "windowMinutes": null,
+    "githubRunnerMinutes": null,
+    "paidActionsUsd": 0
+  },
+  "periodCaps": {
+    "requests": null,
+    "identityReads": null,
+    "starts": null,
+    "takes": null,
+    "coachingRequests": null,
+    "githubRunnerMinutes": null,
+    "paidActionsUsd": 0
+  },
+  "periodStartUtc": null,
+  "dollarCaps": {
+    "providerUsd": null,
+    "cloudAgentUsd": null,
+    "githubBilledUsd": null,
+    "note": "unknown costs stay unknown; an owner-set dollar cap needs a measured or supplied unit cost"
+  }
+}

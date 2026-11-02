@@ -1,0 +1,125 @@
+{
+  "schema": "speaksharp.cloud-test.run-request.v2",
+  "runId": "R<n>-<short-purpose>",
+  "proposal": false,
+  "coverageMode": "partial",
+  "sampleMode": "minimal",
+  "workflowVersion": "1.5.0",
+  "configVersion": "1.4.0",
+  "createdUtc": "2026-10-28T22:00:00Z",
+  "purpose": "<why this run, in at least 60 characters: what is proven or restored, and why now>",
+  "priority": "prove-deployed-fix",
+  "targetedGaps": [
+    "GAP-03"
+  ],
+  "notTargeted": [
+    {
+      "gap": "GAP-01",
+      "why": "coaching 502: wait for server-side evidence for the failing request; no new coaching take is requested"
+    },
+    {
+      "gap": "GAP-02",
+      "why": "needs AHT-03 and a Focus reading; a separate request after this one reports"
+    },
+    {
+      "gap": "GAP-04",
+      "why": "the 403 recurred in R5 on a release that contains the candidate #1743; no established fix to prove"
+    },
+    {
+      "gap": "GAP-05",
+      "why": "no fix identified"
+    },
+    {
+      "gap": "GAP-06",
+      "why": "AHT-04, 13 and 14 are a separate, larger request (needs a ceiling increase) after AHT-12 proves the capture device and denial stimulus"
+    }
+  ],
+  "selection": [
+    {
+      "order": 1,
+      "case": "AHT-12",
+      "gaps": [
+        "GAP-03"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 96,
+      "gate": null,
+      "reason": "the microphone-denial path with the capture device bound; measured 96 requests in both R4C and R5"
+    }
+  ],
+  "estimate": {
+    "requests": {
+      "planned": 96,
+      "cleanupReserve": 50,
+      "pooledSlack": 34,
+      "runCap": 180
+    },
+    "identityReads": 4,
+    "starts": 1,
+    "takes": 0,
+    "paidActionsAuthorizedUsd": 0,
+    "providerBillableRequests": {
+      "coachingCap": 0,
+      "basis": "AHT-12 saves no take in minimal mode and requests no coaching; the guard coaching category cap is set to 0, so a coaching request is denied, not billed"
+    },
+    "githubRunnerMinutesMax": 30
+  },
+  "proposedLimits": {
+    "cumulativeCeilingRequests": 6700,
+    "identityCap": 98,
+    "runCapRequests": 180,
+    "paidActionsUsd": 0,
+    "guardCaps": {
+      "coaching": 0
+    }
+  },
+  "approvedLimits": {
+    "cumulativeCeilingRequests": null,
+    "identityCap": null,
+    "runCapRequests": null,
+    "approvalRef": null,
+    "approvedBy": null
+  },
+  "window": {
+    "startUtc": null,
+    "endUtc": null,
+    "approvalRef": null
+  },
+  "release": {
+    "testedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "lastRunTestedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "backend": {
+      "sha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+      "source": "owner-stated",
+      "verifiedAtUtc": null,
+      "evidenceRef": null
+    }
+  },
+  "harness": {
+    "codeManifestSha256": "7dae348f5edd30aba633b0e68627cb4de3a164558602586f3883bfabda3e48d8",
+    "packetManifestSha256": "d636cc261a59832abfc5d81dce9c155867355542973b064086eccea45c9a8d6d",
+    "ownerApprovalRef": null,
+    "offlineProofFile": "config/proofs/offline-proof-7dae348f.json"
+  },
+  "priorRuns": [
+    {
+      "label": "R4C",
+      "bindingFile": "config/history/binding-R4C.json"
+    },
+    {
+      "label": "R5",
+      "bindingFile": "config/history/binding-R5.json"
+    }
+  ],
+  "selectionApprovalRef": null,
+  "ownerInputs": {
+    "prDocsCloseout": {
+      "status": "open",
+      "evidence": null,
+      "note": "four product PRs are open; the owner decides their closeout before the next run"
+    }
+  },
+  "deviations": [],
+  "cleanupConditions": "every owned page, process and fixture closed and verified; guard ledgers reconciled; no marked orphan"
+}
