@@ -325,6 +325,39 @@ core.runCampaign(plan,io,{executeR0:true}).then(result=>{
         with self.assertRaises(ValueError):reconcile_caps(r,rc,execution=True)
         self.f.repin(rc=rc);self.rejected()
 
+    def test_own_reservation_already_counted_is_not_charged_again(self):
+        # #1772 review 4446137335: at an exact fit the rollup's ownerCounted already includes THIS request's open reservation; the Start
+        # check must replace it with the ask, never add the ask on top. Unrelated or ambiguous reservations are never discounted.
+        f = SyntheticBuilder(self.temp.name, minimal=True)
+        r = f.request
+        r['approvedLimits']['startsCap'] = None
+        ask = sum(request_caps(r, execution=True)[1].values())
+        f.repin()
+        own_sha = f.env["BP_REQUEST_SHA256"]
+        rc = synthetic_reconciliation()
+        rc['ceilings']['starts'] = 1260
+        rc['starts']['ownerCounted'] = 1260  # every Start counted, including this request's reservation of `ask`
+        with self.assertRaisesRegex(ValueError, 'cumulative-starts'):
+            reconcile_caps(r, rc, execution=True)  # the defect: no own-reservation accounting charges the ask twice
+        held = lambda sha, count=1, starts=ask: {sha: {"count": count, "starts": starts, "takes": 0}}
+        rc['openReservationsByRequest'] = held(own_sha)
+        self.assertEqual(reconcile_caps(r, rc, execution=True, request_sha256=own_sha)[1], {'AHT-13': ask})
+        for label, reservations, code in (("unrelated request", held('b' * 64), 'cumulative-starts'),
+                                          ("ambiguous own reservations", held(own_sha, count=2), 'own-reservation-ambiguous'),
+                                          ("reservation larger than counted", held(own_sha, starts=1261), 'own-reservation-exceeds-counted')):
+            rc['openReservationsByRequest'] = reservations
+            with self.assertRaisesRegex(ValueError, code, msg=label):
+                reconcile_caps(r, rc, execution=True, request_sha256=own_sha)
+        # One more Start than the reservation covers still exceeds the ceiling.
+        rc['openReservationsByRequest'] = held(own_sha, starts=ask - 1)
+        with self.assertRaisesRegex(ValueError, 'cumulative-starts'):
+            reconcile_caps(r, rc, execution=True, request_sha256=own_sha)
+        # The real builder consumer (bind_inputs) binds the same request digest, so the exact fit is admitted end to end.
+        rc['openReservationsByRequest'] = held(own_sha)
+        f.repin(rc=rc)
+        self.assertEqual(f.env["BP_REQUEST_SHA256"], own_sha)
+        self.assertEqual(f.run().returncode, 0)
+
     def test_every_required_and_optional_container_rejects_wrong_present_types(self):
         paths = [("estimate",), ("proposedLimits",), ("approvedLimits",), ("release",), ("harness",), ("window",),
                  ("estimate","requests"), ("estimate","providerBillableRequests"), ("estimate","window"),

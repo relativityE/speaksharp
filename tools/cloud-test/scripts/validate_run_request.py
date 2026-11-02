@@ -49,10 +49,10 @@ def validate_ledger(ledger):
     return errs
 
 
-def validate(req, cfg, ledger, wf, rv, rc, budget=None):
+def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
     errs, warns = [], []
     try:
-        reconcile_caps(req, rc)
+        reconcile_caps(req, rc, request_sha256=request_sha256)
     except InputValidationError as error:
         messages = {"mode-pair": "coverageMode must be partial or full with a matching sampleMode",
                     "selection-count": "selection exceeds the configured maximum 6",
@@ -319,7 +319,7 @@ def main():
     x = a.parse_args()
     req, cfg, rc = load(x.request), load(x.config), load(x.reconciliation)
     budget = derive_budget(cfg, rc, x.receipts_root, x.case_costs) if request_mode(req) == "full" else None
-    errs, warns = validate(req, cfg, load(x.ledger), load(x.workflow), load(x.release_verification), rc, budget)
+    errs, warns = validate(req, cfg, load(x.ledger), load(x.workflow), load(x.release_verification), rc, budget, sha256_file(x.request))
     out = {"schema": "speaksharp.cloud-test.request-validation.v2", "request": os.path.basename(x.request), "valid": not errs, "errors": errs, "warnings": warns}
     dump(out, x.out)
     for e in errs:

@@ -237,7 +237,7 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
     # G5: limits against the RECONCILED cumulative usage (a recurring nightly run is limited by the STANDING approval instead: gate G11)
     need, owner_missing = [], []
     try:
-        reconcile_caps(req, rc)
+        reconcile_caps(req, rc, request_sha256=request_sha256)
     except (ValueError, TypeError, KeyError):
         need.append("exact per-case Start allocations are missing, invalid or unreconciled")
     recurring = req.get("priority") == "nightly-regression"

@@ -189,12 +189,13 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
     for item in doc["unresolved"]:
         _add(historical, item["usage"])
     period = {k: 0 for k in USAGE_KEYS}
-    open_reservations, settled = {}, set()
+    open_reservations, open_provenance, settled = {}, {}, set()
     for e in chain[-1][1]:
         key = (e["campaignId"], e["runId"], e["attempt"])
         _need(p_start <= _utc(e["atUtc"]) < p_end, "rollup-event-outside-period")
         if e["type"] == "reserve":
             open_reservations[key] = e["allocation"]
+            open_provenance[key] = e.get("provenance", "")
         elif e["type"] == "settle":
             _need(key not in settled, "rollup-settle-replayed")
             settled.add(key)
@@ -204,6 +205,17 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
             open_reservations.pop(key, None)
     for allocation in open_reservations.values():  # outstanding reservations count as used until settled or released
         _add(period, _allocation_usage(allocation))
+    # #1772 review 4446137335: which open reservations a request holds, keyed by its admitted request digest (the reserve's provenance), so a
+    # run's own reservation, already counted above, is not charged again by its Start check. Counted per request so an ambiguous second
+    # open reservation of the same request is visible and refused by the consumer rather than silently discounted.
+    by_request = {}
+    for key, allocation in open_reservations.items():
+        provenance = open_provenance.get(key, "")
+        if provenance.startswith("request-sha256:"):
+            slot = by_request.setdefault(provenance[len("request-sha256:"):], {"count": 0, "starts": 0, "takes": 0})
+            slot["count"] += 1
+            slot["starts"] += allocation["starts"]
+            slot["takes"] += allocation["takes"]
     counted = dict(period)
     if scope["carryover"] == "historical":
         _add(counted, historical)
@@ -216,6 +228,7 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
                       if item["disposition"] == "BOUNDED" else {})} for item in doc["unresolved"]]
     return {"source": "accepted-rollup", "bootstrapSha256": pin, "root": root, "headSha": chain[-1][0], "scopeApprovalRef": scope["approvalRef"],
             "carryover": scope["carryover"], "historical": historical, "period": period, "outstandingReservations": len(open_reservations),
+            "openReservationsByRequest": {k: by_request[k] for k in sorted(by_request)},
             "historicalResolution": resolution,
             "requests": {"conservativeUsed": counted["requests"], "ownerCounted": counted["requests"]},
             "identityReads": {"conservativeUsed": counted["identityReads"], "ownerCounted": counted["identityReads"]},

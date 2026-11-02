@@ -101,10 +101,10 @@ class Journal(unittest.TestCase):
     def chain(self):
         return W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), self.root)
 
-    def append(self, kind, run, allocation, at="2026-11-02T04:00:00Z"):
+    def append(self, kind, run, allocation, at="2026-11-02T04:00:00Z", provenance="approval:slack-1793553421.029269"):
         head = W.fetch_head(self.repo, self.remote, self.remote)
         e = {"type": kind, "campaignId": "R10-manual", "runId": run, "attempt": 1, "allocation": dict(allocation),
-             "provenance": "approval:slack-1793553421.029269", "atUtc": at}
+             "provenance": provenance, "atUtc": at}
         return W.propose(self.repo, self.remote, head, e, self.root, self.remote)
 
     def receive(self, sc=None, chain=None, raw=None):
@@ -229,6 +229,20 @@ class Rollup(Journal):
         self.append("reserve", "102", CAPS)
         self.append("release", "102", CAPS)
         self.assertEqual(self.receive()["requests"]["conservativeUsed"], 640, "a released reservation is no longer counted")
+
+    def test_open_reservations_are_reported_per_admitted_request_until_settled_or_released(self):
+        # #1772 review 4446137335: the Start check needs to know which open reservation a request already holds, so it is not charged twice.
+        own, other = "a" * 64, "b" * 64
+        self.append("reserve", "101", CAPS, provenance="request-sha256:" + own)
+        self.append("reserve", "102", dict(CAPS, starts=2, takes=1), provenance="request-sha256:" + other)
+        self.append("reserve", "103", CAPS)  # an approval-provenance reserve names no request and is never attributed to one
+        out = self.receive()
+        self.assertEqual(out["openReservationsByRequest"], {own: {"count": 1, "starts": 6, "takes": 4},
+                                                            other: {"count": 1, "starts": 2, "takes": 1}})
+        self.assertEqual(out["starts"]["ownerCounted"], 14, "every open reservation is still counted as used")
+        self.append("settle", "101", dict(CAPS, starts=4, takes=3), provenance="evidence-sha256:" + "c" * 64)
+        self.append("release", "102", dict(CAPS, starts=2, takes=1))
+        self.assertEqual(self.receive()["openReservationsByRequest"], {}, "a settled or released reservation is no longer held")
 
     def test_scope_and_carryover_must_be_explicitly_approved(self):
         for sc, code in ((None, "rollup-period-scope-unapproved"), ({}, "rollup-period-scope-unapproved"),

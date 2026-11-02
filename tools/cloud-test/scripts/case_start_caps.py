@@ -96,7 +96,7 @@ def request_caps(request, *, execution=False):
     return mode, caps
 
 
-def reconcile_caps(request, reconciliation, *, execution=False):
+def reconcile_caps(request, reconciliation, *, execution=False, request_sha256=None):
     mode, caps = request_caps(request, execution=execution)
     rc = obj(reconciliation, "reconciliation-object")
     starts = obj(rc.get("starts"), "reconciliation-starts")
@@ -110,6 +110,17 @@ def reconcile_caps(request, reconciliation, *, execution=False):
     for value in ceilings.values():
         integer(value, "reconciliation-ceiling")
     used = integer(starts.get("ownerCounted"), "starts-used")
+    # #1772 review 4446137335: the accepted rollup already counts an open reservation as used. When THIS request holds one, its Starts are
+    # replaced by the ask below instead of being charged twice; an unrelated request's reservation is never discounted. Two open reservations
+    # of the same request are ambiguous and refuse.
+    if request_sha256 is not None and "openReservationsByRequest" in rc:
+        held = obj(rc["openReservationsByRequest"], "reconciliation-open-reservations").get(request_sha256)
+        if held is not None:
+            held = obj(held, "reconciliation-own-reservation")
+            require(integer(held.get("count"), "own-reservation-count") == 1, "own-reservation-ambiguous")
+            own = integer(held.get("starts"), "own-reservation-starts")
+            require(own <= used, "own-reservation-exceeds-counted")
+            used -= own
     current = integer(ceilings.get("starts"), "starts-ceiling")
     cap = request["approvedLimits"].get("startsCap")
     # A proposal can request a separately justified ceiling; validation is not
@@ -134,7 +145,7 @@ def bind_inputs(env, facts):
     rc, rc_sha = read_json(text(env.get("BP_RECONCILIATION_FILE"), "reconciliation-file"))
     require(request_sha == env.get("BP_REQUEST_SHA256"), "request-digest")
     require(rc_sha == env.get("BP_RECONCILIATION_SHA256"), "reconciliation-digest")
-    mode, caps = reconcile_caps(r, rc, execution=True)
+    mode, caps = reconcile_caps(r, rc, execution=True, request_sha256=request_sha)
     approval = obj(obj(facts, "facts-object").get("actionApproval"), "action-approval")
     require(approval.get("schema") == "speaksharp.case-start-approval.v1", "action-schema")
     require(approval.get("requestSha256") == request_sha and approval.get("reconciliationSha256") == rc_sha, "action-digests")
