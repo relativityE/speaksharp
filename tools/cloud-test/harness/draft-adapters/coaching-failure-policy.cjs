@@ -69,8 +69,9 @@ function continueAfterSourceRows(rows,attempts){
   const notPass=rows.filter(r=>r?.result!=='PASS');
   return notPass.length===0||(anyFailure(attempts)&&notPass.every(r=>r?.result==='NOT RUN'));
 }
-// PO 2026-11-02 / Sam 1793655489.910839: a failure the coaching PROVIDER caused (the Edge decoded RESOURCE_EXHAUSTED or UNAVAILABLE) is recorded
-// with that exact code and is NOT RUN, never PASS, even after a later success. Any other failed attempt keeps FAIL.
+// PO 2026-11-02 / Sam 1793655489.910839 and 1793655939.554959: a failure the coaching PROVIDER caused (the Edge decoded RESOURCE_EXHAUSTED or
+// UNAVAILABLE) is recorded with that exact code and is NOT RUN; the provider error itself never becomes PASS. Only a later, independently successful
+// response that the oracle verifies may PASS the row, which still retains the earlier codes and the recovery. Any other failed attempt keeps FAIL.
 const providerCondition=a=>PROVIDER_CONDITION_STATUSES.includes(a?.diag?.provider?.canonicalStatus);
 // null when no failed attempt is correlated to the validated takes (behaviour unchanged). Otherwise a FAIL decision that preserves every attempt,
 // or NOT RUN with the recorded provider codes when every failed attempt is a provider condition.
@@ -81,8 +82,8 @@ function decideGrounded({attempts,ids,oracleResult}){
   const recoveredRoles=failedRoles.filter(r=>{const firstFail=Math.min(...failed.filter(a=>role(a.ref,ids)===r).map(a=>a.ordinal));return mine.some(a=>role(a.ref,ids)===r&&a.outcome==='succeeded'&&a.ordinal>firstFail);});
   const verified=oracleResult?.result==='PASS'&&recoveredRoles.length===failedRoles.length;
   const provider=failed.every(providerCondition);
-  return {result:provider?'NOT RUN':'FAIL',
-    facts:{basis:provider?'provider-condition-recorded':'failed-coaching-attempt-preserved',
+  return {result:provider?(verified?'PASS':'NOT RUN'):'FAIL',
+    facts:{basis:provider?(verified?'provider-condition-then-verified-recovery':'provider-condition-recorded'):'failed-coaching-attempt-preserved',
       ...(provider?{providerCodes:[...new Set(failed.map(a=>a.diag.provider.canonicalStatus+'/'+(a.diag.provider.providerStatus??'none')))].sort().slice(0,6)}:{}),failedRoles,attempts:mine.slice(0,12).map(a=>closed(a,ids)),uncorrelatedFailures:list.filter(a=>a.outcome==='failed'&&!mine.includes(a)).length,verifiedLaterRecovery:verified},
     recovery:{verified,failedRoles,recoveredRoles,oracleResult:['PASS','FAIL','NOT RUN'].includes(oracleResult?.result)?oracleResult.result:'none',successAfterFailureOrdinals:mine.filter(a=>a.outcome==='succeeded').map(a=>a.ordinal).slice(0,12)}};
 }

@@ -155,9 +155,16 @@ test('PC2 SpeakSharp\'s own quota, a product failure, any other provider status 
   }
 });
 
-test('PC3 a provider condition stays NOT RUN even after a verified later success, never PASS', () => {
-  for (const oracle of ['PASS', 'FAIL']) {
-    const decision = policy.decideGrounded({ attempts: [take(1, 502, providerLimit), take(2, 200)], ids, oracleResult: { result: oracle } });
+test('PC3 a provider error is never PASS itself; only a verified later success passes the row, keeping the earlier code', () => {
+  const recovered = [take(1, 502, providerLimit), take(2, 200)];
+  const pass = policy.decideGrounded({ attempts: recovered, ids, oracleResult: { result: 'PASS' } });
+  assert.deepEqual([pass.result, pass.facts.basis, pass.facts.providerCodes, pass.recovery.verified],
+    ['PASS', 'provider-condition-then-verified-recovery', ['RESOURCE_EXHAUSTED/429'], true]);
+  assert.deepEqual(pass.facts.attempts.map((a) => a.outcome), ['failed', 'succeeded'], 'the provider error stays on the row');
+  for (const [attempts, oracle] of [[recovered, 'FAIL'], [recovered, 'NOT RUN'], [[take(1, 502, providerLimit)], 'PASS']]) {
+    const decision = policy.decideGrounded({ attempts, ids, oracleResult: { result: oracle } });
     assert.deepEqual([decision.result, decision.facts.providerCodes], ['NOT RUN', ['RESOURCE_EXHAUSTED/429']], oracle);
   }
+  const product = [take(1, 502, edge({ phase: 'provider', reason: 'invalid_shape', provider_status: 200 })), take(2, 200)];
+  assert.equal(policy.decideGrounded({ attempts: product, ids, oracleResult: { result: 'PASS' } }).result, 'FAIL');
 });
