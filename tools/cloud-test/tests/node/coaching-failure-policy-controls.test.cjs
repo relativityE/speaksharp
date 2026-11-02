@@ -155,15 +155,20 @@ test('PC2 SpeakSharp\'s own quota, a product failure, any other provider status 
   }
 });
 
-test('PC3 a provider error is never PASS itself; only a verified later success passes the row, keeping the earlier code', () => {
+test('PC3 a provider error is never PASS itself; a verified later success passes and an oracle FAIL stays FAIL, codes kept', () => {
   const recovered = [take(1, 502, providerLimit), take(2, 200)];
   const pass = policy.decideGrounded({ attempts: recovered, ids, oracleResult: { result: 'PASS' } });
   assert.deepEqual([pass.result, pass.facts.basis, pass.facts.providerCodes, pass.recovery.verified],
     ['PASS', 'provider-condition-then-verified-recovery', ['RESOURCE_EXHAUSTED/429'], true]);
   assert.deepEqual(pass.facts.attempts.map((a) => a.outcome), ['failed', 'succeeded'], 'the provider error stays on the row');
-  for (const [attempts, oracle] of [[recovered, 'FAIL'], [recovered, 'NOT RUN'], [[take(1, 502, providerLimit)], 'PASS']]) {
+  for (const [attempts, oracle] of [[recovered, 'NOT RUN'], [[take(1, 502, providerLimit)], 'PASS']]) {
     const decision = policy.decideGrounded({ attempts, ids, oracleResult: { result: oracle } });
     assert.deepEqual([decision.result, decision.facts.providerCodes], ['NOT RUN', ['RESOURCE_EXHAUSTED/429']], oracle);
+  }
+  // Sam 1793656506.987829: a genuine oracle/assertion FAIL is never overridden; the provider codes stay on the FAIL row.
+  for (const attempts of [recovered, [take(1, 502, providerLimit)]]) {
+    const fail = policy.decideGrounded({ attempts, ids, oracleResult: { result: 'FAIL' } });
+    assert.deepEqual([fail.result, fail.facts.basis, fail.facts.providerCodes], ['FAIL', 'provider-condition-with-oracle-fail', ['RESOURCE_EXHAUSTED/429']]);
   }
   const product = [take(1, 502, edge({ phase: 'provider', reason: 'invalid_shape', provider_status: 200 })), take(2, 200)];
   assert.equal(policy.decideGrounded({ attempts: product, ids, oracleResult: { result: 'PASS' } }).result, 'FAIL');
