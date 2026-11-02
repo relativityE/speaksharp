@@ -16,14 +16,7 @@ Each input is supplied only by its named owner, through an independently reviewe
 
 ## Credentials
 
-The live job reads the **existing** repository Secrets by reference only (PO decision, Sam 1793647229.528719):
-- `CLOUD_TEST_LIVE_ACCOUNTS`
-- `SUPABASE_ANON_KEY`
-- `THROWAWAY_TEST_PASSWORD`
-- `FREE_TEST_PASSWORD`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `POSTHOG_PERSONAL_API_KEY`
-- `POSTHOG_PROJECT_ID`
+The live job reads only the **existing** repository Secrets, by reference (PO decision, Sam 1793647229.528719); `.github/workflows/cloud-test-live.yml` names them.
 
 Nothing is duplicated. The credential-bearing job stays bound to `trusted-main-credentials` on protected `main`.
 

@@ -16,6 +16,18 @@ const RELEASE=/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const normalizeCode=s=>s.toLowerCase().replace(/[-.]/g,'_');
 // startedAt/respondedAt are Date.now() values taken at the browser's request and response EVENTS (the label says so); browserTimingMs is the browser's own responseEnd when it reports one.
 // There is no fallback clock: a missing measurement is null, never a number measured from some later moment.
+// The coaching Edge function's own decoded provider fields (get-ai-suggestions providerDecode.ts, returned in `diagnostics`), reused as-is:
+// a provider-phase failure whose Google canonical status is RESOURCE_EXHAUSTED (rate/quota limit) or UNAVAILABLE is a provider condition.
+// No vocabulary is defined here; any other value is kept only as `other`, never as text.
+const PROVIDER_CONDITION_STATUSES=Object.freeze(['RESOURCE_EXHAUSTED','UNAVAILABLE']);
+function edgeProvider(o){
+  const d=o&&o.diagnostics&&typeof o.diagnostics==='object'&&!Array.isArray(o.diagnostics)?o.diagnostics:null;
+  if(!d||d.phase!=='provider')return null;
+  const st=d.provider_status,at=d.provider_attempts;
+  return {providerStatus:Number.isInteger(st)&&st>=100&&st<=599?st:null,
+    canonicalStatus:PROVIDER_CONDITION_STATUSES.includes(d.provider_error_status)?d.provider_error_status:d.provider_error_status==null?null:'other',
+    providerAttempts:Number.isInteger(at)&&at>=0&&at<=10?at:null};
+}
 function classifyFailureResponse({contentType,body,startedAt,respondedAt,browserTimingMs,retryAfter}={}){
   const text=typeof body==='string'?body:'';const ct=typeof contentType==='string'?contentType.toLowerCase():'';
   let kind=text.length===0?'empty':/json/.test(ct)?'json':/html/.test(ct)||/^\s*</.test(text)?'html':/text|plain/.test(ct)?'text':'other';
@@ -27,7 +39,7 @@ function classifyFailureResponse({contentType,body,startedAt,respondedAt,browser
   const event=Number.isFinite(startedAt)&&Number.isFinite(respondedAt)&&respondedAt>=startedAt?Math.round(respondedAt-startedAt):null;
   return {contentKind:'body-'+kind,bodyBytes:Math.min(Buffer.byteLength(text),1000000),elapsedMs:event,latencyBasis:event===null?'unavailable':'request-event-to-response-event',
     browserTimingMs:Number.isFinite(browserTimingMs)&&browserTimingMs>0?Math.round(browserTimingMs):null,
-    errorCode:code,upstreamStatus:num('upstream_status','upstreamStatus','status','statusCode'),retryAfterPresent:!!retryAfter};
+    errorCode:code,upstreamStatus:num('upstream_status','upstreamStatus','status','statusCode'),retryAfterPresent:!!retryAfter,provider:edgeProvider(o)};
 }
 function newAttempt(ordinal,body){const b=body&&typeof body==='object'&&!Array.isArray(body)?body:{};const clientAttempt=Number.isInteger(b.client_attempt)&&b.client_attempt>=0&&b.client_attempt<1000?b.client_attempt:null,releaseValid=typeof b.client_release_id==='string'&&RELEASE.test(b.client_release_id);return {ordinal,ref:sessionRef(typeof b.sessionId==='string'?b.sessionId:''),clientAttempt,status:null,outcome:'pending',wire:{requestId:typeof b.diagnostic_request_id==='string'&&UUID_V4.test(b.diagnostic_request_id)?b.diagnostic_request_id.toLowerCase():null,attemptId:typeof b.diagnostic_attempt_id==='string'&&UUID_V4.test(b.diagnostic_attempt_id)?b.diagnostic_attempt_id.toLowerCase():null,clientAttempt:Number.isInteger(clientAttempt)&&clientAttempt>=1&&clientAttempt<=2?clientAttempt:null,releaseId:releaseValid?b.client_release_id:null,releaseValid}};}
 function finish(attempt,status){attempt.status=Number.isInteger(status)?status:null;attempt.outcome=isFailureStatus(status)?'failed':isSuccessStatus(status)?'succeeded':'completed-other';}
@@ -57,15 +69,21 @@ function continueAfterSourceRows(rows,attempts){
   const notPass=rows.filter(r=>r?.result!=='PASS');
   return notPass.length===0||(anyFailure(attempts)&&notPass.every(r=>r?.result==='NOT RUN'));
 }
-// null when no failed attempt is correlated to the validated takes (behaviour unchanged). Otherwise a FAIL decision that preserves every attempt.
+// PO 2026-11-02 / Sam 1793655489.910839: a failure the coaching PROVIDER caused (the Edge decoded RESOURCE_EXHAUSTED or UNAVAILABLE) is recorded
+// with that exact code and is NOT RUN, never PASS, even after a later success. Any other failed attempt keeps FAIL.
+const providerCondition=a=>PROVIDER_CONDITION_STATUSES.includes(a?.diag?.provider?.canonicalStatus);
+// null when no failed attempt is correlated to the validated takes (behaviour unchanged). Otherwise a FAIL decision that preserves every attempt,
+// or NOT RUN with the recorded provider codes when every failed attempt is a provider condition.
 function decideGrounded({attempts,ids,oracleResult}){
   const list=Array.isArray(attempts)?attempts:[];const mine=list.filter(a=>a.ref&&(a.ref===sessionRef(ids?.first)||a.ref===sessionRef(ids?.second)));
   const failed=mine.filter(a=>a.outcome==='failed');if(failed.length===0)return null;
   const failedRoles=[...new Set(failed.map(a=>role(a.ref,ids)))].sort();
   const recoveredRoles=failedRoles.filter(r=>{const firstFail=Math.min(...failed.filter(a=>role(a.ref,ids)===r).map(a=>a.ordinal));return mine.some(a=>role(a.ref,ids)===r&&a.outcome==='succeeded'&&a.ordinal>firstFail);});
   const verified=oracleResult?.result==='PASS'&&recoveredRoles.length===failedRoles.length;
-  return {result:'FAIL',
-    facts:{basis:'failed-coaching-attempt-preserved',failedRoles,attempts:mine.slice(0,12).map(a=>closed(a,ids)),uncorrelatedFailures:list.filter(a=>a.outcome==='failed'&&!mine.includes(a)).length,verifiedLaterRecovery:verified},
+  const provider=failed.every(providerCondition);
+  return {result:provider?'NOT RUN':'FAIL',
+    facts:{basis:provider?'provider-condition-recorded':'failed-coaching-attempt-preserved',
+      ...(provider?{providerCodes:[...new Set(failed.map(a=>a.diag.provider.canonicalStatus+'/'+(a.diag.provider.providerStatus??'none')))].sort().slice(0,6)}:{}),failedRoles,attempts:mine.slice(0,12).map(a=>closed(a,ids)),uncorrelatedFailures:list.filter(a=>a.outcome==='failed'&&!mine.includes(a)).length,verifiedLaterRecovery:verified},
     recovery:{verified,failedRoles,recoveredRoles,oracleResult:['PASS','FAIL','NOT RUN'].includes(oracleResult?.result)?oracleResult.result:'none',successAfterFailureOrdinals:mine.filter(a=>a.outcome==='succeeded').map(a=>a.ordinal).slice(0,12)}};
 }
-module.exports={ERROR_CODE_ALLOWLIST,classifyFailureResponse,classifyResponseCorrelation,deny,isFailureStatus,isSuccessStatus,sessionRef,newAttempt,finish,abort,failedFor,anyFailure,continueAfterSourceRows,decideGrounded,closed};
+module.exports={ERROR_CODE_ALLOWLIST,PROVIDER_CONDITION_STATUSES,providerCondition,classifyFailureResponse,classifyResponseCorrelation,deny,isFailureStatus,isSuccessStatus,sessionRef,newAttempt,finish,abort,failedFor,anyFailure,continueAfterSourceRows,decideGrounded,closed};
