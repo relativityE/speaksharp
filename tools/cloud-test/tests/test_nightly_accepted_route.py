@@ -16,6 +16,7 @@ import aggregate_receiver as A
 import recurring_usage
 import test_aggregate_receiver as R  # module references: importing the classes by name would rerun their tests here
 import test_pipeline_and_report as P
+import test_accounting_rollup as J
 
 
 class NightlyAcceptedRoute(unittest.TestCase):
@@ -57,7 +58,7 @@ class NightlyAcceptedRoute(unittest.TestCase):
         request = root / "request.json"; request.write_bytes(self.request_raw)
         manifest = root / "manifest.json"; manifest.write_bytes(self.manifest_raw)
         accepted, output = root / "accepted", root / "pipeline-output"
-        env = {"PATH": os.environ["PATH"], "HOME": str(root)}
+        env = {"PATH": os.environ["PATH"], "HOME": str(root), "GITHUB_RUN_ID": "101"}
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "aggregate_receiver.py"), "--manifest", str(manifest),
                             "--request", str(request), "--config", str(config), "--out-dir", str(accepted)], capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -110,60 +111,77 @@ class NightlyAcceptedRoute(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
         return next(g for g in json.loads((out / "gate-status.json").read_text())["gates"] if g["id"] == "G11")
 
-    def test_g11_admits_this_runs_own_open_reserve(self):
-        self.assertNotIn("not admissible", json.dumps(self.g11(None)))  # this run's own open reserve is admitted (G11 then judges usage)
+    def test_on_the_real_route_an_unauthenticated_snapshot_never_counts(self):
+        # Sam 1793592813.582869: production pins no reviewed root, so even this run's own well-formed reserve cannot be authenticated
+        g = self.g11(None)
+        self.assertEqual(g["status"], __import__("check_gates").NOTREADY)
+        self.assertIn("could not be authenticated (journal-not-activated)", json.dumps(g))
 
-    def test_g11_refuses_a_fabricated_empty_snapshot_on_the_real_route(self):
-        # Sam 1793592133.133339: a fabricated empty snapshot reaching the gate is not accounting; the real route refuses it at G11
+    def test_on_the_real_route_a_fabricated_empty_snapshot_is_refused(self):
         forged = self.g11([])
-        import check_gates as C
-        self.assertEqual(forged["status"], C.NOTREADY)
-        self.assertIn("journal snapshot: no open reserve for this admitted request", json.dumps(forged))
+        self.assertEqual(forged["status"], __import__("check_gates").NOTREADY)
+        self.assertIn("not admissible", json.dumps(forged))
 
 
-class SnapshotAdmission(unittest.TestCase):
-    """check_gates.admitted_snapshot, the writer's own validation boundary, on forged, tampered, foreign and invalid-usage snapshots."""
+class SnapshotAdmission(J.Journal):
+    """check_gates.admitted_snapshot against a REAL state ref (a local bare repository, the writer tests' fixture): authenticated through the
+    producer's own boundary, bound to this execution, and refused when fabricated, reduced, stale, foreign or unauthenticated."""
     SHA = "a" * 64
     REQ = {"runId": "nightly-20261101T0000Z-20261102T0300Z", "priority": "nightly-regression"}
 
-    def ev(self, kind="reserve", **over):
+    def ev(self, kind="reserve", run="101", **over):
         from reservations import CATS
-        e = {"type": kind, "campaignId": self.REQ["runId"], "runId": "101", "attempt": 1, "allocation": {k: 10 for k in CATS},
+        e = {"type": kind, "campaignId": self.REQ["runId"], "runId": run, "attempt": 1, "allocation": {k: 10 for k in CATS},
              "provenance": "request-sha256:" + self.SHA, "atUtc": "2026-11-02T03:00:00Z"}
         e.update(over)
         return e
 
-    def admit(self, events=None, head="c" * 40, sha=SHA, doc=None):
+    def push(self, event):
+        import state_ref_writer as W
+        W.propose(self.repo, self.remote, W.fetch_head(self.repo, self.remote, self.remote), event, self.root, self.remote)
+
+    def snapshot(self):
+        head, events, _ = self.chain()[-1]
+        return {"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": head, "events": events}
+
+    def admit(self, doc, run="101", sha=SHA, pinned=True):
         import check_gates as C
-        doc = doc if doc is not None else {"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": head,
-                                           "events": [self.ev()] if events is None else events}
-        return C.admitted_snapshot(doc, self.REQ, sha)
+        from unittest import mock
+        with mock.patch.object(C, "JOURNAL_URL", self.remote if pinned else None), mock.patch.object(C, "JOURNAL_ROOT", self.root if pinned else None):
+            return C.admitted_snapshot(doc, self.REQ, sha, run)
 
-    def test_a_snapshot_with_this_runs_open_reserve_is_admitted(self):
-        chain, refused = self.admit()
-        self.assertEqual((refused, chain[0][0]), ([], "c" * 40))
+    def test_the_authenticated_ledger_with_this_executions_reserve_is_admitted(self):
+        self.push(self.ev())
+        chain, refused = self.admit(self.snapshot())
+        self.assertEqual((refused, chain[0][0]), ([], self.chain()[-1][0]))
 
-    def test_forged_tampered_foreign_and_invalid_usage_snapshots_refuse(self):
-        from reservations import CATS
-        over = {k: 11 for k in CATS}
+    def test_fabricated_reduced_stale_foreign_and_unauthenticated_ledgers_refuse(self):
+        before = self.snapshot()  # the ledger before this execution's reserve
+        self.push(self.ev())
+        good = self.snapshot()
+        fabricated_head = dict(good, headSha="c" * 40)  # well-formed events, a head that is not the approved ref
+        fabricated_ledger = dict(good, events=[self.ev(allocation={k: 1 for k in good["events"][0]["allocation"]})])
+        self.push(self.ev(run="900", campaignId="nightly-other"))
+        stale = good  # the ref moved on: an older, reduced view no longer matches
+        current = self.snapshot()
         cases = {
-            "forged empty": self.admit([]),
-            "another request's reserve": self.admit([self.ev(provenance="request-sha256:" + "b" * 64)]),
-            "another campaign's reserve": self.admit([self.ev(campaignId="nightly-other")]),
-            "already settled": self.admit([self.ev(), self.ev("settle", provenance="evidence-sha256:" + "e" * 64)]),
-            "settle above its reservation": self.admit([self.ev(), self.ev("settle", allocation=over, provenance="evidence-sha256:" + "e" * 64)]),
-            "tampered event (extra key)": self.admit([dict(self.ev(), note="x")]),
-            "tampered event (bad allocation)": self.admit([self.ev(allocation={"requests": -1})]),
-            "duplicate reserve": self.admit([self.ev(), self.ev()]),
-            "orphan settle": self.admit([self.ev("settle", provenance="evidence-sha256:" + "e" * 64)]),
-            "head is not a commit": self.admit(head="not-a-sha"),
-            "malformed shape": self.admit(doc={"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": "c" * 40, "events": "x"}),
-            "request digest unknown": self.admit(sha=None),
+            "valid but fabricated head": self.admit(fabricated_head),
+            "valid but fabricated ledger": self.admit(fabricated_ledger),
+            "reduced (before the reserve)": self.admit(before),
+            "stale (the ref moved on)": self.admit(stale),
+            "foreign execution (another run id)": self.admit(current, run="102"),
+            "another request digest": self.admit(current, sha="b" * 64),
+            "not activated (no reviewed root)": self.admit(current, pinned=False),
+            "execution run id unknown": self.admit(current, run=None),
+            "tampered event (extra key)": self.admit(dict(current, events=[dict(current["events"][0], note="x")])),
+            "malformed shape": self.admit({"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": "c" * 40, "events": "x"}),
+            "head is not a commit": self.admit(dict(current, headSha="not-a-sha")),
         }
         for name, (chain, refused) in cases.items():
             self.assertTrue(refused, name)
             self.assertFalse(chain, name)
-        self.assertEqual(self.admit(doc={"reservations": []}), (None, []))  # a legacy reservation file is not a snapshot
+        self.assertEqual(self.admit(current)[1], [])  # the current authenticated ledger still admits this execution
+        self.assertEqual(self.admit({"reservations": []}), (None, []))  # a legacy reservation file is not a snapshot
 
 
 if __name__ == "__main__":

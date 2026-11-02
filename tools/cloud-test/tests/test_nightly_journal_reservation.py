@@ -125,12 +125,17 @@ class NightlyJournalReservation(Journal):
         early = os.path.join(self.d, "snapshot-before-reserve.json")
         self.assertEqual(self.cli("journal-snapshot", out=early), 0)
         # Sam 1793592133.133339: G11 admits only a snapshot that holds THIS run's open reserve for the admitted request digest
-        g11 = G.recurring_gate(self.req, cfg, ROOT, {"entries": []}, at, json.load(open(early)), ap_path, self.sha)
+        from unittest import mock
+        pinned = (mock.patch.object(G, "JOURNAL_URL", self.remote), mock.patch.object(G, "JOURNAL_ROOT", self.root))
+        for m in pinned:
+            m.start()
+            self.addCleanup(m.stop)
+        g11 = G.recurring_gate(self.req, cfg, ROOT, {"entries": []}, at, json.load(open(early)), ap_path, self.sha, "123")
         self.assertEqual(g11["status"], G.NOTREADY, json.dumps(g11)[:900])
         self.assertEqual(self.cli("journal-reserve", request=req_path, approval=ap_path, repo=checkout, out=os.path.join(self.d, "r.json")), 0)
         snap = os.path.join(self.d, "snapshot.json")
         self.assertEqual(self.cli("journal-snapshot", out=snap), 0)
-        g11 = G.recurring_gate(self.req, cfg, ROOT, {"entries": []}, at, json.load(open(snap)), ap_path, self.sha)
+        g11 = G.recurring_gate(self.req, cfg, ROOT, {"entries": []}, at, json.load(open(snap)), ap_path, self.sha, "123")
         self.assertEqual(g11["status"], G.READY, json.dumps(g11)[:900])
         self.assertEqual(self.cli("journal-require", request=req_path), 0)
         self.assertEqual(self.cli("journal-require", request=req_path, execution_run_id="124"), 78)

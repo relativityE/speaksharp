@@ -147,6 +147,9 @@ def main():
             # Sam 1793589877.215059: a scheduled run on the accepted-input route still evaluates its recurring gates (G11 from the journal
             # snapshot the runner passes as --reservations, the history index and the standing approval) and G7 from the carried history.
             g += ["--approval", approval, "--reservations", reservations] + now_args
+            run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("CT_EXECUTION_RUN_ID")
+            if run_id:  # G11 binds the journal's reserve to THIS execution
+                g += ["--execution-run-id", run_id]
             if os.path.isfile(history_index):  # the retained file history is absent on a hosted accepted run; the journal snapshot suffices
                 g += ["--history-index", history_index]
             if x.prior_state:
@@ -204,6 +207,8 @@ def main():
         g += ["--stimulus-receipt", x.stimulus_receipt]
     if x.prior_state:
         g += ["--prior-state", x.prior_state]
+    if req.get("priority") == "nightly-regression" and (os.environ.get("GITHUB_RUN_ID") or os.environ.get("CT_EXECUTION_RUN_ID")):
+        g += ["--execution-run-id", os.environ.get("GITHUB_RUN_ID") or os.environ.get("CT_EXECUTION_RUN_ID")]
     run("check_gates.py", *g)
     if x.prior_state and (load(x.prior_state) or {}).get("history"):
         # nightly from the third night: every row's baseline comes from the verified carried-forward history

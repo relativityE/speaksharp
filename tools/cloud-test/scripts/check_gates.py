@@ -34,12 +34,35 @@ def gate(gid, status, detail, needs=None):
     return {"id": gid, "status": status, "detail": detail, "needs": needs or []}
 
 
-def admitted_snapshot(reservations, req, request_sha256):
-    """(chain, problems) for a state-ref journal snapshot (Sam 1793592133.133339): (None, []) when the reservations are not a snapshot.
-    A snapshot is admitted only through the writer's own boundary: every event passes state_ref_writer.validate_event and the whole ledger
-    folds (no tampered event, duplicate or orphan transition, settle above its reservation, or differing release), its head is a full commit
-    id, and it holds THIS run's open reserve for exactly the admitted request digest (the event journal-reserve appended). A shape match,
-    a fabricated empty snapshot or another request's snapshot never reaches G11's usage."""
+# TEST-ONLY overrides of the authenticated journal source; production reads state_ref_writer.APPROVED_URL from the pinned REVIEWED_ROOT.
+JOURNAL_URL = None
+JOURNAL_ROOT = None
+
+
+def authenticated_chain():
+    """(head, events) of the approved state ref, read through the producer's own boundary (reservations.py journal-snapshot): a fresh
+    fetch of the approved URL into a private repository and whole-chain validation from the reviewed root. Refuses while unpinned."""
+    import subprocess
+    import tempfile
+    import state_ref_writer as W
+    root = JOURNAL_ROOT or W.REVIEWED_ROOT
+    url = JOURNAL_URL or W.APPROVED_URL
+    if root is None:
+        raise W.Refused("journal-not-activated")
+    repo = tempfile.mkdtemp(prefix="g11-journal-")
+    env = {"PATH": os.environ.get("PATH", ""), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TEMPLATE_DIR": ""}
+    if subprocess.run(["git", "init", "-q", repo], capture_output=True, env=env).returncode != 0:
+        raise W.Refused("journal-repo")
+    chain = W.validate_chain(repo, W.fetch_head(repo, url, url), root)
+    return chain[-1][0], chain[-1][1]
+
+
+def admitted_snapshot(reservations, req, request_sha256, execution_run_id=None):
+    """(chain, problems) for a state-ref journal snapshot (Sam 1793592133.133339 / 1793592813.582869): (None, []) when the reservations are
+    not a snapshot. Admitted only when (1) every event passes state_ref_writer.validate_event and the ledger folds; (2) its head AND its
+    ledger are exactly the approved state ref as authenticated now through the producer's own boundary (authenticated_chain), so a
+    well-formed but fabricated, reduced or stale ledger never counts; and (3) it holds THIS execution's open reserve: the request's campaign,
+    the current GitHub run id, attempt 1, and the admitted request digest."""
     from recurring_usage import snapshot_chain
     try:
         chain = snapshot_chain(reservations)
@@ -57,20 +80,28 @@ def admitted_snapshot(reservations, req, request_sha256):
         return [], ["journal snapshot: invalid ledger (%s)" % e]
     if not (isinstance(request_sha256, str) and len(request_sha256) == 64):
         return [], ["journal snapshot: the admitted request digest is unknown"]
-    held = [e for e in events if e["type"] == "reserve" and e["campaignId"] == req.get("runId") and e["attempt"] == 1
-            and e["provenance"] == "request-sha256:" + request_sha256
-            and state.get((e["campaignId"], e["runId"], e["attempt"]), ("",))[0] == "open"]
+    if not (isinstance(execution_run_id, str) and W.RUN_ID.fullmatch(execution_run_id)):
+        return [], ["journal snapshot: the current execution run id is unknown"]
+    try:
+        auth_head, auth_events = authenticated_chain()
+    except (W.Refused, OSError) as e:
+        return [], ["journal snapshot: the approved state ref could not be authenticated (%s)" % e]
+    if head != auth_head or events != auth_events:
+        return [], ["journal snapshot: not the authenticated state ref (fabricated, reduced or stale)"]
+    key = (req.get("runId"), execution_run_id, 1)
+    held = [e for e in events if e["type"] == "reserve" and (e["campaignId"], e["runId"], e["attempt"]) == key
+            and e["provenance"] == "request-sha256:" + request_sha256 and state.get(key, ("",))[0] == "open"]
     if len(held) != 1:
-        return [], ["journal snapshot: no open reserve for this admitted request"]
+        return [], ["journal snapshot: no open reserve for this execution and admitted request"]
     return chain, []
 
 
-def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=None, request_sha256=None):
+def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=None, request_sha256=None, execution_run_id=None):
     """G11: a nightly-regression request runs under the owner's STANDING approval of recurring cost. Not applicable to any other request."""
     if req.get("priority") != "nightly-regression":
         return gate("G11", READY, "not a recurring run: no standing approval is needed")
     # first: the same verified journal its reservation is appended to; a forged snapshot is refused whatever the approval's state
-    chain, refused = admitted_snapshot(reservations, req, request_sha256)
+    chain, refused = admitted_snapshot(reservations, req, request_sha256, execution_run_id)
     if refused:
         return gate("G11", NOTREADY, "the state-ref journal snapshot is not admissible", refused)
     ncfg = cfg.get("nightly") or {}
@@ -129,7 +160,7 @@ def nightly_history_gate(req, prior_state):
     return gate("G7", READY, "carried-forward history verified: %d qualified, comparable nightly occurrence(s) of %d, sequence %d; every row is compared with its last executed verdict" % (len(usable), len(h["occurrences"]), h["sequence"]), [])
 
 
-def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None, offline_proof=None, prior_verification=None, prior_comparison=None, receiver_receipt=None, request_sha256=None, receiver_verified=False, prior_state=None):
+def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None, offline_proof=None, prior_verification=None, prior_comparison=None, receiver_receipt=None, request_sha256=None, receiver_verified=False, prior_state=None, execution_run_id=None):
     G = []
     now = now or now_utc()
     try:
@@ -316,7 +347,7 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
     ok = oc.get("passed") is True
     G.append(gate("G10", READY if ok else NOTREADY, "offline checks passed" if ok else "offline checks not recorded as passed", [] if ok else ["run the offline checks (package tests, report tests, offline-proof index)"]))
     # G11
-    G.append(recurring_gate(req, cfg, base, index, now, reservations, approval_path, request_sha256))
+    G.append(recurring_gate(req, cfg, base, index, now, reservations, approval_path, request_sha256, execution_run_id))
     blocking = [g for g in G if g["status"] not in (READY, DEFERRED)]
     return {"schema": "speaksharp.cloud-test.gate-status.v2", "runId": req.get("runId"), "workflowVersion": wf["version"], "evaluatedUtc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "stage": stage, "decision": "GO" if not blocking else "NO-GO", "deferred": [g["id"] for g in G if g["status"] == DEFERRED], "gates": G,
@@ -327,7 +358,7 @@ def main():
     a = argparse.ArgumentParser()
     for k in ("request", "config", "ledger", "workflow", "release-verification", "reconciliation", "base", "out"):
         a.add_argument("--" + k, required=True)
-    for k in ("validation", "offline-checks", "offline-proof", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "prior-verification", "prior-comparison", "receiver-receipt", "receiver-manifest", "accepted-input-dir", "prior-state"):
+    for k in ("validation", "offline-checks", "offline-proof", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "prior-verification", "prior-comparison", "receiver-receipt", "receiver-manifest", "accepted-input-dir", "prior-state", "execution-run-id"):
         a.add_argument("--" + k)
     a.add_argument("--stage", choices=["preflight", "final"], default="final")
     x = a.parse_args()
@@ -371,7 +402,7 @@ def main():
                    parse_utc(x.now) if x.now else None, x.receipts_root, load(x.history_index) if x.history_index else None,
                    load(x.reservations) if x.reservations else None, x.approval, x.offline_proof,
                    prior, comparison, receiver, file_sha(x.request), verified,
-                   prior_state=load(x.prior_state) if x.prior_state else None)
+                   prior_state=load(x.prior_state) if x.prior_state else None, execution_run_id=x.execution_run_id)
     dump(out, x.out)
     print("decision:", out["decision"], "| blocking open:", ",".join(out["blockingOpen"]) or "none")
 
