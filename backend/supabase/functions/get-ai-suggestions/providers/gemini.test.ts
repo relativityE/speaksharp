@@ -82,7 +82,8 @@ Deno.test('a failure reports its status and raw Retry-After before the body, and
     const events: Array<[number, string | null | undefined]> = [];
     const result = await attempt(events);
     assertEquals(events, [[503, null]], 'an absent header is null for a failure, undefined only for a 2xx answer');
-    assertEquals([result.ok, result.errorCodes?.error_status ?? null], [false, null]);
+    // providerDecode's closed contract: a failure body that is not Gemini's error JSON is `unparseable`, never null.
+    assertEquals([result.ok, result.errorCodes?.error_status, result.errorCodes?.error_reason], [false, 'unparseable', null]);
   });
 });
 
