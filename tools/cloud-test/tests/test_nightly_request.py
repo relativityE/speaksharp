@@ -356,3 +356,32 @@ class ReplayThroughTheRealWriter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StandingPeriodLimits(unittest.TestCase):
+    """#1772 Code finding 4447377710 (broken before: a derived occurrence kept the template's one-off cumulative limits, e.g. takesCap 55 and
+    10,535 requests, so a second occurrence with 30 prior takes was rejected by the ordinary validator despite a 1,200-take standing grant)."""
+
+    def test_a_later_occurrence_validates_against_the_standing_period_caps(self):
+        import validate_run_request as V
+        ap_raw = approval()
+        req = json.loads(derive(ap=ap_raw))
+        period = json.loads(ap_raw)["periodCaps"]
+        self.assertEqual({k: req["proposedLimits"][k] for k in ("cumulativeCeilingRequests", "identityCap", "startsCap", "takesCap")},
+                         {"cumulativeCeilingRequests": period["requests"], "identityCap": period["identityReads"],
+                          "startsCap": period["starts"], "takesCap": period["takes"]})
+        # A second occurrence: the standing period's own ceilings, with a prior occurrence's 30 takes and 42 Starts already counted.
+        s = sample()
+        rc = reconciliation()
+        rc["ceilings"] = dict(rc["ceilings"], requests=period["requests"], identityReads=period["identityReads"],
+                              starts=period["starts"], takes=period["takes"])
+        rc["starts"] = dict(rc["starts"], ownerCounted=42)
+        rc["takes"] = dict(rc["takes"], ownerCounted=30)
+        errors, _ = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), rc)
+        limit_errors = [e for e in errors if "would exceed the cumulative cap" in e or "cumulative ceiling" in e or "identity cap" in e
+                        or "exceeds the current" in e]
+        self.assertEqual(limit_errors, [])
+        # The standing caps still bind: a period already at its take ceiling refuses the next occurrence.
+        rc["takes"] = dict(rc["takes"], ownerCounted=period["takes"])
+        errors, _ = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), rc)
+        self.assertTrue(any("takes would exceed the cumulative cap" in e for e in errors), errors)

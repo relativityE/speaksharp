@@ -201,3 +201,26 @@ class SealedUsageNeverHidesAReservation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NightlySettleEvidence(NightlyJournalReservation):
+    """#1772 Code finding 4447377718 (broken before: the scheduled journal-settle recorded the closed settle input's own digest)."""
+
+    def test_the_closed_settle_input_settles_with_the_original_record_digest(self):
+        import settle_input
+        self.reserve()
+        record = json.dumps({"schema": M.RUN_RECORD_SCHEMA, "runId": self.req["runId"],
+                             "executionProvenance": {"campaignId": self.req["runId"], "runId": "123", "attempt": 1, "requestSha256": self.sha},
+                             "spend": {"requests": 900, "identityReads": 20, "starts": 30, "takes": 25}}).encode()
+        projection = settle_input.project(record)
+        settled = self.execute("settle", campaignId=self.req["runId"], runId="123", record=projection)
+        self.assertEqual(settled["provenance"], "evidence-sha256:" + hashlib.sha256(record).hexdigest())
+        self.assertNotEqual(settled["provenance"], "evidence-sha256:" + hashlib.sha256(projection).hexdigest())
+        self.assertEqual(settled["allocation"]["requests"], 920)  # the same measured usage as from the full record
+        # a collector record (not a closed settle input) keeps its own digest
+        self.assertEqual(RES.original_record_digest(record, "f" * 64), "f" * 64)
+        # a tampered closed settle input refuses rather than settling under an unvalidated digest
+        doc = json.loads(projection)
+        doc["recordSha256"] = "not-a-digest"
+        with self.assertRaises(RES.JournalRefused):
+            RES.original_record_digest(json.dumps(doc).encode(), "f" * 64)
