@@ -1,0 +1,41 @@
+{
+  "id": "FEAT-001",
+  "title": "<what the feature is, in a few words>",
+  "area": "PG0x",
+  "pr": "#<number>",
+  "commit": null,
+  "review": {
+    "outcome": "approved",
+    "reviewedBy": "<named reviewer>",
+    "reviewRef": "<link or id of the review>",
+    "reviewedAtUtc": "<UTC time>"
+  },
+  "expectedBehaviour": {
+    "summary": "<what a user can now do or see>",
+    "userVisible": true,
+    "criteria": "<observable pass condition, in the product's own terms>",
+    "definedAtUtc": "<UTC time, before the release is tested>",
+    "confirmedByOwner": false
+  },
+  "coverage": {
+    "route": "existing-rows | new-rows",
+    "requirements": [
+      {
+        "case": "AHT-0x",
+        "assertions": [
+          "<row id in config/assertion-catalog.json>"
+        ]
+      }
+    ],
+    "newRows": [
+      {
+        "case": "AHT-0x",
+        "assertion": "<new row id>",
+        "catalogVersion": 2
+      }
+    ]
+  },
+  "rollout": {
+    "flag": null
+  }
+}

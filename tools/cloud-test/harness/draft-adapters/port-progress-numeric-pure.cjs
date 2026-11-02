@@ -1,0 +1,11 @@
+'use strict';
+// Offline AST selection only; never imports or runs the repository application/test suite.
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),ts=require('/workspace/scratch/9556fdac6486/speaksharp-case12/node_modules/typescript/lib/typescript.js');
+const selections={
+ 'buildProgressEvaluation.ts':['PROGRESS_FORMULA_VERSION','hasCompleteEligibleProgressEvidence'],
+ 'loadSessionProgress.ts':['metricValue','toEvaluation','EVAL_FIELDS','loadRepeatResult'],
+ 'ProgressPanel.tsx':['TARGET_METRIC_LABELS','MAX_REPEAT_VALUE_DIGITS','formatRepeatValues']
+};
+const entries=[],parts=[];
+for(const [file,names]of Object.entries(selections)){const p=path.join(__dirname,'source/d100',file),s=fs.readFileSync(p,'utf8'),t=ts.createSourceFile(p,s,ts.ScriptTarget.Latest,true);const selected=t.statements.filter(n=>ts.isFunctionDeclaration(n)?names.includes(n.name?.text):ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>names.includes(d.name.getText(t))));if(selected.length!==names.length)throw Error('missing selected declaration');parts.push(...selected.map(n=>n.getText(t).replace(/^export /,'')));entries.push({source:file,sha256:crypto.createHash('sha256').update(s).digest('hex'),gitBlobSha1:crypto.createHash('sha1').update('blob '+Buffer.byteLength(s)+'\0').update(s).digest('hex'),selectedDeclarations:selected.map(n=>({name:ts.isFunctionDeclaration(n)?n.name.text:n.declarationList.declarations[0].name.getText(t),startLine:t.getLineAndCharacterOfPosition(n.getStart(t)).line+1,endLine:t.getLineAndCharacterOfPosition(n.end).line+1}))});}
+const out=ts.transpileModule(parts.join('\n'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;if(/require\(/.test(out))throw Error('runtime import');fs.writeFileSync(path.join(__dirname,'oracles/pure/progressNumericSelected.cjs'),"'use strict';\n"+out+'\nmodule.exports={'+Object.values(selections).flat().join(',')+'};\n');fs.writeFileSync(path.join(__dirname,'oracles/pure/progressNumericSelected.provenance.json'),JSON.stringify({sourceSha:'d1003559242570023e0d9a8c335d05fe67c3d788',entries,adaptation:'Exact selected pure declarations. Own-account GET adapter adds owner/formula/linkage checks; UI text is compared in memory and only booleans/closed reasons are written.'},null,2)+'\n');

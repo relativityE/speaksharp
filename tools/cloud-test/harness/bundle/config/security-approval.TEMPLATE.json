@@ -1,0 +1,22 @@
+{
+  "_status": "NOT APPROVED. This empty template is not authority; preserve the actual owner approval message and bind exact action-time scope. Approval alone is not runtime qualification.",
+  "version": 1,
+  "runtime": "Claude SpeakSharp R4",
+  "action": "ephemeral-browser-spki-exception",
+  "ownerApprovalReference": null,
+  "approvedBy": null,
+  "approvalSource": null,
+  "reviewedCodeManifestSha256": null,
+  "notBefore": null,
+  "expiresAt": null,
+  "allowedHosts": [],
+  "installTrustRoot": false,
+  "globalCertificateBypass": false,
+  "environmentSecurityChanges": false,
+  "capabilities": {
+    "lighthouse": {
+      "selected": null,
+      "ownerApprovalReference": null
+    }
+  }
+}

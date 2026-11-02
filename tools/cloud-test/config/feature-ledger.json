@@ -1,0 +1,5 @@
+{
+  "schema": "speaksharp.cloud-test.feature-ledger.v1",
+  "note": "Reviewed features: feature -> expected behaviour -> test coverage. Definitions only; status, evidence and deployed inclusion are DERIVED (derive_features.py, verify_release.py). A customer-facing change that is not a verified fix for a gap is allowed through THIS route when its feature has an approved review by a named reviewer with a reference, a stated expected behaviour, and test coverage (required rows in the assertion catalog, or new rows for a catalog version that exists). No feature is invented: the list is empty until the owner and reviewer add entries (see templates/feature-entry.template.json).",
+  "features": []
+}

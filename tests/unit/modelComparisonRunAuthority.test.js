@@ -313,9 +313,10 @@ describe('#1432 PM decisions 5651830241 / 5651842972 — workflow contracts: one
     const inputNames = [...inputsBlock.matchAll(/^ {6}([a-z_]+):\s*$/gm)].map((match) => match[1]);
     expect(inputNames.filter((name) => name.startsWith('comparison'))).toEqual(['comparison_cell', 'comparison_release_sha', 'comparison_evidence_document_id']);
     // #1258 PO 2026-10-12 added rwt_human_reflex_ms (a closed 500/1000 choice). The exact list, not a count, so any
-    // run-id, key, pin or envelope input still fails here.
+    // run-id, key, pin or envelope input still fails here. diagnostic_release_sha is the closed single-test diagnostic's
+    // exact deployed SHA, validated by validate_rwt_release_binding.cjs before any other step.
     expect(inputNames).toEqual([
-      'base_url', 'gate', 'diagnostic_dast_spec', 'diagnostic_dast_grep', 'comparison_cell', 'rwt_writes_ack',
+      'base_url', 'gate', 'diagnostic_dast_spec', 'diagnostic_dast_grep', 'diagnostic_release_sha', 'comparison_cell', 'rwt_writes_ack',
       'rwt_canary_claim_ack', 'comparison_release_sha', 'comparison_evidence_document_id', 'paid_launch', 'rwt_human_reflex_ms',
     ]);
     const cellBlock = inputsBlock.slice(inputsBlock.indexOf('comparison_cell:'), inputsBlock.indexOf('comparison_release_sha:'));
@@ -328,6 +329,42 @@ describe('#1432 PM decisions 5651830241 / 5651842972 — workflow contracts: one
 
   it('CASUALTY: comparison inputs reach shell steps only through env, never interpolated into a script', () => {
     expect(runBlocks(rcGates)).not.toMatch(/inputs\.comparison_/);
+  });
+
+  it('CASUALTY: diagnostic_release_sha never reaches comparison authority — it is confined to Gate 3, behind its guard', () => {
+    const OVERRIDE = 'github.event.inputs.diagnostic_release_sha';
+    const gate3 = job('gate-3-dast');
+    // Every use of the override is inside the Gate 3 job; none in the comparison-authorization job or any other job.
+    expect(rcGates.split(OVERRIDE).length - 1).toBe(gate3.split(OVERRIDE).length - 1);
+    expect(job('comparison-authorization')).not.toContain('diagnostic_release_sha');
+    // Comparison authority is still the run's own release: the mint compares comparison_release_sha with GITHUB_SHA.
+    expect(job('comparison-authorization')).toContain('EXPECTED_RELEASE_SHA: ${{ github.sha }}');
+    expect(runBlocks(rcGates)).not.toMatch(/inputs\.diagnostic_release_sha/);
+    // The guard reads the override with every input that bounds it, and refuses before setup and before any consumer.
+    const guard = step('Validate bounded RWT release selection');
+    for (const line of [
+      'DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}', `DIAGNOSTIC_RELEASE: \${{ ${OVERRIDE} }}`,
+      'DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}', 'SELECTED_GATE: ${{ github.event.inputs.gate }}',
+      'COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}', 'PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}',
+      'run: node tools/cloud-test/scripts/validate_rwt_release_binding.cjs',
+    ]) expect(guard).toContain(line);
+    const steps = gate3.split('\n      - ').slice(1);
+    const guardAt = steps.findIndex((s) => s.startsWith('name: Validate bounded RWT release selection'));
+    expect(guardAt).toBe(1); // directly after checkout
+    expect(steps.findIndex((s) => s.startsWith('uses: ./.github/actions/setup-environment'))).toBeGreaterThan(guardAt);
+    const consumers = steps.map((s, i) => [s, i]).filter(([s, i]) => i !== guardAt && s.includes(OVERRIDE));
+    expect(consumers.length).toBeGreaterThan(0);
+    for (const [s, i] of consumers) {
+      expect(i).toBeGreaterThan(guardAt);
+      // A consumer only ever falls back to the run's own commit; the canonical live gates never read the override.
+      expect([...s.matchAll(/\$\{\{[^}]*diagnostic_release_sha[^}]*\}\}/g)].map((m) => m[0])).toEqual(
+        expect.arrayContaining([`\${{ ${OVERRIDE} || github.sha }}`]));
+      expect(s).not.toMatch(/diagnostic_release_sha(?! \|\| github\.sha \}\})/);
+    }
+    for (const name of ['Run DAST Live Gate', 'Run DAST Live Gate — PAID Stripe readiness (paid-launch scope only)']) {
+      expect(step(name)).not.toContain('diagnostic_release_sha');
+      expect(step(name)).toContain('EXPECTED_RELEASE_SHA: ${{ github.sha }}');
+    }
   });
 
   const job = (id) => {

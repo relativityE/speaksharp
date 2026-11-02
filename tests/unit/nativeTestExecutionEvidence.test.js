@@ -8,7 +8,8 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
-  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
+  PROOF_CASES_TEST,REAL_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
@@ -69,6 +70,11 @@ test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS
   assert.match(helper.claim,/fake browser objects in node:vm; browser\/audio\/model NOT RUN/);
   assert.equal(nativeTestRoute(helper.file,root).runner,'node-test-helper');
   assert.equal(nativeTestRoute('tests/live/helpers/otherAudioStream.ts',root),null);
+  const selected=selectNativeContracts(root,[helper.file]);
+  assert.equal(selected[0].runner,'node-test');
+  assert.ok(nativeCommand({...selected[0],runtime:{runner:'node-test',execPath:process.execPath}}).includes('--experimental-strip-types'));
+  assert.equal(nativeCommand({testFile:helper.consumer,helpers:[],runtime:{runner:'node-test',execPath:process.execPath}})
+    .includes('--experimental-strip-types'),false);
   const names=helper.callables;
   assert.deepEqual(names,['injectAlignedFixtureAudio','resetFixtureAudioToStart','getFixtureGetUserMediaCalls']);
   const f=fixture();
@@ -79,6 +85,7 @@ test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS
     f.contract.testFile=helper.consumer;
     f.contract.helpers=[helper.file];
     const phase=f.run();
+    assert.ok(phase.binding.command.includes('--experimental-strip-types'),'typed helper execution must work at the supported Node 22.12 floor');
     assert.ok(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract}).counts.assertions>0);
     assert.deepEqual(validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),[helper.file]);
     // Witness of the hosted runtime's executed bytes: the module range ends exactly after Node's sourceURL suffix.
@@ -211,6 +218,30 @@ test('INSTALLED Node reporter observes actual collection/assertion/drain and rej
       assert.throws(()=>validateNativeReceipt(changed,{root:f.dir,provenance,inputSha256,files:[f.file]}));
     }
   }finally{f.clean();}
+});
+
+test('real-browser native phase binds and forwards only the exact executable identity',()=>{
+  const f=fixture(),chrome=path.join(f.dir,'installed-chrome');
+  fs.writeFileSync(chrome,'synthetic reviewed browser bytes');fs.chmodSync(chrome,0o700);
+  const environment={...testEnvironment(f.dir,null,''),CT_CHROME:chrome};
+  f.contract.testFile=REAL_BROWSER_TEST;
+  f.write(REAL_BROWSER_TEST,`const test=require('node:test'),assert=require('node:assert/strict');
+    test('bound browser reaches the exact consumer',()=>assert.equal(process.env.CT_CHROME,${JSON.stringify(chrome)}));`);
+  try {
+    const expected={path:chrome,sha256:hash(fs.readFileSync(chrome))};
+    assert.deepEqual(nativeBrowserBinding(f.contract,environment),expected);
+    let phase;
+    try {phase=produceNativePhase({root:f.dir,cwd:f.dir,contract:f.contract,provenance,inputSha256,runId,
+      sourceCopyCommit:'e'.repeat(40),environment,drain:drainOwnedPhase});}
+    catch(error){assert.fail(`${error.message}: ${JSON.stringify(error.diagnostics)}`);}
+    assert.deepEqual(phase.binding.browser,expected);
+    assert.equal(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract,environment}).counts.assertions,1);
+    const changed=structuredClone(phase);changed.binding.browser.sha256='0'.repeat(64);
+    assert.throws(()=>validateNativePhase(changed,{root:f.dir,provenance,inputSha256,runId,contract:f.contract,environment}),/browser binding/);
+    fs.writeFileSync(chrome,'changed browser bytes');
+    assert.throws(()=>validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract,environment}),/browser binding/);
+    assert.throws(()=>nativeBrowserBinding(f.contract,{}),/bound CT_CHROME/);
+  } finally {f.clean();}
 });
 for(const [name,source] of [
   ['zero',"import 'node:test';"],
@@ -604,4 +635,74 @@ test('batch reconciliation requires every batch once with exactly its contracts'
     assert.throws(()=>reconcileExecutionBatches([],[],'native'),/batch inventory/);
     assert.doesNotThrow(()=>reconcileExecutionBatches([{batch:executionBatchIdentity([],0),tests:[]}],[],'native'));
   } finally {f.clean();}
+});
+
+test('r15 proof control requires an exact phase-owned 15-case inventory',()=>{
+  const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'proof-cases-'))),cases=path.join(directory,'cases');
+  fs.mkdirSync(cases);
+  for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
+  const contract={testFile:PROOF_CASES_TEST},generator=path.join(directory,'generator.py'),request=path.join(directory,'request.json');
+  fs.writeFileSync(generator,'reviewed generator v1');fs.writeFileSync(request,'reviewed request v1');
+  const files=Array.from({length:15},(_,n)=>{const name=`AHT-${String(n+1).padStart(2,'0')}.json`;
+    return {name,sha256:hash(fs.readFileSync(path.join(cases,name)))};});
+  const generate=()=>({sources:[{file:'generator.py',sha256:hash(fs.readFileSync(generator))},
+    {file:'request.json',sha256:hash(fs.readFileSync(request))}],files}),options={generate},environment={CT_PROOF_CASES_DIR:directory};
+  try {
+    const binding=proofCasesBinding(contract,environment,directory,options);
+    assert.equal(binding.files.length,15);assert.equal(binding.directory,directory);
+    const phase=phaseProofCasesBinding(contract,environment,randomUUID(),directory,options);
+    assert.equal(phase.files.length,15);assert.equal(phase.sourceDirectory,directory);assert.notEqual(phase.directory,directory);
+    assert.deepEqual(validatePhaseProofCases(contract,phase,directory,environment,options),phase);
+    fs.writeFileSync(path.join(phase.directory,'cases','AHT-01.json'),'changed');
+    assert.throws(()=>validatePhaseProofCases(contract,phase,directory,environment,options),/differ/);
+    fs.writeFileSync(path.join(phase.directory,'cases','AHT-01.json'),fs.readFileSync(path.join(cases,'AHT-01.json')));
+    fs.writeFileSync(generator,'stale generator');
+    assert.throws(()=>validatePhaseProofCases(contract,phase,directory,environment,options),/binding/);
+    fs.writeFileSync(generator,'reviewed generator v1');fs.writeFileSync(request,'substituted request');
+    assert.throws(()=>validatePhaseProofCases(contract,phase,directory,environment,options),/binding/);
+    fs.writeFileSync(request,'reviewed request v1');
+    fs.rmSync(phase.directory,{recursive:true,force:true});
+    assert.equal(proofCasesBinding({testFile:'tools/cloud-test/tests/other.test.cjs'},{}),null);
+    assert.throws(()=>proofCasesBinding(contract,{}),/CT_PROOF_CASES_DIR/);
+    fs.writeFileSync(path.join(cases,'unexpected.json'),'{}');
+    assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/inventory/);
+    fs.rmSync(path.join(cases,'unexpected.json'));
+    fs.writeFileSync(path.join(cases,'AHT-02.json'),'arbitrary caller source');
+    assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/independent generation/);
+    fs.writeFileSync(path.join(cases,'AHT-02.json'),JSON.stringify({caseId:2}));
+    const first=path.join(cases,'AHT-01.json'),outside=path.join(directory,'outside.json');
+    fs.renameSync(first,outside);fs.symlinkSync(outside,first);
+    assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/Aliased proof-case/);
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+test('default proof generation owns both children and deletes inputs only after verified drains',()=>{
+  const calls=[];let retained;
+  const children={
+    run(command,options) {
+      calls.push({command,options});
+      if(calls.length===1)return {result:{status:0,signal:null,error:null,stderr:'',stdout:JSON.stringify({
+        path:command[0],version:'3.12.0',sha256:hash(fs.readFileSync(command[0]))})}};
+      const output=command[command.indexOf('--out')+1],cases=path.join(output,'cases');fs.mkdirSync(cases,{recursive:true});
+      for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
+      return {result:{status:0,signal:null,error:null,stdout:'',stderr:''}};
+    },
+    assertDrained(directory){retained=directory;assert.ok(fs.existsSync(directory));},
+  };
+  const result=generatedProofCases(root,{CT_EXISTING_PDFJS_DIR:root},{children});
+  assert.equal(result.files.length,15);assert.equal(calls.length,2);
+  assert.ok(calls.every(call=>call.options.detached===true&&call.options.killSignal==='SIGKILL'));
+  assert.ok(!fs.existsSync(retained),'verified proof-generation inputs are removed after both drains');
+});
+
+test('proof-generation timeout with an undrained descendant retains its owned inputs',()=>{
+  const children=nativeChildTracker(()=>{throw new Error('controlled descendant remains');},{spawn:()=>({
+    pid:987654,status:null,signal:'SIGKILL',error:Object.assign(new Error('controlled timeout'),{code:'ETIMEDOUT'}),stdout:'',stderr:''})});
+  let retained;
+  try {
+    assert.throws(()=>generatedProofCases(root,{CT_EXISTING_PDFJS_DIR:root},{children,identityTimeoutMs:1}),error=>{
+      retained=error.retainedCopy;assert.match(error.message,/cleanup unverified/);return true;
+    });
+    assert.ok(retained&&fs.existsSync(retained),'unverified descendant ownership must retain the generated-input directory');
+  } finally {if(retained)fs.rmSync(retained,{recursive:true,force:true});}
 });

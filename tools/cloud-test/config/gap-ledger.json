@@ -1,0 +1,263 @@
+{
+ "schema": "speaksharp.cloud-test.gap-ledger.v2",
+ "note": "Definitions only. Prior results, evidence references, deployed inclusion, latest results and status are DERIVED from sealed receipts, git and the latest run by scripts/derive_ledger.py; none is typed here.",
+ "gapKinds": [
+  "product-fix",
+  "harness-correction",
+  "evidence-restoration",
+  "newly-tested-behavior"
+ ],
+ "gaps": [
+  {
+   "id": "GAP-01",
+   "title": "Coaching generation fails with HTTP 502 after 25 to 43 s",
+   "area": "PG02",
+   "kind": "product-fix",
+   "observations": [
+    {
+     "signal": {
+      "rule": "fn-coaching",
+      "statusMin": 500,
+      "label": "coaching request answered with HTTP 5xx"
+     }
+    },
+    {
+     "case": "AHT-01",
+     "assertion": "grounded-coaching"
+    }
+   ],
+   "fix": {
+    "pr": "#1742",
+    "candidate": false,
+    "note": "low thinking and closed provider-error provenance; cause of the 502 not established"
+   },
+   "expectedPass": {
+    "definedAtUtc": "2026-10-28T18:30:00Z",
+    "confirmedByOwner": false,
+    "stimulus": "one saved Open Mic take with the bound open_mic_tts media on the same account class",
+    "observer": "campaign adapter with the closed coaching diagnostics (r15)",
+    "criteria": "the coaching POST for the saved take returns a 2xx and the review shows a grounded what-went-well and what-to-improve pair; elapsed time recorded on the labelled event clock; any failure records the closed error code and upstream status",
+    "requirements": [
+     {
+      "case": "AHT-01",
+      "assertions": [
+       "grounded-coaching"
+      ]
+     }
+    ],
+    "rule": "EVERY listed case must show every listed assertion PASS, with evidence for each case and comparability proven for each case; one case never closes a multi-case gap; missing evidence stays inconclusive"
+   },
+   "note": "Conditional case: select AHT-01 only after server-side logs for the failing request do not name the failing layer."
+  },
+  {
+   "id": "GAP-02",
+   "title": "Focus: opening points never leave pending; marker oracle disputed",
+   "area": "PG02",
+   "kind": "harness-correction",
+   "observations": [
+    {
+     "case": "AHT-02",
+     "assertion": "focus-next-point-marked"
+    },
+    {
+     "case": "AHT-03",
+     "assertion": "focus-next-point-marked"
+    }
+   ],
+   "fix": {
+    "pr": null,
+    "candidate": false,
+    "note": "harness correction (marker on the first uncovered point; recognition progress diagnosed separately); no product change claimed"
+   },
+   "expectedPass": {
+    "definedAtUtc": "2026-10-28T18:30:00Z",
+    "confirmedByOwner": false,
+    "stimulus": "real focus_points_partial_tts played from the device start; RECORDING position measured by the probe",
+    "observer": "r15 marker oracle plus recognition-progress and audio-timing diagnostics",
+    "criteria": "marker row PASS under the corrected oracle in BOTH Focus journeys (AHT-02 and AHT-03); the audio-timing diagnostic states whether the opening reached recording; if it did, point 0 leaves pending within its window plus 5 s; otherwise the result is a recognition finding, not a pass",
+    "requirements": [
+     {
+      "case": "AHT-02",
+      "assertions": [
+       "focus-next-point-marked"
+      ]
+     },
+     {
+      "case": "AHT-03",
+      "assertions": [
+       "focus-next-point-marked",
+       "focus-live-durable"
+      ]
+     }
+    ],
+    "rule": "EVERY listed case must show every listed assertion PASS, with evidence for each case and comparability proven for each case; one case never closes a multi-case gap; missing evidence stays inconclusive"
+   }
+  },
+  {
+   "id": "GAP-03",
+   "title": "Microphone-denied path: blocked-microphone guidance not shown",
+   "area": "PG04",
+   "kind": "product-fix",
+   "observations": [
+    {
+     "case": "AHT-12",
+     "assertion": "press-bound-denial"
+    },
+    {
+     "case": "AHT-12",
+     "assertion": "denial-truthful-no-mic"
+    }
+   ],
+   "fix": {
+    "pr": "#1744",
+    "candidate": false,
+    "note": "retain blocked-microphone guidance through the start wrapper (frontend only)"
+   },
+   "expectedPass": {
+    "definedAtUtc": "2026-10-28T18:30:00Z",
+    "confirmedByOwner": false,
+    "stimulus": "real NotAllowedError after the journaled Start press with the capture device bound",
+    "observer": "campaign adapter with closed microphone outcomes and UI-copy capture",
+    "criteria": "the exact blocked-microphone copy is visible within 90 s, no live tracks, not recording",
+    "requirements": [
+     {
+      "case": "AHT-12",
+      "assertions": [
+       "press-bound-denial",
+       "denial-truthful-no-mic"
+      ]
+     }
+    ],
+    "rule": "EVERY listed case must show every listed assertion PASS, with evidence for each case and comparability proven for each case; one case never closes a multi-case gap; missing evidence stays inconclusive"
+   }
+  },
+  {
+   "id": "GAP-04",
+   "title": "Authenticated REST read returns 403 near sign-out",
+   "area": "PG03",
+   "kind": "product-fix",
+   "observations": [
+    {
+     "signal": {
+      "rule": "rest-read",
+      "status": 403,
+      "pathHash": "sha256:46c7d17c712615c4",
+      "label": "rest-read answered 403"
+     }
+    },
+    {
+     "case": "AHT-15",
+     "assertion": "no-recording-or-session-write"
+    }
+   ],
+   "fix": {
+    "pr": "#1743",
+    "candidate": true,
+    "note": "CANDIDATE only: touches goals account isolation; not established as a fix for this 403"
+   },
+   "expectedPass": {
+    "definedAtUtc": "2026-10-28T18:30:00Z",
+    "confirmedByOwner": false,
+    "stimulus": "sign-out from a returning-user session",
+    "observer": "guard receipts with closed status counts (needs an assertion; today it is only an observation)",
+    "criteria": "no 4xx authenticated read after sign-out; to be defined as an assertion by the owner",
+    "requirements": [
+     {
+      "case": "AHT-15",
+      "assertions": [
+       "no-recording-or-session-write"
+      ]
+     }
+    ],
+    "rule": "EVERY listed case must show every listed assertion PASS, with evidence for each case and comparability proven for each case; one case never closes a multi-case gap; missing evidence stays inconclusive"
+   }
+  },
+  {
+   "id": "GAP-05",
+   "title": "Leave-page release while recording (AHT-10)",
+   "area": "PG04",
+   "kind": "product-fix",
+   "observations": [
+    {
+     "case": "AHT-10",
+     "assertion": "leave-released"
+    }
+   ],
+   "fix": {
+    "pr": null,
+    "candidate": false,
+    "note": "no fix identified; the R5 PASS came from a changed observer"
+   },
+   "expectedPass": {
+    "definedAtUtc": "2026-10-28T18:30:00Z",
+    "confirmedByOwner": false,
+    "stimulus": "same leave action as R4C (dialog handling) AND the tab-close variant, reported separately",
+    "observer": "the R4C observer and the R5 observer both retained",
+    "criteria": "leave-released and return-no-resume PASS under the R4C-comparable stimulus and an unchanged observer",
+    "requirements": [
+     {
+      "case": "AHT-10",
+      "assertions": [
+       "leave-released",
+       "return-no-resume"
+      ]
+     }
+    ],
+    "rule": "EVERY listed case must show every listed assertion PASS, with evidence for each case and comparability proven for each case; one case never closes a multi-case gap; missing evidence stays inconclusive"
+   }
+  },
+  {
+   "id": "GAP-06",
+   "title": "Evidence lost: AHT-04, AHT-13, AHT-14 stimulus (cold-model download faults) not established",
+   "area": "PG04",
+   "kind": "evidence-restoration",
+   "observations": [
+    {
+     "case": "AHT-04",
+     "assertion": "cold-pending-observed"
+    },
+    {
+     "case": "AHT-13",
+     "assertion": "download-fault-exercised"
+    },
+    {
+     "case": "AHT-14",
+     "assertion": "download-fault-exercised"
+    }
+   ],
+   "fix": {
+    "pr": null,
+    "candidate": false,
+    "note": "harness correction (capture device bound, stimulus preflight, stimulus gates); no product change claimed"
+   },
+   "expectedPass": {
+    "definedAtUtc": "2026-10-28T18:30:00Z",
+    "confirmedByOwner": false,
+    "stimulus": "capture device bound to the reviewed media; cold model state; stimulus preflight receipt READY for the case",
+    "observer": "r15 stimulus-aware adapters with setup proofs",
+    "criteria": "all three cases: AHT-04 pending download observed (model requests > 0); AHT-13 and AHT-14 fault proofs fired (fired = true). A case whose stimulus was not established is setup-blocked and counts as NOT RUN; a product verdict is issued only when the stimulus is established",
+    "requirements": [
+     {
+      "case": "AHT-04",
+      "assertions": [
+       "cold-pending-observed"
+      ]
+     },
+     {
+      "case": "AHT-13",
+      "assertions": [
+       "download-fault-exercised"
+      ]
+     },
+     {
+      "case": "AHT-14",
+      "assertions": [
+       "download-fault-exercised"
+      ]
+     }
+    ],
+    "rule": "EVERY listed case must show every listed assertion PASS, with evidence for each case and comparability proven for each case; one case never closes a multi-case gap; missing evidence stays inconclusive"
+   }
+  }
+ ]
+}

@@ -1,0 +1,22 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{execFileSync}=require('node:child_process');
+const {verify,SPECS,TEST_PINS,INTEGRATION_PINS}=require('../scripts/validate_rwt_release_binding.cjs');
+function fixture(t){const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'rwt-binding-')));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const git=(...a)=>execFileSync('git',a,{cwd:dir,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+ git('init','-q');git('config','user.name','Synthetic');git('config','user.email','synthetic@example.invalid');
+ function commit(file,body){const p=path.join(dir,file);fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,body);git('add','--',file);git('commit','-qm','synthetic');return git('rev-parse','HEAD');}
+ const release=commit('frontend/src/app.ts','synthetic product');
+ const head=commit('tools/cloud-test/proof.txt','synthetic proof');
+ const env={DIAGNOSTIC_RELEASE:release,GITHUB_SHA:head,DIAGNOSTIC_SPEC:SPECS[0],SELECTED_GATE:'gate-3-dast',DIAGNOSTIC_GREP:'one exact selected test',COMPARISON_CELL:'none'};
+ return {dir,git,commit,release,head,env};
+}
+test('no override preserves existing workflow binding',()=>assert.deepEqual(verify({}),{kind:'unchanged-workflow-source-binding'}));
+test('every closed RWT spec permits unchanged product/live source on a proof-only successor',t=>{const f=fixture(t);for(const spec of SPECS)assert.equal(verify({...f.env,DIAGNOSTIC_SPEC:spec},f.dir).servedSha,f.release);});
+test('product or live-helper change cannot use separately pinned served ancestor',t=>{const f=fixture(t);for(const p of ['frontend/src/app.ts','tests/live/helpers/rwtJourney.ts','pnpm-lock.yaml','.github/actions/setup-environment/action.yml']){const h=f.commit(p,'changed '+p);assert.throws(()=>verify({...f.env,GITHUB_SHA:h},f.dir),/PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS/);}});
+test('identical product file renamed into allowed proof directory still refuses',t=>{const f=fixture(t);f.git('mv','frontend/src/app.ts','tools/cloud-test/moved-product.ts');f.git('commit','-qm','synthetic cross-boundary rename');const head=f.git('rev-parse','HEAD');assert.equal(f.git('diff','--name-only','--find-renames',f.release,head).includes('frontend/src/app.ts'),false);assert.throws(()=>verify({...f.env,GITHUB_SHA:head},f.dir),/PRODUCT_OR_LIVE_TEST_SOURCE_DIFFERS/);});
+test('unknown live spec, missing grep, paid or comparison scope and all-gates selection refuse',t=>{const f=fixture(t);for(const change of [{DIAGNOSTIC_SPEC:'tests/live/unreviewed.live.spec.ts'},{DIAGNOSTIC_GREP:''},{PAID_LAUNCH:'true'},{COMPARISON_CELL:'v2:base.en/open_mic'},{SELECTED_GATE:'all'},{DIAGNOSTIC_RELEASE:'main'},{GITHUB_SHA:'x'.repeat(40)}])assert.throws(()=>verify({...f.env,...change},f.dir),/BOUNDED_RWT_SELECTION_REQUIRED/);});
+test('claimed source must equal checked-out actual job head',t=>{const f=fixture(t);assert.throws(()=>verify({...f.env,GITHUB_SHA:f.release},f.dir),/JOB_SOURCE_DIFFERS/);});
+test('unavailable or nonancestor release cannot be substituted',t=>{const f=fixture(t);assert.throws(()=>verify({...f.env,DIAGNOSTIC_RELEASE:'1'.repeat(40)},f.dir),/SOURCE_BINDING_UNPROVEN/);f.git('checkout','--orphan','unrelated');f.git('rm','-rf','.');const other=f.commit('other.txt','unrelated');f.git('checkout','--detach',f.head);assert.throws(()=>verify({...f.env,DIAGNOSTIC_RELEASE:other},f.dir),/SOURCE_BINDING_UNPROVEN/);});
+test('normal changed workflow plus proof files remain diagnostic only',t=>{const f=fixture(t);const head=f.commit('.github/workflows/rc-gates.yml','synthetic diagnostic workflow');assert.equal(verify({...f.env,GITHUB_SHA:head},f.dir).kind,'rwt-diagnostic-source-compatible-not-release-qualification');});
+test('only the exact accepted attribution and integration postimages may differ from deployed source',t=>{const f=fixture(t);let head=f.head;for(const p of Object.keys({...TEST_PINS,...INTEGRATION_PINS}))head=f.commit(p,fs.readFileSync(path.resolve(__dirname,'../../..',p)));assert.equal(verify({...f.env,GITHUB_SHA:head},f.dir).servedSha,f.release);});
+for(const p of Object.keys({...TEST_PINS,...INTEGRATION_PINS}))test('changed reviewed source bytes refuse: '+p,t=>{const f=fixture(t),head=f.commit(p,'synthetic unreviewed alteration');assert.throws(()=>verify({...f.env,GITHUB_SHA:head},f.dir),/DIAGNOSTIC_TEST_SOURCE_PIN_DIFFERS/);});

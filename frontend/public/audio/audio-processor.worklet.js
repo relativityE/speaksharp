@@ -15,6 +15,15 @@ class PcmDownsampler extends AudioWorkletProcessor {
     // Calculate the ratio and initialize buffer for unprocessed samples
     this.resamplingRatio = this.sourceSampleRate / this.targetSampleRate;
     this.unprocessedSamples = new Float32Array(0);
+    this.pcmReceiptEnabled = options.processorOptions.pcmReceipt === true;
+    this.pcmReceiptSequence = 0;
+    this.pcmReceiptSamples = 0;
+    this.pcmReceiptClosed = false;
+    if (this.pcmReceiptEnabled) this.port.onmessage = event => {
+      if (event.data?.kind !== 'speaksharp-pcm-finish-v1' || this.pcmReceiptClosed) return;
+      this.pcmReceiptClosed = true;
+      this.port.postMessage({ kind: 'speaksharp-pcm-closed-v1', frames: this.pcmReceiptSequence, samples: this.pcmReceiptSamples });
+    };
   }
 
   /**
@@ -23,6 +32,7 @@ class PcmDownsampler extends AudioWorkletProcessor {
    * @returns {boolean} - Must return true to keep the processor alive.
    */
   process(inputs) {
+    if (this.pcmReceiptClosed) return false;
     const inputChannel = inputs[0][0];
 
     // If there's no input, there's nothing to do.
@@ -60,7 +70,12 @@ class PcmDownsampler extends AudioWorkletProcessor {
     this.unprocessedSamples = currentSamples.slice(processedSamplesCount);
 
     // Send the downsampled audio back to the main thread
-    this.port.postMessage(outputData);
+    if (this.pcmReceiptEnabled) {
+      const sequence = this.pcmReceiptSequence++, sourceStart = this.pcmReceiptSamples;
+      this.pcmReceiptSamples += outputData.length;
+      // Transfer the exact emitted bytes; the render thread retains no diagnostic audio.
+      this.port.postMessage({ kind: 'speaksharp-pcm-frame-v1', sequence, sourceStart, pcm: outputData }, [outputData.buffer]);
+    } else this.port.postMessage(outputData);
 
     return true; // Keep the processor alive
   }

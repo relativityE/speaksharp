@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "scope": "trusted-reviewed-node-not-sandbox",
+  "reviewer": null,
+  "reviewedAt": null,
+  "steps": [
+    {
+      "path": "steps/ok.cjs",
+      "sha256": "bff57b59f7fe40b556dc0024d3f843e8f7fbede83d42dde02249e0daf9de5cdc",
+      "dependencies": []
+    },
+    {
+      "path": "steps/hang.cjs",
+      "sha256": "3fc2149f92a4dfc3b05b0355f4a2401267436ba447bec9b284b1e498f2f384ff",
+      "dependencies": []
+    },
+    {
+      "path": "steps/throws.cjs",
+      "sha256": "ae8f20037ec3ed80852430562cb096e6096a45c3b183f5e20985bfa7c56bf399",
+      "dependencies": []
+    },
+    {
+      "path": "steps/allowance-case.cjs",
+      "sha256": "9aba66a9b4ae63a9e08b4d5832ae3de99e329a05ece4da997ec12d6b8757afc6",
+      "dependencies": []
+    },
+    {
+      "path": "durable-oracle.cjs",
+      "sha256": "257b954087a8592fd4e92b55d05fd53ca66cf18fc9c83efed170e43bd1b99179",
+      "dependencies": []
+    }
+  ]
+}
