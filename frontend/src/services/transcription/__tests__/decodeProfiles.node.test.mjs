@@ -1,21 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
-import { SourceTextModule, SyntheticModule } from 'node:vm';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { URL, pathToFileURL } from 'node:url';
 import { CANDIDATES } from '../candidateRegistry.ts';
 
+// The shipping decode builder with its one dependency stubbed, loaded by an ordinary import() from a private temporary directory: no
+// vm.SourceTextModule, so no --experimental-vm-modules flag is needed under any runner (full-evidence runs node tests without it).
 async function builder() {
   const source = stripTypeScriptTypes(await readFile(new URL('../decodeOptions.ts', import.meta.url), 'utf8'));
-  const module = new SourceTextModule(source);
-  await module.link((name) => {
-    assert.equal(name, './sttConstants');
-    return new SyntheticModule(['PRIV_STT'], function () {
-      this.setExport('PRIV_STT', { WHISPER_WINDOW_SECONDS: 30, WHISPER_STRIDE_SECONDS: 5 });
-    });
-  });
-  await module.evaluate();
-  return module.namespace;
+  const specifiers = [...source.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
+  assert.deepEqual(specifiers, ['./sttConstants'], 'the builder depends on ./sttConstants alone');
+  const dir = await mkdtemp(join(tmpdir(), 'decode-profiles-'));
+  try {
+    await writeFile(join(dir, 'sttConstants.mjs'), 'export const PRIV_STT = { WHISPER_WINDOW_SECONDS: 30, WHISPER_STRIDE_SECONDS: 5 };\n');
+    await writeFile(join(dir, 'decodeOptions.mjs'), source.replace(/(\bfrom\s+['"])\.\/sttConstants(['"])/, '$1./sttConstants.mjs$2'));
+    return await import(pathToFileURL(join(dir, 'decodeOptions.mjs')).href);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 test('shipping Whisper profile preserves short and long decode branches without language guessing', async () => {
