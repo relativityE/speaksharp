@@ -44,11 +44,11 @@ class R10Proposal(unittest.TestCase):
                          [True, True, True, True, True, True, True, False, True, True, True, True, True, True, False])
         e = r["estimate"]
         self.assertEqual(e["requests"], {"planned": 3610, "cleanupReserve": 150, "pooledSlack": 550, "runCap": 4310})
-        self.assertEqual([e[k] for k in ("identityReads", "starts", "takes", "githubRunnerMinutesMax")], [32, 42, 31, 30])
+        self.assertEqual([e[k] for k in ("identityReads", "starts", "takes", "githubRunnerMinutesMax")], [32, 42, 31, 359])
         self.assertEqual(e["window"], {"expectedMinutes": 111, "worstCaseMinutes": 304, "proposedMinutes": 330})
         self.assertEqual((e["paidActionsAuthorizedUsd"], r["proposedLimits"]["paidActionsUsd"]), (0, 0))
         self.assertEqual({k: r["proposedLimits"][k] for k in ("cumulativeCeilingRequests", "identityCap", "startsCap", "takesCap", "runCapRequests")},
-                         {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 88, "takesCap": 55, "runCapRequests": 4310})
+                         {"cumulativeCeilingRequests": None, "identityCap": None, "startsCap": None, "takesCap": None, "runCapRequests": 4310})
         self.assertEqual(sum(r["proposedLimits"]["startPressCaps"].values()), e["starts"])
 
     def test_authenticated_evidence_scope_is_the_current_five_case_role_minimum(self):

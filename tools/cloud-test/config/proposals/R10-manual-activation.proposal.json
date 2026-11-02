@@ -18,13 +18,7 @@
     "periodStartUtc": "2026-11-02T20:00:00Z",
     "periodEndUtc": "2026-11-03T12:00:00Z",
     "carryover": "historical",
-    "knownMinimumCeilings": {
-      "requests": 12957,
-      "protectedReserveRequests": 664,
-      "identityReads": 152,
-      "starts": 106,
-      "takes": 69
-    },
+    "knownMinimumCeilings": null,
     "ceilings": null,
     "approvalRef": null,
     "sha256": null

@@ -44,8 +44,15 @@ class R10ActivationProposal(unittest.TestCase):
             "gha-run:41231659142",
             "gha-run:41322870182",
             "gha-run:41325698722",
+            "git:187e0ccbdf96def6eeaba2708ad2d28f2fe552ef",
         ])
         self.assertTrue(all(item["disposition"] == "UNRESOLVED" and item["usage"] is None for item in doc["unresolved"][1:]))
+        self.assertEqual(doc["asOfUtc"], "2026-11-02T20:12:15Z")
+        self.assertTrue({
+            "git:187e0ccbdf96def6eeaba2708ad2d28f2fe552ef",
+            "git:d6e0f12f151773dd772cfc77e082bab3d771f7ab",
+            "git:598439511c1d2cdd97147d3dbd6d7f723b13eb05",
+        }.issubset(set(doc["sourceRecords"])))
 
     def test_root_and_scope_are_reviewable_but_cannot_activate(self):
         self.assertEqual(self.proposal["stateRef"], "refs/heads/cloud-test-state")
@@ -57,30 +64,19 @@ class R10ActivationProposal(unittest.TestCase):
             "events": 0,
         })
         scope = self.proposal["periodScope"]
-        self.assertEqual(scope["knownMinimumCeilings"], {
-            "requests": 12957,
-            "protectedReserveRequests": 664,
-            "identityReads": 152,
-            "starts": 106,
-            "takes": 69,
-        })
+        self.assertIsNone(scope["knownMinimumCeilings"])
         self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]), (None, None, None))
         self.assertFalse(self.proposal["rootRefCreationSelected"])
         self.assertFalse(self.proposal["activationPinsSelected"])
         self.assertFalse(self.proposal["knownLaterRunsResolved"])
 
-    def test_exact_headroom_matches_the_proposed_run(self):
-        minimum = self.proposal["periodScope"]["knownMinimumCeilings"]
+    def test_known_measured_usage_is_not_relabelled_as_current_headroom(self):
         doc = accounting_rollup.parse_bootstrap(self.bootstrap_path.read_bytes())
         measured = doc["unresolved"][0]["usage"]
         known_used = {key: doc["usage"][key] + measured[key] for key in ("requests", "identityReads", "starts", "takes")}
-        headroom = {
-            "requests": minimum["requests"] - minimum["protectedReserveRequests"] - known_used["requests"],
-            "identityReads": minimum["identityReads"] - known_used["identityReads"],
-            "starts": minimum["starts"] - known_used["starts"],
-            "takes": minimum["takes"] - known_used["takes"],
-        }
-        self.assertEqual(headroom, {"requests": 4342, "identityReads": 32, "starts": 42, "takes": 31})
+        self.assertEqual(known_used, {"requests": 7951, "identityReads": 120, "starts": 64, "takes": 38})
+        self.assertIsNone(self.proposal["periodScope"]["knownMinimumCeilings"])
+        self.assertIsNone(self.proposal["periodScope"]["ceilings"])
 
 
 if __name__ == "__main__":
