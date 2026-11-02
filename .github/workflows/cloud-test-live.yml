@@ -145,9 +145,38 @@ jobs:
           fi
           echo "comment_id=$id" >> "$GITHUB_OUTPUT"
 
+  journal-reserve:
+    name: Reserve the nightly run on the state-ref journal (scheduled runs only; the one push before the run)
+    needs: record-begin
+    # J1 (PO approval recorded 1793578273.517019, scope 1793578116.842849): only a scheduled run of this reviewed workflow, never a PR or fork.
+    if: ${{ !cancelled() && github.event_name == 'schedule' && needs.record-begin.result == 'success' }}
+    runs-on: ubuntu-latest
+    # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
+    timeout-minutes: 3
+    # contents: write is a repository-wide capability; this job uses it only for the one leased push to refs/heads/cloud-test-state.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Append the reserve (expected-head lease, persisted readback; refuses before any read until the writer is activated)
+        env:
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          CT_STATE_PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+          python3 -I tools/cloud-test/scripts/reservations.py journal-reserve --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --execution-run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --approval tools/cloud-test/config/recurring-approval.json --repo "$GITHUB_WORKSPACE" \
+            --journal "$RUNNER_TEMP/reserve-journal" --out "$RUNNER_TEMP/reserve-receipt.json"
   live:
     name: Selected live journeys (existing stage runner; preinstalled browser)
-    needs: record-begin
+    needs: [record-begin, journal-reserve]
+    # A scheduled run starts only after its reserve landed; a dispatch (no journal reserve) proceeds as before.
+    if: ${{ !cancelled() && needs.record-begin.result == 'success' && (needs.journal-reserve.result == 'success' || (github.event_name != 'schedule' && needs.journal-reserve.result == 'skipped')) }}
     runs-on: ubuntu-latest
     # 329 minutes fit all 15 cases (sum of caseMaxMs 272 + admission 20 + inter-case 10 + cleanup 2 + setup 15 + collect 10); prepare refuses any
     # selection that does not fit and bounds the run step to its live minutes, so collect and the record always keep their reserve.
@@ -255,7 +284,9 @@ jobs:
             bash tools/cloud-test/scripts/execute_run.sh "$stage"
           done
           # A scheduled run reserves on the state-ref journal BEFORE it spends anything (the run stage then requires exactly that reserve).
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then bash tools/cloud-test/scripts/execute_run.sh reserve; fi
+          # A scheduled run's reserve is appended by the separate journal-reserve job (the only contents: write before the run); this job
+          # stays contents: read and only snapshots the verified journal for execution provenance (the run stage requires the reserve).
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then python3 -I tools/cloud-test/scripts/reservations.py journal-snapshot --out "$CT_OUT/journal-reserved.json"; fi
       # Immediately before admission: the approved window must still hold the live minutes plus the collect reserve (never reset), read from
       # exactly the request bytes prepare admitted (init's request_sha256 output; no later step can rewrite another step's outputs).
       - name: Approved window still fits the live run
@@ -297,7 +328,7 @@ jobs:
           set -euo pipefail
           bash tools/cloud-test/scripts/execute_run.sh collect
           # A scheduled run settles its journal reservation from the collector's record before any verdict is projected.
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then bash tools/cloud-test/scripts/execute_run.sh settle; fi
+          # The settle is appended by the separate journal-settle job from this run record (1-day private artifact below).
           HP="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$CT_CONFIG" harness.packetDir)"
           Q=()
           # qualify freezes every verifier input into a new private snapshot, runs the REAL verify_run_binding.py on that snapshot only (exit 0,
@@ -324,6 +355,14 @@ jobs:
             --case-results "$CT_OUT/plan/run/case-results.json" --request "$CT_REQUEST" --repo "$GITHUB_WORKSPACE" \
             --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" "${P[@]}" \
             --out "$RUNNER_TEMP/latest-record.json"
+      - name: Hand the run record to the journal-settle job (scheduled runs; 1-day private artifact)
+        if: always() && github.event_name == 'schedule'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-settle-input
+          path: ${{ env.CT_OUT }}/run-record.json
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Hand the closed record to the record job (short-lived; not the authoritative record)
         if: always()
         uses: actions/upload-artifact@v4
@@ -338,6 +377,39 @@ jobs:
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/run-inputs"
 
+  journal-settle:
+    name: Settle the nightly reservation on the state-ref journal (scheduled runs only; the one push after the run)
+    needs: [record-begin, journal-reserve, live]
+    # Runs whenever the run was reserved; with no run record (cancelled or missing collection) it appends nothing and the reservation stays
+    # open, so the period keeps counting it at its caps.
+    if: ${{ always() && github.event_name == 'schedule' && needs.journal-reserve.result == 'success' }}
+    runs-on: ubuntu-latest
+    # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cloud-test-settle-input
+          path: ${{ runner.temp }}/settle
+        continue-on-error: true
+      - name: Append the settle from the collector's run record (without one, the reservation stays open and counted)
+        env:
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          CT_STATE_PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$RUNNER_TEMP/settle/run-record.json" ]; then echo "no run record: the reservation stays open and counted"; exit 0; fi
+          (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+          python3 -I tools/cloud-test/scripts/reservations.py journal-settle --request "$RUNNER_TEMP/nightly-request.json" \
+            --request-sha256 "$NIGHTLY_REQUEST_SHA256" --execution-run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --approval tools/cloud-test/config/recurring-approval.json --repo "$GITHUB_WORKSPACE" --record "$RUNNER_TEMP/settle/run-record.json" \
+            --journal "$RUNNER_TEMP/settle-journal" --out "$RUNNER_TEMP/settle-receipt.json"
   record-complete:
     name: Complete or interrupt the attempt in the latest record (no live credentials)
     needs: [record-begin, live]

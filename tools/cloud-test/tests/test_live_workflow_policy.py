@@ -33,7 +33,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("schedule", on)
         with open(os.path.join(ROOT, "config", "nightly", "schedule.proposed.yml"), encoding="utf-8") as f:
             self.assertIn("cron: '0 3 * * *'", f.read())
-        self.assertEqual(set(self.jobs), {"nightly-gate", "record-begin", "live", "record-complete"})
+        self.assertEqual(set(self.jobs), {"nightly-gate", "record-begin", "journal-reserve", "live", "journal-settle", "record-complete"})
         gate = self.jobs["nightly-gate"]
         self.assertEqual((gate["if"], gate["permissions"]), ("github.event_name == 'schedule'", {"contents": "read", "actions": "read"}))
         self.assertIsNone(SECRET_REF.search(str(gate)), "the gate holds no credential")
@@ -78,7 +78,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || '
                       '{ echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }', begin["steps"][0]["run"])
         # Every later job, including the always() record job, runs only after record-begin succeeded.
-        self.assertEqual(self.jobs["live"]["needs"], "record-begin")
+        self.assertEqual(self.jobs["live"]["needs"], ["record-begin", "journal-reserve"])  # J1: a scheduled run waits for its journal reserve
         self.assertEqual(self.jobs["record-complete"]["if"], "always() && needs.record-begin.result == 'success'")
         # Manual and nightly share ONE serialized group; an active run is never cancelled.
         self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
@@ -101,7 +101,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         first = self.jobs["record-begin"]["steps"][0]["run"]
         self.assertIn('[ "$GITHUB_RUN_ATTEMPT" = 1 ]', first)
         self.assertIn('[ "$CONFIRM" = LIVE ]', first)
-        self.assertEqual(self.jobs["live"]["needs"], "record-begin")
+        self.assertEqual(self.jobs["live"]["needs"], ["record-begin", "journal-reserve"])  # J1: a scheduled run waits for its journal reserve
 
     def test_secret_values_come_only_from_secrets_and_account_identifiers_only_from_the_private_bundle(self):
         # Sam 1793544453.003099: passwords, tokens and keys are Secrets; account emails and ids travel only in CLOUD_TEST_LIVE_ACCOUNTS.
@@ -187,9 +187,11 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_handoff_artifact_is_short_lived_and_not_the_authoritative_record(self):
         up = [s for s in self.jobs["live"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
-        self.assertEqual(len(up), 1)
-        self.assertEqual(up[0]["with"]["retention-days"], 1)
-        self.assertTrue(up[0]["with"]["path"].endswith("latest-record.json"))
+        self.assertEqual(len(up), 2)  # the closed record (record job) and, on schedule only, the run record for journal-settle (J1)
+        self.assertTrue(all(u["with"]["retention-days"] == 1 for u in up))
+        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in up), ["latest-record.json", "run-record.json"])
+        settle = next(u for u in up if u["with"]["path"].endswith("run-record.json"))
+        self.assertIn("github.event_name == 'schedule'", settle["if"])
 
     def test_the_dispatch_names_a_committed_request_and_never_generates_one(self):
         on = self.doc.get("on", self.doc.get(True))
@@ -319,6 +321,31 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertTrue(all(s["env"]["REQUEST_SHA256"] == "${{ steps.init.outputs.request_sha256 }}"
                             for j in self.jobs.values() for s in j["steps"] if "REQUEST_SHA256" in (s.get("env") or {})), written)
 
+    def test_j1_journal_jobs_hold_the_only_write_permission_and_confine_the_token(self):
+        # J1 (PO approval recorded 1793578273.517019): contents: write only in the two journal jobs, scheduled runs only.
+        jobs = self.jobs
+        for name in ("journal-reserve", "journal-settle"):
+            job = jobs[name]
+            self.assertEqual(job["permissions"], {"contents": "write"})
+            self.assertIn("github.event_name == 'schedule'", job["if"])
+            checkout = next(st for st in job["steps"] if str(st.get("uses", "")).startswith("actions/checkout"))
+            self.assertIs(checkout["with"]["persist-credentials"], False)
+            writers = [st for st in job["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {})]
+            self.assertEqual(len(writers), 1)
+            self.assertEqual(writers[0]["env"]["CT_STATE_PUSH_TOKEN"], "${{ github.token }}")
+            self.assertIn("reservations.py journal-%s" % name.split("-")[1], writers[0]["run"])
+        self.assertEqual(self.text.count("CT_STATE_PUSH_TOKEN"), 2, "the token reaches only the two writer steps")
+        self.assertEqual(jobs["live"]["permissions"], {"contents": "read"})
+        self.assertNotIn("execute_run.sh reserve", self.text)
+        self.assertNotIn("execute_run.sh settle", self.text)
+        self.assertEqual(jobs["live"]["needs"], ["record-begin", "journal-reserve"])
+        self.assertIn("needs.journal-reserve.result == 'success'", jobs["live"]["if"])
+        self.assertIn("needs.journal-reserve.result == 'skipped'", jobs["live"]["if"])  # a dispatch never waits on a journal reserve
+        self.assertIn("needs.journal-reserve.result == 'success'", jobs["journal-settle"]["if"])
+        # write is never granted at the workflow level or to any other job
+        self.assertEqual([n for n, j in jobs.items() if (j.get("permissions") or {}).get("contents") == "write"], ["journal-reserve", "journal-settle"])
+
+
 
 class PdfjsComposition(unittest.TestCase):
     """B4 P1: the REAL install_pdfjs.py, composed as the live job runs it: copy mode from the runner dependency root into the checkout root,
@@ -375,6 +402,7 @@ class PdfjsComposition(unittest.TestCase):
         self.assertIn("not overwritten", r.stderr)
         with open(os.path.join(dst, "pdf.mjs")) as f:
             self.assertEqual(f.read(), "other")
+
 
 
 if __name__ == "__main__":
