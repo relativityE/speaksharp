@@ -19,7 +19,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _common import ROOT, load, parse_utc, now_utc  # noqa: E402
+from _common import ROOT, load, dump, parse_utc, now_utc  # noqa: E402
 
 LEDGER = os.path.join(ROOT, "config", "history", "reservations.json")
 CATS = ("requests", "identityReads", "starts", "takes", "coachingRequests", "runnerMinutes")
