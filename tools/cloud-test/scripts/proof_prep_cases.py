@@ -144,7 +144,9 @@ def build(out, packet, phases=("phase1",), stimulus_receipt=None, browser_identi
     for phase in phases:
         # BP_STIM is exported AFTER the request-derived environment is sourced, as FullPlanProof does, so the request's values cannot override it.
         stim = "export BP_STIM=%s; " % shlex.quote(stimulus_receipt) if stimulus_receipt else ""
-        script = "set -euo pipefail; set -a; . %s; set +a; %spython3 -I %s %s" % (shlex.quote(envf), stim, shlex.quote(os.path.join(ROOT, "harness-adapter", "build_plan.py")), phase)
+        # This marker is accepted only with the exact PLACEHOLDER-NOT-A-RUN
+        # request/facts contract. It never weakens a live plan's producer gate.
+        script = "set -euo pipefail; set -a; . %s; set +a; export BP_SYNTHETIC_OFFLINE_PROOF=1; %spython3 -I %s %s" % (shlex.quote(envf), stim, shlex.quote(os.path.join(ROOT, "harness-adapter", "build_plan.py")), phase)
         r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
         if r.returncode:
             raise SystemExit("build_plan.py %s failed (%d)" % (phase, r.returncode))

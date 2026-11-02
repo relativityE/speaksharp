@@ -19,10 +19,10 @@ import time
 POSTHOG_DELIVERY_HOSTS = ('us-assets.i.posthog.com', 'us.i.posthog.com')
 
 
-def select_feedback_delivery(policy, selected, same_job):
-    """Return a campaign policy with telemetry delivery present only for a bound 07/08 producer."""
+def select_feedback_delivery(policy, selected, same_job, synthetic_offline=False):
+    """Return delivery policy only for a bound producer or the sealed synthetic proof."""
     needs_delivery = bool(set(selected).intersection({7, 8}))
-    if needs_delivery and not same_job:
+    if needs_delivery and not (same_job or synthetic_offline):
         raise ValueError('feedback-delivery-producer-unavailable')
     if not needs_delivery:
         for host in POSTHOG_DELIVERY_HOSTS:
@@ -34,6 +34,28 @@ def select_feedback_delivery(policy, selected, same_job):
             raise ValueError('posthog-template-host')
         policy['caps']['telemetry'] = 20
     return policy
+
+
+def synthetic_offline_proof(request, facts, environment):
+    """Admit only the proof generator's explicit PLACEHOLDER-NOT-A-RUN plan."""
+    marker = environment.get('BP_SYNTHETIC_OFFLINE_PROOF')
+    if marker is None:
+        return False
+    approval = facts.get('actionApproval') if isinstance(facts, dict) else None
+    limits = request.get('approvedLimits') if isinstance(request, dict) else None
+    valid = marker == '1' and environment.get('BP_RUNTIME', 'Claude SpeakSharp R4') == 'Claude SpeakSharp R4' \
+        and environment.get('BP_PRODUCER_MODE', 'unavailable') == 'unavailable' \
+        and isinstance(limits, dict) and limits.get('approvalRef') == 'PLACEHOLDER-NOT-A-RUN' \
+        and limits.get('approvedBy') == 'PLACEHOLDER' \
+        and request.get('selectionApprovalRef') == 'PLACEHOLDER-NOT-A-RUN-selection' \
+        and facts.get('ownerApprovalReference') == 'PLACEHOLDER-NOT-A-RUN-owner-approval' \
+        and facts.get('approvedBy') == 'PLACEHOLDER-NOT-A-RUN' \
+        and isinstance(approval, dict) and approval.get('approvalRef') == limits.get('approvalRef') \
+        and approval.get('approvedBy') == limits.get('approvedBy') \
+        and approval.get('selectionApprovalRef') == request.get('selectionApprovalRef')
+    if not valid:
+        raise ValueError('synthetic-offline-proof')
+    return True
 
 
 def sha(data):
@@ -194,6 +216,10 @@ def read_binding_inputs(env, argv):
     binding = bind_inputs(env, FACTS)
     require(MODE == binding['mode'], 'mode-binding')
     request = binding['request']
+    try:
+        SYNTHETIC_OFFLINE_PROOF = synthetic_offline_proof(request, FACTS, env)
+    except ValueError:
+        raise InputValidationError('input-binding')
     require(BP_EST == {int(row['case'][-2:]): row['plannedRequests'] for row in request['selection']}, 'estimate-binding')
     require(IDENT_CAP == caps_module.integer(request['estimate'].get('identityReads'), 'identity-estimate'), 'identity-binding')
     require(BP_CLEANUP == caps_module.integer(request['estimate']['requests'].get('cleanupReserve'), 'cleanup-estimate'), 'cleanup-binding')
@@ -247,12 +273,13 @@ def read_binding_inputs(env, argv):
             raise InputValidationError('producer-mode')
         same_job = producer_mode == 'same-github-job'
         require(not same_job or RUNTIME == 'GitHub Actions SpeakSharp', 'input-binding')
+        require(not SYNTHETIC_OFFLINE_PROOF or not same_job, 'input-binding')
         # The execution platform is independent of whether these exact selected cases
         # need a privileged evidence producer. AHT04/15 must not acquire service keys
         # merely to run in GitHub. Evidence-dependent cases still refuse before build.
         producer_cases_selected = set(SELECTED).intersection({1, 2, 3, 7, 8})
         require(RUNTIME != 'GitHub Actions SpeakSharp' or same_job or not producer_cases_selected, 'input-binding')
-        require(not feedback_delivery_selected or same_job, 'input-binding')
+        require(not feedback_delivery_selected or same_job or SYNTHETIC_OFFLINE_PROOF, 'input-binding')
         receiver_rel = 'draft-adapters/receivers/' + ('github-job-evidence-reader.cjs' if same_job else 'unavailable-evidence-reader.cjs')
         receiver_path = f'{PACKET}/{receiver_rel}'
         receiver_sha = shaf(receiver_path)
@@ -363,7 +390,7 @@ def read_binding_inputs(env, argv):
         # present in the reviewed template so their exact route bytes are manifest-bound, but they enter
         # a generated campaign only for selected 07/08 evidence.
         try:
-            select_feedback_delivery(pol, SELECTED, same_job)
+            select_feedback_delivery(pol, SELECTED, same_job, SYNTHETIC_OFFLINE_PROOF)
         except ValueError:
             raise InputValidationError('input-binding')
         for h_, cfg in obj(pol.get('hosts'), 'policy-hosts').items():
@@ -426,6 +453,7 @@ def read_binding_inputs(env, argv):
                    'producerReceiverRelativePath': receiver_rel, 'binding': {
                        'requestSha256': binding['requestSha256'], 'reconciliationSha256': binding['reconciliationSha256'],
                        'factsSha256': facts_sha, 'runtime': RUNTIME, 'producerMode': producer_mode,
+                       'syntheticOfflineProof': SYNTHETIC_OFFLINE_PROOF,
                        'descriptorSha256': env.get('BP_PRODUCER_DESCRIPTOR_SHA256')}})
 
     elif phase == 'phase2':
@@ -434,6 +462,7 @@ def read_binding_inputs(env, argv):
         require(obj(idx.get('binding'), 'phase1-binding') == {
             'requestSha256': binding['requestSha256'], 'reconciliationSha256': binding['reconciliationSha256'],
             'factsSha256': facts_sha, 'runtime': RUNTIME, 'producerMode': env.get('BP_PRODUCER_MODE', 'unavailable'),
+            'syntheticOfflineProof': SYNTHETIC_OFFLINE_PROOF,
             'descriptorSha256': env.get('BP_PRODUCER_DESCRIPTOR_SHA256')}, 'phase1-binding-differs')
         if env.get('BP_PRODUCER_MODE') == 'same-github-job':
             require(shaf(need('BP_PRODUCER_DESCRIPTOR')) == need('BP_PRODUCER_DESCRIPTOR_SHA256'), 'phase2-descriptor')

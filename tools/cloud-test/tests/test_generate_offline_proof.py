@@ -70,6 +70,10 @@ class Verdict(unittest.TestCase):
         self.assertEqual(mode,'full');self.assertEqual(sum(caps.values()),42)
         self.assertEqual((caps['AHT-13'],caps['AHT-14']),(3,3))
         self.assertIn('NOT-A-RUN',req['approvedLimits']['approvalRef'])
+
+    def test_proof_prep_exports_the_explicit_synthetic_marker_after_request_environment(self):
+        source = (SCRIPTS / "proof_prep_cases.py").read_text(encoding="utf-8")
+        self.assertIn(". %s; set +a; export BP_SYNTHETIC_OFFLINE_PROOF=1;", source)
     def test_a_complete_clean_run_is_accepted(self):
         self.assertEqual(problems(), [])
 

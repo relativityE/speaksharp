@@ -144,6 +144,30 @@ class FeedbackDeliveryPolicy(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "producer-unavailable"):
             _builder.select_feedback_delivery(self.policy(), [7], False)
 
+    def test_only_the_explicit_placeholder_proof_can_generate_07_08_without_a_live_producer(self):
+        request = {"approvedLimits": {"approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER"},
+                   "selectionApprovalRef": "PLACEHOLDER-NOT-A-RUN-selection"}
+        facts = {"ownerApprovalReference": "PLACEHOLDER-NOT-A-RUN-owner-approval", "approvedBy": "PLACEHOLDER-NOT-A-RUN",
+                 "actionApproval": {"approvalRef": "PLACEHOLDER-NOT-A-RUN", "approvedBy": "PLACEHOLDER",
+                                    "selectionApprovalRef": "PLACEHOLDER-NOT-A-RUN-selection"}}
+        env = {"BP_SYNTHETIC_OFFLINE_PROOF": "1", "BP_RUNTIME": "Claude SpeakSharp R4", "BP_PRODUCER_MODE": "unavailable"}
+        self.assertTrue(_builder.synthetic_offline_proof(request, facts, env))
+        policy = _builder.select_feedback_delivery(self.policy(), [7, 8], False, True)
+        self.assertEqual(policy["caps"]["telemetry"], 20)
+        for changed in (
+            dict(env, BP_SYNTHETIC_OFFLINE_PROOF="0"),
+            dict(env, BP_RUNTIME="GitHub Actions SpeakSharp"),
+            dict(env, BP_PRODUCER_MODE="same-github-job"),
+        ):
+            with self.assertRaisesRegex(ValueError, "synthetic-offline-proof"):
+                _builder.synthetic_offline_proof(request, facts, changed)
+        bad_request = json.loads(json.dumps(request)); bad_request["approvedLimits"]["approvalRef"] = "REAL-APPROVAL"
+        with self.assertRaisesRegex(ValueError, "synthetic-offline-proof"):
+            _builder.synthetic_offline_proof(bad_request, facts, env)
+        bad_facts = json.loads(json.dumps(facts)); bad_facts["actionApproval"]["selectionApprovalRef"] = "CHANGED"
+        with self.assertRaisesRegex(ValueError, "synthetic-offline-proof"):
+            _builder.synthetic_offline_proof(request, bad_facts, env)
+
     def test_generated_policy_uses_real_guard_matcher_and_cumulative_caps(self):
         def same_job(builder):
             facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
