@@ -210,6 +210,14 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
             _in_period(scope, inputs["atUtc"], "manual-settle-outside-period")
             reserved = _reserved_on_chain(chain, inputs["campaignId"], inputs["runId"])
             usage, evidence = usage_from_record(inputs["record"], reserved)
+            if inputs.get("settleInput"):
+                # #1772 RETURN 1793645360.787039 #3: the closed settle input carries the run record's own digest; that, validated, is the
+                # evidence, never the digest of the projection.
+                import settle_input
+                try:
+                    evidence = settle_input.validate(inputs["record"])["recordSha256"]
+                except settle_input.Refused as err:
+                    raise Refused("manual-" + str(err))
             event = settle(reserved, usage, evidence, inputs["atUtc"])
         # A retry after the remote accepted the transition must recover the
         # original receipt, not construct a duplicate transition at the new
@@ -234,6 +242,9 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
             expected = head
             if command == "reserve":
                 rollup = accounting_rollup.receive(inputs["bootstrap"], scope, chain, pins.get("accepted_sha256"), pins.get("accepted_root"))
+                # #1772 RETURN 1793645360.787039 #2: the authenticated action approval is admitted against THIS checkpoint (the head the
+                # reserve is appended on) before anything is written, so a stale or invalid approval consumes no cap and leaves no reservation.
+                admit_action_approval(inputs.get("facts"), inputs["request"], inputs["admittedSha256"], accounting_rollup.checkpoint_bytes(rollup))
                 # Admission and headroom are checked immediately before the
                 # first append.  A recovered exact transition was already
                 # checked at its original parent and is reverified below.
@@ -242,6 +253,32 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
     except (state_ref_writer.Refused, accounting_rollup.Refused) as err:
         raise Refused("manual-reservation-" + str(err))
     return event
+
+
+def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint):
+    """#1772 RETURN 1793645360.787039 #2: the dispatched facts' action approval, admitted by the SAME check prepare applies
+    (init_run_inputs.check_action_approval) against the checkpoint bytes the reserve will be appended on. Refuses before any write."""
+    import init_run_inputs as I
+    try:
+        facts = json.loads(facts_raw)
+    except (TypeError, ValueError):
+        raise Refused("manual-reservation-approval-facts")
+    _need(isinstance(facts, dict) and isinstance(facts.get("actionApproval"), dict), "manual-reservation-approval-facts")
+    try:
+        I.check_action_approval(facts["actionApproval"], admitted_sha256, checkpoint, json.loads(request_raw))
+    except I.Refused as err:
+        raise Refused("manual-reservation-" + str(err))
+
+
+def _isolated_repo():
+    """#1772 RETURN 1793645360.787039 #1: a fresh `git init` transport repository with only Git's defaults (state_ref_writer.check_repo),
+    never the workflow checkout, whose remotes and config the writer correctly refuses."""
+    import subprocess
+    import tempfile
+    repo = tempfile.mkdtemp(prefix="manual-journal-")
+    _need(subprocess.run(["git", "init", "-q", repo], capture_output=True, env={"PATH": os.environ.get("PATH", ""), "GIT_CONFIG_NOSYSTEM": "1",
+          "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TEMPLATE_DIR": ""}).returncode == 0, "manual-reservation-repo")
+    return repo
 
 
 def activated():
@@ -259,7 +296,7 @@ def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("reserve", "settle", "release"))
     for flag in ("--repo", "--journal", "--out", "--request", "--admitted-sha256", "--run-id", "--bootstrap", "--scope", "--campaign-id",
-                 "--record", "--now"):
+                 "--record", "--settle-input", "--facts", "--now"):
         a.add_argument(flag)
     x = a.parse_args(argv[1:])
     try:
@@ -268,14 +305,17 @@ def main(argv):
         at = x.now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         if x.command == "reserve":
             inputs = {"request": _read(x.request), "admittedSha256": x.admitted_sha256, "runId": x.run_id, "bootstrap": _read(x.bootstrap),
-                      "scope": _read(x.scope), "atUtc": at}
+                      "scope": _read(x.scope), "facts": _read(x.facts), "atUtc": at}
         elif x.command == "settle":
-            inputs = {"campaignId": x.campaign_id, "runId": x.run_id, "record": _read(x.record), "scope": _read(x.scope), "atUtc": at}
+            _need(bool(x.record) != bool(x.settle_input), "manual-settle-input-source")
+            inputs = {"campaignId": x.campaign_id, "runId": x.run_id, "record": _read(x.record or x.settle_input),
+                      "settleInput": bool(x.settle_input), "scope": _read(x.scope), "atUtc": at}
         else:
             inputs = {}
         pins = {"accepted_sha256": accounting_rollup.ACCEPTED_BOOTSTRAP_SHA256, "accepted_root": accounting_rollup.ACCEPTED_ROOT,
                 "accepted_scope_sha256": ACCEPTED_SCOPE_SHA256}
-        execute(x.command, inputs, x.repo, state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT, x.journal, x.out, pins)
+        execute(x.command, inputs, x.repo or _isolated_repo(), state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT, x.journal, x.out,
+                pins)
         return 0
     except Refused as e:
         print("BLOCKED_SETUP: " + str(e), file=sys.stderr)

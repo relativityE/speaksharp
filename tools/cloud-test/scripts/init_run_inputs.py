@@ -691,7 +691,7 @@ def checkpoint_and_scope(repo, req, pins=None, chain_reader=None, own=None):
         # Applicable = stated by the admitted request; the cumulative request and identity ceilings are always stated (check_request).
         if lim.get(limit) is not None or limit in ("cumulativeCeilingRequests", "identityCap"):
             _need(_int(lim.get(limit)) and rc["ceilings"][ceiling] == lim[limit], "continuity-ceiling-not-the-request:" + ceiling)
-    return (json.dumps(rc, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii"), scope
+    return accounting_rollup.checkpoint_bytes(rc), scope
 
 
 def verified_checkpoint(repo, req, pins=None, chain_reader=None):

@@ -173,6 +173,12 @@ def _allocation_usage(allocation):
             "takes": allocation["takes"], "coachingRequests": allocation["coachingRequests"], "runnerMinutes": allocation["runnerMinutes"]}
 
 
+def checkpoint_bytes(rollup):
+    """The continuity checkpoint's canonical bytes: what an action approval's reconciliationSha256 names and the stage runner consumes.
+    One definition for init_run_inputs (prepare) and manual_reservation (the writer job's pre-append admission)."""
+    return (json.dumps(rollup, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+
+
 def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=None):
     """Prior usage for G5 from the accepted bootstrap, the approved period scope and the VERIFIED state-ref chain (as returned by
     state_ref_writer.validate_chain from the accepted root). `accepted_*` are TEST-ONLY overrides of the module pins."""

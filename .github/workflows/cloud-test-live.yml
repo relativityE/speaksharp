@@ -170,18 +170,23 @@ jobs:
           NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
           NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
           MANUAL_REQUEST: ${{ inputs.request }}
+          MANUAL_FACTS: ${{ inputs.facts }}
           CT_STATE_PUSH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" != schedule ]; then
             # Manual dispatch: the committed request at this protected-main commit, reserved under its admitted digest before the live job
             # prepares; prepare then admits the approver's checkpoint immediately before this reserve (init_run_inputs.manual_approval_chain).
+            # The writer admits that same action approval against the append's checkpoint FIRST and appends nothing otherwise; it writes
+            # through its own fresh `git init` transport repository, never this checkout. The continuity bootstrap and scope are the inputs
+            # init_run_inputs.CONTINUITY_DIR names; until activation supplies them the writer refuses (not activated) before reading any.
             case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo "BLOCKED_SETUP: request-not-in-the-reviewed-request-location"; exit 78 ;; esac
             case "$MANUAL_REQUEST" in *..*|*//*) echo "BLOCKED_SETUP: request-path"; exit 78 ;; esac
             git cat-file -e "$GITHUB_SHA:$MANUAL_REQUEST" || { echo "BLOCKED_SETUP: request-not-committed-at-source"; exit 78; }
-            python3 -I tools/cloud-test/scripts/manual_reservation.py reserve --repo "$GITHUB_WORKSPACE" --journal "$RUNNER_TEMP/reserve-journal" \
+            (umask 077; printf '%s' "$MANUAL_FACTS" > "$RUNNER_TEMP/manual-facts.json")
+            python3 -I tools/cloud-test/scripts/manual_reservation.py reserve --journal "$RUNNER_TEMP/reserve-journal" \
               --out "$RUNNER_TEMP/reserve-receipt.json" --request "$MANUAL_REQUEST" --admitted-sha256 "$(sha256sum "$MANUAL_REQUEST" | cut -d' ' -f1)" \
-              --run-id "$GITHUB_RUN_ID" --bootstrap tools/cloud-test/config/aggregate/accounting-bootstrap.json \
+              --run-id "$GITHUB_RUN_ID" --facts "$RUNNER_TEMP/manual-facts.json" --bootstrap tools/cloud-test/config/aggregate/accounting-bootstrap.json \
               --scope tools/cloud-test/config/aggregate/period-scope.json
             exit 0
           fi
@@ -514,9 +519,9 @@ jobs:
             case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo "BLOCKED_SETUP: request-not-in-the-reviewed-request-location"; exit 78 ;; esac
             case "$MANUAL_REQUEST" in *..*|*//*) echo "BLOCKED_SETUP: request-path"; exit 78 ;; esac
             git cat-file -e "$GITHUB_SHA:$MANUAL_REQUEST" || { echo "BLOCKED_SETUP: request-not-committed-at-source"; exit 78; }
-            python3 -I tools/cloud-test/scripts/manual_reservation.py settle --repo "$GITHUB_WORKSPACE" --journal "$RUNNER_TEMP/settle-journal" \
+            python3 -I tools/cloud-test/scripts/manual_reservation.py settle --journal "$RUNNER_TEMP/settle-journal" \
               --out "$RUNNER_TEMP/settle-receipt.json" --campaign-id "$(python3 -I tools/cloud-test/scripts/cfg_get.py "$MANUAL_REQUEST" runId)" \
-              --run-id "$GITHUB_RUN_ID" --record "$SETTLE" --scope tools/cloud-test/config/aggregate/period-scope.json
+              --run-id "$GITHUB_RUN_ID" --settle-input "$SETTLE" --scope tools/cloud-test/config/aggregate/period-scope.json
             exit 0
           fi
           (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")

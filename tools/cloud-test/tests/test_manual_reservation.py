@@ -36,6 +36,9 @@ class ManualReservation(Journal):
         super().setUp()
         request = json.loads(read(request_path("R7-full-coverage-proposal.json")))
         request["approvedLimits"]["runCapRequests"] = request["estimate"]["requests"]["runCap"]
+        # the request's own approval references, which the action approval must name (init_run_inputs.check_action_approval)
+        request["approvedLimits"].update(approvalRef="slack:1793555433.084449", approvedBy="synthetic-owner")
+        request["selectionApprovalRef"] = "slack:1793555433.084449"
         self.req = json.dumps(request, sort_keys=True).encode()
         self.sha = hashlib.sha256(self.req).hexdigest()
         self.scope = scope_raw()
@@ -70,10 +73,69 @@ class ManualReservation(Journal):
         return M.execute(command, inputs, self.repo, self.remote, root or self.root, os.path.join(d, "journal.json"),
                          os.path.join(d, "receipt.json"), pins or self.all_pins, self.remote)
 
+    def facts(self, **over):
+        """The dispatched facts: an action approval naming this request and the checkpoint at the CURRENT head (what the approver saw)."""
+        req = json.loads(self.req)
+        a = {"schema": "speaksharp.case-start-approval.v1", "requestSha256": self.sha,
+             "reconciliationSha256": hashlib.sha256(R.checkpoint_bytes(self.receive())).hexdigest(),
+             "approvalRef": req["approvedLimits"]["approvalRef"], "approvedBy": req["approvedLimits"]["approvedBy"],
+             "selectionApprovalRef": req["selectionApprovalRef"]}
+        a.update(over)
+        return json.dumps({"actionApproval": a}).encode()
+
     def reserve_inputs(self, **over):
-        i = {"request": self.req, "admittedSha256": self.sha, "runId": RUN, "bootstrap": self.raw, "scope": self.scope, "atUtc": AT}
+        i = {"request": self.req, "admittedSha256": self.sha, "runId": RUN, "bootstrap": self.raw, "scope": self.scope, "facts": self.facts(),
+             "atUtc": AT}
         i.update(over)
         return i
+
+    def test_the_writer_admits_the_action_approval_before_any_append(self):
+        # #1772 RETURN 1793645360.787039 #2 (broken before: the reserve was appended with no approval check, so an invalid or stale approval
+        # consumed caps and left an open reservation). Every refusal leaves the journal head unchanged.
+        before = self.head()
+        stale = self.facts()
+        for label, facts, code in (
+                ("no facts", None, "manual-reservation-approval-facts"),
+                ("no action approval", json.dumps({}).encode(), "manual-reservation-approval-facts"),
+                ("another request", self.facts(requestSha256="b" * 64), "manual-reservation-action-approval-not-the-request"),
+                ("another checkpoint", self.facts(reconciliationSha256="c" * 64), "manual-reservation-action-approval-not-the-checkpoint"),
+                ("another approver", self.facts(approvedBy="someone-else"), "manual-reservation-action-approval-reference"),
+                ("an extra field", self.facts(extra=1), "manual-reservation-action-approval-shape")):
+            self.refused(code, self.execute, "reserve", self.reserve_inputs(facts=facts), "a-" + label.replace(" ", "-"))
+            self.assertEqual(self.head(), before, label)
+        # a STALE approval: another run reserved after the approver saw the checkpoint, so it no longer names the append's checkpoint
+        self.reserved(run="41400000077")
+        moved = self.head()
+        self.refused("manual-reservation-action-approval-not-the-checkpoint", self.execute, "reserve", self.reserve_inputs(facts=stale), "a-stale")
+        self.assertEqual(self.head(), moved)
+        # fixed after: the current approval is admitted and the reserve appended
+        e = self.execute("reserve", self.reserve_inputs(), "a-ok")
+        self.assertEqual(e["provenance"], "request-sha256:" + self.sha)
+        self.assertNotEqual(self.head(), moved)
+
+    def test_the_writer_never_uses_a_configured_checkout_as_its_transport(self):
+        # #1772 RETURN 1793645360.787039 #1: the workflow checkout has remotes and config, which the writer refuses (unsafe-git-config);
+        # without --repo the CLI uses a fresh `git init` repository that passes the same check.
+        hostile = os.path.join(self.d, "checkout-like")
+        subprocess.run(["git", "init", "-q", hostile], check=True)
+        subprocess.run(["git", "-C", hostile, "remote", "add", "origin", "https://example.invalid/repo.git"], check=True)
+        with self.assertRaises(W.Refused) as e:
+            W.check_repo(hostile)
+        self.assertEqual(str(e.exception), "unsafe-git-config")
+        isolated = M._isolated_repo()
+        self.assertIsNone(W.check_repo(isolated))
+        self.assertEqual(os.listdir(os.path.dirname(isolated)).count(os.path.basename(isolated)), 1)
+
+    def test_a_settle_from_the_closed_input_keeps_the_run_records_own_digest_as_evidence(self):
+        # #1772 RETURN 1793645360.787039 #3 (broken before: the evidence became the projection's digest, losing the run record's provenance)
+        import settle_input
+        self.execute("reserve", self.reserve_inputs(), "r")
+        projection = settle_input.project(self.record())
+        settle = {"campaignId": "R7-full-coverage", "runId": RUN, "record": projection, "settleInput": True, "scope": self.scope, "atUtc": AT}
+        s = self.execute("settle", settle, "s")
+        self.assertEqual(s["provenance"], "evidence-sha256:" + hashlib.sha256(self.record()).hexdigest())
+        self.assertNotEqual(s["provenance"], "evidence-sha256:" + hashlib.sha256(projection).hexdigest())
+        self.assertEqual(s["allocation"]["requests"], 2930)  # the same settled usage as from the full record
 
     def test_a_reservation_charges_requests_plus_identity_reads_as_g5_does(self):
         e = self.reserved()

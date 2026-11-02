@@ -399,7 +399,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
         settle_run = next(st["run"] for st in self.jobs["journal-settle"]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))
         self.assertLess(settle_run.index("settle_input.py validate"), settle_run.index("reservations.py journal-settle"))
         self.assertLess(settle_run.index("settle_input.py validate"), settle_run.index("manual_reservation.py settle"))
-        self.assertIn('--record "$SETTLE"', settle_run[settle_run.index("manual_reservation.py settle"):])
+        manual_settle = settle_run[settle_run.index("manual_reservation.py settle"):settle_run.index("exit 0", settle_run.index("manual_reservation.py settle"))]
+        self.assertIn('--settle-input "$SETTLE"', manual_settle)  # its evidence is the embedded record digest (RETURN 1793645360.787039 #3)
+        self.assertNotIn("--record", manual_settle)
 
     def test_the_dispatch_names_a_committed_request_and_never_generates_one(self):
         on = self.doc.get("on", self.doc.get(True))
@@ -659,6 +661,16 @@ class ManualPathNeverRunsOnSchedule(unittest.TestCase):
             self.assertEqual(next(st for st in jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))["env"]["MANUAL_REQUEST"],
                              "${{ inputs.request }}")
         self.assertIn("--admitted-sha256", writers_of(jobs, "journal-reserve"))
+        # RETURN 1793645360.787039: the approval is admitted by the writer before the append (#2), the writer never uses the workflow
+        # checkout as its transport repository (#1), and the continuity inputs are the ones init_run_inputs reads (addendum).
+        self.assertIn('--facts "$RUNNER_TEMP/manual-facts.json"', writers_of(jobs, "journal-reserve"))
+        import init_run_inputs as I
+        for name in ("journal-reserve", "journal-settle"):
+            run = writers_of(jobs, name)
+            manual = run[run.index("manual_reservation.py"):run.index("exit 0", run.index("manual_reservation.py"))]
+            self.assertNotIn("--repo", manual)
+            self.assertIn("--scope %s/%s" % (I.CONTINUITY_DIR, I.CONTINUITY_SCOPE), manual)
+        self.assertIn("--bootstrap %s/%s" % (I.CONTINUITY_DIR, I.CONTINUITY_BOOTSTRAP), writers_of(jobs, "journal-reserve"))
         live = " ".join(st.get("run", "") for st in jobs["live"]["steps"])
         self.assertNotIn("manual-reserve", live)
         self.assertNotIn("manual-settle", live)
