@@ -390,7 +390,9 @@ class FullPlanProof(unittest.TestCase):
         # Build a genuinely bound minimal request, approval and reconciliation,
         # then prove the full-catalog acceptance still rejects that valid
         # partial plan rather than confusing it with a binding failure.
-        fixture = SyntheticBuilder(os.path.join(self.work, "plan-minimal-bound"), cases=(12,), minimal=True)
+        minimal_root = os.path.join(self.work, "plan-minimal-bound")
+        os.makedirs(minimal_root)
+        fixture = SyntheticBuilder(minimal_root, cases=(12,), minimal=True)
         built = [fixture.run("phase1"), fixture.run("phase2")]
         self.assertEqual([b.returncode for b in built], [0, 0], [b.stderr for b in built])
         private = fixture.env["BP_PRIVATE"]
