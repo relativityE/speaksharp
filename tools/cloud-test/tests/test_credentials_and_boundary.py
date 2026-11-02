@@ -213,24 +213,57 @@ class Boundary(unittest.TestCase):
                 self.assertNotIn("workflow_dispatch", text, fn)
 
 
+NETWORK_IMPORT = re.compile(r"^\s*(import|from)\s+(socket|urllib|http|requests|ssl|ftplib|smtplib|aiohttp|httpx|websocket)\b", re.M)
+NETWORK_ALLOWED = {"install_browser.py", "_netguard.py"}
+# Sam 1793583857.461789 (narrow A): the ONE admitted Case 10 transport is exempt by its exact path under the package root, never by basename;
+# it runs only as its own `-I` subprocess, while every control-plane process keeps the guard.
+ADMITTED_TRANSPORT = os.path.join("scripts", "case10_reader.py")
+GUARD_EXEMPT = ("_netguard.py", "_common.py", "install_browser.py", "cfg_get.py", "stage_env.py", "stimulus_preflight_retry.py", "case_start_caps.py")
+
+
+def network_offenders(root):
+    offenders = []
+    for sub in ("scripts", "report", "harness-adapter"):
+        for r, _, fs in os.walk(os.path.join(root, sub)):
+            for fn in fs:
+                rel = os.path.relpath(os.path.join(r, fn), root)
+                if fn.endswith(".py") and fn not in NETWORK_ALLOWED and rel != ADMITTED_TRANSPORT and "tests" not in r:
+                    if NETWORK_IMPORT.search(open(os.path.join(r, fn), encoding="utf-8").read()):
+                        offenders.append(rel)
+    return offenders
+
+
+def unguarded(root):
+    found = []
+    for fn in os.listdir(os.path.join(root, "scripts")):
+        if fn.endswith(".py") and fn not in GUARD_EXEMPT and os.path.join("scripts", fn) != ADMITTED_TRANSPORT:
+            text = open(os.path.join(root, "scripts", fn), encoding="utf-8").read()
+            if not ("from _common import" in text or "import _netguard" in text or "import _common" in text or "from verify_receipts import" in text):
+                found.append(fn)
+    return found
+
+
 class NoNetworkImports(unittest.TestCase):
     def test_only_the_run_environment_browser_installer_may_use_the_network(self):
-        pat = re.compile(r"^\s*(import|from)\s+(socket|urllib|http|requests|ssl|ftplib|smtplib|aiohttp|httpx|websocket)\b", re.M)
-        allowed = {"install_browser.py", "_netguard.py"}
-        offenders = []
-        for sub in ("scripts", "report", "harness-adapter"):
-            for r, _, fs in os.walk(os.path.join(ROOT, sub)):
-                for fn in fs:
-                    if fn.endswith(".py") and fn not in allowed and "tests" not in r:
-                        if pat.search(open(os.path.join(r, fn), encoding="utf-8").read()):
-                            offenders.append(fn)
-        self.assertEqual(offenders, [])
+        self.assertEqual(network_offenders(ROOT), [])
 
     def test_every_control_plane_script_loads_the_guard(self):
-        for fn in os.listdir(os.path.join(ROOT, "scripts")):
-            if fn.endswith(".py") and fn not in ("_netguard.py", "_common.py", "install_browser.py", "cfg_get.py", "stage_env.py", "stimulus_preflight_retry.py", "case_start_caps.py"):
-                text = open(os.path.join(ROOT, "scripts", fn), encoding="utf-8").read()
-                self.assertTrue("from _common import" in text or "import _netguard" in text or "import _common" in text or "from verify_receipts import" in text, fn)
+        self.assertEqual(unguarded(ROOT), [])
+
+    def test_the_admitted_transport_is_exempt_by_exact_path_only_and_every_other_module_still_fails_both_checks(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, d)
+        net = "import urllib.request\n"
+        for rel in (ADMITTED_TRANSPORT, os.path.join("report", "case10_reader.py"), os.path.join("harness-adapter", "case10_reader.py"),
+                    os.path.join("scripts", "other_reader.py"), os.path.join("scripts", "nested", "case10_reader.py")):
+            os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
+            with open(os.path.join(d, rel), "w", encoding="utf-8") as f:
+                f.write(net)
+        # a duplicate basename anywhere else is still an offender; only the exact path is admitted
+        self.assertEqual(sorted(network_offenders(d)), sorted([os.path.join("report", "case10_reader.py"),
+                         os.path.join("harness-adapter", "case10_reader.py"), os.path.join("scripts", "other_reader.py"),
+                         os.path.join("scripts", "nested", "case10_reader.py")]))
+        self.assertEqual(unguarded(d), ["other_reader.py"])
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _netguard  # noqa: F401,E402  (offline: every network call fails and is counted)
 from manual_reservation import G5_KEYS, RUN_RECORD_SCHEMA  # noqa: E402
 
 KEYS = {"schema", "runId", "executionProvenance", "spend", "recordSha256", "case10ObservationSha256"}
