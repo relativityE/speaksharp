@@ -1,6 +1,7 @@
 /** Raw-decode diagnostic seam only. Product evaluation uses the real session lifecycle driver. */
 import { PrivateSTT } from '@/services/transcription/engines/PrivateSTT';
 import { CANDIDATES, type CandidateId } from '@/services/transcription/candidateRegistry';
+import { privatePreparationBudgetMs } from '@/services/transcription/preparationBudget';
 
 type ArmId = CandidateId;
 
@@ -89,7 +90,8 @@ async function initialize(candidateId: ArmId, backend: 'wasm' | 'webgpu', consen
     } else if (!availability.isAvailable) {
       throw new Error(availability.message ?? 'Selected candidate is unavailable');
     }
-    const result = await selected.init();
+    // The same per-candidate preparation budget the app passes (preparationBudget.ts), never the engine's built-in default.
+    const result = await selected.init(privatePreparationBudgetMs('private', false, candidate));
     assertCurrentEngine(selected, selectedGeneration);
     if (!result.isOk) throw result.error;
     if (selected.getMetadata().candidateId !== candidateId) throw new Error('Facade initialized a different candidate');

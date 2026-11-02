@@ -67,6 +67,11 @@ export function parseModelPackage(input: unknown): ModelPackage {
         || p.execution.preprocessing.features !== 'runtime' || !p.execution.implemented
         || !['incremental','snapshot'].includes(p.execution.liveResultKind)) refuse('UNSUPPORTED_PACKAGE_PREPROCESSING');
     const decode = p.execution.decode;
+    // A package's preparation budget is bounded data; adapters that acquire and build large pinned assets must declare it, so an
+    // imported Granite/Parakeet package cannot silently fall back to the 5 s service default.
+    const budget = p.execution.preparationBudgetMs;
+    if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 5_000 || budget > 600_000)) refuse('PACKAGE_PREPARATION_BUDGET_INVALID');
+    if ((p.engine === 'granite-ctc' || p.engine === 'parakeet-tdt') && budget === undefined) refuse('PACKAGE_PREPARATION_BUDGET_MISSING');
     if (p.engine === 'transformers-js' && (p.execution.family !== 'whisper' || decode?.kind !== 'whisper'
         || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(p.execution.localModelId ?? '') || p.model.device !== 'wasm' || p.runtime.distribution === 'pinned-assets'
         || p.model.dtype !== null

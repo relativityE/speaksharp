@@ -58,6 +58,9 @@ export interface CandidateExecution {
     /** Registration and historical attribution do not establish an implemented loading path. */
     implemented: boolean;
     liveResultKind: 'incremental' | 'snapshot';
+    /** Model-specific Private preparation budget (acquisition + verification + runtime build), as DATA rather than an engine check.
+     * Absent: the service default. A large model on a slower device needs more than the default; see preparationBudget.ts. */
+    preparationBudgetMs?: number;
     preprocessing: {
         input: 'float32-pcm'; channels: 1; sampleRateHz: number;
         /** Feature extraction is implemented by the pinned runtime and preprocessing assets. */
@@ -199,7 +202,8 @@ const CANDIDATE_DEFINITIONS = deepFreeze({
         notReadyReason: 'Executable pinned adapter; actual model/browser/product qualification is still required',
         comparisonNotReadyReason: 'Not approved for production comparison; actual model/device evidence missing',
         execution: { family: 'parakeet-tdt', variant: 'tdt-v3-int8', implemented: true,
-            liveResultKind: 'incremental', preprocessing: PCM_16K,
+            // 683 MB (652 MB int8 encoder) built on one WASM thread: 120 s expired in the `model` phase on an 8 GB host (PO 2026-11-02).
+            liveResultKind: 'incremental', preparationBudgetMs: 300_000, preprocessing: PCM_16K,
             decode: { kind: 'parakeet-tdt', backend: 'wasm', encoderPrecision: 'int8', decoderPrecision: 'int8',
                 encoderFile: 'encoder-model.int8.onnx', decoderFile: 'decoder_joint-model.int8.onnx',
                 vocabularyFile: 'vocab.txt', configurationFile: 'config.json',
@@ -226,7 +230,7 @@ const CANDIDATE_DEFINITIONS = deepFreeze({
         notReadyReason: 'Pinned adapter source implemented; browser execution and product qualification have not run',
         comparisonNotReadyReason: 'Not approved for production comparison; actual browser/device evidence missing',
         execution: { family: 'granite-ctc', variant: 'turboctc-q4f16', implemented: true,
-            liveResultKind: 'incremental', preprocessing: PCM_16K,
+            liveResultKind: 'incremental', preparationBudgetMs: 120_000, preprocessing: PCM_16K,
             decode: { kind: 'granite-ctc', modelFile: 'ctc_conformer_q4f16.onnx', applyAgc: true } },
         runtime: { package: 'onnxruntime-web', version: '1.26.0', distribution: 'pinned-assets' },
         model: { id: granitePins.upstreamDeclaredModel, revision: null,

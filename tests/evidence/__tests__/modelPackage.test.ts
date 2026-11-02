@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { CANDIDATES } from '../../../frontend/src/services/transcription/candidateRegistry';
-import { candidateFromPackage, effectiveBackend, sealModelPackage, verifyModelPackage, expectedModelIdentity, productModelMetadata, type ModelPackage } from '../../../frontend/src/services/transcription/modelPackage';
+import { candidateFromPackage, effectiveBackend, parseModelPackage, sealModelPackage, verifyModelPackage, expectedModelIdentity, productModelMetadata, type ModelPackage } from '../../../frontend/src/services/transcription/modelPackage';
 
 beforeAll(()=>{vi.stubGlobal('crypto',webcrypto);});
 afterAll(()=>vi.unstubAllGlobals());
@@ -35,6 +35,25 @@ describe('one serializable compatible package',()=>{
       {...pkg,assets:{...pkg.assets,files:[...pkg.assets.files,{path:'run.mjs',url:'/models/justworks-whisper/run.mjs',bytes:1,sha256:'a'.repeat(64)}]}}]){
       await expect(verifyModelPackage(changed)).rejects.toThrow();
     }
+  });
+  it('a preparation budget is bounded package data, and the large pinned-asset adapters must declare one',async()=>{
+    // Parse order puts the budget check before the profile/asset checks, so the registered candidates' own descriptors suffice here.
+    const shaped=(id:string,execution:Record<string,unknown>)=>{const c=CANDIDATES[id];
+      return {schemaVersion:1,kind:'speaksharp-model-package',id:'imported:'+c.engine,packageDigest:'a'.repeat(64),assetDigest:'b'.repeat(64),
+        engine:c.engine,runtime:c.runtime,model:c.model,execution,assets:{files:[]},license:'fixture'};};
+    for(const id of ['granite:turboctc-q4f16','parakeet:tdt-v3:int8']){
+      const {preparationBudgetMs,...withoutBudget}=CANDIDATES[id].execution;
+      expect(preparationBudgetMs,`${id} carries its budget as data`).toBeGreaterThan(5000);
+      expect(()=>parseModelPackage(shaped(id,withoutBudget))).toThrow('PACKAGE_PREPARATION_BUDGET_MISSING');
+      for(const bad of [4_999,600_001,120_000.5,'120000',Number.NaN])
+        expect(()=>parseModelPackage(shaped(id,{...withoutBudget,preparationBudgetMs:bad}))).toThrow('PACKAGE_PREPARATION_BUDGET_INVALID');
+    }
+    // A Whisper package may omit it (service default) or declare an in-range value; the declared value is sealed into the digest.
+    const pkg=await fourthPackage();expect(pkg.execution.preparationBudgetMs).toBeUndefined();
+    const declared=await sealModelPackage({...pkg,execution:{...pkg.execution,preparationBudgetMs:30_000}});
+    expect(candidateFromPackage(declared,'fourth.json').execution.preparationBudgetMs).toBe(30_000);
+    const raised=structuredClone(declared);raised.execution.preparationBudgetMs=600_000;
+    await expect(verifyModelPackage(raised)).rejects.toThrow('PACKAGE_DIGEST_MISMATCH');
   });
   it('derives the backend each registered candidate actually runs on, never guessing an undeclared one',()=>{
     // The v2 worker's ONNX Runtime build is wasm-only, so the incumbent's undeclared device is wasm; declared devices pass through.
