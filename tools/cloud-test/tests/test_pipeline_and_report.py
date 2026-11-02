@@ -146,6 +146,21 @@ class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
         self.assertIn("0 comparable row(s) still FAIL", html_p)
         self.assertNotIn("Cases carrying a comparable FAIL", html_p)
 
+    def test_the_headline_never_contradicts_the_carried_nightly_outcome(self):
+        # RETURN 1793577431.476549: the headline is derived from the retained nightly evidence; the bootstrap is labelled historical.
+        failing, _, _ = self.outputs(["P", "F"])
+        self.assertEqual((failing["status"], failing["recommendation"]), ("BLOCKED", "FIX AND RETEST"))  # a retest stays the recommendation
+        self.assertIn("still FAIL", failing["customerImpact"])
+        self.assertIn("AHT-05", failing["customerImpact"] + " ".join(failing["bad"]))
+        self.assertIn("historical", failing["comparisonBasis"])
+        self.assertIn("customerImpact", failing["bootstrapHistorical"])
+        fixed, _, _ = self.outputs(["P", "F", "P"])
+        self.assertNotIn("still FAIL", fixed["customerImpact"])
+        self.assertNotIn("AHT-05", " ".join(fixed["bad"]))
+        self.assertNotEqual(fixed["recommendation"], "FIX AND RETEST")
+        for f in (failing, fixed):  # the headline and the carried-history outcome agree, whatever the bootstrap pair said
+            self.assertEqual(bool(f["nightlyHistory"]["carriedFailRows"]), "still FAIL" in f["customerImpact"])
+
 
 class ReportRefusals(unittest.TestCase):
     @classmethod

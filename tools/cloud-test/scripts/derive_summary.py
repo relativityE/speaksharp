@@ -224,6 +224,44 @@ def nightly_history(baselines):
                                                    if j.get("previousVerdict") is not None and j.get("lastKnownGood") is None)}
 
 
+def nightly_headline(f, nh, gates, limit=None):
+    """With qualified retained nightly evidence (RETURN 1793577431.476549), the headline is derived from it, never from the fixed R4C/R5
+    bootstrap comparison, which is kept only as a labelled historical field. A comparable row still FAILing in the latest retained evidence
+    makes the headline BLOCKED / FIX AND RETEST (a retest stays possible); otherwise the gate decision decides."""
+    if not nh or not nh.get("occurrences"):
+        return f
+    f = dict(f)
+    f["bootstrapHistorical"] = {k: f[k] for k in ("customerImpact", "deployedSinceLastRun", "good", "bad", "readiness")}
+    f["comparisonBasis"] = "nightly carried-forward history (%d qualified occurrence(s), sequence %s); the R4C/R5 bootstrap comparison is historical only" % (
+        nh["occurrences"], nh["sequence"])
+    f["deployedSinceLastRun"] = "the latest retained nightly evidence is the comparison basis; the bootstrap releases are historical"
+    go = gates.get("decision") == "GO"
+    if nh["carriedFailRows"]:
+        cases = ", ".join(cap(nh["carriedFailCases"], 4))
+        f["customerImpact"] = "%d comparable row(s) still FAIL in the latest retained nightly evidence: %s." % (nh["carriedFailRows"], cases)
+        f["bad"] = ["carried nightly FAIL: %s" % cases]
+        f["good"] = ["%d of %d rows comparable" % (nh["comparableRows"], nh["rowsTotal"])]
+        f["readiness"] = "Not ready: the retained nightly evidence carries a FAIL in %s." % cases
+        f["status"], f["recommendation"] = "BLOCKED", "FIX AND RETEST"
+    else:
+        f["customerImpact"] = "No comparable row carries a FAIL in the latest retained nightly evidence (%d of %d rows comparable)." % (
+            nh["comparableRows"], nh["rowsTotal"])
+        f["bad"] = ["none in the retained nightly evidence"]
+        f["good"] = ["%d of %d rows comparable, none carrying a FAIL" % (nh["comparableRows"], nh["rowsTotal"])]
+        f["readiness"] = ("Gates open: %s." % ", ".join(f["blockers"])) if not go else "Gates GO on the retained nightly basis."
+        f["status"] = "BLOCKED" if not go else ("READY" if nh["comparableRows"] == nh["rowsTotal"] else "LIMITED")
+        f["recommendation"] = "PROCEED" if go else "HOLD"
+    if limit:
+        for n in (3, 2, 1):
+            f2 = dict(f)
+            for k in ("good", "bad", "unknown", "blockers"):
+                f2[k] = cap(f[k], n)
+            if total_words(f2) <= limit:
+                return f2
+        return f2
+    return f
+
+
 def main():
     a = argparse.ArgumentParser()
     for k in ("comparison", "ledger-derived", "release-verification", "gates", "spend", "workflow", "request", "out"):
@@ -239,6 +277,7 @@ def main():
                 load(x.alerts) if x.alerts else None, load(x.isolation) if x.isolation else None)
     nh = nightly_history(load(x.nightly_baselines)) if x.nightly_baselines else None
     if nh is not None:
+        f = nightly_headline(f, nh, load(x.gates), wf["report"]["executiveSummaryMaxWords"] - 70)
         f["nightlyHistory"] = nh
     dump({"schema": "speaksharp.cloud-test.summary.v2", "derived": True, "fields": f}, x.out)
     print("summary derived:", f["status"], f["recommendation"])
