@@ -236,6 +236,7 @@ jobs:
           [ "$(sha256sum < "$DST" | cut -d' ' -f1)" = "$RECONCILIATION_SHA256" ] || { echo "BLOCKED_SETUP: reconciliation-copy-differs"; exit 78; }
       - name: Stage runner (install-tools, plans, stimulus preflight, gates)
         env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}

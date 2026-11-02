@@ -210,6 +210,11 @@ class LiveWorkflowPolicy(unittest.TestCase):
         holders = [s.get("name", s.get("uses")) for j in self.jobs.values() for s in j["steps"] if "CLOUD_TEST_LIVE_ACCOUNTS" in (s.get("env") or {})]
         self.assertEqual(holders, [init["name"]])
 
+    def test_plan_build_receives_the_project_url_needed_to_resolve_account_bindings(self):
+        setup = next(s for s in self.jobs["live"]["steps"] if "for stage in install-tools build-plan" in s.get("run", ""))
+        self.assertEqual(setup["env"]["VITE_SUPABASE_URL"], "${{ vars.SUPABASE_URL }}")
+        self.assertEqual(setup["env"]["VITE_SUPABASE_ANON_KEY"], "${{ secrets.SUPABASE_ANON_KEY }}")
+
     def test_the_approved_window_is_rechecked_immediately_before_the_run_step(self):
         steps = self.jobs["live"]["steps"]
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")

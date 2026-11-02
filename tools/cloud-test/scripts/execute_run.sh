@@ -54,7 +54,7 @@ run_stage() {
   local stage="$1"; shift
   local -a e=("${PYENV[@]}")
   local names n
-  names="$(python3 -I "$ROOT/scripts/stage_env.py" "$CFG" "$stage")" || blocked "stage environment configuration cannot be read"
+  names="$(python3 -I "$ROOT/scripts/stage_env.py" "$CFG" "$stage" "$REQ")" || blocked "stage environment configuration or request selection cannot be read"
   while IFS= read -r n; do
     [ -n "$n" ] || continue
     [ -n "${!n:-}" ] || blocked "stage $stage needs $n and it is not set in the environment"
