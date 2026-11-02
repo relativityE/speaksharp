@@ -1434,6 +1434,34 @@ class ContinuityCheckpoint(Journal):
         p.update(over)
         return p
 
+    def manual_reserve(self, request_sha, campaign, run="123"):
+        """#1772 review 4446137323: the journal-reserve writer job appends a manual dispatch's reserve through the REAL writer BEFORE the
+        read-only live job prepares (the approver's checkpoint is the one before it)."""
+        from reservations import CATS
+        head = W.fetch_head(self.repo, self.remote, self.remote)
+        W.propose(self.repo, self.remote, head, {"type": "reserve", "campaignId": campaign, "runId": run, "attempt": 1,
+                                                 "allocation": {k: 1 for k in CATS}, "provenance": "request-sha256:" + request_sha,
+                                                 "atUtc": utc(self.now)}, self.root, self.remote)
+
+    def test_manual_prepare_admits_the_checkpoint_before_its_own_reserve_and_nothing_else(self):
+        # #1772 review 4446137323 (broken before: the in-job manual reserve could never push). The verified head must add exactly this
+        # execution's own open reserve to its parent; the approver's checkpoint is that parent.
+        own = ("R-camp", "123", 1, "a" * 64)
+        mine = {"type": "reserve", "campaignId": "R-camp", "runId": "123", "attempt": 1, "allocation": {}, "provenance": "request-sha256:" + "a" * 64,
+                "atUtc": "2026-11-02T01:00:00Z"}
+        other = dict(mine, runId="999")
+        root = ("r" * 40, [], b"")
+        parent = ("p" * 40, [other], b"")
+        self.assertEqual(I.manual_approval_chain([root, parent, ("h" * 40, [other, mine], b"")], own), [root, parent])
+        for label, chain in (("no own reserve at the head", [root, parent]),
+                             ("an event after the own reserve", [root, ("p" * 40, [mine], b""), ("h" * 40, [mine, other], b"")]),
+                             ("another run's reserve at the head", [root, ("h" * 40, [other], b"")]),
+                             ("a different request digest", [root, ("h" * 40, [dict(mine, provenance="request-sha256:" + "b" * 64)], b"")]),
+                             ("the own reserve already settled", [root, ("p" * 40, [mine], b""),
+                                                                   ("h" * 40, [mine, dict(mine, type="settle")], b"")])):
+            with self.assertRaisesRegex(I.Refused, "manual-reserve-not-at-head", msg=label):
+                I.manual_approval_chain(chain, own)
+
     def check(self, req=None, pins=None):
         reader = lambda root: W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), root)
         return I.verified_checkpoint(self.checkout, req or self.req, pins or self.all_pins(), reader)
@@ -1541,6 +1569,7 @@ class ContinuityCheckpoint(Journal):
         pins = self.all_pins()
         reader = lambda root: W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), root)
         rc_bytes = I.verified_checkpoint(repo.dir, req, pins, reader)
+        self.manual_reserve(request_sha, req["runId"])  # the journal-reserve writer job, before the live job prepares
 
         def prepare(envelope):
             out, env, outputs = (os.path.join(repo.dir, "%s-%d" % (n, len(os.listdir(repo.dir)))) for n in ("out", "env", "outputs"))
@@ -1624,6 +1653,7 @@ class ContinuityCheckpoint(Journal):
         pins = self.all_pins()
         reader = lambda root: W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), root)
         rc_bytes = I.verified_checkpoint(repo.dir, req, pins, reader)
+        self.manual_reserve(request_sha, req["runId"])  # the journal-reserve writer job, before the live job prepares
         backend = {"manifestRef": "synthetic:backend-manifest@1", "generation": 6, "completion": "OFF", "migration129": "absent"}
         admitted = facts(backend=backend, actionApproval=action_approval(req, request_sha, rc_bytes))
         out, env_out, outputs = (os.path.join(repo.dir, n) for n in ("out", "env", "outputs"))

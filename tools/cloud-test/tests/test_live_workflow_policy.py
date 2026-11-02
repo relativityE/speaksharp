@@ -269,9 +269,8 @@ class LiveWorkflowPolicy(unittest.TestCase):
         steps = self.jobs["live"]["steps"]
         bind = next(i for i, s in enumerate(steps) if s.get("name") == "Bind private runner paths and initialize the inactive accounting workspace")
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
-        reserve = next(i for i, s in enumerate(steps) if s.get("name") == "Reserve the admitted run through its priority-specific path before product execution")
         collect = next(s for s in steps if s.get("name", "").startswith("Collect, verify the binding"))["run"]
-        self.assertLess(bind, reserve)
+        self.assertLess(bind, run)
         workspace = steps[bind]["run"]
         for token in ('mkdir -m 700 "$state"', 'git -C "$state" init -b private-run-state',
                       'transport":"UNBOUND"', 'echo "CT_OUT=$RUNNER_TEMP/out"',
@@ -283,22 +282,24 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('echo "CT_STATE_JOURNAL_RESERVE=$RUNNER_TEMP/cloud-test-state-reserve.json"', workspace)
         self.assertIn('echo "CT_STATE_JOURNAL_SETTLE=$RUNNER_TEMP/cloud-test-state-settle.json"', workspace)
         self.assertNotIn('CT_STATE_JOURNAL=', workspace)
-        self.assertLess(reserve, run)
-        # Composed with J1 (#1772 thread 4442216960): a scheduled run's recurring reserve is the journal-reserve job, the only state-ref writer,
-        # appended and read back BEFORE the live job; the live job's priority-specific reserve step is the manual path and never runs on a
-        # schedule, so no checkout-local ledger stands in for durable state.
-        self.assertEqual(steps[reserve]["if"], "${{ github.event_name != 'schedule' }}")
-        self.assertEqual(steps[reserve]["run"].strip(), "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
+        # Composed with J1 (#1772 thread 4442216960) and #1772 review 4446137323: every reserve and settle, scheduled or manual, is appended by
+        # the journal-reserve / journal-settle writer jobs before and after the live job; the read-only live job writes no state at all, so no
+        # checkout-local ledger stands in for durable state and the credentialed job never holds the push token.
         self.assertIn("reservations.py journal-reserve", writers_of(self.jobs, "journal-reserve"))
-        self.assertIn('if [ "$GITHUB_EVENT_NAME" != schedule ]', collect)
-        self.assertLess(collect.index("execute_run.sh collect"), collect.index("execute_run.sh manual-settle"))
+        self.assertIn("manual_reservation.py reserve", writers_of(self.jobs, "journal-reserve"))
+        self.assertIn("manual_reservation.py settle", writers_of(self.jobs, "journal-settle"))
+        live_runs = " ".join(st.get("run", "") for st in steps)
+        for gone in ("execute_run.sh manual-reserve", "execute_run.sh manual-settle", "manual_reservation.py"):
+            self.assertNotIn(gone, live_runs)
         self.assertNotIn("manual-release", self.text)
         runner = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
         self.assertIn('--accepted-input-dir "$accepted"', runner)
         self.assertIn('--receiver-receipt "$accepted/receiver-receipt.json"', runner)
         self.assertIn('--receiver-manifest "$CT_RETAINED_GATE_MANIFEST"', runner)
-        for token in ('--history-index "$CT_HISTORY_INDEX"', '--reservations "$CT_RESERVATIONS"',
-                      '--approval "$CT_APPROVAL"', '--receipts-root "$CT_RECEIPTS_ROOT"'):
+        # D2(a) composition: the gates read one reservation input, RES_IN: the legacy CT_RESERVATIONS file by default, replaced on the nightly
+        # route by the verified journal snapshot.
+        for token in ('--history-index "$CT_HISTORY_INDEX"', 'RES_IN="${CT_RESERVATIONS:-}"', '--reservations "$RES_IN"',
+                      'RES_IN="$OUT/journal-snapshot.json"', '--approval "$CT_APPROVAL"', '--receipts-root "$CT_RECEIPTS_ROOT"'):
             self.assertIn(token, runner)
         self.assertIn('blocked "$recurring is required for retained-input recurring gates"', runner)
         self.assertIn('cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json"', runner)
@@ -386,17 +387,19 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_handoff_artifact_is_short_lived_and_not_the_authoritative_record(self):
         up = [s for s in self.jobs["live"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
-        self.assertEqual(len(up), 2)  # the closed record (record job) and, on schedule only, the closed settle input for journal-settle (J1)
+        self.assertEqual(len(up), 2)  # the closed record (record job) and the closed settle input for journal-settle (J1, every route)
         self.assertTrue(all(u["with"]["retention-days"] == 1 for u in up))
         self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in up), ["latest-record.json", "settle-input.json"])
         settle = next(u for u in up if u["with"]["path"].endswith("settle-input.json"))
-        self.assertIn("github.event_name == 'schedule'", settle["if"])
+        self.assertEqual(settle["if"], "always()")
         # Sam 1793580806.654369: the public artifact is the closed projection, never the collector's run record; journal-settle validates it
         project = next(st for st in self.jobs["live"]["steps"] if "settle_input.py project" in st.get("run", ""))
         self.assertIn('--record "$CT_OUT/run-record.json"', project["run"])
         self.assertFalse(any(u["with"]["path"].endswith("run-record.json") for u in up))
         settle_run = next(st["run"] for st in self.jobs["journal-settle"]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))
         self.assertLess(settle_run.index("settle_input.py validate"), settle_run.index("reservations.py journal-settle"))
+        self.assertLess(settle_run.index("settle_input.py validate"), settle_run.index("manual_reservation.py settle"))
+        self.assertIn('--record "$SETTLE"', settle_run[settle_run.index("manual_reservation.py settle"):])
 
     def test_the_dispatch_names_a_committed_request_and_never_generates_one(self):
         on = self.doc.get("on", self.doc.get(True))
@@ -436,10 +439,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_the_approved_window_is_rechecked_immediately_before_the_run_step(self):
         steps = self.jobs["live"]["steps"]
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
-        reserve = steps[run - 1]
-        self.assertEqual(reserve["name"], "Reserve the admitted run through its priority-specific path before product execution")
-        self.assertEqual(reserve["run"].strip(), "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
-        check = steps[run - 2]
+        check = steps[run - 1]  # the run's reserve was appended before this job by journal-reserve (#1772 review 4446137323)
         self.assertEqual(check["run"].strip(), 'python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" '
                                                '--live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"')
         self.assertEqual(check["env"], {"LIVE_MINUTES": "${{ steps.init.outputs.live_minutes }}",
@@ -501,7 +501,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         want = {"CT_REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}",
                 "CT_LIVE_ACCOUNTS_SHA256": "${{ steps.init.outputs.live_accounts_sha256 }}"}
         runner = [s for s in self.jobs["live"]["steps"] if "execute_run.sh" in s.get("run", "")]
-        self.assertEqual(len(runner), 4, "setup stages, manual reserve, run, collect/settle")
+        self.assertEqual(len(runner), 3, "setup stages, run, collect (reserve and settle are the writer jobs')")
         for step in runner:
             self.assertEqual({k: step["env"].get(k) for k in want}, want, step.get("name"))
 
@@ -535,18 +535,23 @@ class LiveWorkflowPolicy(unittest.TestCase):
                             for j in self.jobs.values() for s in j["steps"] if "REQUEST_SHA256" in (s.get("env") or {})), written)
 
     def test_j1_journal_jobs_hold_the_only_write_permission_and_confine_the_token(self):
-        # J1 (PO approval recorded 1793578273.517019): contents: write only in the two journal jobs, scheduled runs only.
+        # J1 (PO approval recorded 1793578273.517019): contents: write only in the two journal jobs, which serve scheduled runs and, since
+        # #1772 review 4446137323, manual dispatches; never a PR, fork or other event.
         jobs = self.jobs
         for name in ("journal-reserve", "journal-settle"):
             job = jobs[name]
             self.assertEqual(job["permissions"], {"contents": "write"})
-            self.assertIn("github.event_name == 'schedule'", job["if"])
+            self.assertIn("(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')", job["if"])
             checkout = next(st for st in job["steps"] if str(st.get("uses", "")).startswith("actions/checkout"))
             self.assertIs(checkout["with"]["persist-credentials"], False)
             writers = [st for st in job["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {})]
             self.assertEqual(len(writers), 1)
             self.assertEqual(writers[0]["env"]["CT_STATE_PUSH_TOKEN"], "${{ github.token }}")
             self.assertIn("reservations.py journal-%s" % name.split("-")[1], writers[0]["run"])
+            # the manual branch runs only off-schedule, and manual_reservation itself refuses nightly requests
+            self.assertIn('if [ "$GITHUB_EVENT_NAME" != schedule ]; then', writers[0]["run"])
+            self.assertIn("manual_reservation.py %s" % name.split("-")[1], writers[0]["run"])
+            self.assertLess(writers[0]["run"].index("manual_reservation.py"), writers[0]["run"].index("reservations.py journal-"))
         self.assertEqual(self.text.count("CT_STATE_PUSH_TOKEN"), 2, "the token reaches only the two writer steps")
         self.assertEqual(jobs["live"]["permissions"], {"contents": "read"})
         # Case 10 (Sam 1793580806.654369): the observation reserve and settle run in the write jobs; the live job only observes, read-only
@@ -560,7 +565,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("execute_run.sh settle", self.text)
         self.assertEqual(jobs["live"]["needs"], ["record-begin", "journal-reserve"])
         self.assertIn("needs.journal-reserve.result == 'success'", jobs["live"]["if"])
-        self.assertIn("needs.journal-reserve.result == 'skipped'", jobs["live"]["if"])  # a dispatch never waits on a journal reserve
+        self.assertNotIn("skipped", jobs["live"]["if"])  # #1772 review 4446137323: a dispatch, too, starts only after its reserve landed
         self.assertIn("needs.journal-reserve.result == 'success'", jobs["journal-settle"]["if"])
         # write is never granted at the workflow level or to any other job
         self.assertEqual([n for n, j in jobs.items() if (j.get("permissions") or {}).get("contents") == "write"], ["journal-reserve", "journal-settle"])
@@ -636,19 +641,27 @@ class Case10ObserveCredentials(unittest.TestCase):
 
 
 class ManualPathNeverRunsOnSchedule(unittest.TestCase):
-    """Composition with #1772: manual_reservation refuses nightly requests, so its reserve step and its settle call run only on non-scheduled
-    events; a scheduled run reserves and settles through the journal-reserve / journal-settle jobs instead."""
-    def test_manual_reserve_and_settle_are_skipped_on_scheduled_runs(self):
+    """#1772 review 4446137323: a manual dispatch's reserve and settle are appended by the authenticated writer jobs (the live job has
+    contents: read and no push token, so it could never persist them). The manual branch runs only off-schedule and ends the step; a
+    scheduled run never reaches it, and manual_reservation refuses nightly requests in any case."""
+    def test_manual_reserve_and_settle_run_only_off_schedule_in_the_writer_jobs(self):
         import yaml
         with open(YML, encoding="utf-8") as f:
-            live = yaml.safe_load(f)["jobs"]["live"]["steps"]
-        reserve = [st for st in live if st.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh manual-reserve"]
-        self.assertEqual(len(reserve), 1)
-        self.assertEqual(reserve[0].get("if"), "${{ github.event_name != 'schedule' }}")
-        settles = [st for st in live if "execute_run.sh manual-settle" in st.get("run", "")]
-        self.assertEqual(len(settles), 1)
-        lines = [ln.strip() for ln in settles[0]["run"].splitlines() if "execute_run.sh manual-settle" in ln]
-        self.assertEqual(lines, ['if [ "$GITHUB_EVENT_NAME" != schedule ]; then bash tools/cloud-test/scripts/execute_run.sh manual-settle; fi'])
+            jobs = yaml.safe_load(f)["jobs"]
+        for name, command in (("journal-reserve", "manual_reservation.py reserve"), ("journal-settle", "manual_reservation.py settle")):
+            run = writers_of(jobs, name)
+            branch = run[run.index('if [ "$GITHUB_EVENT_NAME" != schedule ]; then'):run.index("\nfi\n", run.index("manual_reservation.py"))]
+            self.assertIn(command, branch)
+            self.assertIn("exit 0", branch, "the manual branch never falls through to the nightly commands")
+            # the dispatched request is confined to the one reviewed request location and must be committed at this protected-main commit
+            for guard in ('tools/cloud-test/config/runs/*.json) ;;', '*..*|*//*)', 'git cat-file -e "$GITHUB_SHA:$MANUAL_REQUEST"'):
+                self.assertIn(guard, branch)
+            self.assertEqual(next(st for st in jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))["env"]["MANUAL_REQUEST"],
+                             "${{ inputs.request }}")
+        self.assertIn("--admitted-sha256", writers_of(jobs, "journal-reserve"))
+        live = " ".join(st.get("run", "") for st in jobs["live"]["steps"])
+        self.assertNotIn("manual-reserve", live)
+        self.assertNotIn("manual-settle", live)
 
 
 def writers_of(jobs, name):

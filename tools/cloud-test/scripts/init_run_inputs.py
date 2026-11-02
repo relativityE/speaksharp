@@ -528,6 +528,18 @@ def _own_open(events, own):
     return found
 
 
+def manual_approval_chain(chain, own):
+    """#1772 review 4446137323: a manual dispatch's reserve is appended by the authenticated journal-reserve writer job BEFORE the read-only
+    live job prepares, while its approver's action approval names the continuity checkpoint the approver saw, i.e. the one before that
+    reserve. The verified head must therefore add exactly this execution's own open reserve (campaign, run, attempt and admitted request
+    digest) to its parent and nothing else; the checkpoint is computed at that parent. Anything else (no own reserve, a later event, another
+    run's reserve) refuses, so a stale approval is never admitted against a changed journal."""
+    events = chain[-1][1]
+    _need(len(chain) >= 2 and events and _is_own_open(events[-1], events, own) and chain[-2][1] == events[:-1], "manual-reserve-not-at-head")
+    _own_open(events, own)  # a second own open reserve is ambiguous and refuses
+    return chain[:-1]
+
+
 def own_held_allocation(chain, own):
     """Sam RETURN 1793625480.539669: the allocation THIS execution's verified, still-open reserve holds (None when there is none). The rollup
     already charges an open reserve against period headroom, so an admitted run is checked against what it holds, never charged twice."""
@@ -711,11 +723,14 @@ def prepare(x, now):
     observation = read_case10_observation(getattr(x, "case10_observation", None))
     chains = []
 
-    def read_chain(root):
-        chains.append(state_chain(root))
-        return chains[-1]
     request_sha256 = hashlib.sha256(req_raw).hexdigest()
     own = (req["runId"], x.run_id, x.attempt, request_sha256) if nightly else None
+
+    def read_chain(root):
+        chains.append(state_chain(root))
+        # #1772 review 4446137323: a manual run's reserve is appended by the journal-reserve writer job before this read-only job prepares,
+        # so its approver's action approval names the checkpoint immediately before that reserve (manual_approval_chain).
+        return chains[-1] if nightly else manual_approval_chain(chains[-1], (req["runId"], x.run_id, x.attempt, request_sha256))
     reconciliation, accepted_scope = checkpoint_and_scope(repo, req, chain_reader=read_chain, own=own)
     action_approval = occurrence_action_approval(
         facts, request_sha256, reconciliation, req, nightly,
