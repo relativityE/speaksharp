@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import os
 import unittest
 
 from _fixtures import ROOT, approved as base_approved, fake_rv, receipt, reconciliation, sample
@@ -59,10 +60,10 @@ class CheckGates(unittest.TestCase):
         r, l = approved(self.req, self.ledger)
         rows = [{"label": p["label"], "passed": True} for p in r["priorRuns"]]
         prior = {"schema": "speaksharp.cloud-test.prior-run-verification.v1", "runs": rows}
-        comparison = {"schema": "speaksharp.run-comparison.v1", "previous": {"label": self.cfg["history"]["comparisonBaselines"][0]},
-                      "current": {"label": self.cfg["history"]["comparisonBaselines"][1]}}
+        with open(os.path.join(ROOT, "tests", "fixtures", "accepted-comparison-R5-vs-R4C.json"), encoding="utf-8") as f:
+            comparison = json.load(f)
         request_sha = hashlib.sha256(json.dumps(r, sort_keys=True).encode()).hexdigest()
-        self.cfg["aggregateReceiver"] = {"manifestSha256": "a" * 64, "bundleRootSha256": "b" * 64}
+        self.cfg["aggregateReceiver"] = {"activated": True, "manifestSha256": "a" * 64, "bundleRootSha256": "b" * 64}
         receiver = {"schema": "speaksharp.cloud-test.aggregate-receiver-receipt.v1", "manifestSha256": "a" * 64,
                     "bundleRootSha256": "b" * 64, "requestSha256": request_sha,
                     "sourceSha": r["release"]["testedSha"], "acceptedSha256": {
@@ -71,13 +72,19 @@ class CheckGates(unittest.TestCase):
         out = C.evaluate(r, self.cfg, l, self.wf, {"valid": True, "errors": []}, {"passed": True}, receipt(r),
                          str(self.inputs.root), "final", fake_rv(), self.rc, parse_utc(NOW), offline_proof=str(self.inputs.proof),
                          prior_verification=prior, prior_comparison=comparison, receiver_receipt=receiver, request_sha256=request_sha)
-        self.assertEqual(self.status(out)["G7"], "READY")
+        self.assertEqual(self.status(out)["G7"], "NOT-READY", "a caller-authored self-hash receipt is never receiver proof")
+        out = C.evaluate(r, self.cfg, l, self.wf, {"valid": True, "errors": []}, {"passed": True}, receipt(r),
+                         str(self.inputs.root), "final", fake_rv(), self.rc, parse_utc(NOW), offline_proof=str(self.inputs.proof),
+                         prior_verification=prior, prior_comparison=comparison, receiver_receipt=receiver,
+                         request_sha256=request_sha, receiver_verified=True)
+        self.assertEqual(self.status(out)["G7"], "READY", "only the CLI's prior pinned-bundle verification may set this bit")
         for bad in (dict(prior, runs=rows[:-1]), dict(prior, runs=[dict(rows[0], passed=False), *rows[1:]]),
                     dict(prior, schema="other")):
             with self.subTest(bad=bad):
                 out = C.evaluate(r, self.cfg, l, self.wf, {"valid": True, "errors": []}, {"passed": True}, receipt(r),
                                  str(self.inputs.root), "final", fake_rv(), self.rc, parse_utc(NOW), offline_proof=str(self.inputs.proof),
-                                 prior_verification=bad, prior_comparison=comparison, receiver_receipt=receiver, request_sha256=request_sha)
+                                 prior_verification=bad, prior_comparison=comparison, receiver_receipt=receiver,
+                                 request_sha256=request_sha, receiver_verified=True)
                 self.assertEqual(self.status(out)["G7"], "NOT-READY")
         out = C.evaluate(r, self.cfg, l, self.wf, {"valid": True, "errors": []}, {"passed": True}, receipt(r),
                          str(self.inputs.root), "final", fake_rv(), self.rc, parse_utc(NOW), offline_proof=str(self.inputs.proof),

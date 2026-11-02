@@ -12,11 +12,11 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402
+from _common import comparison_errors  # noqa: E402
 
 SHA256 = re.compile(r"[0-9a-f]{64}")
 SHA40 = re.compile(r"[0-9a-f]{40}")
@@ -109,28 +109,28 @@ def validate_documents(docs, request, config):
 
     cmp_ = docs["comparison-prior"]
     baseline = config["history"]["comparisonBaselines"]
-    need(cmp_.get("schema") == "speaksharp.run-comparison.v1" and
-         [((cmp_.get("previous") or {}).get("label")), ((cmp_.get("current") or {}).get("label"))] == baseline,
-         "aggregate-comparison-basis")
+    need(not comparison_errors(cmp_, baseline), "aggregate-comparison-basis")
     costs = docs["case-costs"]
     need(costs.get("schema") == "speaksharp.cloud-test.case-costs.v1" and costs.get("derived") is True and
          all(label in (costs.get("runs") or {}) and (costs["runs"][label].get("reconciliation") or {}).get("ok") is True for label in baseline),
          "aggregate-case-costs")
 
 
-def receiver_receipt(manifest_raw, request_raw, docs, pins):
+def receiver_receipt(manifest_raw, request_raw, accepted_bytes, pins):
+    manifest = load_json(manifest_raw, "aggregate-manifest")
     return {
         "schema": "speaksharp.cloud-test.aggregate-receiver-receipt.v1",
         "manifestSha256": digest(manifest_raw),
         "requestSha256": digest(request_raw),
         "bundleRootSha256": pins["bundleRootSha256"],
-        "acceptedSha256": {name: digest(canon(docs[name])) for name in REQUIRED},
+        "sourceComponentSha256": {name: manifest["components"][name]["sha256"] for name in REQUIRED},
+        "acceptedSha256": {name: digest(accepted_bytes[name]) for name in REQUIRED},
         "sourceSha": load_json(request_raw, "aggregate-request")["release"]["testedSha"],
         "acceptedComponents": list(REQUIRED),
     }
 
 
-def receive(manifest_raw, bundle_dir, request_raw, config, pins):
+def receive_bundle(manifest_raw, bundle_dir, request_raw, config, pins):
     """Return validated documents. ``pins`` is injectable only for unit controls;
     the CLI always takes it from the reviewed config and refuses while inactive."""
     need(pins.get("activated") is True and SHA256.fullmatch(str(pins.get("manifestSha256", ""))) and
@@ -143,7 +143,7 @@ def receive(manifest_raw, bundle_dir, request_raw, config, pins):
     need(manifest.get("sourceSha") == (request.get("release") or {}).get("testedSha") and
          manifest.get("workflowVersion") == request.get("workflowVersion") and
          manifest.get("codeManifestSha256") == (request.get("harness") or {}).get("codeManifestSha256"), "aggregate-source-binding")
-    entries, docs = manifest["components"], {}
+    entries, docs, original = manifest["components"], {}, {}
     for name in REQUIRED:
         entry = entries[name]
         need(isinstance(entry, dict) and set(entry) == {"file", "sha256"} and SHA256.fullmatch(str(entry["sha256"])),
@@ -152,10 +152,54 @@ def receive(manifest_raw, bundle_dir, request_raw, config, pins):
         need(isinstance(rel, str) and rel == os.path.basename(rel) and rel not in ("", ".", ".."), "aggregate-component-path")
         data = raw(os.path.join(bundle_dir, rel))
         need(digest(data) == entry["sha256"], "aggregate-component-digest:" + name)
+        original[name] = data
         docs[name] = load_json(data, "aggregate-component-json:" + name)
     need(component_root(entries) == pins["bundleRootSha256"] == manifest.get("bundleRootSha256"), "aggregate-root-not-pinned")
     validate_documents(docs, request, config)
-    return docs
+    accepted = dict(original)
+    accepted["prior-run-verification"] = json.dumps(docs["prior-run-verification"], sort_keys=True).encode() + b"\n"
+    return docs, accepted
+
+
+def receive(manifest_raw, bundle_dir, request_raw, config, pins):
+    """Compatibility wrapper used by focused unit controls."""
+    return receive_bundle(manifest_raw, bundle_dir, request_raw, config, pins)[0]
+
+
+def verified_accepted(manifest_path, request_path, accepted_dir, config):
+    """Re-verify the pinned source bundle and the exact accepted consumer bytes.
+
+    The consumer calls this at its own boundary.  It never treats a receipt that
+    merely describes itself as proof, and it returns the already-read bytes so a
+    caller can create a private snapshot instead of validating one file and then
+    consuming a later substitution.
+    """
+    pins = config.get("aggregateReceiver") or {}
+    manifest_raw, request_raw = raw(manifest_path), raw(request_path)
+    docs, expected = receive_bundle(manifest_raw, os.path.dirname(os.path.realpath(manifest_path)), request_raw, config, pins)
+    accepted = {}
+    for name in REQUIRED:
+        accepted[name] = raw(os.path.join(accepted_dir, name + ".json"))
+        need(accepted[name] == expected[name], "aggregate-accepted-substitution:" + name)
+    receipt_path = os.path.join(accepted_dir, "receiver-receipt.json")
+    receipt_raw = raw(receipt_path)
+    receipt = load_json(receipt_raw, "aggregate-receiver-receipt")
+    expected_receipt = receiver_receipt(manifest_raw, request_raw, expected, pins)
+    need(receipt == expected_receipt, "aggregate-receiver-receipt")
+    return docs, accepted, receipt
+
+
+def materialize_verified(directory, accepted, receipt):
+    """Write one private, exclusive consumer snapshot from verified buffers."""
+    os.mkdir(directory, 0o700)
+    for name in REQUIRED:
+        with open(os.path.join(directory, name + ".json"), "xb") as f:
+            f.write(accepted[name])
+        os.chmod(os.path.join(directory, name + ".json"), 0o400)
+    with open(os.path.join(directory, "receiver-receipt.json"), "x", encoding="utf-8") as f:
+        json.dump(receipt, f, sort_keys=True)
+        f.write("\n")
+    os.chmod(os.path.join(directory, "receiver-receipt.json"), 0o400)
 
 
 def main():
@@ -172,25 +216,16 @@ def main():
         # Activation is checked before manifest/request bytes are read.
         need(pins.get("activated") is True, "aggregate-receiver-not-activated")
         manifest_raw, request_raw = raw(x.manifest), raw(x.request)
-        docs = receive(manifest_raw, os.path.dirname(os.path.realpath(x.manifest)), request_raw, config, pins)
+        docs, accepted = receive_bundle(manifest_raw, os.path.dirname(os.path.realpath(x.manifest)), request_raw, config, pins)
         os.mkdir(x.out_dir, 0o700)
-        manifest = load_json(manifest_raw, "aggregate-manifest")
-        bundle_dir = os.path.dirname(os.path.realpath(x.manifest))
-        for name, doc in docs.items():
+        for name in REQUIRED:
             path = os.path.join(x.out_dir, name + ".json")
-            if name == "prior-run-verification":
-                with open(path, "x", encoding="utf-8") as f:
-                    json.dump(doc, f, sort_keys=True)
-                    f.write("\n")
-            else:
-                # Preserve the validator/calculator bytes exactly. In particular,
-                # the accepted reconciliation must equal the builder's admitted
-                # rollup byte-for-byte rather than a JSON reserialization.
-                data = raw(os.path.join(bundle_dir, manifest["components"][name]["file"]))
-                with open(path, "xb") as f:
-                    f.write(data)
+            # `accepted` was captured in the same read that validation used.
+            # Never validate one buffer and reopen a caller-controlled source.
+            with open(path, "xb") as f:
+                f.write(accepted[name])
         with open(os.path.join(x.out_dir, "receiver-receipt.json"), "x", encoding="utf-8") as f:
-            json.dump(receiver_receipt(manifest_raw, request_raw, docs, pins), f, sort_keys=True)
+            json.dump(receiver_receipt(manifest_raw, request_raw, accepted, pins), f, sort_keys=True)
             f.write("\n")
         return 0
     except Refused as e:

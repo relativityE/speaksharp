@@ -5,6 +5,9 @@ through the real binding verifier followed by qualification of every selected ro
 import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 from _fixtures import REPO, ROOT
@@ -128,38 +131,59 @@ class LiveWorkflowPolicy(unittest.TestCase):
                 self.assertNotRegex(step.get("run", ""), r"\$\{\{", step.get("name"))
 
     B4_INSTALL = "npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund"
+    PY_YAML_INSTALL = "python3 -m pip install --quiet pyyaml==6.0.2"
 
-    def test_the_only_install_is_the_reviewed_lockfile_on_the_ephemeral_runner(self):
-        # B4 (Sam 1793543299.974409): exactly one install, the runner lockfile, no lifecycle scripts, before the stage runner; nothing else.
+    def test_the_only_installs_are_the_pinned_python_evidence_dependency_and_reviewed_lockfile(self):
+        # The existing reviewed setup contract: pinned PyYAML plus the runner
+        # lockfile, both before evidence generation; no lifecycle scripts or
+        # browser acquisition.
         runs = [(job, s) for job, j in self.jobs.items() for s in j["steps"] if "run" in s]
         installer = re.compile(r"(^|[\s;&|(])(npm|npx|pnpm|yarn|pip3?|apt(-get)?|brew)\s")
         installs = [(job, s) for job, s in runs if installer.search(s["run"])]
-        self.assertEqual([(job, s["run"].strip()) for job, s in installs], [("live", self.B4_INSTALL)])
+        self.assertEqual([(job, s["run"].strip()) for job, s in installs], [
+            ("live", self.PY_YAML_INSTALL),
+            ("live", self.B4_INSTALL),
+        ])
         steps = self.jobs["live"]["steps"]
         at = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == self.B4_INSTALL)
+        py = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == self.PY_YAML_INSTALL)
         first_stage = next(i for i, s in enumerate(steps) if "execute_run.sh" in s.get("run", ""))
-        self.assertLess(at, first_stage)
+        proof = next(i for i, s in enumerate(steps) if "run_offline_checks.py" in s.get("run", ""))
+        self.assertLess(py, proof)
+        self.assertLess(at, proof)
+        self.assertLess(proof, first_stage)
         self.assertNotIn("env", steps[at], "the install step receives no credential or extra environment")
-        # P2: the network install and the copy are bounded inside prepare's fixed setup allowance.
+        self.assertNotIn("env", steps[py], "the pinned Python install receives no credential or extra environment")
+        # P2: both installs and the detached tested-release copy are bounded inside prepare's fixed setup allowance.
         import init_run_inputs as I
         copy = next(i for i, s in enumerate(steps) if "install_pdfjs.py" in s.get("run", ""))
-        bounds = [steps[at].get("timeout-minutes"), steps[copy].get("timeout-minutes")]
+        bounds = [steps[py].get("timeout-minutes"), steps[at].get("timeout-minutes"), steps[copy].get("timeout-minutes")]
         self.assertTrue(all(isinstance(b, int) and b > 0 for b in bounds), bounds)
         self.assertLessEqual(sum(bounds), I.SETUP_RESERVE_MINUTES)
-        # P1: the pin-verifying copy into the checkout root comes after the install and before any stage, in copy (not check-only) mode,
-        # from exactly the bound dependency root into exactly CT_CHECKOUT.
+        # P1: the pin-verifying copy goes into the exact admitted tested-release
+        # checkout, never the workflow/source checkout.
         self.assertLess(at, copy)
         self.assertLess(copy, first_stage)
-        self.assertEqual(steps[copy]["run"].strip(), 'python3 -I tools/cloud-test/scripts/install_pdfjs.py --config "$CT_CONFIG" --checkout "$CT_CHECKOUT" '
-                                                     '--runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"')
-        self.assertNotIn("env", steps[copy])
+        script = steps[copy]["run"]
+        self.assertIn('git -C "$GITHUB_WORKSPACE" worktree add --detach "$tested" "$TESTED_SHA"', script)
+        self.assertIn('--config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"', script)
+        self.assertIn('echo "CT_CHECKOUT=$tested"', script)
+        self.assertEqual(steps[copy]["env"], {"TESTED_SHA": "${{ steps.init.outputs.tested_sha }}"})
         env = self.jobs["live"]["env"]
         self.assertEqual(env["CT_EXISTING_DEPENDENCY_ROOT"], "${{ github.workspace }}/tools/cloud-test/runner")
-        self.assertEqual(env["CT_EXISTING_PDFJS_DIR"], "${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist")
+        self.assertNotIn("CT_CHECKOUT", env)
+        self.assertNotIn("CT_EXISTING_PDFJS_DIR", env)
         self.assertEqual(env["CT_SETUP_MODE"], "existing-only")
 
-    def test_no_browser_or_other_package_is_installed_or_downloaded(self):
-        low = self.text.lower().replace(self.B4_INSTALL, "")
+        evidence = steps[proof]
+        self.assertEqual(evidence["env"], {
+            "CT_REQUIRE_INTEGRATION": "1",
+            "CT_EXISTING_PDFJS_DIR": "${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist",
+        })
+        self.assertIn('CT_PROOF_FILE="$RUNNER_TEMP/offline-proof.json" python3 -I scripts/run_offline_checks.py', evidence["run"])
+
+    def test_no_browser_or_unreviewed_package_is_installed_or_downloaded(self):
+        low = self.text.lower().replace(self.B4_INSTALL, "").replace(self.PY_YAML_INSTALL, "")
         for banned in ("playwright install", "install-deps", "apt-get", "setup-chrome", "browser-actions/", "--archive", "curl ", "wget ",
                        "npm ci", "npm install", "pnpm install", "pip install", "npx "):
             self.assertNotIn(banned, low)
@@ -186,15 +210,29 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(receiver, {"activated": False, "manifestSha256": None, "bundleRootSha256": None,
                                     "note": receiver["note"]})
         steps = self.jobs["live"]["steps"]
+        bind = next(i for i, s in enumerate(steps) if s.get("name") == "Bind private runner paths and initialize the inactive accounting workspace")
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         reserve = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh manual-reserve")
         collect = next(s for s in steps if s.get("name", "").startswith("Collect, verify the binding"))["run"]
+        self.assertLess(bind, reserve)
+        workspace = steps[bind]["run"]
+        for token in ('mkdir -m 700 "$state"', 'git -C "$state" init -b private-run-state',
+                      'transport":"UNBOUND"', 'echo "CT_OUT=$RUNNER_TEMP/out"',
+                      'echo "CT_STATE_REPO=$state"', '>> "$GITHUB_ENV"'):
+            self.assertIn(token, workspace)
+        self.assertIn('[ -z "$(git -C "$state" remote)" ]', workspace)
+        for name in ("CT_OUT", "CT_STATE_REPO", "CT_STATE_JOURNAL_RESERVE", "CT_STATE_JOURNAL_SETTLE"):
+            self.assertNotIn(name, env, "runner.temp is unavailable in a job-level env expression")
+        self.assertIn('echo "CT_STATE_JOURNAL_RESERVE=$RUNNER_TEMP/cloud-test-state-reserve.json"', workspace)
+        self.assertIn('echo "CT_STATE_JOURNAL_SETTLE=$RUNNER_TEMP/cloud-test-state-settle.json"', workspace)
+        self.assertNotIn('CT_STATE_JOURNAL=', workspace)
         self.assertLess(reserve, run)
         self.assertLess(collect.index("execute_run.sh collect"), collect.index("execute_run.sh manual-settle"))
         self.assertNotIn("manual-release", self.text)
         runner = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
         self.assertIn('--accepted-input-dir "$accepted"', runner)
         self.assertIn('--receiver-receipt "$accepted/receiver-receipt.json"', runner)
+        self.assertIn('--receiver-manifest "$CT_RETAINED_GATE_MANIFEST"', runner)
         self.assertIn('cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json"', runner)
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         manual = open(os.path.join(ROOT, "scripts", "manual_reservation.py"), encoding="utf-8").read()
@@ -202,6 +240,73 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertLess(manual.index('_need(activated(), "manual-reservation-not-activated")'),
                         manual.index('_read(x.request)'))
         self.assertIn("REVIEWED_ROOT = None", state)
+
+    def test_private_accounting_workspace_is_real_git_without_transport(self):
+        step = next(s for s in self.jobs["live"]["steps"]
+                    if s.get("name") == "Bind private runner paths and initialize the inactive accounting workspace")
+        with tempfile.TemporaryDirectory(prefix="cloud-test-private-state-") as directory:
+            env_file = os.path.join(directory, "github-env")
+            env = {"PATH": os.environ["PATH"], "HOME": directory,
+                   "RUNNER_TEMP": directory, "GITHUB_ENV": env_file}
+            result = subprocess.run(["bash", "-c", step["run"]], capture_output=True, text=True, env=env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            state = os.path.join(directory, "cloud-test-state")
+            self.assertEqual(subprocess.run(["git", "-C", state, "remote"], capture_output=True, text=True).stdout, "")
+            self.assertEqual(subprocess.run(["git", "-C", state, "rev-list", "--count", "HEAD"],
+                                            capture_output=True, text=True).stdout.strip(), "1")
+            receipt = json.load(open(os.path.join(directory, "manual-state-workspace.json"), encoding="utf-8"))
+            self.assertEqual((receipt["transport"], receipt["activated"]), ("UNBOUND", False))
+            exports = open(env_file, encoding="utf-8").read()
+            self.assertIn("CT_STATE_REPO=" + state, exports)
+            self.assertIn("CT_OUT=" + os.path.join(directory, "out"), exports)
+            self.assertIn("CT_STATE_JOURNAL_RESERVE=" + os.path.join(directory, "cloud-test-state-reserve.json"), exports)
+            self.assertIn("CT_STATE_JOURNAL_SETTLE=" + os.path.join(directory, "cloud-test-state-settle.json"), exports)
+
+    def test_the_admitted_tested_release_gets_its_own_clean_checkout_and_the_source_checkout_fails_that_gate(self):
+        """Request-only descendants remain workflow source, never tested product source."""
+        step = next(s for s in self.jobs["live"]["steps"]
+                    if s.get("name") == "Bind a clean detached checkout of the admitted tested release")
+        for token in ('worktree add --detach "$tested" "$TESTED_SHA"',
+                      '[ "$(git -C "$tested" rev-parse HEAD)" = "$TESTED_SHA" ]',
+                      '[ -z "$(git -C "$tested" status --porcelain)" ]'):
+            self.assertIn(token, step["run"])
+
+        with tempfile.TemporaryDirectory(prefix="cloud-tested-source-gate-") as directory:
+            repo = os.path.join(directory, "repo")
+            tested = os.path.join(directory, "tested")
+            os.mkdir(repo)
+
+            def git(*args, check=True):
+                return subprocess.run(["git", "-C", repo, *args], check=check, capture_output=True, text=True).stdout.strip()
+
+            git("init", "-q")
+            git("config", "user.email", "unit@example.invalid")
+            git("config", "user.name", "unit")
+            with open(os.path.join(repo, "pnpm-lock.yaml"), "w", encoding="utf-8") as out:
+                out.write("lockfileVersion: '9.0'\n")
+            git("add", "pnpm-lock.yaml")
+            git("commit", "-q", "-m", "tested release")
+            release = git("rev-parse", "HEAD")
+            os.makedirs(os.path.join(repo, "tools", "cloud-test", "config", "runs"))
+            with open(os.path.join(repo, "tools", "cloud-test", "config", "runs", "request.json"), "w", encoding="utf-8") as out:
+                out.write('{"requestOnly":true}\n')
+            git("add", "tools/cloud-test/config/runs/request.json")
+            git("commit", "-q", "-m", "request-only descendant")
+            workflow_source = git("rev-parse", "HEAD")
+            self.assertNotEqual(workflow_source, release)
+
+            git("worktree", "add", "--detach", tested, release)
+
+            def source_gate(path):
+                head = subprocess.run(["git", "-C", path, "rev-parse", "HEAD"], check=True,
+                                      capture_output=True, text=True).stdout.strip()
+                clean = subprocess.run(["git", "-C", path, "status", "--porcelain"], check=True,
+                                       capture_output=True, text=True).stdout.strip()
+                return head == release and clean == ""
+
+            self.assertTrue(source_gate(tested), "the detached admitted release is the clean product source")
+            self.assertFalse(source_gate(repo), "the newer request-only workflow checkout must fail the tested-source gate")
+            shutil.rmtree(tested)
 
     def test_only_reviewed_actions_are_used(self):
         uses = sorted({s["uses"].split("@")[0] for j in self.jobs.values() for s in j["steps"] if "uses" in s})

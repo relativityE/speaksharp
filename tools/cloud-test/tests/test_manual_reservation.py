@@ -155,6 +155,43 @@ class ManualReservation(Journal):
         self.refused("manual-reservation-transition-without-open-reservation", self.execute, "settle", settle, "s2")
         self.refused("manual-reservation-not-reserved", self.execute, "settle", dict(settle, runId="41400000009"), "s3")
 
+    def test_phase_bound_journals_allow_exact_retries_and_refuse_cross_phase_reuse(self):
+        directory = os.path.join(self.d, "phase-journals")
+        os.mkdir(directory)
+        reserve_journal = os.path.join(directory, "reserve-journal.json")
+        reserve_receipt = os.path.join(directory, "reserve-receipt.json")
+        settle_journal = os.path.join(directory, "settle-journal.json")
+        settle_receipt = os.path.join(directory, "settle-receipt.json")
+
+        first = M.execute("reserve", self.reserve_inputs(), self.repo, self.remote, self.root,
+                          reserve_journal, reserve_receipt, self.all_pins, self.remote)
+        receipt_bytes = read(reserve_receipt)
+        retry = M.execute("reserve", self.reserve_inputs(), self.repo, self.remote, self.root,
+                          reserve_journal, reserve_receipt, self.all_pins, self.remote)
+        self.assertEqual(retry, first)
+        self.assertEqual(read(reserve_receipt), receipt_bytes)
+        self.assertEqual([event["type"] for event in self.chain()[-1][1]], ["reserve"],
+                         "an exact transition retry must not append a duplicate reserve")
+
+        settle = {"campaignId": "R7-full-coverage", "runId": RUN, "record": self.record(),
+                  "scope": self.scope, "atUtc": AT}
+        with self.assertRaises(M.Refused) as error:
+            M.execute("settle", settle, self.repo, self.remote, self.root,
+                      reserve_journal, settle_receipt, self.all_pins, self.remote)
+        self.assertEqual(str(error.exception), "manual-reservation-journal-conflict")
+        self.assertEqual(self.receive()["outstandingReservations"], 1,
+                         "cross-phase journal reuse must refuse before settling the held reservation")
+
+        settled = M.execute("settle", settle, self.repo, self.remote, self.root,
+                            settle_journal, settle_receipt, self.all_pins, self.remote)
+        settle_receipt_bytes = read(settle_receipt)
+        settled_retry = M.execute("settle", settle, self.repo, self.remote, self.root,
+                                  settle_journal, settle_receipt, self.all_pins, self.remote)
+        self.assertEqual(settled_retry, settled)
+        self.assertEqual(read(settle_receipt), settle_receipt_bytes)
+        self.assertEqual([event["type"] for event in self.chain()[-1][1]], ["reserve", "settle"],
+                         "an exact settle retry must not append a duplicate transition")
+
     def test_the_integrated_path_keeps_the_trust_boundaries(self):
         r = self.reserve_inputs()
         self.refused("manual-reservation-root-mismatch", self.execute, "reserve", r, "x1", "f" * 40)

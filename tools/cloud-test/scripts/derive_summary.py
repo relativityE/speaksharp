@@ -17,7 +17,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _common import load, dump, words  # noqa: E402
+from _common import load, dump, words, comparison_errors  # noqa: E402
 
 REASON_TEXT = {"stimulus-not-established": "stimulus not established", "media-binding-differs": "capture-device binding differed", "coverage-lost": "coverage lost",
                "omitted-by-design": "omitted by design", "allowance-interrupted": "stopped by the request allowance", "observer-changed": "observer changed",
@@ -219,7 +219,18 @@ def main():
     a.add_argument("--isolation")
     x = a.parse_args()
     wf = load(x.workflow)
-    f = derive(load(x.comparison), load(x.latest_comparison) if x.latest_comparison else None, load(x.ledger_derived), load(x.release_verification), load(x.gates), load(x.spend), wf, load(x.request), wf["report"]["executiveSummaryMaxWords"] - 70, load(x.coverage) if x.coverage else None,
+    req = load(x.request)
+    comparison = load(x.comparison)
+    labels = [p.get("label") for p in req.get("priorRuns") or []]
+    errors = comparison_errors(comparison, labels)
+    if errors:
+        raise SystemExit("comparison evidence is incomplete: " + "; ".join(errors))
+    latest = load(x.latest_comparison) if x.latest_comparison else None
+    if latest:
+        latest_errors = comparison_errors(latest, [latest.get("previous", {}).get("label"), latest.get("current", {}).get("label")])
+        if latest_errors:
+            raise SystemExit("latest comparison evidence is incomplete: " + "; ".join(latest_errors))
+    f = derive(comparison, latest, load(x.ledger_derived), load(x.release_verification), load(x.gates), load(x.spend), wf, req, wf["report"]["executiveSummaryMaxWords"] - 70, load(x.coverage) if x.coverage else None,
                 load(x.alerts) if x.alerts else None, load(x.isolation) if x.isolation else None)
     dump({"schema": "speaksharp.cloud-test.summary.v2", "derived": True, "fields": f}, x.out)
     print("summary derived:", f["status"], f["recommendation"])

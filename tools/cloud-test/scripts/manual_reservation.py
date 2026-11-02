@@ -180,8 +180,9 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
         scope = accepted_scope(inputs["scope"], pins.get("accepted_scope_sha256"))
         if command == "reserve":
             _in_period(scope, inputs["atUtc"], "manual-reservation-outside-period")
-            rollup = accounting_rollup.receive(inputs["bootstrap"], scope, chain, pins.get("accepted_sha256"), pins.get("accepted_root"))
-            event = reserve(inputs["request"], inputs["admittedSha256"], inputs["runId"], rollup, head, inputs["atUtc"])
+            request, allocation = manual_request(inputs["request"], inputs["admittedSha256"])
+            event = _event("reserve", {"campaignId": request.get("runId"), "runId": inputs["runId"], "attempt": 1}, allocation,
+                           "request-sha256:" + inputs["admittedSha256"], inputs["atUtc"])
         else:
             _need(command == "settle", "manual-reservation-command")
             # Sam 1793557361.926929: a late settle is refused before the append; the reservation stays held (counted at its caps) until an
@@ -190,7 +191,26 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
             reserved = _reserved_on_chain(chain, inputs["campaignId"], inputs["runId"])
             usage, evidence = usage_from_record(inputs["record"], reserved)
             event = settle(reserved, usage, evidence, inputs["atUtc"])
-        state_ref_writer.propose_to_files(repo, url, head, event, root, journal, out, approved_url)
+        # A retry after the remote accepted the transition must recover the
+        # original receipt, not construct a duplicate transition at the new
+        # head.  The exact event and its sole parent are recovered only from
+        # the verified append-only chain.
+        matches = [(index, row) for index, (_, rows, _) in enumerate(chain) for row in rows[-1:]
+                   if row == event]
+        _need(len(matches) <= 1, "manual-reservation-transition-duplicated")
+        if matches and os.path.isfile(journal) and os.path.isfile(out):
+            index, _ = matches[0]
+            _need(index > 0, "manual-reservation-transition-parent")
+            expected = chain[index - 1][0]
+        else:
+            expected = head
+            if command == "reserve":
+                rollup = accounting_rollup.receive(inputs["bootstrap"], scope, chain, pins.get("accepted_sha256"), pins.get("accepted_root"))
+                # Admission and headroom are checked immediately before the
+                # first append.  A recovered exact transition was already
+                # checked at its original parent and is reverified below.
+                event = reserve(inputs["request"], inputs["admittedSha256"], inputs["runId"], rollup, head, inputs["atUtc"])
+        state_ref_writer.propose_to_files(repo, url, expected, event, root, journal, out, approved_url)
     except (state_ref_writer.Refused, accounting_rollup.Refused) as err:
         raise Refused("manual-reservation-" + str(err))
     return event

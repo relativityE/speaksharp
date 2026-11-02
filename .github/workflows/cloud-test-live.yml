@@ -159,39 +159,49 @@ jobs:
       CT_CONFIG: tools/cloud-test/config/test-config.v1.json
       CT_SOURCE_SHA: ${{ github.sha }}
       CT_EXECUTION_RUN_ID: ${{ github.run_id }}.${{ github.run_attempt }}
-      CT_OUT: ${{ runner.temp }}/out
-      CT_CHECKOUT: ${{ github.workspace }}
       # B4 (Akin's direct approval via Sam 1793543299.974409): the pinned runner dependencies come from the reviewed lockfile on this
       # ephemeral runner only; execute_run's existing-only setup then re-verifies the Playwright version and the pdf.mjs/package pins.
       CT_EXISTING_DEPENDENCY_ROOT: ${{ github.workspace }}/tools/cloud-test/runner
-      CT_EXISTING_PDFJS_DIR: ${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist
       # Source-only receiver wiring. The manifest and accepted digests are intentionally absent/unaccepted; the receiver refuses before
       # reading inputs until a separately reviewed custodian handoff activates exact bytes.
       CT_RETAINED_GATE_MANIFEST: ${{ github.workspace }}/tools/cloud-test/config/aggregate/manifest.json
       CT_ACCOUNTING_BOOTSTRAP: ${{ github.workspace }}/tools/cloud-test/config/aggregate/accounting-bootstrap.json
       CT_PERIOD_SCOPE: ${{ github.workspace }}/tools/cloud-test/config/aggregate/period-scope.json
-      CT_STATE_REPO: ${{ runner.temp }}/cloud-test-state
-      CT_STATE_JOURNAL: ${{ runner.temp }}/cloud-test-state-journal.json
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Bind private runner paths and initialize the inactive accounting workspace
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/cloud-test-state"
+          mkdir -m 700 "$state"
+          git -C "$state" init -b private-run-state
+          git -C "$state" -c user.name=speaksharp-cloud-test -c user.email=cloud-test@invalid commit --allow-empty -m 'private manual accounting workspace'
+          [ -z "$(git -C "$state" remote)" ] || { echo 'BLOCKED_SETUP: private state workspace unexpectedly has a remote'; exit 78; }
+          head="$(git -C "$state" rev-parse HEAD)"
+          printf '{"schema":"speaksharp.cloud-test.manual-state-workspace.v1","head":"%s","transport":"UNBOUND","activated":false}\n' "$head" > "$RUNNER_TEMP/manual-state-workspace.json"
+          {
+            echo "CT_OUT=$RUNNER_TEMP/out"
+            echo "CT_STATE_REPO=$state"
+            echo "CT_STATE_JOURNAL_RESERVE=$RUNNER_TEMP/cloud-test-state-reserve.json"
+            echo "CT_STATE_JOURNAL_SETTLE=$RUNNER_TEMP/cloud-test-state-settle.json"
+            echo "CT_STATE_WORKSPACE_RECEIPT=$RUNNER_TEMP/manual-state-workspace.json"
+          } >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v6
         with:
           node-version: '22.23.4'
-      # Both setup steps are bounded inside init_run_inputs.py's 15-minute SETUP_RESERVE_MINUTES (policy-asserted).
+      - name: Install the pinned Python execution-evidence dependency
+        timeout-minutes: 2
+        run: python3 -m pip install --quiet pyyaml==6.0.2
+      # All setup steps are bounded inside init_run_inputs.py's 15-minute SETUP_RESERVE_MINUTES (policy-asserted).
       - name: Pinned runner dependencies from the reviewed lockfile (ephemeral runner only; no lifecycle scripts, no browser)
         timeout-minutes: 6
         run: npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund
-      # The real extractor resolves pdfjs-dist from the checkout root, so the existing pin-verifying helper copies the verified runner
-      # package there (it refuses, never overwrites, a different existing copy); execute_run's install-tools then re-checks it.
-      - name: Pinned PDF parser into the checkout (pin-verified copy; refuses a conflicting copy)
-        timeout-minutes: 2
-        run: python3 -I tools/cloud-test/scripts/install_pdfjs.py --config "$CT_CONFIG" --checkout "$CT_CHECKOUT" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"
       - name: Discover the preinstalled browser against the reviewed baseline
         run: |
           set -euo pipefail
@@ -202,6 +212,9 @@ jobs:
           echo "CT_CHROME=$(cat "$RUNNER_TEMP/chrome-path.txt")" >> "$GITHUB_ENV"
           echo "CT_BROWSER_RECEIPT=$RUNNER_TEMP/browser-receipt.json" >> "$GITHUB_ENV"
       - name: Generate the exact-head browser-bound proof and offline checks
+        env:
+          CT_REQUIRE_INTEGRATION: '1'
+          CT_EXISTING_PDFJS_DIR: ${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist
         run: |
           set -euo pipefail
           cd tools/cloud-test
@@ -235,6 +248,26 @@ jobs:
           python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \
             --checkpoint "$RUNNER_TEMP/prior-state.json" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --source-sha "$GITHUB_SHA" --job-timeout-minutes 340 --out "$RUNNER_TEMP/run-inputs" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
+      - name: Bind a clean detached checkout of the admitted tested release
+        timeout-minutes: 2
+        env:
+          TESTED_SHA: ${{ steps.init.outputs.tested_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'BLOCKED_SETUP: admitted tested SHA is invalid'; exit 78; }
+          tested="$RUNNER_TEMP/tested-release"
+          [ ! -e "$tested" ] || { echo 'BLOCKED_SETUP: tested-release checkout already exists'; exit 78; }
+          git -C "$GITHUB_WORKSPACE" cat-file -e "$TESTED_SHA^{commit}"
+          git -C "$GITHUB_WORKSPACE" worktree add --detach "$tested" "$TESTED_SHA"
+          [ "$(git -C "$tested" rev-parse HEAD)" = "$TESTED_SHA" ]
+          [ -z "$(git -C "$tested" status --porcelain)" ]
+          python3 -I "$GITHUB_WORKSPACE/tools/cloud-test/scripts/install_pdfjs.py" \
+            --config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"
+          [ -z "$(git -C "$tested" status --porcelain --untracked-files=no)" ]
+          {
+            echo "CT_CHECKOUT=$tested"
+            echo "CT_EXISTING_PDFJS_DIR=$tested/node_modules/pdfjs-dist"
+          } >> "$GITHUB_ENV"
       # Increment I (Sam 1793566031.065709): the continuity checkpoint prepare admitted becomes the stage runner's reconciliation.json, the
       # exact bytes plan construction consumes (run_env --reconciliation). Copied once, never overwritten, and refused unless both the
       # private source and the placed copy hash to init's reconciliation_sha256 step output.

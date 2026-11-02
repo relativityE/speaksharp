@@ -44,8 +44,7 @@ class AggregateReceiver(unittest.TestCase):
                  "receiptsVerificationSha256": "e" * 64, "receiptCount": 1, "errors": [],
                  "binding": {"sha256": "d" * 64, "passed": 1, "failed": 0}}
                 for label in labels]},
-            "comparison-prior": {"schema": "speaksharp.run-comparison.v1", "previous": {"label": self.config["history"]["comparisonBaselines"][0]},
-                                 "current": {"label": self.config["history"]["comparisonBaselines"][1]}},
+            "comparison-prior": json.loads((Path(ROOT) / "tests/fixtures/accepted-comparison-R5-vs-R4C.json").read_text()),
             "case-costs": {"schema": "speaksharp.cloud-test.case-costs.v1", "derived": True, **costs()},
         }
         entries = {}
@@ -83,10 +82,11 @@ class AggregateReceiver(unittest.TestCase):
         self.assertEqual(set(docs), set(A.REQUIRED))
         self.assertTrue(all(r["passed"] for r in docs["prior-run-verification"]["runs"]))
         self.assertTrue(all(r["reconciliation"]["ok"] for r in docs["case-costs"]["runs"].values()))
-        receipt = A.receiver_receipt(self.manifest_raw, self.request_raw, docs, self.pins)
+        _, accepted = A.receive_bundle(self.manifest_raw, str(self.root), self.request_raw, self.config, self.pins)
+        receipt = A.receiver_receipt(self.manifest_raw, self.request_raw, accepted, self.pins)
         self.assertEqual((receipt["requestSha256"], receipt["sourceSha"]),
                          (hashlib.sha256(self.request_raw).hexdigest(), "a" * 40))
-        self.assertEqual(receipt["acceptedSha256"]["reconciliation"], A.digest(A.canon(docs["reconciliation"])))
+        self.assertEqual(receipt["acceptedSha256"]["reconciliation"], A.digest(accepted["reconciliation"]))
         # The accepted components reach the ordinary product consumers, not a
         # receiver-only boolean assertion.
         budget = FB.compute(self.config, docs["case-costs"], catalog(), docs["reconciliation"])
@@ -97,7 +97,7 @@ class AggregateReceiver(unittest.TestCase):
                           {"valid": True, "errors": []}, {"passed": True}, None, str(self.root),
                           rv=docs["release-verification"], rc=docs["reconciliation"],
                           prior_verification=docs["prior-run-verification"], prior_comparison=docs["comparison-prior"],
-                          receiver_receipt=receipt, request_sha256=hashlib.sha256(self.request_raw).hexdigest())
+                          receiver_receipt=receipt, request_sha256=hashlib.sha256(self.request_raw).hexdigest(), receiver_verified=True)
         self.assertEqual(next(g["status"] for g in gate["gates"] if g["id"] == "G7"), "READY")
 
     def test_missing_substituted_stale_or_unknown_evidence_refuses(self):
@@ -133,6 +133,22 @@ class AggregateReceiver(unittest.TestCase):
                 self.receive(data, pins)
             self.assertEqual(str(error.exception), expected[case])
 
+    def test_header_only_or_unprovenanced_comparison_is_not_evidence(self):
+        for case in ("header-only", "wrong-generator"):
+            docs = copy.deepcopy(self.docs)
+            if case == "header-only":
+                docs["comparison-prior"] = {
+                    "schema": "speaksharp.run-comparison.v1",
+                    "previous": {"label": self.config["history"]["comparisonBaselines"][0]},
+                    "current": {"label": self.config["history"]["comparisonBaselines"][1]},
+                }
+            else:
+                docs["comparison-prior"]["generator"]["name"] = "caller-authored-summary"
+            manifest, pins = self.rewrite_bundle(docs)
+            with self.subTest(case=case), self.assertRaises(A.Refused) as error:
+                self.receive(manifest, pins)
+            self.assertEqual(str(error.exception), "aggregate-comparison-basis")
+
     def test_cli_refuses_before_reading_missing_inputs_while_unactivated(self):
         config = self.root / "inactive-config.json"
         config.write_text(json.dumps({"aggregateReceiver": {"activated": False}}))
@@ -159,9 +175,18 @@ class AggregateReceiver(unittest.TestCase):
         stimulus.write_text(json.dumps({"createdAt": created, "productTraffic": 0,
             "codeManifestSha256": self.request["harness"]["codeManifestSha256"],
             "cases": {s["case"]: {"ready": True} for s in self.request["selection"] if s.get("needsCaptureDevice")}}))
+        # These foreign paths deliberately contain unusable values.  Once the
+        # receiver is admitted, the standalone gate consumer must use the exact
+        # verified retained bytes for all three inputs rather than pairing a
+        # genuine receipt with caller-selected current evidence.
+        foreign = self.root / "foreign"; foreign.mkdir()
+        for name in ("gap-ledger", "release-verification", "reconciliation"):
+            (foreign / (name + ".json")).write_text('{}\n')
         result = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"),
                                  "--request", str(request), "--config", str(config), "--workflow", os.path.join(ROOT, "workflow.json"),
+                                 "--ledger", str(foreign / "gap-ledger.json"),
                                  "--accepted-input-dir", str(accepted), "--receiver-receipt", str(accepted / "receiver-receipt.json"),
+                                 "--receiver-manifest", str(manifest),
                                  "--offline-checks", str(checks), "--offline-proof", str(proof), "--stimulus-receipt", str(stimulus),
                                  "--stage", "final", "--out-dir", str(output), "--require-secret-free"],
                                 capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": str(self.root)})
@@ -169,6 +194,58 @@ class AggregateReceiver(unittest.TestCase):
         self.assertTrue(json.loads((output / "request-validation.json").read_text())["valid"])
         gates = json.loads((output / "gate-status.json").read_text())["gates"]
         self.assertEqual(next(g["status"] for g in gates if g["id"] == "G7"), "READY")
+        consumed = json.loads((output / "comparison-consumption.json").read_text())
+        self.assertEqual((len(consumed["journeys"]), consumed["manifestSha256"]),
+                         (15, self.pins["manifestSha256"]))
+        standalone = self.root / "standalone-gates.json"
+        direct = subprocess.run([
+            sys.executable, "-I", os.path.join(ROOT, "scripts", "check_gates.py"),
+            "--request", str(request), "--config", str(config),
+            "--ledger", str(foreign / "gap-ledger.json"), "--workflow", os.path.join(ROOT, "workflow.json"),
+            "--release-verification", str(foreign / "release-verification.json"),
+            "--reconciliation", str(foreign / "reconciliation.json"),
+            "--validation", str(output / "request-validation.json"),
+            "--offline-checks", str(checks), "--offline-proof", str(proof),
+            "--stimulus-receipt", str(stimulus), "--prior-verification", str(accepted / "prior-run-verification.json"),
+            "--prior-comparison", str(accepted / "comparison-prior.json"),
+            "--receiver-receipt", str(accepted / "receiver-receipt.json"),
+            "--receiver-manifest", str(manifest), "--accepted-input-dir", str(accepted),
+            "--stage", "final", "--base", ROOT, "--out", str(standalone),
+        ], capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": str(self.root)})
+        self.assertEqual(direct.returncode, 0, direct.stdout + direct.stderr)
+        direct_gates = json.loads(standalone.read_text())["gates"]
+        self.assertEqual(next(g["status"] for g in direct_gates if g["id"] == "G7"), "READY")
+        self.assertEqual(next(g["status"] for g in direct_gates if g["id"] == "G2"), "READY")
+
+    def test_verified_buffers_are_consumed_even_if_the_caller_substitutes_after_validation(self):
+        config = self.root / "active-config-substitution.json"; config.write_text(json.dumps(self.config))
+        request = self.root / "request-substitution.json"; request.write_bytes(self.request_raw)
+        manifest = self.root / "manifest-substitution.json"; manifest.write_bytes(self.manifest_raw)
+        accepted = self.root / "accepted-substitution"
+        result = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "aggregate_receiver.py"),
+                                 "--manifest", str(manifest), "--request", str(request), "--config", str(config), "--out-dir", str(accepted)],
+                                capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": str(self.root)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        _, buffers, receipt = A.verified_accepted(str(manifest), str(request), str(accepted), self.config)
+        original = buffers["comparison-prior"]
+        (accepted / "comparison-prior.json").write_text('{"substituted":true}\n')
+        snapshot = self.root / "consumer-snapshot"
+        A.materialize_verified(str(snapshot), buffers, receipt)
+        self.assertEqual((snapshot / "comparison-prior.json").read_bytes(), original)
+        with self.assertRaises(A.Refused) as error:
+            A.verified_accepted(str(manifest), str(request), str(accepted), self.config)
+        self.assertEqual(str(error.exception), "aggregate-accepted-substitution:comparison-prior")
+        refused_out = self.root / "substituted-pipeline-output"
+        refused = subprocess.run([
+            sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"),
+            "--request", str(request), "--config", str(config), "--workflow", os.path.join(ROOT, "workflow.json"),
+            "--accepted-input-dir", str(accepted), "--receiver-manifest", str(manifest),
+            "--out-dir", str(refused_out),
+        ], capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": str(self.root)})
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("aggregate-accepted-substitution:comparison-prior", refused.stderr)
+        self.assertFalse((refused_out / "request-validation.json").exists(),
+                         "a substituted accepted component must refuse before ordinary gate effects")
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ run_stage() {
     [ -n "${!n:-}" ] || blocked "stage $stage needs $n and it is not set in the environment"
     e+=("$n=${!n}")
   done <<< "$names"
-  for n in CT_OUT CT_REQUEST CT_REQUEST_SHA256 CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_OFFLINE_PROOF CT_RETAINED_GATE_MANIFEST CT_STATE_REPO CT_STATE_JOURNAL CT_ACCOUNTING_BOOTSTRAP CT_PERIOD_SCOPE CT_CHECKOUT CT_FACTS_FILE CT_LIVE_ACCOUNTS_FILE CT_LIVE_ACCOUNTS_SHA256 CT_ACCOUNT_BINDINGS_FILE CT_PRIVATE_INPUT_DIR CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_BROWSER_RECEIPT CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
+  for n in CT_OUT CT_REQUEST CT_REQUEST_SHA256 CT_CONFIG CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_OFFLINE_PROOF CT_RETAINED_GATE_MANIFEST CT_STATE_REPO CT_STATE_JOURNAL_RESERVE CT_STATE_JOURNAL_SETTLE CT_ACCOUNTING_BOOTSTRAP CT_PERIOD_SCOPE CT_CHECKOUT CT_FACTS_FILE CT_LIVE_ACCOUNTS_FILE CT_LIVE_ACCOUNTS_SHA256 CT_ACCOUNT_BINDINGS_FILE CT_PRIVATE_INPUT_DIR CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_BROWSER_RECEIPT CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
   for n in CT_EVIDENCE_SCOPE_FILE CT_EVIDENCE_SCOPE_SHA256; do
@@ -225,6 +225,7 @@ case "$STAGE" in
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
       run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --request "$REQ" --config "$CFG" \
         --workflow "$ROOT/workflow.json" --accepted-input-dir "$accepted" --receiver-receipt "$accepted/receiver-receipt.json" \
+        --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" \
         --offline-checks "$CT_OFFLINE_CHECKS" --offline-proof "$CT_OFFLINE_PROOF" \
         --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" --stage final --out-dir "$OUT/final-gates" \
         --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free
@@ -252,12 +253,12 @@ case "$STAGE" in
       --approval "$CT_APPROVAL" --index "$CT_HISTORY_INDEX" --ledger "$CT_RESERVATIONS" --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ;;
   manual-reserve)
     [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" priority)" != nightly-regression ] || blocked "manual reservation refuses nightly requests"
-    for n in CT_STATE_REPO CT_STATE_JOURNAL CT_ACCOUNTING_BOOTSTRAP CT_PERIOD_SCOPE; do [ -n "${!n:-}" ] || blocked "$n is required"; done
+    for n in CT_STATE_REPO CT_STATE_JOURNAL_RESERVE CT_ACCOUNTING_BOOTSTRAP CT_PERIOD_SCOPE; do [ -n "${!n:-}" ] || blocked "$n is required"; done
     execution_run_id="${GITHUB_RUN_ID:-${CT_EXECUTION_RUN_ID:-}}"
     [[ "$execution_run_id" =~ ^[0-9]+$ ]] || blocked "manual reservation requires the execution run id"
     # The CLI checks reviewed activation before reading these inputs. Once activated, this private repository is only a transport workspace;
     # the accepted root and whole remote chain remain authoritative.
-    run_stage manual-reserve python3 -I "$ROOT/scripts/manual_reservation.py" reserve --repo "$CT_STATE_REPO" --journal "$CT_STATE_JOURNAL" \
+    run_stage manual-reserve python3 -I "$ROOT/scripts/manual_reservation.py" reserve --repo "$CT_STATE_REPO" --journal "$CT_STATE_JOURNAL_RESERVE" \
       --out "$OUT/manual-reserve-receipt.json" --request "$REQ" --admitted-sha256 "$CT_REQUEST_SHA256" --run-id "$execution_run_id" \
       --bootstrap "$CT_ACCOUNTING_BOOTSTRAP" --scope "$CT_PERIOD_SCOPE" ;;
   run)
@@ -295,9 +296,10 @@ case "$STAGE" in
       --gate-status "$OUT/final-gates/gate-status.json" --workflow "$ROOT/workflow.json" --runner-json "$OUT/runner.json" --started-utc "$started" --ended-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$OUT/run-record.json" ;;
   manual-settle)
     [ -f "$OUT/run-record.json" ] || blocked "a completed collector run record is required before settle"
+    [ -n "${CT_STATE_JOURNAL_SETTLE:-}" ] || blocked "CT_STATE_JOURNAL_SETTLE is required"
     execution_run_id="${GITHUB_RUN_ID:-${CT_EXECUTION_RUN_ID:-}}"
     campaign_id="$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" runId)"
-    run_stage manual-settle python3 -I "$ROOT/scripts/manual_reservation.py" settle --repo "$CT_STATE_REPO" --journal "$CT_STATE_JOURNAL" \
+    run_stage manual-settle python3 -I "$ROOT/scripts/manual_reservation.py" settle --repo "$CT_STATE_REPO" --journal "$CT_STATE_JOURNAL_SETTLE" \
       --out "$OUT/manual-settle-receipt.json" --campaign-id "$campaign_id" --run-id "$execution_run_id" \
       --record "$OUT/run-record.json" --scope "$CT_PERIOD_SCOPE" ;;
   *) blocked "unknown stage $STAGE" ;;

@@ -13,7 +13,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _common import load, dump, parse_utc, now_utc, ep_requirements, mode_limits  # noqa: E402
+from _common import load, dump, parse_utc, now_utc, ep_requirements, mode_limits, comparison_errors  # noqa: E402
 from verify_receipts import verify_set  # noqa: E402
 from recurring_usage import check_caps  # noqa: E402
 from case_start_caps import reconcile_caps, request_caps
@@ -75,7 +75,7 @@ def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=
     return gate("G11", READY if not need else NOTREADY, "within the standing approval of recurring cost (period usage so far: %d run(s), %s requests, %s Starts, %s takes, %s coaching calls, %s runner minutes; %d open reservation(s))" % (u["runs"], used["requests"], used["starts"], used["takes"], used["coachingRequests"], used["runnerMinutes"], len(u["openReservations"])) if not need else "outside the standing approval of recurring cost", need)
 
 
-def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None, offline_proof=None, prior_verification=None, prior_comparison=None, receiver_receipt=None, request_sha256=None):
+def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, stage="final", rv=None, rc=None, now=None, receipts_root=None, index=None, reservations=None, approval_path=None, offline_proof=None, prior_verification=None, prior_comparison=None, receiver_receipt=None, request_sha256=None, receiver_verified=False):
     G = []
     now = now or now_utc()
     try:
@@ -215,21 +215,15 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         rows = prior_verification.get("runs") if isinstance(prior_verification, dict) else None
         expected = [p.get("label") for p in req.get("priorRuns") or []]
         rr = receiver_receipt if isinstance(receiver_receipt, dict) else {}
-        accepted = rr.get("acceptedSha256") if isinstance(rr.get("acceptedSha256"), dict) else {}
-        pins = cfg.get("aggregateReceiver") or {}
-        if rr.get("schema") != "speaksharp.cloud-test.aggregate-receiver-receipt.v1" or \
-                rr.get("manifestSha256") != pins.get("manifestSha256") or rr.get("bundleRootSha256") != pins.get("bundleRootSha256") or \
-                rr.get("requestSha256") != request_sha256 or rr.get("sourceSha") != (req.get("release") or {}).get("testedSha") or \
-                accepted.get("prior-run-verification") != canonical_sha(prior_verification) or \
-                accepted.get("comparison-prior") != canonical_sha(prior_comparison):
+        if not receiver_verified or rr.get("schema") != "speaksharp.cloud-test.aggregate-receiver-receipt.v1" or \
+                rr.get("requestSha256") != request_sha256 or rr.get("sourceSha") != (req.get("release") or {}).get("testedSha"):
             need.append("accepted prior-run inputs are not bound to the reviewed receiver receipt")
         if prior_verification.get("schema") != "speaksharp.cloud-test.prior-run-verification.v1" or not isinstance(rows, list) or \
                 [r.get("label") for r in rows] != expected or not all(r.get("passed") is True for r in rows):
             need.append("accepted prior-run verification does not cover the request")
-        baseline = cfg["history"]["comparisonBaselines"]
-        if not isinstance(prior_comparison, dict) or prior_comparison.get("schema") != "speaksharp.run-comparison.v1" or \
-                [((prior_comparison.get("previous") or {}).get("label")), ((prior_comparison.get("current") or {}).get("label"))] != baseline:
-            need.append("accepted comparison does not cover the configured baselines")
+        errors = comparison_errors(prior_comparison, cfg["history"]["comparisonBaselines"])
+        if errors:
+            need.append("accepted comparison is incomplete: " + "; ".join(errors[:3]))
     else:
         root = receipts_root or os.path.join(base, "config", "history", "receipts")
         runs = {r["label"]: r for r in cfg["history"]["runs"]}
@@ -275,7 +269,7 @@ def main():
     a = argparse.ArgumentParser()
     for k in ("request", "config", "ledger", "workflow", "release-verification", "reconciliation", "base", "out"):
         a.add_argument("--" + k, required=True)
-    for k in ("validation", "offline-checks", "offline-proof", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "prior-verification", "prior-comparison", "receiver-receipt"):
+    for k in ("validation", "offline-checks", "offline-proof", "stimulus-receipt", "now", "history-index", "reservations", "receipts-root", "approval", "prior-verification", "prior-comparison", "receiver-receipt", "receiver-manifest", "accepted-input-dir"):
         a.add_argument("--" + k)
     a.add_argument("--stage", choices=["preflight", "final"], default="final")
     x = a.parse_args()
@@ -283,14 +277,34 @@ def main():
     if req.get("priority") == "nightly-regression" and not (x.history_index and x.reservations and x.approval):
         a.error("recurring gates require explicit --history-index, --reservations and --approval inputs")
     rec = load(x.stimulus_receipt) if x.stimulus_receipt and os.path.exists(x.stimulus_receipt) else None
-    out = evaluate(req, load(x.config), load(x.ledger), load(x.workflow), load(x.validation) if x.validation else None,
-                   load(x.offline_checks) if x.offline_checks else None, rec, x.base, x.stage, load(x.release_verification), load(x.reconciliation),
+    cfg = load(x.config)
+    verified = False
+    verified_docs = None
+    prior = load(x.prior_verification) if x.prior_verification else None
+    comparison = load(x.prior_comparison) if x.prior_comparison else None
+    receiver = load(x.receiver_receipt) if x.receiver_receipt else None
+    if any((x.prior_verification, x.prior_comparison, x.receiver_receipt, x.receiver_manifest, x.accepted_input_dir)):
+        if not all((x.prior_verification, x.prior_comparison, x.receiver_receipt, x.receiver_manifest, x.accepted_input_dir)):
+            a.error("received prior-run inputs require --receiver-manifest and --accepted-input-dir")
+        import aggregate_receiver
+        try:
+            docs, _, receiver = aggregate_receiver.verified_accepted(x.receiver_manifest, x.request, x.accepted_input_dir, cfg)
+        except aggregate_receiver.Refused as err:
+            print("BLOCKED_SETUP: " + str(err), file=sys.stderr)
+            sys.exit(78)
+        verified_docs = docs
+        prior, comparison, verified = docs["prior-run-verification"], docs["comparison-prior"], True
+    # A verified receiver admission covers every retained gate input, not only
+    # the prior-run pair.  Never pair a genuine receiver receipt with arbitrary
+    # caller paths for the current gap ledger, release or reconciliation.
+    ledger = verified_docs["gap-ledger"] if verified_docs else load(x.ledger)
+    release = verified_docs["release-verification"] if verified_docs else load(x.release_verification)
+    reconciliation = verified_docs["reconciliation"] if verified_docs else load(x.reconciliation)
+    out = evaluate(req, cfg, ledger, load(x.workflow), load(x.validation) if x.validation else None,
+                   load(x.offline_checks) if x.offline_checks else None, rec, x.base, x.stage, release, reconciliation,
                    parse_utc(x.now) if x.now else None, x.receipts_root, load(x.history_index) if x.history_index else None,
                    load(x.reservations) if x.reservations else None, x.approval, x.offline_proof,
-                   load(x.prior_verification) if x.prior_verification else None,
-                   load(x.prior_comparison) if x.prior_comparison else None,
-                   load(x.receiver_receipt) if x.receiver_receipt else None,
-                   file_sha(x.request))
+                   prior, comparison, receiver, file_sha(x.request), verified)
     dump(out, x.out)
     print("decision:", out["decision"], "| blocking open:", ",".join(out["blockingOpen"]) or "none")
 

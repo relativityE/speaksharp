@@ -44,7 +44,7 @@ def main():
     a.add_argument("--request", required=True)
     a.add_argument("--out-dir", required=True)
     a.add_argument("--stage", choices=["preflight", "final"], default="preflight")
-    for k in ("latest-label", "offline-checks", "offline-proof", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations", "accepted-input-dir", "receiver-receipt"):
+    for k in ("latest-label", "offline-checks", "offline-proof", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations", "accepted-input-dir", "receiver-receipt", "receiver-manifest"):
         a.add_argument("--" + k)
     a.add_argument("--repo", default=os.path.abspath(os.path.join(ROOT, "..", "..")))
     a.add_argument("--config", default=os.path.join(ROOT, "config", "test-config.v1.json"))
@@ -84,14 +84,39 @@ def main():
         # checked the reviewed manifest and preserved each accepted producer's
         # bytes. This branch still invokes the ordinary budget, request-validation
         # and gate consumers; it does not trust a supplied `valid` or `passed` flag.
-        A = lambda n: os.path.join(x.accepted_input_dir, n + ".json")
+        if not x.receiver_manifest:
+            sys.exit("accepted input set has no pinned receiver manifest")
+        import aggregate_receiver
+        try:
+            docs, accepted_bytes, verified_receipt = aggregate_receiver.verified_accepted(
+                x.receiver_manifest, x.request, x.accepted_input_dir, cfg)
+        except aggregate_receiver.Refused as err:
+            sys.exit("accepted input verification failed: " + str(err))
+        # Consumers see a private snapshot written from the buffers that were
+        # verified above.  Mutating the caller's accepted directory after this
+        # point cannot substitute bytes underneath a later subprocess.
+        accepted_snapshot = O("accepted-snapshot")
+        aggregate_receiver.materialize_verified(accepted_snapshot, accepted_bytes, verified_receipt)
+        A = lambda n: os.path.join(accepted_snapshot, n + ".json")
         required = ("reconciliation", "release-verification", "gap-ledger", "prior-run-verification",
                     "comparison-prior", "case-costs")
         if any(not os.path.isfile(A(n)) for n in required):
             sys.exit("accepted input set is incomplete")
-        receiver = x.receiver_receipt or A("receiver-receipt")
+        receiver = A("receiver-receipt")
+        if x.receiver_receipt and os.path.realpath(x.receiver_receipt) != os.path.realpath(os.path.join(x.accepted_input_dir, "receiver-receipt.json")):
+            sys.exit("accepted receiver receipt path differs from the received set")
         if not os.path.isfile(receiver):
             sys.exit("accepted receiver receipt is missing")
+        # Exercise the same journey/denominator consumer used by the executive
+        # summary.  This is a real comparison consumption, not a two-label gate.
+        import derive_summary
+        state = derive_summary.current_state(docs["comparison-prior"], None, req)
+        dump({"schema": "speaksharp.cloud-test.accepted-comparison-consumption.v1",
+              "manifestSha256": verified_receipt["manifestSha256"],
+              "comparisonSha256": verified_receipt["acceptedSha256"]["comparison-prior"],
+              "validity": docs["comparison-prior"]["validity"],
+              "denominators": docs["comparison-prior"]["denominators"],
+              "journeys": state}, O("comparison-consumption.json"))
         if load(x.request).get("coverageMode") == "full":
             rb = run("full_coverage_budget.py", "--config", x.config, "--costs", A("case-costs"),
                      "--catalog", os.path.join(ROOT, load(x.config)["modes"]["full"]["assertionCatalog"]["file"]),
@@ -109,6 +134,7 @@ def main():
              "--release-verification", A("release-verification"), "--reconciliation", A("reconciliation"),
              "--validation", O("request-validation.json"), "--prior-verification", A("prior-run-verification"),
              "--prior-comparison", A("comparison-prior"), "--receiver-receipt", receiver,
+             "--receiver-manifest", x.receiver_manifest, "--accepted-input-dir", accepted_snapshot,
              "--stage", x.stage, "--base", ROOT, "--out", O("gate-status.json")]
         if x.offline_checks:
             g += ["--offline-checks", x.offline_checks]
