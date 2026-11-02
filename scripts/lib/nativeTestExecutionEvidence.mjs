@@ -223,7 +223,12 @@ function proofGenerationSources(root) {
   const add=(relative)=>{
     const target=path.join(root,relative),stat=fs.lstatSync(target);
     if(stat.isSymbolicLink())fail('Aliased proof-generation source');
-    if(stat.isDirectory())for(const name of fs.readdirSync(target).sort())add(`${relative}/${name}`);
+    // Python bytecode is an execution by-product, not reviewed source. Its timestamped
+    // creation can otherwise change this binding between phase creation and validation.
+    if(stat.isDirectory()) {
+      if(path.basename(relative)==='__pycache__')return;
+      for(const name of fs.readdirSync(target).sort())add(`${relative}/${name}`);
+    }
     else if(stat.isFile())entries.push({file:relative,sha256:hash(fs.readFileSync(target))});
     else fail('Unsupported proof-generation source');
     if(entries.length>4096)fail('Proof-generation source inventory is unbounded');
@@ -273,7 +278,7 @@ export function generatedProofCases(root,environment,{children=nativeChildTracke
     const launcher=binary('python3'),{result:identity}=children.run([launcher,'-I','-c',
       'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.executable).resolve(); print(json.dumps({"path":str(p),"version":".".join(map(str,sys.version_info[:3])),"sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'],
     {encoding:'utf8',timeout:identityTimeoutMs,killSignal:'SIGKILL',detached:true,
-      env:{PATH:path.dirname(launcher),LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
+      env:{PATH:path.dirname(launcher),LANG:'C.UTF-8',LC_ALL:'C.UTF-8',PYTHONDONTWRITEBYTECODE:'1'}});
     let runtime;try{runtime=JSON.parse(identity.stdout);}catch{fail('NOT RUN: malformed proof-generation Python identity');}
     if(identity.status!==0||identity.signal||identity.error||!/^3\.12\.\d+$/.test(runtime.version)
       ||fs.realpathSync(runtime.path)!==runtime.path||hash(fs.readFileSync(runtime.path))!==runtime.sha256)
@@ -283,7 +288,7 @@ export function generatedProofCases(root,environment,{children=nativeChildTracke
     const {result}=children.run(command,{cwd:path.join(root,'tools/cloud-test'),encoding:'utf8',timeout:generatorTimeoutMs,
       killSignal:'SIGKILL',detached:true,
       env:{PATH:[path.dirname(python),'/usr/bin','/bin'].join(path.delimiter),HOME:parent,CT_EXISTING_PDFJS_DIR:pdf,
-        LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true'}});
+        LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true',PYTHONDONTWRITEBYTECODE:'1'}});
     if(result.status!==0||result.signal||result.error)fail('NOT RUN: independent r15 proof generation failed');
     return {runtime,command:['<BOUND_PYTHON>','-I','tools/cloud-test/scripts/proof_prep_cases.py','--out','<OWNED_OUTPUT>',
       '--packet','tools/cloud-test/harness'],sources:proofGenerationSources(root),
