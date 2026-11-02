@@ -10,9 +10,10 @@ runs keep their own path (reservations.py); this module refuses them.
             exactly what G5 would charge. An unknown cap refuses, never 0. Admission needs every G5 dimension within the headroom of the
             accepted rollup recomputed at the same chain head the reserve is appended on.
   settle    closes the reservation from the collector's run-record BYTES: their digest is the `evidence-sha256:` provenance, and their
-            execution identity and admitted request must be the reservation's. Measured requests already include identity reads, so they
-            count as measured. A dimension the record does not measure settles at its reserved cap (never under-counted); an actual above
-            the reservation refuses, leaving the reservation open and counted.
+            execution identity and admitted request must be the reservation's. The campaign request count excludes identity GETs, so the
+            measured request charge is requests + identityReads exactly once while identityReads remains separately reported. If either
+            half is unknown, requests settle at the reserved cap. Any unmeasured dimension keeps its reserved cap (never under-counted);
+            an actual above the reservation refuses, leaving the reservation open and counted.
   release   returns exactly the reservation, under an owner approval reference, only for a run that never started. The integrated path
             refuses every release until a verifier of never-started evidence exists (`started=False` alone is not evidence).
   execute   the integrated path: accepted scope BYTES (pinned digest, not a nonempty approvalRef), the chain verified from the accepted root,
@@ -135,6 +136,14 @@ def usage_from_record(record_raw, reserved):
         v = spend.get(k)
         _need(v is None or (type(v) is int and v >= 0), "manual-settle-usage")
         usage[k] = v
+    # The campaign ledger's request count excludes the identity GETs that G5
+    # charges against the same request ceiling.  Preserve the separate
+    # identityReads evidence, but settle requests at the combined measured
+    # charge.  If either half is unknown, keep the conservative reserved cap.
+    if usage["requests"] is None or usage["identityReads"] is None:
+        usage["requests"] = None
+    else:
+        usage["requests"] += usage["identityReads"]
     return usage, hashlib.sha256(record_raw).hexdigest()
 
 
@@ -198,10 +207,18 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
         matches = [(index, row) for index, (_, rows, _) in enumerate(chain) for row in rows[-1:]
                    if row == event]
         _need(len(matches) <= 1, "manual-reservation-transition-duplicated")
-        if matches and os.path.isfile(journal) and os.path.isfile(out):
+        if matches and os.path.isfile(journal):
             index, _ = matches[0]
             _need(index > 0, "manual-reservation-transition-parent")
+            try:
+                with open(journal, encoding="utf-8") as source:
+                    journal_receipt = json.load(source)
+            except (OSError, ValueError, TypeError):
+                raise Refused("manual-reservation-journal-unreadable")
+            state_ref_writer.verify(repo, url, journal_receipt, event, root, approved_url)
             expected = chain[index - 1][0]
+            _need(journal_receipt["previousSha"] == expected and journal_receipt["newSha"] == chain[index][0],
+                  "manual-reservation-journal-transition-mismatch")
         else:
             expected = head
             if command == "reserve":
