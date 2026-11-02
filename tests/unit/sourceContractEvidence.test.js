@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
+import {CASE07_APPLY,CASE07_ROLLBACK,SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
   consumeSourceContracts,validateSourceContractWitness} from '../../scripts/lib/sourceContractEvidence.mjs';
 import {executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
@@ -134,6 +134,40 @@ test('#1712 actual entry spec settles the default post-auth route before Account
     assert.notEqual(wrong,actual);
     assert.throws(()=>inspectSourceContract(root,file,wrong),/wiring contract failed/);
   }
+});
+
+test('Case 07 grant and rollback candidates retain the exact bounded ACL contract without database credit',()=>{
+  const apply=fs.readFileSync(path.join(root,CASE07_APPLY),'utf8');
+  const rollback=fs.readFileSync(path.join(root,CASE07_ROLLBACK),'utf8');
+  for(const [file,source,operation] of [[CASE07_APPLY,apply,'grant'],[CASE07_ROLLBACK,rollback,'revoke']]) {
+    const proof=inspectSourceContract(root,file,source);
+    assert.equal(proof.operation,operation);assert.equal(proof.databaseExecution,'NOT RUN');
+    assert.equal(proof.productionExecution,'NOT AUTHORIZED');
+    const route=executionRoute(file,root);
+    assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true);
+  }
+  for(const [from,to] of [
+    ["SET LOCAL lock_timeout='3s';","SET LOCAL lock_timeout='30s';"],
+    ["SET LOCAL statement_timeout='10s';","SET LOCAL statement_timeout='60s';"],
+    ['LOCK TABLE public.user_goals IN SHARE ROW EXCLUSIVE MODE;','LOCK TABLE public.user_goals IN ACCESS EXCLUSIVE MODE;'],
+    ["relkind='r' AND relrowsecurity AND NOT relforcerowsecurity","relkind='r'"],
+    ["rolname='authenticated' AND (rolsuper OR rolbypassrls)","rolname='authenticated' AND rolsuper"],
+    ['TO authenticated;','TO service_role;'],
+  ]) assert.throws(()=>inspectSourceContract(root,CASE07_APPLY,apply.replace(from,to)),/Case 07/);
+  for(const widened of [
+    apply.replace('TO authenticated;','TO authenticated WITH GRANT OPTION;'),
+    apply.replace('COMMIT;','ALTER TABLE public.user_goals DISABLE ROW LEVEL SECURITY;\nCOMMIT;'),
+    apply.replace('COMMIT;','DELETE FROM public.user_goals;\nCOMMIT;'),
+    apply.replace('COMMIT;','UPDATE user_goals SET weekly_goal=0;\nCOMMIT;'),
+    apply.replace('GRANT SELECT (id,user_id,weekly_goal,clarity_goal,created_at,updated_at) ON public.user_goals TO authenticated;',
+      '/* GRANT SELECT (id,user_id,weekly_goal,clarity_goal,created_at,updated_at) ON public.user_goals TO authenticated; */'),
+  ]) assert.throws(()=>inspectSourceContract(root,CASE07_APPLY,widened),/Case 07/);
+  for(const [from,to] of [
+    ['CROSS JOIN LATERAL aclexplode(a.attacl) x','LEFT JOIN LATERAL aclexplode(a.attacl) x ON true'],
+    [')<>12',')<>11'],
+    ['FROM authenticated;','FROM service_role;'],
+    ['REVOKE SELECT','GRANT SELECT'],
+  ]) assert.throws(()=>inspectSourceContract(root,CASE07_ROLLBACK,rollback.replace(from,to)),/Case 07/);
 });
 
 test('route specs without their wires are not applicable; with them, applicability still grants no credit',()=>fixture(({dir,write})=>{
