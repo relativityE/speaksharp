@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   verify:
+    environment: trusted-main-credentials
     name: Entitlement proof (read-only)
     runs-on: ubuntu-latest
     timeout-minutes: 10

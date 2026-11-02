@@ -46,6 +46,7 @@ concurrency:
 
 jobs:
   audit:
+    environment: trusted-main-credentials
     name: Read-only tester evidence audit
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -124,6 +124,7 @@ jobs:
         run: pnpm rc:gate:2:sast
 
   gate-3-dast:
+    environment: trusted-main-credentials
     name: Gate 3 - DAST / Running App
     if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast' }}
     runs-on: ubuntu-latest
