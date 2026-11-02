@@ -286,7 +286,7 @@ class StateRef(unittest.TestCase):
         git(self.repo, "replace", r1["newSha"], forged)
         self.assertEqual(self.verify(r1, event())["events"], 1)
 
-    def test_the_ref_is_never_created_and_the_cli_refuses_until_the_root_is_pinned(self):
+    def test_the_ref_is_never_created_and_the_cli_refuses_a_substituted_root_or_ref(self):
         empty = os.path.join(self.d, "empty.git")
         subprocess.run(["git", "init", "-q", "--bare", empty], check=True)
         repo = self.fresh("w2")
@@ -301,7 +301,8 @@ class StateRef(unittest.TestCase):
         for extra, code in (([], "state-root-not-pinned"), (["--ref", "refs/heads/other"], "state-ref-not-selected")):
             p = subprocess.run([sys.executable, "-I", script, *base, *extra], capture_output=True, text=True, timeout=60)
             self.assertEqual((p.returncode, p.stderr.strip(), p.stdout), (78, "BLOCKED_SETUP: " + code, ""))
-        self.assertIsNone(W.REVIEWED_ROOT, "the real root is pinned only by an independently reviewed change")
+        self.assertEqual(W.REVIEWED_ROOT, "92d6ebf902351750c368d7d513116c6b1f19f80c",
+                         "the independently reviewed R10 root is exact")
 
 
 class PushTokenConfinement(unittest.TestCase):

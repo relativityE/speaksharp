@@ -157,7 +157,15 @@ class CheckGates(unittest.TestCase):
         r, l = approved(self.req, self.ledger)
         sha = "a" * 64
         planned = r["estimate"]["starts"]
-        self.rc = dict(self.rc, starts=dict(self.rc["starts"], ownerCounted=self.rc["ceilings"]["starts"]))  # full, including own `planned`
+        # Review 4447628949: an exact fit in all four dimensions, each counter full including this run's own held allocation.
+        a, est = r["approvedLimits"], r["estimate"]
+        held = {"requests": a["runCapRequests"] + est["identityReads"], "identityReads": est["identityReads"], "starts": planned,
+                "takes": est["takes"]}
+        self.rc = dict(self.rc, starts=dict(self.rc["starts"], ownerCounted=self.rc["ceilings"]["starts"]),  # full, including own `planned`
+                       takes=dict(self.rc["takes"], ownerCounted=self.rc["ceilings"]["takes"]),
+                       requests=dict(self.rc["requests"], conservativeUsed=a["cumulativeCeilingRequests"] - self.rc["ceilings"]["protectedReserveRequests"]
+                                     - a["runCapRequests"] - est["identityReads"] + held["requests"]),
+                       identityReads=dict(self.rc["identityReads"], conservativeUsed=a["identityCap"]))
 
         def g5(reservations, request_sha256=sha):
             rc = dict(self.rc, openReservationsByRequest=reservations) if reservations is not None else self.rc
@@ -168,10 +176,13 @@ class CheckGates(unittest.TestCase):
                              request_sha256=request_sha256)
             return [g for g in out["gates"] if g["id"] == "G5"][0]["status"], errs
 
-        own = {sha: {r["runId"]: {"count": 1, "starts": planned, "takes": 0},
-                     r["runId"] + ".case10-observation": {"count": 1, "starts": 0, "takes": 0}}}  # review 4446862226
+        own = {sha: {r["runId"]: dict(held, count=1),
+                     r["runId"] + ".case10-observation": {"count": 1, "requests": 50, "identityReads": 2, "starts": 0, "takes": 0}}}  # 4446862226
         self.assertEqual(g5(None)[0], "NOT-READY", "broken before: the own reservation is charged twice")
         self.assertEqual(g5(own), ("READY", []), "fixed after: replaced by the plan, admitted end to end")
+        for k in held:  # each dimension on its own: a held amount one short leaves that counter over its ceiling
+            short = {sha: dict(own[sha], **{r["runId"]: dict(own[sha][r["runId"]], **{k: held[k] - 1})})}
+            self.assertEqual(g5(short)[0], "NOT-READY", k)
         self.assertEqual(g5({"b" * 64: own[sha]})[0], "NOT-READY", "another request's reservation is never discounted")
         self.assertEqual(g5(own, request_sha256=None)[0], "NOT-READY", "no request digest, no discount")
         self.assertEqual(g5({sha: dict(own[sha], **{r["runId"]: dict(own[sha][r["runId"]], count=2)})})[0], "NOT-READY",

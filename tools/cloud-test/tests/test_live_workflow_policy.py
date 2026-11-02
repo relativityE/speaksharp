@@ -119,7 +119,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertEqual(checkouts[0]["with"]["ref"], "${{ github.sha }}")
 
     def test_the_latest_record_is_bound_to_the_selected_tracking_issue(self):
-        self.assertEqual(self.doc["env"]["TRACKING_ISSUE"], "1763")  # Sam 1793472499.701439: PR #1763's conversation
+        self.assertEqual(self.doc["env"]["TRACKING_ISSUE"], "1763")
         self.assertIn('[ -n "$TRACKING_ISSUE" ] || { echo "BLOCKED_SETUP: tracking-issue-not-bound"; exit 78; }', self.text)
 
     def test_a_rerun_attempt_and_an_unconfirmed_dispatch_are_refused_before_any_effect(self):
@@ -321,7 +321,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         state = open(os.path.join(ROOT, "scripts", "state_ref_writer.py"), encoding="utf-8").read()
         self.assertLess(manual.index('_need(activated(), "manual-reservation-not-activated")'),
                         manual.index('_read(x.request)'))
-        self.assertIn("REVIEWED_ROOT = None", state)
+        self.assertIn('REVIEWED_ROOT = "92d6ebf902351750c368d7d513116c6b1f19f80c"', state)
 
     def test_private_accounting_workspace_is_real_git_without_transport(self):
         step = next(s for s in self.jobs["live"]["steps"]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Append-only bookkeeping on the ONE selected state ref (Sam 1793548444.540999, RETURN 1793549143.187519). SOURCE ONLY: this module never
-creates the ref, never changes a permission, and is not wired into any workflow. The CLI refuses until REVIEWED_ROOT is pinned by review.
+"""Append-only bookkeeping on the ONE selected state ref (Sam 1793548444.540999, RETURN 1793549143.187519). This module never creates the
+ref or changes a permission. The independently reviewed R10 root is pinned below; every substituted root still refuses.
 
 The ref's history is a single-parent chain from the pinned, independently reviewed root (an empty canonical ledger). Every commit's tree holds
 exactly ledger.json, and every ledger is its parent's ledger plus EXACTLY ONE closed-schema, content-free event:
@@ -36,7 +36,9 @@ SCHEMA = "speaksharp.cloud-test.state-ledger.v1"
 LEDGER = "ledger.json"
 STATE_REF = "refs/heads/cloud-test-state"
 APPROVED_URL = "https://github.com/relativityE/speaksharp.git"
-REVIEWED_ROOT = None  # pinned only by an independently reviewed change; until then the CLI refuses
+# Independently reviewed parentless root selected for the single PO-approved
+# R10 manual period.  Any other root is refused before a journal transition.
+REVIEWED_ROOT = "92d6ebf902351750c368d7d513116c6b1f19f80c"
 OBSERVED = "refs/cloud-test-state/observed"
 MAX_CHAIN = 10000
 TYPES = ("reserve", "settle", "release")

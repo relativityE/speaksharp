@@ -202,7 +202,13 @@ class Rollup(Journal):
         refused(self, "rollup-bound-evidence-duplicate", R.parse_bootstrap,
                 bounded_bootstrap([item, copy.deepcopy(item)], [result]))
         unresolved = bootstrap(unresolved=[{"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "UNRESOLVED", "usage": None}])
-        refused(self, "rollup-unresolved-usage", R.receive, unresolved, scope(), self.chain(),
+        fresh = R.receive(unresolved, scope(carryover="none"), self.chain(),
+                          accepted_sha256=hashlib.sha256(unresolved).hexdigest(), accepted_root=self.root)
+        self.assertEqual(fresh["requests"]["conservativeUsed"], 0)
+        self.assertTrue(fresh["historicalIncomplete"])
+        self.assertEqual(fresh["historicalResolution"], [{"kind": "diagnostic", "ref": "gha-run:41071743003",
+                                                           "disposition": "UNRESOLVED", "usage": None}])
+        refused(self, "rollup-unresolved-usage", R.receive, unresolved, scope(carryover="historical"), self.chain(),
                 accepted_sha256=hashlib.sha256(unresolved).hexdigest(), accepted_root=self.root)
         zeroed_item, zeroed_result = bounded_pair(bound=usage(requests=0, identityReads=0, starts=0, takes=0))
         refused(self, "rollup-bound-zero", R.parse_bootstrap,
@@ -211,12 +217,27 @@ class Rollup(Journal):
     def test_historical_usage_stays_distinct_and_is_counted_only_under_an_approved_carryover(self):
         none = self.receive()
         self.assertEqual((none["requests"]["conservativeUsed"], none["period"]["requests"], none["historical"]["requests"]), (0, 0, 7996))
+        self.assertFalse(none["historicalIncomplete"])
         hist = self.receive(scope(carryover="historical"))
         self.assertEqual((hist["requests"]["conservativeUsed"], hist["identityReads"]["conservativeUsed"], hist["starts"]["ownerCounted"],
                           hist["takes"]["ownerCounted"]), (7996, 124, 65, 38), "an empty journal under carryover is the bootstrap, never zero")
         # Unknown coaching/runner dimensions stay unknown, never 0.
         self.assertEqual((hist["historical"]["coachingRequests"], hist["unknown"]), (None, {"coachingRequests": True, "runnerMinutes": True}))
         self.assertEqual(none["unknown"], {"coachingRequests": False, "runnerMinutes": False})
+
+    def test_fresh_period_refuses_a_bootstrap_cutoff_that_overlaps_or_follows_its_start(self):
+        accepted = bootstrap(asOfUtc="2026-11-02T00:00:00Z")
+        result = R.receive(accepted, scope(carryover="none"), self.chain(),
+                           accepted_sha256=hashlib.sha256(accepted).hexdigest(), accepted_root=self.root)
+        self.assertEqual(result["period"]["requests"], 0, "a cutoff exactly at period start is wholly pre-period")
+        for cutoff in ("2026-11-02T00:00:01Z", "2026-12-03T00:00:00Z"):
+            with self.subTest(cutoff=cutoff):
+                raw = bootstrap(asOfUtc=cutoff)
+                refused(self, "rollup-bootstrap-overlaps-fresh-period", R.receive, raw, scope(carryover="none"), self.chain(),
+                        accepted_sha256=hashlib.sha256(raw).hexdigest(), accepted_root=self.root)
+        historical = bootstrap(asOfUtc="2026-12-03T00:00:00Z", unresolved=[])
+        R.receive(historical, scope(carryover="historical"), self.chain(),
+                  accepted_sha256=hashlib.sha256(historical).hexdigest(), accepted_root=self.root)
 
     def test_settles_and_outstanding_reservations_count_inside_the_approved_period(self):
         self.append("reserve", "101", CAPS)
@@ -237,8 +258,9 @@ class Rollup(Journal):
         self.append("reserve", "102", dict(CAPS, starts=2, takes=1), provenance="request-sha256:" + other)
         self.append("reserve", "103", CAPS)  # an approval-provenance reserve names no request and is never attributed to one
         out = self.receive()
-        self.assertEqual(out["openReservationsByRequest"], {own: {"R10-manual": {"count": 1, "starts": 6, "takes": 4}},
-                                                            other: {"R10-manual": {"count": 1, "starts": 2, "takes": 1}}})
+        self.assertEqual(out["openReservationsByRequest"], {
+            own: {"R10-manual": {"count": 1, "requests": 800, "identityReads": 20, "starts": 6, "takes": 4}},
+            other: {"R10-manual": {"count": 1, "requests": 800, "identityReads": 20, "starts": 2, "takes": 1}}})  # review 4447628949: all four
         self.assertEqual(out["starts"]["ownerCounted"], 14, "every open reservation is still counted as used")
         self.append("settle", "101", dict(CAPS, starts=4, takes=3), provenance="evidence-sha256:" + "c" * 64)
         self.append("release", "102", dict(CAPS, starts=2, takes=1))
@@ -256,11 +278,14 @@ class Rollup(Journal):
                                           "provenance": "request-sha256:" + own, "atUtc": "2026-11-02T04:00:00Z"})
         self.append("reserve", "101", observation["allocation"], provenance=observation["provenance"], campaign=observation["campaignId"])
         out = self.receive()
-        self.assertEqual(out["openReservationsByRequest"][own], {"R10-manual": {"count": 1, "starts": 6, "takes": 4},
-                                                                 "R10-manual.case10-observation": {"count": 1, "starts": 0, "takes": 0}})
-        self.assertEqual(CS.own_reservation(out, own, "R10-manual"), (6, 4))  # the campaign's own reservation, unambiguous
+        self.assertEqual(out["openReservationsByRequest"][own], {
+            "R10-manual": {"count": 1, "requests": 800, "identityReads": 20, "starts": 6, "takes": 4},
+            "R10-manual.case10-observation": {"count": 1, "requests": 50, "identityReads": 2, "starts": 0, "takes": 0}})
+        # the campaign's own reservation, unambiguous, in all four G5 dimensions (review 4447628949)
+        self.assertEqual(CS.own_reservation(out, own, "R10-manual"), {"requests": 800, "identityReads": 20, "starts": 6, "takes": 4})
+        self.assertEqual(CS.OWN_DIMENSIONS, R.G5_KEYS)
         self.assertEqual(out["requests"]["conservativeUsed"], 800 + 50, "the observation's request charge is still counted")
-        self.assertEqual(CS.own_reservation(out, "b" * 64, "R10-manual"), (0, 0))  # an unrelated request holds nothing
+        self.assertEqual(CS.own_reservation(out, "b" * 64, "R10-manual"), dict.fromkeys(R.G5_KEYS, 0))  # an unrelated request holds nothing
         # a duplicate open reserve of the SAME request and campaign stays ambiguous
         self.append("reserve", "102", CAPS, provenance="request-sha256:" + own)
         with self.assertRaisesRegex(ValueError, "own-reservation-ambiguous"):
@@ -275,8 +300,14 @@ class Rollup(Journal):
                 refused(self, code, R.receive, self.raw, sc, self.chain(), **self.pins)
 
     def test_anchor_negatives(self):
-        refused(self, "rollup-not-accepted", R.receive, self.raw, scope(), self.chain())  # the production pins are unset today
-        self.assertEqual((R.ACCEPTED_BOOTSTRAP_SHA256, R.ACCEPTED_ROOT), (None, None))
+        # The selected R10 source has production pins.  Removing either pin in
+        # isolation still refuses before any accounting is consumed.
+        from unittest import mock
+        with mock.patch.object(R, "ACCEPTED_BOOTSTRAP_SHA256", None), mock.patch.object(R, "ACCEPTED_ROOT", None):
+            refused(self, "rollup-not-accepted", R.receive, self.raw, scope(), self.chain())
+        self.assertEqual((R.ACCEPTED_BOOTSTRAP_SHA256, R.ACCEPTED_ROOT),
+                         ("0a3e60271dc703f12cf02684450a9f74bc7f60d5c3f610a86bb9eaddc268f174",
+                          "92d6ebf902351750c368d7d513116c6b1f19f80c"))
         refused(self, "rollup-bootstrap-not-accepted", R.receive, bootstrap(asOfUtc="2026-11-01T18:00:00Z"), scope(), self.chain(), **self.pins)
         refused(self, "rollup-predecessor-gap", R.receive, self.raw, scope(), self.chain(), accepted_sha256=self.pins["accepted_sha256"],
                 accepted_root="f" * 40)
@@ -297,7 +328,11 @@ class Rollup(Journal):
 
     def test_unresolved_usage_is_never_zeroed_or_charged_to_the_expired_ceiling(self):
         unknown = bootstrap(unresolved=[{"kind": "evaluator-start", "ref": "sha256:" + "c" * 64, "disposition": "UNRESOLVED", "usage": None}])
-        refused(self, "rollup-unresolved-usage", R.receive, unknown, scope(), self.chain(), accepted_sha256=hashlib.sha256(unknown).hexdigest(),
+        fresh = R.receive(unknown, scope(carryover="none"), self.chain(), accepted_sha256=hashlib.sha256(unknown).hexdigest(),
+                          accepted_root=self.root)
+        self.assertEqual(fresh["requests"]["conservativeUsed"], 0)
+        self.assertTrue(fresh["historicalIncomplete"])
+        refused(self, "rollup-unresolved-usage", R.receive, unknown, scope(carryover="historical"), self.chain(), accepted_sha256=hashlib.sha256(unknown).hexdigest(),
                 accepted_root=self.root)
         zero = {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": None, "runnerMinutes": None}
         for bad in ([{"kind": "evaluator-start", "ref": SHA_REF, "disposition": "UNRESOLVED", "usage": zero}],
@@ -313,7 +348,11 @@ class Rollup(Journal):
         located = [{"kind": "diagnostic", "ref": "gha-run:" + r, "disposition": "UNRESOLVED", "usage": None} for r in runs]
         self.assertEqual([i["ref"] for i in R.parse_bootstrap(bootstrap(unresolved=located))["unresolved"]], ["gha-run:" + r for r in runs])
         raw = bootstrap(unresolved=located)
-        refused(self, "rollup-unresolved-usage", R.receive, raw, scope(), self.chain(), accepted_sha256=hashlib.sha256(raw).hexdigest(),
+        fresh = R.receive(raw, scope(carryover="none"), self.chain(), accepted_sha256=hashlib.sha256(raw).hexdigest(),
+                          accepted_root=self.root)
+        self.assertEqual([i["ref"] for i in fresh["historicalResolution"]], ["gha-run:" + r for r in runs])
+        self.assertTrue(fresh["historicalIncomplete"])
+        refused(self, "rollup-unresolved-usage", R.receive, raw, scope(carryover="historical"), self.chain(), accepted_sha256=hashlib.sha256(raw).hexdigest(),
                 accepted_root=self.root)
         measured = {"requests": 1, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": None, "runnerMinutes": None}
         for bad in ({"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "MEASURED", "usage": measured},

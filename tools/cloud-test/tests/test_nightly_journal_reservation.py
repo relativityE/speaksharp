@@ -29,7 +29,7 @@ class NightlyJournalReservation(Journal):
     def use_scope(self, **ceilings):
         c = {"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1260, "takes": 1200}
         c.update(ceilings)
-        self.scope_raw = json.dumps(rollup_scope(periodStartUtc="2026-11-01T00:00:00Z", periodEndUtc="2026-12-01T00:00:00Z", ceilings=c),
+        self.scope_raw = json.dumps(rollup_scope(periodStartUtc="2026-11-02T00:00:00Z", periodEndUtc="2026-12-02T00:00:00Z", ceilings=c),
                                     sort_keys=True).encode()
         self.pins_all = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope_raw).hexdigest())
 
@@ -73,7 +73,7 @@ class NightlyJournalReservation(Journal):
         self.refused("reservation-exceeds-headroom", self.reserve)
         self.use_scope()
         other = {"type": "reserve", "campaignId": "nightly-20261101T0000Z-20261101T0300Z", "runId": "100", "attempt": 1,
-                 "allocation": {k: 0 for k in W.CATS}, "provenance": "request-sha256:" + "c" * 64, "atUtc": "2026-11-01T03:01:00Z"}
+                 "allocation": {k: 0 for k in W.CATS}, "provenance": "request-sha256:" + "c" * 64, "atUtc": "2026-11-02T00:01:00Z"}
         self.append_event(other)
         one_run = dict(self.approval, cadence=dict(self.approval["cadence"], runsPerPeriod=1))
         self.refused("reservation-standing-limit", self.reserve, approval=one_run)
@@ -91,8 +91,59 @@ class NightlyJournalReservation(Journal):
         self.assertEqual(journal_usage(self.approval, self.chain())["used"]["requests"], 920)
         self.refused("reservation-not-held", RES.journal_require, self.chain(), self.req["runId"], "123", self.sha)
 
-    def test_production_is_not_activated(self):
-        self.assertIsNone(W.REVIEWED_ROOT)
+    def test_admission_discounts_the_held_reservation_once_in_all_four_dimensions(self):
+        # #1772 Code finding 4447628949 (Sam 1793653087.495259): journal -> accepted rollup -> validator at an exact fit. The run's own reserve
+        # is already counted, so admission subtracts its held requests (run cap + identity charge), identity reads, Starts and takes once;
+        # another request's reservation and this run's own Case 10 observation reserve stay charged in full.
+        import validate_run_request as V
+        import case10_observation as O
+        from _fixtures import fake_rv, sample
+        est, lim = self.req["estimate"], self.req["approvedLimits"]
+        run_cap, ids, protected = est["requests"]["runCap"], est["identityReads"], 300
+        held_requests, held_ids = lim["runCapRequests"] + lim["identityCap"], lim["identityCap"]  # the reserve holds the approved caps
+        period = self.approval["periodCaps"]
+        observation = {"requests": 50, "identityReads": 2}
+        # The finding's fixture: everything else occupies the period so the remaining headroom is exactly this run's held allocation.
+        external = {"requests": period["requests"] - protected - held_requests - observation["requests"],
+                    "identityReads": period["identityReads"] - held_ids - observation["identityReads"], "starts": 2, "takes": 1}
+        self.append_event({"type": "reserve", "campaignId": "nightly-20261101T0000Z-20261101T0300Z", "runId": "100", "attempt": 1,
+                           "allocation": dict({k: 0 for k in W.CATS}, **external), "provenance": "request-sha256:" + "c" * 64,
+                           "atUtc": "2026-11-02T00:01:00Z"})
+        self.append_event({"type": "reserve", "campaignId": self.req["runId"] + O.RESERVATION_SUFFIX, "runId": "123", "attempt": 1,
+                           "allocation": dict({k: 0 for k in W.CATS}, **observation), "provenance": "request-sha256:" + self.sha,
+                           "atUtc": "2026-11-02T03:00:00Z"})
+        held = self.reserve()["allocation"]  # admitted: the remaining headroom exactly holds this run
+        self.assertEqual((held["requests"], held["identityReads"]), (held_requests, held_ids))
+        s = sample()
+
+        def admission(chain=None, request_sha256=self.sha):
+            rc = self.receive(sc=json.loads(self.scope_raw), chain=chain)
+            errors, _ = V.validate(self.req, s["cfg"], s["ledger"], s["wf"], fake_rv(), rc, None, request_sha256)
+            return [e for e in errors if "cumulative ceiling" in e or "identity cap" in e or "cumulative cap" in e or "input structure" in e]
+
+        self.assertEqual(admission(), [], "fixed after: the held allocation is replaced by the plan, admitted at the exact fit")
+        broken = admission(request_sha256=None)  # broken before: the held allocation charged a second time
+        self.assertEqual(period["requests"] + run_cap + ids, 136342)  # the finding's 136,342 > 132,000 and 992 > 960
+        self.assertTrue(any("is below the reconciled requirement 136342" in e for e in broken), broken)
+        self.assertTrue(any("identity cap 960 is below the reconciled requirement 992" in e for e in broken), broken)
+        self.assertTrue(admission(request_sha256="d" * 64), "an unrelated request's digest discounts nothing")
+        slack = held_requests - (run_cap + ids)  # the plan is below the held caps; identity is an exact fit
+        for run, extra in (("98", {"requests": slack + 1}), ("99", {"identityReads": 1})):  # one past the fit, held elsewhere, is charged
+            self.append_event({"type": "reserve", "campaignId": "manual-other", "runId": run, "attempt": 1,
+                               "allocation": dict({k: 0 for k in W.CATS}, **extra), "provenance": "request-sha256:" + "e" * 64,
+                               "atUtc": "2026-11-02T03:02:00Z"})
+            self.assertTrue(admission(), "a global charge is never discounted: %s" % extra)
+            self.append_event({"type": "release", "campaignId": "manual-other", "runId": run, "attempt": 1,
+                               "allocation": dict({k: 0 for k in W.CATS}, **extra), "provenance": "approval:slack-1793653087.495259",
+                               "atUtc": "2026-11-02T03:03:00Z"})
+        self.assertEqual(admission(), [])
+        self.append_event({"type": "reserve", "campaignId": self.req["runId"], "runId": "124", "attempt": 1, "allocation": held,
+                           "provenance": "request-sha256:" + self.sha, "atUtc": "2026-11-02T03:04:00Z"})
+        self.assertEqual(admission(), ["invalid per-case Start allocation or input structure"],
+                         "a duplicate own reservation is ambiguous (own-reservation-ambiguous) and refuses admission")
+
+    def test_production_is_pinned_to_the_reviewed_r10_root(self):
+        self.assertEqual(W.REVIEWED_ROOT, "92d6ebf902351750c368d7d513116c6b1f19f80c")
         self.refused("reservation-root-mismatch", RES.journal_execute, "reserve", {}, self.repo, self.remote, None,
                      os.path.join(self.d, "j"), os.path.join(self.d, "o"), self.pins_all, self.approval, self.remote)
 
@@ -156,13 +207,12 @@ class NightlyJournalReservation(Journal):
         other = dict(self.req, runId="nightly-20261101T0000Z-20261103T0300Z")
         self.assertNotEqual(G.recurring_gate(other, cfg, ROOT, {"entries": []}, at, json.load(open(snap2)), ap_path)["status"], G.READY)
 
-    def test_production_cli_is_not_activated_and_reads_nothing(self):
-        import subprocess
-        import sys
-        from _fixtures import ROOT
-        p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "reservations.py"), "journal-snapshot", "--out",
-                            os.path.join(self.d, "never.json")], capture_output=True, text=True)
-        self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: reservation-journal-not-activated"))
+    def test_production_cli_is_activated_but_mismatched_pins_refuse_before_any_read(self):
+        import argparse
+        bad = dict(self.pins_all, accepted_root="f" * 40)
+        args = argparse.Namespace(command="journal-snapshot", request=None, request_sha256=self.sha, execution_run_id="123", attempt=1,
+                                  approval=None, repo=None, record=None, out=os.path.join(self.d, "never.json"), journal=None)
+        self.assertEqual(RES.journal_main(args, url=self.remote, root=W.REVIEWED_ROOT, pins=bad), 78)
         self.assertFalse(os.path.exists(os.path.join(self.d, "never.json")))
 
     def append_event(self, event):

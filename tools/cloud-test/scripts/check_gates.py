@@ -266,27 +266,30 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
             need.append("window %.0f min is shorter than the worst case %d min of the full-coverage budget; a case cut by the clock makes the run not a full live run (record window.acceptedShortWindowRisk with the owner's reference to accept that risk)" % (mins, wm))
     if rc and not owner_missing and not recurring:
         rq = (est.get("requests") or {})
-        required = rc["requests"]["conservativeUsed"] + appr["runCapRequests"] + rc["ceilings"]["protectedReserveRequests"] + est["identityReads"]
-        if required > appr["cumulativeCeilingRequests"]:
-            need.append("reconciled used %s + run cap %s + protected reserve %s + identity reads %s = %s exceeds the approved ceiling %s" % (rc["requests"]["conservativeUsed"], appr["runCapRequests"], rc["ceilings"]["protectedReserveRequests"], est["identityReads"], required, appr["cumulativeCeilingRequests"]))
-        if rc["identityReads"]["conservativeUsed"] + est["identityReads"] > appr["identityCap"]:
-            need.append("reconciled identity used + reads exceeds the approved identity cap")
-        # #1772 review 4446137335 (Jensen 1793644594.204599): this request's own open reservation is already in ownerCounted, so it is
-        # replaced by the plan here exactly as in reconcile_caps; another request's reservation still counts in full.
+        # #1772 review 4446137335 (Jensen 1793644594.204599): this request's own open reservation is already in the reconciled usage, so it
+        # is replaced by the plan here exactly as in reconcile_caps; another request's reservation still counts in full. Review 4447628949:
+        # all four dimensions, so its held requests (run cap + identity charge) and identity reads are not charged a second time either.
         try:
-            own_starts, own_takes = own_reservation(rc, request_sha256, req.get("runId"))
+            own = own_reservation(rc, request_sha256, req.get("runId"))
         except (ValueError, TypeError, KeyError):
-            own_starts = own_takes = None
+            own = None
             need.append("this request's own open reservation is ambiguous or invalid in the reconciliation")
-        for k, used_k, planned_k, label, own_k in (("startsCap", "starts", "starts", "Starts", own_starts), ("takesCap", "takes", "takes", "takes", own_takes)):
-            if own_k is None:
-                continue
-            cap_ = appr.get(k) if appr.get(k) is not None else rc["ceilings"][used_k]
-            used_ = rc[used_k]["ownerCounted"] - own_k
-            if own_k > rc[used_k]["ownerCounted"]:
-                need.append("%s own reservation %d exceeds the reconciled count %d" % (label, own_k, rc[used_k]["ownerCounted"]))
-            elif used_ + est[planned_k] > cap_:
-                need.append("%s used %d + planned %d exceeds the approved cap %s" % (label, used_, est[planned_k], cap_))
+        if own is not None:
+            counted = {k: rc[k][counter] for k, counter in (("requests", "conservativeUsed"), ("identityReads", "conservativeUsed"),
+                                                             ("starts", "ownerCounted"), ("takes", "ownerCounted"))}
+            excess = ["%s own reservation %d exceeds the reconciled count %d" % (k, own[k], counted[k]) for k in counted if own[k] > counted[k]]
+            need.extend(excess)
+            used = {k: counted[k] - own[k] for k in counted}
+            if not excess:
+                required = used["requests"] + appr["runCapRequests"] + rc["ceilings"]["protectedReserveRequests"] + est["identityReads"]
+                if required > appr["cumulativeCeilingRequests"]:
+                    need.append("reconciled used %s (own held %s excluded) + run cap %s + protected reserve %s + identity reads %s = %s exceeds the approved ceiling %s" % (used["requests"], own["requests"], appr["runCapRequests"], rc["ceilings"]["protectedReserveRequests"], est["identityReads"], required, appr["cumulativeCeilingRequests"]))
+                if used["identityReads"] + est["identityReads"] > appr["identityCap"]:
+                    need.append("reconciled identity used %d (own held %d excluded) + reads %d exceeds the approved identity cap %s" % (used["identityReads"], own["identityReads"], est["identityReads"], appr["identityCap"]))
+                for k, label in (("starts", "Starts"), ("takes", "takes")):
+                    cap_ = appr.get(k + "Cap") if appr.get(k + "Cap") is not None else rc["ceilings"][k]
+                    if used[k] + est[k] > cap_:
+                        need.append("%s used %d + planned %d exceeds the approved cap %s" % (label, used[k], est[k], cap_))
         if appr["runCapRequests"] < rq.get("runCap", 0):
             need.append("approved run cap is below the estimated cap")
     if rc is None:

@@ -25,8 +25,9 @@ name: Cloud Test live journeys (manual, GitHub-hosted)
 # record job, runs only when that gate admitted it, so an inactive nightly holds no secret, makes no live effect or reservation write and
 # never overwrites the latest record. Manual and nightly share the ONE serialized concurrency group below (cancel-in-progress: false).
 #
-# NOT ACTIVE: TRACKING_ISSUE is empty until activation. The selected record container is PR #1763's conversation (Sam 1793472499.701439); the record
-# jobs refuse while it is empty, and before every update they verify the comment's issue, author, marker and id.
+# The selected record container is PR #1763's conversation (Sam
+# 1793472499.701439); before every update the record jobs verify the comment's
+# issue, author, marker and id.
 on:
   # Activation wiring: the reviewed proposed cron (config/nightly/schedule.proposed.yml), registered. Every scheduled invocation first passes the
   # credential-free nightly-gate job, which stays quiet while vars.CLOUD_TEST_NIGHTLY_ENABLED is not exactly "true", and refuses until the
@@ -55,7 +56,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # The selected record container: PR #1763's conversation (Sam 1793472499.701439).
   TRACKING_ISSUE: '1763'
 
 jobs:

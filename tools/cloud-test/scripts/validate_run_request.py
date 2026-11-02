@@ -220,24 +220,27 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         cur = rc["ceilings"]
         # #1772 review 4446137335: this request's own counted reservation is replaced by its plan, never added twice (own_reservation;
         # an invalid or ambiguous one is already refused by reconcile_caps above).
+        # Review 4447628949: all four dimensions, so the held requests (run cap + identity charge) and identity reads are not added again.
         try:
-            own_starts, own_takes = own_reservation(rc, request_sha256, req.get("runId"))
+            own = own_reservation(rc, request_sha256, req.get("runId"))
         except InputValidationError:
-            own_starts = own_takes = 0
-        used_starts = rc["starts"]["ownerCounted"] - min(own_starts, rc["starts"]["ownerCounted"])
-        used_takes = rc["takes"]["ownerCounted"] - min(own_takes, rc["takes"]["ownerCounted"])
+            own = {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0}
+        used_requests = rc["requests"]["conservativeUsed"] - min(own["requests"], rc["requests"]["conservativeUsed"])
+        used_identity = rc["identityReads"]["conservativeUsed"] - min(own["identityReads"], rc["identityReads"]["conservativeUsed"])
+        used_starts = rc["starts"]["ownerCounted"] - min(own["starts"], rc["starts"]["ownerCounted"])
+        used_takes = rc["takes"]["ownerCounted"] - min(own["takes"], rc["takes"]["ownerCounted"])
         try:
-            need = rc["requests"]["conservativeUsed"] + rq["runCap"] + cur["protectedReserveRequests"] + est["identityReads"]
+            need = used_requests + rq["runCap"] + cur["protectedReserveRequests"] + est["identityReads"]
             pc = prop.get("cumulativeCeilingRequests")
             if pc is None or need > pc:
-                E("proposed cumulative ceiling %s is below the reconciled requirement %s (conservative used %s + run cap %s + protected reserve %s + identity reads %s)" % (pc, need, rc["requests"]["conservativeUsed"], rq["runCap"], cur["protectedReserveRequests"], est["identityReads"]))
+                E("proposed cumulative ceiling %s is below the reconciled requirement %s (conservative used %s excluding this request's own held %s + run cap %s + protected reserve %s + identity reads %s)" % (pc, need, used_requests, own["requests"], rq["runCap"], cur["protectedReserveRequests"], est["identityReads"]))
             if pc is not None and pc > cur["requests"]:
                 if not prop.get("ceilingIncreaseJustification"):
                     E("proposed ceiling %s exceeds the current ceiling %s without ceilingIncreaseJustification" % (pc, cur["requests"]))
                 else:
                     warns.append("ceiling increase requested (%s to %s): an owner decision" % (cur["requests"], pc))
             ic = prop.get("identityCap")
-            need_id = rc["identityReads"]["conservativeUsed"] + est["identityReads"]
+            need_id = used_identity + est["identityReads"]
             if ic is None or need_id > ic:
                 E("proposed identity cap %s is below the reconciled requirement %s" % (ic, need_id))
             if ic is not None and ic > cur["identityReads"] and not prop.get("identityIncreaseJustification"):

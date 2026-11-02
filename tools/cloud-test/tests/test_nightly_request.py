@@ -119,8 +119,8 @@ class Gate(unittest.TestCase):
     def test_attempt_writer_approval_and_trigger_guards(self):
         refused(self, "nightly-attempt", self.gate, attempt="2")
         refused(self, "state-writer-not-activated", self.gate, activated=False)
-        self.assertIsNone(N.state_ref_writer.REVIEWED_ROOT)
-        refused(self, "state-writer-not-activated", self.gate, activated=None)  # the real writer is not activated today
+        self.assertEqual(N.state_ref_writer.REVIEWED_ROOT, "92d6ebf902351750c368d7d513116c6b1f19f80c")
+        self.assertEqual(self.gate(activated=None)[1], SLOT)
         refused(self, "recurring-approval-unreadable", self.gate, path=os.path.join(self.d, "missing.json"))
         refused(self, "nightly-trigger-ambiguous", self.gate, trigger=SLOT + timedelta(minutes=31))
         refused(self, "nightly-trigger-ambiguous", self.gate, trigger=SLOT - timedelta(minutes=1))  # yesterday's slot, 23h59m before
@@ -143,7 +143,7 @@ class Gate(unittest.TestCase):
         code, out, err = run("--switch", "true", "--attempt", "2", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")
         self.assertEqual((code, out["code"], err.strip()), (78, "nightly-attempt", "BLOCKED_SETUP: nightly-attempt"))
         self.assertEqual(run("--switch", "true", "--attempt", "1", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")[:2],
-                         (78, {"admitted": "false", "code": "state-writer-not-activated", "request_sha256": "", "request_b64": ""}))
+                         (78, {"admitted": "false", "code": "recurring-approval-not-approved", "request_sha256": "", "request_b64": ""}))
 
     def test_an_admitted_gate_outputs_exactly_the_admitted_bytes_beside_their_digest(self):
         import base64
@@ -381,6 +381,13 @@ class StandingPeriodLimits(unittest.TestCase):
         limit_errors = [e for e in errors if "would exceed the cumulative cap" in e or "cumulative ceiling" in e or "identity cap" in e
                         or "exceeds the current" in e]
         self.assertEqual(limit_errors, [])
+        # A second REAL occurrence (the next nightly slot, another run) derives the same standing-period limits and validates too.
+        second = json.loads(derive(ap=ap_raw, slot=SLOT + timedelta(days=1), run_id="102", prior=frozenset({req["runId"]})))
+        self.assertNotEqual(second["runId"], req["runId"])
+        self.assertEqual(second["proposedLimits"]["takesCap"], period["takes"])
+        errors, _ = V.validate(second, s["cfg"], s["ledger"], s["wf"], fake_rv(), rc)
+        self.assertEqual([e for e in errors if "would exceed the cumulative cap" in e or "cumulative ceiling" in e or "identity cap" in e
+                          or "exceeds the current" in e], [])
         # The standing caps still bind: a period already at its take ceiling refuses the next occurrence.
         rc["takes"] = dict(rc["takes"], ownerCounted=period["takes"])
         errors, _ = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), rc)
