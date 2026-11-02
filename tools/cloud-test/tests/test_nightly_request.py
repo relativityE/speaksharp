@@ -44,7 +44,7 @@ def approval(**over):
 
 def budget(**over):
     starts = dict(C.FULL_MINIMA)
-    b = {"requests": {"runCap": 4310}, "identity": {"readsThisRun": 30}, "actions": {"startsMinimum": sum(starts.values()), "takesMinimum": 30},
+    b = {"requests": {"runCap": 4310}, "identity": {"readsThisRun": 32}, "actions": {"startsMinimum": sum(starts.values()), "takesMinimum": 30},
          "coaching": {"cap": 15, "basis": "SYNTHETIC reviewed coaching allowance"}, "window": {"proposedWindowMinutes": 329},
          "perCase": [{"case": cid, "startsMin": starts[cid]} for cid in C.CASE_IDS]}
     for k, v in over.items():
@@ -174,9 +174,10 @@ class Derivation(unittest.TestCase):
         self.assertEqual(req["estimate"]["providerBillableRequests"],
                          {"coachingCap": 15, "basis": "SYNTHETIC reviewed coaching allowance"})
         self.assertEqual((req["estimate"]["identityReads"], req["estimate"]["starts"], req["estimate"]["takes"],
-                          req["estimate"]["paidActionsAuthorizedUsd"], req["estimate"]["githubRunnerMinutesMax"]), (30, 42, 30, 0, 353))
+                          req["estimate"]["paidActionsAuthorizedUsd"], req["estimate"]["githubRunnerMinutesMax"]), (32, 42, 30, 0, 353))
         self.assertEqual(req["approvedLimits"]["startPressCaps"], dict(C.FULL_MINIMA))
         self.assertEqual(req["proposedLimits"]["startPressCaps"], dict(C.FULL_MINIMA))
+        self.assertEqual(req["proposedLimits"]["guardCaps"]["coaching"], 15)
         self.assertEqual({row["case"]: row["startPressCap"] for row in req["selection"]}, dict(C.FULL_MINIMA))
         self.assertEqual(C.request_caps(req, execution=True), ("full", dict(C.FULL_MINIMA)))
         self.assertEqual((req["nightly"]["occurrenceId"], req["nightly"]["budgetSha256"]), (OCCURRENCE, hashlib.sha256(budget()).hexdigest()))

@@ -277,7 +277,9 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
         row["startPressCap"] = start_caps[row["case"]]
     req["window"] = {"startUtc": occurrence, "endUtc": _iso(window_end), "approvalRef": ref}
     req["harness"] = dict(req.get("harness") or {}, ownerApprovalRef=ref)
-    req["proposedLimits"] = dict(req.get("proposedLimits") or {}, startPressCaps=copy.deepcopy(start_caps))
+    proposed = dict(req.get("proposedLimits") or {}, startPressCaps=copy.deepcopy(start_caps))
+    proposed["guardCaps"] = dict(proposed.get("guardCaps") or {}, coaching=need["coachingRequests"])
+    req["proposedLimits"] = proposed
     req["approvedLimits"] = dict(req.get("approvedLimits") or {}, runCapRequests=caps["runCapRequests"], identityCap=caps["identityReads"],
                                  cumulativeCeilingRequests=ap["periodCaps"]["requests"], startPressCaps=copy.deepcopy(start_caps),
                                  approvalRef=ref, approvedBy=ap["approvedBy"])
