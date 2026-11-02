@@ -577,6 +577,22 @@ class Case10ObserveCredentials(unittest.TestCase):
             self.assertFalse({"CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"} & {line.split("=", 1)[0] for line in env.splitlines()})
 
 
+class ManualPathNeverRunsOnSchedule(unittest.TestCase):
+    """Composition with #1772: manual_reservation refuses nightly requests, so its reserve step and its settle call run only on non-scheduled
+    events; a scheduled run reserves and settles through the journal-reserve / journal-settle jobs instead."""
+    def test_manual_reserve_and_settle_are_skipped_on_scheduled_runs(self):
+        import yaml
+        with open(YML, encoding="utf-8") as f:
+            live = yaml.safe_load(f)["jobs"]["live"]["steps"]
+        reserve = [st for st in live if st.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh manual-reserve"]
+        self.assertEqual(len(reserve), 1)
+        self.assertEqual(reserve[0].get("if"), "${{ github.event_name != 'schedule' }}")
+        settles = [st for st in live if "execute_run.sh manual-settle" in st.get("run", "")]
+        self.assertEqual(len(settles), 1)
+        lines = [ln.strip() for ln in settles[0]["run"].splitlines() if "execute_run.sh manual-settle" in ln]
+        self.assertEqual(lines, ['if [ "$GITHUB_EVENT_NAME" != schedule ]; then bash tools/cloud-test/scripts/execute_run.sh manual-settle; fi'])
+
+
 def writers_of(jobs, name):
     return next(st["run"] for st in jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))
 
