@@ -381,6 +381,13 @@ class StandingPeriodLimits(unittest.TestCase):
         limit_errors = [e for e in errors if "would exceed the cumulative cap" in e or "cumulative ceiling" in e or "identity cap" in e
                         or "exceeds the current" in e]
         self.assertEqual(limit_errors, [])
+        # A second REAL occurrence (the next nightly slot, another run) derives the same standing-period limits and validates too.
+        second = json.loads(derive(ap=ap_raw, slot=SLOT + timedelta(days=1), run_id="102", prior=frozenset({req["runId"]})))
+        self.assertNotEqual(second["runId"], req["runId"])
+        self.assertEqual(second["proposedLimits"]["takesCap"], period["takes"])
+        errors, _ = V.validate(second, s["cfg"], s["ledger"], s["wf"], fake_rv(), rc)
+        self.assertEqual([e for e in errors if "would exceed the cumulative cap" in e or "cumulative ceiling" in e or "identity cap" in e
+                          or "exceeds the current" in e], [])
         # The standing caps still bind: a period already at its take ceiling refuses the next occurrence.
         rc["takes"] = dict(rc["takes"], ownerCounted=period["takes"])
         errors, _ = V.validate(req, s["cfg"], s["ledger"], s["wf"], fake_rv(), rc)
