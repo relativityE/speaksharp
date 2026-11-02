@@ -1740,32 +1740,70 @@ class StandingEnvelope(Journal):
             with open(os.path.join(self.checkout, I.CONTINUITY_DIR, name), "wb") as f:
                 f.write(raw)
 
-    def checkpoint_and_scope(self, req=None):
+    def checkpoint_and_scope(self, req=None, own=None):
         pins = dict(self.pins, accepted_scope_sha256=hashlib.sha256(self.scope_raw).hexdigest(), reviewed_root=self.root)
-        return I.checkpoint_and_scope(self.checkout, req or self.req, pins, lambda root: self.chain())
+        return I.checkpoint_and_scope(self.checkout, req or self.req, pins, lambda root: self.chain(), own=own)
 
     def checkpoint(self, req=None):
         return self.checkpoint_and_scope(req)[0]
 
-    def derive(self, req=None, cases=None, now=None, attempt=1, prior=frozenset(), pin=""):
+    def derive(self, req=None, cases=None, now=None, attempt=1, prior=frozenset(), pin="", own=None):
         req = self.req if req is None else req
         raw = self.req_raw if req is self.req else json.dumps(req, sort_keys=True).encode()
-        rc_bytes, scope = self.checkpoint_and_scope()
+        rc_bytes, scope = self.checkpoint_and_scope(own=own)
+        held = I.own_held_allocation(self.chain(), own) if own is not None else None
         return I.standing_envelope(self.checkout, req, hashlib.sha256(raw).hexdigest(), rc_bytes, scope, cases or I.ALL_CASES, self.cfg,
-                                   now or self.now, attempt, prior, pin=self.pin if pin == "" else pin)
+                                   now or self.now, attempt, prior, pin=self.pin if pin == "" else pin, held=held)
 
     def changed(self, mutate):
         req = copy.deepcopy(self.req)
         mutate(req)
         return req
 
-    def reserve_on_chain(self, run="101", request_sha=None, at="2026-11-02T03:00:30Z"):
-        """Appends a nightly reserve through the REAL state-ref writer, as journal-reserve does before the live job prepares."""
+    def reserve_on_chain(self, run="101", request_sha=None, at="2026-11-02T03:00:30Z", allocation=None, kind="reserve"):
+        """Appends a nightly reserve (or its settle) through the REAL state-ref writer, as journal-reserve/-settle do around the live job."""
         from reservations import CATS
         head = W.fetch_head(self.repo, self.remote, self.remote)
-        e = {"type": "reserve", "campaignId": self.req["runId"], "runId": run, "attempt": 1, "allocation": {k: 1 for k in CATS},
+        e = {"type": kind, "campaignId": self.req["runId"], "runId": run, "attempt": 1,
+             "allocation": dict({k: 1 for k in CATS}, **(allocation or {})),
              "provenance": "request-sha256:" + (request_sha or hashlib.sha256(self.req_raw).hexdigest()), "atUtc": at}
         W.propose(self.repo, self.remote, head, e, self.root, self.remote)
+
+    def need(self):
+        lim, est = self.req["approvedLimits"], self.req["estimate"]
+        return {"requests": lim["runCapRequests"], "identityReads": lim["identityCap"], "starts": est["starts"], "takes": est["takes"]}
+
+    def own(self, run="101"):
+        return (self.req["runId"], run, 1, hashlib.sha256(self.req_raw).hexdigest())
+
+    def test_an_exact_fit_already_reserved_request_is_admitted_against_its_held_allocation(self):
+        # Sam RETURN 1793625480.539669: the rollup charges the open reserve; admission must not demand the same headroom a second time.
+        rc0 = json.loads(self.checkpoint())
+        need = self.need()
+        filler = {k: rc0["currentHeadroom"][k] - need[k] for k in I.STANDING_PERIOD_DIMENSIONS}
+        self.assertTrue(all(v >= 0 for v in filler.values()), filler)
+        self.append("reserve", "41400000099", dict({"coachingRequests": 0, "runnerMinutes": 0}, **filler))  # another run's open usage
+        self.reserve_on_chain(allocation=dict(need, coachingRequests=0, runnerMinutes=0))  # this run holds exactly its need
+        rc = json.loads(self.checkpoint_and_scope(own=self.own())[0])
+        self.assertEqual({k: rc["currentHeadroom"][k] for k in I.STANDING_PERIOD_DIMENSIONS}, {k: 0 for k in I.STANDING_PERIOD_DIMENSIONS})
+        self.assertTrue(self.derive(prior=I.reserved_occurrences(self.chain(), self.own()), own=self.own()))  # exact fit admitted
+        # the double-charge the RETURN found: without the execution identity the same chain refuses on its own reserve
+        refused(self, "continuity-run-identity-exceeds-period", self.derive, prior=I.reserved_occurrences(self.chain(), self.own()))
+
+    def test_insufficient_wrong_or_settled_held_reserves_refuse(self):
+        need = self.need()
+        # insufficient: the own reserve holds one Start fewer than the request needs
+        self.reserve_on_chain(allocation=dict(need, starts=need["starts"] - 1, coachingRequests=0, runnerMinutes=0))
+        refused(self, "action-approval-standing-held-insufficient:starts", self.derive,
+                prior=I.reserved_occurrences(self.chain(), self.own()), own=self.own())
+        # wrong run / wrong request: not this execution's reserve, so nothing is held for it
+        self.assertIsNone(I.own_held_allocation(self.chain(), self.own(run="102")))
+        self.assertIsNone(I.own_held_allocation(self.chain(), (self.req["runId"], "101", 1, "b" * 64)))
+        # settled: once its settle is appended the reserve no longer holds anything, and the occurrence is a replay
+        self.reserve_on_chain(kind="settle", allocation=dict(need, coachingRequests=0, runnerMinutes=0), at="2026-11-02T03:30:00Z")
+        self.assertIsNone(I.own_held_allocation(self.chain(), self.own()))
+        refused(self, "action-approval-standing-occurrence-replayed", self.derive,
+                prior=I.reserved_occurrences(self.chain(), self.own()), own=self.own())
 
     def test_this_executions_own_open_reserve_is_not_a_replay_but_any_other_reserve_is(self):
         # Sam RETURN 1793624502.797169 #2: journal-reserve appends THIS run's reserve before prepare; it must not reject itself.

@@ -510,12 +510,21 @@ def reserved_occurrences(chain, own=None):
     live job prepares, so that one verified, still-open reserve (exact campaign, run, attempt and request digest) is not a replay. Any other
     reserve of the occurrence (another run, another attempt, another request, or this reserve once settled) still makes it replayed."""
     events = chain[-1][1]
-    settled = {(e["campaignId"], e["runId"], e["attempt"]) for e in events if e["type"] == "settle"}
+    return frozenset(e["campaignId"] for e in events if e["type"] == "reserve" and not _is_own_open(e, events, own))
 
-    def is_own(e):
-        return (own is not None and (e["campaignId"], e["runId"], e["attempt"]) == tuple(own[:3])
-                and e.get("provenance") == "request-sha256:" + own[3] and tuple(own[:3]) not in settled)
-    return frozenset(e["campaignId"] for e in events if e["type"] == "reserve" and not is_own(e))
+
+def _is_own_open(e, events, own):
+    settled = {(x["campaignId"], x["runId"], x["attempt"]) for x in events if x["type"] == "settle"}
+    return (own is not None and e["type"] == "reserve" and (e["campaignId"], e["runId"], e["attempt"]) == tuple(own[:3])
+            and e.get("provenance") == "request-sha256:" + own[3] and tuple(own[:3]) not in settled)
+
+
+def own_held_allocation(chain, own):
+    """Sam RETURN 1793625480.539669: the allocation THIS execution's verified, still-open reserve holds (None when there is none). The rollup
+    already charges an open reserve against period headroom, so an admitted run is checked against what it holds, never charged twice."""
+    events = chain[-1][1]
+    held = [e["allocation"] for e in events if _is_own_open(e, events, own)]
+    return dict(held[0]) if len(held) == 1 else None
 
 
 def _standing_raw(repo, pin):
@@ -540,7 +549,7 @@ def standing_grant_in_force(repo, pin=None):
     return isinstance(doc, dict) and "startTakeGrant" in doc
 
 
-def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, cases, cfg, now, attempt, prior, pin=None):
+def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, cases, cfg, now, attempt, prior, pin=None, held=None):
     """Option A (Sam 1793568947.054419): a nightly occurrence's action envelope, DERIVED only under the owner's explicit standing grant in the
     pinned recurring approval, never from data equality alone. The approval, attempt, occurrence (and its replay), cases, window, per-run
     and period limits and references are all checked BEFORE the envelope exists; the unchanged check_action_approval then admits it, and
@@ -588,7 +597,10 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
           and all(rc["ceilings"].get(k) == period[k] for k in STANDING_PERIOD_DIMENSIONS), "action-approval-standing-period")
     need = {"requests": lim["runCapRequests"], "identityReads": lim["identityCap"], "starts": est["starts"], "takes": est["takes"]}
     for k in STANDING_PERIOD_DIMENSIONS:
-        _need(_int(rc["currentHeadroom"].get(k)) and rc["currentHeadroom"][k] >= need[k], "action-approval-standing-exhausted:" + k)
+        if held is not None:  # this run's own open reserve is already counted: it must hold the request, not consume headroom again
+            _need(_int(held.get(k)) and held[k] >= need[k], "action-approval-standing-held-insufficient:" + k)
+        else:
+            _need(_int(rc["currentHeadroom"].get(k)) and rc["currentHeadroom"][k] >= need[k], "action-approval-standing-exhausted:" + k)
     _need(lim.get("approvalRef") == ap["approvalRef"] and lim.get("approvedBy") == ap["approvedBy"]
           and req.get("selectionApprovalRef") == ap["approvalRef"] and n.get("standingApprovalRef") == ap["approvalRef"],
           "action-approval-standing-reference")
@@ -619,7 +631,7 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
     return check_action_approval(supplied, request_sha256, reconciliation_bytes, req)
 
 
-def checkpoint_and_scope(repo, req, pins=None, chain_reader=None):
+def checkpoint_and_scope(repo, req, pins=None, chain_reader=None, own=None):
     """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, with the accepted period scope they were
     received under (the standing derivation binds its period), or a continuity-* refusal. `pins` and
     `chain_reader` are TEST-ONLY overrides; production uses continuity_pins() (all None today) and the real state-ref journal."""
@@ -634,7 +646,8 @@ def checkpoint_and_scope(repo, req, pins=None, chain_reader=None):
         raws[name] = _read(path)
     try:
         scope = manual_reservation.accepted_scope(raws[CONTINUITY_SCOPE], pins["accepted_scope_sha256"])
-        rc = accounting_rollup.receive(raws[CONTINUITY_BOOTSTRAP], scope, (chain_reader or state_chain)(pins["reviewed_root"]), pins["accepted_sha256"],
+        chain = (chain_reader or state_chain)(pins["reviewed_root"])
+        rc = accounting_rollup.receive(raws[CONTINUITY_BOOTSTRAP], scope, chain, pins["accepted_sha256"],
                                        pins["accepted_root"])
     except (accounting_rollup.Refused, manual_reservation.Refused, state_ref_writer.Refused) as e:
         raise Refused("continuity-" + str(e))
@@ -649,7 +662,11 @@ def checkpoint_and_scope(repo, req, pins=None, chain_reader=None):
         if nightly and limit == "identityCap":
             # RETURN #3: a nightly request's identityCap is its PER-RUN cap (nightly_request.derive), not the period ceiling; it must fit
             # the period's remaining identity headroom instead of equalling the period ceiling.
-            _need(_int(lim.get(limit)) and lim[limit] <= rc["currentHeadroom"]["identityReads"], "continuity-run-identity-exceeds-period")
+            held = own_held_allocation(chain, own) if own is not None else None
+            if held is not None:  # already counted in the rollup: it must cover the cap, not be charged a second time
+                _need(_int(lim.get(limit)) and lim[limit] <= held["identityReads"], "continuity-run-identity-exceeds-held")
+            else:
+                _need(_int(lim.get(limit)) and lim[limit] <= rc["currentHeadroom"]["identityReads"], "continuity-run-identity-exceeds-period")
             continue
         # Applicable = stated by the admitted request; the cumulative request and identity ceilings are always stated (check_request).
         if lim.get(limit) is not None or limit in ("cumulativeCeilingRequests", "identityCap"):
@@ -689,12 +706,13 @@ def prepare(x, now):
     def read_chain(root):
         chains.append(state_chain(root))
         return chains[-1]
-    reconciliation, accepted_scope = checkpoint_and_scope(repo, req, chain_reader=read_chain)
     request_sha256 = hashlib.sha256(req_raw).hexdigest()
+    own = (req["runId"], x.run_id, x.attempt, request_sha256) if nightly else None
+    reconciliation, accepted_scope = checkpoint_and_scope(repo, req, chain_reader=read_chain, own=own)
     action_approval = occurrence_action_approval(
         facts, request_sha256, reconciliation, req, nightly,
         standing=lambda: standing_envelope(repo, req, request_sha256, reconciliation, accepted_scope, cases, cfg, now, x.attempt,
-                                           reserved_occurrences(chains[-1], (req["runId"], x.run_id, x.attempt, request_sha256))))
+                                           reserved_occurrences(chains[-1], own), held=own_held_allocation(chains[-1], own)))
     facts = dict(facts, actionApproval=action_approval)
     check_case10_bound(req, facts, cases, entries, request_sha256, x.run_id, now, observation)
     # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.
