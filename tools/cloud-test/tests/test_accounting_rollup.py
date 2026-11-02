@@ -225,6 +225,20 @@ class Rollup(Journal):
         self.assertEqual((hist["historical"]["coachingRequests"], hist["unknown"]), (None, {"coachingRequests": True, "runnerMinutes": True}))
         self.assertEqual(none["unknown"], {"coachingRequests": False, "runnerMinutes": False})
 
+    def test_fresh_period_refuses_a_bootstrap_cutoff_that_overlaps_or_follows_its_start(self):
+        accepted = bootstrap(asOfUtc="2026-11-02T00:00:00Z")
+        result = R.receive(accepted, scope(carryover="none"), self.chain(),
+                           accepted_sha256=hashlib.sha256(accepted).hexdigest(), accepted_root=self.root)
+        self.assertEqual(result["period"]["requests"], 0, "a cutoff exactly at period start is wholly pre-period")
+        for cutoff in ("2026-11-02T00:00:01Z", "2026-12-03T00:00:00Z"):
+            with self.subTest(cutoff=cutoff):
+                raw = bootstrap(asOfUtc=cutoff)
+                refused(self, "rollup-bootstrap-overlaps-fresh-period", R.receive, raw, scope(carryover="none"), self.chain(),
+                        accepted_sha256=hashlib.sha256(raw).hexdigest(), accepted_root=self.root)
+        historical = bootstrap(asOfUtc="2026-12-03T00:00:00Z", unresolved=[])
+        R.receive(historical, scope(carryover="historical"), self.chain(),
+                  accepted_sha256=hashlib.sha256(historical).hexdigest(), accepted_root=self.root)
+
     def test_settles_and_outstanding_reservations_count_inside_the_approved_period(self):
         self.append("reserve", "101", CAPS)
         out = self.receive()

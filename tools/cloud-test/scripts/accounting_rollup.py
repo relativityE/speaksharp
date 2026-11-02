@@ -190,6 +190,12 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
     _need(isinstance(bootstrap_raw, bytes) and hashlib.sha256(bootstrap_raw).hexdigest() == pin, "rollup-bootstrap-not-accepted")
     doc = parse_bootstrap(bootstrap_raw)
     scope = parse_scope(scope)
+    # A no-carryover period excludes only activity that is demonstrably before
+    # the approved period.  If the retained cutoff overlaps or follows the
+    # period start, the omitted interval is current-period usage and must not be
+    # hidden behind the fresh-period boundary.
+    _need(scope["carryover"] != "none" or _utc(doc["asOfUtc"]) <= _utc(scope["periodStartUtc"]),
+          "rollup-bootstrap-overlaps-fresh-period")
     historical_incomplete = any(item["disposition"] == "UNRESOLVED" for item in doc["unresolved"])
     _need(scope["carryover"] == "none" or not historical_incomplete, "rollup-unresolved-usage")
     _need(isinstance(chain, list) and chain and chain[0][0] == root and chain[0][1] == [], "rollup-predecessor-gap")

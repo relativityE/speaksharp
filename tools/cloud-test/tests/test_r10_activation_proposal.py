@@ -64,6 +64,7 @@ class R10ActivationProposal(unittest.TestCase):
             "events": 0,
         })
         scope = self.proposal["periodScope"]
+        self.assertLessEqual(json.loads(self.bootstrap_path.read_text())["asOfUtc"], scope["periodStartUtc"])
         expected = {"requests": 4342, "protectedReserveRequests": 0, "identityReads": 32, "starts": 42, "takes": 31}
         self.assertEqual(scope["carryover"], "none")
         self.assertEqual(scope["knownMinimumCeilings"], expected)

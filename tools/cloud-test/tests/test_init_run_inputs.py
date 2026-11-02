@@ -1751,6 +1751,11 @@ class StandingEnvelope(Journal):
 
     def setUp(self):
         super().setUp()
+        # The synthetic standing period begins at 2026-11-01T00:00:00Z. Its
+        # retained bootstrap must be wholly pre-period just like the real
+        # no-carryover boundary; an overlapping cutoff is intentionally refused.
+        self.raw = rollup_bootstrap(asOfUtc="2026-10-31T23:59:59Z")
+        self.pins["accepted_sha256"] = hashlib.sha256(self.raw).hexdigest()
         from test_nightly_request import CFG as NCFG, SLOT, approval as nightly_approval, derive as nightly_derive
         self.cfg, self.slot, self.nightly_approval, self.nightly_derive = NCFG, SLOT, nightly_approval, nightly_derive
         self.now = SLOT + timedelta(minutes=1)
