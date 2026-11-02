@@ -226,13 +226,18 @@ case "$STAGE" in
     require_runtime_inputs
     if [ -n "${CT_RETAINED_GATE_MANIFEST:-}" ]; then
       accepted="$OUT/retained-gate-inputs"
+      recurring_gate_args=()
+      [ -z "${CT_HISTORY_INDEX:-}" ] || recurring_gate_args+=(--history-index "$CT_HISTORY_INDEX")
+      [ -z "${CT_RESERVATIONS:-}" ] || recurring_gate_args+=(--reservations "$CT_RESERVATIONS")
+      [ -z "${CT_APPROVAL:-}" ] || recurring_gate_args+=(--approval "$CT_APPROVAL")
+      [ -z "${CT_RECEIPTS_ROOT:-}" ] || recurring_gate_args+=(--receipts-root "$CT_RECEIPTS_ROOT")
       run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
         --request "$REQ" --config "$CFG" --out-dir "$accepted"
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
       run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --request "$REQ" --config "$CFG" \
         --workflow "$ROOT/workflow.json" --accepted-input-dir "$accepted" --receiver-receipt "$accepted/receiver-receipt.json" \
         --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" \
-        --history-index "$CT_HISTORY_INDEX" --reservations "$CT_RESERVATIONS" --approval "$CT_APPROVAL" --receipts-root "$CT_RECEIPTS_ROOT" \
+        "${recurring_gate_args[@]}" \
         --offline-checks "$CT_OFFLINE_CHECKS" --offline-proof "$CT_OFFLINE_PROOF" \
         --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" --stage final --out-dir "$OUT/final-gates" \
         --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free
