@@ -1,4 +1,5 @@
-import { geminiProvider } from './gemini.ts';
+import { type AdapterFamily, PROVIDER_CATALOG, type ProviderDescriptor } from './catalog.ts';
+import { createGeminiAdapter } from './gemini.ts';
 import type { CoachingProvider } from './types.ts';
 
 /**
@@ -14,8 +15,34 @@ export const PERSISTABLE_PROVIDER_IDS: ReadonlySet<string> = new Set(['google_ge
  */
 export const SELECTED_PROVIDER_ID = 'google_gemini';
 
+/** The installed wire protocols. A descriptor of an installed family is data; a new family is reviewed code here. */
+export const ADAPTERS: Readonly<Record<AdapterFamily, (descriptor: ProviderDescriptor) => CoachingProvider>> = Object.freeze({
+  'gemini-generate-content': createGeminiAdapter,
+});
+
+/**
+ * Every catalogued descriptor built through its installed family, by id. Refuses (throws at module load, so the function cannot
+ * deploy half-built) a duplicate id, a family with no installed adapter, or an adapter that reports a different id or key variable.
+ */
+export function buildProviders(
+  catalog: readonly ProviderDescriptor[],
+  adapters: Readonly<Record<string, (descriptor: ProviderDescriptor) => CoachingProvider>> = ADAPTERS,
+): Readonly<Record<string, CoachingProvider>> {
+  const built: Record<string, CoachingProvider> = {};
+  for (const descriptor of catalog) {
+    if (Object.hasOwn(built, descriptor.id)) throw new Error(`provider catalogue: duplicate id ${descriptor.id}`);
+    if (!Object.hasOwn(adapters, descriptor.family)) throw new Error(`provider catalogue: no installed adapter for ${descriptor.id}`);
+    const provider = adapters[descriptor.family](descriptor);
+    if (provider.id !== descriptor.id || provider.keyVariable !== descriptor.keyVariable) {
+      throw new Error(`provider catalogue: adapter does not match descriptor ${descriptor.id}`);
+    }
+    built[descriptor.id] = provider;
+  }
+  return Object.freeze(built);
+}
+
 /** Every adapter this build ships, by id. */
-export const PROVIDERS: Readonly<Record<string, CoachingProvider>> = Object.freeze({ [geminiProvider.id]: geminiProvider });
+export const PROVIDERS: Readonly<Record<string, CoachingProvider>> = buildProviders(PROVIDER_CATALOG);
 
 /**
  * The reviewed selection (SELECTED_PROVIDER_ID) resolved to an adapter, or null. Null — refused by the handler as a configuration
