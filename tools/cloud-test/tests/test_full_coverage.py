@@ -32,11 +32,11 @@ RECEIPTS = synthetic_history().receipts
 #   estimate = ceil10(70 + 110) = 180 for 13 journeys; AHT-05 = ceil10(70 + 110 x 2) = 290; AHT-12 = ceil10(ceil(70 + 110 x 8/6)) = ceil10(217) = 220
 #   planned 13 x 180 + 290 + 220 = 2850; cleanup 15 x 10 = 150; slack ceil10(ceil(2850 x 15%)) = ceil10(428) = 430; run cap 2850 + 150 + 430 = 3430
 #   cumulative ceiling over the synthetic reconciliation (UsageHistory: 5529 used): 5529 + 3430 + 664 protected reserve + 32 identity reads = 9655
-#   window: expected round(2 + (13 x 120 s + AHT-05 150 s x 2.0 + AHT-12 120 s x 8/6) / 60 + 10) = round(45.667) = 46 min; worst case
-#   20 + 272 + 2 = 294; proposed 300 (next 30)
+#   window: expected round(2 + (13 x 120 s + AHT-05 150 s x 2.0 + AHT-12 120 s x 8/6) / 60 + 10) = round(45.667) = 46 min; live worst case
+#   20 + 272 + 10 + 2 = 304; complete job 15 setup + 304 live + 10 collect = 329; proposed 330 (next 30)
 EST = {"AHT-%02d" % n: (290 if n == 5 else 220 if n == 12 else 180) for n in range(1, 16)}
 EXPECTED = {"planned": 2850, "cleanupReserve": 150, "pooledSlack": 430, "runCap": 3430, "requiredCeiling": 9655,
-            "window": {"expectedMinutes": 46, "worstCaseMinutes": 294, "proposedMinutes": 300}}
+            "window": {"expectedMinutes": 46, "worstCaseMinutes": 304, "proposedMinutes": 330}}
 
 
 def costs():
@@ -212,7 +212,8 @@ class DerivedBudget(unittest.TestCase):
         w = self.b["window"]
         self.assertLess(w["expectedMinutes"], w["worstCaseMinutes"])
         self.assertGreaterEqual(w["proposedWindowMinutes"], w["worstCaseMinutes"])
-        self.assertEqual(w["worstCaseMinutes"], round(20 + 272 + 2))
+        self.assertEqual(w["worstCaseMinutes"], round(20 + 272 + 10 + 2))
+        self.assertGreaterEqual(w["proposedWindowMinutes"], 15 + w["worstCaseMinutes"] + 10)
         self.assertEqual(w["proposedWindowMinutes"] % 30, 0)
 
     def test_dollars_are_four_accounts_and_none_is_asserted_without_a_source(self):
@@ -336,7 +337,7 @@ class GatesForFullMode(unittest.TestCase):
                                  "runCapRequests": EXPECTED["runCap"],
                                  "startPressCaps": copy.deepcopy(req["proposedLimits"]["startPressCaps"]),
                                  "approvalRef": "owner-test", "approvedBy": "owner"}
-        req["window"] = {"startUtc": "2026-10-29T02:00:00Z", "endUtc": "2026-10-29T07:00:00Z", "approvalRef": "owner-test"}
+        req["window"] = {"startUtc": "2026-10-29T02:00:00Z", "endUtc": "2026-10-29T07:30:00Z", "approvalRef": "owner-test"}
         req["window"].update(w)
         return req
 
@@ -384,7 +385,7 @@ class ModePassThrough(unittest.TestCase):
         req["approvedLimits"] = {"cumulativeCeilingRequests": 10535, "identityCap": 126, "startsCap": 85, "takesCap": 55,
                                  "runCapRequests": 4310, "startPressCaps": copy.deepcopy(req["proposedLimits"]["startPressCaps"]),
                                  "approvalRef": "o", "approvedBy": "o"}
-        req["window"] = {"startUtc": "2026-10-29T02:00:00Z", "endUtc": "2026-10-29T07:00:00Z", "approvalRef": "o"}
+        req["window"] = {"startUtc": "2026-10-29T02:00:00Z", "endUtc": "2026-10-29T07:30:00Z", "approvalRef": "o"}
         req["selectionApprovalRef"] = "o"
         req["release"]["backend"]["verifiedAtUtc"] = "2026-10-29T00:00:00Z"
         return req
