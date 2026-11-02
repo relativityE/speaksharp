@@ -12,22 +12,24 @@
   },
   "bootstrap": {
     "path": "tools/cloud-test/config/aggregate/accounting-bootstrap.json",
-    "sha256": "02536ee3cb89318702cec5684095ac7e114ce9bd14f25408d7d64b91dfd972b9"
+    "sha256": null
   },
   "periodScope": {
     "periodStartUtc": "2026-11-02T20:00:00Z",
     "periodEndUtc": "2026-11-03T12:00:00Z",
     "carryover": "historical",
-    "ceilings": {
-      "requests": 10535,
+    "knownMinimumCeilings": {
+      "requests": 12957,
       "protectedReserveRequests": 664,
-      "identityReads": 126,
-      "starts": 88,
-      "takes": 55
+      "identityReads": 152,
+      "starts": 106,
+      "takes": 69
     },
+    "ceilings": null,
     "approvalRef": null,
     "sha256": null
   },
   "rootRefCreationSelected": false,
-  "activationPinsSelected": false
+  "activationPinsSelected": false,
+  "knownLaterRunsResolved": false
 }
