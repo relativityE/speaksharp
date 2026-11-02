@@ -291,7 +291,11 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
         row["startPressCap"] = start_caps[row["case"]]
     req["window"] = {"startUtc": occurrence, "endUtc": _iso(window_end), "approvalRef": ref}
     req["harness"] = dict(req.get("harness") or {}, ownerApprovalRef=ref)
-    proposed = dict(req.get("proposedLimits") or {}, startPressCaps=copy.deepcopy(start_caps))
+    # #1772 Code finding 4447377710: a recurring occurrence's cumulative limits are the STANDING approval's period caps, not the template's
+    # one-off manual proposal, so a later occurrence validates against the allocation the standing approval actually grants.
+    period = ap["periodCaps"]
+    proposed = dict(req.get("proposedLimits") or {}, startPressCaps=copy.deepcopy(start_caps), cumulativeCeilingRequests=period["requests"],
+                    identityCap=period["identityReads"], startsCap=period["starts"], takesCap=period["takes"])
     proposed["guardCaps"] = dict(proposed.get("guardCaps") or {}, coaching=need["coachingRequests"])
     req["proposedLimits"] = proposed
     req["approvedLimits"] = dict(req.get("approvedLimits") or {}, runCapRequests=caps["runCapRequests"], identityCap=caps["identityReads"],
