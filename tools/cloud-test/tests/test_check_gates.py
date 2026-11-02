@@ -168,12 +168,14 @@ class CheckGates(unittest.TestCase):
                              request_sha256=request_sha256)
             return [g for g in out["gates"] if g["id"] == "G5"][0]["status"], errs
 
-        own = {sha: {"count": 1, "starts": planned, "takes": 0}}
+        own = {sha: {r["runId"]: {"count": 1, "starts": planned, "takes": 0},
+                     r["runId"] + ".case10-observation": {"count": 1, "starts": 0, "takes": 0}}}  # review 4446862226
         self.assertEqual(g5(None)[0], "NOT-READY", "broken before: the own reservation is charged twice")
         self.assertEqual(g5(own), ("READY", []), "fixed after: replaced by the plan, admitted end to end")
         self.assertEqual(g5({"b" * 64: own[sha]})[0], "NOT-READY", "another request's reservation is never discounted")
         self.assertEqual(g5(own, request_sha256=None)[0], "NOT-READY", "no request digest, no discount")
-        self.assertEqual(g5({sha: dict(own[sha], count=2)})[0], "NOT-READY", "two own reservations are ambiguous")
+        self.assertEqual(g5({sha: dict(own[sha], **{r["runId"]: dict(own[sha][r["runId"]], count=2)})})[0], "NOT-READY",
+                         "two open reservations of the same request and campaign are ambiguous")
 
     def test_expired_window_blocks(self):
         r, l = approved(self.req, self.ledger)

@@ -211,14 +211,15 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
             open_reservations.pop(key, None)
     for allocation in open_reservations.values():  # outstanding reservations count as used until settled or released
         _add(period, _allocation_usage(allocation))
-    # #1772 review 4446137335: which open reservations a request holds, keyed by its admitted request digest (the reserve's provenance), so a
-    # run's own reservation, already counted above, is not charged again by its Start check. Counted per request so an ambiguous second
-    # open reservation of the same request is visible and refused by the consumer rather than silently discounted.
+    # #1772 review 4446137335: which open reservations a request holds, keyed by its admitted request digest (the reserve's provenance) AND
+    # the reservation's campaign, so a run's own reservation, already counted above, is not charged again by its Start check. Review
+    # 4446862226: a Case 10 observation reserve shares the request's provenance under its own campaign (<runId>.case10-observation), so the
+    # campaign is part of the key; a second open reserve of the SAME request and campaign stays visible (count 2) and the consumer refuses it.
     by_request = {}
     for key, allocation in open_reservations.items():
         provenance = open_provenance.get(key, "")
         if provenance.startswith("request-sha256:"):
-            slot = by_request.setdefault(provenance[len("request-sha256:"):], {"count": 0, "starts": 0, "takes": 0})
+            slot = by_request.setdefault(provenance[len("request-sha256:"):], {}).setdefault(key[0], {"count": 0, "starts": 0, "takes": 0})
             slot["count"] += 1
             slot["starts"] += allocation["starts"]
             slot["takes"] += allocation["takes"]
@@ -234,7 +235,7 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
                       if item["disposition"] == "BOUNDED" else {})} for item in doc["unresolved"]]
     return {"source": "accepted-rollup", "bootstrapSha256": pin, "root": root, "headSha": chain[-1][0], "scopeApprovalRef": scope["approvalRef"],
             "carryover": scope["carryover"], "historical": historical, "period": period, "outstandingReservations": len(open_reservations),
-            "openReservationsByRequest": {k: by_request[k] for k in sorted(by_request)},
+            "openReservationsByRequest": {k: {c: by_request[k][c] for c in sorted(by_request[k])} for k in sorted(by_request)},
             "historicalResolution": resolution,
             "requests": {"conservativeUsed": counted["requests"], "ownerCounted": counted["requests"]},
             "identityReads": {"conservativeUsed": counted["identityReads"], "ownerCounted": counted["identityReads"]},
