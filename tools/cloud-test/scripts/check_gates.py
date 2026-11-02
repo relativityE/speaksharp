@@ -316,8 +316,19 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         rows = prior_verification.get("runs") if isinstance(prior_verification, dict) else None
         expected = [p.get("label") for p in req.get("priorRuns") or []]
         rr = receiver_receipt if isinstance(receiver_receipt, dict) else {}
-        if not receiver_verified or rr.get("schema") != "speaksharp.cloud-test.aggregate-receiver-receipt.v1" or \
-                rr.get("requestSha256") != request_sha256 or rr.get("sourceSha") != (req.get("release") or {}).get("testedSha"):
+        # #1772 Code finding 4447009633: a manual run's v1 receipt names the request at its top level; a recurring run's v2 receipt binds it
+        # only through its authenticated occurrence envelope (aggregate_receiver.receive_occurrence), which must name this request's digest
+        # AND campaign. Each schema is accepted only in its own shape; the verified re-derivation (receiver_verified) is required for both.
+        occurrence = rr.get("occurrence") if isinstance(rr.get("occurrence"), dict) else {}
+        if rr.get("schema") == "speaksharp.cloud-test.aggregate-receiver-receipt.v1":
+            bound = "occurrence" not in rr and rr.get("requestSha256") == request_sha256
+        elif rr.get("schema") == "speaksharp.cloud-test.aggregate-receiver-receipt.v2":
+            bound = ("requestSha256" not in rr and req.get("priority") == "nightly-regression"
+                     and occurrence.get("schema") == "speaksharp.cloud-test.aggregate-receiver.v2-occurrence"
+                     and occurrence.get("requestSha256") == request_sha256 and occurrence.get("campaignId") == req.get("runId"))
+        else:
+            bound = False
+        if not receiver_verified or not bound or not request_sha256 or rr.get("sourceSha") != (req.get("release") or {}).get("testedSha"):
             need.append("accepted prior-run inputs are not bound to the reviewed receiver receipt")
         if prior_verification.get("schema") != "speaksharp.cloud-test.prior-run-verification.v1" or not isinstance(rows, list) or \
                 [r.get("label") for r in rows] != expected or not all(r.get("passed") is True for r in rows):
