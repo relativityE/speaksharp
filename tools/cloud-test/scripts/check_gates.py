@@ -34,10 +34,45 @@ def gate(gid, status, detail, needs=None):
     return {"id": gid, "status": status, "detail": detail, "needs": needs or []}
 
 
-def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=None):
+def admitted_snapshot(reservations, req, request_sha256):
+    """(chain, problems) for a state-ref journal snapshot (Sam 1793592133.133339): (None, []) when the reservations are not a snapshot.
+    A snapshot is admitted only through the writer's own boundary: every event passes state_ref_writer.validate_event and the whole ledger
+    folds (no tampered event, duplicate or orphan transition, settle above its reservation, or differing release), its head is a full commit
+    id, and it holds THIS run's open reserve for exactly the admitted request digest (the event journal-reserve appended). A shape match,
+    a fabricated empty snapshot or another request's snapshot never reaches G11's usage."""
+    from recurring_usage import snapshot_chain
+    try:
+        chain = snapshot_chain(reservations)
+    except ValueError:
+        return [], ["journal snapshot: malformed"]
+    if chain is None:
+        return None, []
+    import state_ref_writer as W
+    head, events = chain[0][0], chain[0][1]
+    if not (isinstance(head, str) and W.SHA40.fullmatch(head)):
+        return [], ["journal snapshot: head is not a commit id"]
+    try:
+        state = W.fold(events)
+    except W.Refused as e:
+        return [], ["journal snapshot: invalid ledger (%s)" % e]
+    if not (isinstance(request_sha256, str) and len(request_sha256) == 64):
+        return [], ["journal snapshot: the admitted request digest is unknown"]
+    held = [e for e in events if e["type"] == "reserve" and e["campaignId"] == req.get("runId") and e["attempt"] == 1
+            and e["provenance"] == "request-sha256:" + request_sha256
+            and state.get((e["campaignId"], e["runId"], e["attempt"]), ("",))[0] == "open"]
+    if len(held) != 1:
+        return [], ["journal snapshot: no open reserve for this admitted request"]
+    return chain, []
+
+
+def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=None, request_sha256=None):
     """G11: a nightly-regression request runs under the owner's STANDING approval of recurring cost. Not applicable to any other request."""
     if req.get("priority") != "nightly-regression":
         return gate("G11", READY, "not a recurring run: no standing approval is needed")
+    # first: the same verified journal its reservation is appended to; a forged snapshot is refused whatever the approval's state
+    chain, refused = admitted_snapshot(reservations, req, request_sha256)
+    if refused:
+        return gate("G11", NOTREADY, "the state-ref journal snapshot is not admissible", refused)
     ncfg = cfg.get("nightly") or {}
     path = approval_path or os.path.join(base, ncfg.get("approvalFile") or "config/recurring-approval.json")
     if not os.path.exists(path):
@@ -65,7 +100,6 @@ def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=
         need.append("paid actions must stay at $0 in a recurring approval")
     # every cap, from history: sealed runs (measured actuals) and open reservations count, not just requests and identity reads
     from recurring_usage import journal_usage, snapshot_chain, usage, PERRUN, PERIOD
-    chain = snapshot_chain(reservations)  # a nightly run's G11 reads the same state-ref journal its reservation is appended to
     need += check_caps(req, ap, index, None if chain is not None else reservations, now, journal_chain=chain)
     if runs and ts:
         for k in PERRUN:
@@ -282,7 +316,7 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
     ok = oc.get("passed") is True
     G.append(gate("G10", READY if ok else NOTREADY, "offline checks passed" if ok else "offline checks not recorded as passed", [] if ok else ["run the offline checks (package tests, report tests, offline-proof index)"]))
     # G11
-    G.append(recurring_gate(req, cfg, base, index, now, reservations, approval_path))
+    G.append(recurring_gate(req, cfg, base, index, now, reservations, approval_path, request_sha256))
     blocking = [g for g in G if g["status"] not in (READY, DEFERRED)]
     return {"schema": "speaksharp.cloud-test.gate-status.v2", "runId": req.get("runId"), "workflowVersion": wf["version"], "evaluatedUtc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "stage": stage, "decision": "GO" if not blocking else "NO-GO", "deferred": [g["id"] for g in G if g["status"] == DEFERRED], "gates": G,
@@ -301,7 +335,10 @@ def main():
     if req.get("priority") == "nightly-regression":
         # a verified journal snapshot carries G11's usage itself (journal_usage); only a legacy reservation file also needs the history index
         from recurring_usage import snapshot_chain
-        snapshot = bool(x.reservations) and os.path.isfile(x.reservations) and snapshot_chain(load(x.reservations)) is not None
+        try:
+            snapshot = bool(x.reservations) and os.path.isfile(x.reservations) and snapshot_chain(load(x.reservations)) is not None
+        except ValueError:
+            snapshot = True  # snapshot-shaped but malformed: G11 refuses it below (admitted_snapshot), it never needs the index
         if not (x.reservations and x.approval and (x.history_index or snapshot)):
             a.error("recurring gates require explicit --reservations and --approval inputs, and --history-index unless the reservations are "
                     "a verified journal snapshot")

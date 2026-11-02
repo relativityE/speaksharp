@@ -42,7 +42,15 @@ class NightlyAcceptedRoute(unittest.TestCase):
                      "bundleRootSha256": self.manifest["bundleRootSha256"]}
         self.config["aggregateReceiver"] = dict(self.pins)
 
-    def run_route(self, with_recurring=True):
+    def reserve(self, sha=None, campaign=None, **over):
+        from reservations import CATS
+        e = {"type": "reserve", "campaignId": campaign or self.request["runId"], "runId": "101", "attempt": 1,
+             "allocation": {k: 10 for k in CATS}, "provenance": "request-sha256:" + (sha or hashlib.sha256(self.request_raw).hexdigest()),
+             "atUtc": "2026-11-02T03:00:00Z"}
+        e.update(over)
+        return e
+
+    def run_route(self, with_recurring=True, events=None):
         self.nightly_bundle()
         root = self.root
         config = root / "active-config.json"; config.write_text(json.dumps(self.config))
@@ -62,7 +70,8 @@ class NightlyAcceptedRoute(unittest.TestCase):
         stimulus.write_text(json.dumps({"createdAt": created, "productTraffic": 0, "codeManifestSha256": self.request["harness"]["codeManifestSha256"],
                                         "cases": {s["case"]: {"ready": True} for s in self.request["selection"] if s.get("needsCaptureDevice")}}))
         snapshot = root / "journal-snapshot.json"
-        snapshot.write_text(json.dumps({"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": "c" * 40, "events": []}))
+        snapshot.write_text(json.dumps({"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": "c" * 40,
+                                        "events": [self.reserve()] if events is None else events}))
         prior = P.NightlyHistoryThroughTheRealPipeline.prior_state(self, tempfile.mkdtemp(dir=root), ["P", "F"])
         argv = [sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"), "--request", str(request), "--config", str(config),
                 "--workflow", os.path.join(ROOT, "workflow.json"), "--accepted-input-dir", str(accepted),
@@ -94,6 +103,67 @@ class NightlyAcceptedRoute(unittest.TestCase):
         self.assertIn("recurring gates require explicit --reservations and --approval inputs", r.stderr)
         self.assertIn("accepted inputs failed ordinary gate evaluation", r.stdout + r.stderr)
         self.assertFalse((out / "gate-status.json").exists())
+
+
+    def g11(self, events):
+        r, out = self.run_route(events=events)
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        return next(g for g in json.loads((out / "gate-status.json").read_text())["gates"] if g["id"] == "G11")
+
+    def test_g11_admits_this_runs_own_open_reserve(self):
+        self.assertNotIn("not admissible", json.dumps(self.g11(None)))  # this run's own open reserve is admitted (G11 then judges usage)
+
+    def test_g11_refuses_a_fabricated_empty_snapshot_on_the_real_route(self):
+        # Sam 1793592133.133339: a fabricated empty snapshot reaching the gate is not accounting; the real route refuses it at G11
+        forged = self.g11([])
+        import check_gates as C
+        self.assertEqual(forged["status"], C.NOTREADY)
+        self.assertIn("journal snapshot: no open reserve for this admitted request", json.dumps(forged))
+
+
+class SnapshotAdmission(unittest.TestCase):
+    """check_gates.admitted_snapshot, the writer's own validation boundary, on forged, tampered, foreign and invalid-usage snapshots."""
+    SHA = "a" * 64
+    REQ = {"runId": "nightly-20261101T0000Z-20261102T0300Z", "priority": "nightly-regression"}
+
+    def ev(self, kind="reserve", **over):
+        from reservations import CATS
+        e = {"type": kind, "campaignId": self.REQ["runId"], "runId": "101", "attempt": 1, "allocation": {k: 10 for k in CATS},
+             "provenance": "request-sha256:" + self.SHA, "atUtc": "2026-11-02T03:00:00Z"}
+        e.update(over)
+        return e
+
+    def admit(self, events=None, head="c" * 40, sha=SHA, doc=None):
+        import check_gates as C
+        doc = doc if doc is not None else {"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": head,
+                                           "events": [self.ev()] if events is None else events}
+        return C.admitted_snapshot(doc, self.REQ, sha)
+
+    def test_a_snapshot_with_this_runs_open_reserve_is_admitted(self):
+        chain, refused = self.admit()
+        self.assertEqual((refused, chain[0][0]), ([], "c" * 40))
+
+    def test_forged_tampered_foreign_and_invalid_usage_snapshots_refuse(self):
+        from reservations import CATS
+        over = {k: 11 for k in CATS}
+        cases = {
+            "forged empty": self.admit([]),
+            "another request's reserve": self.admit([self.ev(provenance="request-sha256:" + "b" * 64)]),
+            "another campaign's reserve": self.admit([self.ev(campaignId="nightly-other")]),
+            "already settled": self.admit([self.ev(), self.ev("settle", provenance="evidence-sha256:" + "e" * 64)]),
+            "settle above its reservation": self.admit([self.ev(), self.ev("settle", allocation=over, provenance="evidence-sha256:" + "e" * 64)]),
+            "tampered event (extra key)": self.admit([dict(self.ev(), note="x")]),
+            "tampered event (bad allocation)": self.admit([self.ev(allocation={"requests": -1})]),
+            "duplicate reserve": self.admit([self.ev(), self.ev()]),
+            "orphan settle": self.admit([self.ev("settle", provenance="evidence-sha256:" + "e" * 64)]),
+            "head is not a commit": self.admit(head="not-a-sha"),
+            "malformed shape": self.admit(doc={"schema": recurring_usage.JOURNAL_SNAPSHOT_SCHEMA, "headSha": "c" * 40, "events": "x"}),
+            "request digest unknown": self.admit(sha=None),
+        }
+        for name, (chain, refused) in cases.items():
+            self.assertTrue(refused, name)
+            self.assertFalse(chain, name)
+        self.assertEqual(self.admit(doc={"reservations": []}), (None, []))  # a legacy reservation file is not a snapshot
 
 
 if __name__ == "__main__":
