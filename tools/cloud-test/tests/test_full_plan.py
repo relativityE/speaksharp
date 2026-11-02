@@ -14,6 +14,7 @@ import unittest
 import hashlib
 
 from _fixtures import REPO, ROOT, TESTED, J, prerequisite, wjson
+from test_case_start_caps import SyntheticBuilder
 from test_runnable_package import chrome_path, node_ok, playwright_cwd
 import install_pdfjs
 import proof_prep_cases
@@ -379,17 +380,30 @@ class FullPlanProof(unittest.TestCase):
         self.assertIn("REFUSED", out["assertion catalog and failure caps"] + out["campaign plan structure"])
 
     def test_a_partial_plan_is_not_accepted_as_the_full_plan(self):
-        private, built = self.build("plan-minimal", extra={"BP_MODE": "minimal", "BP_STIM": self.receipt})
+        # A mode override is not a partial-plan fixture: it contradicts the
+        # request/facts/reconciliation binding and must fail before outputs.
+        mismatch, built = self.build("plan-mode-mismatch", extra={"BP_MODE": "minimal", "BP_STIM": self.receipt})
+        self.assertEqual(built[0].returncode, 78)
+        self.assertEqual(built[0].stderr.strip(), "BLOCKED_SETUP: INVALID_BINDING_INPUT")
+        self.assertFalse(os.path.exists(mismatch))
+
+        # Build a genuinely bound minimal request, approval and reconciliation,
+        # then prove the full-catalog acceptance still rejects that valid
+        # partial plan rather than confusing it with a binding failure.
+        fixture = SyntheticBuilder(os.path.join(self.work, "plan-minimal-bound"), cases=(12,), minimal=True)
+        built = [fixture.run("phase1"), fixture.run("phase2")]
         self.assertEqual([b.returncode for b in built], [0, 0], [b.stderr for b in built])
+        private = fixture.env["BP_PRIVATE"]
         r, out = self.accept(os.path.join(private, "cfg", "campaign-plan.json"))
         self.assertNotEqual(r.returncode, 0)
         self.assertTrue(out["assertion catalog and failure caps"].startswith("REFUSED"), out)
         self.assertIn("sampleMode", out["assertion catalog and failure caps"])
 
     def test_the_builder_refuses_a_parser_that_is_not_the_pinned_one(self):
-        _, built = self.build("plan-badpdf", extra={"BP_PDFJS_SHA": "0" * 64})
+        private, built = self.build("plan-badpdf", extra={"BP_PDFJS_SHA": "0" * 64})
         self.assertEqual(built[0].returncode, 78)
-        self.assertIn("differs from the pinned sha256", built[0].stderr)
+        self.assertEqual(built[0].stderr.strip(), "BLOCKED_SETUP: INVALID_BINDING_INPUT")
+        self.assertFalse(os.path.exists(private))
 
     def test_the_builder_refuses_a_full_plan_with_a_missing_estimate(self):
         env = open(os.path.join(self.work, "env.txt")).read().splitlines()
