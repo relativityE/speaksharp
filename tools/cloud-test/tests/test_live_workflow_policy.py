@@ -367,10 +367,11 @@ class Case10ObserveCredentials(unittest.TestCase):
         import yaml
         with open(YML, encoding="utf-8") as f:
             text = f.read()
-        init = next(st for st in yaml.safe_load(text)["jobs"]["live"]["steps"] if st.get("id") == "init")
+        doc = yaml.safe_load(text)
+        init = next(st for st in doc["jobs"]["live"]["steps"] if st.get("id") == "init")
         self.assertEqual(init["env"]["CT_CASE10_PASSWORD"], "${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}")
         self.assertEqual(init["env"]["CT_CASE10_ANON_KEY"], "${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}")
-        others = [st for job in yaml.safe_load(text)["jobs"].values() for st in job["steps"] if st is not init]
+        others = [st for job in doc["jobs"].values() for st in job["steps"] if st is not init]
         for name in ("CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"):
             self.assertFalse(any(name in json.dumps(st) for st in others), name)  # no other step names it
         self.assertIn("case10_observation.py observe", init["run"])
