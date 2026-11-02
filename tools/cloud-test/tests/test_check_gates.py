@@ -152,6 +152,29 @@ class CheckGates(unittest.TestCase):
         r["approvedLimits"]["cumulativeCeilingRequests"] = 6300
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G5"], "NOT-READY")
 
+    def test_g5_replaces_the_runs_own_counted_reservation_never_another(self):
+        # #1772 review 4446137335 / Jensen 1793644594.204599: at an exact fit ownerCounted already includes THIS request's open reservation.
+        r, l = approved(self.req, self.ledger)
+        sha = "a" * 64
+        planned = r["estimate"]["starts"]
+        self.rc = dict(self.rc, starts=dict(self.rc["starts"], ownerCounted=self.rc["ceilings"]["starts"]))  # full, including own `planned`
+
+        def g5(reservations, request_sha256=sha):
+            rc = dict(self.rc, openReservationsByRequest=reservations) if reservations is not None else self.rc
+            errs, _ = V.validate(r, self.cfg, l, self.wf, fake_rv(), rc, None, request_sha256)
+            from _common import parse_utc
+            out = C.evaluate(r, self.cfg, l, self.wf, {"valid": not errs, "errors": errs}, {"passed": True}, receipt(r), str(self.inputs.root),
+                             "final", fake_rv(), rc, parse_utc("2026-10-28T22:00:00Z"), receipts_root=str(self.inputs.receipts),
+                             request_sha256=request_sha256)
+            return [g for g in out["gates"] if g["id"] == "G5"][0]["status"], errs
+
+        own = {sha: {"count": 1, "starts": planned, "takes": 0}}
+        self.assertEqual(g5(None)[0], "NOT-READY", "broken before: the own reservation is charged twice")
+        self.assertEqual(g5(own), ("READY", []), "fixed after: replaced by the plan, admitted end to end")
+        self.assertEqual(g5({"b" * 64: own[sha]})[0], "NOT-READY", "another request's reservation is never discounted")
+        self.assertEqual(g5(own, request_sha256=None)[0], "NOT-READY", "no request digest, no discount")
+        self.assertEqual(g5({sha: dict(own[sha], count=2)})[0], "NOT-READY", "two own reservations are ambiguous")
+
     def test_expired_window_blocks(self):
         r, l = approved(self.req, self.ledger)
         r["window"] = {"startUtc": "2020-01-01T10:00:00Z", "endUtc": "2020-01-01T11:00:00Z", "approvalRef": "x"}

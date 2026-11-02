@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import load, dump, parse_utc, now_utc, ep_requirements, mode_limits, comparison_errors  # noqa: E402
 from verify_receipts import verify_set  # noqa: E402
 from recurring_usage import check_caps  # noqa: E402
-from case_start_caps import reconcile_caps, request_caps
+from case_start_caps import own_reservation, reconcile_caps, request_caps
 
 READY, NOTREADY, OWNER, DEFERRED = "READY", "NOT-READY", "OWNER-INPUT-OPEN", "DEFERRED-TO-RUNNER"
 # A recurring nightly window may include GitHub's reviewed 30-minute trigger
@@ -271,10 +271,22 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
             need.append("reconciled used %s + run cap %s + protected reserve %s + identity reads %s = %s exceeds the approved ceiling %s" % (rc["requests"]["conservativeUsed"], appr["runCapRequests"], rc["ceilings"]["protectedReserveRequests"], est["identityReads"], required, appr["cumulativeCeilingRequests"]))
         if rc["identityReads"]["conservativeUsed"] + est["identityReads"] > appr["identityCap"]:
             need.append("reconciled identity used + reads exceeds the approved identity cap")
-        for k, used_k, planned_k, label in (("startsCap", "starts", "starts", "Starts"), ("takesCap", "takes", "takes", "takes")):
+        # #1772 review 4446137335 (Jensen 1793644594.204599): this request's own open reservation is already in ownerCounted, so it is
+        # replaced by the plan here exactly as in reconcile_caps; another request's reservation still counts in full.
+        try:
+            own_starts, own_takes = own_reservation(rc, request_sha256)
+        except (ValueError, TypeError, KeyError):
+            own_starts = own_takes = None
+            need.append("this request's own open reservation is ambiguous or invalid in the reconciliation")
+        for k, used_k, planned_k, label, own_k in (("startsCap", "starts", "starts", "Starts", own_starts), ("takesCap", "takes", "takes", "takes", own_takes)):
+            if own_k is None:
+                continue
             cap_ = appr.get(k) if appr.get(k) is not None else rc["ceilings"][used_k]
-            if rc[used_k]["ownerCounted"] + est[planned_k] > cap_:
-                need.append("%s used %d + planned %d exceeds the approved cap %s" % (label, rc[used_k]["ownerCounted"], est[planned_k], cap_))
+            used_ = rc[used_k]["ownerCounted"] - own_k
+            if own_k > rc[used_k]["ownerCounted"]:
+                need.append("%s own reservation %d exceeds the reconciled count %d" % (label, own_k, rc[used_k]["ownerCounted"]))
+            elif used_ + est[planned_k] > cap_:
+                need.append("%s used %d + planned %d exceeds the approved cap %s" % (label, used_, est[planned_k], cap_))
         if appr["runCapRequests"] < rq.get("runCap", 0):
             need.append("approved run cap is below the estimated cap")
     if rc is None:

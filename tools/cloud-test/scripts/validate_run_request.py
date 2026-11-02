@@ -16,7 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import load, dump, parse_utc, is_sha40, ep_requirements, ep_cases, request_mode, mode_limits, sha256_file, ROOT  # noqa: E402
-from case_start_caps import reconcile_caps, InputValidationError
+from case_start_caps import own_reservation, reconcile_caps, InputValidationError
 
 CASE_RE = re.compile(r"^AHT-(0[1-9]|1[0-5])$")
 LEGACY_COST_KEYS = ("costUsd", "costCapUsd", "actualCostUsd")
@@ -218,7 +218,14 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
     appr = req.get("approvedLimits") or {}
     if rc:
         cur = rc["ceilings"]
-        used_starts, used_takes = rc["starts"]["ownerCounted"], rc["takes"]["ownerCounted"]
+        # #1772 review 4446137335: this request's own counted reservation is replaced by its plan, never added twice (own_reservation;
+        # an invalid or ambiguous one is already refused by reconcile_caps above).
+        try:
+            own_starts, own_takes = own_reservation(rc, request_sha256)
+        except InputValidationError:
+            own_starts = own_takes = 0
+        used_starts = rc["starts"]["ownerCounted"] - min(own_starts, rc["starts"]["ownerCounted"])
+        used_takes = rc["takes"]["ownerCounted"] - min(own_takes, rc["takes"]["ownerCounted"])
         try:
             need = rc["requests"]["conservativeUsed"] + rq["runCap"] + cur["protectedReserveRequests"] + est["identityReads"]
             pc = prop.get("cumulativeCeilingRequests")
