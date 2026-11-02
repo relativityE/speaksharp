@@ -49,7 +49,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual((gate["if"], gate["permissions"]), ("github.event_name == 'schedule'", {"contents": "read", "actions": "read"}))
         self.assertIsNone(SECRET_REF.search(str(gate)), "the gate holds no credential")
         step = gate["steps"][-1]
-        self.assertEqual(step["env"], {"NIGHTLY_SWITCH": "${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}", "SCHEDULE_CRON": "${{ github.event.schedule }}",
+        self.assertEqual(step["env"], {"NIGHTLY_SWITCH": "${{ vars.RUN_NIGHTLY_REGRESSION }}", "SCHEDULE_CRON": "${{ github.event.schedule }}",
                                        "GH_TOKEN": "${{ github.token }}"})
         # The trigger time is the run's creation, read only when the switch is on; the gate decides the switch before anything else.
         self.assertIn('if [ "$NIGHTLY_SWITCH" = true ]; then TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '

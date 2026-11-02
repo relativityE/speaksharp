@@ -30,7 +30,7 @@ name: Cloud Test live journeys (manual, GitHub-hosted)
 # issue, author, marker and id.
 on:
   # Activation wiring: the reviewed proposed cron (config/nightly/schedule.proposed.yml), registered. Every scheduled invocation first passes the
-  # credential-free nightly-gate job, which stays quiet while vars.CLOUD_TEST_NIGHTLY_ENABLED is not exactly "true", and refuses until the
+  # credential-free nightly-gate job, which stays quiet while vars.RUN_NIGHTLY_REGRESSION is not exactly "true", and refuses until the
   # writer root, standing approval, template and budget are pinned; nothing downstream (secrets, record, reserve, live) runs before it admits.
   schedule:
     - cron: '0 3 * * *'
@@ -82,7 +82,7 @@ jobs:
       - name: Evaluate the nightly gate (quiet when switched off; a visible failure for any other refusal)
         id: gate
         env:
-          NIGHTLY_SWITCH: ${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}
+          NIGHTLY_SWITCH: ${{ vars.RUN_NIGHTLY_REGRESSION }}
           SCHEDULE_CRON: ${{ github.event.schedule }}
           GH_TOKEN: ${{ github.token }}
         run: |

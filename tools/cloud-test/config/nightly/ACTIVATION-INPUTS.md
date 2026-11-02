@@ -12,7 +12,7 @@ Each input is supplied only by its named owner, through an independently reviewe
 | 4 | Standing (recurring) approval | `config/recurring-approval.json` (`status: NOT APPROVED`, every value null) | PO decision, presented by Sam and Jensen as a completed, evidence-backed packet | `nightly_request.gate` / `standing_envelope`; gate G11 |
 | 5 | Reviewed nightly template + accepted budget | `scripts/nightly_request.py` `TEMPLATE_PATH, TEMPLATE_SHA256 = None, None`; `BUDGET_PATH, BUDGET_SHA256 = None, None` | Jensen (template), Sam (budget acceptance) | `nightly_request.derive` (refuses until anchored) |
 | 6 | Retained aggregate receiver pins | `config/test-config.v1.json` `aggregateReceiver.activated=false`, `manifestSha256=null`, `bundleRootSha256=null` | Jensen (v2 manifest: historical components and the release only), Sam review | `aggregate_receiver.receive_bundle` plus the authenticated occurrence envelope |
-| 7 | On/off switch | repository variable `CLOUD_TEST_NIGHTLY_ENABLED` (unset) | Created once, set to `true`, as the last step of the approved activation (Sam 1793648273.779769) | `nightly_request.gate`: quiet unless exactly `true` |
+| 7 | On/off switch | repository variable `RUN_NIGHTLY_REGRESSION` (`run_nightly_regression`; unset = off) | PO 2026-11-02: `true` runs the nightly, `false` stops it. Set `true` only to prove a real scheduled run end to end; after a verified successful run it is left `false` | `nightly_request.gate`: quiet unless exactly `true` |
 
 ## Credentials
 
