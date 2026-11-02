@@ -304,5 +304,70 @@ class StateRef(unittest.TestCase):
         self.assertIsNone(W.REVIEWED_ROOT, "the real root is pinned only by an independently reviewed change")
 
 
+class PushTokenConfinement(unittest.TestCase):
+    """J1 (Sam 1793580621.313599): the writer itself consumes CT_STATE_PUSH_TOKEN, for the one leased https push only. Offline: the https
+    subprocess is intercepted before it runs; the file-remote append is real. Reuses StateRef's fixture without rerunning its tests."""
+    setUp, fresh, commit, propose = StateRef.setUp, StateRef.fresh, StateRef.commit, StateRef.propose
+    TOKEN = "ghs_" + "A1b2C3d4" * 5
+    HTTPS = W.APPROVED_URL
+
+    def calls(self, fn, *a):
+        seen = []
+        real = W._git
+
+        def spy(repo, *args, data=None, scheme="file", extra=None):
+            seen.append((args, dict(extra or {})))
+            if scheme == "https":
+                return 0, b""
+            return real(repo, *args, data=data, scheme=scheme, extra=extra)
+        with mock.patch.dict(os.environ, {W.PUSH_TOKEN_ENV: self.TOKEN}), mock.patch.object(W, "_git", spy):
+            fn(*a)
+        return seen
+
+    def test_only_the_https_push_receives_the_token_scoped_to_the_approved_url_and_never_as_an_argument(self):
+        import base64
+        seen = self.calls(W._push, self.repo, self.HTTPS, "a" * 40, "b" * 40, "https")
+        self.assertEqual(len(seen), 1)
+        args, extra = seen[0]
+        self.assertEqual(args[0], "push")
+        self.assertEqual(set(extra), {"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"})
+        self.assertEqual((extra["GIT_CONFIG_COUNT"], extra["GIT_CONFIG_KEY_0"]), ("1", "http.%s.extraheader" % self.HTTPS))
+        self.assertEqual(extra["GIT_CONFIG_VALUE_0"],
+                         "AUTHORIZATION: basic " + base64.b64encode(("x-access-token:" + self.TOKEN).encode()).decode())
+        self.assertFalse(any(self.TOKEN in a for a in args))
+
+    def test_fetch_and_every_other_git_call_get_no_credential(self):
+        def https_fetch():
+            try:
+                W.fetch_head(self.repo, self.HTTPS, self.HTTPS)
+            except W.Refused:
+                pass  # the intercepted fetch wrote nothing; only its environment matters here
+        for args, extra in self.calls(https_fetch):
+            self.assertEqual(extra, {}, args[0])
+        seen = self.calls(self.propose, self.root, event())  # a real file-remote append: no call carries a credential
+        self.assertIn("push", [a[0] for a, _ in seen])
+        self.assertTrue(all(extra == {} or "GIT_CONFIG_COUNT" not in extra for _, extra in seen))
+        self.assertFalse(any(self.TOKEN in json.dumps(extra) for _, extra in seen))
+
+    def test_git_never_inherits_the_token_from_the_process_environment(self):
+        captured = []
+        with mock.patch.dict(os.environ, {W.PUSH_TOKEN_ENV: self.TOKEN}), \
+                mock.patch.object(W.subprocess, "run", lambda cmd, **k: captured.append(k["env"]) or subprocess.CompletedProcess(cmd, 0, b"", b"")):
+            W._git(self.repo, "status")
+        self.assertNotIn(W.PUSH_TOKEN_ENV, captured[0])
+        self.assertFalse(any(self.TOKEN in v for v in captured[0].values()))
+
+    def test_a_missing_or_malformed_token_refuses_before_the_push_is_sent(self):
+        for value in (None, "", "short", "has space " + "x" * 30, "x" * 30 + "\nInjected: header", "x" * 256):
+            env = {} if value is None else {W.PUSH_TOKEN_ENV: value}
+            with mock.patch.dict(os.environ, env, clear=False), mock.patch.object(W, "_git", lambda *a, **k: self.fail("sent")):
+                if value is None:
+                    os.environ.pop(W.PUSH_TOKEN_ENV, None)
+                with self.assertRaises(W.Refused) as e:
+                    W._push(self.repo, self.HTTPS, "a" * 40, "b" * 40, "https")
+                self.assertEqual(str(e.exception), "push-token-missing")
+        self.assertEqual(W._push_auth(self.remote, "file"), {})
+
+
 if __name__ == "__main__":
     unittest.main()
