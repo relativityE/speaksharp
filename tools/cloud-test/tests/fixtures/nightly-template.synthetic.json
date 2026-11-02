@@ -16,7 +16,7 @@
   "deviations": [],
   "evidenceScope": {
     "maxDeliveries": 8,
-    "maxSupabaseRequests": 16,
+    "maxSupabaseRequests": 10,
     "maxTelemetryReads": 2
   },
   "estimate": {

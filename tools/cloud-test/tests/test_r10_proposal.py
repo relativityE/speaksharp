@@ -44,6 +44,16 @@ class R10Proposal(unittest.TestCase):
         self.assertEqual((e["paidActionsAuthorizedUsd"], r["proposedLimits"]["paidActionsUsd"]), (0, 0))
         self.assertTrue(all(v is None for k, v in r["proposedLimits"].items() if k not in ("paidActionsUsd", "guardCaps")))
 
+    def test_authenticated_evidence_scope_is_the_current_five_case_role_minimum(self):
+        # AHT-01/02/03 each request coaching authority (one delivery, two Supabase reads).
+        # AHT-07 requests coaching authority, feedback association and feedback receipt
+        # (three deliveries, three Supabase reads, one telemetry read). AHT-08 requests
+        # feedback association and feedback receipt (two deliveries, one Supabase read,
+        # one telemetry read). No other case receives the privileged producer.
+        expected = {"maxDeliveries": 8, "maxSupabaseRequests": 10, "maxTelemetryReads": 2}
+        self.assertEqual(self.req["evidenceScope"], expected)
+        self.assertEqual(load("tests/fixtures/nightly-template.synthetic.json")["evidenceScope"], expected)
+
     def test_prepare_refuses_it_and_its_location_is_not_admitted(self):
         with self.assertRaises(I.Refused) as e:
             I.check_request(self.req, datetime(2026, 11, 2, tzinfo=timezone.utc), I._request_keys())
