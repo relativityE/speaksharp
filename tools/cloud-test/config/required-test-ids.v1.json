@@ -340,7 +340,7 @@
     "package-unit-tests::test_init_run_inputs.ContinuityCheckpoint.test_the_checkpoint_is_bound_to_the_request_approval_and_every_stated_cumulative_ceiling",
     "package-unit-tests::test_init_run_inputs.ContinuityCheckpoint.test_the_execution_window_must_lie_inside_the_accepted_period",
     "package-unit-tests::test_init_run_inputs.ContinuityCheckpoint.test_the_hashed_bytes_are_the_bytes_the_runner_consumes_before_plan_construction",
-    "package-unit-tests::test_init_run_inputs.ContinuityCheckpoint.test_the_production_pins_are_unset_so_continuity_refuses",
+    "package-unit-tests::test_init_run_inputs.ContinuityCheckpoint.test_the_production_pins_are_set_and_reject_unaccepted_inputs",
     "package-unit-tests::test_init_run_inputs.ContinuityCheckpoint.test_unresolved_unapproved_and_unanchored_inputs_still_refuse",
     "package-unit-tests::test_init_run_inputs.CumulativeCapsAreG5s.test_g5_exact_request_and_identity_boundaries_with_nonzero_prior_usage",
     "package-unit-tests::test_init_run_inputs.CumulativeCapsAreG5s.test_the_caller_has_no_cumulative_formula_of_its_own",

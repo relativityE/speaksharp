@@ -175,6 +175,9 @@ class Derivation(unittest.TestCase):
         self.assertEqual((req["runId"], req["window"]["startUtc"], req["window"]["endUtc"], req["synthetic"]),
                          (OCCURRENCE, "2026-11-02T03:00:00Z", "2026-11-02T08:30:00Z", False))
         self.assertEqual(req["estimate"]["requests"]["runCap"], 4310)
+        self.assertEqual(req["proposedLimits"]["runCapRequests"], 4310)
+        self.assertEqual(req["approvedLimits"]["runCapRequests"], 4310,
+                         "the standing 4400 ceiling does not reserve 90 unused requests")
         self.assertEqual(req["estimate"]["providerBillableRequests"],
                          {"coachingCap": 15, "basis": "SYNTHETIC reviewed coaching allowance"})
         self.assertEqual((req["estimate"]["identityReads"], req["estimate"]["starts"], req["estimate"]["takes"],
@@ -222,6 +225,37 @@ class Derivation(unittest.TestCase):
         refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 358}))
         self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 359})))
         refused(self, "nightly-workflow-timeouts", derive, wf=WF.replace("    timeout-minutes: 340", "    timeout: 340"))
+
+    def test_the_derived_request_passes_the_ordinary_validator_as_one_contract(self):
+        import validate_run_request as V
+        req = json.loads(derive())
+        s = sample()
+        cfg = copy.deepcopy(s["cfg"])
+        cfg["harness"]["expectedCodeManifestSha256"] = req["harness"]["codeManifestSha256"]
+        rc = reconciliation()
+        period = json.loads(approval())["periodCaps"]
+        rc["ceilings"] = dict(rc["ceilings"], requests=period["requests"], identityReads=period["identityReads"],
+                              starts=period["starts"], takes=period["takes"])
+        accepted_budget = json.loads(budget())
+        selected = {row["case"]: row for row in req["selection"]}
+        for row in accepted_budget["perCase"]:
+            row["estimate"] = selected[row["case"]]["plannedRequests"]
+        accepted_budget["window"].update(expectedMinutes=req["estimate"]["window"]["expectedMinutes"],
+                                           worstCaseMinutes=req["estimate"]["window"]["worstCaseMinutes"])
+        with open(os.path.join(ROOT, "config", "assertion-catalog.json"), encoding="utf-8") as catalog:
+            accepted_budget["_catalog"] = json.load(catalog)
+        errors, _ = V.validate(req, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)
+        self.assertEqual(errors, [])
+
+        too_long = copy.deepcopy(req)
+        too_long["estimate"]["githubRunnerMinutesMax"] = N.nightly_runner_minutes(WF) + 1
+        errors, _ = V.validate(too_long, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)
+        self.assertTrue(any("githubRunnerMinutesMax" in error for error in errors), errors)
+
+        mismatched = copy.deepcopy(req)
+        mismatched["approvedLimits"]["runCapRequests"] += 1
+        errors, _ = V.validate(mismatched, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)
+        self.assertTrue(any("exceeds what the request proposed" in error for error in errors), errors)
 
     def test_the_whole_run_must_still_fit_from_now_using_the_callers_own_checks(self):
         raw = derive()

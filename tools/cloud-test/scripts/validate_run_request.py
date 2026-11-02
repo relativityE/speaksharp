@@ -22,6 +22,21 @@ CASE_RE = re.compile(r"^AHT-(0[1-9]|1[0-5])$")
 LEGACY_COST_KEYS = ("costUsd", "costCapUsd", "actualCostUsd")
 
 
+def runner_minutes_bound(req, cfg):
+    """Use the bound for the request's actual execution lane.
+
+    The secret-free offline workflow keeps the configured 30-minute ceiling.
+    A GitHub live/nightly request is instead bounded by the sum of the reviewed
+    job timeouts in cloud-test-live.yml; deriving that value from the workflow
+    prevents a second, drifting live allowance.
+    """
+    if req.get("executionRuntime") != "GitHub Actions SpeakSharp":
+        return cfg["githubActions"]["maxRunnerMinutes"]
+    from nightly_request import WORKFLOW_PATH, nightly_runner_minutes
+    with open(WORKFLOW_PATH, encoding="utf-8") as workflow:
+        return nightly_runner_minutes(workflow.read())
+
+
 def walk_keys(o, path=""):
     if isinstance(o, dict):
         for k, v in o.items():
@@ -188,7 +203,7 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
             E("identityReads must be 2k+2 = %d for %d selected cases" % (2 * len(sel) + 2, len(sel)))
         if est["identityReads"] > lim["maxIdentityReadsPerRun"]:
             E("identity reads exceed the configured maximum")
-        if est.get("githubRunnerMinutesMax", 0) > cfg["githubActions"]["maxRunnerMinutes"]:
+        if est.get("githubRunnerMinutesMax", 0) > runner_minutes_bound(req, cfg):
             E("githubRunnerMinutesMax exceeds the configured bound")
         if full:
             if budget is None:

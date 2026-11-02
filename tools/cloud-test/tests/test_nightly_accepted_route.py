@@ -2,7 +2,9 @@
 REAL aggregate receiver admits the pinned bundle; the REAL pipeline then hands check_gates the history index, the standing approval, the
 journal snapshot as reservations and the carried prior state, and runs the carried-history comparison and its report section. Offline."""
 import datetime
+import contextlib
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -10,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import _fixtures  # noqa: F401  (puts the scripts directory on the import path)
 from _fixtures import ROOT
@@ -69,7 +72,44 @@ class NightlyAcceptedRoute(unittest.TestCase):
         self.pins = {"activated": True, "manifestSha256": hashlib.sha256(self.manifest_raw).hexdigest(), "bundleRootSha256": manifest["bundleRootSha256"]}
         self.config["aggregateReceiver"] = dict(self.pins)
 
-    def run_route(self, with_recurring=True, events=None, env_over=None, nights=("P", "F"), occurrence=None):
+    @staticmethod
+    def run_pipeline_with_journal(argv, env, journal_url, journal_root):
+        """Run the real pipeline while wiring its check_gates child to a local journal.
+
+        pipeline normally starts check_gates as a separate Python process.  The
+        in-process adapter below preserves that consumer and its arguments, but
+        makes the existing test-only JOURNAL_URL/JOURNAL_ROOT controls visible
+        to it without adding a production environment override.
+        """
+        import check_gates as C
+        import pipeline
+        original_run = pipeline.run
+
+        def run(script, *args, check=False):
+            if script != "check_gates.py":
+                return original_run(script, *args, check=check)
+            stdout, stderr = io.StringIO(), io.StringIO()
+            code = 0
+            with mock.patch.object(C, "JOURNAL_URL", journal_url), mock.patch.object(C, "JOURNAL_ROOT", journal_root), \
+                    mock.patch.object(sys, "argv", ["check_gates.py", *args]), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                try:
+                    C.main()
+                except SystemExit as exc:
+                    code = exc.code if isinstance(exc.code, int) else 1
+            return subprocess.CompletedProcess([sys.executable, "-I", "check_gates.py", *args], code, stdout.getvalue(), stderr.getvalue())
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        code = 0
+        pipeline_argv = ["pipeline.py", *argv[3:]]
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(pipeline, "run", run), \
+                mock.patch.object(sys, "argv", pipeline_argv), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            try:
+                pipeline.main()
+            except SystemExit as exc:
+                code = exc.code if isinstance(exc.code, int) else 1
+        return subprocess.CompletedProcess(argv, code, stdout.getvalue(), stderr.getvalue())
+
+    def run_route(self, with_recurring=True, events=None, env_over=None, nights=("P", "F"), occurrence=None, journal=None):
         self.nightly_bundle()
         if occurrence is not None:  # (campaign id, manifest mode): a later occurrence's own request bytes and campaign
             campaign, mode = occurrence
@@ -113,6 +153,8 @@ class NightlyAcceptedRoute(unittest.TestCase):
         if with_recurring:
             argv += ["--reservations", str(snapshot)]
         argv += occ
+        if journal is not None:
+            return self.run_pipeline_with_journal(argv, env, *journal), output
         return subprocess.run(argv, capture_output=True, text=True, env=env), output
 
     def test_a_manifest_pinned_to_one_occurrence_refuses_the_next_and_the_real_cli_authenticates_the_envelope(self):
@@ -162,10 +204,17 @@ class NightlyAcceptedRoute(unittest.TestCase):
         return next(g for g in json.loads((out / "gate-status.json").read_text())["gates"] if g["id"] == "G11")
 
     def test_on_the_real_route_an_unauthenticated_snapshot_never_counts(self):
-        # Sam 1793592813.582869: production pins no reviewed root, so even this run's own well-formed reserve cannot be authenticated
-        g = self.g11(None)
+        # A hermetic authenticated state ref exists, but the supplied c*40
+        # snapshot is not that ref.  The actual pipeline/G11 consumer must
+        # classify it as fabricated/reduced/stale rather than credit its reserve.
+        journal = J.Journal(methodName="runTest")
+        journal.setUp()
+        self.addCleanup(journal.doCleanups)
+        r, out = self.run_route(events=None, journal=(journal.remote, journal.root))
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        g = next(g for g in json.loads((out / "gate-status.json").read_text())["gates"] if g["id"] == "G11")
         self.assertEqual(g["status"], __import__("check_gates").NOTREADY)
-        self.assertIn("could not be authenticated (journal-not-activated)", json.dumps(g))
+        self.assertIn("not the authenticated state ref (fabricated, reduced or stale)", json.dumps(g))
 
     def test_on_the_real_route_a_fabricated_empty_snapshot_is_refused(self):
         forged = self.g11([])

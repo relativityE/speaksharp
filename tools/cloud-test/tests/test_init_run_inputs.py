@@ -448,7 +448,7 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
             self.assertFalse(any(os.path.exists(x) for x in (out, env, outputs)))
             return p.returncode, p.stderr.strip()
 
-        self.assertEqual(prepare(RUNS + "r6.json"), (78, "BLOCKED_SETUP: continuity-rollup-not-accepted"))
+        self.assertEqual(prepare(RUNS + "r6.json"), (78, "BLOCKED_SETUP: continuity-inputs-missing"))
         self.assertEqual(prepare(RUNS + "stray.json"), (78, "BLOCKED_SETUP: request-release-not-in-source-history"))
 
     def test_admission_publishes_the_committed_request_digest_and_every_consumer_reads_a_private_copy_of_those_bytes(self):
@@ -1471,11 +1471,14 @@ class ContinuityCheckpoint(Journal):
             self.check(*a, **k)
         self.assertEqual(str(e.exception), code)
 
-    def test_the_production_pins_are_unset_so_continuity_refuses(self):
-        self.assertEqual(set(I.continuity_pins().values()), {None})
+    def test_the_production_pins_are_set_and_reject_unaccepted_inputs(self):
+        pins = I.continuity_pins()
+        self.assertEqual(set(pins), {"accepted_sha256", "accepted_root", "accepted_scope_sha256", "reviewed_root"})
+        self.assertTrue(all(isinstance(value, str) and len(value) in (40, 64) for value in pins.values()))
+        self.assertEqual(pins["accepted_root"], pins["reviewed_root"])
         with self.assertRaises(I.Refused) as e:
             I.verified_checkpoint(self.checkout, self.req)
-        self.assertEqual(str(e.exception), "continuity-rollup-not-accepted")
+        self.assertEqual(str(e.exception), "continuity-manual-reservation-scope-not-accepted")
 
     def test_each_missing_acceptance_refuses_by_name_before_any_input_is_read(self):
         self.refused("continuity-rollup-not-accepted", pins=self.all_pins(accepted_sha256=None))
@@ -1805,6 +1808,28 @@ class StandingEnvelope(Journal):
         mutate(req)
         return req
 
+    def ordinary_errors(self, req=None):
+        """Runs the actual ordinary request validator on this derived request."""
+        import validate_run_request as V
+        from test_nightly_request import budget, fake_rv, reconciliation, sample
+        req = self.req if req is None else req
+        s = sample()
+        cfg = copy.deepcopy(s["cfg"])
+        cfg["harness"]["expectedCodeManifestSha256"] = req["harness"]["codeManifestSha256"]
+        rc = reconciliation()
+        period = json.loads(self.nightly_approval(startTakeGrant=self.GRANT))["periodCaps"]
+        rc["ceilings"] = dict(rc["ceilings"], requests=period["requests"], identityReads=period["identityReads"],
+                              starts=period["starts"], takes=period["takes"])
+        accepted_budget = json.loads(budget())
+        selected = {row["case"]: row for row in req["selection"]}
+        for row in accepted_budget["perCase"]:
+            row["estimate"] = selected[row["case"]]["plannedRequests"]
+        accepted_budget["window"].update(expectedMinutes=req["estimate"]["window"]["expectedMinutes"],
+                                           worstCaseMinutes=req["estimate"]["window"]["worstCaseMinutes"])
+        with open(os.path.join(ROOT, "config", "assertion-catalog.json"), encoding="utf-8") as catalog:
+            accepted_budget["_catalog"] = json.load(catalog)
+        return V.validate(req, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)[0]
+
     def reserve_on_chain(self, run="101", request_sha=None, at="2026-11-02T03:00:30Z", allocation=None, kind="reserve"):
         """Appends a nightly reserve (or its settle) through the REAL state-ref writer, as journal-reserve/-settle do around the live job."""
         from reservations import CATS
@@ -1891,6 +1916,11 @@ class StandingEnvelope(Journal):
 
     def test_the_derived_envelope_names_exactly_this_occurrence_request_and_checkpoint(self):
         rc_bytes = self.checkpoint()
+        self.assertEqual((self.req["proposedLimits"]["runCapRequests"], self.req["approvedLimits"]["runCapRequests"],
+                          self.req["estimate"]["requests"]["runCap"]), (4310, 4310, 4310))
+        self.assertLess(self.req["approvedLimits"]["runCapRequests"],
+                        json.loads(self.nightly_approval(startTakeGrant=self.GRANT))["perRunCaps"]["runCapRequests"])
+        self.assertEqual(self.ordinary_errors(), [], "the actual derive -> ordinary-validator leg must admit 4310 under 4400")
         self.assertEqual(self.derive(), {"schema": I.ACTION_APPROVAL_SCHEMA, "requestSha256": hashlib.sha256(self.req_raw).hexdigest(),
                                          "reconciliationSha256": hashlib.sha256(rc_bytes).hexdigest(), "approvalRef": self.REF,
                                          "approvedBy": "owner", "selectionApprovalRef": self.REF})
@@ -2102,6 +2132,11 @@ class StandingEnvelope(Journal):
                 ("before start", {"now": self.slot - timedelta(minutes=1)}, "window"),
                 ("at end", {"now": I._utc(end)}, "window"),
                 ("run cap", {"req": self.changed(lambda r: r["approvedLimits"].update(runCapRequests=4399))}, "per-run"),
+                ("proposed allocation", {"req": self.changed(lambda r: r["proposedLimits"].update(runCapRequests=4309))}, "per-run"),
+                ("estimated allocation", {"req": self.changed(lambda r: r["estimate"]["requests"].update(runCap=4309))}, "per-run"),
+                ("allocation over ceiling", {"req": self.changed(lambda r: (r["proposedLimits"].update(runCapRequests=4401),
+                                                                               r["approvedLimits"].update(runCapRequests=4401),
+                                                                               r["estimate"]["requests"].update(runCap=4401)))}, "per-run"),
                 ("identity cap", {"req": self.changed(lambda r: r["approvedLimits"].update(identityCap=31))}, "per-run"),
                 ("estimate takes", {"req": self.changed(lambda r: r["estimate"].update(takes=41))}, "per-run"),
                 ("estimate starts", {"req": self.changed(lambda r: r["estimate"].update(starts=46))}, "per-run"),
@@ -2129,7 +2164,7 @@ class StandingEnvelope(Journal):
         self.assertTrue(self.derive())
 
     def test_an_exhausted_standing_limit_refuses_in_every_dimension(self):
-        need = {"requests": 4400, "identityReads": 32, "starts": self.req["estimate"]["starts"], "takes": self.req["estimate"]["takes"]}
+        need = self.need()
         self.assertTrue(self.derive())  # bootstrap + no period usage leaves headroom in every dimension
         for k in I.STANDING_PERIOD_DIMENSIONS:
             with self.subTest(k):

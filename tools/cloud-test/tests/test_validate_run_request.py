@@ -92,6 +92,21 @@ class ValidateRunRequest(unittest.TestCase):
     def test_github_minutes_bound(self):
         r = copy.deepcopy(self.req); r["estimate"]["githubRunnerMinutesMax"] = 500; self.expect(r, "githubRunnerMinutesMax")
 
+    def test_live_runner_minutes_use_the_live_workflow_without_widening_offline(self):
+        offline = copy.deepcopy(self.req)
+        offline["estimate"]["githubRunnerMinutesMax"] = self.cfg["githubActions"]["maxRunnerMinutes"] + 1
+        self.expect(offline, "githubRunnerMinutesMax")
+
+        live = copy.deepcopy(self.req)
+        live["executionRuntime"] = "GitHub Actions SpeakSharp"
+        import nightly_request as N
+        with open(N.WORKFLOW_PATH, encoding="utf-8") as workflow:
+            bound = N.nightly_runner_minutes(workflow.read())
+        live["estimate"]["githubRunnerMinutesMax"] = bound
+        self.assertFalse(any("githubRunnerMinutesMax" in error for error in self.errs(live)), self.errs(live))
+        live["estimate"]["githubRunnerMinutesMax"] = bound + 1
+        self.expect(live, "githubRunnerMinutesMax")
+
     # ---- item 2: the ceiling is reconciled, not asserted
     def test_ceiling_below_the_reconciled_need_refused(self):
         r = copy.deepcopy(self.req); r["proposedLimits"]["cumulativeCeilingRequests"] = 6376; self.expect(r, "below the reconciled requirement")
