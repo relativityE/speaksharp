@@ -262,7 +262,7 @@ jobs:
           [ "$(git -C "$tested" rev-parse HEAD)" = "$TESTED_SHA" ]
           [ -z "$(git -C "$tested" status --porcelain)" ]
           python3 -I "$GITHUB_WORKSPACE/tools/cloud-test/scripts/install_pdfjs.py" \
-            --config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"
+            --config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright
           [ -z "$(git -C "$tested" status --porcelain --untracked-files=no)" ]
           {
             echo "CT_CHECKOUT=$tested"

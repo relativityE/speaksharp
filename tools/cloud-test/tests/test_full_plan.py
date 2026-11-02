@@ -73,6 +73,11 @@ class PinnedPdfParser(unittest.TestCase):
         (self.pdf / "legacy/build").mkdir(parents=True)
         (self.pdf / "package.json").write_text('{"version":"4.10.38","synthetic":true}')
         (self.pdf / "legacy/build/pdf.mjs").write_text("// inert test fixture\n")
+        for package in install_pdfjs.PLAYWRIGHT_PACKAGES:
+            root = self.runner / "node_modules" / package
+            root.mkdir(parents=True)
+            (root / "package.json").write_text(json.dumps({"name": package, "version": "1.57.0", "main": "index.js"}))
+            (root / "index.js").write_text("module.exports = { synthetic: true };\n")
         self.pin = dict(PIN)
         self.pin["packageJsonSha256"] = hashlib.sha256((self.pdf / "package.json").read_bytes()).hexdigest()
         self.pin["pdfMjsSha256"] = hashlib.sha256((self.pdf / "legacy/build/pdf.mjs").read_bytes()).hexdigest()
@@ -125,6 +130,44 @@ class PinnedPdfParser(unittest.TestCase):
         self.assertIn("gate-and-validate", sh)
         self.assertIn("modes.full.assertionCatalog.file", sh)
         self.assertEqual(J("config", "test-config.v1.json")["modes"]["full"]["assertionCatalog"]["file"], "config/assertion-catalog.json")
+
+    def test_verified_playwright_pair_is_bound_into_the_tested_checkout(self):
+        with tempfile.TemporaryDirectory() as d:
+            result = self.call("--checkout", d, "--bind-playwright")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for package in install_pdfjs.PLAYWRIGHT_PACKAGES:
+                binding = Path(d) / "node_modules" / package
+                self.assertTrue(binding.is_symlink())
+                self.assertEqual(binding.resolve(), (self.runner / "node_modules" / package).resolve())
+            resolved = subprocess.run(["node", "-e", """
+const path=require('node:path');
+for(const name of ['playwright','playwright-core']){
+  const p=require.resolve(name+'/package.json',{paths:[process.argv[1]]});
+  const j=require(p); if(j.name!==name||j.version!=='1.57.0')process.exit(2);
+}
+""", d], capture_output=True, text=True)
+            self.assertEqual(resolved.returncode, 0, resolved.stderr)
+            self.assertEqual(self.call("--checkout", d, "--check-only", "--bind-playwright").returncode, 0)
+
+    def test_missing_or_conflicting_playwright_pair_refuses_before_binding(self):
+        with tempfile.TemporaryDirectory() as d:
+            core = self.runner / "node_modules/playwright-core"
+            held = self.root / "held-playwright-core"
+            core.rename(held)
+            try:
+                result = self.call("--checkout", d, "--bind-playwright")
+                self.assertEqual(result.returncode, 78)
+                self.assertFalse((Path(d) / "node_modules/playwright").exists())
+            finally:
+                held.rename(core)
+        with tempfile.TemporaryDirectory() as d:
+            conflict = Path(d) / "node_modules/playwright"
+            conflict.mkdir(parents=True)
+            (conflict / "package.json").write_text('{"name":"playwright","version":"wrong"}')
+            result = self.call("--checkout", d, "--bind-playwright")
+            self.assertEqual(result.returncode, 78)
+            self.assertIn("not overwritten", result.stderr)
+            self.assertFalse((Path(d) / "node_modules/playwright-core").exists())
 
 
 class FullPlanProof(unittest.TestCase):

@@ -520,6 +520,7 @@ def read_binding_inputs(env, argv):
                    'immutableEnvironmentId': need('BP_ENV_ID')}
         att_sha = put(f'{PRIVATE}/cfg/runtime-attestation.json', att)
         tmpl = obj(jload(f'{PACKET}/bundle/config/admission.TEMPLATE.json'), 'admission'); adm = {k: v for k, v in tmpl.items() if not k.startswith('_')}
+        account_selection = 'free' if set(SELECTED) == {15} else 'throwaway'
         adm.update({'runtime': RUNTIME, 'sourceSha': B, 'sourceTree': TREE, 'lockSha256': shaf(f'{CHECKOUT}/pnpm-lock.yaml'), 'checkoutDir': CHECKOUT,
                     'lighthouseCli': None, 'lighthouseSelection': 'not-selected', 'expectedServedSha': B, 'identityCap': IDENT_CAP,
                     'identityLedger': f'{PRIVATE}/ledgers/identity-ledger.json', 'campaignLedger': f'{PRIVATE}/ledgers/campaign-ledger.json',
@@ -527,7 +528,7 @@ def read_binding_inputs(env, argv):
                     'reviewedStepManifest': f'{PRIVATE}/cfg/reviewed-steps.json', 'reviewedStepManifestSha256': idx['stepsSha256'],
                     'reviewedStepRoot': PACKET, 'qualificationStepManifest': f'{PRIVATE}/cfg/qualification-steps.json',
                     'qualificationStepManifestSha256': idx['qualStepsSha256'], 'approvedStartAt': T0, 'approvedDeadlineAt': T1,
-                    'policyFile': f'{PRIVATE}/cfg/policy.json', 'policySha256': idx['policySha256'], 'accountSelection': 'throwaway',
+                    'policyFile': f'{PRIVATE}/cfg/policy.json', 'policySha256': idx['policySha256'], 'accountSelection': account_selection,
                     'providerAttemptContractEvidence': {'file': f'{PRIVATE}/cfg/provider-contract-evidence.json', 'sha256': idx['providerEvidenceSha256']},
                     'browserIdentityFile': browser_identity_file, 'browserIdentitySha256': shaf(browser_identity_file),
                     'campaignId': CAMPAIGN, 'privateMediaParent': MEDIA_PARENT, 'runtimeAttestationFile': f'{PRIVATE}/cfg/runtime-attestation.json',

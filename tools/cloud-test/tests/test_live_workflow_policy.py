@@ -167,6 +167,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         script = steps[copy]["run"]
         self.assertIn('git -C "$GITHUB_WORKSPACE" worktree add --detach "$tested" "$TESTED_SHA"', script)
         self.assertIn('--config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"', script)
+        self.assertIn('--bind-playwright', script)
         self.assertIn('echo "CT_CHECKOUT=$tested"', script)
         self.assertEqual(steps[copy]["env"], {"TESTED_SHA": "${{ steps.init.outputs.tested_sha }}"})
         env = self.jobs["live"]["env"]
@@ -181,6 +182,14 @@ class LiveWorkflowPolicy(unittest.TestCase):
             "CT_EXISTING_PDFJS_DIR": "${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist",
         })
         self.assertIn('CT_PROOF_FILE="$RUNNER_TEMP/offline-proof.json" python3 -I scripts/run_offline_checks.py', evidence["run"])
+
+    def test_the_tested_release_resolves_verified_playwright_without_a_second_install(self):
+        steps = self.jobs["live"]["steps"]
+        provision = next(s for s in steps if "install_pdfjs.py" in s.get("run", "") and "--checkout" in s.get("run", ""))
+        self.assertIn('--runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', provision["run"])
+        self.assertNotRegex(provision["run"], r"\b(npm|npx|pnpm|yarn|pip|apt|brew)\b")
+        stage = next(i for i, s in enumerate(steps) if "for stage in install-tools build-plan" in s.get("run", ""))
+        self.assertLess(steps.index(provision), stage)
 
     def test_no_browser_or_unreviewed_package_is_installed_or_downloaded(self):
         low = self.text.lower().replace(self.B4_INSTALL, "").replace(self.PY_YAML_INSTALL, "")
