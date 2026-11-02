@@ -29,8 +29,9 @@ RESERVATION_SUFFIX = ".case10-observation"
 MAX_READ_BUDGET = {"requests": 50, "identityReads": 2}
 RECORD_KEYS = {"schema", "requestSha256", "campaignId", "runId", "attempt", "sourceSha", "accountSubjectSha256", "reader", "observedAtUtc",
                "projection"}
-# The reviewed readers: identity -> callable(projection keys) -> projection. EMPTY today (no credentialed live read is authorized), so
-# admit() refuses every record and observe refuses before any reserve until a reviewed reader is registered here.
+# The reviewed readers: identity -> factory(account id, read budget) -> callable(projection keys) -> projection (case10_reader.make_reader
+# is the only real one). EMPTY today (no credentialed live read is authorized), so admit() refuses every record and observe refuses before
+# any reserve until a reviewed reader is registered here.
 READERS = {}
 TRUSTED_READERS = frozenset(READERS)
 MAX_AGE_SECONDS = 3600
@@ -157,11 +158,11 @@ def subprocess_ok(argv):
                                                           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TEMPLATE_DIR": ""}).returncode == 0
 
 
-def reserve_then_read(reader, journal, req, request_sha256, run_id, attempt, account_id, now):
-    """Reserve BEFORE read (Sam 1793570557.244339, RETURN 1793572741.370569): the headroom is the accepted checkpoint at the exact head the
-    reserve is appended on (the writer's expected-head lease refuses any other), the receipt must be for exactly this event on that head, and
-    the reserve must be PERSISTED at the receipt's commit on a fresh chain read; only then is the reader invoked. A reader failure after the
-    reserve raises with the reservation still open, so the rollup keeps counting it."""
+def reserve_observation(journal, req, request_sha256, run_id, attempt, now):
+    """The observation's reserve on the journal (Sam 1793570557.244339, RETURN 1793572741.370569), run by the write-capable journal-reserve
+    job (Sam 1793580806.654369: the live job stays read-only): the headroom is the accepted checkpoint at the exact head the reserve is appended
+    on (the writer's expected-head lease refuses any other), the receipt must be for exactly this event on that head, and the reserve must be
+    PERSISTED at the receipt's commit on a fresh chain read. Returns (event, receipt, the persisted events)."""
     event = reservation_event(req, request_sha256, run_id, attempt, now)
     try:
         head = journal.head()
@@ -183,12 +184,41 @@ def reserve_then_read(reader, journal, req, request_sha256, run_id, attempt, acc
     except Exception:
         raise Refused("case10-observation-reserve-not-persisted")
     _need(persisted.get(receipt["newSha"], [None])[-1:] == [event], "case10-observation-reserve-not-persisted")
+    return event, receipt, persisted[receipt["newSha"]]
+
+
+def held_observation(events, req, request_sha256, run_id, attempt):
+    """The OPEN observation reserve for exactly this request, campaign, run and attempt, at exactly the contract's read budget, on a verified
+    chain's events; a settled or released one, another request's, or a different allocation refuses."""
+    c = contract_of(req)
+    allocation = {k: 0 for k in W.CATS}
+    allocation.update(c["readBudget"])
+    state = {}
+    for e in events:
+        state[(e["campaignId"], e["runId"], e["attempt"])] = e if e["type"] == "reserve" else None
+    e = state.get((req["runId"] + RESERVATION_SUFFIX, run_id, attempt))
+    _need(e is not None and e["provenance"] == "request-sha256:" + request_sha256 and e["allocation"] == allocation,
+          "case10-observation-reserve-not-held")
+    return e
+
+
+def read_reserved(reader, events, req, request_sha256, run_id, attempt, account_id, now):
+    """The read-only live job's half: invoke the reader only when the verified chain already holds this observation's open reserve."""
+    reserved = held_observation(events, req, request_sha256, run_id, attempt)
     try:
         record = observe(reader, req, request_sha256, run_id, attempt, account_id, now)
     except Refused:
         raise
     except Exception:
         raise Refused("case10-observation-read-failed")
+    return record, reserved
+
+
+def reserve_then_read(reader, journal, req, request_sha256, run_id, attempt, account_id, now):
+    """Reserve BEFORE read, composed: the reader runs only after the persisted reserve. A reader failure after the reserve raises with the
+    reservation still open, so the rollup keeps counting it."""
+    event, receipt, events = reserve_observation(journal, req, request_sha256, run_id, attempt, now)
+    record, _ = read_reserved(reader, events, req, request_sha256, run_id, attempt, account_id, now)
     return record, event, receipt
 
 
@@ -196,8 +226,13 @@ def settlement_event(reserved, record, now):
     """Closes the observation's reservation after a completed read: the reader measures no per-dimension usage, so every dimension settles
     at its reserved budget (never under-counted, as manual_reservation settles unmeasured dimensions), with the record's digest as evidence.
     A failed or partial read is never settled here; its reservation stays open and counted."""
-    event = dict(reserved, type="settle", provenance="evidence-sha256:" + hashlib.sha256(canon(record)).hexdigest(),
-                 atUtc=now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    return settlement_for(reserved, hashlib.sha256(canon(record)).hexdigest(), now)
+
+
+def settlement_for(reserved, record_sha256, now):
+    """The same settle from the record's digest alone: journal-settle receives only the digest (settle_input.py), never the record."""
+    _need(isinstance(record_sha256, str) and SHA64.fullmatch(record_sha256) is not None, "case10-observation-settlement-shape")
+    event = dict(reserved, type="settle", provenance="evidence-sha256:" + record_sha256, atUtc=now.strftime("%Y-%m-%dT%H:%M:%SZ"))
     try:
         return W.validate_event(event)
     except W.Refused:
@@ -227,14 +262,33 @@ def activated():
     return bool(TRUSTED_READERS) and W.REVIEWED_ROOT is not None
 
 
+def settled_digest(settle_raw, req, request_sha256, run_id):
+    """The observation record's digest from the closed settle input (settle_input.validate) for exactly this request, campaign, run and
+    attempt; None when the live job read no record (the reservation then stays open and counted)."""
+    import settle_input as S
+    try:
+        doc = S.validate(settle_raw)
+    except S.Refused:
+        raise Refused("case10-observation-settle-input")
+    p = doc["executionProvenance"]
+    _need(doc["runId"] == req["runId"] and p["runId"] == run_id and p["attempt"] == 1 and p["requestSha256"] == request_sha256,
+          "case10-observation-settle-input")
+    return doc["case10ObservationSha256"]
+
+
 def main(argv):
-    """`observe`: the nightly live job's step before prepare. Reads exactly the gate-admitted request bytes; writes nothing when its AHT-10 row
-    pins no observation contract; otherwise refuses `case10-observation-not-activated` until a trusted reader and the activated writer
-    exist (there is no real reader in this module). Exit 78 on every refusal; no value is printed."""
+    """Three steps, one per job, so the live job never writes (Sam 1793580806.654369):
+    `reserve` (journal-reserve, contents: write) appends the observation's reserve; `observe` (live, contents: read) reads only when the
+    verified chain already holds that open reserve and writes the record; `settle` (journal-settle, contents: write) closes the reserve with
+    the record's digest from the closed settle input, and with no record leaves it open and counted. Each reads exactly the gate-admitted request bytes and does nothing
+    when its AHT-10 row pins no observation contract; otherwise each refuses `case10-observation-not-activated` until a trusted reader and the
+    activated writer exist. Exit 78 on every refusal; no value is printed."""
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("observe",))
-    for flag in ("--request", "--request-sha256", "--run-id", "--attempt", "--out"):
+    a.add_argument("command", choices=("reserve", "observe", "settle"))
+    for flag in ("--request", "--request-sha256", "--run-id", "--attempt"):
         a.add_argument(flag, required=True)
+    a.add_argument("--out")  # observe: the record path
+    a.add_argument("--settle-input")  # settle: the closed settle input the live job produced (absent: the reservation stays open and counted)
     a.add_argument("--repo", default=os.getcwd())  # the checkout holding the accepted continuity inputs
     a.add_argument("--account-id-file")  # the Case 10 role's account id, private; needed only once activated
     x = a.parse_args(argv[1:])
@@ -247,19 +301,32 @@ def main(argv):
         rows = [r for r in req.get("selection") or [] if isinstance(r, dict) and r.get("case") == "AHT-10"]
         if not rows or "observationContract" not in rows[0]:
             return 0
-        contract_of(req)
-        _need(x.attempt == "1", "case10-observation-replayed")
-        _need(not os.path.lexists(x.out), "case10-observation-output-exists")
-        _need(activated(), "case10-observation-not-activated")
         c = contract_of(req)
-        account = _read_account(x.account_id_file) if x.account_id_file else _bundle_account()
+        _need(x.attempt == "1", "case10-observation-replayed")
+        if x.command == "observe":
+            _need(isinstance(x.out, str) and not os.path.lexists(x.out), "case10-observation-output-exists")
+        if x.command == "settle" and not (x.settle_input and os.path.isfile(x.settle_input) and not os.path.islink(x.settle_input)):
+            return 0  # no collected settle input: the reservation stays open and counted
+        _need(activated(), "case10-observation-not-activated")
         journal = StateJournal(x.repo, req)
         now = datetime.now(timezone.utc).replace(microsecond=0)
-        record, reserved, _ = reserve_then_read(READERS[c["reader"]], journal, req, x.request_sha256, x.run_id, 1, account, now)
+        if x.command == "reserve":
+            reserve_observation(journal, req, x.request_sha256, x.run_id, 1, now)
+            return 0
+        events = journal.chain_at(journal.head())[-1][1]
+        if x.command == "settle":
+            with open(x.settle_input, "rb") as f:
+                digest = settled_digest(f.read(), req, x.request_sha256, x.run_id)
+            if digest is None:
+                return 0  # no observation record: the reservation stays open and counted
+            reserved = held_observation(events, req, x.request_sha256, x.run_id, 1)
+            journal.propose(settlement_for(reserved, digest, now), journal.head())
+            return 0
+        account = _read_account(x.account_id_file) if x.account_id_file else _bundle_account()
+        record, _ = read_reserved(READERS[c["reader"]](account, c["readBudget"]), events, req, x.request_sha256, x.run_id, 1, account, now)
         fd = os.open(x.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(json.dumps(record, sort_keys=True))
-        journal.propose(settlement_event(reserved, record, datetime.now(timezone.utc).replace(microsecond=0)), journal.head())
         return 0
     except (Refused, W.Refused, OSError, ValueError) as e:
         print("BLOCKED_SETUP: " + (str(e) if isinstance(e, Refused) else "case10-observation-request"), file=sys.stderr)

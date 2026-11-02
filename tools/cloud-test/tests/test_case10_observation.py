@@ -32,6 +32,16 @@ def reader(keys, **over):
     return {k: p[k] for k in keys}
 
 
+def settle_raw(req, observation=None, attempt=1, run_id="101", sha=REQUEST_SHA):
+    """The closed settle input projected from a synthetic run record for this request (settle_input.project)."""
+    import json
+    import settle_input as S
+    rec = {"schema": S.RUN_RECORD_SCHEMA, "runId": req["runId"], "cases": [{"case": "AHT-10", "verdict": "PASS"}],
+           "executionProvenance": {"campaignId": req["runId"], "runId": run_id, "attempt": attempt, "requestSha256": sha, "sourceSha": "4" * 40},
+           "spend": {"requests": 120, "identityReads": 2, "starts": 3, "takes": 3, "coachingRequests": 1}}
+    return S.project(json.dumps(rec).encode(), observation)
+
+
 def refused(test, code, fn, *a, **k):
     with test.assertRaises(O.Refused) as e:
         fn(*a, **k)
@@ -223,6 +233,39 @@ class ReserveBeforeRead(Journal):
         with self.assertRaises(W.Refused):
             self.propose(settle)  # a settle is never replayed
 
+    def test_the_read_only_half_reads_only_against_an_open_reserve_of_exactly_this_request(self):
+        """Sam 1793580806.654369: the live job holds no write access. It reads only when the verified chain already holds this observation's
+        open reserve at exactly the contract budget; it never appends."""
+        read = lambda events: O.read_reserved(self.reader, events, self.req, REQUEST_SHA, "101", 1, ACCOUNT, NOW)
+        refused(self, "case10-observation-reserve-not-held", read, self.chain()[-1][1])
+        mine = O.reservation_event(self.req, REQUEST_SHA, "101", 1, NOW)
+        for wrong in (O.reservation_event(request(readBudget={"requests": 11, "identityReads": 1}), REQUEST_SHA, "101", 1, NOW),
+                      O.reservation_event(self.req, "b" * 64, "101", 1, NOW), O.reservation_event(self.req, REQUEST_SHA, "102", 1, NOW)):
+            refused(self, "case10-observation-reserve-not-held", read, [wrong])
+        self.assertEqual(self.calls, [])
+        event, _, events = O.reserve_observation(self.journal(), self.req, REQUEST_SHA, "101", 1, NOW)
+        self.assertEqual((event, self.calls), (mine, []))  # the write half never reads
+        before = self.chain()[-1][0]
+        record, reserved = read(self.chain()[-1][1])
+        self.assertEqual((reserved, len(self.calls), self.chain()[-1][0]), (mine, 1, before))  # read, and nothing appended
+        self.propose(O.settlement_event(reserved, record, NOW))
+        refused(self, "case10-observation-reserve-not-held", read, self.chain()[-1][1])  # a settled reserve is no longer held
+        self.assertEqual(len(self.calls), 1)
+
+    def test_the_settle_step_takes_only_this_runs_digest_from_the_closed_settle_input(self):
+        import settle_input as S
+        record, event, _ = self.run_it()
+        digest = hashlib.sha256(O.canon(record)).hexdigest()
+        raw = settle_raw(self.req, observation=O.canon(record))
+        self.assertEqual(O.settled_digest(raw, self.req, REQUEST_SHA, "101"), digest)
+        self.assertEqual(O.settlement_for(event, digest, NOW), O.settlement_event(event, record, NOW))
+        self.assertIsNone(O.settled_digest(settle_raw(self.req), self.req, REQUEST_SHA, "101"))
+        refused(self, "case10-observation-settle-input", O.settled_digest, raw, self.req, REQUEST_SHA, "102")
+        refused(self, "case10-observation-settle-input", O.settled_digest, raw, self.req, "b" * 64, "101")
+        refused(self, "case10-observation-settle-input", O.settled_digest, settle_raw(self.req, attempt=2), self.req, REQUEST_SHA, "101")
+        refused(self, "case10-observation-settle-input", O.settled_digest, raw + b" ", self.req, REQUEST_SHA, "101")
+        self.assertRaises(S.Refused, S.validate, raw.replace(b'"spend":{', b'"projection":{},"spend":{'))
+
     def test_the_same_occurrence_cannot_reserve_its_observation_twice(self):
         self.run_it()
         refused(self, "case10-observation-reserve-failed", self.run_it)  # the writer refuses a duplicate reserve key
@@ -244,16 +287,26 @@ class ObserveCli(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.d)
         self.script = os.path.join(ROOT, "scripts", "case10_observation.py")
 
-    def run_cli(self, req, sha=None, attempt="1"):
+    def run_cli(self, req, sha=None, attempt="1", command="observe", extra=()):
         raw = self.json.dumps(req).encode()
         path = self.os.path.join(self.d, "request-%d.json" % len(self.os.listdir(self.d)))
         with open(path, "wb") as f:
             f.write(raw)
         out = self.os.path.join(self.d, "observation.json")
-        p = self.subprocess.run([self.sys.executable, "-I", self.script, "observe", "--request", path, "--request-sha256",
-                                 sha or hashlib.sha256(raw).hexdigest(), "--run-id", "101", "--attempt", attempt, "--out", out],
+        p = self.subprocess.run([self.sys.executable, "-I", self.script, command, "--request", path, "--request-sha256",
+                                 sha or hashlib.sha256(raw).hexdigest(), "--run-id", "101", "--attempt", attempt, "--out", out, *extra],
                                 capture_output=True, text=True)
         return p.returncode, p.stderr.strip(), self.os.path.exists(out)
+
+    def test_the_reserve_and_settle_steps_refuse_in_production_and_a_missing_record_stays_counted(self):
+        self.assertEqual(self.run_cli(request(), command="reserve"), (78, "BLOCKED_SETUP: case10-observation-not-activated", False))
+        settle = self.os.path.join(self.d, "settle-input.json")
+        with open(settle, "wb") as f:
+            f.write(settle_raw(request(), observation=b"{}"))
+        self.assertEqual(self.run_cli(request(), command="settle", extra=("--settle-input", settle)),
+                         (78, "BLOCKED_SETUP: case10-observation-not-activated", False))
+        missing = self.os.path.join(self.d, "absent.json")
+        self.assertEqual(self.run_cli(request(), command="settle", extra=("--settle-input", missing)), (0, "", False))
 
     def test_production_refuses_before_any_read_and_writes_nothing(self):
         self.assertEqual((O.READERS, O.TRUSTED_READERS), ({}, frozenset()))
