@@ -2,18 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
-import { createContext, SourceTextModule, SyntheticModule } from 'node:vm';
 import { CANDIDATES } from '../candidateRegistry.ts';
+import { importIsolated } from '../../../../../scripts/lib/importIsolated.mjs';
 
 test('compatibility Whisper defaults derive from descriptor and preserve shipping settings', async () => {
   const source = await readFile(new URL('../sttConstants.ts', import.meta.url), 'utf8');
   const section = source.slice(source.indexOf('const DEFAULT_HF_WHISPER ='),
     source.indexOf('/**\n * v4 model TIERS'));
-  const context = createContext({ CANDIDATES });
-  const module = new SourceTextModule(stripTypeScriptTypes(section), { context });
-  await module.link(() => { throw new Error('Unexpected import'); });
-  await module.evaluate();
-  const defaults = module.namespace.PRIV_STT_V4;
+  const defaults = (await importIsolated(stripTypeScriptTypes(section), { globals: { CANDIDATES } })).PRIV_STT_V4;
   const candidate = CANDIDATES['v4:base:q4'];
   assert.equal(defaults.MODEL_ID, candidate.model.id);
   assert.equal(defaults.DTYPE, candidate.model.dtype);
@@ -27,22 +23,16 @@ test('shared facade passes exact Granite pins and immutable decode profile to ad
   const helper = source.slice(source.indexOf('async function constructPrivateEngine('),
     source.indexOf('const getPrivateProviderIds'));
   let received;
-  const context = createContext({ getEngine: () => null, validateEngine: () => {} });
-  const adapter = new SyntheticModule(['GraniteCtcEngine'], function () {
-    this.setExport('GraniteCtcEngine', class { constructor(options) { received = options; } });
-  }, { context });
-  await adapter.link(() => { throw new Error('Unexpected adapter import'); });
-  await adapter.evaluate();
-  const module = new SourceTextModule(stripTypeScriptTypes(`export ${helper}`), { context,
-    importModuleDynamically: async specifier => {
+  const adapter = { GraniteCtcEngine: class { constructor(options) { received = options; } } };
+  const namespace = await importIsolated(stripTypeScriptTypes(`export ${helper}`), {
+    globals: { getEngine: () => null, validateEngine: () => {} },
+    dynamicImport: async specifier => {
       assert.equal(specifier, './GraniteCtcEngine');
       return adapter;
     },
   });
-  await module.link(() => { throw new Error('Unexpected helper dependency'); });
-  await module.evaluate();
   const candidate = CANDIDATES['granite:turboctc-q4f16'];
-  const construct = module.namespace.constructPrivateEngine;
+  const construct = namespace.constructPrivateEngine;
   await construct(candidate.engine, candidate, {});
   assert.equal(received.backend, 'webgpu');
   assert.equal(received.modelFile, 'ctc_conformer_q4f16.onnx');

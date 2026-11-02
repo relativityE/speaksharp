@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
-import { runInNewContext, SourceTextModule, SyntheticModule } from 'node:vm';
+import { runInNewContext } from 'node:vm';
+import { importIsolated } from '../../../../../scripts/lib/importIsolated.mjs';
 
 test('actual worker message handler refuses absent model/dtype before invoking loader', async () => {
   const source = await readFile(new URL('../engines/transformers-js-v4.worker.ts', import.meta.url), 'utf8');
@@ -29,20 +30,11 @@ test('actual worker message handler refuses absent model/dtype before invoking l
 
 test('runtime resolver requires explicit variant and never infers a tier from a flag', async () => {
   const source = stripTypeScriptTypes(await readFile(new URL('../utils/privateRuntimePath.ts', import.meta.url), 'utf8'));
-  const module = new SourceTextModule(source);
   const dependencies = {
     './webgpuSupport': { detectWebGPUSupport: async () => ({ supported: true }) },
     './wasmThreads': { computeWasmThreadCount: () => 1, getHardwareThreads: () => 1, isCrossOriginIsolated: () => false },
   };
-  await module.link(name => {
-    assert(name in dependencies, name);
-    const values = dependencies[name];
-    return new SyntheticModule(Object.keys(values), function () {
-      for (const [key, value] of Object.entries(values)) this.setExport(key, value);
-    });
-  });
-  await module.evaluate();
-  const resolve = module.namespace.resolvePrivateRuntimePath;
+  const resolve = (await importIsolated(source, { imports: dependencies })).resolvePrivateRuntimePath;
   const options = { webgpuPromotionAllowed: false, turboModelCached: false,
     capabilities: { webgpuAvailable: true } };
   await assert.rejects(resolve({ ...options, v4: { enabled: true, distilEnabled: true } }), /Explicit Whisper variant/);

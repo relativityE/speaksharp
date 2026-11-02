@@ -2,20 +2,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
-import { SourceTextModule, SyntheticModule, createContext } from 'node:vm';
 import { CANDIDATES } from '../candidateRegistry.ts';
+import { importIsolated } from '../../../../../scripts/lib/importIsolated.mjs';
 
 // Execute the real handlers with dependency doubles; no worker/model/browser qualification claim.
 async function engineFor(name) {
   const source = stripTypeScriptTypes(await readFile(new URL(`../engines/${name}.ts`, import.meta.url), 'utf8'));
-  const context = createContext({ window: {}, clearTimeout, setTimeout, console });
   const imports = new Map();
   for (const match of source.matchAll(/import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g)) {
     const clause = match[1];
     const names = clause.startsWith('{')
       ? clause.slice(1, clause.lastIndexOf('}')).split(',').map(s => s.trim().split(/\s+as\s+/)[0]).filter(Boolean)
       : ['default'];
-    imports.set(match[2], names);
+    imports.set(match[2], [...new Set([...(imports.get(match[2]) ?? []), ...names])]);
   }
   const noop = () => {};
   const values = {
@@ -26,12 +25,9 @@ async function engineFor(name) {
     publishPrivateModelTelemetry: noop,
     PRIV_STT_MODELS: { DEFAULT: 'whisper-base.en', CANDIDATES: { 'whisper-base.en': { approxMB: 80 } } },
   };
-  const module = new SourceTextModule(source, { context });
-  await module.link((specifier) => new SyntheticModule(imports.get(specifier), function () {
-    for (const key of imports.get(specifier)) this.setExport(key, values[key] ?? noop);
-  }, { context }));
-  await module.evaluate();
-  const engine = Object.create(module.namespace[name].prototype);
+  const namespace = await importIsolated(source, { globals: { window: {} }, imports: Object.fromEntries([...imports]
+    .map(([specifier, names]) => [specifier, Object.fromEntries(names.map(key => [key, values[key] ?? noop]))])) });
+  const engine = Object.create(namespace[name].prototype);
   Object.assign(engine, {
     options: { resolvedCandidate: CANDIDATES['v2:base.en'] },
     worker: null, transcriber: null, runtimeEvidence: null, acquisitionReceipt: null,

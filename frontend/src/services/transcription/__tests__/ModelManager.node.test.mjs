@@ -2,17 +2,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
-import { SourceTextModule, SyntheticModule, createContext } from 'node:vm';
 import { CANDIDATES } from '../candidateRegistry.ts';
+import { importIsolated } from '../../../../../scripts/lib/importIsolated.mjs';
 
 test('cache readiness uses the selected local model rather than the baseline', async () => {
   let cachedModel = 'whisper-base.en';
   let explicitUrls = null;
   const tiny = CANDIDATES['xenova:whisper-tiny.en'];
-  const context = createContext({ URL, window: { location: { origin: 'https://fixture.invalid' } },
+  const globals = { window: { location: { origin: 'https://fixture.invalid' } },
     caches: { has: async () => true, open: async () => ({ keys: async () =>
       explicitUrls ?? tiny.execution.cacheFiles.map(file => ({ url: `https://fixture.invalid/models/${cachedModel}/${file}` })) }) },
-  });
+  };
   const dependencies = {
     './candidateRegistry': { CANDIDATES },
     '@/lib/logger': { default: { info() {}, warn() {}, error() {}, debug() {} } },
@@ -21,16 +21,9 @@ test('cache readiness uses the selected local model rather than the baseline', a
     } },
     './utils/privateModelFlag': { resolvePrivateModel: () => 'whisper-base.en' },
   };
-  const module = new SourceTextModule(stripTypeScriptTypes(await readFile(new URL('../ModelManager.ts', import.meta.url), 'utf8')), { context });
-  await module.link(specifier => {
-    const values = dependencies[specifier];
-    assert(values);
-    return new SyntheticModule(Object.keys(values), function () {
-      for (const [key, value] of Object.entries(values)) this.setExport(key, value);
-    }, { context });
-  });
-  await module.evaluate();
-  const api = module.namespace.ModelManager;
+  const namespace = await importIsolated(stripTypeScriptTypes(await readFile(new URL('../ModelManager.ts', import.meta.url), 'utf8')),
+    { imports: dependencies, globals });
+  const api = namespace.ModelManager;
   assert.equal(await api.isModelDownloaded('transformers-js', tiny.execution.localModelId, tiny.execution.cacheFiles), false);
   cachedModel = 'whisper-tiny.en';
   assert.equal(await api.isModelDownloaded('transformers-js', tiny.execution.localModelId, tiny.execution.cacheFiles), true);
@@ -45,25 +38,20 @@ test('cache readiness uses the selected local model rather than the baseline', a
 });
 
 test('acquisition inventory and required resource groups follow the second local descriptor', async () => {
-  const context = createContext({ URL, window: { location: { origin: 'https://fixture.invalid' } } });
+  const globals = { window: { location: { origin: 'https://fixture.invalid' } } };
   const dependencies = {
     './moonshineAssetPins.json': { default: JSON.parse(await readFile(new URL('../moonshineAssetPins.json', import.meta.url), 'utf8')) },
+    '../../../../tests/fixtures/hf-asset-pins.json': {
+      default: JSON.parse(await readFile(new URL('../../../../../tests/fixtures/hf-asset-pins.json', import.meta.url), 'utf8')) },
     './engines/transformersV2WasmAssets': { TRANSFORMERS_V2_WASM_ASSET_URLS: { baseline: '/runtime.wasm' } },
   };
-  const module = new SourceTextModule(stripTypeScriptTypes(await readFile(new URL('../candidateAssetRequests.ts', import.meta.url), 'utf8')), { context });
-  await module.link(specifier => {
-    const values = dependencies[specifier];
-    assert(values, specifier);
-    return new SyntheticModule(Object.keys(values), function () {
-      for (const [key, value] of Object.entries(values)) this.setExport(key, value);
-    }, { context });
-  });
-  await module.evaluate();
+  const namespace = await importIsolated(stripTypeScriptTypes(await readFile(new URL('../candidateAssetRequests.ts', import.meta.url), 'utf8')),
+    { imports: dependencies, globals });
   const tiny = CANDIDATES['xenova:whisper-tiny.en'];
-  const result = module.namespace.assetRequestsFor(tiny);
+  const result = namespace.assetRequestsFor(tiny);
   assert.equal(result.assets.length, 12);
   assert(result.assets.every(asset => asset.url.includes('/models/whisper-tiny.en/')));
-  const groups = module.namespace.acquisitionComponentGroupsFor(tiny);
+  const groups = namespace.acquisitionComponentGroupsFor(tiny);
   assert.equal(groups.length, 2);
   assert.equal(groups[0].minimumUniqueCount, 7);
   assert(groups[0].expectedResourceUrls.every(url => url.includes('/models/whisper-tiny.en/')));
@@ -73,15 +61,15 @@ test('acquisition inventory and required resource groups follow the second local
   const explicit = { id: 'fixture', engine: 'fixture', model: { id: 'fixture' }, assets: {
     provenance: 'upstream_pins', files: pins.files, componentCount: pins.files.length,
   } };
-  const inventory = module.namespace.assetRequestsFor(explicit);
+  const inventory = namespace.assetRequestsFor(explicit);
   assert.equal(inventory.assets.length, 9);
-  const exact = module.namespace.acquisitionComponentGroupsFor(explicit);
+  const exact = namespace.acquisitionComponentGroupsFor(explicit);
   assert.equal(exact[0].minimumUniqueCount, 9);
   assert.deepEqual(Array.from(exact[0].expectedResourceUrls), pins.files.map(file => file.url));
   explicit.assets.files = [...pins.files, pins.files[0]];
   explicit.assets.componentCount++;
-  assert.throws(() => module.namespace.assetRequestsFor(explicit), /Invalid explicit asset inventory/);
+  assert.throws(() => namespace.assetRequestsFor(explicit), /Invalid explicit asset inventory/);
   explicit.assets.files = [{ ...pins.files[0], url: undefined }];
   explicit.assets.componentCount = 1;
-  assert.throws(() => module.namespace.assetRequestsFor(explicit), /Invalid explicit asset pin/);
+  assert.throws(() => namespace.assetRequestsFor(explicit), /Invalid explicit asset pin/);
 });

@@ -2,16 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
-import { SourceTextModule, SyntheticModule } from 'node:vm';
 import { CANDIDATES, UnknownCandidateError } from '../candidateRegistry.ts';
+import { importIsolated } from '../../../../../scripts/lib/importIsolated.mjs';
 
 // Actual switch module with explicit boundary doubles. This does not test cryptographic authorization.
 async function loadSwitch(internal, authorized = false) {
   let consumed = 0;
   const source = stripTypeScriptTypes(await readFile(new URL('../runtimeCandidateSwitch.ts', import.meta.url), 'utf8'));
-  const module = new SourceTextModule(source, {
-    initializeImportMeta(meta) { meta.env = { VITE_INTERNAL_BUILD: internal ? 'true' : '' }; },
-  });
   const dependencies = {
     './candidateRegistry': { CANDIDATES, UnknownCandidateError },
     './modelComparisonAuthorization': {
@@ -21,15 +18,8 @@ async function loadSwitch(internal, authorized = false) {
     },
     '../AnalyticsBuffer': { analyticsBuffer: { ready: false } },
   };
-  await module.link((name) => {
-    assert(name in dependencies, `unexpected dependency ${name}`);
-    const values = dependencies[name];
-    return new SyntheticModule(Object.keys(values), function () {
-      for (const [key, value] of Object.entries(values)) this.setExport(key, value);
-    });
-  });
-  await module.evaluate();
-  const api = module.namespace;
+  const api = await importIsolated(source, { imports: dependencies,
+    meta: { env: { VITE_INTERNAL_BUILD: internal ? 'true' : '' } } });
   const calls = [];
   api.registerSwitchExecutor({
     currentState: () => 'READY',

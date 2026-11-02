@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import * as perfHooks from 'node:perf_hooks';
 import { tmpdir } from 'node:os';
 import { stripTypeScriptTypes } from 'node:module';
-import { SourceTextModule, SyntheticModule } from 'node:vm';
+import { importIsolated } from '../../lib/importIsolated.mjs';
 
 test('self-hosted descriptor digest verifies exact file content, count and bytes', async (t) => {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'ss-asset-contract-'));
@@ -21,22 +22,17 @@ test('self-hosted descriptor digest verifies exact file content, count and bytes
   } };
   const dependencies = {
     playwright: { chromium: {} },
-    'node:crypto': crypto, 'node:fs/promises': fs, 'node:path': path,
+    'node:crypto': crypto, 'node:fs/promises': fs, 'node:path': path, 'node:perf_hooks': perfHooks,
     '../asset-transfer': { AssetTransferRecorder: class {} },
     '../source-binding': { assertServedRelease() {}, servedSourceFiles() {}, sha256() {}, viteRawSource() {} },
     '../../../frontend/src/services/transcription/candidateRegistry': { CANDIDATES: { fixture: candidate } },
+    '../product-campaign': { readCandidateCatalog: () => ({ fixture: candidate }) },
+    '../../../frontend/src/services/transcription/modelPackage': {
+      expectedModelIdentity() {}, verifyModelPackage() { throw new Error('Unexpected model package'); } },
   };
   const source = stripTypeScriptTypes(await fs.readFile(new URL('./candidate-browser.ts', import.meta.url), 'utf8'));
-  const module = new SourceTextModule(source);
-  await module.link((specifier) => {
-    const values = dependencies[specifier];
-    assert(values, `Unexpected runtime dependency ${specifier}`);
-    return new SyntheticModule(Object.keys(values), function () {
-      for (const [key, value] of Object.entries(values)) this.setExport(key, value);
-    });
-  });
-  await module.evaluate();
-  const digest = () => module.namespace.configuredAssetDigest(root, 'fixture', 'fixture');
+  const namespace = await importIsolated(source, { imports: dependencies });
+  const digest = () => namespace.configuredAssetDigest(root, 'fixture', 'fixture');
   assert.equal(await digest(), pinDigest);
   await fs.writeFile(path.join(root, 'model/weights.bin'), Buffer.from('tamper fixture'));
   await assert.rejects(digest(), /bytes differ/);

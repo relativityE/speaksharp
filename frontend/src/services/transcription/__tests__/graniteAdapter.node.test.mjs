@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
-import { SourceTextModule, SyntheticModule, createContext } from 'node:vm';
+import { importIsolated } from '../../../../../scripts/lib/importIsolated.mjs';
 
 async function harness({ holdAssets = false, backend = 'wasm' } = {}) {
     const workers = [], urls = new Set();
@@ -21,23 +21,18 @@ async function harness({ holdAssets = false, backend = 'wasm' } = {}) {
         static createObjectURL() { const u = `blob:${urls.size}-${Math.random()}`; urls.add(u); return u; }
         static revokeObjectURL(u) { urls.delete(u); }
     }
-    const context = createContext({ Worker, URL: BlobURL, Blob, AbortController,
+    const globals = { Worker, URL: BlobURL, Blob, AbortController,
         window: { location: { href: 'https://app.example/' } }, navigator: {},
-        clearTimeout, setTimeout, fetch: () => { throw new Error('unexpected network'); } });
+        clearTimeout, setTimeout, fetch: () => { throw new Error('unexpected network'); } };
     const source = stripTypeScriptTypes(await readFile(new URL('../engines/GraniteCtcEngine.ts', import.meta.url), 'utf8'), { mode: 'transform' });
-    const module = new SourceTextModule(source, { context });
-    await module.link(specifier => {
-        const assets = specifier === '../moonshineAssetPins';
-        return new SyntheticModule([assets ? 'fetchVerifiedAssets' : 'default'], function () {
-            this.setExport(assets ? 'fetchVerifiedAssets' : 'default', assets ? async () => {
-                if (holdAssets) await barrier;
-                return Object.fromEntries(['ort.all.min.js', 'ort-wasm-simd-threaded.jsep.mjs',
-                    'ort-wasm-simd-threaded.jsep.wasm'].map(key => [key, new Uint8Array([1])]));
-            } : 'owned-source');
-        }, { context });
-    });
-    await module.evaluate();
-    const engine = new module.namespace.GraniteCtcEngine({ modelFile: 'model.onnx', backend: 'wasm', applyAgc: true,
+    const imports = Object.fromEntries([...source.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g)].map(([, specifier]) =>
+        [specifier, specifier === '../moonshineAssetPins' ? { fetchVerifiedAssets: async () => {
+            if (holdAssets) await barrier;
+            return Object.fromEntries(['ort.all.min.js', 'ort-wasm-simd-threaded.jsep.mjs',
+                'ort-wasm-simd-threaded.jsep.wasm'].map(key => [key, new Uint8Array([1])]));
+        } } : { default: 'owned-source' }]));
+    const namespace = await importIsolated(source, { imports, globals });
+    const engine = new namespace.GraniteCtcEngine({ modelFile: 'model.onnx', backend: 'wasm', applyAgc: true,
         assets: [{ file: 'model.onnx', bytes: 1, sha256: 'synthetic', url: 'https://unused.example/' }] });
     return { engine, workers, urls, releaseAssets };
 }
