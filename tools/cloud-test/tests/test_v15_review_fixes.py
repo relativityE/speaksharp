@@ -283,6 +283,17 @@ class ReservationsHoldCapsUntilSealed(unittest.TestCase):
         led = self.reserve(self.led, "R9-N2")
         self.assertEqual(RU.check_caps(self.req, self.ap, {"entries": []}, led, self.NOW), [])
 
+    def test_nightly_reservation_and_period_admission_charge_the_enforced_approved_cap(self):
+        approved = self.req["estimate"]["requests"]["runCap"] + 90
+        self.req["approvedLimits"]["runCapRequests"] = approved
+        self.ap["perRunCaps"]["runCapRequests"] = approved
+        self.ap["periodCaps"]["requests"] = approved * 2 - 1
+        self.assertEqual(RS.caps_of_request(self.req)["requests"], approved)
+        led = self.reserve(RS.empty(), "R9-N1")
+        self.assertEqual(RU.usage(self.ap, {"entries": []}, led, self.NOW)["used"]["requests"], approved)
+        needs = RU.check_caps(self.req, self.ap, {"entries": []}, led, self.NOW)
+        self.assertTrue(any(n.startswith("requests:") and "exceeds the period cap" in n for n in needs), needs)
+
     def test_the_gate_sees_reservations(self):
         led = self.reserve(self.led, "R9-A", scale=30)
         d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, "config")); wjson(os.path.join(d, "config", "recurring-approval.json"), self.ap)
