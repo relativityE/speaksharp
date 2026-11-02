@@ -202,7 +202,13 @@ class Rollup(Journal):
         refused(self, "rollup-bound-evidence-duplicate", R.parse_bootstrap,
                 bounded_bootstrap([item, copy.deepcopy(item)], [result]))
         unresolved = bootstrap(unresolved=[{"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "UNRESOLVED", "usage": None}])
-        refused(self, "rollup-unresolved-usage", R.receive, unresolved, scope(), self.chain(),
+        fresh = R.receive(unresolved, scope(carryover="none"), self.chain(),
+                          accepted_sha256=hashlib.sha256(unresolved).hexdigest(), accepted_root=self.root)
+        self.assertEqual(fresh["requests"]["conservativeUsed"], 0)
+        self.assertTrue(fresh["historicalIncomplete"])
+        self.assertEqual(fresh["historicalResolution"], [{"kind": "diagnostic", "ref": "gha-run:41071743003",
+                                                           "disposition": "UNRESOLVED", "usage": None}])
+        refused(self, "rollup-unresolved-usage", R.receive, unresolved, scope(carryover="historical"), self.chain(),
                 accepted_sha256=hashlib.sha256(unresolved).hexdigest(), accepted_root=self.root)
         zeroed_item, zeroed_result = bounded_pair(bound=usage(requests=0, identityReads=0, starts=0, takes=0))
         refused(self, "rollup-bound-zero", R.parse_bootstrap,
@@ -211,6 +217,7 @@ class Rollup(Journal):
     def test_historical_usage_stays_distinct_and_is_counted_only_under_an_approved_carryover(self):
         none = self.receive()
         self.assertEqual((none["requests"]["conservativeUsed"], none["period"]["requests"], none["historical"]["requests"]), (0, 0, 7996))
+        self.assertFalse(none["historicalIncomplete"])
         hist = self.receive(scope(carryover="historical"))
         self.assertEqual((hist["requests"]["conservativeUsed"], hist["identityReads"]["conservativeUsed"], hist["starts"]["ownerCounted"],
                           hist["takes"]["ownerCounted"]), (7996, 124, 65, 38), "an empty journal under carryover is the bootstrap, never zero")
@@ -297,7 +304,11 @@ class Rollup(Journal):
 
     def test_unresolved_usage_is_never_zeroed_or_charged_to_the_expired_ceiling(self):
         unknown = bootstrap(unresolved=[{"kind": "evaluator-start", "ref": "sha256:" + "c" * 64, "disposition": "UNRESOLVED", "usage": None}])
-        refused(self, "rollup-unresolved-usage", R.receive, unknown, scope(), self.chain(), accepted_sha256=hashlib.sha256(unknown).hexdigest(),
+        fresh = R.receive(unknown, scope(carryover="none"), self.chain(), accepted_sha256=hashlib.sha256(unknown).hexdigest(),
+                          accepted_root=self.root)
+        self.assertEqual(fresh["requests"]["conservativeUsed"], 0)
+        self.assertTrue(fresh["historicalIncomplete"])
+        refused(self, "rollup-unresolved-usage", R.receive, unknown, scope(carryover="historical"), self.chain(), accepted_sha256=hashlib.sha256(unknown).hexdigest(),
                 accepted_root=self.root)
         zero = {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": None, "runnerMinutes": None}
         for bad in ([{"kind": "evaluator-start", "ref": SHA_REF, "disposition": "UNRESOLVED", "usage": zero}],
@@ -313,7 +324,11 @@ class Rollup(Journal):
         located = [{"kind": "diagnostic", "ref": "gha-run:" + r, "disposition": "UNRESOLVED", "usage": None} for r in runs]
         self.assertEqual([i["ref"] for i in R.parse_bootstrap(bootstrap(unresolved=located))["unresolved"]], ["gha-run:" + r for r in runs])
         raw = bootstrap(unresolved=located)
-        refused(self, "rollup-unresolved-usage", R.receive, raw, scope(), self.chain(), accepted_sha256=hashlib.sha256(raw).hexdigest(),
+        fresh = R.receive(raw, scope(carryover="none"), self.chain(), accepted_sha256=hashlib.sha256(raw).hexdigest(),
+                          accepted_root=self.root)
+        self.assertEqual([i["ref"] for i in fresh["historicalResolution"]], ["gha-run:" + r for r in runs])
+        self.assertTrue(fresh["historicalIncomplete"])
+        refused(self, "rollup-unresolved-usage", R.receive, raw, scope(carryover="historical"), self.chain(), accepted_sha256=hashlib.sha256(raw).hexdigest(),
                 accepted_root=self.root)
         measured = {"requests": 1, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": None, "runnerMinutes": None}
         for bad in ({"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "MEASURED", "usage": measured},

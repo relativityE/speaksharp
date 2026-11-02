@@ -11,11 +11,13 @@ is accepted (ACCEPTED_BOOTSTRAP_SHA256 / ACCEPTED_ROOT are None), no period scop
   scope       the explicitly approved period scope for new work: its start and end, its ceilings, and its carryover rule. "none" keeps the
               historical usage out of the period's ceilings; "historical" counts it in. There is no default rule.
   receive     period usage = every settle plus every OUTSTANDING reservation (reserved, not yet settled or released) on the verified chain,
-              inside the approved period. With carryover "historical", the bootstrap usage is added. Refuses an unaccepted or substituted
-              bootstrap, a chain not rooted at the accepted root, an unapproved scope or carryover, a settle or reservation outside the scope,
-              a replayed settle, and any unresolved item whose G5 dimensions (requests, identity reads, Starts, takes) are unknown. Historical
-              items may be MEASURED, or BOUNDED only when their full charged upper bound is tied to distinct reviewed source, enforcement
-              control and result digests. BOUNDED is retained as separate provenance and is never reported as MEASURED.
+              inside the approved period. With carryover "historical", the bootstrap usage is added and every historical item must be resolved.
+              With explicitly approved carryover "none", unresolved historical items remain visible as unresolved but cannot block or be charged
+              into the fresh period: they are never converted to zero and the output labels the historical total incomplete. Refuses an unaccepted
+              or substituted bootstrap, a chain not rooted at the accepted root, an unapproved scope or carryover, a settle or reservation outside
+              the scope, a replayed settle, and unresolved history whenever historical carryover was selected. Historical items may be MEASURED,
+              or BOUNDED only when their full charged upper bound is tied to distinct reviewed source, enforcement control and result digests.
+              BOUNDED is retained as separate provenance and is never reported as MEASURED.
               Output is the reconciliation shape G5 consumes (check_gates.py stays the cap authority, unchanged), with the historical usage
               reported beside it, never folded in silently.
 Exit 78 on every refusal; no value is printed.
@@ -187,13 +189,15 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
     _need(pin is not None and root is not None, "rollup-not-accepted")
     _need(isinstance(bootstrap_raw, bytes) and hashlib.sha256(bootstrap_raw).hexdigest() == pin, "rollup-bootstrap-not-accepted")
     doc = parse_bootstrap(bootstrap_raw)
-    _need(all(item["disposition"] in ("MEASURED", "BOUNDED") for item in doc["unresolved"]), "rollup-unresolved-usage")
     scope = parse_scope(scope)
+    historical_incomplete = any(item["disposition"] == "UNRESOLVED" for item in doc["unresolved"])
+    _need(scope["carryover"] == "none" or not historical_incomplete, "rollup-unresolved-usage")
     _need(isinstance(chain, list) and chain and chain[0][0] == root and chain[0][1] == [], "rollup-predecessor-gap")
     p_start, p_end = _utc(scope["periodStartUtc"]), _utc(scope["periodEndUtc"])
     historical = dict(doc["usage"])
     for item in doc["unresolved"]:
-        _add(historical, item["usage"])
+        if item["usage"] is not None:
+            _add(historical, item["usage"])
     period = {k: 0 for k in USAGE_KEYS}
     open_reservations, open_provenance, settled = {}, {}, set()
     for e in chain[-1][1]:
@@ -234,7 +238,8 @@ def receive(bootstrap_raw, scope, chain, accepted_sha256=None, accepted_root=Non
                        for k in ("method", "sourceRef", "controlRef", "reviewRef")}}}
                       if item["disposition"] == "BOUNDED" else {})} for item in doc["unresolved"]]
     return {"source": "accepted-rollup", "bootstrapSha256": pin, "root": root, "headSha": chain[-1][0], "scopeApprovalRef": scope["approvalRef"],
-            "carryover": scope["carryover"], "historical": historical, "period": period, "outstandingReservations": len(open_reservations),
+            "carryover": scope["carryover"], "historical": historical, "historicalIncomplete": historical_incomplete,
+            "period": period, "outstandingReservations": len(open_reservations),
             "openReservationsByRequest": {k: {c: by_request[k][c] for c in sorted(by_request[k])} for k in sorted(by_request)},
             "historicalResolution": resolution,
             "requests": {"conservativeUsed": counted["requests"], "ownerCounted": counted["requests"]},

@@ -1721,11 +1721,21 @@ class ContinuityCheckpoint(Journal):
         self.assertEqual((receipt.get("requestSha256"), receipt.get("planSha256")), (request_sha, hashlib.sha256(plan_raw).hexdigest()))
         self.assertEqual(json.loads(plan_raw)["runIdentity"]["backend"]["manifestRef"], backend["manifestRef"])
 
-    def test_unresolved_unapproved_and_unanchored_inputs_still_refuse(self):
+    def test_fresh_period_preserves_unresolved_history_while_unapproved_and_unanchored_inputs_refuse(self):
+        fresh_scope = self.scope_raw
         unresolved = rollup_bootstrap(unresolved=[{"kind": "diagnostic", "ref": "gha-run:41071743003", "disposition": "UNRESOLVED", "usage": None}])
-        self.write(unresolved, self.scope_raw)
-        self.refused("continuity-rollup-unresolved-usage", pins=self.all_pins(accepted_sha256=hashlib.sha256(unresolved).hexdigest()))
-        self.write(self.raw, self.scope_raw)
+        self.write(unresolved, fresh_scope)
+        fresh = json.loads(self.check(pins=self.all_pins(accepted_sha256=hashlib.sha256(unresolved).hexdigest())))
+        self.assertTrue(fresh["historicalIncomplete"])
+        self.assertEqual(fresh["historicalResolution"], [{"kind": "diagnostic", "ref": "gha-run:41071743003",
+                                                           "disposition": "UNRESOLVED", "usage": None}])
+        self.assertEqual(fresh["requests"]["conservativeUsed"], 0)
+        historical = json.dumps(dict(self.scope_doc, carryover="historical"), sort_keys=True).encode()
+        self.write(unresolved, historical)
+        self.refused("continuity-rollup-unresolved-usage",
+                     pins=self.all_pins(accepted_sha256=hashlib.sha256(unresolved).hexdigest(),
+                                        accepted_scope_sha256=hashlib.sha256(historical).hexdigest()))
+        self.write(self.raw, fresh_scope)
         other = json.dumps(dict(self.scope_doc, carryover="historical"), sort_keys=True).encode()
         self.refused("continuity-manual-reservation-scope-not-accepted", pins=self.all_pins(accepted_scope_sha256=hashlib.sha256(other).hexdigest()))
         self.refused("continuity-rollup-bootstrap-not-accepted", pins=self.all_pins(accepted_sha256="0" * 64))
