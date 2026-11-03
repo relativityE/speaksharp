@@ -45,8 +45,9 @@ function driverEnvironment(env,socketPath){
 async function main(argv){
  let broker=null,child=null,timer=null;const signals=[];
  try{
-  const args={};if(argv.length!==8)throw new Error('NOT_RUN: EXACT_BOUND_ARGUMENTS_REQUIRED');
-  for(let i=0;i<argv.length;i+=2){if(!['--scope','--scope-sha256','--plan','--plan-sha256'].includes(argv[i])||Object.hasOwn(args,argv[i]))throw new Error('NOT_RUN: UNKNOWN_OR_REPEATED_ARGUMENT');args[argv[i]]=argv[i+1];}
+  const args={};if(![8,12].includes(argv.length))throw new Error('NOT_RUN: EXACT_BOUND_ARGUMENTS_REQUIRED');
+  for(let i=0;i<argv.length;i+=2){if(!['--scope','--scope-sha256','--plan','--plan-sha256','--admission-receipt','--admission-receipt-sha256'].includes(argv[i])||Object.hasOwn(args,argv[i]))throw new Error('NOT_RUN: UNKNOWN_OR_REPEATED_ARGUMENT');args[argv[i]]=argv[i+1];}
+  if(Boolean(args['--admission-receipt'])!==Boolean(args['--admission-receipt-sha256']))throw new Error('NOT_RUN: ADMISSION_RECEIPT_PAIR_REQUIRED');
   const scope=privateJson(args['--scope'],args['--scope-sha256']),plan=privateJson(args['--plan'],args['--plan-sha256']);
   if(plan.campaignId!==scope.campaignId||plan.sourceSha!==scope.sourceSha||plan.servedSha!==scope.servedSha||plan.deadlineAt!==scope.deadlineAt)throw new Error('NOT_RUN: CAMPAIGN_PRODUCER_SCOPE_DIFFERS');
   const cases=plan.cases.filter(c=>scope.caseIds.includes(c.id));if(cases.length!==scope.caseIds.length)throw new Error('NOT_RUN: PRODUCER_CASE_BINDING_MISSING');
@@ -58,7 +59,8 @@ async function main(argv){
   const bindingSha256=validatePlanProducers(plan,scope,configs,producer);
   const directory=fs.realpathSync(path.dirname(args['--scope']));broker=await startBroker({directory,producer});
   await probeBroker(bindingSha256,broker.socketPath);
-  child=spawn(process.execPath,[path.join(__dirname,'campaign-runner.cjs'),'--plan',path.resolve(args['--plan']),'--plan-sha256',args['--plan-sha256'],'--execute-r0','true'],{stdio:'inherit',env:driverEnvironment(process.env,broker.socketPath)});
+  const campaignArgs=[path.join(__dirname,'campaign-runner.cjs'),'--plan',path.resolve(args['--plan']),'--plan-sha256',args['--plan-sha256'],'--execute-r0','true'];if(args['--admission-receipt'])campaignArgs.push('--admission-receipt',path.resolve(args['--admission-receipt']),'--admission-receipt-sha256',args['--admission-receipt-sha256']);
+  child=spawn(process.execPath,campaignArgs,{stdio:'inherit',env:driverEnvironment(process.env,broker.socketPath)});
   for(const signal of ['SIGINT','SIGTERM']){const fn=()=>child.kill(signal);process.on(signal,fn);signals.push([signal,fn]);}
   timer=setTimeout(()=>child.kill('SIGTERM'),Math.max(1,Date.parse(scope.deadlineAt)-Date.now()));timer.unref();
   const exit=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',(code)=>resolve(Number.isInteger(code)?code:78));});

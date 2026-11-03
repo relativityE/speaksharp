@@ -95,7 +95,7 @@ def current_identity(path, cfg, tested, now):
 
     This is current occurrence evidence, never retained history.  The private
     ledger is created inside the new run directory, bound to the tested SHA and
-    target URL, and must contain exactly the single pre-gate read at this point.
+    target URL, and must contain exactly the admission A7 read at this point.
     """
     try:
         st = os.lstat(path)
@@ -111,7 +111,7 @@ def current_identity(path, cfg, tested, now):
             and isinstance(receipts, list) and len(receipts) == 1):
         return None, "current identity ledger is not the one-read target/release binding"
     receipt = receipts[0]
-    if not (receipt.get("reservation") == 1 and receipt.get("phase") == "admission-release"
+    if not (receipt.get("reservation") == 1 and receipt.get("phase") == "admission"
             and receipt.get("result") == "MATCH" and receipt.get("reason") is None
             and receipt.get("servedSha") == tested and receipt.get("expectedSha") == tested
             and receipt.get("http") == 200 and receipt.get("redirects") == 0 and receipt.get("markerCount") == 1
@@ -174,7 +174,7 @@ def main():
     if fe:
         age = (now - parse_utc(fe["verifiedAtUtc"])).total_seconds() / 3600
         fe["ageHours"] = round(age, 1)
-        fe["fresh"] = age <= maxage
+        fe["fresh"] = 0 <= age <= maxage
     out["frontend"] = fe or {"source": "none", "servedSha": None, "fresh": False}
     if not fe:
         N("frontend: " + (current_error or "no sealed run's identity reads show the tested SHA served; take one identity read in the run environment"))

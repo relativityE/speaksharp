@@ -108,9 +108,15 @@ class Credentials(unittest.TestCase):
                 scope = os.path.join(out, "plan", "producer-scope.json")
                 if fixed_parent == "wrong-scope":
                     scope += ".other"
-                command = shlex.join(["node", os.path.join(packet, "bundle/harness/with-authenticated-evidence.cjs"),
-                                      "--scope", scope, "--scope-sha256", "a" * 64,
-                                      "--plan", os.path.join(out, "plan/cfg/campaign-plan.json"), "--plan-sha256", "b" * 64])
+                args = ["node", os.path.join(packet, "bundle/harness/with-authenticated-evidence.cjs"),
+                        "--scope", scope, "--scope-sha256", "a" * 64,
+                        "--plan", os.path.join(out, "plan/cfg/campaign-plan.json"), "--plan-sha256", "b" * 64]
+                if fixed_parent in ("reused-admission", "wrong-admission", "missing-admission-digest"):
+                    receipt = os.path.join(out, "plan/run/admission/admission-receipt.json")
+                    args += ["--admission-receipt", receipt + (".other" if fixed_parent == "wrong-admission" else "")]
+                    if fixed_parent != "missing-admission-digest":
+                        args += ["--admission-receipt-sha256", "c" * 64]
+                command = shlex.join(args)
             harness = ("set -euo pipefail\nROOT=%r\nCFG=%r\nREQ=%r\nROUTE=%r\nHP=%r\nOUT=%r\n"
                        "ss_broker_service_role=\"${SUPABASE_SERVICE_ROLE_KEY:-}\"\n"
                        "ss_broker_telemetry_key=\"${POSTHOG_PERSONAL_API_KEY:-}\"\n"
@@ -182,6 +188,16 @@ class Credentials(unittest.TestCase):
         self.assertEqual(denied.returncode, 0, denied.stderr)
         self.assertFalse({"SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY"} & set(denied.stdout.split()))
         self.assertNotIn("not-printed-", denied.stdout + denied.stderr)
+
+        reused = self.run_stage_env("run", env, route="github-producer", fixed_parent="reused-admission")
+        self.assertEqual(reused.returncode, 0, reused.stderr)
+        self.assertTrue({"SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY"} <= set(reused.stdout.split()))
+        for malformed in ("wrong-admission", "missing-admission-digest"):
+            with self.subTest(malformed=malformed):
+                result = self.run_stage_env("run", env, route="github-producer", fixed_parent=malformed)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse({"SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY"} & set(result.stdout.split()))
+                self.assertNotIn("not-printed-", result.stdout + result.stderr)
 
     def test_the_service_role_key_appears_only_where_it_is_forbidden_or_explained(self):
         allowed = ("config/test-config.v1.json", "scripts/execute_run.sh", "scripts/pipeline.py", "tests/", "README.md", "WORKFLOW.md", "CHANGELOG.md", "CREDENTIALS.md", "harness/", "report/", "templates/", "NEXT-RUN-PROPOSAL.md", "samples/", "config/history/")

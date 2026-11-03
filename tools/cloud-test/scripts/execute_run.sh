@@ -74,7 +74,7 @@ run_stage() {
       e+=("$n=${!n}")
     done
   fi
-  if [ "$stage" = run ] && [ "$ROUTE" = github-producer ] && [ "$#" -eq 10 ] && [ "$1" = node ] && [ "$2" = "$HP/bundle/harness/with-authenticated-evidence.cjs" ] && [ "$3" = --scope ] && [ "$4" = "$OUT/plan/producer-scope.json" ] && [ "$5" = --scope-sha256 ] && [ "$7" = --plan ] && [ "$8" = "$OUT/plan/cfg/campaign-plan.json" ] && [ "$9" = --plan-sha256 ]; then
+  if [ "$stage" = run ] && [ "$ROUTE" = github-producer ] && [ "$1" = node ] && [ "$2" = "$HP/bundle/harness/with-authenticated-evidence.cjs" ] && [ "$3" = --scope ] && [ "$4" = "$OUT/plan/producer-scope.json" ] && [ "$5" = --scope-sha256 ] && [ "$7" = --plan ] && [ "$8" = "$OUT/plan/cfg/campaign-plan.json" ] && [ "$9" = --plan-sha256 ] && { [ "$#" -eq 10 ] || { [ "$#" -eq 14 ] && [ "${11}" = --admission-receipt ] && [ "${12}" = "$OUT/plan/run/admission/admission-receipt.json" ] && [ "${13}" = --admission-receipt-sha256 ]; }; }; then
     for n in SUPABASE_URL POSTHOG_PROJECT_ID POSTHOG_API_HOST; do
       [ -z "${!n:-}" ] || e+=("$n=${!n}")
     done
@@ -236,24 +236,18 @@ case "$STAGE" in
       # admit a request or a PASS result; the full receiver below still requires this occurrence's authenticated reserve and runtime evidence.
       run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
         --config "$CFG" --retained-out-dir "$retained"
-      plan="$OUT/plan/cfg/campaign-plan.json"
-      identity_url="$(python3 -I "$ROOT/scripts/cfg_get.py" "$plan" targetUrl)"
-      identity_sha="$(python3 -I "$ROOT/scripts/cfg_get.py" "$plan" servedSha)"
-      identity_ledger="$(python3 -I "$ROOT/scripts/cfg_get.py" "$plan" identityLedger)"
-      identity_cap="$(python3 -I "$ROOT/scripts/cfg_get.py" "$plan" identityCap)"
-      # The first of the approved identity reads proves the current served release before G2/G7. The same private ledger remains bound to
-      # the campaign and carries the per-case/final reads; identity-check reserves durably before its one network request and never retries.
-      run_stage gate-and-validate node "$HP/bundle/harness/identity-check.cjs" --authorize-identity-read true \
-        --url "$identity_url" --expect-sha "$identity_sha" --ledger "$identity_ledger" --cap "$identity_cap" --phase admission-release \
-        > "$OUT/admission-identity-receipt.json"
-      run_stage gate-and-validate python3 -I "$ROOT/scripts/verify_release.py" --request "$REQ" \
-        --ledger "$retained/gap-ledger.json" --config "$CFG" --receipts-root "$CT_RECEIPTS_ROOT" \
-        --repo "${CT_CHECKOUT:-$REPO}" --current-identity-ledger "$identity_ledger" --out "$OUT/release-verification.json"
-      # Both nightly and the approved manual full-coverage route authenticate their occurrence through the same reviewed state ref.
-      run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
-      RES_IN="$OUT/journal-snapshot.json"
-      occurrence_args=(--journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json" \
-        --occurrence-release-verification "$OUT/release-verification.json")
+      # A manual occurrence cannot prove the served release before the genuine A0-A6 admission qualification.  Retain the immutable
+      # historical half and pure plan acceptance here; the run stage completes A7 once, then G2/G7, before any case is dispatched.
+      CAT=()
+      if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" sampleMode)" = full ]; then
+        CAT=("$ROOT/$(python3 -I "$ROOT/scripts/cfg_get.py" "$CFG" modes.full.assertionCatalog.file)")
+        [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" coverageMode)" != partial ] || CAT+=(--selected-full)
+      fi
+      run_stage gate-and-validate node "$ROOT/tests/node/plan-acceptance.cjs" "$HP" "$OUT/plan/cfg/campaign-plan.json" ${CAT[@]+"${CAT[@]}"}
+      ( umask 077; printf '%s %s %s\n' "$(sha256sum "$CT_RETAINED_GATE_MANIFEST" | cut -d' ' -f1)" \
+          "$(sha256sum "$OUT/plan/cfg/campaign-plan.json" | cut -d' ' -f1)" "$CT_REQUEST_SHA256" > "$OUT/manual-release-gates.deferred" )
+      echo "retained history and plan accepted; current release gates require the genuine admission identity"
+      exit 0
     elif [ "$priority" = nightly-regression ]; then
       # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN 1793572741.370569), not a file ledger;
       # both gate routes below consume this one snapshot (Sam 1793589877.215059)
@@ -331,13 +325,61 @@ case "$STAGE" in
     actual_psha="$(sha256sum "$planfile" | cut -d' ' -f1)"
     [ "$psha" = "$actual_psha" ] || blocked "campaign plan changed after the build-time identity was retained"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$OUT/started.txt"
+    reuse_args=()
+    if [ -n "${CT_RETAINED_GATE_MANIFEST:-}" ] && \
+       [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$CT_RETAINED_GATE_MANIFEST" schema)" = speaksharp.cloud-test.aggregate-receiver.v2-occurrence ]; then
+      require_runtime_inputs
+      marker="$OUT/manual-release-gates.deferred"
+      expected_marker="$(sha256sum "$CT_RETAINED_GATE_MANIFEST" | cut -d' ' -f1) $actual_psha $CT_REQUEST_SHA256"
+      [ -f "$marker" ] && [ ! -L "$marker" ] && [ "$(cat "$marker")" = "$expected_marker" ] || blocked "manual pre-admission gate receipt missing or changed"
+      admission_dir="$OUT/plan/run/admission"
+      admission_file="$admission_dir/admission-receipt.json"
+      admission_config="$(python3 -I "$ROOT/scripts/cfg_get.py" "$planfile" admissionConfigFile)" || blocked "campaign admission config cannot be read"
+      run_stage run node "$HP/bundle/harness/admission.cjs" --bundle "$HP/bundle" --config "$admission_config" --out "$admission_dir" --execute-r0 true
+      [ -f "$admission_file" ] && [ ! -L "$admission_file" ] || blocked "genuine admission receipt unavailable"
+      admission_sha="$(sha256sum "$admission_file" | cut -d' ' -f1)"
+      identity_ledger="$(python3 -I "$ROOT/scripts/cfg_get.py" "$planfile" identityLedger)"
+      retained="$OUT/retained-runtime"
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
+        --config "$CFG" --retained-out-dir "$retained"
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/verify_release.py" --request "$REQ" \
+        --ledger "$retained/gap-ledger.json" --config "$CFG" --receipts-root "$CT_RECEIPTS_ROOT" \
+        --repo "${CT_CHECKOUT:-$REPO}" --current-identity-ledger "$identity_ledger" --out "$OUT/release-verification.json"
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
+      RES_IN="$OUT/journal-snapshot.json"
+      accepted="$OUT/retained-gate-inputs"
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/aggregate_receiver.py" --manifest "$CT_RETAINED_GATE_MANIFEST" \
+        --request "$REQ" --config "$CFG" --out-dir "$accepted" --journal-snapshot "$RES_IN" \
+        --occurrence-reconciliation "$OUT/reconciliation.json" --occurrence-release-verification "$OUT/release-verification.json"
+      cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
+      retained_args=()
+      [ -n "${CT_PRIOR_STATE:-}" ] && retained_args+=(--prior-state "$CT_PRIOR_STATE")
+      [ -n "${CT_APPROVAL:-}" ] && retained_args+=(--approval "$CT_APPROVAL")
+      [ -n "${CT_RECEIPTS_ROOT:-}" ] && retained_args+=(--receipts-root "$CT_RECEIPTS_ROOT")
+      [ -n "${CT_HISTORY_INDEX:-}" ] && [ -e "$CT_HISTORY_INDEX" ] && retained_args+=(--history-index "$CT_HISTORY_INDEX")
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --request "$REQ" --config "$CFG" \
+        --workflow "$ROOT/workflow.json" --accepted-input-dir "$accepted" --receiver-receipt "$accepted/receiver-receipt.json" \
+        --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" ${retained_args[@]+"${retained_args[@]}"} \
+        --journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json" \
+        --occurrence-release-verification "$OUT/release-verification.json" --offline-checks "$CT_OFFLINE_CHECKS" \
+        --offline-proof "$CT_OFFLINE_PROOF" --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" --stage final \
+        --out-dir "$OUT/final-gates" --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free
+      [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$OUT/final-gates/gate-status.json" decision)" = GO ] || blocked "retained aggregate gates are not GO"
+      CAT=()
+      if [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" sampleMode)" = full ]; then
+        CAT=("$ROOT/$(python3 -I "$ROOT/scripts/cfg_get.py" "$CFG" modes.full.assertionCatalog.file)")
+        [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$REQ" coverageMode)" != partial ] || CAT+=(--selected-full)
+      fi
+      run_stage gate-and-validate node "$ROOT/tests/node/plan-acceptance.cjs" "$HP" "$planfile" ${CAT[@]+"${CAT[@]}"}
+      reuse_args=(--admission-receipt "$admission_file" --admission-receipt-sha256 "$admission_sha")
+    fi
     if [ "$ROUTE" = github-producer ]; then
       scopefile="$OUT/plan/producer-scope.json"
       [ -f "$scopefile" ] || blocked "prepared bound producer scope missing"
       ssha="$(sha256sum "$scopefile" | cut -d' ' -f1)"
-      run_stage run node "$HP/bundle/harness/with-authenticated-evidence.cjs" --scope "$scopefile" --scope-sha256 "$ssha" --plan "$planfile" --plan-sha256 "$psha"
+      run_stage run node "$HP/bundle/harness/with-authenticated-evidence.cjs" --scope "$scopefile" --scope-sha256 "$ssha" --plan "$planfile" --plan-sha256 "$psha" ${reuse_args[@]+"${reuse_args[@]}"}
     else
-      run_stage run node "$HP/bundle/harness/campaign-runner.cjs" --plan "$planfile" --plan-sha256 "$psha" --execute-r0 true
+      run_stage run node "$HP/bundle/harness/campaign-runner.cjs" --plan "$planfile" --plan-sha256 "$psha" --execute-r0 true ${reuse_args[@]+"${reuse_args[@]}"}
     fi ;;
   collect)
     started="$(cat "$OUT/started.txt")"

@@ -42,7 +42,7 @@ class Fixture:
         cfg["history"]["comparisonBaselines"] = ["R5", "R5"]
         self.cfg = cfg
 
-    def verify(self, ledger, backend=None, tested=None, last=None, current_identity=None):
+    def verify(self, ledger, backend=None, tested=None, last=None, current_identity=None, features=None):
         req = {"release": {"testedSha": tested or self.tested, "lastRunTestedSha": last or self.base,
                            "backend": backend or {"sha": tested or self.tested, "source": "owner-stated", "verifiedAtUtc": None, "evidenceRef": None}}}
         d = tempfile.mkdtemp()
@@ -54,6 +54,10 @@ class Fixture:
             identity = os.path.join(d, "current-identity.json")
             wjson(identity, current_identity); os.chmod(identity, 0o600)
             args += ["--current-identity-ledger", identity]
+        if features is not None:
+            feature_path = os.path.join(d, "features.json")
+            wjson(feature_path, {"schema": "speaksharp.cloud-test.feature-ledger.v1", "features": features})
+            args += ["--features", feature_path]
         r = run_py("scripts/verify_release.py", *args)
         assert r.returncode == 0, r.stderr
         return load(op)
@@ -66,7 +70,7 @@ def verdict(out, subject_sha):
 class ReleaseGate(unittest.TestCase):
     @staticmethod
     def current_identity(f, **receipt_overrides):
-        receipt = {"reservation": 1, "phase": "admission-release", "startedAt": "2026-10-28T21:59:00Z",
+        receipt = {"reservation": 1, "phase": "admission", "startedAt": "2026-10-28T21:59:00Z",
                    "endedAt": "2026-10-28T21:59:01Z", "result": "MATCH", "reason": None, "http": 200,
                    "redirects": 0, "markerCount": 1, "servedSha": f.tested, "expectedSha": f.tested,
                    "evidenceScope": "inert-text-marker-only"}
@@ -89,6 +93,7 @@ class ReleaseGate(unittest.TestCase):
             "wrong expected": self.current_identity(f, expectedSha="0" * 40),
             "wrong phase": self.current_identity(f, phase="before-AHT-01"),
             "stale": self.current_identity(f, startedAt="2026-10-26T00:00:00Z", endedAt="2026-10-26T00:00:01Z"),
+            "future": self.current_identity(f, startedAt="2026-10-29T00:00:00Z", endedAt="2026-10-29T00:00:01Z"),
         }
         replay = self.current_identity(f); replay["identityGets"] = 2; replay["receipts"].append(dict(replay["receipts"][0], reservation=2))
         cases["replay"] = replay
@@ -97,6 +102,21 @@ class ReleaseGate(unittest.TestCase):
                 out = f.verify(ledger_with(["101"]), current_identity=identity)
                 self.assertTrue(any("frontend" in need for need in out["needs"]), out)
                 self.assertEqual(out["commitVerdicts"][0]["decision"], "rejected")
+
+    def test_current_r5_objective_witness_feature_allows_only_its_reviewed_product_commit(self):
+        f = Fixture([("feat(r5): bind objective publication witness (#1772)", ["frontend/src/services/SpeechRuntimeController.ts"]),
+                     ("fix(other): unrelated product change (#9999)", ["frontend/src/other.ts"])
+                    ], identity_for_tested=False)
+        feature = {"id": "FEAT-R5-OBJECTIVE-PUBLICATION", "title": "Content-free Focus objective publication witness", "area": "PG01", "pr": "#1772", "commit": None,
+                   "review": {"outcome": "approved", "reviewedBy": "independent-reviewer", "reviewRef": "review-ref", "reviewedAtUtc": "2026-10-28T20:00:00Z"},
+                   "expectedBehaviour": {"summary": "bind owned terminal Focus status", "criteria": "only ordered content-free status evidence is exposed when enabled", "definedAtUtc": "2026-10-28T19:00:00Z"},
+                   "coverage": {"requirements": [{"case": "AHT-02", "assertions": ["owner-bound", "focus-final", "focus-coverage-count"]}, {"case": "AHT-03", "assertions": ["owner-bound", "focus-final", "focus-coverage-count"]}], "newRows": []}}
+        out = f.verify(ledger_with([]), current_identity=self.current_identity(f), features=[feature])
+        decisions = {v["pr"]: v["decision"] for v in out["commitVerdicts"]}
+        self.assertEqual(decisions["1772"], "allowed")
+        self.assertEqual(decisions["9999"], "rejected")
+        self.assertNotEqual(f.base, f.tested)
+        self.assertIn("unreviewed", next(v["reason"] for v in out["commitVerdicts"] if v["pr"] == "9999"))
 
     def test_verified_deployed_fix_is_permitted(self):
         f = Fixture([("fix(a): retain guidance (#101)", ["frontend/src/a.ts", "frontend/src/__tests__/a.test.ts"])])

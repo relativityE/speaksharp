@@ -1563,14 +1563,15 @@ class ContinuityCheckpoint(Journal):
         self.addCleanup(shutil.rmtree, repo.dir)
         req = live_request(["AHT-05"])
         req["window"] = dict(self.req["window"])
-        release = repo.commit({"tools/cloud-test/config/test-config.v1.json": CFG,
-                               I.CONTINUITY_DIR + "/" + I.CONTINUITY_BOOTSTRAP: self.raw.decode(),
-                               I.CONTINUITY_DIR + "/" + I.CONTINUITY_SCOPE: self.scope_raw.decode()})
+        prior_release = repo.commit({"tools/cloud-test/config/test-config.v1.json": CFG,
+                                     I.CONTINUITY_DIR + "/" + I.CONTINUITY_BOOTSTRAP: self.raw.decode(),
+                                     I.CONTINUITY_DIR + "/" + I.CONTINUITY_SCOPE: self.scope_raw.decode()})
+        release = repo.commit({"frontend/src/services/SpeechRuntimeController.ts":
+                               "export const objectivePublicationWitness = true;\n"})
+        repo.git("commit", "--amend", "-q", "-m", "feat(r5): bind objective publication witness (#1772)")
+        release = repo.git("rev-parse", "HEAD")
         req["release"]["testedSha"] = release
-        # This composed control has no product delta after its synthetic tested
-        # release.  That lets the real release verifier isolate the current
-        # identity evidence and the occurrence binding under test.
-        req["release"]["lastRunTestedSha"] = release
+        req["release"]["lastRunTestedSha"] = prior_release
         head = repo.commit({RUNS + "r6.json": req})
         request_sha = hashlib.sha256(repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()).hexdigest()
         pins = self.all_pins()
@@ -1630,7 +1631,7 @@ const transport = (_cmd, args) => {
   fs.writeFileSync(output, body, { mode: 0o600 });
   return { status: 0, stdout: `200 0 ${body.length}` };
 };
-const result = runIdentity({ ledger, binding: { url, expectedSha: sha, cap: 32, phase: 'admission-release' } }, transport);
+const result = runIdentity({ ledger, binding: { url, expectedSha: sha, cap: 32, phase: 'admission' } }, transport);
 process.stdout.write(JSON.stringify(result.receipt));
 process.exitCode = result.exitCode;
 """
@@ -1650,6 +1651,34 @@ process.exitCode = result.exitCode;
         self.assertEqual(release_check.returncode, 0, release_check.stderr)
         release_bytes = open(release_out, "rb").read()
         self.assertEqual(json.loads(release_bytes)["needs"], [])
+
+        # The accepted #1772 feature is exact: it cannot authorize a later,
+        # unrelated product change in the same composed release path.
+        unrelated = repo.commit({"frontend/src/unrelated.ts": "export const unrelated = true;\n"})
+        repo.git("commit", "--amend", "-q", "-m", "feat(other): unrelated product change (#9999)")
+        unrelated = repo.git("rev-parse", "HEAD")
+        bad_request = json.loads(open(os.path.join(out, "request.json"), encoding="utf-8").read())
+        bad_request["release"]["lastRunTestedSha"] = release
+        bad_request["release"]["testedSha"] = unrelated
+        bad_request_file = os.path.join(self.d, "unrelated-request.json")
+        put(bad_request_file, bad_request)
+        bad_identity_dir = os.path.join(self.d, "unrelated-identity-private")
+        os.mkdir(bad_identity_dir, 0o700)
+        bad_identity_ledger = os.path.join(bad_identity_dir, "identity-ledger.json")
+        bad_identity = subprocess.run(["node", "-e", identity_script, identity_module, bad_identity_ledger, target, unrelated],
+                                      capture_output=True, text=True)
+        self.assertEqual(bad_identity.returncode, 0, bad_identity.stdout + bad_identity.stderr)
+        bad_release_out = os.path.join(self.d, "unrelated-release-verification.json")
+        bad_release_check = subprocess.run([
+            sys.executable, "-I", os.path.join(ROOT, "scripts", "verify_release.py"),
+            "--request", bad_request_file, "--ledger", os.path.join(ROOT, "config", "aggregate", "gap-ledger.json"),
+            "--config", active_config_path, "--repo", repo.dir, "--current-identity-ledger", bad_identity_ledger,
+            "--out", bad_release_out,
+        ], capture_output=True, text=True)
+        self.assertEqual(bad_release_check.returncode, 0, bad_release_check.stderr)
+        bad_release_doc = json.loads(open(bad_release_out, encoding="utf-8").read())
+        self.assertTrue(any("unreviewed" in need for need in bad_release_doc["needs"]), bad_release_doc)
+        self.assertEqual(next(v["decision"] for v in bad_release_doc["commitVerdicts"] if v["pr"] == "9999"), "rejected")
 
         import aggregate_receiver as AR
         state_chain = reader(self.root)

@@ -1,5 +1,35 @@
 {
   "schema": "speaksharp.cloud-test.feature-ledger.v1",
   "note": "Reviewed features: feature -> expected behaviour -> test coverage. Definitions only; status, evidence and deployed inclusion are DERIVED (derive_features.py, verify_release.py). A customer-facing change that is not a verified fix for a gap is allowed through THIS route when its feature has an approved review by a named reviewer with a reference, a stated expected behaviour, and test coverage (required rows in the assertion catalog, or new rows for a catalog version that exists). No feature is invented: the list is empty until the owner and reviewer add entries (see templates/feature-entry.template.json).",
-  "features": []
+  "features": [
+    {
+      "id": "FEAT-R5-OBJECTIVE-PUBLICATION",
+      "title": "Content-free Focus objective publication witness",
+      "area": "PG01",
+      "pr": "#1772",
+      "commit": null,
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Sam (independent Codex source review)",
+        "reviewRef": "codex-source-review:0d1047f31d5ddde09a90081c613a92307df83682:FEAT-R5-OBJECTIVE-PUBLICATION",
+        "reviewedAtUtc": "2026-11-03T00:12:29Z"
+      },
+      "expectedBehaviour": {
+        "summary": "An explicitly enabled private test session can bind the owned terminal Focus status chain to its session without retaining transcript or objective text.",
+        "userVisible": false,
+        "criteria": "For AHT-02 and AHT-03, the enabled diagnostic exposes only ordered hashes and status counts from the owned successful Focus publication; normal sessions expose nothing, invalid or capacity-exhausted work publishes nothing, and the witness never delays save or finalization.",
+        "definedAtUtc": "2026-10-31T13:18:19Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "requirements": [
+          {"case": "AHT-02", "assertions": ["owner-bound", "focus-final", "focus-coverage-count"]},
+          {"case": "AHT-03", "assertions": ["owner-bound", "focus-final", "focus-coverage-count"]}
+        ],
+        "newRows": []
+      },
+      "rollout": {"flag": "__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__"}
+    }
+  ]
 }
