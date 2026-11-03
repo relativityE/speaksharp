@@ -1,0 +1,342 @@
+{
+  "schema": "speaksharp.cloud-test.run-request.v2",
+  "runId": "R10-5a7bf6a1-all15",
+  "proposal": false,
+  "coverageMode": "full",
+  "sampleMode": "full",
+  "workflowVersion": "1.5.0",
+  "configVersion": "1.4.0",
+  "createdUtc": "2026-11-03T01:10:00Z",
+  "purpose": "Execute every required assertion in all 15 SpeakSharp live journeys against the deployed consolidated RCA release, retaining case-level PASS, FAIL, HOLD and cleanup evidence.",
+  "priority": "full-coverage",
+  "targetedGaps": [
+    "GAP-01",
+    "GAP-02",
+    "GAP-03",
+    "GAP-04",
+    "GAP-05",
+    "GAP-06"
+  ],
+  "notTargeted": [],
+  "selection": [
+    {
+      "order": 1,
+      "case": "AHT-01",
+      "gaps": [
+        "GAP-01"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 340,
+      "startPressCap": 4,
+      "gate": null,
+      "reason": "full coverage: 20 required rows; closes GAP-01"
+    },
+    {
+      "order": 2,
+      "case": "AHT-02",
+      "gaps": [
+        "GAP-02"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 260,
+      "startPressCap": 7,
+      "gate": null,
+      "reason": "full coverage: 33 required rows; closes GAP-02"
+    },
+    {
+      "order": 3,
+      "case": "AHT-03",
+      "gaps": [
+        "GAP-02"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 230,
+      "startPressCap": 4,
+      "gate": null,
+      "reason": "full coverage: 29 required rows; closes GAP-02"
+    },
+    {
+      "order": 4,
+      "case": "AHT-04",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 160,
+      "startPressCap": 2,
+      "gate": null,
+      "reason": "full coverage: 9 required rows; closes GAP-06"
+    },
+    {
+      "order": 5,
+      "case": "AHT-05",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 320,
+      "startPressCap": 2,
+      "gate": null,
+      "reason": "full coverage: 10 required rows"
+    },
+    {
+      "order": 6,
+      "case": "AHT-06",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 310,
+      "startPressCap": 2,
+      "gate": null,
+      "reason": "full coverage: 10 required rows"
+    },
+    {
+      "order": 7,
+      "case": "AHT-07",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 360,
+      "startPressCap": 2,
+      "gate": null,
+      "reason": "full coverage: 15 required rows"
+    },
+    {
+      "order": 8,
+      "case": "AHT-08",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": false,
+      "plannedRequests": 110,
+      "startPressCap": 0,
+      "gate": null,
+      "reason": "full coverage: 9 required rows"
+    },
+    {
+      "order": 9,
+      "case": "AHT-09",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 260,
+      "startPressCap": 3,
+      "gate": null,
+      "reason": "full coverage: 12 required rows"
+    },
+    {
+      "order": 10,
+      "case": "AHT-10",
+      "gaps": [
+        "GAP-05"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 190,
+      "startPressCap": 3,
+      "gate": null,
+      "reason": "full coverage: 10 required rows; closes GAP-05"
+    },
+    {
+      "order": 11,
+      "case": "AHT-11",
+      "gaps": [],
+      "role": "coverage",
+      "needsCaptureDevice": true,
+      "plannedRequests": 330,
+      "startPressCap": 4,
+      "gate": null,
+      "reason": "full coverage: 9 required rows"
+    },
+    {
+      "order": 12,
+      "case": "AHT-12",
+      "gaps": [
+        "GAP-03"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 120,
+      "startPressCap": 3,
+      "gate": null,
+      "reason": "full coverage: 8 required rows; closes GAP-03"
+    },
+    {
+      "order": 13,
+      "case": "AHT-13",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 130,
+      "startPressCap": 3,
+      "gate": null,
+      "reason": "full coverage: 8 required rows; closes GAP-06"
+    },
+    {
+      "order": 14,
+      "case": "AHT-14",
+      "gaps": [
+        "GAP-06"
+      ],
+      "role": "target",
+      "needsCaptureDevice": true,
+      "plannedRequests": 360,
+      "startPressCap": 3,
+      "gate": null,
+      "reason": "full coverage: 8 required rows; closes GAP-06"
+    },
+    {
+      "order": 15,
+      "case": "AHT-15",
+      "gaps": [
+        "GAP-04"
+      ],
+      "role": "target",
+      "needsCaptureDevice": false,
+      "plannedRequests": 130,
+      "startPressCap": 0,
+      "gate": null,
+      "reason": "full coverage: 14 required rows; closes GAP-04"
+    }
+  ],
+  "evidenceScope": {
+    "maxDeliveries": 8,
+    "maxSupabaseRequests": 10,
+    "maxTelemetryReads": 2
+  },
+  "estimate": {
+    "requests": {
+      "planned": 3610,
+      "cleanupReserve": 150,
+      "pooledSlack": 550,
+      "runCap": 4310
+    },
+    "identityReads": 32,
+    "starts": 42,
+    "takes": 31,
+    "paidActionsAuthorizedUsd": 0,
+    "providerBillableRequests": {
+      "coachingCap": 40,
+      "basis": "31 takes x 125% retry allowance, rounded up to 10; the guard denies a coaching request beyond the cap"
+    },
+    "window": {
+      "expectedMinutes": 111,
+      "worstCaseMinutes": 304,
+      "proposedMinutes": 330
+    },
+    "githubRunnerMinutesMax": 359
+  },
+  "proposedLimits": {
+    "cumulativeCeilingRequests": 4342,
+    "ceilingIncreaseJustification": "Fresh period, carryover none: 0 period usage + 4310 run cap + 0 protected reserve + 32 identity reads = 4342. Historical unknowns remain unresolved outside this period.",
+    "identityCap": 32,
+    "identityIncreaseJustification": "Fresh period exact one-run identity allowance; historical unknowns remain unresolved outside this period.",
+    "startsCap": 42,
+    "startsIncreaseJustification": "Fresh period exact one-run Start allowance derived from the per-case caps.",
+    "takesCap": 31,
+    "takesIncreaseJustification": "Fresh period exact one-run take allowance derived from the retained full-coverage budget.",
+    "runCapRequests": 4310,
+    "paidActionsUsd": 0,
+    "guardCaps": {
+      "coaching": 40
+    },
+    "startPressCaps": {
+      "AHT-01": 4,
+      "AHT-02": 7,
+      "AHT-03": 4,
+      "AHT-04": 2,
+      "AHT-05": 2,
+      "AHT-06": 2,
+      "AHT-07": 2,
+      "AHT-08": 0,
+      "AHT-09": 3,
+      "AHT-10": 3,
+      "AHT-11": 4,
+      "AHT-12": 3,
+      "AHT-13": 3,
+      "AHT-14": 3,
+      "AHT-15": 0
+    }
+  },
+  "approvedLimits": {
+    "cumulativeCeilingRequests": 4342,
+    "identityCap": 32,
+    "startsCap": 42,
+    "takesCap": 31,
+    "runCapRequests": 4310,
+    "approvalRef": "slack:1793652215.171339",
+    "approvedBy": "Akin",
+    "startPressCaps": {
+      "AHT-01": 4,
+      "AHT-02": 7,
+      "AHT-03": 4,
+      "AHT-04": 2,
+      "AHT-05": 2,
+      "AHT-06": 2,
+      "AHT-07": 2,
+      "AHT-08": 0,
+      "AHT-09": 3,
+      "AHT-10": 3,
+      "AHT-11": 4,
+      "AHT-12": 3,
+      "AHT-13": 3,
+      "AHT-14": 3,
+      "AHT-15": 0
+    }
+  },
+  "window": {
+    "startUtc": "2026-11-03T01:15:00Z",
+    "endUtc": "2026-11-03T06:45:00Z",
+    "approvalRef": "slack:1793652215.171339"
+  },
+  "release": {
+    "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+    "lastRunTestedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "backend": {
+      "sha": null,
+      "source": null,
+      "verifiedAtUtc": null,
+      "evidenceRef": null
+    }
+  },
+  "harness": {
+    "codeManifestSha256": "adda809d823299edc672127df7ef61ed4acf84f85dbadbfaea019615831d4ad0",
+    "packetManifestSha256": "e81d778aa2559f6bd19696c395e19bbde7a724a5dc3cdbb54daa1443dbef8dfb",
+    "ownerApprovalRef": "slack:1793652215.171339",
+    "offlineProofFile": "config/proofs/offline-proof-adda809d8.json"
+  },
+  "priorRuns": [
+    {
+      "label": "R4C",
+      "bindingFile": "config/history/binding-R4C.json"
+    },
+    {
+      "label": "R5",
+      "bindingFile": "config/history/binding-R5.json"
+    }
+  ],
+  "selectionApprovalRef": "slack:1793652215.171339",
+  "ownerInputs": {
+    "prDocsCloseout": {
+      "status": "closed",
+      "evidence": "github:relativityE/speaksharp#1772@5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2"
+    },
+    "r10Binding": {
+      "status": "closed",
+      "evidence": "slack:1793652215.171339"
+    },
+    "retainedInputs": {
+      "status": "closed",
+      "evidence": "github:relativityE/speaksharp#1772"
+    }
+  },
+  "deviations": [],
+  "cleanupConditions": "every owned page, process and fixture closed and verified; guard ledgers reconciled; no marked orphan",
+  "approvedOmissions": [],
+  "synthetic": false,
+  "executionRuntime": "GitHub Actions SpeakSharp"
+}

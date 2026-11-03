@@ -15,6 +15,7 @@
   "config/history/catalogs/v3.json",
   "config/recurring-approval.json",
   "config/required-test-ids.v1.json",
+  "config/runs/R10-5a7bf6a1-all15.json",
   "config/test-config.v1.json",
   "harness-adapter/build_plan.py",
   "report/build_run_report.py",
