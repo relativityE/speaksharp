@@ -1,6 +1,7 @@
 """The one latest-run record (Sam 1793471205.454429): selection never takes a foreign comment, the previous completed record survives until a
 terminal replacement of the same attempt, an interrupted attempt blocks the next run, and only the closed record shape is ever rendered."""
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -31,6 +32,31 @@ def record(run_id="101", outcome="passed", **over):
 
 def started(state, run_id="101"):
     return P.begin(state, run_id, 1, SHA, "2026-10-31T18:00:00Z")
+
+
+def receipt_bytes(**over):
+    value = {"ref": "refs/heads/cloud-test-state", "previousSha": "1" * 40, "newSha": "2" * 40,
+             "ledgerBlobSha256": "3" * 64, "proposalSha256": "4" * 64}
+    value.update(over)
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def occurrence_bytes(**over):
+    value = {"runId": "R6-unit", "window": {"endUtc": "2026-10-31T19:00:00Z"}}
+    value.update(over)
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def completion_evidence(running, deadline="2026-10-31T19:00:00Z"):
+    settle, occurrence = receipt_bytes(), occurrence_bytes()
+    pending = P.pending_completion(running, record(), deadline, hashlib.sha256(settle).hexdigest(),
+                                   hashlib.sha256(occurrence).hexdigest())
+    public_body = P.render(pending)
+    candidate_body = P.render(P.complete(running, record()))
+    published = {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}
+    attestation = P.completion_attestation(candidate_body, public_body, published,
+                                           hashlib.sha256(settle).hexdigest(), hashlib.sha256(occurrence).hexdigest())
+    return pending, public_body, settle, occurrence, attestation
 
 
 class Selection(unittest.TestCase):
@@ -304,12 +330,12 @@ class Readback(unittest.TestCase):
 class CompletionAttestation(unittest.TestCase):
     def test_terminal_candidate_is_bound_to_the_public_incomplete_state_and_server_time(self):
         running = started(P.parse_body(""))
-        candidate_body = P.render(P.complete(running, record()))
-        public_body = P.render(P.pending_completion(running, record(), "2026-10-31T19:00:00Z", "3" * 64, "4" * 64))
-        att = P.completion_attestation(candidate_body, public_body,
-                                       {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, "3" * 64, "4" * 64)
+        _, public_body, settle, occurrence, att = completion_evidence(running)
         self.assertEqual((att["schema"], att["runId"], att["publishedAt"]),
                          (P.ATTESTATION_SCHEMA, "101", "2026-10-31T18:41:00Z"))
+        done = P.reconcile_pending(P.parse_body(public_body), "2026-10-31T18:41:00Z", att, settle, occurrence,
+                                   "2026-10-31T18:42:00Z", public_body)
+        self.assertEqual((done["latestCompleted"]["runId"], done["inProgress"]), ("101", None))
 
     def test_no_attestation_for_missing_or_malformed_response_or_non_incomplete_publication(self):
         running = started(P.parse_body(""))
@@ -332,19 +358,35 @@ class CompletionAttestation(unittest.TestCase):
 
     def test_pending_completion_is_durable_reconciles_once_and_late_or_edited_state_refuses(self):
         running = started(P.parse_body(""))
-        pending = P.pending_completion(running, record(), "2026-10-31T19:00:00Z", "3" * 64, "4" * 64)
-        stored = P.parse_body(P.render(pending))
+        pending, public_body, settle, occurrence, att = completion_evidence(running)
+        stored = P.parse_body(public_body)
         self.assertEqual(stored["pendingCompletion"]["record"]["runId"], "101")
-        done = P.reconcile_pending(stored, "2026-10-31T18:41:00Z")
+        done = P.reconcile_pending(stored, "2026-10-31T18:41:00Z", att, settle, occurrence,
+                                   "2026-10-31T18:42:00Z", public_body)
         self.assertEqual((done["latestCompleted"]["runId"], done["inProgress"]), ("101", None))
         following = P.begin(done, "102", 1, SHA, "2026-10-31T20:00:00Z")
         self.assertEqual(following["inProgress"]["runId"], "102")
         with self.assertRaisesRegex(P.Refused, "pending-completion-late"):
-            P.reconcile_pending(stored, "2026-10-31T19:00:01Z")
+            P.reconcile_pending(stored, "2026-10-31T19:00:01Z", att, settle, occurrence,
+                                "2026-10-31T18:42:00Z", public_body)
         edited = json.loads(json.dumps(stored))
         edited["pendingCompletion"]["record"]["runId"] = "102"
         with self.assertRaises(P.Refused):
             P.parse_body(P.render(edited))
+
+    def test_reconciliation_refuses_missing_failed_late_or_tampered_completion_evidence(self):
+        running = started(P.parse_body(""))
+        stored, public_body, settle, occurrence, att = completion_evidence(running)
+        cases = [
+            (dict(att, schema="other"), settle, occurrence, "2026-10-31T18:42:00Z", public_body),
+            (att, settle + b" ", occurrence, "2026-10-31T18:42:00Z", public_body),
+            (att, settle, occurrence + b" ", "2026-10-31T18:42:00Z", public_body),
+            (att, settle, occurrence, "2026-10-31T19:00:01Z", public_body),
+            (att, settle, occurrence, "2026-10-31T18:42:00Z", public_body + "edited"),
+        ]
+        for bad_att, bad_settle, bad_occurrence, created, body in cases:
+            with self.subTest(created=created, body=body[-8:]), self.assertRaises(P.Refused):
+                P.reconcile_pending(stored, "2026-10-31T18:41:00Z", bad_att, bad_settle, bad_occurrence, created, body)
 
 
 class Cli(unittest.TestCase):

@@ -18,7 +18,9 @@ Usage:
   publish_latest_record.py interrupt --previous BODY --run-id N --attempt N --status cancelled|incomplete --out BODY
   publish_latest_record.py pending   --previous BODY --record RECORD.json --completion-deadline-utc TS
                                       --settle-receipt-sha256 SHA --occurrence-sha256 SHA --out BODY
-  publish_latest_record.py reconcile --previous BODY --published-at TS --out BODY
+  publish_latest_record.py reconcile --previous BODY --published-at TS --artifact-created-at TS
+                                      --attestation ATTESTATION.json --settle-receipt RECEIPT.json
+                                      --occurrence OCCURRENCE.json --out BODY
   publish_latest_record.py attest    --candidate BODY --public-body BODY --published RESPONSE.json
                                       --settle-receipt-sha256 SHA --occurrence-sha256 SHA --out ATTESTATION.json
 Exit 78 (BLOCKED_SETUP) on every refusal.
@@ -425,13 +427,8 @@ def pending_completion(state, record, completion_deadline_utc, settle_receipt_sh
         "settleReceiptSha256": settle_receipt_sha256, "occurrenceSha256": occurrence_sha256})
 
 
-def reconcile_pending(state, published_at):
-    """Fold the durable candidate only when GitHub stored it in time.
-
-    This is deliberately called by the next protected-main record-begin before
-    it opens a new attempt.  A missing, edited or late candidate remains a hard
-    refusal instead of being silently treated as a completed run.
-    """
+def _pending_candidate(state, published_at):
+    """Rebuild the candidate only when GitHub stored the pending record in time."""
     pending = state.get("pendingCompletion")
     _need(pending is not None, "no-pending-completion")
     _need(isinstance(published_at, str) and UTC.match(published_at), "pending-published-at")
@@ -440,6 +437,52 @@ def reconcile_pending(state, published_at):
     base = dict(state, inProgress=dict(live, status="running"))
     base.pop("pendingCompletion", None)
     return complete(base, pending["record"])
+
+
+def reconcile_pending(state, published_at, attestation, settle_receipt_raw, occurrence_raw, artifact_created_at, public_body):
+    """Fold a pending candidate only from its immutable completion artifact.
+
+    This is deliberately called by the next protected-main record-begin before
+    it opens a new attempt.  The public pending record alone is insufficient:
+    the separately uploaded attestation, the exact settlement receipt bytes and
+    exact occurrence bytes must all agree, and GitHub must have created that
+    immutable artifact inside the occurrence deadline.
+    """
+    pending = state.get("pendingCompletion")
+    expected = _pending_candidate(state, published_at)
+    _need(isinstance(artifact_created_at, str) and UTC.match(artifact_created_at), "completion-artifact-created-at")
+    _need(artifact_created_at <= pending["completionDeadlineUtc"], "completion-artifact-late")
+    _need(isinstance(attestation, dict) and set(attestation) == {
+        "schema", "runId", "attempt", "sourceSha", "candidateSha256", "publicIncompleteSha256",
+        "publishedAt", "settleReceiptSha256", "occurrenceSha256"}, "completion-attestation-shape")
+    record = pending["record"]
+    _need((attestation.get("schema"), attestation.get("runId"), attestation.get("attempt"), attestation.get("sourceSha")) ==
+          (ATTESTATION_SCHEMA, record["runId"], record["attempt"], record["sourceSha"]), "completion-attestation-identity")
+    _need(attestation.get("publishedAt") == published_at, "completion-attestation-published-at")
+    _need(isinstance(public_body, str) and hashlib.sha256(public_body.encode()).hexdigest() ==
+          attestation.get("publicIncompleteSha256"), "completion-attestation-public-state")
+    candidate_body = render(expected)
+    _need(hashlib.sha256(candidate_body.encode()).hexdigest() == attestation.get("candidateSha256"),
+          "completion-attestation-candidate")
+    _need(isinstance(settle_receipt_raw, bytes) and hashlib.sha256(settle_receipt_raw).hexdigest() ==
+          pending["settleReceiptSha256"] == attestation.get("settleReceiptSha256"), "completion-settlement-bytes")
+    try:
+        receipt = json.loads(settle_receipt_raw)
+    except ValueError:
+        raise Refused("completion-settlement-bytes")
+    _need(isinstance(receipt, dict) and set(receipt) == {"ref", "previousSha", "newSha", "ledgerBlobSha256", "proposalSha256"}
+          and receipt.get("ref") == "refs/heads/cloud-test-state"
+          and all(isinstance(receipt.get(k), str) and SHA40.match(receipt[k]) for k in ("previousSha", "newSha"))
+          and all(isinstance(receipt.get(k), str) and SHA64.match(receipt[k]) for k in ("ledgerBlobSha256", "proposalSha256")),
+          "completion-settlement-receipt")
+    _need(isinstance(occurrence_raw, bytes) and hashlib.sha256(occurrence_raw).hexdigest() ==
+          pending["occurrenceSha256"] == attestation.get("occurrenceSha256"), "completion-occurrence-bytes")
+    try:
+        occurrence = json.loads(occurrence_raw)
+    except ValueError:
+        raise Refused("completion-occurrence-bytes")
+    _need(isinstance(occurrence, dict) and occurrence.get("runId") == record.get("campaignId"), "completion-occurrence-identity")
+    return expected
 
 
 def completion_attestation(candidate_body, public_body, published, settle_receipt_sha256, occurrence_sha256):
@@ -461,7 +504,7 @@ def completion_attestation(candidate_body, public_body, published, settle_receip
     # Rebuild the terminal state from the exact public predecessor. This binds
     # its retained history and latest-completed predecessor too; matching only
     # the run identity would let a different candidate be attested.
-    expected = reconcile_pending(public, published.get("updated_at") if isinstance(published, dict) else None)
+    expected = _pending_candidate(public, published.get("updated_at") if isinstance(published, dict) else None)
     _need(candidate == expected, "attestation-candidate-not-derived-from-public-state")
     _need(isinstance(published, dict) and isinstance(published.get("updated_at"), str)
           and UTC.match(published["updated_at"]), "attestation-published-at")
@@ -488,7 +531,8 @@ def main(argv):
     a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "pending", "reconcile", "verify", "attest"))
     for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url",
                  "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256",
-                 "--completion-deadline-utc", "--published-at"):
+                 "--completion-deadline-utc", "--published-at", "--artifact-created-at", "--attestation",
+                 "--settle-receipt", "--occurrence"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--comment-id", type=int)
@@ -514,7 +558,9 @@ def main(argv):
             return 0
         state = parse_body(_read(x.previous))
         if x.command == "reconcile":
-            state = reconcile_pending(state, x.published_at)
+            state = reconcile_pending(state, x.published_at, json.loads(_read(x.attestation)),
+                                      open(x.settle_receipt, "rb").read(), open(x.occurrence, "rb").read(),
+                                      x.artifact_created_at, _read(x.previous))
         elif x.command == "pending":
             state = pending_completion(state, json.loads(_read(x.record)), x.completion_deadline_utc,
                                        x.settle_receipt_sha256, x.occurrence_sha256)

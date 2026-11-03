@@ -178,11 +178,24 @@ jobs:
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" | python3 -I -c 'import json,sys; print(json.dumps([c for page in json.load(sys.stdin) for c in page]))' > "$RUNNER_TEMP/comments.json"
           python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" > "$RUNNER_TEMP/selected.json"
           python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); open(sys.argv[2],"w").write(s["body"]); open(sys.argv[3],"w").write(s["updatedAt"] or ""); print(s["commentId"] or "")' "$RUNNER_TEMP/selected.json" "$RUNNER_TEMP/previous.md" "$RUNNER_TEMP/previous-updated-at" > "$RUNNER_TEMP/comment-id"
-          # A prior run's one public PATCH contains a durable, non-terminal
-          # candidate. Reconcile it here from GitHub's trusted server timestamp
-          # before opening this new attempt. A late or edited candidate refuses.
+          # A prior run's one public PATCH contains only a durable, non-terminal
+          # candidate. It is not completion authority by itself. Reconcile only
+          # from the prior run's immutable completion artifact, which contains
+          # the separate attestation and the exact settlement/occurrence bytes.
           if python3 -I -c 'import json,re,sys; b=open(sys.argv[1],encoding="utf-8").read(); m=re.findall(r"```json\n(.*?)\n```",b,re.S); raise SystemExit(0 if m and json.loads(m[0]).get("pendingCompletion") else 1)' "$RUNNER_TEMP/previous.md"; then
-            python3 -I "$P" reconcile --previous "$RUNNER_TEMP/previous.md" --published-at "$(cat "$RUNNER_TEMP/previous-updated-at")" --out "$RUNNER_TEMP/reconciled.md"
+            pending_run_id="$(python3 -I -c 'import json,re,sys; b=open(sys.argv[1],encoding="utf-8").read(); m=re.findall(r"```json\n(.*?)\n```",b,re.S); print(json.loads(m[0])["pendingCompletion"]["record"]["runId"])' "$RUNNER_TEMP/previous.md")"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$pending_run_id/artifacts" > "$RUNNER_TEMP/prior-artifact-pages.json"
+            python3 -I -c 'import json,sys; pages=json.load(open(sys.argv[1])); pages=pages if isinstance(pages,list) else [pages]; rows=[a for p in pages for a in p.get("artifacts",[]) if a.get("name")=="cloud-test-completion-attestation" and not a.get("expired")]; assert len(rows)==1,"completion-artifact-missing-or-ambiguous"; open(sys.argv[2],"w").write(json.dumps({"id":rows[0]["id"],"created_at":rows[0]["created_at"]}))' "$RUNNER_TEMP/prior-artifact-pages.json" "$RUNNER_TEMP/prior-artifact.json"
+            artifact_id="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$RUNNER_TEMP/prior-artifact.json")"
+            artifact_created_at="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["created_at"])' "$RUNNER_TEMP/prior-artifact.json")"
+            mkdir -p "$RUNNER_TEMP/prior-completion"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/prior-completion.zip"
+            python3 -I -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); expected={"completion-attestation.json","settle-receipt.json","occurrence.json","terminal-candidate.md"}; assert set(z.namelist())==expected,"completion-artifact-files"; z.extractall(sys.argv[2])' "$RUNNER_TEMP/prior-completion.zip" "$RUNNER_TEMP/prior-completion"
+            python3 -I "$P" reconcile --previous "$RUNNER_TEMP/previous.md" --published-at "$(cat "$RUNNER_TEMP/previous-updated-at")" \
+              --artifact-created-at "$artifact_created_at" \
+              --attestation "$RUNNER_TEMP/prior-completion/completion-attestation.json" \
+              --settle-receipt "$RUNNER_TEMP/prior-completion/settle-receipt.json" \
+              --occurrence "$RUNNER_TEMP/prior-completion/occurrence.json" --out "$RUNNER_TEMP/reconciled.md"
             mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
           fi
           # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
@@ -732,16 +745,22 @@ jobs:
           if [ "$attestable" = true ]; then
             mkdir -p "$RUNNER_TEMP/completion"
             cp "$RUNNER_TEMP/candidate.md" "$RUNNER_TEMP/completion/terminal-candidate.md"
+            cp "$receipt" "$RUNNER_TEMP/completion/settle-receipt.json"
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+              cp "$RUNNER_TEMP/manual-occurrence.json" "$RUNNER_TEMP/completion/occurrence.json"
+            else
+              cp "$RUNNER_TEMP/nightly-request.json" "$RUNNER_TEMP/completion/occurrence.json"
+            fi
             python3 -I "$P" attest --candidate "$RUNNER_TEMP/candidate.md" --public-body "$RUNNER_TEMP/body.md" \
               --published "$RUNNER_TEMP/published.json" --settle-receipt-sha256 "$SETTLE_RECEIPT_SHA256" \
               --occurrence-sha256 "$occurrence_sha256" \
               --out "$RUNNER_TEMP/completion/completion-attestation.json"
           fi
-      - name: Retain the fail-closed completion attestation (1 day)
+      - name: Retain the fail-closed completion evidence for the next admitted run (2 days)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cloud-test-completion-attestation
           path: ${{ runner.temp }}/completion
-          retention-days: 1
+          retention-days: 2
           if-no-files-found: ignore

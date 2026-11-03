@@ -506,8 +506,17 @@ class LiveWorkflowPolicy(unittest.TestCase):
         uploads = [s for s in self.jobs["record-complete"]["steps"] if s.get("uses") == "actions/upload-artifact@v4"]
         self.assertEqual(len(uploads), 1)
         self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/completion")
+        self.assertEqual(uploads[0]["with"]["retention-days"], 2)
+        self.assertIn('cp "$receipt" "$RUNNER_TEMP/completion/settle-receipt.json"', complete["run"])
+        self.assertIn('cp "$RUNNER_TEMP/manual-occurrence.json" "$RUNNER_TEMP/completion/occurrence.json"', complete["run"])
+        self.assertIn('cp "$RUNNER_TEMP/nightly-request.json" "$RUNNER_TEMP/completion/occurrence.json"', complete["run"])
         begin = next(s for s in self.jobs["record-begin"]["steps"] if "publish_latest_record.py" in s.get("run", ""))
         self.assertIn('reconcile --previous "$RUNNER_TEMP/previous.md"', begin["run"])
+        self.assertIn('actions/runs/$pending_run_id/artifacts', begin["run"])
+        self.assertIn('actions/artifacts/$artifact_id/zip', begin["run"])
+        self.assertIn('--attestation "$RUNNER_TEMP/prior-completion/completion-attestation.json"', begin["run"])
+        self.assertIn('--settle-receipt "$RUNNER_TEMP/prior-completion/settle-receipt.json"', begin["run"])
+        self.assertIn('--occurrence "$RUNNER_TEMP/prior-completion/occurrence.json"', begin["run"])
         # Settlement remains independent of the occurrence deadline: a late
         # publisher cannot claim completion, but held usage is still reconciled
         # under the accepted accounting period.
