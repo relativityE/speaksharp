@@ -212,6 +212,12 @@ class Derivation(unittest.TestCase):
         raised = copy.deepcopy(clamped)
         raised["estimate"]["providerBillableRequests"]["coachingCap"] = 10_000
         self.assertTrue(coaching_errors(raised), "never a higher one")
+        # Sam 1793681502.390299: the nightly occurrence id carries the runner's nightly-only coaching exemption; a manual request may not use it.
+        manual = copy.deepcopy(clamped)
+        manual["priority"] = "full-coverage"
+        occurrence_errors = [e for e in V.validate(manual, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation())[0] if "nightly occurrence form" in e]
+        self.assertTrue(occurrence_errors, "a non-nightly request with a nightly-shaped runId is refused")
+        self.assertEqual([e for e in V.validate(clamped, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation())[0] if "nightly occurrence form" in e], [])
         refused(self, "nightly-budget-shape", derive, bud=json.dumps({"requests": {}}).encode())
         refused(self, "nightly-budget-shape", derive, bud=budget(coaching={"cap": 1.5}))
         refused(self, "nightly-budget-shape", derive, bud=budget(coaching={"basis": ""}))

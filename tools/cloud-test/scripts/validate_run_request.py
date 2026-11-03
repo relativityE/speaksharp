@@ -93,6 +93,10 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         E("schema is not speaksharp.cloud-test.run-request.v2")
     if not req.get("runId"):
         E("runId missing")
+    # Sam 1793681502.390299: the nightly occurrence id form (nightly_request.occurrence_id) carries the nightly-only coaching exemption in the
+    # campaign runner, so only a nightly-regression request may use it.
+    elif re.fullmatch(r"nightly-[0-9]{8}T[0-9]{4}Z-[0-9]{8}T[0-9]{4}Z", str(req.get("runId"))) and req.get("priority") != "nightly-regression":
+        E("runId uses the nightly occurrence form but the request is not a nightly-regression occurrence")
     if req.get("workflowVersion") != wf["version"]:
         E("workflowVersion %r does not equal the workflow in this package (%s); state a deviation or update the request" % (req.get("workflowVersion"), wf["version"]))
     if req.get("configVersion") != cfg["configVersion"]:
