@@ -16,6 +16,7 @@ const navigation=require('./navigation-controls.cjs');
 const saveFault=require('./save-fault-binding.cjs');
 const progressNumeric=require('./progress-numeric.cjs');
 const oracleSource=require('./oracles/index.cjs');
+const {createOwnerDb,rows:ownerRows}=require('./oracles/owner-query.cjs');
 const finiteDenominator=require('./finite-aht-denominator.json');
 const smokeTiming=require('./oracles/pure/smokeTiming.cjs');
 const SOURCE_SHA='66328703bf47e865b730e229005411e78481d34c';
@@ -86,6 +87,11 @@ const needs=(caseId,c)=>['minimal','smoke'].includes(c?.sampleMode)&&MINIMAL_NEE
 function notRun(message){const e=new Error(message);e.code='NOT_RUN';e.trustedBlocker=message;throw e;}
 function requireThat(value,message){if(!value)notRun(message);}
 function safeRef(x){return typeof x==='string'&&x.length<512&&!x.startsWith('/')&&!x.split('/').includes('..')&&!/[\r\n]/.test(x);}
+async function smokeLeaseBoundary(page,c,{createDb=createOwnerDb,read=ownerRows,readMic=observer.mic}={}){
+ let leaseRows=null;try{leaseRows=await read(createDb(page,c),'active_recording_lease','user_id,lease_id,state');}catch{/* fail closed below */}
+ let mic=null;try{mic=await readMic(page);}catch{/* fail closed below */}
+ return smokeTiming.leaseBoundary({leaseRows,mic});
+}
 function preflight(caseId,c,cap,guard,configurationOnly=false){
  const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];requireThat(contract,'unknown case');requireThat(contract.unimplementedRequiredAssertions.length===0,'required harness implementation missing: '+contract.unimplementedRequiredAssertions.join(', '));
  requireThat(c&&c.caseId===caseId&&c.sourceSha===SOURCE_SHA,'exact inspected source not bound; revalidation required for changed release');
@@ -185,9 +191,7 @@ async function run(caseId,args){
   page=await newPage();page.setDefaultTimeout(30000);page.setDefaultNavigationTimeout(45000);
   const ownerMatches=await ui.login(page,c,cap.credentials);let leaseFacts={notApplicable:true,reads:0};
   if(!['AHT-08','AHT-15'].includes(caseId)&&c.sampleMode==='smoke'){
-   let leaseRows=null;try{leaseRows=await rows(createOwnerDb(page,c),'active_recording_lease','user_id,lease_id,state');}catch{/* typed below as unavailable */}
-   let mic=null;try{mic=await observer.mic(page);}catch{/* typed below as unavailable */}
-   leaseFacts=smokeTiming.leaseBoundary({leaseRows,mic});
+   leaseFacts=await smokeLeaseBoundary(page,c);
    requireThat(leaseFacts.ready,'pre-case lease boundary is unreadable or live; no expiry inferred and no forced release');
   }else if(!['AHT-08','AHT-15'].includes(caseId))await page.waitForTimeout(20000);
   await check('owner-bound',ownerMatches,{ownerMatches:true,leaseBoundary:leaseFacts.code||'not-applicable',leaseReadCount:leaseFacts.reads});
@@ -366,4 +370,4 @@ async function run(caseId,args){
  }
  return {caseId,contentSafe:true,assertions,blocker,executionSignals};
 }
-module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,installCoachingResponseHandler,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};
+module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,installCoachingResponseHandler,smokeLeaseBoundary,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};

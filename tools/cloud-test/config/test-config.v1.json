@@ -252,7 +252,7 @@
         "maxSelectedCases": 15,
         "maxRunCapRequests": 3000,
         "maxIdentityReadsPerRun": 32,
-        "maxWindowMinutes": 40,
+        "maxWindowMinutes": 49,
         "note": "All 15 journeys, reduced recording windows and a smoke-only assertion denominator. These are structural maxima, not execution approval."
       },
     "assertionCatalog": {
@@ -280,9 +280,9 @@
         "AHT-04": 64000, "AHT-05": 258000, "AHT-06": 252000,
         "AHT-07": 247000, "AHT-08": 10000, "AHT-09": 190000,
         "AHT-10": 166000, "AHT-11": 92000, "AHT-12": 73000,
-        "AHT-13": 41000, "AHT-14": 41000, "AHT-15": 17000
+        "AHT-13": 300000, "AHT-14": 300000, "AHT-15": 17000
       },
-      "timingBasis": "Per-case maxima are max(retained R5,R9 wall time) plus 10%, rounded up. AHT-13/14 use 41 seconds from the retained <37 second maximum. Whole smoke is capped at 40 minutes."
+      "timingBasis": "Per-case maxima use retained completed R5/R9 wall time plus 10%, rounded up. AHT-13/14 retain the production five-minute failure deadline because their retained rows were NOT RUN and cannot establish a shorter visible-error bound. Whole smoke is capped at 49 minutes."
     },
     "full": {
       "label": "FULL COVERAGE",

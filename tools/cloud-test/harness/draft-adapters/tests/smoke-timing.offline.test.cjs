@@ -49,9 +49,22 @@ test('lease boundary passes only a fresh empty owner read plus an independently 
  assert.equal(timing.leaseBoundary({leaseRows:[],mic:null}).code,'MIC_STATE_UNAVAILABLE');
 });
 
-test('smoke failure deadline is measured maximum plus ten percent and full path is unchanged',()=>{
- assert.equal(timing.modelFailureDeadlineMs({sampleMode:'smoke'}),41000);
+test('the unsupported short failure deadline is refused and production envelope is preserved',()=>{
+ assert.equal(timing.modelFailureDeadlineMs({sampleMode:'smoke'}),300000);
  assert.equal(timing.modelFailureDeadlineMs({sampleMode:'full'}),300000);
+});
+
+test('runtime smoke lease path uses the authenticated owner-table reader, not the session helper',async()=>{
+ const calls=[],db={owner:true},idle={liveTracks:0,recording:false,recorderVisible:false};
+ const result=await adapters.smokeLeaseBoundary({page:true},{caseId:'AHT-01'}, {
+  createDb:(page,c)=>{assert.equal(page.page,true);assert.equal(c.caseId,'AHT-01');return db;},
+  read:async(actual,table,columns)=>{calls.push({actual,table,columns});return [];},
+  readMic:async()=>idle,
+ });
+ assert.equal(result.ready,true);
+ assert.deepEqual(calls,[{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'}]);
+ const unavailable=await adapters.smokeLeaseBoundary({}, {}, {createDb:()=>db,read:async()=>{throw Error('denied');},readMic:async()=>idle});
+ assert.equal(unavailable.code,'LEASE_READ_UNAVAILABLE');
 });
 
 test('Focus smoke scores only point windows fully heard before Stop',()=>{
@@ -76,6 +89,6 @@ test('smoke denominator is distinct, complete, and never mutates the full contra
 test('source increment gives smoke an owner-read condition while preserving the unselected full path',()=>{
  const source=fs.readFileSync(path.join(__dirname,'../source-adapters.cjs'),'utf8');
  assert.ok(source.includes("c.sampleMode==='smoke'"));
- assert.ok(source.includes("rows(createOwnerDb(page,c),'active_recording_lease','user_id,lease_id,state')"));
+ assert.ok(source.includes('leaseFacts=await smokeLeaseBoundary(page,c)'));
  assert.ok(source.includes('smokeTiming.modelFailureDeadlineMs(c)'));
 });

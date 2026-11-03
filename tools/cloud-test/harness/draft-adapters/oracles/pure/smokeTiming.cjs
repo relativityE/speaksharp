@@ -20,9 +20,10 @@ const WINDOWS=Object.freeze({
   'AHT-15':22850,
 });
 
-// Recent retained R5/R9 wall-clock evidence put each model-failure journey below
-// 37 s. 41 s is the measured maximum rounded up with the directed 10% margin.
-const MODEL_FAILURE_DEADLINE_MS=41000;
+// The retained R5/R9 model-failure rows were NOT RUN and do not support a shorter
+// product-visible-error deadline. Smoke therefore preserves the production path's
+// existing five-minute bound until a completed run supplies timing evidence.
+const MODEL_FAILURE_DEADLINE_MS=300000;
 
 function recordingWindowMs(caseId,{sampleMode,fixtureDurationMs,requestedMs}={}){
   if(sampleMode!=='smoke')return fixtureDurationMs;

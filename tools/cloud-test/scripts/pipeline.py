@@ -311,7 +311,8 @@ def main():
                 sys.exit(2)
         latest_cmp = O("comparisons/%s/comparison.json" % prev_label)
     # 6b. completeness of the latest run against the pinned assertion catalog (a partial or carried-forward result is never a full live run)
-    cat = os.path.join(ROOT, cfg["modes"]["full"]["assertionCatalog"]["file"])
+    catalog_mode = "smoke" if req.get("coverageMode") == "smoke" else "full"
+    cat = os.path.join(ROOT, cfg["modes"][catalog_mode]["assertionCatalog"]["file"])
     cv = ["--request", x.request, "--catalog", cat, "--out", O("coverage.json")]
     if x.latest_label:
         cv += ["--case-results", os.path.join(x.receipts_root, x.latest_label, "case-results.json")]

@@ -95,11 +95,12 @@ class ShortSmokeContract(unittest.TestCase):
         smoke = cfg["modes"]["smoke"]
         self.assertFalse(smoke["countsAsFullLiveRun"])
         self.assertEqual(smoke["limits"]["maxSelectedCases"], 15)
-        self.assertEqual(smoke["limits"]["maxWindowMinutes"], 40)
+        self.assertEqual(smoke["limits"]["maxWindowMinutes"], 49)
         self.assertEqual(smoke["recordingWindowMs"]["AHT-03"], 22000)
         self.assertEqual(smoke["recordingWindowMs"]["AHT-02"], 23100)
         self.assertTrue(all(v >= 5000 for v in smoke["recordingWindowMs"].values()))
-        self.assertLessEqual(sum(smoke["caseMaxMs"].values()), 40 * 60 * 1000)
+        overhead = sum(smoke["window"][key] for key in ("admissionMaxMinutes", "interCaseAndReportMinutes", "cleanupReserveMinutes"))
+        self.assertLessEqual(sum(smoke["caseMaxMs"].values()), (smoke["limits"]["maxWindowMinutes"] - overhead) * 60 * 1000)
         catalog = json.loads((ROOT / smoke["assertionCatalog"]["file"]).read_text())
         self.assertEqual(catalog["totalAssertions"], sum(len(row["requiredAssertions"]) for row in catalog["cases"].values()))
         self.assertEqual(catalog["minimumStarts"], sum(MINIMAL_MINIMA.values()))
@@ -118,9 +119,14 @@ class ShortSmokeContract(unittest.TestCase):
 
     def test_smoke_uses_its_own_forty_minute_live_ceiling(self):
         value = live_smoke_request()
-        self.assertEqual(init.check_ceilings(CFG, value, init.ALL_CASES, 65), 40)
+        self.assertEqual(init.check_ceilings(CFG, value, init.ALL_CASES, 74), 49)
         with self.assertRaisesRegex(init.Refused, "time-exceeds-job-timeout"):
-            init.check_ceilings(CFG, value, init.ALL_CASES, 64)
+            init.check_ceilings(CFG, value, init.ALL_CASES, 73)
+
+    def test_pipeline_selects_the_smoke_catalog_on_the_real_coverage_path(self):
+        source = (ROOT / "scripts/pipeline.py").read_text()
+        self.assertIn('catalog_mode = "smoke" if req.get("coverageMode") == "smoke" else "full"', source)
+        self.assertIn('cfg["modes"][catalog_mode]["assertionCatalog"]["file"]', source)
 
     def test_real_builder_emits_the_pinned_smoke_contract_for_all_fifteen(self):
         with tempfile.TemporaryDirectory(prefix="cloud-test-smoke-builder-") as root:
