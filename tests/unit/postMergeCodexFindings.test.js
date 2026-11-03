@@ -146,6 +146,8 @@ describe('#1430 fix-forward `3991325303` — executable control files are substa
       'tools/cloud-test/config/test-config.v1.json',
       'tools/cloud-test/tests/test_release_gate.py',
       'tools/cloud-test/tests/fixtures/full-request.json',
+      'tools/cloud-test/scripts/fixtures/example.py',
+      'tools/cloud-test/report/fixture/example.cjs',
       'tools/cloud-test/harness/PACKET-MANIFEST.sha256',
     ]) {
       expect({ path, substantive: isSubstantiveImplementationFile(path) }).toEqual({ path, substantive: false });
