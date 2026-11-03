@@ -26,6 +26,7 @@
   "allowedPriorities": [
     "prove-deployed-fix",
     "restore-missing-evidence",
+    "journey-smoke",
     "full-coverage",
     "nightly-regression"
   ],
@@ -229,7 +230,7 @@
     ]
   },
   "modes": {
-    "note": "Coverage scope and case depth are explicit. PARTIAL selects at most six cases, with either minimal or full case assertions; it never counts as a full all15 live run. FULL runs all 15 journeys with every required assertion. Partial and carried-forward results never count as a full live run.",
+    "note": "Coverage scope and case depth are explicit. PARTIAL selects at most six cases. SMOKE visits all 15 journeys with a reviewed short assertion set and never counts as full live acceptance. FULL runs all 15 journeys with every required assertion. Smoke, partial and carried-forward results never count as a full live run.",
     "partial": {
       "label": "PARTIAL",
       "sampleMode": "minimal",
@@ -241,6 +242,47 @@
         "maxIdentityReadsPerRun": 20,
         "maxWindowMinutes": 150
       }
+    },
+    "smoke": {
+      "label": "ALL-AREA SHORT SMOKE",
+      "sampleMode": "smoke",
+      "countsAsFullLiveRun": false,
+      "requiresOwnerDecision": true,
+      "limits": {
+        "maxSelectedCases": 15,
+        "maxRunCapRequests": 3000,
+        "maxIdentityReadsPerRun": 32,
+        "maxWindowMinutes": 40,
+        "note": "All 15 journeys, reduced recording windows and a smoke-only assertion denominator. These are structural maxima, not execution approval."
+      },
+    "assertionCatalog": {
+      "file": "config/smoke-assertion-catalog.json",
+      "sha256": "f311f7dbc1b5c5223c5cccd584b072a4cc07f44ce2aa26f5282582ac687507a2",
+      "totalAssertions": 141,
+      "rule": "A smoke result executes every listed smoke row as PASS or FAIL. NOT RUN is incomplete. Smoke never counts as full live acceptance.",
+      "version": 1
+    },
+    "window": {
+      "admissionExpectedMinutes": 1,
+      "admissionMaxMinutes": 2,
+      "interCaseAndReportMinutes": 3,
+      "cleanupReserveMinutes": 2
+    },
+      "recordingWindowMs": {
+        "AHT-01": 22850, "AHT-02": 23100, "AHT-03": 22000,
+        "AHT-04": 22850, "AHT-05": 22850, "AHT-06": 22850,
+        "AHT-07": 22850, "AHT-08": 22850, "AHT-09": 22850,
+        "AHT-10": 22850, "AHT-11": 22850, "AHT-12": 22850,
+        "AHT-13": 22850, "AHT-14": 22850, "AHT-15": 22850
+      },
+      "caseMaxMs": {
+        "AHT-01": 212000, "AHT-02": 160000, "AHT-03": 123000,
+        "AHT-04": 64000, "AHT-05": 258000, "AHT-06": 252000,
+        "AHT-07": 247000, "AHT-08": 10000, "AHT-09": 190000,
+        "AHT-10": 166000, "AHT-11": 92000, "AHT-12": 73000,
+        "AHT-13": 41000, "AHT-14": 41000, "AHT-15": 17000
+      },
+      "timingBasis": "Per-case maxima are max(retained R5,R9 wall time) plus 10%, rounded up. AHT-13/14 use 41 seconds from the retained <37 second maximum. Whole smoke is capped at 40 minutes."
     },
     "full": {
       "label": "FULL COVERAGE",

@@ -207,9 +207,14 @@ def check_request(req, now, template_keys, nightly=False):
     _need(isinstance((req.get("release") or {}).get("testedSha"), str) and LR.SHA40.match(req["release"]["testedSha"]), "request-release-sha")
     cases = [s.get("case") for s in req.get("selection") or [] if isinstance(s, dict)]
     _need(cases and len(cases) == len(req["selection"]) == len(set(cases)) and all(c in ROLE for c in cases), "case-selection")
-    _need(req.get("coverageMode") in ("partial", "full"), "coverage-mode")
-    _need(req["coverageMode"] == "partial" or sorted(cases) == ALL_CASES, "full-mode-needs-all-fifteen")
-    _need(req.get("sampleMode") == "full", "partial-selection-needs-selected-full-sampling")
+    _need(req.get("coverageMode") in ("partial", "smoke", "full"), "coverage-mode")
+    if req["coverageMode"] == "full":
+        _need(sorted(cases) == ALL_CASES, "full-mode-needs-all-fifteen")
+    if req["coverageMode"] == "smoke":
+        _need(sorted(cases) == ALL_CASES, "smoke-mode-needs-all-fifteen")
+        _need(req.get("sampleMode") == "smoke", "smoke-mode-needs-smoke-sampling")
+    else:
+        _need(req.get("sampleMode") == "full", "partial-selection-needs-selected-full-sampling")
     for ref in (req.get("selectionApprovalRef"), (req.get("harness") or {}).get("ownerApprovalRef"), (req.get("window") or {}).get("approvalRef")):
         _need(_ref(ref), "approval-reference-missing")
     lim = req.get("approvedLimits") or {}
@@ -223,8 +228,8 @@ def check_request(req, now, template_keys, nightly=False):
 
 def check_ceilings(cfg, req, cases, job_timeout_minutes):
     """Request, identity, paid and time ceilings, never raised by input. Returns the live-window minutes for the run step."""
-    full = req["coverageMode"] == "full"
-    mode = cfg["modes"]["full"]["limits"] if full else cfg["limits"]
+    coverage_mode = req["coverageMode"]
+    mode = cfg["modes"][coverage_mode]["limits"] if coverage_mode in ("smoke", "full") else cfg["limits"]
     _need(len(cases) <= mode["maxSelectedCases"], "selection-exceeds-mode-cap")
     lim, est = req["approvedLimits"], req.get("estimate") or {}
     # runCapRequests is per run; identityCap and cumulativeCeilingRequests are CUMULATIVE and are checked against verified prior usage.
@@ -233,8 +238,9 @@ def check_ceilings(cfg, req, cases, job_timeout_minutes):
     _need(_int(reqs.get("runCap")) and reqs["runCap"] <= lim["runCapRequests"], "estimate-exceeds-approved-run-cap")
     _need(_int(est.get("identityReads")) and est["identityReads"] <= mode["maxIdentityReadsPerRun"], "estimate-exceeds-per-run-identity-cap")
     _need(cfg["limits"]["maxPaidActionsUsd"] == 0 and est.get("paidActionsAuthorizedUsd") == 0, "paid-actions-refused")
-    w = cfg["modes"]["full"]["window"]
-    case_minutes = math.ceil(sum(cfg["modes"]["full"]["caseMaxMs"][c] for c in cases) / 60000)
+    w = cfg["modes"].get(coverage_mode, {}).get("window") or cfg["modes"]["full"]["window"]
+    case_limits = cfg["modes"].get(coverage_mode, {}).get("caseMaxMs") or cfg["modes"]["full"]["caseMaxMs"]
+    case_minutes = math.ceil(sum(case_limits[c] for c in cases) / 60000)
     live = case_minutes + w["admissionMaxMinutes"] + w["interCaseAndReportMinutes"] + w["cleanupReserveMinutes"]
     _need(live <= mode["maxWindowMinutes"], "time-exceeds-mode-window")
     worst = (est.get("window") or {}).get("worstCaseMinutes")
@@ -820,7 +826,9 @@ def identities(request_path, config_path, admitted_sha256):
     catalog file must still be the pinned bytes, and its exact per-case required-assertion sets are what qualification checks every case
     config against."""
     request = admitted_request(request_path, admitted_sha256)
-    pin = _load(config_path)["modes"]["full"]["assertionCatalog"]
+    cfg = _load(config_path)
+    mode = request.get("coverageMode")
+    pin = cfg["modes"]["smoke" if mode == "smoke" else "full"]["assertionCatalog"]
     catalog = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(config_path))), pin["file"])
     raw = _read(catalog)
     _need(hashlib.sha256(raw).hexdigest() == pin["sha256"], "assertion-catalog-not-pinned")
@@ -840,7 +848,7 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     request, assertion catalog and harness CODE manifest."""
     selected = sorted(selected)
     _need(selected and all(c in ROLE for c in selected) and len(set(selected)) == len(selected), "case-selection")
-    _need(coverage_mode in ("partial", "full"), "coverage-mode")
+    _need(coverage_mode in ("partial", "smoke", "full"), "coverage-mode")
     frozen, original_plan, plan_file = _freeze(snapshot_dir, plan_path, case_results_path, cases_dir, approval, code_manifest)
     out = os.path.join(snapshot_dir, "verification.json")
     status = run_verifier(plan_file, os.path.join(snapshot_dir, "case-results.json"), os.path.join(snapshot_dir, "approval.json"),
@@ -880,6 +888,8 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     # marks coverageMode partial + assertionDepth full; full mode adds no marker and selects all 15 (an explicit selection object is allowed).
     if coverage_mode == "full":
         _need(selected == ALL_CASES and "coverageMode" not in plan and "assertionDepth" not in plan, "plan-not-a-full-coverage-plan")
+    elif coverage_mode == "smoke":
+        _need(selected == ALL_CASES and plan.get("coverageMode") == "smoke" and plan.get("assertionDepth") == "smoke", "plan-not-an-all-fifteen-smoke-plan")
     else:
         _need(plan.get("coverageMode") == "partial" and plan.get("assertionDepth") == "full", "plan-not-a-selected-full-plan")
     counts = {"PASS": 0, "FAIL": 0, "NOT RUN": 0}
@@ -922,7 +932,7 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     executed = counts["NOT RUN"] == 0
     return {"qualified": True, "campaignId": plan["campaignId"], "testedSha": plan["sourceSha"], "servedSha": results.get("servedSha"),
             "planSha256": digest(original_plan), "caseResultsSha256": digest(frozen["case-results.json"]), "cases": selected,
-            "coverage": ("full" if coverage_mode == "full" else "batch") if executed else "incomplete",
+            "coverage": ("full" if coverage_mode == "full" else "smoke" if coverage_mode == "smoke" else "batch") if executed else "incomplete",
             "outcome": "passed" if executed and counts["FAIL"] == 0 and all(o == "PASS" for o in case_outcomes) else "failed",
             "requestSha256": ids["requestSha256"], "catalogSha256": ids["catalogSha256"], "codeManifestSha256": digest(frozen["packet/CODE.sha256"]),
             "planCases": len(rows), "requiredRows": sum(counts.values()), "passRows": counts["PASS"], "failRows": counts["FAIL"],
@@ -1117,9 +1127,9 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
                  provenance.get("campaignId") == campaign and type(provenance.get("runId")) is str and provenance.get("runId") == run_id and
                  type(provenance.get("attempt")) is int and provenance.get("attempt") == 1 and attempt == 1 and
                  q.get("outcome") in ("passed", "failed") and
-                 (q.get("coverage") in ("batch", "incomplete") or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
+                 (q.get("coverage") in ("batch", "smoke", "incomplete") or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
                  isinstance(q.get("cases"), list) and set(q["cases"]) <= {c.get("case") for c in run_record.get("cases") or [] if isinstance(c, dict)})
-    if qualified and q["coverage"] in ("batch", "full"):
+    if qualified and q["coverage"] in ("batch", "smoke", "full"):
         # The qualification and the record derive from the same digest-bound case results; their outcomes must agree or neither counts.
         chosen = [c for c in run_record.get("cases") or [] if isinstance(c, dict) and c.get("case") in q["cases"]]
         qualified = (q["outcome"] == "passed") == (bool(chosen) and all(c.get("result") == "PASS" for c in chosen))

@@ -17,6 +17,7 @@ const saveFault=require('./save-fault-binding.cjs');
 const progressNumeric=require('./progress-numeric.cjs');
 const oracleSource=require('./oracles/index.cjs');
 const finiteDenominator=require('./finite-aht-denominator.json');
+const smokeTiming=require('./oracles/pure/smokeTiming.cjs');
 const SOURCE_SHA='66328703bf47e865b730e229005411e78481d34c';
 const SHA=/^[0-9a-f]{64}$/;
 const CONTRACTS={
@@ -59,15 +60,34 @@ const BREADTH_NEEDS=Object.freeze({'AHT-02':{takes:1,startPresses:1},'AHT-03':{t
 // Minimal sample (owner direction, fixed budget): every case still runs, each as a small signal. Retained rows keep their original oracles; everything beyond the cut is recorded
 // NOT RUN (omittedBy:'minimal-sample'), so a cut case is incomplete and can never be PASS. AHT-01 keeps ONE small paired comparison (first take + same-target repeat).
 const MINIMAL_NEEDS=Object.freeze({'AHT-01':{takes:2,startPresses:2},'AHT-02':{takes:1,startPresses:1},'AHT-03':{takes:1,startPresses:1},'AHT-04':{takes:0,startPresses:1},'AHT-05':{takes:1,startPresses:1},'AHT-06':{takes:1,startPresses:1},'AHT-07':{takes:1,startPresses:1},'AHT-08':{takes:0,startPresses:0},'AHT-09':{takes:1,startPresses:1},'AHT-10':{takes:1,startPresses:1},'AHT-11':{takes:1,startPresses:3},'AHT-12':{takes:0,startPresses:1},'AHT-13':{takes:0,startPresses:1},'AHT-14':{takes:0,startPresses:1},'AHT-15':{takes:0,startPresses:0}});
+const SMOKE_COMMON=['owner-bound','start-press-budget','no-cloud-stt','owned-pages-closed'];
+const SMOKE_ROWS=Object.freeze({
+ 'AHT-01':['fresh-first-session','saved-once','open-mic-coaching-length','open-mic-coaching-distinct','open-mic-review-presentation','grounded-coaching','review-reopen','pdf-owner-take','analytics-repeat-opens-product','same-target-repeat',progressNumeric.ROW],
+ 'AHT-02':['focus-pace-guide','focus-rail-before','focus-rail-legend','focus-pending-labelled','focus-next-point-marked','focus-no-red-before-stop','smoke-focus-window','saved-once','grounded-coaching','review-reopen'],
+ 'AHT-03':['focus-pace-guide','focus-rail-before','focus-rail-legend','focus-pending-labelled','focus-next-point-marked','focus-no-red-before-stop','smoke-focus-window','saved-once','grounded-coaching','review-reopen'],
+ 'AHT-04':['cold-pending-observed','pending-leave-no-mic','pending-leave-no-session','return-no-resume'],
+ 'AHT-05':['fault-exercised','recovery-truthful','retry-saved-once','completion-attempts'],
+ 'AHT-06':['fault-exercised','recovery-truthful','retry-saved-once','completion-attempts'],
+ 'AHT-07':['feedback-readback-preflight','fresh-acknowledgment','feedback-stored-once','received-feedback-proof'],
+ 'AHT-08':['feedback-readback-preflight','fresh-acknowledgment','feedback-stored-once','no-session-association','no-coaching-association','received-feedback-proof'],
+ 'AHT-09':['recording-before-leave','leave-released','navigation-ready','return-no-resume','recovery-truthful','left-take-saved-once'],
+ 'AHT-10':['recording-before-leave','leave-released','return-no-resume','recovery-truthful'],
+ 'AHT-11':['same-browser-refused','independent-context-refused'],
+ 'AHT-12':['press-bound-denial','denial-truthful-no-mic'],
+ 'AHT-13':['download-fault-exercised','download-failure-truthful'],
+ 'AHT-14':['download-fault-exercised','download-failure-truthful'],
+ 'AHT-15':CONTRACTS['AHT-15'].rows.filter(id=>!SMOKE_COMMON.includes(id))
+});
+const SMOKE_CONTRACTS=Object.freeze(Object.fromEntries(Object.entries(CONTRACTS).map(([id,contract])=>[id,{...contract,rows:[SMOKE_COMMON[0],...SMOKE_ROWS[id],...SMOKE_COMMON.slice(1)],takes:MINIMAL_NEEDS[id].takes,startPresses:MINIMAL_NEEDS[id].startPresses,unimplementedRequiredAssertions:[]}])));
 // r14: a case that presses Start needs a capture device. R5 launched AHT-04/12/13/14 with no fake capture device (media-less launch: takes 0), so the Private
 // engine setup ended in an error before any model request and AHT-12 could never obtain a NotAllowedError. Pressing Start therefore binds media even when no take is recorded.
 const requiresCaptureDevice=(caseId,c)=>needs(caseId,c).startPresses>0;
-const needs=(caseId,c)=>c?.sampleMode==='minimal'&&MINIMAL_NEEDS[caseId]?MINIMAL_NEEDS[caseId]:c?.sampleMode==='breadth'&&BREADTH_NEEDS[caseId]?BREADTH_NEEDS[caseId]:{takes:CONTRACTS[caseId].takes,startPresses:CONTRACTS[caseId].startPresses};
+const needs=(caseId,c)=>['minimal','smoke'].includes(c?.sampleMode)&&MINIMAL_NEEDS[caseId]?MINIMAL_NEEDS[caseId]:c?.sampleMode==='breadth'&&BREADTH_NEEDS[caseId]?BREADTH_NEEDS[caseId]:{takes:CONTRACTS[caseId].takes,startPresses:CONTRACTS[caseId].startPresses};
 function notRun(message){const e=new Error(message);e.code='NOT_RUN';e.trustedBlocker=message;throw e;}
 function requireThat(value,message){if(!value)notRun(message);}
 function safeRef(x){return typeof x==='string'&&x.length<512&&!x.startsWith('/')&&!x.split('/').includes('..')&&!/[\r\n]/.test(x);}
 function preflight(caseId,c,cap,guard,configurationOnly=false){
- const contract=CONTRACTS[caseId];requireThat(contract,'unknown case');requireThat(contract.unimplementedRequiredAssertions.length===0,'required harness implementation missing: '+contract.unimplementedRequiredAssertions.join(', '));
+ const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];requireThat(contract,'unknown case');requireThat(contract.unimplementedRequiredAssertions.length===0,'required harness implementation missing: '+contract.unimplementedRequiredAssertions.join(', '));
  requireThat(c&&c.caseId===caseId&&c.sourceSha===SOURCE_SHA,'exact inspected source not bound; revalidation required for changed release');
  requireThat(/^[0-9a-f]{40}$/.test(c.servedSha||'')&&c.sourceSha===c.servedSha,'selected source/served binding missing or different');
  let url;try{url=new URL(c.targetUrl);}catch{notRun('target URL missing');}
@@ -79,7 +99,7 @@ function preflight(caseId,c,cap,guard,configurationOnly=false){
  for(const name of ['preprovisionReceipt','analyticsExclusionReceipt','dispositionReceipt'])requireThat(safeRef(c.account[name]),'account '+name+' missing');
  requireThat(c.account.effectiveFeatureAccessApproved===true,'effective feature access unverified; Free label is not a verdict');
  requireThat(c.observerSourceReviewed===true&&safeRef(c.observerQualificationReceipt),'passive browser observer source/runtime qualification missing');
- requireThat(c.sampleMode===undefined||['full','breadth','minimal'].includes(c.sampleMode),'unknown sample mode');requireThat(c.sampleMode!=='breadth'||BREADTH_NEEDS[caseId],'breadth sample is not defined for this case; it runs in full');const need=needs(caseId,c);requireThat(Number.isInteger(c.takeCap)&&c.takeCap>=need.takes,'approved take cap insufficient');
+ requireThat(c.sampleMode===undefined||['full','breadth','minimal','smoke'].includes(c.sampleMode),'unknown sample mode');requireThat(c.sampleMode!=='breadth'||BREADTH_NEEDS[caseId],'breadth sample is not defined for this case; it runs in full');const need=needs(caseId,c);requireThat(Number.isInteger(c.takeCap)&&c.takeCap>=need.takes,'approved take cap insufficient');
  requireThat(Number.isInteger(c.startPressCap)&&c.startPressCap>=need.startPresses,'approved per-Start press cap insufficient');
  if(!configurationOnly&&need.startPresses>0)requireThat(typeof cap?.recordStartPress==='function','required per-Start press journal unavailable before login');
  if(need.takes>0||need.startPresses>0){requireThat(SHA.test(c.fixture?.sha256||'')&&Number.isInteger(c.fixture.speechDurationMs)&&c.fixture.speechDurationMs>=5000&&c.fixture.speechDurationMs<=300000,'reviewed WAV/duration missing');requireThat(c.fixture.launchSha256===c.fixture.sha256,'browser media bytes not bound to fixture');}
@@ -117,7 +137,7 @@ function installCoachingResponseHandler(page,coachingByRequest,{deadlineMs=3000}
 }
 async function run(caseId,args){
  const {context,browser,guard,caseConfig:c,capabilities:cap}=args;
- const contract=preflight(caseId,c,cap,guard);const minimal=c.sampleMode==='minimal';const breadth=(c.sampleMode==='breadth'||minimal)&&['AHT-02','AHT-03'].includes(caseId);const assertions=[];let evidenceIndex=0,current='owner-bound',page=null,blocker=null,interruptionDiag=null;let cloudCount=0,sessionWriteRequests=0,startPresses=0;const coachingAttempts=[],coachingByRequest=new WeakMap();let lastPressAcquisitions=null;const executionSignals={authenticationRejected:false,startPressCapExceeded:false};
+ const contract=preflight(caseId,c,cap,guard);const smoke=c.sampleMode==='smoke';const minimal=['minimal','smoke'].includes(c.sampleMode);const breadth=(c.sampleMode==='breadth'||minimal)&&['AHT-02','AHT-03'].includes(caseId);const assertions=[];let evidenceIndex=0,current='owner-bound',page=null,blocker=null,interruptionDiag=null;let cloudCount=0,sessionWriteRequests=0,startPresses=0;const coachingAttempts=[],coachingByRequest=new WeakMap();let lastPressAcquisitions=null;const executionSignals={authenticationRejected:false,startPressCapExceeded:false};
  const pages=[],contexts=[];const coachingTakeIds={first:null,second:null};let baselineIds=null,coachingCaptureController=null,coachingCapturePromise=null,focusPresentationWindow=null,interruptionRef=null,coachingCaptureFailure=null,pcmDiagnosticRefs=[];
  async function assertion(id,result,facts={},externalRefs=[]){
    // Evidence is booleans/counts/closed statuses only; never pass raw DOM, IDs, errors, URLs, or text here.
@@ -163,9 +183,14 @@ async function run(caseId,args){
  async function noResume(p,id='return-no-resume'){const m=await observer.mic(p);requireThat(m,'microphone observation missing');await check(id,!m.recording&&!m.recorderVisible&&m.liveTracks===0,{liveTracks:m.liveTracks,recording:m.recording});}
  try{
   page=await newPage();page.setDefaultTimeout(30000);page.setDefaultNavigationTimeout(45000);
-  await check('owner-bound',await ui.login(page,c,cap.credentials),{ownerMatches:true});
-  // #1476 lease: a previous case's unreleased lease expires 15 s after its last heartbeat; settle before the first Start so back-to-back cases on the shared account cannot collide.
-  if(!['AHT-08','AHT-15'].includes(caseId))await page.waitForTimeout(20000);
+  const ownerMatches=await ui.login(page,c,cap.credentials);let leaseFacts={notApplicable:true,reads:0};
+  if(!['AHT-08','AHT-15'].includes(caseId)&&c.sampleMode==='smoke'){
+   let leaseRows=null;try{leaseRows=await rows(createOwnerDb(page,c),'active_recording_lease','user_id,lease_id,state');}catch{/* typed below as unavailable */}
+   let mic=null;try{mic=await observer.mic(page);}catch{/* typed below as unavailable */}
+   leaseFacts=smokeTiming.leaseBoundary({leaseRows,mic});
+   requireThat(leaseFacts.ready,'pre-case lease boundary is unreadable or live; no expiry inferred and no forced release');
+  }else if(!['AHT-08','AHT-15'].includes(caseId))await page.waitForTimeout(20000);
+  await check('owner-bound',ownerMatches,{ownerMatches:true,leaseBoundary:leaseFacts.code||'not-applicable',leaseReadCount:leaseFacts.reads});
   if(caseId==='AHT-07'){current='feedback-readback-preflight';const readProbe=await hook('feedbackAssociation','capability');await check('feedback-readback-preflight',readProbe.observed===true,{existingAuthenticatedReceiverBound:true,browserSelectNotRequired:true,actualDeliveryNotYetProven:true});}
   if(caseId!=='AHT-12'&&caseId!=='AHT-15')await context.grantPermissions(['microphone'],{origin:c.targetUrl});
   const baseline=await rows();
@@ -182,11 +207,12 @@ async function run(caseId,args){
    // Save and final Focus checks are independent of coaching. Retain them before
    // a missing pair, failed service response or unavailable authority can interrupt capture.
    const firstSavedRows=await rows();await check('saved-once',ownSaved(firstSavedRows,first),{savedRows:firstSavedRows.length});
-   if(focus){current='focus-final';await page.waitForFunction(n=>Array.from({length:n},(_,i)=>document.querySelector('[data-testid="focus-point-'+i+'"]')?.getAttribute('data-status')).every(x=>x&&x!=='pending'),c.focus.points.length,{timeout:60000});const states=await Promise.all(c.focus.points.map((_,i)=>page.getByTestId('focus-point-'+i).getAttribute('data-status')));const publication=await objectivePublicationDiagnostics(objectiveBaseline,first,c.focus.expectedFinal,states);const statesMatch=states.every((value,i)=>value===c.focus.expectedFinal[i]);await check('focus-final',statesMatch&&publication.validated,{points:states.length,matching:states.filter((value,i)=>value===c.focus.expectedFinal[i]).length,publicationValidated:publication.validated},[...pcmDiagnosticRefs,...publication.refs]);await emitPresentation(await presentation.afterFocus(page,c.focus.expectedFinal,firstStoppedAt-firstStartedAt));await presentationRows([presentation.group('focus-presentation-contract',presentation.FOCUS_ROWS,firstPresentation)]);await oracleAssertion('focus-live-durable','focusEvidence',{sessionId:first});}
+   if(focus&&smoke){current='smoke-focus-window';await page.waitForFunction(({windows,windowMs})=>windows.every((range,i)=>!Array.isArray(range)||Math.ceil(range[1]*1000)>windowMs||(()=>{const status=document.querySelector('[data-testid="focus-point-'+i+'"]')?.getAttribute('data-status');return !!status&&status!=='pending';})()),{windows:c.focus.speechWindows,windowMs:c.recordingWindowMs},{timeout:60000});const states=await Promise.all(c.focus.points.map((_,i)=>page.getByTestId('focus-point-'+i).getAttribute('data-status')));const verdict=smokeTiming.focusWindowVerdict({windows:c.focus.speechWindows,expected:c.focus.expectedFinal,statuses:states,recordingWindowMs:c.recordingWindowMs});await assertion('smoke-focus-window',verdict.result,verdict.facts,[...pcmDiagnosticRefs]);if(verdict.result!=='PASS'){const error=new Error('smoke focus window did not pass');error.code=verdict.result==='FAIL'?'PRODUCT_FAIL':'NOT_RUN';throw error;}}
+   else if(focus){current='focus-final';await page.waitForFunction(n=>Array.from({length:n},(_,i)=>document.querySelector('[data-testid="focus-point-'+i+'"]')?.getAttribute('data-status')).every(x=>x&&x!=='pending'),c.focus.points.length,{timeout:60000});const states=await Promise.all(c.focus.points.map((_,i)=>page.getByTestId('focus-point-'+i).getAttribute('data-status')));const publication=await objectivePublicationDiagnostics(objectiveBaseline,first,c.focus.expectedFinal,states);const statesMatch=states.every((value,i)=>value===c.focus.expectedFinal[i]);await check('focus-final',statesMatch&&publication.validated,{points:states.length,matching:states.filter((value,i)=>value===c.focus.expectedFinal[i]).length,publicationValidated:publication.validated},[...pcmDiagnosticRefs,...publication.refs]);await emitPresentation(await presentation.afterFocus(page,c.focus.expectedFinal,firstStoppedAt-firstStartedAt));await presentationRows([presentation.group('focus-presentation-contract',presentation.FOCUS_ROWS,firstPresentation)]);await oracleAssertion('focus-live-durable','focusEvidence',{sessionId:first});}
    else{current='open-mic-review-presentation';await presentationRows(await presentation.openMicReview(page));}
    let firstCaptureError=null;current='grounded-coaching';
    try{await hook('coaching','capture',{sessionId:first});}catch(error){firstCaptureError=error;blocker=blocker||'coaching-capture-incomplete';const capture=oracleSource.captureDiagnostic(error);const ref=await cap.writeEvidence(caseId.toLowerCase()+'-coaching-capture.json',{contentSafe:true,caseId,kind:'coaching-capture-interruption',capture,error:ui.safeErrorSummary(error)});requireThat(safeRef(ref),'capture evidence reference invalid');coachingCaptureFailure={error,capture,ref};}
-   if(focus&&!firstCaptureError){current='focus-back-reload';await sourceRows(await focusControls.backReload({page,caseConfig:c,sessionId:first}));}
+   if(focus&&!smoke&&!firstCaptureError){current='focus-back-reload';await sourceRows(await focusControls.backReload({page,caseConfig:c,sessionId:first}));}
    await saveReopen(page,first);
    if(!focus)await oracleAssertion('pdf-owner-take','pdfOwnerTake',{sessionId:first});
    let skipRepeat=!!firstCaptureError;if(breadth)skipRepeat='breadth';else if(!skipRepeat)try{await hook('sameTarget','begin',{baselineId:first});}catch(e){if(e?.code==='NOT_RUN'&&coachingPolicy.failedFor(coachingAttempts,first))skipRepeat=true;else throw e;}
@@ -294,7 +320,7 @@ async function run(caseId,args){
   }else if(['AHT-13','AHT-14'].includes(caseId)){
    await ui.openMic(page,c);await page.waitForFunction(()=>document.documentElement.getAttribute('data-model-status')==='download-required',undefined,{timeout:60000});
    const token=caseId+'-model';await observer.armStates(page,token);const setupBefore13=await setupSnapshot();const id=guard.armDownloadFault(c.downloadFault);current='download-fault-exercised';await ui.pressStart(page,'mic-download');
-   const failureState=await page.waitForFunction(()=>['error','init-failed'].includes(document.documentElement.getAttribute('data-model-status')),undefined,{timeout:300000}).then(()=>true,()=>false);
+   const failureState=await page.waitForFunction(()=>['error','init-failed'].includes(document.documentElement.getAttribute('data-model-status')),undefined,{timeout:smokeTiming.modelFailureDeadlineMs(c)}).then(()=>true,()=>false);
    const fault=guard.summary().downloadFaults.find(x=>x.id===id);if(!fault?.fired){const out=await setupOutcome(setupBefore13);const modelStates=(await observer.states(page,token))||[];const reason=!setupBefore13.captureDeviceBound?'capture-device-not-bound':out.modelRequestsAfterPress===0?'no-model-request-after-press':'no-request-matched-fault-asset';await assertion('download-fault-exercised','NOT RUN',{fired:false,setupBlocked:true,setupReason:reason,...setupBefore13,...out,modelStates:modelStates.slice(0,12).map(s=>/^[a-z-]{1,24}$/.test(String(s))?String(s):'other')});blocker='setup-blocked-stimulus-not-established';notRun('download fault not fired at reviewed asset boundary');}
    if(caseId==='AHT-14'){
     requireThat(fault.browserOfflineApplied===true&&fault.bytesForwarded>0,'proxy prefix write and browser offline control not established');
@@ -317,7 +343,7 @@ async function run(caseId,args){
    current='return-owner-preserved';await navigation.returnToOwnDetail({page,caseConfig:c,credentials:cap.credentials,target,onRows:sourceRows});
    const after=await rows();await check('no-recording-or-session-write',sessionWriteRequests===0&&navigation.unchanged(baseline,after),{before:baseline.length,after:after.length,writeRequests:sessionWriteRequests});await ui.signout(page);const cleared=await ui.sessionCleared(page,c);await check('return-signed-out',cleared,{secondSessionCleared:cleared});
   }
-  if(minimal){for(const id of contract.rows)if(!['owned-pages-closed','no-cloud-stt','start-press-budget'].includes(id)&&!assertions.some(a=>a.id===id)){current=id;await assertion(id,'NOT RUN',{omittedBy:'minimal-sample',notAttempted:true});}blocker=blocker||'minimal-sample-omitted-assertions';}
+  if(minimal){let omitted=0;for(const id of contract.rows)if(!['owned-pages-closed','no-cloud-stt','start-press-budget'].includes(id)&&!assertions.some(a=>a.id===id)){current=id;omitted++;await assertion(id,'NOT RUN',{omittedBy:smoke?'smoke-route':'minimal-sample',notAttempted:true});}if(omitted)blocker=blocker||(smoke?'smoke-route-omitted-assertions':'minimal-sample-omitted-assertions');}
   for(const missing of finiteDenominator.requiredUnimplemented.filter(x=>x.caseIds.includes(caseId))){await assertion(missing.assertionId,'NOT RUN',{requiredTechnicalImplementationMissing:true});blocker=blocker||'required-technical-assertion-not-implemented';}
   await check('no-cloud-stt',cloudCount===0,{cloudRequests:cloudCount});
  }catch(error){
@@ -340,4 +366,4 @@ async function run(caseId,args){
  }
  return {caseId,contentSafe:true,assertions,blocker,executionSignals};
 }
-module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,installCoachingResponseHandler,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);return {ready:true,caseId,requiredAssertions:CONTRACTS[caseId].rows,requiredOracles:CONTRACTS[caseId].oracles};},CONTRACTS,SOURCE_SHA};
+module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,installCoachingResponseHandler,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};
