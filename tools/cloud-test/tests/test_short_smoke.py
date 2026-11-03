@@ -66,7 +66,7 @@ class ShortSmokeContract(unittest.TestCase):
         start = "2026-11-03T16:00:00Z"
         value = init.materialize_smoke_occurrence(template, start, "slack:exact-occurrence", "Akin", "a" * 40, "b" * 40)
         self.assertEqual(value["window"]["startUtc"], start)
-        self.assertEqual(value["window"]["endUtc"], "2026-11-03T17:05:00Z")
+        self.assertEqual(value["window"]["endUtc"], "2026-11-03T17:20:00Z")
         self.assertIn("not measured runtime", value["window"]["basis"])
         now = datetime(2026, 11, 3, 16, 0, 0, tzinfo=timezone.utc)
         cases = init.check_request(value, now, init._request_keys())
@@ -74,6 +74,11 @@ class ShortSmokeContract(unittest.TestCase):
         live = init.check_ceilings(cfg, value, cases, 65)
         self.assertEqual(live, 40)
         init.check_window_fit(value, now, live)
+        # A real dispatch has startup delay.  The occurrence must survive it,
+        # while still refusing once less than live + collect remains.
+        init.check_window_fit(value, datetime(2026, 11, 3, 16, 5, 0, tzinfo=timezone.utc), live)
+        with self.assertRaisesRegex(init.Refused, "run-would-outlast-approved-window"):
+            init.check_window_fit(value, datetime(2026, 11, 3, 16, 30, 1, tzinfo=timezone.utc), live)
 
     def test_occurrence_materializer_refuses_wrong_case_set_or_release(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
@@ -82,6 +87,32 @@ class ShortSmokeContract(unittest.TestCase):
         template["selection"].pop()
         with self.assertRaisesRegex(init.Refused, "smoke-occurrence-selection"):
             init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "Akin", "a" * 40, "b" * 40)
+
+    def test_exact_occurrence_bytes_are_rederived_from_the_committed_template(self):
+        template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        occurrence = init.materialize_smoke_occurrence(
+            template, "2026-11-03T16:00:00Z", "slack:exact-occurrence",
+            "Akin", "a" * 40, "b" * 40)
+        raw = json.dumps(occurrence, sort_keys=True, separators=(",", ":")).encode()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "occurrence.json"
+            path.write_bytes(raw)
+            selected = init.select_manual_occurrence(
+                str(ROOT.parents[1]), template_rel, str(path),
+                hashlib.sha256(raw).hexdigest(),
+                init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"))
+            self.assertEqual(selected[2], raw)
+
+            tampered = dict(occurrence)
+            tampered["window"] = dict(occurrence["window"], endUtc="2026-11-03T17:21:00Z")
+            bad = json.dumps(tampered, sort_keys=True, separators=(",", ":")).encode()
+            path.write_bytes(bad)
+            with self.assertRaisesRegex(init.Refused, "manual-occurrence-not-the-template-materialization"):
+                init.select_manual_occurrence(
+                    str(ROOT.parents[1]), template_rel, str(path),
+                    hashlib.sha256(bad).hexdigest(),
+                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"))
 
     def test_all_fifteen_smoke_maps_to_distinct_builder_mode(self):
         mode, caps = request_caps(request())

@@ -19,7 +19,7 @@ const oracleSource=require('./oracles/index.cjs');
 const {createOwnerDb,rows:ownerRows}=require('./oracles/owner-query.cjs');
 const finiteDenominator=require('./finite-aht-denominator.json');
 const smokeTiming=require('./oracles/pure/smokeTiming.cjs');
-const SOURCE_SHA='66328703bf47e865b730e229005411e78481d34c';
+const SOURCE_SHA='3b040043372f47f720fcd382bdc30b90bdf67e47';
 const SHA=/^[0-9a-f]{64}$/;
 const CONTRACTS={
  'AHT-01':{rows:['fresh-first-session','saved-once','grounded-coaching','review-reopen','pdf-owner-take','same-target-repeat'],oracles:['coaching','pdfOwnerTake','sameTarget'],takes:2},
@@ -112,6 +112,10 @@ function armModelFailureObservation(page,c){
   const observedAtEpochMs=Date.now();
   return {state:await page.locator('html').getAttribute('data-model-status'),startedAtEpochMs,observedAtEpochMs,elapsedMs:Math.max(0,observedAtEpochMs-startedAtEpochMs)};
  };
+}
+async function measureEpochBridge(page){
+ const nodeBeforeEpochMs=Date.now(),browserEpochMs=await page.evaluate(()=>Date.now()),nodeAfterEpochMs=Date.now();
+ return smokeTiming.epochBridge({nodeBeforeEpochMs,browserEpochMs,nodeAfterEpochMs});
 }
 async function waitForModelFailure(page,c){return armModelFailureObservation(page,c)();}
 async function waitForModelSettlement(page,c){
@@ -301,7 +305,7 @@ async function run(caseId,args){
     if(omitted)blocker=blocker||'breadth-sample-omitted-assertions';
    }else{
    current='analytics-repeat-opens-product';await page.goto(c.targetUrl+'/analytics/'+first,{waitUntil:'domcontentloaded'});await page.getByTestId('saved-review-practice').waitFor({state:'visible',timeout:30000});await page.getByTestId('saved-review-practice').click();await page.waitForURL('**/session',{timeout:30000});const samePending=focus?await repeatProbes.pendingSameSet(page,c.focus.points):await page.getByTestId('focus-points-rail').count()===0;await check('analytics-repeat-opens-product',samePending,{openedSession:true,sameProductAndPendingSet:samePending});
-   current='same-target-repeat';await ui.start(page);await hook('sameTarget','recording');await page.waitForTimeout(timing.savedRepeatMs);let repeatStopClickedAt=null;await ui.stop(page,()=>{repeatStopClickedAt=Date.now();});const second=await ui.saved(page,first),repeatSavedAt=Date.now();coachingTakeIds.second=second;
+   current='same-target-repeat';await ui.start(page);await hook('sameTarget','recording');await page.waitForTimeout(smokeTiming.repeatRecordingWindowMs(caseId,{recordingWindowMs:c.recordingWindowMs,savedRepeatMs:timing.savedRepeatMs}));let repeatStopClickedAt=null;await ui.stop(page,()=>{repeatStopClickedAt=Date.now();});const second=await ui.saved(page,first),repeatSavedAt=Date.now();coachingTakeIds.second=second;
    // Rapid probes run immediately from the saved review BEFORE waiting for late coaching/producers.
    current='rapid-repeat-gate';const rapidWindow=repeatProbes.beginRapidRepeat(page,focus,{stopClickedAt:repeatStopClickedAt,savedAt:repeatSavedAt});coachingCaptureController=new AbortController();const bCapture=hook('coaching','capture',{sessionId:second,inputsOnly:true,signal:coachingCaptureController.signal}).then(()=>({ok:true}),error=>({error}));coachingCapturePromise=bCapture;if(minimal){await repeatProbes.cancelRapidWindow(rapidWindow);}else{try{await sourceRows(await repeatProbes.rapidRepeat(page,focus,rapidWindow));}finally{await repeatProbes.cancelRapidWindow(rapidWindow);}current='next-start';await sourceRows(await repeatProbes.nextStart(page,c));current='probe-save-isolation';const afterProbes=await rows();const unexpectedSaved=afterProbes.filter(r=>r.status==='completed'&&r.id!==first&&r.id!==second).length;await check('probe-save-isolation',unexpectedSaved===0,{unexpectedCompletedTakes:unexpectedSaved});}current='grounded-coaching';const captureResult=await bCapture;if(captureResult.error)throw captureResult.error;
    await oracleAssertion('grounded-coaching','coaching',{sessionId:first,repeatId:second});await oracleAssertion('same-target-repeat','sameTarget',{baselineId:first,repeatId:second});await oracleAssertion(progressNumeric.ROW,'sameTarget',{phase:'numeric',baselineId:first,repeatId:second});
@@ -391,7 +395,7 @@ async function run(caseId,args){
    if(!minimal){await context.grantPermissions(['microphone'],{origin:c.targetUrl});current='allowed-recovery-saved';const id=await ui.take(page,c);await check('allowed-recovery-saved',ownSaved(await rows(),id),{sameGuardedContext:true});await saveReopen(page,id);}
   }else if(['AHT-13','AHT-14'].includes(caseId)){
    await ui.openMic(page,c);await page.waitForFunction(()=>document.documentElement.getAttribute('data-model-status')==='download-required',undefined,{timeout:60000});
-   const token=caseId+'-model';await observer.armStates(page,token);const setupBefore13=await setupSnapshot();const id=guard.armDownloadFault(c.downloadFault);current='download-fault-exercised';const observeFailure=armModelFailureObservation(page,c);await ui.pressStart(page,'mic-download');
+   const token=caseId+'-model';await observer.armStates(page,token);const setupBefore13=await setupSnapshot();const beforeBridge=await measureEpochBridge(page);const id=guard.armDownloadFault(c.downloadFault);current='download-fault-exercised';const observeFailure=armModelFailureObservation(page,c);await ui.pressStart(page,'mic-download');
    const failureTransition=await observeFailure();const failureState=!!failureTransition.state;
    const fault=guard.summary().downloadFaults.find(x=>x.id===id);if(!fault?.fired){const out=await setupOutcome(setupBefore13);const modelStates=(await observer.states(page,token))||[];const reason=!setupBefore13.captureDeviceBound?'capture-device-not-bound':out.modelRequestsAfterPress===0?'no-model-request-after-press':'no-request-matched-fault-asset';await assertion('download-fault-exercised','NOT RUN',{fired:false,setupBlocked:true,setupReason:reason,...setupBefore13,...out,modelStates:modelStates.slice(0,12).map(s=>/^[a-z-]{1,24}$/.test(String(s))?String(s):'other')});blocker='setup-blocked-stimulus-not-established';notRun('download fault not fired at reviewed asset boundary');}
    if(caseId==='AHT-14'){
@@ -404,7 +408,13 @@ async function run(caseId,args){
    }
    await check('download-fault-exercised',true,{fired:true,firedAtEpochMs:fault.firedAtEpochMs,bytesForwarded:fault.bytesForwarded||0,browserOfflineApplied:fault.browserOfflineApplied===true,...(caseId==='AHT-14'?{prefixEvidence:'correlated-browser-network-event',browserPrefixReceipt:'ESTABLISHED',browserPrefixBytes:fault.browserPrefixReceipt.bytes,modelConsumption:'NOT_ESTABLISHED'}:{})});const states=await observer.states(page,token);requireThat(states,'complete model-state history missing');
    if(!failureState){await assertion('download-failure-truthful','NOT RUN',{fired:true,firedAtEpochMs:fault.firedAtEpochMs,transitionObserved:false,diagnosticDeadlineMs:smokeTiming.modelFailureDeadlineMs(c)});notRun('fault fired but no truthful model failure transition was observed');}
-   const retryDeadlineMs=Math.max(1,smokeTiming.modelFailureDeadlineMs(c)-failureTransition.elapsedMs);const retry=await page.getByTestId('mic-retry').waitFor({state:'visible',timeout:retryDeadlineMs}).then(()=>true,()=>false);const retryVisibleAtEpochMs=retry?Date.now():null;const mode=await ui.attr(page,'data-stt-mode');await check('download-failure-truthful',!states.includes('ready')&&retry&&mode==='private',{failureState:true,failureModelState:failureTransition.state,errorVisibleAtEpochMs:failureTransition.observedAtEpochMs,firedAtEpochMs:fault.firedAtEpochMs,faultToErrorMs:Number.isSafeInteger(fault.firedAtEpochMs)?failureTransition.observedAtEpochMs-fault.firedAtEpochMs:null,retryOffered:retry,retryVisibleAtEpochMs,errorToRetryMs:retry?retryVisibleAtEpochMs-failureTransition.observedAtEpochMs:null,claimedReady:states.includes('ready'),stayedPrivate:mode==='private'});
+   const retryDeadlineMs=Math.max(1,smokeTiming.modelFailureDeadlineMs(c)-failureTransition.elapsedMs);const retry=await page.getByTestId('mic-retry').waitFor({state:'visible',timeout:retryDeadlineMs}).then(()=>true,()=>false);const retryVisibleAtEpochMs=retry?await page.evaluate(()=>Date.now()):null;const afterBridge=await measureEpochBridge(page);const mode=await ui.attr(page,'data-stt-mode');const contradiction=states.includes('ready')||mode!=='private';
+   const timingEvidence=smokeTiming.comparableFaultTimeline({beforeBridge,afterBridge,faultNodeEpochMs:fault.firedAtEpochMs,errorBrowserEpochMs:failureTransition.observedAtEpochMs,retryBrowserEpochMs:retryVisibleAtEpochMs});
+   const timingFacts={failureState:true,failureModelState:failureTransition.state,errorVisibleAtEpochMs:failureTransition.observedAtEpochMs,firedAtEpochMs:fault.firedAtEpochMs,retryOffered:retry,retryVisibleAtEpochMs,claimedReady:states.includes('ready'),stayedPrivate:mode==='private',timeline:timingEvidence};
+   if(contradiction){await check('download-failure-truthful',false,timingFacts);}
+   else if(!retry){await assertion('download-failure-truthful','NOT RUN',{...timingFacts,diagnosticDeadlineMs:smokeTiming.modelFailureDeadlineMs(c),reason:'retry-not-observed-before-provisional-diagnostic-deadline'});notRun('Retry was not observed before the provisional diagnostic deadline');}
+   else if(!timingEvidence.comparable){await assertion('download-failure-truthful','NOT RUN',{...timingFacts,reason:'fault-error-retry-timeline-not-comparable'});notRun('fault, error and Retry were not established on a comparable timeline');}
+   else await check('download-failure-truthful',true,timingFacts);
    if(caseId==='AHT-14')await guard.resumeDownloadNetwork(id);if(!minimal){current='deliberate-recovery-saved';const saved=await ui.take(page,c);await check('deliberate-recovery-saved',ownSaved(await rows(),saved),{saved:true});await saveReopen(page,saved);}
   }else if(caseId==='AHT-15'){
    const entryMic=await observer.mic(page);await check('return-entry-mic-off',navigation.micOff(entryMic),{observed:!!entryMic,micOff:navigation.micOff(entryMic)});const target=navigation.existingTarget(baseline);
@@ -439,4 +449,4 @@ async function run(caseId,args){
  }
  return {caseId,contentSafe:true,assertions,blocker,executionSignals};
 }
-module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,installCoachingResponseHandler,armModelFailureObservation,waitForModelFailure,waitForModelSettlement,smokeLeaseBoundary,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};
+module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,installCoachingResponseHandler,armModelFailureObservation,measureEpochBridge,waitForModelFailure,waitForModelSettlement,smokeLeaseBoundary,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};

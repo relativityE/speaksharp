@@ -43,6 +43,33 @@ function recordingWindowMs(caseId,{sampleMode,fixtureDurationMs,requestedMs}={})
   return requestedMs;
 }
 
+function repeatRecordingWindowMs(caseId,{recordingWindowMs:requestedMs,savedRepeatMs}={}){
+  if(caseId==='AHT-01'){
+    if(!Number.isInteger(requestedMs)||requestedMs<30000)throw new Error('AHT-01 repeat must retain the product duration gate');
+    return requestedMs;
+  }
+  if(!Number.isInteger(savedRepeatMs)||savedRepeatMs<1)throw new Error('repeat recording window unavailable');
+  return savedRepeatMs;
+}
+
+function epochBridge({nodeBeforeEpochMs,browserEpochMs,nodeAfterEpochMs}={}){
+  if(![nodeBeforeEpochMs,browserEpochMs,nodeAfterEpochMs].every(Number.isSafeInteger)||nodeBeforeEpochMs>nodeAfterEpochMs)return null;
+  return {offsetMinMs:browserEpochMs-nodeAfterEpochMs,offsetMaxMs:browserEpochMs-nodeBeforeEpochMs,
+    roundTripMs:nodeAfterEpochMs-nodeBeforeEpochMs};
+}
+
+function comparableFaultTimeline({beforeBridge,afterBridge,faultNodeEpochMs,errorBrowserEpochMs,retryBrowserEpochMs}={}){
+  if(!beforeBridge||!afterBridge||![faultNodeEpochMs,errorBrowserEpochMs,retryBrowserEpochMs].every(Number.isSafeInteger))return {comparable:false,reason:'timeline-input-unavailable'};
+  const offsetMinMs=Math.min(beforeBridge.offsetMinMs,afterBridge.offsetMinMs),offsetMaxMs=Math.max(beforeBridge.offsetMaxMs,afterBridge.offsetMaxMs);
+  if(![offsetMinMs,offsetMaxMs].every(Number.isSafeInteger)||offsetMinMs>offsetMaxMs||offsetMaxMs-offsetMinMs>250)return {comparable:false,reason:'clock-bridge-uncertain',offsetRangeMs:offsetMaxMs-offsetMinMs};
+  const faultBrowserMinMs=faultNodeEpochMs+offsetMinMs,faultBrowserMaxMs=faultNodeEpochMs+offsetMaxMs;
+  const faultToErrorMinMs=errorBrowserEpochMs-faultBrowserMaxMs,faultToErrorMaxMs=errorBrowserEpochMs-faultBrowserMinMs;
+  const errorToRetryMs=retryBrowserEpochMs-errorBrowserEpochMs;
+  if(faultToErrorMaxMs<0||errorToRetryMs<0)return {comparable:false,reason:'timeline-order-invalid',faultToErrorMinMs,faultToErrorMaxMs,errorToRetryMs};
+  return {comparable:true,offsetRangeMs:offsetMaxMs-offsetMinMs,faultBrowserMinMs,faultBrowserMaxMs,
+    faultToErrorMinMs,faultToErrorMaxMs,errorToRetryMs};
+}
+
 function modelFailureDeadlineMs({sampleMode}={}){
   return sampleMode==='smoke'?MODEL_FAILURE_SMOKE_DEADLINE_MS:MODEL_FAILURE_FULL_DEADLINE_MS;
 }
@@ -68,4 +95,4 @@ function focusWindowVerdict({windows,expected,statuses,recordingWindowMs}){
   return {result:matching===eligible.length?'PASS':'FAIL',facts:{recordingWindowMs,eligiblePoints:eligible.length,matchingPoints:matching,unscoredPoints:windows.length-eligible.length}};
 }
 
-module.exports={WINDOWS,MODEL_FAILURE_SMOKE_DEADLINE_MS,MODEL_FAILURE_FULL_DEADLINE_MS,MODEL_SETTLEMENT_SMOKE_DEADLINE_MS,LEASE_WAIT_DEADLINE_MS,LEASE_POLL_MS,recordingWindowMs,modelFailureDeadlineMs,modelSettlementDeadlineMs,leaseBoundary,focusWindowVerdict};
+module.exports={WINDOWS,MODEL_FAILURE_SMOKE_DEADLINE_MS,MODEL_FAILURE_FULL_DEADLINE_MS,MODEL_SETTLEMENT_SMOKE_DEADLINE_MS,LEASE_WAIT_DEADLINE_MS,LEASE_POLL_MS,recordingWindowMs,repeatRecordingWindowMs,epochBridge,comparableFaultTimeline,modelFailureDeadlineMs,modelSettlementDeadlineMs,leaseBoundary,focusWindowVerdict};

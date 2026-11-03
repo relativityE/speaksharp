@@ -1,7 +1,7 @@
 {
   "type": "read-only-receiving-source-binding",
-  "sourceSha": "66328703bf47e865b730e229005411e78481d34c",
-  "sourceTree": "cba25910ce2b0fbd5555f583abb2bb93c3d2e782",
+  "sourceSha": "3b040043372f47f720fcd382bdc30b90bdf67e47",
+  "sourceTree": "b086e4915671993479ba8ef06d0ed0a5ed04bb1e",
   "scope": "Only listed mirrors verified against actual Git; not full product proof or run authority. Historical source-receipt.json retained unchanged.",
   "files": [
     {

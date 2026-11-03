@@ -43,16 +43,19 @@ import state_ref_writer  # noqa: E402
 
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
-SMOKE_OCCURRENCE_WINDOW_MINUTES = 65
+SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 
 
 def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by, tested_sha, backend_sha):
     """Create the exact one-run bytes for an owner-selected R10 initiation.
 
-    The 65-minute window is 15 minutes setup + the existing 40-minute live
-    ceiling + 10 minutes collection/settlement.  It is an admission bound, not
-    a measured runtime.  The caller must subsequently authorize these exact
-    occurrence/release bytes and bind the ordinary action-approval envelope.
+    The 80-minute occurrence is the bounded end-to-end workflow envelope:
+    5 minutes to record, 3 to reserve, the existing 65-minute live-job bound
+    (15 setup + 40 live + 10 collect), and 5 for the parallel settle/record
+    completion jobs, with two minutes of structural slack.  It is not a
+    measured runtime and it does not raise the 40-minute live ceiling.  The
+    caller must subsequently authorize these exact occurrence/release bytes
+    and bind the ordinary action-approval envelope.
     """
     _need(template.get("coverageMode") == template.get("sampleMode") == "smoke", "smoke-occurrence-mode")
     _need(template.get("runId") == "R10-3b040043-smoke15" and len(template.get("selection") or []) == 15,
@@ -68,7 +71,7 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by
     out["window"] = {"startUtc": initiation,
                      "endUtc": (start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                      "approvalRef": approval_ref,
-                     "basis": "actual-initiation + 15m setup + 40m live ceiling + 10m collection/settlement; structural bound, not measured runtime"}
+                     "basis": "actual initiation + 5m record + 3m reserve + 65m live-job ceiling + 5m parallel settlement/record completion + 2m structural slack; live ceiling remains 40m; not measured runtime"}
     out["selectionApprovalRef"] = approval_ref
     out["approvedLimits"]["approvalRef"] = approval_ref
     out["approvedLimits"]["approvedBy"] = approved_by
@@ -76,6 +79,31 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by
     out["release"]["testedSha"] = tested_sha
     out["release"]["backend"]["sha"] = backend_sha
     return out
+
+
+def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha256, source_sha):
+    """Admit an exact, approver-bound smoke occurrence derived from one committed template.
+
+    The occurrence bytes travel unchanged through reservation and preparation.  They are never generated after the reserve, and they are
+    accepted only when re-materializing the committed template from the occurrence's own selected initiation/release fields yields the
+    identical document.  The caller separately binds these exact bytes and the pre-reserve reconciliation in actionApproval.
+    """
+    _template_path, template_blob, template_raw = select_request(repo, template_rel, source_sha)
+    _need(isinstance(occurrence_file, str) and os.path.isfile(occurrence_file) and not os.path.islink(occurrence_file),
+          "manual-occurrence-unreadable")
+    raw = _read(occurrence_file)
+    _need(isinstance(occurrence_sha256, str) and SHA64.match(occurrence_sha256) and hashlib.sha256(raw).hexdigest() == occurrence_sha256,
+          "manual-occurrence-not-the-selected-bytes")
+    try:
+        template, occurrence = json.loads(template_raw), json.loads(raw)
+    except ValueError:
+        raise Refused("manual-occurrence-unreadable")
+    release, limits = occurrence.get("release") or {}, occurrence.get("approvedLimits") or {}
+    backend = release.get("backend") or {}
+    expected = materialize_smoke_occurrence(template, occurrence.get("createdUtc"), occurrence.get("selectionApprovalRef"),
+                                            limits.get("approvedBy"), release.get("testedSha"), backend.get("sha"))
+    _need(occurrence == expected, "manual-occurrence-not-the-template-materialization")
+    return occurrence_file, hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest(), raw, template_blob
 # NIGHTLY facts (Elon 1793560137.871769, pending Sam's content/pin decision): a scheduled run has no operator facts input, so its facts are
 # the committed file below, admitted only when its bytes hash to the reviewed pin. None today: every nightly prepare refuses.
 NIGHTLY_FACTS_PATH = "tools/cloud-test/config/nightly/facts.json"
@@ -747,11 +775,23 @@ def prepare(x, now):
     repo = os.path.realpath(x.repo)
     _need(isinstance(x.run_id, str) and LR.RUN_ID.match(x.run_id) and x.attempt == 1, "run-identity")
     _need(isinstance(x.source_sha, str) and LR.SHA40.match(x.source_sha), "source-sha")
-    nightly = bool(x.nightly_request_file or x.nightly_request_sha256)
-    _need(not (nightly and x.request), "request-source-ambiguous")
+    nightly_file = getattr(x, "nightly_request_file", None)
+    nightly_sha = getattr(x, "nightly_request_sha256", None)
+    occurrence_file = getattr(x, "manual_occurrence_file", None)
+    occurrence_sha = getattr(x, "manual_occurrence_sha256", None)
+    nightly = any(isinstance(v, str) and v for v in (nightly_file, nightly_sha))
+    manual_occurrence = any(isinstance(v, str) and v for v in (occurrence_file, occurrence_sha))
+    _need(not (nightly and x.request) and not (nightly and manual_occurrence), "request-source-ambiguous")
+    _need(not manual_occurrence or (x.request and isinstance(occurrence_file, str) and occurrence_file
+                                    and isinstance(occurrence_sha, str) and occurrence_sha), "manual-occurrence-inputs")
     _need(_git(repo, "rev-parse", "HEAD") == x.source_sha, "checkout-not-at-source")
-    req_path, req_blob, req_raw = (nightly_request(x.nightly_request_file, x.nightly_request_sha256, x.run_id, x.source_sha) if nightly
-                                   else select_request(repo, x.request, x.source_sha))
+    if nightly:
+        req_path, req_blob, req_raw = nightly_request(nightly_file, nightly_sha, x.run_id, x.source_sha)
+    elif manual_occurrence:
+        req_path, req_blob, req_raw, _template_blob = select_manual_occurrence(repo, x.request, occurrence_file,
+                                                                               occurrence_sha, x.source_sha)
+    else:
+        req_path, req_blob, req_raw = select_request(repo, x.request, x.source_sha)
     req, cfg, template_keys = json.loads(req_raw), _load(os.path.join(repo, x.config)), _request_keys()
     cases = check_request(req, now, template_keys, nightly)
     route = "github-producer" if set(cases) & PRODUCER_CASES else "github-direct"
@@ -1231,11 +1271,12 @@ def _write_private(path, doc):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "window-check"))
+    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "window-check", "occurrence-check"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
-                 "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation"):
+                 "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
+                 "--manual-occurrence-file", "--manual-occurrence-sha256"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -1260,6 +1301,17 @@ def main(argv):
             return 0
         if x.command == "window-check":
             check_window_remaining(admitted_request(x.request, x.request_sha256), datetime.now(timezone.utc), int(x.live_minutes or 0))
+            return 0
+        if x.command == "occurrence-check":
+            repo = os.path.realpath(x.repo)
+            _path, _blob, raw, _template_blob = select_manual_occurrence(
+                repo, x.request, x.manual_occurrence_file,
+                x.manual_occurrence_sha256, x.source_sha)
+            req = json.loads(raw)
+            cases = check_request(req, datetime.now(timezone.utc), _request_keys())
+            cfg = _load(os.path.join(repo, x.config))
+            live = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
+            check_window_fit(req, datetime.now(timezone.utc), live)
             return 0
         # Mask first: the whole bundle and every extracted value, before any refusal, output or environment export.
         if os.environ.get("GITHUB_ACTIONS") == "true":

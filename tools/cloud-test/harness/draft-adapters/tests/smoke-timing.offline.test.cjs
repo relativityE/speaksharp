@@ -27,6 +27,22 @@ test('browser speak consumes recordingWindowMs while semantic speechDurationMs s
  assert.equal(c.fixture.speechDurationMs,45700);
 });
 
+test('AHT-01 repeat crosses the same product duration gate while other repeats keep their bounded policy',()=>{
+ assert.equal(timing.repeatRecordingWindowMs('AHT-01',{recordingWindowMs:35000,savedRepeatMs:7000}),35000);
+ assert.equal(timing.repeatRecordingWindowMs('AHT-02',{recordingWindowMs:23100,savedRepeatMs:7000}),7000);
+ assert.throws(()=>timing.repeatRecordingWindowMs('AHT-01',{recordingWindowMs:29999,savedRepeatMs:7000}),/product duration gate/);
+});
+
+test('fault timing uses a bounded browser-to-runner bridge and rejects uncertain or reversed evidence',()=>{
+ const before=timing.epochBridge({nodeBeforeEpochMs:1000,browserEpochMs:1010,nodeAfterEpochMs:1002});
+ const after=timing.epochBridge({nodeBeforeEpochMs:1100,browserEpochMs:1110,nodeAfterEpochMs:1102});
+ assert.deepEqual(before,{offsetMinMs:8,offsetMaxMs:10,roundTripMs:2});
+ const ok=timing.comparableFaultTimeline({beforeBridge:before,afterBridge:after,faultNodeEpochMs:1020,errorBrowserEpochMs:1040,retryBrowserEpochMs:1050});
+ assert.equal(ok.comparable,true);assert.deepEqual([ok.faultToErrorMinMs,ok.faultToErrorMaxMs,ok.errorToRetryMs],[10,12,10]);
+ assert.equal(timing.comparableFaultTimeline({beforeBridge:before,afterBridge:{offsetMinMs:-500,offsetMaxMs:500},faultNodeEpochMs:1020,errorBrowserEpochMs:1040,retryBrowserEpochMs:1050}).reason,'clock-bridge-uncertain');
+ assert.equal(timing.comparableFaultTimeline({beforeBridge:before,afterBridge:after,faultNodeEpochMs:1020,errorBrowserEpochMs:1040,retryBrowserEpochMs:1039}).reason,'timeline-order-invalid');
+});
+
 test('Focus smoke plan uses the reviewed recording window, not full semantic duration',()=>{
  const manifest=require('../oracles/pure/fixture-manifest.json'),fixture=manifest.fixtures.focus_points_tts;
  const c={caseId:'AHT-02',sampleMode:'smoke',recordingWindowMs:23100,fixture:{name:'focus_points_tts',sha256:fixture.sha256}};

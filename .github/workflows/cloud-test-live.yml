@@ -32,7 +32,15 @@ on:
   workflow_dispatch:
     inputs:
       request:
-        description: Repository path of the COMMITTED, reviewed run request (never generated, never a test fixture or template)
+        description: Repository path of the COMMITTED, reviewed R10 request template
+        required: true
+        type: string
+      occurrence_b64:
+        description: Base64 of the exact owner-selected occurrence materialized from the committed template (references and limits only)
+        required: true
+        type: string
+      occurrence_sha256:
+        description: SHA-256 of the exact decoded occurrence bytes
         required: true
         type: string
       facts:
@@ -106,6 +114,10 @@ jobs:
       # The gate's admitted nightly request (bytes and digest from its one step), passed through unchanged; empty for a dispatch.
       nightly_request_sha256: ${{ needs.nightly-gate.outputs.request_sha256 }}
       nightly_request_b64: ${{ needs.nightly-gate.outputs.request_b64 }}
+      # For a manual dispatch, these are the exact occurrence bytes validated
+      # before this job mutates the latest record. Empty for a schedule.
+      manual_occurrence_sha256: ${{ steps.manual-occurrence.outputs.occurrence_sha256 }}
+      manual_occurrence_b64: ${{ steps.manual-occurrence.outputs.occurrence_b64 }}
     steps:
       - name: Refuse a re-run attempt and an unconfirmed or inactive dispatch
         env:
@@ -126,7 +138,35 @@ jobs:
           # Control code is the immutable SHA already admitted by the protected-main job condition, never a request-selected release.
           ref: ${{ github.sha }}
           persist-credentials: false
-          sparse-checkout: tools/cloud-test/scripts
+          sparse-checkout: |
+            tools/cloud-test/scripts
+            tools/cloud-test/config/runs
+            tools/cloud-test/config/test-config.v1.json
+            tools/cloud-test/templates/run-request.template.json
+      - name: Validate the exact manual occurrence before any record mutation
+        id: manual-occurrence
+        env:
+          MANUAL_REQUEST: ${{ inputs.request }}
+          MANUAL_OCCURRENCE_B64: ${{ inputs.occurrence_b64 }}
+          MANUAL_OCCURRENCE_SHA256: ${{ inputs.occurrence_sha256 }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            echo 'occurrence_sha256=' >> "$GITHUB_OUTPUT"
+            echo 'occurrence_b64=' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo 'BLOCKED_SETUP: request-not-in-the-reviewed-request-location'; exit 78 ;; esac
+          case "$MANUAL_REQUEST" in *..*|*//*) echo 'BLOCKED_SETUP: request-path'; exit 78 ;; esac
+          [[ "$MANUAL_OCCURRENCE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'BLOCKED_SETUP: manual-occurrence-digest'; exit 78; }
+          (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+          [ "$(sha256sum "$RUNNER_TEMP/manual-occurrence.json" | cut -d' ' -f1)" = "$MANUAL_OCCURRENCE_SHA256" ] || { echo 'BLOCKED_SETUP: manual-occurrence-not-the-selected-bytes'; exit 78; }
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-check --repo "$GITHUB_WORKSPACE" \
+            --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
+            --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
+            --source-sha "$GITHUB_SHA" --job-timeout-minutes 65
+          echo "occurrence_sha256=$MANUAL_OCCURRENCE_SHA256" >> "$GITHUB_OUTPUT"
+          echo "occurrence_b64=$MANUAL_OCCURRENCE_B64" >> "$GITHUB_OUTPUT"
       - name: Begin the attempt in the latest record
         id: begin
         env:
@@ -172,6 +212,8 @@ jobs:
           NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
           MANUAL_REQUEST: ${{ inputs.request }}
           MANUAL_FACTS: ${{ inputs.facts }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
           CT_STATE_PUSH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -184,9 +226,15 @@ jobs:
             case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo "BLOCKED_SETUP: request-not-in-the-reviewed-request-location"; exit 78 ;; esac
             case "$MANUAL_REQUEST" in *..*|*//*) echo "BLOCKED_SETUP: request-path"; exit 78 ;; esac
             git cat-file -e "$GITHUB_SHA:$MANUAL_REQUEST" || { echo "BLOCKED_SETUP: request-not-committed-at-source"; exit 78; }
+            (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            [ "$(sha256sum "$RUNNER_TEMP/manual-occurrence.json" | cut -d' ' -f1)" = "$MANUAL_OCCURRENCE_SHA256" ] || { echo "BLOCKED_SETUP: manual-occurrence-not-the-selected-bytes"; exit 78; }
+            python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-check --repo "$GITHUB_WORKSPACE" \
+              --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
+              --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
+              --source-sha "$GITHUB_SHA" --job-timeout-minutes 65
             (umask 077; printf '%s' "$MANUAL_FACTS" > "$RUNNER_TEMP/manual-facts.json")
             python3 -I tools/cloud-test/scripts/manual_reservation.py reserve --journal "$RUNNER_TEMP/reserve-journal" \
-              --out "$RUNNER_TEMP/reserve-receipt.json" --request "$MANUAL_REQUEST" --admitted-sha256 "$(sha256sum "$MANUAL_REQUEST" | cut -d' ' -f1)" \
+              --out "$RUNNER_TEMP/reserve-receipt.json" --request "$RUNNER_TEMP/manual-occurrence.json" --admitted-sha256 "$MANUAL_OCCURRENCE_SHA256" \
               --run-id "$GITHUB_RUN_ID" --facts "$RUNNER_TEMP/manual-facts.json" --bootstrap tools/cloud-test/config/aggregate/accounting-bootstrap.json \
               --scope tools/cloud-test/config/aggregate/period-scope.json
             exit 0
@@ -301,6 +349,8 @@ jobs:
           PRIOR_STATE: ${{ needs.record-begin.outputs.prior_state }}
           NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
           NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
           CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           # Case 10 observation (Sam 1793582780.014609): the AHT-10 role's password and the project's anon key, scheduled runs only. The
@@ -329,7 +379,9 @@ jobs:
               --repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/case10-observation.json"
             if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi
           else
-            SRC=(--request "$REQUEST" --facts "$FACTS")
+            (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \
+              --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --facts "$FACTS")
           fi
           unset C10_PASSWORD C10_ANON_KEY
           python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \
@@ -513,6 +565,8 @@ jobs:
           NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
           NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
           MANUAL_REQUEST: ${{ inputs.request }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
           CT_STATE_PUSH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -524,8 +578,10 @@ jobs:
             case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo "BLOCKED_SETUP: request-not-in-the-reviewed-request-location"; exit 78 ;; esac
             case "$MANUAL_REQUEST" in *..*|*//*) echo "BLOCKED_SETUP: request-path"; exit 78 ;; esac
             git cat-file -e "$GITHUB_SHA:$MANUAL_REQUEST" || { echo "BLOCKED_SETUP: request-not-committed-at-source"; exit 78; }
+            (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            [ "$(sha256sum "$RUNNER_TEMP/manual-occurrence.json" | cut -d' ' -f1)" = "$MANUAL_OCCURRENCE_SHA256" ] || { echo "BLOCKED_SETUP: manual-occurrence-not-the-selected-bytes"; exit 78; }
             python3 -I tools/cloud-test/scripts/manual_reservation.py settle --journal "$RUNNER_TEMP/settle-journal" \
-              --out "$RUNNER_TEMP/settle-receipt.json" --campaign-id "$(python3 -I tools/cloud-test/scripts/cfg_get.py "$MANUAL_REQUEST" runId)" \
+              --out "$RUNNER_TEMP/settle-receipt.json" --campaign-id "$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" runId)" \
               --run-id "$GITHUB_RUN_ID" --settle-input "$SETTLE" --scope tools/cloud-test/config/aggregate/period-scope.json
             exit 0
           fi

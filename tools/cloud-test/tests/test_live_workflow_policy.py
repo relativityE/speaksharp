@@ -62,7 +62,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n'
                       '  (umask 077; printf \'%s\' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")\n'
                       '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n', init["run"])
-        self.assertIn('else\n  SRC=(--request "$REQUEST" --facts "$FACTS")\nfi\n', init["run"])
+        self.assertIn('else\n  (umask 077; printf \'%s\' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")\n'
+                      '  SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \\\n'
+                      '    --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --facts "$FACTS")\nfi\n', init["run"])
         # Case 10 design A: on schedule only, the observation step runs on exactly the gate's bytes BEFORE prepare, and only a record it
         # actually placed reaches prepare; a dispatch never runs it.
         nightly_branch = init["run"].split('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n', 1)[1].split("else\n", 1)[0]
@@ -268,7 +270,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "465ffe8c6990ba9b5fac499f2408bbfc22419935ea66f9a30001b3b48e5b3751",
+            "manifestSha256": "0b37c1801154b077934b4881ba06cf3a5fe75e95b15d40fc5a6c461e10ad085a",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
@@ -435,13 +437,31 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('--settle-input "$SETTLE"', manual_settle)  # its evidence is the embedded record digest (RETURN 1793645360.787039 #3)
         self.assertNotIn("--record", manual_settle)
 
-    def test_the_dispatch_names_a_committed_request_and_never_generates_one(self):
+    def test_the_dispatch_names_a_committed_template_and_carries_one_exact_occurrence_end_to_end(self):
         on = self.doc.get("on", self.doc.get(True))
-        self.assertEqual(sorted(on["workflow_dispatch"]["inputs"]), ["confirm", "facts", "request"])
+        self.assertEqual(sorted(on["workflow_dispatch"]["inputs"]),
+                         ["confirm", "facts", "occurrence_b64", "occurrence_sha256", "request"])
+        begin = self.jobs["record-begin"]
+        validate = next(s for s in begin["steps"] if s.get("id") == "manual-occurrence")
+        self.assertLess(begin["steps"].index(validate), next(i for i, s in enumerate(begin["steps"]) if s.get("id") == "begin"))
+        self.assertIn("init_run_inputs.py occurrence-check", validate["run"])
+        self.assertIn('--manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256"', validate["run"])
+        self.assertEqual(begin["outputs"]["manual_occurrence_sha256"], "${{ steps.manual-occurrence.outputs.occurrence_sha256 }}")
+        self.assertEqual(begin["outputs"]["manual_occurrence_b64"], "${{ steps.manual-occurrence.outputs.occurrence_b64 }}")
         init = next(s for s in self.jobs["live"]["steps"] if s.get("id") == "init")
         self.assertEqual(init["env"]["REQUEST"], "${{ inputs.request }}")
         self.assertIn("init_run_inputs.py prepare", init["run"])
         self.assertIn('--request "$REQUEST"', init["run"])
+        self.assertIn('--manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json"', init["run"])
+        for name in ("journal-reserve", "journal-settle"):
+            writer = next(s for s in self.jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (s.get("env") or {}))
+            self.assertEqual(writer["env"]["MANUAL_OCCURRENCE_SHA256"],
+                             "${{ needs.record-begin.outputs.manual_occurrence_sha256 }}")
+            self.assertEqual(writer["env"]["MANUAL_OCCURRENCE_B64"],
+                             "${{ needs.record-begin.outputs.manual_occurrence_b64 }}")
+        self.assertIn('--request "$RUNNER_TEMP/manual-occurrence.json" --admitted-sha256 "$MANUAL_OCCURRENCE_SHA256"',
+                      writers_of(self.jobs, "journal-reserve"))
+        self.assertIn('cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" runId', writers_of(self.jobs, "journal-settle"))
 
     def test_the_job_timeout_is_the_one_prepare_checks_and_the_run_step_is_bounded_to_the_live_minutes(self):
         live = self.jobs["live"]
@@ -645,6 +665,7 @@ class Case10ObserveCredentials(unittest.TestCase):
                "PRIOR_STATE": "{}", "NIGHTLY_REQUEST_B64": base64.b64encode(b"{}").decode(), "NIGHTLY_REQUEST_SHA256": "a" * 64,
                "REQUEST": "r.json", "FACTS": "f.json", "CT_CONFIG": "c.json", "GITHUB_WORKSPACE": d, "GITHUB_RUN_ID": "101",
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "4" * 40, "GITHUB_ENV": os.path.join(d, "env"), "GITHUB_OUTPUT": os.path.join(d, "out"),
+               "MANUAL_OCCURRENCE_B64": base64.b64encode(b"{}").decode(), "MANUAL_OCCURRENCE_SHA256": "b" * 64,
                "CT_CASE10_PASSWORD": "case10-pw-value" if event == "schedule" else "", "CT_CASE10_ANON_KEY": "case10-anon-value" if event == "schedule" else "",
                "JOB_TIMEOUT_MINUTES": "340" if event == "schedule" else "65"}
         p = subprocess.run(["bash", "-c", shadow + init["run"]], env=env, capture_output=True, text=True, timeout=60)
@@ -671,7 +692,7 @@ class Case10ObserveCredentials(unittest.TestCase):
                 self.assertNotIn("case10-pw-value", env)
                 self.assertNotIn("case10-anon-value", env)
         dispatch = self.children("workflow_dispatch")
-        self.assertEqual([k[2] for k in sorted(dispatch)], ["tools/cloud-test/scripts/init_run_inputs.py"])
+        self.assertEqual([k[2] for k in sorted(dispatch)], ["base64", "tools/cloud-test/scripts/init_run_inputs.py"])
         for env in dispatch.values():
             self.assertFalse({"CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"} & {line.split("=", 1)[0] for line in env.splitlines()})
 
