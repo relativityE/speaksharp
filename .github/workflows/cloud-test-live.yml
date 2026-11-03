@@ -177,7 +177,14 @@ jobs:
           P=tools/cloud-test/scripts/publish_latest_record.py
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" | python3 -I -c 'import json,sys; print(json.dumps([c for page in json.load(sys.stdin) for c in page]))' > "$RUNNER_TEMP/comments.json"
           python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" > "$RUNNER_TEMP/selected.json"
-          python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); open(sys.argv[2],"w").write(s["body"]); print(s["commentId"] or "")' "$RUNNER_TEMP/selected.json" "$RUNNER_TEMP/previous.md" > "$RUNNER_TEMP/comment-id"
+          python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); open(sys.argv[2],"w").write(s["body"]); open(sys.argv[3],"w").write(s["updatedAt"] or ""); print(s["commentId"] or "")' "$RUNNER_TEMP/selected.json" "$RUNNER_TEMP/previous.md" "$RUNNER_TEMP/previous-updated-at" > "$RUNNER_TEMP/comment-id"
+          # A prior run's one public PATCH contains a durable, non-terminal
+          # candidate. Reconcile it here from GitHub's trusted server timestamp
+          # before opening this new attempt. A late or edited candidate refuses.
+          if python3 -I -c 'import json,re,sys; b=open(sys.argv[1],encoding="utf-8").read(); m=re.findall(r"```json\n(.*?)\n```",b,re.S); raise SystemExit(0 if m and json.loads(m[0]).get("pendingCompletion") else 1)' "$RUNNER_TEMP/previous.md"; then
+            python3 -I "$P" reconcile --previous "$RUNNER_TEMP/previous.md" --published-at "$(cat "$RUNNER_TEMP/previous-updated-at")" --out "$RUNNER_TEMP/reconciled.md"
+            mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
+          fi
           # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
           python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"
           started_utc="${WORKFLOW_START_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
@@ -648,20 +655,24 @@ jobs:
           SETTLE_RECEIPT_SHA256: ${{ needs.journal-settle.outputs.receipt_sha256 }}
           MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
           MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
         run: |
           set -euo pipefail
           P=tools/cloud-test/scripts/publish_latest_record.py
           gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/comments.json"
           python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID" | python3 -I -c 'import json,sys; open(sys.argv[1],"w").write(json.load(sys.stdin)["body"])' "$RUNNER_TEMP/previous.md"
           within_envelope=true
+          receipt="$RUNNER_TEMP/settlement/settle-receipt.json"
+          if [ "$SETTLE_RESULT" != success ] || [ "$SETTLED" != true ] || [ ! -f "$receipt" ] || \
+             [ "$(sha256sum "$receipt" | cut -d' ' -f1)" != "$SETTLE_RECEIPT_SHA256" ]; then
+            echo "BLOCKED_SETUP: settlement-not-verified"
+            within_envelope=false
+          fi
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            receipt="$RUNNER_TEMP/settlement/settle-receipt.json"
-            if [ "$SETTLE_RESULT" != success ] || [ "$SETTLED" != true ] || [ ! -f "$receipt" ] || \
-               [ "$(sha256sum "$receipt" | cut -d' ' -f1)" != "$SETTLE_RECEIPT_SHA256" ]; then
-              echo "BLOCKED_SETUP: settlement-not-verified"
-              within_envelope=false
-            fi
             (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            completion_deadline_utc="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" window.endUtc)"
+            occurrence_sha256="$MANUAL_OCCURRENCE_SHA256"
             set +e
             python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline \
               --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json"
@@ -673,6 +684,12 @@ jobs:
               echo "BLOCKED_SETUP: completion-occurrence-unreadable"
               within_envelope=false
             fi
+          else
+            (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
+            completion_deadline_utc="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/nightly-request.json" window.endUtc)"
+            occurrence_sha256="$NIGHTLY_REQUEST_SHA256"
+            [[ "$completion_deadline_utc" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo 'BLOCKED_SETUP: completion-occurrence-unreadable'; exit 78; }
+            [[ "$occurrence_sha256" =~ ^[0-9a-f]{64}$ ]] || { echo 'BLOCKED_SETUP: completion-occurrence-unreadable'; exit 78; }
           fi
           attestable=false
           if [ -f "$RUNNER_TEMP/record/latest-record.json" ] && [ "$LIVE_RESULT" != cancelled ] && [ "$within_envelope" = true ]; then
@@ -683,11 +700,17 @@ jobs:
             python3 -I "$P" complete --previous "$RUNNER_TEMP/previous.md" --record "$RUNNER_TEMP/record/latest-record.json" --out "$RUNNER_TEMP/candidate.md"
             attestable=true
           fi
-          # The one public mutation is always fail-closed. Completion is proved
-          # only by completion-attestation.json after the response/deadline and
-          # exact readback checks below.
-          python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)" --out "$RUNNER_TEMP/body.md"
+          if [ "$attestable" = true ]; then
+            # The one public mutation carries the closed result as a durable
+            # pending candidate, but does not fold it into completed history.
+            # The next admitted record-begin is its authorized consumer.
+            python3 -I "$P" pending --previous "$RUNNER_TEMP/previous.md" --record "$RUNNER_TEMP/record/latest-record.json" \
+              --completion-deadline-utc "$completion_deadline_utc" --settle-receipt-sha256 "$SETTLE_RECEIPT_SHA256" \
+              --occurrence-sha256 "$occurrence_sha256" --out "$RUNNER_TEMP/body.md"
+          else
+            python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+              --status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)" --out "$RUNNER_TEMP/body.md"
+          fi
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/published.json"
           # GitHub's response timestamp, not this runner's post-request clock,
           # decides whether the completed record was actually published inside
@@ -707,16 +730,18 @@ jobs:
           python3 -I "$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/readback.json" \
             --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID"
           if [ "$attestable" = true ]; then
+            mkdir -p "$RUNNER_TEMP/completion"
+            cp "$RUNNER_TEMP/candidate.md" "$RUNNER_TEMP/completion/terminal-candidate.md"
             python3 -I "$P" attest --candidate "$RUNNER_TEMP/candidate.md" --public-body "$RUNNER_TEMP/body.md" \
               --published "$RUNNER_TEMP/published.json" --settle-receipt-sha256 "$SETTLE_RECEIPT_SHA256" \
-              --occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
-              --out "$RUNNER_TEMP/completion-attestation.json"
+              --occurrence-sha256 "$occurrence_sha256" \
+              --out "$RUNNER_TEMP/completion/completion-attestation.json"
           fi
       - name: Retain the fail-closed completion attestation (1 day)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cloud-test-completion-attestation
-          path: ${{ runner.temp }}/completion-attestation.json
+          path: ${{ runner.temp }}/completion
           retention-days: 1
           if-no-files-found: ignore

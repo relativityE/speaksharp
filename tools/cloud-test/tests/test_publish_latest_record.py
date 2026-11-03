@@ -15,8 +15,8 @@ BOT = {"login": "github-actions[bot]", "type": "Bot"}
 URL = "https://api.github.com/repos/relativityE/speaksharp/issues/1763"
 
 
-def comment(cid, user, body, url=URL):
-    return {"id": cid, "user": user, "body": body, "issue_url": url}
+def comment(cid, user, body, url=URL, updated="2026-10-31T18:41:00Z"):
+    return {"id": cid, "user": user, "body": body, "issue_url": url, "updated_at": updated}
 
 
 def record(run_id="101", outcome="passed", **over):
@@ -36,7 +36,7 @@ def started(state, run_id="101"):
 class Selection(unittest.TestCase):
     def test_first_publication_has_no_comment_and_an_empty_state(self):
         sel = P.select([comment(1, {"login": "someone", "type": "User"}, "unrelated")], URL)
-        self.assertEqual(sel, {"commentId": None, "body": ""})
+        self.assertEqual(sel, {"commentId": None, "body": "", "updatedAt": None})
         self.assertEqual(P.parse_body(sel["body"]), {"schema": P.SCHEMA, "latestCompleted": None, "inProgress": None})
 
     def test_the_bots_marked_comment_on_the_bound_issue_is_selected_and_its_id_verified(self):
@@ -305,7 +305,7 @@ class CompletionAttestation(unittest.TestCase):
     def test_terminal_candidate_is_bound_to_the_public_incomplete_state_and_server_time(self):
         running = started(P.parse_body(""))
         candidate_body = P.render(P.complete(running, record()))
-        public_body = P.render(P.interrupt(running, "101", 1, "incomplete"))
+        public_body = P.render(P.pending_completion(running, record(), "2026-10-31T19:00:00Z", "3" * 64, "4" * 64))
         att = P.completion_attestation(candidate_body, public_body,
                                        {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, "3" * 64, "4" * 64)
         self.assertEqual((att["schema"], att["runId"], att["publishedAt"]),
@@ -314,7 +314,7 @@ class CompletionAttestation(unittest.TestCase):
     def test_no_attestation_for_missing_or_malformed_response_or_non_incomplete_publication(self):
         running = started(P.parse_body(""))
         candidate_body = P.render(P.complete(running, record()))
-        public_body = P.render(P.interrupt(running, "101", 1, "incomplete"))
+        public_body = P.render(P.pending_completion(running, record(), "2026-10-31T19:00:00Z", "3" * 64, "4" * 64))
         bad = [({}, public_body),
                ({"updated_at": "2026-10-31T18:41:00Z", "body": candidate_body}, public_body),
                ({"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, candidate_body)]
@@ -329,6 +329,22 @@ class CompletionAttestation(unittest.TestCase):
         with self.assertRaisesRegex(P.Refused, "attestation-candidate-not-derived"):
             P.completion_attestation(different, public_body,
                                      {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, "3" * 64, "4" * 64)
+
+    def test_pending_completion_is_durable_reconciles_once_and_late_or_edited_state_refuses(self):
+        running = started(P.parse_body(""))
+        pending = P.pending_completion(running, record(), "2026-10-31T19:00:00Z", "3" * 64, "4" * 64)
+        stored = P.parse_body(P.render(pending))
+        self.assertEqual(stored["pendingCompletion"]["record"]["runId"], "101")
+        done = P.reconcile_pending(stored, "2026-10-31T18:41:00Z")
+        self.assertEqual((done["latestCompleted"]["runId"], done["inProgress"]), ("101", None))
+        following = P.begin(done, "102", 1, SHA, "2026-10-31T20:00:00Z")
+        self.assertEqual(following["inProgress"]["runId"], "102")
+        with self.assertRaisesRegex(P.Refused, "pending-completion-late"):
+            P.reconcile_pending(stored, "2026-10-31T19:00:01Z")
+        edited = json.loads(json.dumps(stored))
+        edited["pendingCompletion"]["record"]["runId"] = "102"
+        with self.assertRaises(P.Refused):
+            P.parse_body(P.render(edited))
 
 
 class Cli(unittest.TestCase):

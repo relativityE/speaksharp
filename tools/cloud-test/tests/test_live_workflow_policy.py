@@ -492,16 +492,22 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn("publication_status", complete["run"])
         self.assertIn('published_at=', complete["run"])
         self.assertIn('--now "$published_at"', complete["run"])
+        self.assertEqual(complete["env"]["NIGHTLY_REQUEST_SHA256"], "${{ needs.record-begin.outputs.nightly_request_sha256 }}")
+        self.assertIn('occurrence_sha256="$NIGHTLY_REQUEST_SHA256"', complete["run"])
+        self.assertIn('cfg_get.py "$RUNNER_TEMP/nightly-request.json" window.endUtc', complete["run"])
         self.assertIn("publish_latest_record.py", complete["run"])
         self.assertEqual(complete["run"].count("gh api --method PATCH"), 1)
         self.assertIn('--out "$RUNNER_TEMP/candidate.md"', complete["run"])
         self.assertNotIn('body=@$RUNNER_TEMP/candidate.md', complete["run"])
         self.assertIn('--status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)"', complete["run"])
+        self.assertIn('pending --previous "$RUNNER_TEMP/previous.md"', complete["run"])
         self.assertIn('if [ "$attestable" = true ]', complete["run"])
         self.assertIn('attest --candidate "$RUNNER_TEMP/candidate.md"', complete["run"])
         uploads = [s for s in self.jobs["record-complete"]["steps"] if s.get("uses") == "actions/upload-artifact@v4"]
         self.assertEqual(len(uploads), 1)
-        self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/completion-attestation.json")
+        self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/completion")
+        begin = next(s for s in self.jobs["record-begin"]["steps"] if "publish_latest_record.py" in s.get("run", ""))
+        self.assertIn('reconcile --previous "$RUNNER_TEMP/previous.md"', begin["run"])
         # Settlement remains independent of the occurrence deadline: a late
         # publisher cannot claim completion, but held usage is still reconciled
         # under the accepted accounting period.

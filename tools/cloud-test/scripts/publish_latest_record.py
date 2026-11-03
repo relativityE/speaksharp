@@ -16,6 +16,9 @@ Usage:
   publish_latest_record.py begin     --previous BODY --run-id N --attempt N --source-sha SHA --started-utc TS --out BODY
   publish_latest_record.py complete  --previous BODY --record RECORD.json --out BODY
   publish_latest_record.py interrupt --previous BODY --run-id N --attempt N --status cancelled|incomplete --out BODY
+  publish_latest_record.py pending   --previous BODY --record RECORD.json --completion-deadline-utc TS
+                                      --settle-receipt-sha256 SHA --occurrence-sha256 SHA --out BODY
+  publish_latest_record.py reconcile --previous BODY --published-at TS --out BODY
   publish_latest_record.py attest    --candidate BODY --public-body BODY --published RESPONSE.json
                                       --settle-receipt-sha256 SHA --occurrence-sha256 SHA --out ATTESTATION.json
 Exit 78 (BLOCKED_SETUP) on every refusal.
@@ -297,7 +300,8 @@ def parse_body(body):
         state = json.loads(blocks[0])
     except ValueError:
         raise Refused("latest-record-unreadable")
-    _need(isinstance(state, dict) and {"schema", "latestCompleted", "inProgress"} <= set(state) <= {"schema", "latestCompleted", "inProgress", "history"},
+    _need(isinstance(state, dict) and {"schema", "latestCompleted", "inProgress"} <= set(state) <=
+          {"schema", "latestCompleted", "inProgress", "history", "pendingCompletion"},
           "latest-record-unreadable")
     _need(state.get("schema") == SCHEMA, "latest-record-unreadable")
     if state.get("latestCompleted") is not None:
@@ -305,6 +309,19 @@ def parse_body(body):
     if "history" in state:
         state["history"] = sanitize_history(state["history"])
         _need(state["history"] is not None, "latest-record-unreadable")
+    pending = state.get("pendingCompletion")
+    if pending is not None:
+        _keys(pending, {"record", "completionDeadlineUtc", "settleReceiptSha256", "occurrenceSha256"}, "pending-completion")
+        _need(set(pending) == {"record", "completionDeadlineUtc", "settleReceiptSha256", "occurrenceSha256"}, "pending-completion")
+        pending = dict(pending, record=sanitize_record(pending["record"]))
+        _need(isinstance(pending["completionDeadlineUtc"], str) and UTC.match(pending["completionDeadlineUtc"]), "pending-deadline")
+        _need(isinstance(pending["settleReceiptSha256"], str) and SHA64.match(pending["settleReceiptSha256"]), "pending-settlement")
+        _need(isinstance(pending["occurrenceSha256"], str) and SHA64.match(pending["occurrenceSha256"]), "pending-occurrence")
+        live = state.get("inProgress")
+        _need(live is not None and live.get("status") == "incomplete" and
+              (live.get("runId"), live.get("attempt"), live.get("sourceSha")) ==
+              (pending["record"]["runId"], pending["record"]["attempt"], pending["record"]["sourceSha"]), "pending-attempt")
+        state["pendingCompletion"] = pending
     return state
 
 
@@ -323,6 +340,12 @@ def render(state):
             lc["runId"], sum(lc["regressions"].values()), sum(lc["fixes"].values()), sum(lc["notComparable"].values())))
     if live:
         lines.append("In progress: run %s attempt %d, status %s." % (live["runId"], live["attempt"], live["status"]))
+    pending = state.get("pendingCompletion")
+    if pending:
+        rec = pending["record"]
+        tally = {r: sum(1 for c in rec["cases"] if c["result"] == r) for r in ("PASS", "FAIL", "NOT RUN")}
+        lines.append("Pending completion: run %s attempt %d: **%s** (%d PASS, %d FAIL, %d NOT RUN); next admitted run reconciles it from GitHub server time." %
+                     (rec["runId"], rec["attempt"], rec["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"]))
     lines += ["", "```json", json.dumps(state, sort_keys=True, separators=(",", ":")), "```"]
     body = "\n".join(lines) + "\n"
     _need(len(body) <= MAX_BODY_CHARS, "record-overflow")  # fail closed: never publish a truncated or rejected record
@@ -341,10 +364,12 @@ def select(comments, issue_url, bot_login=BOT_LOGIN, comment_id=None):
         _need(user.get("login") == bot_login and user.get("type") == "Bot", "marker-in-foreign-comment")
     _need(len(marked) <= 1, "ambiguous-latest-record")
     if not marked:
-        return {"commentId": None, "body": ""}
+        return {"commentId": None, "body": "", "updatedAt": None}
     _need(isinstance(marked[0].get("id"), int) and (comment_id is None or marked[0]["id"] == comment_id), "comment-id")
     _need(marked[0]["body"].startswith(MARKER + "\n"), "latest-record-unreadable")
-    return {"commentId": marked[0]["id"], "body": marked[0]["body"]}
+    updated = marked[0].get("updated_at")
+    _need(isinstance(updated, str) and UTC.match(updated), "comment-updated-at")
+    return {"commentId": marked[0]["id"], "body": marked[0]["body"], "updatedAt": updated}
 
 
 def begin(state, run_id, attempt, source_sha, started_utc):
@@ -380,6 +405,43 @@ def interrupt(state, run_id, attempt, status):
     return dict(state, inProgress=dict(live, status=status))
 
 
+def pending_completion(state, record, completion_deadline_utc, settle_receipt_sha256, occurrence_sha256):
+    """Publish a durable, non-terminal candidate in the one mutable comment.
+
+    It is intentionally not folded into history yet.  GitHub's trusted
+    `updated_at` is only known after the PATCH; the next admitted record-begin
+    is the consumer that reconciles the candidate after checking that time.
+    """
+    rec = sanitize_record(record)
+    live = state.get("inProgress")
+    _need(live is not None and live.get("status") == "running" and
+          (live.get("runId"), live.get("attempt"), live.get("sourceSha")) ==
+          (rec["runId"], rec["attempt"], rec["sourceSha"]), "record-not-the-running-attempt")
+    _need(isinstance(completion_deadline_utc, str) and UTC.match(completion_deadline_utc), "pending-deadline")
+    _need(isinstance(settle_receipt_sha256, str) and SHA64.match(settle_receipt_sha256), "pending-settlement")
+    _need(isinstance(occurrence_sha256, str) and SHA64.match(occurrence_sha256), "pending-occurrence")
+    return dict(state, inProgress=dict(live, status="incomplete"), pendingCompletion={
+        "record": rec, "completionDeadlineUtc": completion_deadline_utc,
+        "settleReceiptSha256": settle_receipt_sha256, "occurrenceSha256": occurrence_sha256})
+
+
+def reconcile_pending(state, published_at):
+    """Fold the durable candidate only when GitHub stored it in time.
+
+    This is deliberately called by the next protected-main record-begin before
+    it opens a new attempt.  A missing, edited or late candidate remains a hard
+    refusal instead of being silently treated as a completed run.
+    """
+    pending = state.get("pendingCompletion")
+    _need(pending is not None, "no-pending-completion")
+    _need(isinstance(published_at, str) and UTC.match(published_at), "pending-published-at")
+    _need(published_at <= pending["completionDeadlineUtc"], "pending-completion-late")
+    live = state.get("inProgress")
+    base = dict(state, inProgress=dict(live, status="running"))
+    base.pop("pendingCompletion", None)
+    return complete(base, pending["record"])
+
+
 def completion_attestation(candidate_body, public_body, published, settle_receipt_sha256, occurrence_sha256):
     """Bind a terminal candidate to the fail-closed public state GitHub actually stored.
 
@@ -392,13 +454,14 @@ def completion_attestation(candidate_body, public_body, published, settle_receip
     candidate, public = parse_body(candidate_body), parse_body(public_body)
     done, live = candidate.get("latestCompleted"), public.get("inProgress")
     _need(done is not None and candidate.get("inProgress") is None, "attestation-candidate-not-terminal")
-    _need(live is not None and live.get("status") == "incomplete", "attestation-public-not-incomplete")
+    _need(live is not None and live.get("status") == "incomplete" and public.get("pendingCompletion") is not None,
+          "attestation-public-not-incomplete")
     _need((done["runId"], done["attempt"], done["sourceSha"]) ==
           (live.get("runId"), live.get("attempt"), live.get("sourceSha")), "attestation-attempt-mismatch")
     # Rebuild the terminal state from the exact public predecessor. This binds
     # its retained history and latest-completed predecessor too; matching only
     # the run identity would let a different candidate be attested.
-    expected = complete(dict(public, inProgress=dict(live, status="running")), done)
+    expected = reconcile_pending(public, published.get("updated_at") if isinstance(published, dict) else None)
     _need(candidate == expected, "attestation-candidate-not-derived-from-public-state")
     _need(isinstance(published, dict) and isinstance(published.get("updated_at"), str)
           and UTC.match(published["updated_at"]), "attestation-published-at")
@@ -406,6 +469,8 @@ def completion_attestation(candidate_body, public_body, published, settle_receip
           and published["body"].rstrip("\r\n") == public_body.rstrip("\r\n"), "attestation-public-readback")
     _need(isinstance(settle_receipt_sha256, str) and SHA64.match(settle_receipt_sha256), "attestation-settlement")
     _need(isinstance(occurrence_sha256, str) and SHA64.match(occurrence_sha256), "attestation-occurrence")
+    _need(public["pendingCompletion"]["settleReceiptSha256"] == settle_receipt_sha256, "attestation-settlement")
+    _need(public["pendingCompletion"]["occurrenceSha256"] == occurrence_sha256, "attestation-occurrence")
     return {"schema": ATTESTATION_SCHEMA, "runId": done["runId"], "attempt": done["attempt"],
             "sourceSha": done["sourceSha"], "candidateSha256": hashlib.sha256(candidate_body.encode()).hexdigest(),
             "publicIncompleteSha256": hashlib.sha256(public_body.encode()).hexdigest(),
@@ -420,9 +485,10 @@ def _read(path):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "verify", "attest"))
+    a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "pending", "reconcile", "verify", "attest"))
     for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url",
-                 "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256"):
+                 "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256",
+                 "--completion-deadline-utc", "--published-at"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--comment-id", type=int)
@@ -447,7 +513,12 @@ def main(argv):
                 f.write("\n")
             return 0
         state = parse_body(_read(x.previous))
-        if x.command == "begin":
+        if x.command == "reconcile":
+            state = reconcile_pending(state, x.published_at)
+        elif x.command == "pending":
+            state = pending_completion(state, json.loads(_read(x.record)), x.completion_deadline_utc,
+                                       x.settle_receipt_sha256, x.occurrence_sha256)
+        elif x.command == "begin":
             state = begin(state, x.run_id, x.attempt, x.source_sha, x.started_utc)
         elif x.command == "complete":
             state = complete(state, json.loads(_read(x.record)))
