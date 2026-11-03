@@ -27,13 +27,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_manual_dispatch_only_with_one_active_run(self):
         on = self.doc.get("on", self.doc.get(True))
-        self.assertEqual(list(on), ["workflow_dispatch"])
+        self.assertEqual(list(on), ["schedule", "workflow_dispatch"])
+        # the registered cron is exactly the reviewed proposed one, from which nightly_request derives the occurrence slot
+        import yaml
+        with open(os.path.join(ROOT, "config", "nightly", "schedule.proposed.yml"), encoding="utf-8") as f:
+            proposed = yaml.safe_load(f)
+        proposed_on = proposed.get("on", proposed.get(True))
+        self.assertEqual(on["schedule"], proposed_on["schedule"])
         self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
 
-    def test_a_scheduled_run_is_gated_before_any_record_secret_or_live_job_and_no_cron_is_registered(self):
-        # Sam 1793553158.013909: the cron stays a proposed artifact; nothing here is registered.
+    def test_a_scheduled_run_is_gated_before_any_record_secret_or_live_job(self):
+        # Activation wiring: the cron is registered, and every scheduled invocation is gated by the credential-free nightly-gate job first.
         on = self.doc.get("on", self.doc.get(True))
-        self.assertNotIn("schedule", on)
+        self.assertEqual(on["schedule"], [{"cron": "0 3 * * *"}])
+        self.assertEqual(self.jobs["nightly-gate"]["if"], "github.event_name == 'schedule'")
+        self.assertNotIn("secrets.", json.dumps(self.jobs["nightly-gate"]))
         with open(os.path.join(ROOT, "config", "nightly", "schedule.proposed.yml"), encoding="utf-8") as f:
             self.assertIn("cron: '0 3 * * *'", f.read())
         self.assertEqual(set(self.jobs), {"nightly-gate", "record-begin", "journal-reserve", "live", "journal-settle", "record-complete"})
@@ -41,7 +49,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual((gate["if"], gate["permissions"]), ("github.event_name == 'schedule'", {"contents": "read", "actions": "read"}))
         self.assertIsNone(SECRET_REF.search(str(gate)), "the gate holds no credential")
         step = gate["steps"][-1]
-        self.assertEqual(step["env"], {"NIGHTLY_SWITCH": "${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}", "SCHEDULE_CRON": "${{ github.event.schedule }}",
+        self.assertEqual(step["env"], {"NIGHTLY_SWITCH": "${{ vars.RUN_NIGHTLY_REGRESSION }}", "SCHEDULE_CRON": "${{ github.event.schedule }}",
                                        "GH_TOKEN": "${{ github.token }}"})
         # The trigger time is the run's creation, read only when the switch is on; the gate decides the switch before anything else.
         self.assertIn('if [ "$NIGHTLY_SWITCH" = true ]; then TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '
@@ -268,7 +276,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "e34b4f0a5c40287d7fd6a9989af1d018479055adc1c115565a8024dc76d8835b",
+            "manifestSha256": "bf8313c89f9c532380c024fcf10d23fe350fec2ca35c2ad6736c01f357b3c52b",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
