@@ -692,7 +692,50 @@ test('default proof generation owns both children and deletes inputs only after 
   const result=generatedProofCases(root,{CT_EXISTING_PDFJS_DIR:root},{children});
   assert.equal(result.files.length,15);assert.equal(calls.length,2);
   assert.ok(calls.every(call=>call.options.detached===true&&call.options.killSignal==='SIGKILL'));
+  assert.ok(calls.every(call=>call.command.includes('-B')));
+  assert.ok(result.command.includes('-B'));
   assert.ok(!fs.existsSync(retained),'verified proof-generation inputs are removed after both drains');
+});
+
+test('proof generation ignores Python bytecode churn but binds reviewed source changes',()=>{
+  const copy=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'proof-generation-sources-')));
+  const write=(file,bytes='reviewed source')=>{const target=path.join(copy,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,bytes);};
+  for(const file of ['tools/cloud-test/scripts/proof_prep_cases.py','tools/cloud-test/scripts/install_pdfjs.py',
+    'tools/cloud-test/scripts/_netguard.py','tools/cloud-test/scripts/run_env.py','tools/cloud-test/config/test-config.v1.json',
+    'tools/cloud-test/tests/fixtures/full-request.json','tools/cloud-test/tests/fixtures/plan-facts.PLACEHOLDER.json',
+    'tools/cloud-test/harness/reviewed.py','tools/cloud-test/harness-adapter/reviewed.py'])write(file);
+  const generate=()=>{
+    let call=0;
+    const children={
+      run(command) {
+        if(call++===0)return {result:{status:0,signal:null,error:null,stderr:'',stdout:JSON.stringify({
+          path:command[0],version:'3.12.0',sha256:hash(fs.readFileSync(command[0]))})}};
+        const output=command[command.indexOf('--out')+1],cases=path.join(output,'cases');fs.mkdirSync(cases,{recursive:true});
+        for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
+        return {result:{status:0,signal:null,error:null,stdout:'',stderr:''}};
+      },
+      assertDrained(){},
+    };
+    return generatedProofCases(copy,{CT_EXISTING_PDFJS_DIR:copy},{children});
+  };
+  try {
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','bound source inside cache directory');
+    const initial=generate();
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.cpython-312.pyc','first cache bytes');
+    const cached=generate();
+    assert.deepEqual(cached.sources,initial.sources);
+    assert.equal(cached.sources.some(item=>item.file.endsWith('/__pycache__/reviewed.py')),true);
+    assert.equal(cached.sources.some(item=>item.file.endsWith('.pyc')),false);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.cpython-312.pyc','changed cache bytes');
+    assert.deepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','changed bound source inside cache directory');
+    assert.notDeepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','bound source inside cache directory');
+    write('tools/cloud-test/harness-adapter/reviewed.py','changed reviewed source');
+    assert.notDeepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness/new-reviewed.py','added reviewed source');
+    assert.notDeepEqual(generate().sources,initial.sources);
+  } finally {fs.rmSync(copy,{recursive:true,force:true});}
 });
 
 test('proof-generation timeout with an undrained descendant retains its owned inputs',()=>{

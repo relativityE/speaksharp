@@ -153,13 +153,45 @@
           "reviewedSourceSha": null
         }
       ]
+    },
+    "us-assets.i.posthog.com": {
+      "port": 443,
+      "rules": [
+        {
+          "id": "posthog-sdk-array",
+          "methods": [
+            "GET"
+          ],
+          "path": "^/static/array\\.js$",
+          "cap": "telemetry",
+          "effect": "read the exact PostHog array SDK asset observed on the reviewed production route",
+          "review": true,
+          "reviewedSourceSha": null
+        }
+      ]
+    },
+    "us.i.posthog.com": {
+      "port": 443,
+      "rules": [
+        {
+          "id": "posthog-event-ingest",
+          "methods": [
+            "POST"
+          ],
+          "path": "^/(e|i/v0/e)/$",
+          "cap": "telemetry",
+          "effect": "send bounded non-PII product telemetry to either exact reviewed PostHog ingestion route",
+          "review": true,
+          "reviewedSourceSha": null
+        }
+      ]
     }
   },
   "_denied_by_omission": [
     "stripe-checkout",
     "stripe-billing-portal",
     "cloud-STT token function",
-    "any PostHog/Sentry/Google/Vercel-insights host (analytics egress; record impact)",
+    "any Sentry/Google/Vercel-insights host and every unlisted PostHog host or route (analytics egress; record impact)",
     "WebSocket/Realtime (always denied)",
     "Hugging Face and external model CDN hosts (not selected baseline)"
   ],
@@ -172,7 +204,8 @@
     "signed-in": null,
     "coaching": null,
     "account-closure": 0,
-    "model": null
+    "model": null,
+    "telemetry": null
   },
   "maxInFlight": 6,
   "queueWaitMs": 15000,

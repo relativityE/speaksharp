@@ -16,9 +16,25 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import load, dump, parse_utc, is_sha40, ep_requirements, ep_cases, request_mode, mode_limits, sha256_file, ROOT  # noqa: E402
+from case_start_caps import own_reservation, reconcile_caps, InputValidationError
 
 CASE_RE = re.compile(r"^AHT-(0[1-9]|1[0-5])$")
 LEGACY_COST_KEYS = ("costUsd", "costCapUsd", "actualCostUsd")
+
+
+def runner_minutes_bound(req, cfg):
+    """Use the bound for the request's actual execution lane.
+
+    The secret-free offline workflow keeps the configured 30-minute ceiling.
+    A GitHub live/nightly request is instead bounded by the sum of the reviewed
+    job timeouts in cloud-test-live.yml; deriving that value from the workflow
+    prevents a second, drifting live allowance.
+    """
+    if req.get("executionRuntime") != "GitHub Actions SpeakSharp":
+        return cfg["githubActions"]["maxRunnerMinutes"]
+    from nightly_request import WORKFLOW_PATH, nightly_runner_minutes
+    with open(WORKFLOW_PATH, encoding="utf-8") as workflow:
+        return nightly_runner_minutes(workflow.read())
 
 
 def walk_keys(o, path=""):
@@ -48,8 +64,18 @@ def validate_ledger(ledger):
     return errs
 
 
-def validate(req, cfg, ledger, wf, rv, rc, budget=None):
+def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
     errs, warns = [], []
+    try:
+        reconcile_caps(req, rc, request_sha256=request_sha256)
+    except InputValidationError as error:
+        messages = {"mode-pair": "coverageMode must be partial or full with a matching sampleMode",
+                    "selection-count": "selection exceeds the configured maximum 6",
+                    "full-selection": "full coverage selects all 15 journeys exactly once in order",
+                    "cumulative-starts": "Starts would exceed the cumulative cap"}
+        return [messages.get(str(error), "invalid per-case Start allocation or input structure")], warns
+    except (ValueError, TypeError, KeyError):
+        return ["invalid per-case Start allocation or input structure"], warns
     E = errs.append
     for e in validate_ledger(ledger):
         E("gap ledger: " + e)
@@ -177,7 +203,7 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None):
             E("identityReads must be 2k+2 = %d for %d selected cases" % (2 * len(sel) + 2, len(sel)))
         if est["identityReads"] > lim["maxIdentityReadsPerRun"]:
             E("identity reads exceed the configured maximum")
-        if est.get("githubRunnerMinutesMax", 0) > cfg["githubActions"]["maxRunnerMinutes"]:
+        if est.get("githubRunnerMinutesMax", 0) > runner_minutes_bound(req, cfg):
             E("githubRunnerMinutesMax exceeds the configured bound")
         if full:
             if budget is None:
@@ -207,19 +233,29 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None):
     appr = req.get("approvedLimits") or {}
     if rc:
         cur = rc["ceilings"]
-        used_starts, used_takes = rc["starts"]["ownerCounted"], rc["takes"]["ownerCounted"]
+        # #1772 review 4446137335: this request's own counted reservation is replaced by its plan, never added twice (own_reservation;
+        # an invalid or ambiguous one is already refused by reconcile_caps above).
+        # Review 4447628949: all four dimensions, so the held requests (run cap + identity charge) and identity reads are not added again.
         try:
-            need = rc["requests"]["conservativeUsed"] + rq["runCap"] + cur["protectedReserveRequests"] + est["identityReads"]
+            own = own_reservation(rc, request_sha256, req.get("runId"))
+        except InputValidationError:
+            own = {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0}
+        used_requests = rc["requests"]["conservativeUsed"] - min(own["requests"], rc["requests"]["conservativeUsed"])
+        used_identity = rc["identityReads"]["conservativeUsed"] - min(own["identityReads"], rc["identityReads"]["conservativeUsed"])
+        used_starts = rc["starts"]["ownerCounted"] - min(own["starts"], rc["starts"]["ownerCounted"])
+        used_takes = rc["takes"]["ownerCounted"] - min(own["takes"], rc["takes"]["ownerCounted"])
+        try:
+            need = used_requests + rq["runCap"] + cur["protectedReserveRequests"] + est["identityReads"]
             pc = prop.get("cumulativeCeilingRequests")
             if pc is None or need > pc:
-                E("proposed cumulative ceiling %s is below the reconciled requirement %s (conservative used %s + run cap %s + protected reserve %s + identity reads %s)" % (pc, need, rc["requests"]["conservativeUsed"], rq["runCap"], cur["protectedReserveRequests"], est["identityReads"]))
+                E("proposed cumulative ceiling %s is below the reconciled requirement %s (conservative used %s excluding this request's own held %s + run cap %s + protected reserve %s + identity reads %s)" % (pc, need, used_requests, own["requests"], rq["runCap"], cur["protectedReserveRequests"], est["identityReads"]))
             if pc is not None and pc > cur["requests"]:
                 if not prop.get("ceilingIncreaseJustification"):
                     E("proposed ceiling %s exceeds the current ceiling %s without ceilingIncreaseJustification" % (pc, cur["requests"]))
                 else:
                     warns.append("ceiling increase requested (%s to %s): an owner decision" % (cur["requests"], pc))
             ic = prop.get("identityCap")
-            need_id = rc["identityReads"]["conservativeUsed"] + est["identityReads"]
+            need_id = used_identity + est["identityReads"]
             if ic is None or need_id > ic:
                 E("proposed identity cap %s is below the reconciled requirement %s" % (ic, need_id))
             if ic is not None and ic > cur["identityReads"] and not prop.get("identityIncreaseJustification"):
@@ -278,17 +314,20 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None):
     return errs, warns
 
 
-def derive_budget(cfg, rc, receipts_root):
+def derive_budget(cfg, rc, receipts_root, case_costs=None):
     """The full-coverage budget, derived from the sealed receipts, the hash-pinned assertion catalog and the reconciliation. None when an input is unusable."""
     try:
-        from derive_case_costs import derive_run
         from full_coverage_budget import compute
         spec = cfg["modes"]["full"]["assertionCatalog"]
         path = os.path.join(ROOT, spec["file"])
         if sha256_file(path) != spec["sha256"]:
             return None
         cat = load(path)
-        costs = {"runs": {lab: derive_run(receipts_root, lab) for lab in cfg["modes"]["full"]["budgetModel"]["basisRuns"]}}
+        if case_costs:
+            costs = load(case_costs)
+        else:
+            from derive_case_costs import derive_run
+            costs = {"runs": {lab: derive_run(receipts_root, lab) for lab in cfg["modes"]["full"]["budgetModel"]["basisRuns"]}}
         out = compute(cfg, costs, cat, rc)
         out["_catalog"] = cat
         return out
@@ -301,10 +340,11 @@ def main():
     for k in ("request", "config", "ledger", "workflow", "release-verification", "reconciliation", "out"):
         a.add_argument("--" + k, required=True)
     a.add_argument("--receipts-root", default=os.path.join(ROOT, "config", "history", "receipts"))
+    a.add_argument("--case-costs")
     x = a.parse_args()
     req, cfg, rc = load(x.request), load(x.config), load(x.reconciliation)
-    budget = derive_budget(cfg, rc, x.receipts_root) if request_mode(req) == "full" else None
-    errs, warns = validate(req, cfg, load(x.ledger), load(x.workflow), load(x.release_verification), rc, budget)
+    budget = derive_budget(cfg, rc, x.receipts_root, x.case_costs) if request_mode(req) == "full" else None
+    errs, warns = validate(req, cfg, load(x.ledger), load(x.workflow), load(x.release_verification), rc, budget, sha256_file(x.request))
     out = {"schema": "speaksharp.cloud-test.request-validation.v2", "request": os.path.basename(x.request), "valid": not errs, "errors": errs, "warnings": warns}
     dump(out, x.out)
     for e in errs:

@@ -235,7 +235,12 @@ function proofGenerationSources(root) {
     const target=path.join(root,relative),stat=fs.lstatSync(target);
     if(stat.isSymbolicLink())fail('Aliased proof-generation source');
     if(stat.isDirectory())for(const name of fs.readdirSync(target).sort())add(`${relative}/${name}`);
-    else if(stat.isFile())entries.push({file:relative,sha256:hash(fs.readFileSync(target))});
+    // Python bytecode in its conventional cache directory is an execution by-product,
+    // not reviewed source. Every other file in that directory remains source-bound.
+    else if(stat.isFile()) {
+      if(/(?:^|\/)__pycache__\/[^/]+\.pyc$/.test(relative))return;
+      entries.push({file:relative,sha256:hash(fs.readFileSync(target))});
+    }
     else fail('Unsupported proof-generation source');
     if(entries.length>4096)fail('Proof-generation source inventory is unbounded');
   };
@@ -281,7 +286,7 @@ export function generatedProofCases(root,environment,{children=nativeChildTracke
   if(typeof pdf!=='string'||!path.isAbsolute(pdf)||fs.realpathSync(pdf)!==pdf)fail('NOT RUN: bound CT_EXISTING_PDFJS_DIR is required for proof generation');
   const parent=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'speaksharp-r15-expected-'))),out=path.join(parent,'generated');
   try {
-    const launcher=binary('python3'),{result:identity}=children.run([launcher,'-I','-c',
+    const launcher=binary('python3'),{result:identity}=children.run([launcher,'-I','-B','-c',
       'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.executable).resolve(); print(json.dumps({"path":str(p),"version":".".join(map(str,sys.version_info[:3])),"sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'],
     {encoding:'utf8',timeout:identityTimeoutMs,killSignal:'SIGKILL',detached:true,
       env:{PATH:path.dirname(launcher),LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
@@ -290,13 +295,13 @@ export function generatedProofCases(root,environment,{children=nativeChildTracke
       ||fs.realpathSync(runtime.path)!==runtime.path||hash(fs.readFileSync(runtime.path))!==runtime.sha256)
       fail('NOT RUN: bound Python 3.12 proof-generation runtime unavailable');
     const python=runtime.path,generator=regular(root,'tools/cloud-test/scripts/proof_prep_cases.py');
-    const command=[python,'-I',generator,'--out',out,'--packet',path.join(root,'tools/cloud-test/harness')];
+    const command=[python,'-I','-B',generator,'--out',out,'--packet',path.join(root,'tools/cloud-test/harness')];
     const {result}=children.run(command,{cwd:path.join(root,'tools/cloud-test'),encoding:'utf8',timeout:generatorTimeoutMs,
       killSignal:'SIGKILL',detached:true,
       env:{PATH:[path.dirname(python),'/usr/bin','/bin'].join(path.delimiter),HOME:parent,CT_EXISTING_PDFJS_DIR:pdf,
         LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true'}});
     if(result.status!==0||result.signal||result.error)fail('NOT RUN: independent r15 proof generation failed');
-    return {runtime,command:['<BOUND_PYTHON>','-I','tools/cloud-test/scripts/proof_prep_cases.py','--out','<OWNED_OUTPUT>',
+    return {runtime,command:['<BOUND_PYTHON>','-I','-B','tools/cloud-test/scripts/proof_prep_cases.py','--out','<OWNED_OUTPUT>',
       '--packet','tools/cloud-test/harness'],sources:proofGenerationSources(root),
       files:proofCasesInventory(out,'independently generated proof-cases').files};
   } finally {

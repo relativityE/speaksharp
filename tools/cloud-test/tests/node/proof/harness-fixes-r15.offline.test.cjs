@@ -111,6 +111,13 @@ test('S3 a selected run dispatches only the selected cases, in the approved orde
   for(const id of core.IDS.filter(i=>!SEL.includes(i))){const row=r.report.cases.find(c=>c.caseId===id);assert.equal(row.notSelected,true);assert.equal(row.requestsUsed,0);assert.match(row.reason,/Not selected/);assert.ok(!x.calls.some(s=>s.includes(id)));}
   assert.equal(r.report.result,'NOT RUN','a subset can never be an all-journey PASS');assert.deepEqual(r.report.selection.order,SEL);assert.equal(r.report.selection.unselected.length,10);
 });
+test('S3b full campaign consumes the one genuine admission identity and exactly 31 later reads; no second admission dispatch occurs',async()=>{
+ const runner=require(P+'/bundle/harness/campaign-runner.cjs'),p=plan(),x=io(),steps=['A0.config','A1.bundle','A2.source','A3.tools','A4.credentials','A5.browser','A6.guard-selftest','A7.identity'];
+ const admission={schemaVersion:3,result:'ADMISSION PASS',endedAt:'2026-10-28T19:59:59Z',identityDispatch:'MATCH',productionTrafficSent:1,steps:steps.map(id=>({id,result:'PASS'})),binding:{campaignId:p.campaignId,campaignLedger:path.resolve(p.campaignLedger),identityLedger:path.resolve(p.identityLedger),identityCap:32,sourceSha:p.sourceSha,servedSha:p.servedSha,approvedDeadlineAt:p.deadlineAt},identityReceipt:{reservation:1,phase:'admission',startedAt:'2026-10-28T19:59:58Z',endedAt:'2026-10-28T19:59:59Z',result:'MATCH',reason:null,servedSha:p.servedSha,expectedSha:p.servedSha,http:200,redirects:0,markerCount:1,evidenceScope:'inert-text-marker-only'}};
+ let admissionConsumers=0;x.admit=async()=>{admissionConsumers++;return runner.validateReusedAdmission(admission,p);};
+ const r=await core.runCampaign(p,x,{executeR0:true}),later=x.calls.filter(s=>s.startsWith('identity:')).length;
+ assert.equal(admissionConsumers,1);assert.equal(admission.productionTrafficSent,1);assert.equal(later,31);assert.equal(admission.productionTrafficSent+later,32);assert.equal(r.report.identityPlan.requiredCap,32);assert.equal(r.report.result,'PASS');
+});
 test('S4 stimulus gates: when the denial stimulus is not established, AHT-04/13/14 are NOT dispatched and spend no request, identity read or time; the reason names the missing stimulus',async()=>{
   const x=io({'AHT-12':{denial:'NOT RUN'}}),r=await core.runCampaign(gp(),x,{executeR0:true});
   assert.deepEqual(x.calls.filter(s=>s.startsWith('run:')),['run:AHT-12','run:AHT-03']);
@@ -152,7 +159,7 @@ test('I2 the report carries the run identity with the media and driver hash of e
 test('I3 the runner refuses a run whose loaded runner code differs from the identity the plan declares (real adapter hook)',async()=>{
   const runner=require(P+'/bundle/harness/campaign-runner.cjs'),bundle=P+'/bundle',crypto=require('node:crypto');
   const codeSha=crypto.createHash('sha256').update(fs.readFileSync(bundle+'/CODE.sha256')).digest('hex');
-  const p=plan({runIdentity:{frontend:{sourceSha:commit,servedSha:commit},runner:{codeManifestSha256:codeSha,packetManifestSha256:hash},backend}});
+  const p=plan({requestSha256:hash,executionIdentity:{runId:'UNIT-NOT-A-RUN',attempt:1},consumedPlanSha256:hash,runIdentity:{frontend:{sourceSha:commit,servedSha:commit},runner:{codeManifestSha256:codeSha,packetManifestSha256:hash},backend}});
   const a=runner.createAdapter({...p,runRoot:'/tmp/unused-r15'},bundle,{});
   await a.verifyRunIdentity(p);
   await assert.rejects(()=>a.verifyRunIdentity({...p,runIdentity:{...p.runIdentity,runner:{...p.runIdentity.runner,codeManifestSha256:hash}}}),/differs from the runner bundle CODE.sha256/);

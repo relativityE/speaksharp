@@ -58,13 +58,48 @@ def usage(approval, index, ledger, now, exclude_run=None):
     return {"used": used, "runs": runs, "openReservations": open_res, "unrecordedActuals": sources}
 
 
-def check_caps(req, approval, index, ledger, now):
+JOURNAL_SNAPSHOT_SCHEMA = "speaksharp.cloud-test.journal-snapshot.v1"
+
+
+def snapshot_chain(doc):
+    """The verified state-ref journal snapshot reservations.py journal-snapshot wrote (its head and that head's full ledger), as the
+    one-element chain journal_usage folds; None for the legacy reservation-file input."""
+    if isinstance(doc, dict) and doc.get("schema") == JOURNAL_SNAPSHOT_SCHEMA:
+        if not (isinstance(doc.get("headSha"), str) and isinstance(doc.get("events"), list)):
+            raise ValueError("journal-snapshot-shape")
+        return [(doc["headSha"], doc["events"], None)]
+    return None
+
+
+def journal_usage(approval, chain, exclude_run=None):
+    """G11 period usage from the VERIFIED state-ref journal (RETURN 1793572741.370569: one journal for reservation, G11 and continuity):
+    every event inside the approval period folds per (campaign, run, attempt); a settle replaces its reservation with the settled allocation,
+    a release removes it, and an open reservation counts at its reserved caps. Runs are the distinct nightly campaigns reserved in the period
+    (the Case 10 observation's own `<campaign>.case10-observation` reservations count as usage, never as runs)."""
+    start = parse_utc(approval.get("periodStartUtc"))
+    held, runs = {}, set()
+    for e in chain[-1][1]:
+        at = parse_utc(e["atUtc"])
+        if start is None or at is None or at < start:
+            continue
+        key = (e["campaignId"], e["runId"], e["attempt"])
+        if e["type"] == "release":
+            held.pop(key, None)
+            continue
+        held[key] = e["allocation"]
+        campaign = e["campaignId"]
+        if e["type"] == "reserve" and campaign.startswith("nightly-") and "." not in campaign and campaign != exclude_run:
+            runs.add(campaign)
+    used = {k: sum(a[k] for (campaign, _, _), a in held.items() if campaign != exclude_run) for k in PERRUN}
+    return {"used": used, "runs": len(runs), "openReservations": sorted(c for (c, _, _), a in held.items()), "sources": {k: [] for k in PERRUN}}
+
+
+def check_caps(req, approval, index, ledger, now, journal_chain=None):
     """Reasons the run must be refused (empty list: it may proceed)."""
     need = []
     est = req.get("estimate") or {}
-    rq = est.get("requests") or {}
-    asked = {"requests": rq.get("runCap"), "identityReads": est.get("identityReads"), "starts": est.get("starts"), "takes": est.get("takes"),
-             "coachingRequests": (est.get("providerBillableRequests") or {}).get("coachingCap"), "runnerMinutes": est.get("githubRunnerMinutesMax")}
+    from reservations import caps_of_request
+    asked = caps_of_request(req)
     pr, pc = approval.get("perRunCaps") or {}, approval.get("periodCaps") or {}
     for k in PERRUN:
         v = asked[k]
@@ -75,7 +110,8 @@ def check_caps(req, approval, index, ledger, now):
     wm, wcap = (est.get("window") or {}).get("proposedMinutes"), pr.get("windowMinutes")
     if wm is None or wcap is None or wm > wcap:
         need.append("this run's window of %s minutes exceeds the standing approval's %s per run" % (wm, wcap))
-    u = usage(approval, index, ledger, now, exclude_run=req.get("runId"))
+    u = (journal_usage(approval, journal_chain, exclude_run=req.get("runId")) if journal_chain is not None
+         else usage(approval, index, ledger, now, exclude_run=req.get("runId")))
     cadence = (approval.get("cadence") or {}).get("runsPerPeriod")
     if isinstance(cadence, int) and u["runs"] + 1 > cadence:
         need.append("the period already has %d run(s) (sealed or reserved) and the cadence allows %d" % (u["runs"], cadence))

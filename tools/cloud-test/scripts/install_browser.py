@@ -6,6 +6,7 @@ Nothing is ignored or retried silently.
 Usage: install_browser.py --config C.json [--browsers-path DIR] [--archive FILE]
        install_browser.py --config C.json --existing FILE --source-sha SHA --run-id ID --receipt NEW_FILE
        install_browser.py --installed --baselines B.json --environment ENV [--candidate FILE] --source-sha SHA --run-id ID --receipt NEW_FILE
+       install_browser.py --received-installed-receipt FILE --baselines B.json --environment ENV --source-sha SHA --run-id ID --receipt NEW_FILE
   --archive uses an already downloaded file (still verified); without it the pinned URL is downloaded.
   --existing ONLY verifies an existing executable against the unchanged binary pin.
   It never downloads, extracts, copies, installs, chmods or launches a browser.
@@ -127,6 +128,37 @@ def write_receipt(path, identity):
         fail("cannot create the NEW browser identity receipt")
 
 
+def verify_installed_receipt(path, baselines_file, environment, source_sha, run_id):
+    """Revalidate a receipt produced by ``--installed`` in this job.
+
+    The binary is probed again and must still have the same real path, version and
+    bytes.  This preserves the reviewed environment baseline instead of silently
+    switching back to the unrelated historical Chrome-for-Testing 143 pin.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            receipt = json.load(f)
+        with open(baselines_file, encoding="utf-8") as f:
+            env = json.load(f)["environments"][environment]
+    except (OSError, ValueError, KeyError, TypeError):
+        fail("the installed-browser discovery receipt or baseline is unreadable")
+    if not isinstance(receipt, dict) or receipt.get("schema") != "speaksharp.cloud-test.installed-browser.v1":
+        fail("the installed-browser discovery receipt has the wrong schema")
+    if receipt.get("environment") != environment or receipt.get("minimumMajor") != env.get("minimumMajor") \
+            or receipt.get("baselinesSha256") != sha(baselines_file):
+        fail("the installed-browser discovery receipt is not for the reviewed environment baseline")
+    if receipt.get("sourceSha") != source_sha or receipt.get("runId") != run_id:
+        fail("the installed-browser discovery receipt is not for this source and run")
+    observed, reason = probe_installed(receipt.get("path"), env["minimumMajor"])
+    if observed is None:
+        fail("the discovered browser no longer qualifies (%s)" % reason)
+    expected = {"path": receipt.get("path"), "format": receipt.get("binaryFormat"), "product": receipt.get("product"),
+                "version": receipt.get("version"), "sha256": receipt.get("observedBinarySha256")}
+    if observed != expected:
+        fail("the discovered browser identity changed after discovery")
+    return dict(receipt, revalidated=True)
+
+
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--config", required=True)
@@ -137,10 +169,20 @@ def main():
     a.add_argument("--source-sha", help="exact source identity bound to the --existing receipt")
     a.add_argument("--run-id", help="execution identity bound to the --existing receipt")
     a.add_argument("--installed", action="store_true", help="discover the preinstalled browser against the environment's baseline; never download or install")
+    a.add_argument("--received-installed-receipt", help="revalidate this run's --installed receipt against the same baseline; never download or install")
     a.add_argument("--baselines", help="config/browser-baselines.v1.json for --installed")
     a.add_argument("--environment", help="the environment whose established baseline applies (--installed)")
     a.add_argument("--candidate", help="explicit preinstalled executable for --installed instead of the environment's listed paths")
     x = a.parse_args()
+    if x.received_installed_receipt:
+        if x.installed or x.existing is not None or x.archive or x.candidate is not None:
+            fail("--received-installed-receipt cannot be combined with discovery, --existing, --archive or --candidate")
+        if not x.baselines or not x.environment or not x.receipt or not re.fullmatch(r"[0-9a-f]{40}", x.source_sha or "") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", x.run_id or ""):
+            fail("--received-installed-receipt requires --baselines, --environment, --receipt, exact --source-sha and safe --run-id")
+        identity = verify_installed_receipt(x.received_installed_receipt, x.baselines, x.environment, x.source_sha, x.run_id)
+        write_receipt(x.receipt, identity)
+        print(identity["path"])
+        return
     if x.installed:
         if x.existing is not None or x.archive:
             fail("--installed cannot be combined with --existing or --archive")
@@ -152,7 +194,7 @@ def main():
         write_receipt(x.receipt, identity)
         print(identity["path"])
         return
-    if x.candidate is not None or x.baselines or x.environment:
+    if x.candidate is not None or x.baselines or x.environment or x.received_installed_receipt:
         fail("--candidate, --baselines and --environment require --installed")
     if x.existing is not None and x.archive:
         fail("--existing and --archive are mutually exclusive")

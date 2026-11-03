@@ -90,6 +90,42 @@ def sealed_identity(root, cfg, tested):
     return best
 
 
+def current_identity(path, cfg, tested, now):
+    """Verify the one admission identity read produced by identity-check.cjs.
+
+    This is current occurrence evidence, never retained history.  The private
+    ledger is created inside the new run directory, bound to the tested SHA and
+    target URL, and must contain exactly the admission A7 read at this point.
+    """
+    try:
+        st = os.lstat(path)
+        if not os.path.isfile(path) or os.path.islink(path) or st.st_nlink != 1 or (st.st_mode & 0o077):
+            return None, "current identity ledger is not a private regular single-link file"
+        led = load(path)
+    except (OSError, ValueError):
+        return None, "current identity ledger is missing or unreadable"
+    target = str((cfg.get("target") or {}).get("url") or "").rstrip("/") + "/"
+    receipts = led.get("receipts")
+    if not (led.get("version") == 1 and led.get("url") == target and led.get("expectedSha") == tested
+            and isinstance(led.get("cap"), int) and led["cap"] >= 1 and led.get("identityGets") == 1
+            and isinstance(receipts, list) and len(receipts) == 1):
+        return None, "current identity ledger is not the one-read target/release binding"
+    receipt = receipts[0]
+    if not (receipt.get("reservation") == 1 and receipt.get("phase") == "admission"
+            and receipt.get("result") == "MATCH" and receipt.get("reason") is None
+            and receipt.get("servedSha") == tested and receipt.get("expectedSha") == tested
+            and receipt.get("http") == 200 and receipt.get("redirects") == 0 and receipt.get("markerCount") == 1
+            and receipt.get("evidenceScope") == "inert-text-marker-only"):
+        return None, "current identity receipt did not prove the exact served release"
+    verified = parse_utc(receipt.get("endedAt"))
+    if verified is None:
+        return None, "current identity receipt has no valid completion time"
+    age = (now - verified).total_seconds() / 3600
+    return {"run": "current-occurrence", "servedSha": tested, "verifiedAtUtc": receipt["endedAt"], "reads": 1,
+            "source": "current-runtime-identity", "evidence": "current occurrence admission identity: one exact MATCH read",
+            "ageHours": round(age, 1), "fresh": 0 <= age <= cfg["release"]["identityMaxAgeHours"]}, None
+
+
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--request", required=True)
@@ -99,6 +135,7 @@ def main():
     a.add_argument("--receipts-root", default=os.path.join(ROOT, "config", "history", "receipts"))
     a.add_argument("--features", default=os.path.join(ROOT, "config", "feature-ledger.json"))
     a.add_argument("--catalog", default=os.path.join(ROOT, "config", "assertion-catalog.json"))
+    a.add_argument("--current-identity-ledger")
     a.add_argument("--now")
     a.add_argument("--out", required=True)
     x = a.parse_args()
@@ -128,15 +165,19 @@ def main():
         out["baselineLabel"] = cfg["history"]["comparisonBaselines"][0]
         out["sinceBaseline"] = commits_in(x.repo, base, tested, cfg) if git(x.repo, "cat-file", "-e", base + "^{commit}")[0] == 0 else None
     # frontend and backend deployment evidence
-    fe = sealed_identity(x.receipts_root, cfg, tested)
+    current_error = None
+    if x.current_identity_ledger:
+        fe, current_error = current_identity(x.current_identity_ledger, cfg, tested, now)
+    else:
+        fe = sealed_identity(x.receipts_root, cfg, tested)
     maxage = cfg["release"]["identityMaxAgeHours"]
     if fe:
         age = (now - parse_utc(fe["verifiedAtUtc"])).total_seconds() / 3600
         fe["ageHours"] = round(age, 1)
-        fe["fresh"] = age <= maxage
+        fe["fresh"] = 0 <= age <= maxage
     out["frontend"] = fe or {"source": "none", "servedSha": None, "fresh": False}
     if not fe:
-        N("frontend: no sealed run's identity reads show the tested SHA served; take one identity read in the run environment")
+        N("frontend: " + (current_error or "no sealed run's identity reads show the tested SHA served; take one identity read in the run environment"))
     elif not fe["fresh"]:
         N("frontend: the last verified identity read is %.0f hours old (limit %d); refresh it" % (fe["ageHours"], maxage))
     be = rel.get("backend") or {}
