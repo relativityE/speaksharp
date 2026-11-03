@@ -24,6 +24,7 @@ const tls = require('tls');
 const net = require('net');
 const fs = require('fs');
 const os = require('os');
+const zlib = require('zlib');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
@@ -75,6 +76,12 @@ const {Ledger,plain,safeKey}=require('./campaign-ledger.cjs');
 // Keep route matching in one production-owned function so offline controls can
 // exercise the exact decision used by onRequest without opening a socket.
 // The coaching Edge's own decoding (get-ai-suggestions providerDecode.ts, `diagnostics`): a provider-phase RESOURCE_EXHAUSTED is a limit refusal.
+// Bounded decoding of a coaching failure body by its Content-Encoding (identity is requested; this covers an upstream that ignores it).
+function decodedBody(body, encoding) {
+  const e = String(encoding || 'identity').trim().toLowerCase(), opts = { maxOutputLength: 262144 };
+  try { return e === 'gzip' || e === 'x-gzip' ? zlib.gunzipSync(body, opts) : e === 'br' ? zlib.brotliDecompressSync(body, opts) : e === 'deflate' ? zlib.inflateSync(body, opts) : body; }
+  catch { return Buffer.alloc(0); }
+}
 function providerLimitRefusal(body) {
   try { const d = JSON.parse(body.toString('utf8')).diagnostics; return !!d && d.phase === 'provider' && d.provider_error_status === 'RESOURCE_EXHAUSTED'; }
   catch { return false; }
@@ -453,6 +460,8 @@ class Guard {
       const k = req.rawHeaders[i]; if (HOP.has(k.toLowerCase())) continue;
       headers[k] = headers[k] !== undefined ? [].concat(headers[k], req.rawHeaders[i + 1]) : req.rawHeaders[i + 1];
     }
+    // #1778 review 4450776214: a coaching response must be readable for the provider-limit stop, so coaching calls request identity encoding.
+    if(rule.cap==='coaching'){for(const k of Object.keys(headers))if(k.toLowerCase()==='accept-encoding')delete headers[k];headers['accept-encoding']='identity';}
     if(downloadFault?.mode==='offline-mid-download'){for(const k of Object.keys(headers))if(k.toLowerCase()==='accept-encoding')delete headers[k];headers['accept-encoding']='identity';} // compressed/chunked responses carry no Content-Length, so the prefix fault could never fire (AHT-14)
     // http.request over the already-established upstream TLS socket: no agent, no DNS, no second
     // connection. (An agent would ignore createConnection and resolve the host directly.)
@@ -547,7 +556,7 @@ class Guard {
       const coachingFailure = rule.cap === 'coaching' && status >= 400 ? [] : null;
       this.watch(ur,'data', (d) => { bytes += d.length; if (coachingFailure && bytes <= 65536) coachingFailure.push(d); });
       this.watch(ur,'end', () => {
-        if (coachingFailure && bytes <= 65536 && providerLimitRefusal(Buffer.concat(coachingFailure))) this.markCoachingProviderLimited(ev, status);
+        if (coachingFailure && bytes <= 65536 && providerLimitRefusal(decodedBody(Buffer.concat(coachingFailure), ur.headers['content-encoding']))) this.markCoachingProviderLimited(ev, status);
         finish('completed', { status, bytes });
       });
       this.watch(ur,'error', () => finish('upstream-error', { status, sent: true }));
@@ -689,4 +698,4 @@ function listenOwned(server,{signal,timeoutMs}={}) {
     try{server.listen(0,'127.0.0.1',()=>{if(settled){close();return;}settled=true;cleanup();resolve();});}catch{failed();}
   });
 }
-module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned, providerLimitRefusal };
+module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned, providerLimitRefusal, decodedBody };

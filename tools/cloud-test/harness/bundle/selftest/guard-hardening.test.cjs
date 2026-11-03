@@ -61,3 +61,9 @@ test('a provider limit refusal in one case stops coaching in every later case sh
   const later=new Guard(p,{runDir:path.dirname(f),ledgerFile:f,logFile:f+'.log2'});t.after(()=>later.close());assert.equal(later.coachingProviderLimited,undefined,'a fresh case guard has no in-process latch');
   const req=Object.assign(new EventEmitter(),{socket:{ssHost:HOST},url:CREATE,method:'POST',headers:{host:HOST},rawHeaders:[]});const res=new EventEmitter();Object.assign(res,{headersSent:false,writeHead(code,headers){this.code=code;this.headers=headers;this.headersSent=true;},end(){this.writableFinished=true;},destroy(){this.destroyed=true;}});
   await later.onRequest(req,res);assert.equal(res.code,403);assert.equal(res.headers['x-ss-harness-deny'],'cap:coaching');assert.equal(later.c.forwarded,0);});
+// #1778 review 4450776214: a compressed coaching failure is decoded before the provider-limit check.
+test('a gzip, brotli or deflate coaching failure body still reveals the provider limit',()=>{const zlib=require('zlib');const {providerLimitRefusal,decodedBody}=require('../harness/guard-proxy.cjs');
+  const raw=Buffer.from(JSON.stringify({diagnostics:{phase:'provider',provider_status:429,provider_error_status:'RESOURCE_EXHAUSTED'}}));
+  for(const [enc,body] of [['gzip',zlib.gzipSync(raw)],['br',zlib.brotliCompressSync(raw)],['deflate',zlib.deflateSync(raw)],['identity',raw],[undefined,raw]]){assert.equal(providerLimitRefusal(decodedBody(body,enc)),true,String(enc));}
+  assert.equal(providerLimitRefusal(zlib.gzipSync(raw)),false,'undecoded compressed bytes are what the finding reproduced');
+  assert.equal(providerLimitRefusal(decodedBody(Buffer.from('not gzip'),'gzip')),false);});
