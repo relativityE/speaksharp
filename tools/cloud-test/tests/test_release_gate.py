@@ -8,6 +8,7 @@ import unittest
 
 from _fixtures import NOW, REPO, ROOT, git_repo, needs_history, prerequisite, request_path, sample, wjson
 import verify_release as VR
+import workflow_report as WR
 from _common import load
 
 
@@ -169,6 +170,70 @@ class ReleaseGate(unittest.TestCase):
         f = Fixture([("fix(be): edge fn (#104)", ["backend/supabase/migrations/1_x.sql"])])
         out = f.verify(ledger_with(["104"]), backend={"sha": "0" * 40, "source": "cloud-verified", "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "r"})
         self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "unverified-deployment")
+
+    def test_source_equivalent_edge_deployment_is_proven_from_git_trees(self):
+        f = Fixture([("fix(be): edge fn (#104)", ["backend/supabase/functions/x/index.ts"]),
+                     ("docs: later evidence", ["docs/evidence.md"])])
+        deployed = f.shas["fix(be): edge fn (#104)"]
+        self.assertNotEqual(deployed, f.tested)
+        tree = f.g("rev-parse", f.tested + ":backend/supabase/functions")
+        backend = {"sha": deployed, "source": "cloud-verified-source-equivalent",
+                   "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "run-url",
+                   "sourceEquivalentToSha": f.tested, "functionsTreeSha": tree}
+        out = f.verify(ledger_with(["104"]), backend=backend)
+        self.assertTrue(out["backend"]["verified"])
+        self.assertEqual(out["backend"]["mode"], "source-equivalent")
+        self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "cloud-verified")
+        rendered = WR.backend_deployment_text(out["backend"])
+        self.assertIn("source-equivalent deployment", rendered)
+        self.assertNotIn("cloud-verified exact deployment", rendered)
+        for value in (deployed, f.tested, tree, backend["verifiedAtUtc"], backend["evidenceRef"]):
+            self.assertIn(value, rendered)
+
+    def test_source_equivalent_backend_refuses_wrong_target_tree_or_missing_evidence(self):
+        f = Fixture([("fix(be): edge fn (#104)", ["backend/supabase/functions/x/index.ts"])])
+        tree = f.g("rev-parse", f.tested + ":backend/supabase/functions")
+        valid = {"sha": f.tested, "source": "cloud-verified-source-equivalent",
+                 "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "run-url",
+                 "sourceEquivalentToSha": f.tested, "functionsTreeSha": tree}
+        invalid = {
+            "wrong target": dict(valid, sourceEquivalentToSha=f.base),
+            "wrong tree": dict(valid, functionsTreeSha="0" * 40),
+            "missing evidence": dict(valid, evidenceRef=None),
+            "missing time": dict(valid, verifiedAtUtc=None),
+        }
+        for label, backend in invalid.items():
+            with self.subTest(label):
+                out = f.verify(ledger_with(["104"]), backend=backend)
+                self.assertFalse(out["backend"]["verified"])
+                self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "unverified-deployment")
+
+    def test_source_equivalent_functions_proof_never_covers_migrations(self):
+        f = Fixture([("fix(be): function baseline (#103)", ["backend/supabase/functions/x/index.ts"]),
+                     ("fix(be): migration (#104)", ["backend/supabase/migrations/1_x.sql"])])
+        tree = f.g("rev-parse", f.tested + ":backend/supabase/functions")
+        backend = {"sha": f.tested, "source": "cloud-verified-source-equivalent",
+                   "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "run-url",
+                   "sourceEquivalentToSha": f.tested, "functionsTreeSha": tree}
+        out = f.verify(ledger_with(["104"]), backend=backend)
+        self.assertTrue(out["backend"]["verified"])
+        self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "unverified-deployment")
+
+    def test_source_equivalent_backend_refuses_actual_function_tree_drift(self):
+        f = Fixture([("fix(be): first (#103)", ["backend/supabase/functions/x/index.ts"])])
+        deployed = f.tested
+        commit = f.g
+        with open(os.path.join(f.repo, "backend/supabase/functions/x/index.ts"), "a", encoding="utf-8") as h:
+            h.write("drift\n")
+        commit("add", ".")
+        commit("commit", "-q", "-m", "fix(be): changed after deploy (#104)")
+        f.tested = commit("rev-parse", "HEAD")
+        deployed_tree = commit("rev-parse", deployed + ":backend/supabase/functions")
+        backend = {"sha": deployed, "source": "cloud-verified-source-equivalent",
+                   "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "run-url",
+                   "sourceEquivalentToSha": f.tested, "functionsTreeSha": deployed_tree}
+        out = f.verify(ledger_with(["104"]), backend=backend)
+        self.assertFalse(out["backend"]["verified"])
 
     def test_gap_without_expected_pass_rejects_its_fix(self):
         f = Fixture([("fix(a): x (#101)", ["frontend/src/a.ts"])])

@@ -16,7 +16,7 @@ from test_case_start_caps import SyntheticBuilder
 
 
 class IndependentGithubCasePreparation(unittest.TestCase):
-    def build(self, case, actual_job=True, bootstrap=False, extra_env=None):
+    def build(self, case, actual_job=True, bootstrap=False, extra_env=None, source_equivalent=False):
         temporary = tempfile.TemporaryDirectory(prefix="gh-case-prep-")
         self.addCleanup(temporary.cleanup)
         base = Path(temporary.name).resolve()
@@ -24,11 +24,20 @@ class IndependentGithubCasePreparation(unittest.TestCase):
         facts_value["producerReviewReference"] = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"
         builder = SyntheticBuilder(base, cases=(case,))
         builder.request["executionRuntime"] = "GitHub Actions SpeakSharp"
+        if source_equivalent:
+            builder.request["release"]["backend"] = {
+                "sha": "c" * 40, "source": "cloud-verified-source-equivalent",
+                "verifiedAtUtc": "2026-11-02T20:32:07Z", "evidenceRef": "UNIT-DEPLOYMENT-RECEIPT",
+                "sourceEquivalentToSha": builder.request["release"]["testedSha"], "functionsTreeSha": "d" * 40,
+            }
         builder.repin(facts=facts_value)
         uid = base / "account.txt"
         uid.write_text("00000000-0000-4000-8000-000000000001")
         output = Path(builder.env["BP_PRIVATE"])
         env = builder.env
+        if source_equivalent:
+            env.update(BP_BACKEND_SOURCE="cloud-verified-source-equivalent",
+                       BP_BACKEND_VERIFIED="2026-11-02T20:32:07Z")
         env.update({
             "BP_ACCOUNT_ID_FILE": str(uid),
             "BP_HOST_DB": "yxlapjuovrsvjswkwnrk.supabase.co",
@@ -107,7 +116,7 @@ class IndependentGithubCasePreparation(unittest.TestCase):
         self.assertFalse((directory / "cfg/campaign-plan.json").exists())
 
     def test_bootstrap_invokes_both_real_builder_phases_and_stops_before_execution(self):
-        directory, results = self.build(7, bootstrap=True)
+        directory, results = self.build(7, bootstrap=True, source_equivalent=True)
         self.assertEqual([r.returncode for r in results], [0], [r.stderr for r in results])
         receipt = json.loads(results[0].stdout)
         self.assertEqual(receipt["kind"], "same-job-preparation-not-live-result")
@@ -118,4 +127,8 @@ class IndependentGithubCasePreparation(unittest.TestCase):
         self.assertEqual(plan["selection"]["ids"], ["AHT-07"])
         selected = next(c for c in plan["cases"] if c["id"] == "AHT-07")
         self.assertTrue(selected["producerReceiverFile"].endswith("github-job-evidence-reader.cjs"))
+        self.assertEqual(plan["runIdentity"]["backend"]["source"], "cloud-verified-source-equivalent")
+        self.assertEqual(plan["runIdentity"]["backend"]["sha"], "c" * 40)
+        self.assertEqual(plan["runIdentity"]["backend"]["sourceEquivalentToSha"], plan["sourceSha"])
+        self.assertEqual(plan["runIdentity"]["backend"]["functionsTreeSha"], "d" * 40)
         self.assertFalse((directory / "run").exists())

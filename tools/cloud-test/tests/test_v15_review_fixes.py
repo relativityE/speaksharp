@@ -899,11 +899,17 @@ class ReviewedFeaturesReachRegressionWithoutABug(unittest.TestCase):
 
     def test_the_shipped_feature_ledger_is_empty_and_invents_no_feature(self):
         features = J("config", "feature-ledger.json")["features"]
-        self.assertEqual([f["id"] for f in features], ["FEAT-R5-OBJECTIVE-PUBLICATION"])
-        self.assertEqual(features[0]["review"]["outcome"], "approved")
+        self.assertEqual([f["id"] for f in features], ["FEAT-R5-OBJECTIVE-PUBLICATION", "FEAT-ACCEPTED-ATTEMPT-FAILURE-TELEMETRY",
+                                                        "FEAT-OWNER-GOAL-UPDATE", "FEAT-PCM-BOUNDARY-RECEIPTS",
+                                                        "FEAT-REPLACEABLE-COACHING-ADAPTER"])
+        self.assertTrue(all(f["review"]["outcome"] == "approved" for f in features))
         self.assertEqual(features[0]["review"]["reviewedBy"], "Sam (independent Codex source review)")
         self.assertEqual(features[0]["review"]["reviewRef"],
                          "codex-source-review:0d1047f31d5ddde09a90081c613a92307df83682:FEAT-R5-OBJECTIVE-PUBLICATION")
+        goal = next(f for f in features if f["id"] == "FEAT-OWNER-GOAL-UPDATE")
+        self.assertEqual(goal["coverage"]["verificationScope"], "source-controls-plus-normal-journey-regression")
+        self.assertIn("not independently exercised", goal["coverage"]["diagnosticLimit"])
+        self.assertEqual(goal["coverage"]["requirements"], [{"case": "AHT-02", "assertions": ["owner-bound", "focus-final", "saved-once"]}])
         t = J("templates", "feature-entry.template.json")
         for k in ("review", "expectedBehaviour", "coverage"):
             self.assertIn(k, t)
@@ -929,6 +935,14 @@ class FeatureStatusIsDerivedFromTheLatestRun(unittest.TestCase):
         self.assertEqual(f["status"], "FAILING")
         self.assertTrue(f["evidence"][0]["sha256"])
         self.assertEqual(self.derive("NOT RUN")["status"], "UNCOVERED")
+
+    def test_normal_journey_pass_does_not_claim_independent_diagnostic_verification(self):
+        f = feature(coverage={"requirements": ROWS_OK, "newRows": [],
+                              "verificationScope": "source-controls-plus-normal-journey-regression",
+                              "diagnosticLimit": "diagnostic delivery not independently observed"})
+        d = self.derive("PASS", feat=f)
+        self.assertEqual(d["status"], "REGRESSION-VERIFIED_DIAGNOSTIC-UNVERIFIED")
+        self.assertIn("not independently observed", d["statusReason"])
 
     def test_before_a_run_and_when_not_deployed_reviewed_or_covered(self):
         self.assertEqual(self.derive()["status"], "DEPLOYED-AWAITING-TEST")
