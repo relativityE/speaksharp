@@ -198,6 +198,26 @@ def case10_execution_bound(request, facts, account_id, request_sha256=None, run_
     if not selected or request["sampleMode"] == "minimal":
         return None
     row = selected[0]
+    if "hardRequestAllowance" in row:
+        # A request may choose a stricter execution bound instead of predicting
+        # every internal component.  This is authority only because phase two
+        # installs the returned allowance in campaign-ledger before the case;
+        # request  allowance+1 is denied and an exhausted allowance cannot PASS.
+        require("requestBoundSha256" not in row and "observationContract" not in row,
+                "case10-hard-bound-two-sources")
+        require("case10RequestBound" not in facts and "case10Observation" not in facts,
+                "case10-hard-bound-two-sources")
+        from case10_request_bound import ALLOWANCE
+        hard = integer(row.get("hardRequestAllowance"), "case10-hard-bound")
+        planned = integer(row.get("plannedRequests"), "case10-hard-bound-planned")
+        require(0 < hard == planned <= ALLOWANCE, "case10-hard-bound-differs")
+        binding = {"schema": "speaksharp.cloud-test.case10-hard-request-bound.v1",
+                   "runId": request["runId"], "sourceSha": request["release"]["testedSha"],
+                   "caseId": "AHT-10", "allowance": hard}
+        encoded = json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        return {"projectionSha256": digest, "transmittedBound": hard, "allowance": hard,
+                "evidenceRef": "request-hard-allowance:" + digest}
     if "observationContract" in row:
         require("case10RequestBound" not in facts, "case10-observation-two-sources")
         record = obj(facts.get("case10Observation"), "case10-observation-missing")

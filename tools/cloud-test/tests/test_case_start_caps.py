@@ -62,11 +62,13 @@ def bind_synthetic_files(root, request, facts=None, reconciliation=None):
                   "sourceSha": request["release"]["testedSha"],
                   "accountSubjectSha256": hashlib.sha256(b"00000000-0000-4000-8000-000000000001").hexdigest(),
                   "evidenceRef": "SYNTHETIC-NOT-A-RUN", "projection": projection()}
-        facts.setdefault("case10RequestBound", record)
-        encoded = json.dumps(facts["case10RequestBound"], sort_keys=True, separators=(",", ":")).encode()
-        for row in request["selection"]:
-            if type(row) is dict and row.get("case") == "AHT-10":
-                row["requestBoundSha256"] = hashlib.sha256(encoded).hexdigest()
+        case10_row = next(row for row in request["selection"] if type(row) is dict and row.get("case") == "AHT-10")
+        if "hardRequestAllowance" not in case10_row:
+            facts.setdefault("case10RequestBound", record)
+            encoded = json.dumps(facts["case10RequestBound"], sort_keys=True, separators=(",", ":")).encode()
+            for row in request["selection"]:
+                if type(row) is dict and row.get("case") == "AHT-10":
+                    row["requestBoundSha256"] = hashlib.sha256(encoded).hexdigest()
     for path, value in ((reqp, request), (rcp, rc)):
         path.write_text(json.dumps(value))
         path.chmod(0o600)
@@ -239,6 +241,79 @@ core.runCampaign(plan,io,{executeR0:true}).then(result=>{
         self.assertEqual(json.loads(runtime.stdout), {
             "seen": 240, "r241": "case-allowance", "rowAllowance": 240, "requestsUsed": 240,
         })
+
+    def test_case10_hard_request_allowance_is_the_runtime_ceiling_and_request_191_is_refused(self):
+        self.f = SyntheticBuilder(self.temp.name, cases=(10,))
+        row = self.f.request["selection"][0]
+        row.pop("requestBoundSha256")
+        row["plannedRequests"] = 190
+        row["hardRequestAllowance"] = 190
+        self.f.request["estimate"]["requests"] = {
+            "planned": 190, "cleanupReserve": 50, "pooledSlack": 60, "runCap": 300,
+        }
+        self.f.request["approvedLimits"]["runCapRequests"] = 300
+        self.f.repin()
+        phase1 = self.f.run()
+        self.assertEqual(phase1.returncode, 0, phase1.stderr)
+        phase2 = self.f.run("phase2")
+        self.assertEqual(phase2.returncode, 0, phase2.stderr)
+        plan = json.loads((self.f.root / "private/cfg/campaign-plan.json").read_text())
+        config = json.loads((self.f.root / "private/cases/AHT-10.json").read_text())
+        self.assertEqual(plan["requestBudget"]["estimates"]["AHT-10"], 190)
+        self.assertEqual(plan["requestBudget"]["ceilings"]["AHT-10"], 190)
+        self.assertEqual(config["requestBound"]["allowance"], 190)
+        runtime = subprocess.run(["node", "-e", r"""
+const fs=require('node:fs'),path=require('node:path');
+const plan=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));
+const core=require(process.argv[2]),{Ledger}=require(process.argv[3]);
+const file=path.join(process.argv[4],'campaign-ledger.json');
+const ledger=new Ledger(file,{total:plan.requestBudget.runCap});let r191=null;
+const io={
+ now:Date.now,save:async()=>{},verifyBudgetBinding:async()=>{},verifyRunIdentity:async()=>{},
+ preflightCase:async()=>{},admit:async()=>({result:'ADMISSION PASS'}),
+ identity:async()=>({result:'MATCH',servedSha:plan.servedSha}),
+ ledgerUsed:()=>Ledger.readUsedTotal(file),caseConfig:async c=>JSON.parse(fs.readFileSync(c.configFile,'utf8')),
+ runCase:async c=>{ledger.setCaseAllowance(plan.requestBudget.ceilings[c.id]);
+   for(let i=0;i<190;i++){const denied=ledger.tryReserve(['total']);if(denied)throw Error('early denial '+denied);}
+   r191=ledger.tryReserve(['total']);const cfg=JSON.parse(fs.readFileSync(c.configFile,'utf8'));
+   const assertions=cfg.requiredAssertions.map(id=>({id,result:'PASS',detail:'Reviewed source-specific oracle result.',evidenceRefs:['before-refusal.json']}));
+   return{assertions,allowanceExhausted:r191==='case-allowance',allowanceCleanupVerified:true};}
+};
+core.runCampaign(plan,io,{executeR0:true}).then(result=>{const row=result.report.cases.find(c=>c.caseId==='AHT-10');
+ console.log(JSON.stringify({r191,state:ledger.caseAllowanceState(),result:row.result,interruption:row.interruption,reason:row.reason}));
+}).finally(()=>ledger.release());
+""", str(self.f.root / "private/cfg/campaign-plan.json"),
+            str(Path(ROOT) / "harness/bundle/harness/campaign-core.cjs"),
+            str(Path(ROOT) / "harness/bundle/harness/campaign-ledger.cjs"), str(self.f.root)],
+            capture_output=True, text=True, timeout=120)
+        self.assertEqual(runtime.returncode, 0, runtime.stderr)
+        self.assertEqual(json.loads(runtime.stdout), {
+            "r191": "case-allowance", "state": {"allowance": 190, "used": 190, "exhausted": True},
+            "result": "NOT RUN", "interruption": "request-allowance",
+            "reason": "Case request allowance exhausted; the case was stopped before further requests and its affected checks are NOT RUN",
+        })
+
+    def test_case10_hard_request_allowance_refuses_drift_or_two_sources_before_output(self):
+        for mutation in ("planned-differs", "above-fixed-max", "legacy-facts", "observation", "second-row-source"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory(prefix="r10-case10-hard-control-") as root:
+                self.f = SyntheticBuilder(root, cases=(10,))
+                row = self.f.request["selection"][0]
+                row.pop("requestBoundSha256")
+                row["hardRequestAllowance"] = 100
+                if mutation == "planned-differs":
+                    row["hardRequestAllowance"] = 99
+                elif mutation == "above-fixed-max":
+                    row["hardRequestAllowance"] = 241
+                    row["plannedRequests"] = 241
+                elif mutation == "second-row-source":
+                    row["requestBoundSha256"] = "0" * 64
+                facts = J("tests", "fixtures", "plan-facts.PLACEHOLDER.json")
+                if mutation == "legacy-facts":
+                    facts["case10RequestBound"] = {}
+                elif mutation == "observation":
+                    facts["case10Observation"] = {}
+                self.f.repin(facts=facts)
+                self.rejected()
 
     def test_case10_changed_projection_refuses_phase_two_without_new_outputs(self):
         self.f = SyntheticBuilder(self.temp.name, cases=(10,))
