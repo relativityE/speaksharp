@@ -28,9 +28,11 @@ test('browser speak consumes recordingWindowMs while semantic speechDurationMs s
 });
 
 test('AHT-01 repeat crosses the same product duration gate while other repeats keep their bounded policy',()=>{
- assert.equal(timing.repeatRecordingWindowMs('AHT-01',{recordingWindowMs:35000,savedRepeatMs:7000}),35000);
+ assert.equal(timing.repeatRecordingWindowMs('AHT-01',{sampleMode:'smoke',recordingWindowMs:35000,fullRepeatMs:49700,savedRepeatMs:7000}),35000);
+ assert.equal(timing.repeatRecordingWindowMs('AHT-01',{fullRepeatMs:49700,savedRepeatMs:7000}),49700);
  assert.equal(timing.repeatRecordingWindowMs('AHT-02',{recordingWindowMs:23100,savedRepeatMs:7000}),7000);
- assert.throws(()=>timing.repeatRecordingWindowMs('AHT-01',{recordingWindowMs:29999,savedRepeatMs:7000}),/product duration gate/);
+ assert.throws(()=>timing.repeatRecordingWindowMs('AHT-01',{sampleMode:'smoke',recordingWindowMs:29999,fullRepeatMs:49700,savedRepeatMs:7000}),/product duration gate/);
+ assert.throws(()=>timing.repeatRecordingWindowMs('AHT-01',{savedRepeatMs:7000}),/product duration gate/);
 });
 
 test('fault timing uses a bounded browser-to-runner bridge and rejects uncertain or reversed evidence',()=>{
@@ -38,7 +40,11 @@ test('fault timing uses a bounded browser-to-runner bridge and rejects uncertain
  const after=timing.epochBridge({nodeBeforeEpochMs:1100,browserEpochMs:1110,nodeAfterEpochMs:1102});
  assert.deepEqual(before,{offsetMinMs:8,offsetMaxMs:10,roundTripMs:2});
  const ok=timing.comparableFaultTimeline({beforeBridge:before,afterBridge:after,faultNodeEpochMs:1020,errorBrowserEpochMs:1040,retryBrowserEpochMs:1050});
- assert.equal(ok.comparable,true);assert.deepEqual([ok.faultToErrorMinMs,ok.faultToErrorMaxMs,ok.errorToRetryMs],[10,12,10]);
+ assert.equal(ok.comparable,true);assert.deepEqual([ok.faultToErrorMinMs,ok.faultToErrorMaxMs,ok.errorToRetryMinMs,ok.errorToRetryMaxMs],[10,12,0,10]);
+ assert.equal(ok.retryTimingKind,'visibility-observed-no-later-than-upper-bound');
+ const delayed=timing.comparableFaultTimeline({beforeBridge:before,afterBridge:after,faultNodeEpochMs:1020,errorBrowserEpochMs:1040,retryBrowserEpochMs:6040});
+ assert.deepEqual([delayed.errorToRetryMinMs,delayed.errorToRetryMaxMs],[0,5000]);
+ assert.equal(timing.comparableFaultTimeline({beforeBridge:before,afterBridge:after,faultNodeMinEpochMs:1019,faultNodeMaxEpochMs:1031,errorBrowserEpochMs:1040,retryBrowserEpochMs:1050}).reason,'timeline-order-ambiguous');
  assert.equal(timing.comparableFaultTimeline({beforeBridge:before,afterBridge:{offsetMinMs:-500,offsetMaxMs:500},faultNodeEpochMs:1020,errorBrowserEpochMs:1040,retryBrowserEpochMs:1050}).reason,'clock-bridge-uncertain');
  assert.equal(timing.comparableFaultTimeline({beforeBridge:before,afterBridge:after,faultNodeEpochMs:1020,errorBrowserEpochMs:1040,retryBrowserEpochMs:1039}).reason,'timeline-order-invalid');
 });
@@ -80,6 +86,7 @@ test('model failure wait is event-driven and reports transition latency',async()
  assert.equal(calls[0].arg.deadlineMs,30000);
  assert.match(calls[0].source,/MutationObserver/);
  assert.match(calls[0].source,/attributeFilter:\['data-model-status'\]/);
+ assert.match(calls[0].source,/sawNonTerminal/);
 });
 
 test('AHT-04 settlement wait is bounded inside the smoke case and preserves an honest timeout',async()=>{

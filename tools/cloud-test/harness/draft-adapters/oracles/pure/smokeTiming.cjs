@@ -43,10 +43,11 @@ function recordingWindowMs(caseId,{sampleMode,fixtureDurationMs,requestedMs}={})
   return requestedMs;
 }
 
-function repeatRecordingWindowMs(caseId,{recordingWindowMs:requestedMs,savedRepeatMs}={}){
+function repeatRecordingWindowMs(caseId,{sampleMode,recordingWindowMs:requestedMs,fullRepeatMs,savedRepeatMs}={}){
   if(caseId==='AHT-01'){
-    if(!Number.isInteger(requestedMs)||requestedMs<30000)throw new Error('AHT-01 repeat must retain the product duration gate');
-    return requestedMs;
+    const windowMs=sampleMode==='smoke'?requestedMs:fullRepeatMs;
+    if(!Number.isInteger(windowMs)||windowMs<30000)throw new Error('AHT-01 repeat must retain the product duration gate');
+    return windowMs;
   }
   if(!Number.isInteger(savedRepeatMs)||savedRepeatMs<1)throw new Error('repeat recording window unavailable');
   return savedRepeatMs;
@@ -58,16 +59,18 @@ function epochBridge({nodeBeforeEpochMs,browserEpochMs,nodeAfterEpochMs}={}){
     roundTripMs:nodeAfterEpochMs-nodeBeforeEpochMs};
 }
 
-function comparableFaultTimeline({beforeBridge,afterBridge,faultNodeEpochMs,errorBrowserEpochMs,retryBrowserEpochMs}={}){
-  if(!beforeBridge||!afterBridge||![faultNodeEpochMs,errorBrowserEpochMs,retryBrowserEpochMs].every(Number.isSafeInteger))return {comparable:false,reason:'timeline-input-unavailable'};
+function comparableFaultTimeline({beforeBridge,afterBridge,faultNodeEpochMs,faultNodeMinEpochMs=faultNodeEpochMs,faultNodeMaxEpochMs=faultNodeEpochMs,errorBrowserEpochMs,retryBrowserEpochMs}={}){
+  if(!beforeBridge||!afterBridge||![faultNodeMinEpochMs,faultNodeMaxEpochMs,errorBrowserEpochMs,retryBrowserEpochMs].every(Number.isSafeInteger)||faultNodeMinEpochMs>faultNodeMaxEpochMs)return {comparable:false,reason:'timeline-input-unavailable'};
   const offsetMinMs=Math.min(beforeBridge.offsetMinMs,afterBridge.offsetMinMs),offsetMaxMs=Math.max(beforeBridge.offsetMaxMs,afterBridge.offsetMaxMs);
   if(![offsetMinMs,offsetMaxMs].every(Number.isSafeInteger)||offsetMinMs>offsetMaxMs||offsetMaxMs-offsetMinMs>250)return {comparable:false,reason:'clock-bridge-uncertain',offsetRangeMs:offsetMaxMs-offsetMinMs};
-  const faultBrowserMinMs=faultNodeEpochMs+offsetMinMs,faultBrowserMaxMs=faultNodeEpochMs+offsetMaxMs;
+  const faultBrowserMinMs=faultNodeMinEpochMs+offsetMinMs,faultBrowserMaxMs=faultNodeMaxEpochMs+offsetMaxMs;
   const faultToErrorMinMs=errorBrowserEpochMs-faultBrowserMaxMs,faultToErrorMaxMs=errorBrowserEpochMs-faultBrowserMinMs;
-  const errorToRetryMs=retryBrowserEpochMs-errorBrowserEpochMs;
-  if(faultToErrorMaxMs<0||errorToRetryMs<0)return {comparable:false,reason:'timeline-order-invalid',faultToErrorMinMs,faultToErrorMaxMs,errorToRetryMs};
+  const errorToRetryMaxMs=retryBrowserEpochMs-errorBrowserEpochMs;
+  if(faultToErrorMaxMs<0||errorToRetryMaxMs<0)return {comparable:false,reason:'timeline-order-invalid',faultToErrorMinMs,faultToErrorMaxMs,errorToRetryMinMs:0,errorToRetryMaxMs};
+  if(faultToErrorMinMs<0)return {comparable:false,reason:'timeline-order-ambiguous',faultToErrorMinMs,faultToErrorMaxMs,errorToRetryMinMs:0,errorToRetryMaxMs};
   return {comparable:true,offsetRangeMs:offsetMaxMs-offsetMinMs,faultBrowserMinMs,faultBrowserMaxMs,
-    faultToErrorMinMs,faultToErrorMaxMs,errorToRetryMs};
+    faultToErrorMinMs,faultToErrorMaxMs,errorToRetryMinMs:0,errorToRetryMaxMs,
+    retryTimingKind:'visibility-observed-no-later-than-upper-bound'};
 }
 
 function modelFailureDeadlineMs({sampleMode}={}){

@@ -479,9 +479,10 @@ class Guard {
               if(rec.outcome)return;
               try {
                 if(this.browserPrefixObserver)downloadFault.browserPrefixReceipt=await this.browserPrefixObserver.received(downloadFault.browserPrefixBinding);
+                downloadFault.offlineInvokedAtEpochMs=Date.now();
                 await this.offlineControl(true);
                 if(rec.outcome)return;
-                downloadFault.fired=true;downloadFault.firedAtEpochMs=Date.now();downloadFault.browserOfflineApplied=true;downloadFault.bytesForwarded=held;
+                downloadFault.offlineAppliedAtEpochMs=Date.now();downloadFault.fired=true;downloadFault.firedAtEpochMs=downloadFault.offlineAppliedAtEpochMs;downloadFault.browserOfflineApplied=true;downloadFault.bytesForwarded=held;
                 this.log({...ev,kind:'download-fault',faultId:downloadFault.id,mode:downloadFault.mode,firedAtEpochMs:downloadFault.firedAtEpochMs,upstreamStatus:status,bytesForwarded:held,declaredLength:+ur.headers['content-length'],browserOfflineApplied:true,decision:'browser-offline-after-prefix'});
                 finish('fault-download-interrupted',{status,bytes:held});res.end();up.destroy();
               }catch(e){if(!rec.outcome){finish('harness-limited',{reason:'browser-offline-application-unproved'});res.destroy();up.destroy();}}
@@ -603,7 +604,7 @@ class Guard {
     }
   }
   summary() {
-    return { fatal:this.fatalState||null, caseAllowance:this.ledger?.caseAllowanceState?.()||null, port: this.port, spki: this.spki, feedbackFaults:(this.feedbackFaults||[]).map(f=>f.summary()), completionAttempts:this.completionObserver?.summary()||null, counters: this.c, ledgerUsed: this.ledger.state.used, caps: this.policy.caps, downloadFaults:this.downloadFaults.map(f=>({id:f.id,mode:f.mode,selected:f.selected,fired:f.fired,...(Number.isSafeInteger(f.firedAtEpochMs)?{firedAtEpochMs:f.firedAtEpochMs}:{}),bytesForwarded:f.bytesForwarded,browserOfflineApplied:f.browserOfflineApplied===true,networkRestored:f.networkRestored===true,...(f.browserPrefixReceipt?{browserPrefixReceipt:f.browserPrefixReceipt}:{})})), faults: this.faults.map((f) => ({ id: f.id, mode: f.mode, fired: f.fired })) };
+    return { fatal:this.fatalState||null, caseAllowance:this.ledger?.caseAllowanceState?.()||null, port: this.port, spki: this.spki, feedbackFaults:(this.feedbackFaults||[]).map(f=>f.summary()), completionAttempts:this.completionObserver?.summary()||null, counters: this.c, ledgerUsed: this.ledger.state.used, caps: this.policy.caps, downloadFaults:this.downloadFaults.map(f=>({id:f.id,mode:f.mode,selected:f.selected,fired:f.fired,...(Number.isSafeInteger(f.firedAtEpochMs)?{firedAtEpochMs:f.firedAtEpochMs}:{}),...(Number.isSafeInteger(f.offlineInvokedAtEpochMs)?{offlineInvokedAtEpochMs:f.offlineInvokedAtEpochMs}:{}),...(Number.isSafeInteger(f.offlineAppliedAtEpochMs)?{offlineAppliedAtEpochMs:f.offlineAppliedAtEpochMs}:{}),bytesForwarded:f.bytesForwarded,browserOfflineApplied:f.browserOfflineApplied===true,networkRestored:f.networkRestored===true,...(f.browserPrefixReceipt?{browserPrefixReceipt:f.browserPrefixReceipt}:{})})), faults: this.faults.map((f) => ({ id: f.id, mode: f.mode, fired: f.fired })) };
   }
   async close(reason = 'close') {
     if(this.closePromise)return this.closePromise;
