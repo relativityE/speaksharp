@@ -76,8 +76,20 @@ test('runtime smoke lease path stops at its bound without inferring expiry or fo
   createDb:()=>db,read:async()=>{reads++;return [{state:'active'}];},readMic:async()=>idle,
   wait:async ms=>{clock+=ms;},now:()=>clock,deadlineMs:500,pollMs:200,
  });
- assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'LEASE_LIVE',reads:4,elapsedMs:500});
- assert.equal(reads,4);
+ assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'LEASE_WAIT_DEADLINE',reads:3,elapsedMs:500});
+ assert.equal(reads,3,'the deadline is checked before a fourth owner query begins');
+});
+
+test('production smoke lease path refuses an idle owner read that completes after the overall deadline',async()=>{
+ const db={owner:true},idle={liveTracks:0,recording:false,recorderVisible:false};let clock=0,micReads=0;
+ const result=await adapters.smokeLeaseBoundary({},{}, {
+  createDb:()=>db,
+  read:async()=>{clock=501;return [];},
+  readMic:async()=>{micReads++;return idle;},
+  wait:async ms=>{clock+=ms;},now:()=>clock,deadlineMs:500,pollMs:100,
+ });
+ assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'LEASE_READ_DEADLINE',reads:0,elapsedMs:501});
+ assert.equal(micReads,0,'an owner read that outlives the campaign deadline cannot be followed by a mic read or accepted as idle');
 });
 
 test('Focus smoke scores only point windows fully heard before Stop',()=>{

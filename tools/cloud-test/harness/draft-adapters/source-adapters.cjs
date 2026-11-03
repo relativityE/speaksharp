@@ -91,9 +91,14 @@ async function smokeLeaseBoundary(page,c,{createDb=createOwnerDb,read=ownerRows,
  const startedAt=now();let reads=0,db=null;
  try{db=createDb(page,c);}catch{return {ready:false,code:'LEASE_READ_UNAVAILABLE',reads,elapsedMs:0};}
  for(;;){
+  const elapsed=()=>Math.max(0,now()-startedAt);
+  const expired=lastCode=>({ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode,reads,elapsedMs:elapsed()});
+  if(elapsed()>=deadlineMs)return expired('LEASE_WAIT_DEADLINE');
   let leaseRows=null;try{leaseRows=await read(db,'active_recording_lease','user_id,lease_id,state');}catch{/* fail closed below */}
+  if(elapsed()>=deadlineMs)return expired('LEASE_READ_DEADLINE');
   let mic=null;try{mic=await readMic(page);}catch{/* fail closed below */}
-  reads++;const state=smokeTiming.leaseBoundary({leaseRows,mic});const elapsedMs=Math.max(0,now()-startedAt);
+  if(elapsed()>=deadlineMs)return expired('MIC_READ_DEADLINE');
+  reads++;const state=smokeTiming.leaseBoundary({leaseRows,mic});const elapsedMs=elapsed();
   if(state.ready)return {...state,reads,elapsedMs};
   if(['LEASE_READ_UNAVAILABLE','MIC_STATE_UNAVAILABLE'].includes(state.code))return {...state,reads,elapsedMs};
   if(elapsedMs>=deadlineMs)return {ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:state.code,reads,elapsedMs};
