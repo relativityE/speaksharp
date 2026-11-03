@@ -44,40 +44,68 @@ import state_ref_writer  # noqa: E402
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
-OCCURRENCE_APPROVAL_SCHEMA = "speaksharp.cloud-test.relative-occurrence-approval.v1"
-OCCURRENCE_APPROVAL_KEYS = {"schema", "status", "approvalRef", "approvedBy", "runId", "attempt", "windowMinutes",
-                            "testedSha", "backendSha", "notBeforeUtc", "expiresUtc"}
+ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
+ONE_OFF_GRANT_SHA256 = "0f05968650d889f55d93ddbd9bebcdfc26de093c5f4ca97e8f39c458bc1fdd67"
+ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
+                      "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
+                      "limits", "olderReleaseDiagnostic"}
+ONE_OFF_LIMITS = {"endToEndMinutes": 80, "liveMinutes": 40, "requestsIncludingIdentity": 2032,
+                  "identityReads": 32, "starts": 16, "takes": 16, "coachingCalls": 20, "retries": 0}
+CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
 
 
-def relative_occurrence_approval(facts, template, initiation):
-    """The exact owner-selected one-run rule; GitHub supplies the actual run start.
+def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=None):
+    """The reviewed, content-addressed PO grant for exactly one R10 attempt.
 
-    Approval fixes every mutable execution value except the initiation instant.  That instant is accepted only from the current workflow
-    run's authenticated `run_started_at`, passed separately by the workflow.  The resulting request remains one attempt and is rederived at
-    every job boundary from these same authority bytes and the same start.
+    Dispatch facts are evidence references, never authority.  The grant binds the committed template, deployed release, accepted accounting
+    scope, pre-reserve journal head and every one-run cap.  The only value supplied at execution is GitHub's authenticated run start.
     """
-    approval = (facts or {}).get("occurrenceApproval")
-    _need(isinstance(approval, dict) and set(approval) == OCCURRENCE_APPROVAL_KEYS
-          and approval.get("schema") == OCCURRENCE_APPROVAL_SCHEMA and approval.get("status") == "APPROVED",
-          "relative-occurrence-approval-shape")
-    _need(_ref(approval.get("approvalRef")) and isinstance(approval.get("approvedBy"), str) and approval["approvedBy"],
-          "relative-occurrence-approval-reference")
-    _need(approval.get("runId") == template.get("runId") == "R10-3b040043-smoke15" and approval.get("attempt") == 1,
-          "relative-occurrence-approval-run")
-    _need(approval.get("windowMinutes") == SMOKE_OCCURRENCE_WINDOW_MINUTES,
-          "relative-occurrence-approval-window")
-    _need(isinstance(approval.get("testedSha"), str) and LR.SHA40.match(approval["testedSha"])
-          and isinstance(approval.get("backendSha"), str) and LR.SHA40.match(approval["backendSha"]),
-          "relative-occurrence-approval-release")
-    start = _utc(initiation)
-    _need(_utc(approval.get("notBeforeUtc")) <= start
-          and start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES) <= _utc(approval.get("expiresUtc")),
-          "relative-occurrence-approval-expired")
-    return approval
+    path = os.path.join(repo, ONE_OFF_GRANT_PATH)
+    _need(os.path.isfile(path) and not os.path.islink(path), "one-off-grant-unreadable")
+    raw = _read(path)
+    _need(hashlib.sha256(raw).hexdigest() == ONE_OFF_GRANT_SHA256, "one-off-grant-not-the-reviewed-bytes")
+    try:
+        grant = json.loads(raw)
+    except ValueError:
+        raise Refused("one-off-grant-unreadable")
+    _need(isinstance(grant, dict) and set(grant) == ONE_OFF_GRANT_KEYS
+          and grant.get("schema") == "speaksharp.cloud-test.one-off-grant.v1" and grant.get("status") == "APPROVED",
+          "one-off-grant-shape")
+    _need(_ref(grant.get("approvalRef")) and grant.get("approvedBy") == "Akin"
+          and grant.get("runId") == "R10-3b040043-smoke15" and grant.get("attempt") == 1,
+          "one-off-grant-reference")
+    template_path = os.path.join(repo, ONE_OFF_TEMPLATE_PATH)
+    _need(os.path.isfile(template_path) and not os.path.islink(template_path)
+          and hashlib.sha256(_read(template_path)).hexdigest() == grant.get("requestTemplateSha256"),
+          "one-off-grant-not-the-request")
+    if template is not None:
+        _need(template.get("runId") == grant["runId"]
+              and (template.get("release") or {}).get("testedSha") == grant.get("testedSha")
+              and ((template.get("release") or {}).get("backend") or {}).get("sha") == grant.get("backendSha"),
+              "one-off-grant-release")
+    _need(grant.get("limits") == ONE_OFF_LIMITS and grant.get("olderReleaseDiagnostic") is True,
+          "one-off-grant-limits")
+    _need(grant.get("periodScopeSha256") == manual_reservation.ACCEPTED_SCOPE_SHA256
+          and isinstance(grant.get("preReserveStateHead"), str) and LR.SHA40.match(grant["preReserveStateHead"]),
+          "one-off-grant-accounting")
+    if initiation is not None:
+        start = _utc(initiation)
+        _need(_utc(grant.get("notBeforeUtc")) <= start
+              and start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES) <= _utc(grant.get("expiresUtc")),
+              "one-off-grant-expired")
+    if reconciliation_bytes is not None:
+        try:
+            checkpoint = json.loads(reconciliation_bytes)
+        except (TypeError, ValueError):
+            raise Refused("one-off-grant-checkpoint")
+        _need(checkpoint.get("headSha") == grant.get("preReserveStateHead")
+              and checkpoint.get("scopeApprovalRef") == grant.get("approvalRef"), "one-off-grant-checkpoint")
+    return grant
 
 
-def materialize_authoritative_smoke_occurrence(template, facts, initiation):
-    approval = relative_occurrence_approval(facts, template, initiation)
+def materialize_authoritative_smoke_occurrence(repo, template, initiation):
+    approval = one_off_grant(repo, template, initiation)
     return materialize_smoke_occurrence(template, initiation, approval["approvalRef"], approval["approvedBy"],
                                         approval["testedSha"], approval["backendSha"])
 
@@ -117,7 +145,7 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by
     return out
 
 
-def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha256, source_sha, facts=None, workflow_start_utc=None):
+def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha256, source_sha, workflow_start_utc=None):
     """Admit an exact, approver-bound smoke occurrence derived from one committed template.
 
     The occurrence bytes travel unchanged through reservation and preparation.  They are never generated after the reserve, and they are
@@ -136,7 +164,7 @@ def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha
         raise Refused("manual-occurrence-unreadable")
     _need(isinstance(workflow_start_utc, str) and occurrence.get("createdUtc") == workflow_start_utc,
           "manual-occurrence-not-the-workflow-start")
-    expected = materialize_authoritative_smoke_occurrence(template, facts, workflow_start_utc)
+    expected = materialize_authoritative_smoke_occurrence(repo, template, workflow_start_utc)
     _need(occurrence == expected, "manual-occurrence-not-the-template-materialization")
     return occurrence_file, hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest(), raw, template_blob
 # NIGHTLY facts (Elon 1793560137.871769, pending Sam's content/pin decision): a scheduled run has no operator facts input, so its facts are
@@ -361,7 +389,7 @@ def check_window_remaining(req, now, live_minutes):
     _need((end - now).total_seconds() >= 60 * (live_minutes + COLLECT_RESERVE_MINUTES), "approved-window-too-short-at-admission")
 
 
-def check_release_lineage(repo, req, request_rel, source_sha, request_blob, cases, diagnostic, template_keys):
+def check_release_lineage(repo, req, request_rel, source_sha, request_blob, cases, diagnostic, template_keys, grant=None):
     """Workflow source, tested product release and served release are distinct. The source may descend from the tested release only by
     schema-valid run requests in the ONE reviewed request location; anything else (product, dependency, harness, or any other JSON) refuses
     unless facts carry an older-release diagnostic approval bound to exactly this workflow SHA, tested SHA, request blob and selection.
@@ -384,6 +412,11 @@ def check_release_lineage(repo, req, request_rel, source_sha, request_blob, case
     if not beyond:
         _need(diagnostic is None, "diagnostic-declared-without-product-change")
         return "same" if tested == source_sha else "request-only-descendant"
+    if grant is not None:
+        _need(diagnostic is None and grant.get("olderReleaseDiagnostic") is True
+              and grant.get("testedSha") == tested and grant.get("runId") == req.get("runId"),
+              "source-changes-product-beyond-request")
+        return "reviewed-one-off-older-release-diagnostic"
     _need(diagnostic == {"approvalRef": (diagnostic or {}).get("approvalRef"), "workflowSha": source_sha, "testedSha": tested,
                          "requestBlob": request_blob, "cases": cases} and _ref(diagnostic["approvalRef"]), "source-changes-product-beyond-request")
     return "explicit-older-release-diagnostic"
@@ -738,7 +771,7 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
     return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
 
 
-def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req, nightly=False, standing=None):
+def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req, nightly=False, standing=None, repo=None):
     """Return the exact builder envelope for this occurrence.
 
     Manual dispatches retain the approver-supplied, byte-bound envelope. Scheduled executions must not carry a reusable envelope in their
@@ -756,8 +789,10 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
               and envelope.get("approvedBy") == lim.get("approvedBy") and envelope.get("selectionApprovalRef") == req.get("selectionApprovalRef"),
               "action-approval-standing-reference")
         return envelope
-    if supplied is None and facts.get("occurrenceApproval") is not None:
-        approval = relative_occurrence_approval(facts, req, req.get("createdUtc"))
+    if req.get("runId") == "R10-3b040043-smoke15":
+        _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")
+        _need(isinstance(repo, str), "one-off-grant-unreadable")
+        approval = one_off_grant(repo, None, req.get("createdUtc"), reconciliation_bytes)
         window = req.get("window") or {}
         _need(req.get("createdUtc") == window.get("startUtc")
               and (_utc(window.get("endUtc")) - _utc(window.get("startUtc"))).total_seconds()
@@ -847,8 +882,7 @@ def prepare(x, now):
             raise Refused("facts-shape")
         _need(isinstance(manual_facts, dict), "facts-shape")
         req_path, req_blob, req_raw, _template_blob = select_manual_occurrence(repo, x.request, occurrence_file,
-                                                                               occurrence_sha, x.source_sha, manual_facts,
-                                                                               workflow_start_utc)
+                                                                               occurrence_sha, x.source_sha, workflow_start_utc)
     else:
         req_path, req_blob, req_raw = select_request(repo, x.request, x.source_sha)
     req, cfg, template_keys = json.loads(req_raw), _load(os.path.join(repo, x.config)), _request_keys()
@@ -859,7 +893,11 @@ def prepare(x, now):
     _need(not (nightly and x.facts), "nightly-facts-input-refused")
     facts = nightly_facts(repo) if nightly else (manual_facts if manual_occurrence else json.loads(x.facts or "null"))
     _need(isinstance(facts, dict), "facts-shape")
-    lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys)
+    grant = None
+    if req.get("runId") == "R10-3b040043-smoke15":
+        _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")
+        grant = one_off_grant(repo, None, req.get("createdUtc"))
+    lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys, grant)
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
     accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle)
     entries = {b["role"]: role_account(bundle, b["role"], os.environ.get("SUPABASE_URL")) for b in accounts}
@@ -878,7 +916,7 @@ def prepare(x, now):
     action_approval = occurrence_action_approval(
         facts, request_sha256, reconciliation, req, nightly,
         standing=lambda: standing_envelope(repo, req, request_sha256, reconciliation, accepted_scope, cases, cfg, now, x.attempt,
-                                           reserved_occurrences(chains[-1], own), held=own_held_allocation(chains[-1], own)))
+                                           reserved_occurrences(chains[-1], own), held=own_held_allocation(chains[-1], own)), repo=repo)
     facts = dict(facts, actionApproval=action_approval)
     check_case10_bound(req, facts, cases, entries, request_sha256, x.run_id, now, observation)
     # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.
@@ -1364,14 +1402,9 @@ def main(argv):
             return 0
         if x.command == "occurrence-check":
             repo = os.path.realpath(x.repo)
-            try:
-                occurrence_facts = json.loads(x.facts or "null")
-            except ValueError:
-                raise Refused("facts-shape")
             _path, _blob, raw, _template_blob = select_manual_occurrence(
                 repo, x.request, x.manual_occurrence_file,
-                x.manual_occurrence_sha256, x.source_sha, occurrence_facts,
-                x.workflow_start_utc)
+                x.manual_occurrence_sha256, x.source_sha, x.workflow_start_utc)
             req = json.loads(raw)
             cases = check_request(req, datetime.now(timezone.utc), _request_keys())
             cfg = _load(os.path.join(repo, x.config))
@@ -1382,10 +1415,10 @@ def main(argv):
             repo = os.path.realpath(x.repo)
             _path, _blob, template_raw = select_request(repo, x.request, x.source_sha)
             try:
-                template, occurrence_facts = json.loads(template_raw), json.loads(x.facts or "null")
+                template = json.loads(template_raw)
             except ValueError:
                 raise Refused("manual-occurrence-unreadable")
-            occurrence = materialize_authoritative_smoke_occurrence(template, occurrence_facts, x.workflow_start_utc)
+            occurrence = materialize_authoritative_smoke_occurrence(repo, template, x.workflow_start_utc)
             _write_private(x.out, occurrence)
             return 0
         # Mask first: the whole bundle and every extracted value, before any refusal, output or environment export.

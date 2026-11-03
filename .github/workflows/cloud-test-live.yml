@@ -240,7 +240,7 @@ jobs:
             python3 -I tools/cloud-test/scripts/manual_reservation.py reserve --journal "$RUNNER_TEMP/reserve-journal" \
               --out "$RUNNER_TEMP/reserve-receipt.json" --request "$RUNNER_TEMP/manual-occurrence.json" --admitted-sha256 "$MANUAL_OCCURRENCE_SHA256" \
               --run-id "$GITHUB_RUN_ID" --facts "$RUNNER_TEMP/manual-facts.json" --bootstrap tools/cloud-test/config/aggregate/accounting-bootstrap.json \
-              --scope tools/cloud-test/config/aggregate/period-scope.json
+              --scope tools/cloud-test/config/aggregate/period-scope.json --source-repo "$GITHUB_WORKSPACE"
             exit 0
           fi
           (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")

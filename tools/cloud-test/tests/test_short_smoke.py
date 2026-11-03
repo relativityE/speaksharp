@@ -60,31 +60,15 @@ def live_smoke_request():
     return value
 
 
-def occurrence_authority(start="2026-11-03T16:00:00Z", expires="2026-11-04T12:00:00Z"):
-    return {"occurrenceApproval": {
-        "schema": init.OCCURRENCE_APPROVAL_SCHEMA,
-        "status": "APPROVED",
-        "approvalRef": "chat:PO_R10_SCOPE_EXTENSION_2026-11-03",
-        "approvedBy": "ProductOwner",
-        "runId": "R10-3b040043-smoke15",
-        "attempt": 1,
-        "windowMinutes": 80,
-        "testedSha": "a" * 40,
-        "backendSha": "b" * 40,
-        "notBeforeUtc": start,
-        "expiresUtc": expires,
-    }}
-
-
 class ShortSmokeContract(unittest.TestCase):
     def test_actual_initiation_derives_one_bounded_occurrence_that_admits(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        start = "2026-11-03T16:00:00Z"
-        value = init.materialize_authoritative_smoke_occurrence(template, occurrence_authority(), start)
+        start = "2026-11-03T17:30:00Z"
+        value = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, start)
         self.assertEqual(value["window"]["startUtc"], start)
-        self.assertEqual(value["window"]["endUtc"], "2026-11-03T17:20:00Z")
+        self.assertEqual(value["window"]["endUtc"], "2026-11-03T18:50:00Z")
         self.assertIn("not measured runtime", value["window"]["basis"])
-        now = datetime(2026, 11, 3, 16, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 11, 3, 17, 30, 0, tzinfo=timezone.utc)
         cases = init.check_request(value, now, init._request_keys())
         cfg = json.loads((ROOT / "config/test-config.v1.json").read_text())
         live = init.check_ceilings(cfg, value, cases, 65)
@@ -92,9 +76,9 @@ class ShortSmokeContract(unittest.TestCase):
         init.check_window_fit(value, now, live)
         # A real dispatch has startup delay.  The occurrence must survive it,
         # while still refusing once less than live + collect remains.
-        init.check_window_fit(value, datetime(2026, 11, 3, 16, 5, 0, tzinfo=timezone.utc), live)
+        init.check_window_fit(value, datetime(2026, 11, 3, 17, 35, 0, tzinfo=timezone.utc), live)
         with self.assertRaisesRegex(init.Refused, "run-would-outlast-approved-window"):
-            init.check_window_fit(value, datetime(2026, 11, 3, 16, 30, 1, tzinfo=timezone.utc), live)
+            init.check_window_fit(value, datetime(2026, 11, 3, 18, 0, 1, tzinfo=timezone.utc), live)
 
     def test_occurrence_materializer_refuses_wrong_case_set_or_release(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
@@ -107,9 +91,8 @@ class ShortSmokeContract(unittest.TestCase):
     def test_exact_occurrence_bytes_are_rederived_from_the_committed_template(self):
         template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        start = "2026-11-03T16:00:00Z"
-        facts = occurrence_authority()
-        occurrence = init.materialize_authoritative_smoke_occurrence(template, facts, start)
+        start = "2026-11-03T17:30:00Z"
+        occurrence = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, start)
         raw = json.dumps(occurrence, sort_keys=True, separators=(",", ":")).encode()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "occurrence.json"
@@ -117,7 +100,7 @@ class ShortSmokeContract(unittest.TestCase):
             selected = init.select_manual_occurrence(
                 str(ROOT.parents[1]), template_rel, str(path),
                 hashlib.sha256(raw).hexdigest(),
-                init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), facts, start)
+                init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), start)
             self.assertEqual(selected[2], raw)
 
             tampered = dict(occurrence)
@@ -128,13 +111,12 @@ class ShortSmokeContract(unittest.TestCase):
                 init.select_manual_occurrence(
                     str(ROOT.parents[1]), template_rel, str(path),
                     hashlib.sha256(bad).hexdigest(),
-                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), facts, start)
+                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), start)
 
     def test_occurrence_refuses_an_external_timestamp_or_expired_authority(self):
         template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        facts = occurrence_authority()
-        occurrence = init.materialize_authoritative_smoke_occurrence(template, facts, "2026-11-03T16:00:00Z")
+        occurrence = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-03T17:30:00Z")
         raw = json.dumps(occurrence, sort_keys=True, separators=(",", ":")).encode()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "occurrence.json"
@@ -142,10 +124,36 @@ class ShortSmokeContract(unittest.TestCase):
             with self.assertRaisesRegex(init.Refused, "manual-occurrence-not-the-workflow-start"):
                 init.select_manual_occurrence(
                     str(ROOT.parents[1]), template_rel, str(path), hashlib.sha256(raw).hexdigest(),
-                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), facts, "2026-11-03T16:00:01Z")
-        expired = occurrence_authority(expires="2026-11-03T17:19:59Z")
-        with self.assertRaisesRegex(init.Refused, "relative-occurrence-approval-expired"):
-            init.materialize_authoritative_smoke_occurrence(template, expired, "2026-11-03T16:00:00Z")
+                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), "2026-11-03T17:30:01Z")
+        with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
+            init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-04T10:40:01Z")
+
+    def test_one_off_grant_rejects_caller_authority_release_checkpoint_and_scope_tampering(self):
+        repo = str(ROOT.parents[1])
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        occurrence = init.materialize_authoritative_smoke_occurrence(repo, template, "2026-11-03T17:30:00Z")
+        request_sha = hashlib.sha256(json.dumps(occurrence, sort_keys=True).encode()).hexdigest()
+        checkpoint = json.dumps({
+            "headSha": "92d6ebf902351750c368d7d513116c6b1f19f80c",
+            "scopeApprovalRef": "chat:PO_R10_ALL15_SMOKE_2026-11-03",
+        }, sort_keys=True).encode()
+        for field in init.CALLER_AUTHORITY_FIELDS:
+            with self.assertRaisesRegex(init.Refused, "one-off-caller-authority-refused"):
+                init.occurrence_action_approval({field: {}}, request_sha, checkpoint, occurrence, repo=repo)
+        wrong_release = copy.deepcopy(occurrence)
+        wrong_release["release"]["testedSha"] = "f" * 40
+        with self.assertRaisesRegex(init.Refused, "relative-occurrence-request-release"):
+            init.occurrence_action_approval({}, request_sha, checkpoint, wrong_release, repo=repo)
+        stale = json.dumps({"headSha": "f" * 40, "scopeApprovalRef": "chat:PO_R10_ALL15_SMOKE_2026-11-03"}).encode()
+        with self.assertRaisesRegex(init.Refused, "one-off-grant-checkpoint"):
+            init.occurrence_action_approval({}, request_sha, stale, occurrence, repo=repo)
+        original = init.manual_reservation.ACCEPTED_SCOPE_SHA256
+        try:
+            init.manual_reservation.ACCEPTED_SCOPE_SHA256 = "f" * 64
+            with self.assertRaisesRegex(init.Refused, "one-off-grant-accounting"):
+                init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
+        finally:
+            init.manual_reservation.ACCEPTED_SCOPE_SHA256 = original
 
     def test_all_fifteen_smoke_maps_to_distinct_builder_mode(self):
         mode, caps = request_caps(request())

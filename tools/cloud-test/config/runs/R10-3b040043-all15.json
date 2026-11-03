@@ -226,14 +226,14 @@
     "githubRunnerMinutesMax": 40
   },
   "proposedLimits": {
-    "cumulativeCeilingRequests": 2032,
-    "ceilingIncreaseJustification": "Fresh period, carryover none: 0 period usage + 2000 smoke run cap + 0 protected reserve + 32 identity reads = 2032. Historical unknowns remain unresolved outside this period.",
+    "cumulativeCeilingRequests": 4342,
+    "ceilingIncreaseJustification": "The approved no-carryover period ceiling remains 4342. This one attempt reserves only its 2000 smoke run cap plus 32 identity reads = 2032; historical unknowns remain unresolved outside this period.",
     "identityCap": 32,
     "identityIncreaseJustification": "Fresh period exact one-run identity allowance; historical unknowns remain unresolved outside this period.",
-    "startsCap": 16,
-    "startsIncreaseJustification": "Fresh period exact one-run smoke Start allowance: the sum of the per-case caps, with no retry reserve.",
-    "takesCap": 16,
-    "takesIncreaseJustification": "Fresh period exact one-run smoke take allowance: one take per permitted Start, with no retry reserve.",
+    "startsCap": 42,
+    "startsIncreaseJustification": "The approved period ceiling remains 42. This one attempt reserves only the 16-Start sum of its per-case caps, with no retry reserve.",
+    "takesCap": 31,
+    "takesIncreaseJustification": "The approved period ceiling remains 31. This one attempt reserves only its 16-take allowance, with no retry reserve.",
     "runCapRequests": 2000,
     "paidActionsUsd": 0,
     "guardCaps": {
@@ -258,10 +258,10 @@
     }
   },
   "approvedLimits": {
-    "cumulativeCeilingRequests": 2032,
+    "cumulativeCeilingRequests": 4342,
     "identityCap": 32,
-    "startsCap": 16,
-    "takesCap": 16,
+    "startsCap": 42,
+    "takesCap": 31,
     "runCapRequests": 2000,
     "approvalRef": "slack:1793652215.171339",
     "approvedBy": "Akin",
