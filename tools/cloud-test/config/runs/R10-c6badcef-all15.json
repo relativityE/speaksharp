@@ -1,12 +1,12 @@
 {
   "schema": "speaksharp.cloud-test.run-request.v2",
-  "runId": "R10-5a7bf6a1-all15",
+  "runId": "R10-c6badcef-all15",
   "proposal": false,
   "coverageMode": "full",
   "sampleMode": "full",
   "workflowVersion": "1.5.0",
   "configVersion": "1.4.0",
-  "createdUtc": "2026-11-03T01:10:00Z",
+  "createdUtc": "2026-11-03T02:59:05Z",
   "purpose": "Execute every required assertion in all 15 SpeakSharp live journeys against the deployed consolidated RCA release, retaining case-level PASS, FAIL, HOLD and cleanup evidence.",
   "priority": "full-coverage",
   "targetedGaps": [
@@ -289,25 +289,27 @@
     }
   },
   "window": {
-    "startUtc": "2026-11-03T01:15:00Z",
-    "endUtc": "2026-11-03T06:45:00Z",
+    "startUtc": "2026-11-03T04:30:00Z",
+    "endUtc": "2026-11-03T10:00:00Z",
     "approvalRef": "slack:1793652215.171339"
   },
   "release": {
-    "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
-    "lastRunTestedSha": "4c85b006ac05e180521fd6e7d807f736987cafe8",
+    "testedSha": "c6badcef6545a5461fc1a90255c880868aeff0e7",
+    "lastRunTestedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
     "backend": {
-      "sha": null,
-      "source": null,
-      "verifiedAtUtc": null,
-      "evidenceRef": null
+      "sha": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
+      "source": "cloud-verified-source-equivalent",
+      "verifiedAtUtc": "2026-11-02T20:32:12Z",
+      "evidenceRef": "https://github.com/relativityE/speaksharp/actions/runs/41519075645",
+      "sourceEquivalentToSha": "c6badcef6545a5461fc1a90255c880868aeff0e7",
+      "functionsTreeSha": "09291193cdb63331cb9f3bd0d10e59aec35cbe1e"
     }
   },
   "harness": {
-    "codeManifestSha256": "adda809d823299edc672127df7ef61ed4acf84f85dbadbfaea019615831d4ad0",
-    "packetManifestSha256": "e81d778aa2559f6bd19696c395e19bbde7a724a5dc3cdbb54daa1443dbef8dfb",
+    "codeManifestSha256": "8465f07dd0ae6ef7695d234f0acbdb10e8444fd32fb23518822e5438c9126b14",
+    "packetManifestSha256": "de7e739dba202b31c8606f035f74fa9bd4a3c766a716c71771dc3ee6b7e3de18",
     "ownerApprovalRef": "slack:1793652215.171339",
-    "offlineProofFile": "config/proofs/offline-proof-adda809d8.json"
+    "offlineProofFile": "config/proofs/offline-proof-8465f07d.json"
   },
   "priorRuns": [
     {
