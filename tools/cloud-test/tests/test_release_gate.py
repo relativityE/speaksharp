@@ -8,6 +8,7 @@ import unittest
 
 from _fixtures import NOW, REPO, ROOT, git_repo, needs_history, prerequisite, request_path, sample, wjson
 import verify_release as VR
+import workflow_report as WR
 from _common import load
 
 
@@ -183,6 +184,11 @@ class ReleaseGate(unittest.TestCase):
         self.assertTrue(out["backend"]["verified"])
         self.assertEqual(out["backend"]["mode"], "source-equivalent")
         self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "cloud-verified")
+        rendered = WR.backend_deployment_text(out["backend"])
+        self.assertIn("source-equivalent deployment", rendered)
+        self.assertNotIn("cloud-verified exact deployment", rendered)
+        for value in (deployed, f.tested, tree, backend["verifiedAtUtc"], backend["evidenceRef"]):
+            self.assertIn(value, rendered)
 
     def test_source_equivalent_backend_refuses_wrong_target_tree_or_missing_evidence(self):
         f = Fixture([("fix(be): edge fn (#104)", ["backend/supabase/functions/x/index.ts"])])

@@ -715,6 +715,7 @@
     "package-unit-tests::test_runnable_package.PlanBuilderProof.test_same_job_descriptor_from_another_run_is_refused",
     "package-unit-tests::test_runnable_package.PlanBuilderProof.test_same_job_plan_uses_actual_reviewed_receiver_and_github_attestation",
     "package-unit-tests::test_runnable_package.PlanBuilderProof.test_same_run_descriptor_from_another_job_is_refused",
+    "package-unit-tests::test_runnable_package.PlanBuilderProof.test_source_equivalent_release_provenance_survives_request_to_campaign_validation",
     "package-unit-tests::test_runnable_package.PlanBuilderProof.test_stimulus_preflight_on_the_pinned_browser_then_bound_plan_accepted_with_zero_product_traffic",
     "package-unit-tests::test_runnable_package.PlanBuilderProof.test_the_builder_never_overwrites_an_existing_private_directory",
     "package-unit-tests::test_runnable_package.PlanBuilderProof.test_the_builder_produces_a_plan_for_exactly_the_selected_case_with_the_requested_caps",

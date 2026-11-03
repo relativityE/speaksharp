@@ -454,9 +454,9 @@ class PlanBuilderProof(unittest.TestCase):
                    "--reconciliation", cls.reconciliation, "--out", os.path.join(cls.work, "env.txt"))
         assert r.returncode == 0, r.stdout + r.stderr
 
-    def build(self, name, extra=None, drop=()):
+    def build(self, name, extra=None, drop=(), env_file=None):
         private = os.path.join(self.work, name)
-        script = ("set -euo pipefail; set -a; . %s; set +a; " % os.path.join(self.work, "env.txt"))
+        script = ("set -euo pipefail; set -a; . %s; set +a; " % (env_file or os.path.join(self.work, "env.txt")))
         # Test-specific runtime/negative controls must override the sourced request,
         # as FullPlanProof already does; otherwise they silently exercise Claude.
         script += "".join("export %s=%s; " % (key, shlex.quote(value)) for key, value in (extra or {}).items() if key not in drop)
@@ -498,6 +498,55 @@ class PlanBuilderProof(unittest.TestCase):
         self.assertEqual(consumption["schema"], "speaksharp.cloud-test.build-plan-consumption.v1")
         self.assertEqual(consumption["planSha256"], sha(open(os.path.join(private, "cfg/campaign-plan.json"), "rb").read()))
         self.assertEqual(consumption["requestSha256"], sha(open(self.reqp, "rb").read()))
+
+    def test_source_equivalent_release_provenance_survives_request_to_campaign_validation(self):
+        request = json.load(open(self.reqp))
+        request["release"]["backend"] = {
+            "sha": "c" * 40,
+            "source": "cloud-verified-source-equivalent",
+            "verifiedAtUtc": "2026-11-02T20:32:07Z",
+            "evidenceRef": "github:relativityE/speaksharp/actions/runs/41519075645/attempts/2",
+            "sourceEquivalentToSha": RECEIVING_SOURCE,
+            "functionsTreeSha": "d" * 40,
+        }
+        request_path = os.path.join(self.work, "source-equivalent-request.json")
+        wjson(request_path, request); os.chmod(request_path, 0o600)
+        request_sha = sha(open(request_path, "rb").read())
+        facts = json.load(open(self.facts))
+        facts["actionApproval"]["requestSha256"] = request_sha
+        facts_path = os.path.join(self.work, "source-equivalent-facts.json")
+        wjson(facts_path, facts); os.chmod(facts_path, 0o600)
+        env_file = os.path.join(self.work, "source-equivalent-env.txt")
+        generated = run_py("scripts/run_env.py", "--request", request_path, "--request-sha256", request_sha,
+                           "--reconciliation", self.reconciliation, "--out", env_file)
+        self.assertEqual(generated.returncode, 0, generated.stdout + generated.stderr)
+        private, out = self.build("p-source-equivalent", extra={"BP_FACTS": facts_path}, env_file=env_file)
+        self.assertEqual([o.returncode for o in out], [0, 0], [o.stderr for o in out])
+        plan_path = os.path.join(private, "cfg", "campaign-plan.json")
+        plan = json.load(open(plan_path))
+        self.assertEqual(plan["runIdentity"]["backend"], {
+            "manifestRef": plan["runIdentity"]["backend"]["manifestRef"],
+            "source": "cloud-verified-source-equivalent", "generation": plan["runIdentity"]["backend"]["generation"],
+            "completion": plan["runIdentity"]["backend"]["completion"], "facts": plan["runIdentity"]["backend"]["facts"],
+            "verifiedAtUtc": "2026-11-02T20:32:07Z", "sha": "c" * 40,
+            "evidenceRef": "github:relativityE/speaksharp/actions/runs/41519075645/attempts/2",
+            "sourceEquivalentToSha": RECEIVING_SOURCE, "functionsTreeSha": "d" * 40,
+        })
+        accepted = self.accept(private)
+        self.assertEqual(json.loads(accepted.stdout)["campaign plan structure"], "ACCEPTED")
+        for field, bad in (("sourceEquivalentToSha", "e" * 40), ("functionsTreeSha", None),
+                           ("verifiedAtUtc", None), ("evidenceRef", None), ("sha", "not-a-sha")):
+            broken = json.loads(json.dumps(plan))
+            if bad is None:
+                broken["runIdentity"]["backend"].pop(field)
+            else:
+                broken["runIdentity"]["backend"][field] = bad
+            broken_path = os.path.join(private, "cfg", "broken-" + field + ".json")
+            wjson(broken_path, broken)
+            refused = subprocess.run(["node", os.path.join(ROOT, "tests", "node", "plan-acceptance.cjs"),
+                                      os.path.join(ROOT, "harness"), broken_path], capture_output=True, text=True,
+                                     cwd=REPO, env={"PATH": os.environ["PATH"], "HOME": self.work})
+            self.assertTrue(json.loads(refused.stdout)["campaign plan structure"].startswith("REFUSED:"), field)
 
     def job_inputs(self, name):
         review = "UNIT-INDEPENDENT-REVIEW-NOT-A-RUN"

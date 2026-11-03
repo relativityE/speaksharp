@@ -51,6 +51,17 @@ def short_sha(h):
     return (h or "")[:8]
 
 
+def backend_deployment_text(backend):
+    if not backend.get("verified"):
+        return "%s; not verified by the package" % (backend.get("source") or "undeclared")
+    if backend.get("source") == "cloud-verified-source-equivalent":
+        return ("source-equivalent deployment: deployed %s; equivalent to tested %s; functions tree %s; "
+                "verified %s (%s)" % (backend.get("sha"), backend.get("sourceEquivalentToSha"),
+                                       backend.get("functionsTreeSha"), backend.get("verifiedAtUtc"),
+                                       backend.get("evidenceRef")))
+    return "cloud-verified exact deployment %s (%s)" % (backend["verifiedAtUtc"], backend["evidenceRef"])
+
+
 def ev_text(evs, n=3):
     return "; ".join("%s %s" % (e.get("file", ""), short_sha(e.get("sha256"))) for e in (evs or [])[:n]) or "none"
 
@@ -481,7 +492,7 @@ def render(rep, wf):
     A("<dl class='kv'><dt>Tested SHA</dt><dd><code>%s</code> (last run tested <code>%s</code>)</dd><dt>Frontend deployment</dt><dd>%s</dd><dt>Backend deployment</dt><dd>%s</dd></dl>" % (
         esc(rv["testedSha"]), esc(rv["lastRunTestedSha"][:8]),
         esc(("verified from sealed receipts: " + fe["evidence"] + (", %.1f hours old, %s" % (fe["ageHours"], "fresh" if fe["fresh"] else "STALE"))) if fe.get("servedSha") else "not verified"),
-        esc("cloud-verified %s (%s)" % (be["verifiedAtUtc"], be["evidenceRef"]) if be["verified"] else "%s; not verified by the package" % (be.get("source") or "undeclared"))))
+        esc(backend_deployment_text(be))))
     sl = rv.get("sinceLastRun")
     A("<h3>Changes since the last run: %s</h3>" % ("cannot be verified (git history missing)" if sl is None else ("none" if not sl else "%d commit(s)" % len(sl))))
     if sl:
