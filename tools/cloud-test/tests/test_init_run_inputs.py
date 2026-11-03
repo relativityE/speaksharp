@@ -448,7 +448,7 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
             self.assertFalse(any(os.path.exists(x) for x in (out, env, outputs)))
             return p.returncode, p.stderr.strip()
 
-        self.assertEqual(prepare(RUNS + "r6.json"), (78, "BLOCKED_SETUP: continuity-rollup-not-accepted"))
+        self.assertEqual(prepare(RUNS + "r6.json"), (78, "BLOCKED_SETUP: continuity-inputs-missing"))
         self.assertEqual(prepare(RUNS + "stray.json"), (78, "BLOCKED_SETUP: request-release-not-in-source-history"))
 
     def test_admission_publishes_the_committed_request_digest_and_every_consumer_reads_a_private_copy_of_those_bytes(self):
@@ -1471,11 +1471,14 @@ class ContinuityCheckpoint(Journal):
             self.check(*a, **k)
         self.assertEqual(str(e.exception), code)
 
-    def test_the_production_pins_are_unset_so_continuity_refuses(self):
-        self.assertEqual(set(I.continuity_pins().values()), {None})
+    def test_the_production_pins_are_set_and_reject_unaccepted_inputs(self):
+        pins = I.continuity_pins()
+        self.assertEqual(set(pins), {"accepted_sha256", "accepted_root", "accepted_scope_sha256", "reviewed_root"})
+        self.assertTrue(all(isinstance(value, str) and len(value) in (40, 64) for value in pins.values()))
+        self.assertEqual(pins["accepted_root"], pins["reviewed_root"])
         with self.assertRaises(I.Refused) as e:
             I.verified_checkpoint(self.checkout, self.req)
-        self.assertEqual(str(e.exception), "continuity-rollup-not-accepted")
+        self.assertEqual(str(e.exception), "continuity-manual-reservation-scope-not-accepted")
 
     def test_each_missing_acceptance_refuses_by_name_before_any_input_is_read(self):
         self.refused("continuity-rollup-not-accepted", pins=self.all_pins(accepted_sha256=None))
@@ -1560,10 +1563,15 @@ class ContinuityCheckpoint(Journal):
         self.addCleanup(shutil.rmtree, repo.dir)
         req = live_request(["AHT-05"])
         req["window"] = dict(self.req["window"])
-        release = repo.commit({"tools/cloud-test/config/test-config.v1.json": CFG,
-                               I.CONTINUITY_DIR + "/" + I.CONTINUITY_BOOTSTRAP: self.raw.decode(),
-                               I.CONTINUITY_DIR + "/" + I.CONTINUITY_SCOPE: self.scope_raw.decode()})
+        prior_release = repo.commit({"tools/cloud-test/config/test-config.v1.json": CFG,
+                                     I.CONTINUITY_DIR + "/" + I.CONTINUITY_BOOTSTRAP: self.raw.decode(),
+                                     I.CONTINUITY_DIR + "/" + I.CONTINUITY_SCOPE: self.scope_raw.decode()})
+        release = repo.commit({"frontend/src/services/SpeechRuntimeController.ts":
+                               "export const objectivePublicationWitness = true;\n"})
+        repo.git("commit", "--amend", "-q", "-m", "feat(r5): bind objective publication witness (#1772)")
+        release = repo.git("rev-parse", "HEAD")
         req["release"]["testedSha"] = release
+        req["release"]["lastRunTestedSha"] = prior_release
         head = repo.commit({RUNS + "r6.json": req})
         request_sha = hashlib.sha256(repo.git("cat-file", "blob", head + ":" + RUNS + "r6.json").encode()).hexdigest()
         pins = self.all_pins()
@@ -1601,6 +1609,97 @@ class ContinuityCheckpoint(Journal):
         with open(outputs, encoding="utf-8") as f:
             published = dict(line.split("=", 1) for line in f.read().splitlines())
         self.assertEqual((published["request_sha256"], published["reconciliation_sha256"]), (request_sha, hashlib.sha256(rc_bytes).hexdigest()))
+        # One composed, deterministic route: prepare's genuine pre-reserve
+        # reconciliation -> the authenticated own-reserve transition -> the
+        # existing identity-ledger producer (synthetic transport, no network)
+        # -> the real current-release verifier -> the real aggregate receiver.
+        # No future identity or current journal state is retained in the bundle.
+        private_identity = os.path.join(self.d, "identity-private")
+        os.mkdir(private_identity, 0o700)
+        identity_ledger = os.path.join(private_identity, "identity-ledger.json")
+        active_config_path = os.path.join(ROOT, "config", "test-config.v1.json")
+        active_config = J(active_config_path)
+        target = active_config["target"]["url"].rstrip("/") + "/"
+        identity_module = os.path.join(ROOT, "harness", "bundle", "harness", "identity-check.cjs")
+        identity_script = r"""
+const fs = require('node:fs');
+const { runIdentity } = require(process.argv[1]);
+const ledger = process.argv[2], url = process.argv[3], sha = process.argv[4];
+const body = Buffer.from('<!doctype html><script>window.__APP_RELEASE__ = ' + JSON.stringify(sha) + ';</script>');
+const transport = (_cmd, args) => {
+  const output = args[args.indexOf('--output') + 1];
+  fs.writeFileSync(output, body, { mode: 0o600 });
+  return { status: 0, stdout: `200 0 ${body.length}` };
+};
+const result = runIdentity({ ledger, binding: { url, expectedSha: sha, cap: 32, phase: 'admission' } }, transport);
+process.stdout.write(JSON.stringify(result.receipt));
+process.exitCode = result.exitCode;
+"""
+        identity = subprocess.run(["node", "-e", identity_script, identity_module, identity_ledger, target, release],
+                                  capture_output=True, text=True)
+        self.assertEqual(identity.returncode, 0, identity.stdout + identity.stderr)
+        self.assertEqual(stat.S_IMODE(os.lstat(identity_ledger).st_mode), 0o600)
+
+        release_out = os.path.join(self.d, "current-release-verification.json")
+        release_check = subprocess.run([
+            sys.executable, "-I", os.path.join(ROOT, "scripts", "verify_release.py"),
+            "--request", os.path.join(out, "request.json"),
+            "--ledger", os.path.join(ROOT, "config", "aggregate", "gap-ledger.json"),
+            "--config", active_config_path, "--repo", repo.dir,
+            "--current-identity-ledger", identity_ledger, "--out", release_out,
+        ], capture_output=True, text=True)
+        self.assertEqual(release_check.returncode, 0, release_check.stderr)
+        release_bytes = open(release_out, "rb").read()
+        self.assertEqual(json.loads(release_bytes)["needs"], [])
+
+        # The accepted #1772 feature is exact: it cannot authorize a later,
+        # unrelated product change in the same composed release path.
+        unrelated = repo.commit({"frontend/src/unrelated.ts": "export const unrelated = true;\n"})
+        repo.git("commit", "--amend", "-q", "-m", "feat(other): unrelated product change (#9999)")
+        unrelated = repo.git("rev-parse", "HEAD")
+        bad_request = json.loads(open(os.path.join(out, "request.json"), encoding="utf-8").read())
+        bad_request["release"]["lastRunTestedSha"] = release
+        bad_request["release"]["testedSha"] = unrelated
+        bad_request_file = os.path.join(self.d, "unrelated-request.json")
+        put(bad_request_file, bad_request)
+        bad_identity_dir = os.path.join(self.d, "unrelated-identity-private")
+        os.mkdir(bad_identity_dir, 0o700)
+        bad_identity_ledger = os.path.join(bad_identity_dir, "identity-ledger.json")
+        bad_identity = subprocess.run(["node", "-e", identity_script, identity_module, bad_identity_ledger, target, unrelated],
+                                      capture_output=True, text=True)
+        self.assertEqual(bad_identity.returncode, 0, bad_identity.stdout + bad_identity.stderr)
+        bad_release_out = os.path.join(self.d, "unrelated-release-verification.json")
+        bad_release_check = subprocess.run([
+            sys.executable, "-I", os.path.join(ROOT, "scripts", "verify_release.py"),
+            "--request", bad_request_file, "--ledger", os.path.join(ROOT, "config", "aggregate", "gap-ledger.json"),
+            "--config", active_config_path, "--repo", repo.dir, "--current-identity-ledger", bad_identity_ledger,
+            "--out", bad_release_out,
+        ], capture_output=True, text=True)
+        self.assertEqual(bad_release_check.returncode, 0, bad_release_check.stderr)
+        bad_release_doc = json.loads(open(bad_release_out, encoding="utf-8").read())
+        self.assertTrue(any("unreviewed" in need for need in bad_release_doc["needs"]), bad_release_doc)
+        self.assertEqual(next(v["decision"] for v in bad_release_doc["commitVerdicts"] if v["pr"] == "9999"), "rejected")
+
+        import aggregate_receiver as AR
+        state_chain = reader(self.root)
+        current_head, current_events, _current_raw = state_chain[-1]
+        occurrence = {
+            "journalSnapshot": json.dumps({"schema": AR.JOURNAL_SNAPSHOT_SCHEMA, "headSha": current_head,
+                                            "events": current_events}, sort_keys=True).encode(),
+            "reconciliation": open(os.path.join(out, "reconciliation.json"), "rb").read(),
+            "releaseVerification": release_bytes,
+        }
+        manifest_path = os.path.join(ROOT, "config", "aggregate", "manifest.json")
+        manifest_raw = open(manifest_path, "rb").read()
+        request_raw = open(os.path.join(out, "request.json"), "rb").read()
+        pins = active_config["aggregateReceiver"]
+        with mock.patch.object(C, "JOURNAL_URL", self.remote), mock.patch.object(C, "JOURNAL_ROOT", self.root):
+            _docs, accepted, envelope = AR.receive_bundle(manifest_raw, os.path.dirname(manifest_path), request_raw,
+                                                          active_config, pins, occurrence)
+        self.assertEqual((envelope["requestSha256"], envelope["reconciliationSha256"], envelope["testedSha"]),
+                         (request_sha, hashlib.sha256(rc_bytes).hexdigest(), release))
+        self.assertEqual(hashlib.sha256(accepted["release-verification"]).hexdigest(),
+                         envelope["releaseVerificationSha256"])
         # Placement (the workflow step copies these exact bytes), then the runner's own reader, then the real builder binding.
         ct_out = os.path.join(self.d, "ct-out")
         os.mkdir(ct_out, 0o700)
@@ -1805,6 +1904,28 @@ class StandingEnvelope(Journal):
         mutate(req)
         return req
 
+    def ordinary_errors(self, req=None):
+        """Runs the actual ordinary request validator on this derived request."""
+        import validate_run_request as V
+        from test_nightly_request import budget, fake_rv, reconciliation, sample
+        req = self.req if req is None else req
+        s = sample()
+        cfg = copy.deepcopy(s["cfg"])
+        cfg["harness"]["expectedCodeManifestSha256"] = req["harness"]["codeManifestSha256"]
+        rc = reconciliation()
+        period = json.loads(self.nightly_approval(startTakeGrant=self.GRANT))["periodCaps"]
+        rc["ceilings"] = dict(rc["ceilings"], requests=period["requests"], identityReads=period["identityReads"],
+                              starts=period["starts"], takes=period["takes"])
+        accepted_budget = json.loads(budget())
+        selected = {row["case"]: row for row in req["selection"]}
+        for row in accepted_budget["perCase"]:
+            row["estimate"] = selected[row["case"]]["plannedRequests"]
+        accepted_budget["window"].update(expectedMinutes=req["estimate"]["window"]["expectedMinutes"],
+                                           worstCaseMinutes=req["estimate"]["window"]["worstCaseMinutes"])
+        with open(os.path.join(ROOT, "config", "assertion-catalog.json"), encoding="utf-8") as catalog:
+            accepted_budget["_catalog"] = json.load(catalog)
+        return V.validate(req, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)[0]
+
     def reserve_on_chain(self, run="101", request_sha=None, at="2026-11-02T03:00:30Z", allocation=None, kind="reserve"):
         """Appends a nightly reserve (or its settle) through the REAL state-ref writer, as journal-reserve/-settle do around the live job."""
         from reservations import CATS
@@ -1891,6 +2012,11 @@ class StandingEnvelope(Journal):
 
     def test_the_derived_envelope_names_exactly_this_occurrence_request_and_checkpoint(self):
         rc_bytes = self.checkpoint()
+        self.assertEqual((self.req["proposedLimits"]["runCapRequests"], self.req["approvedLimits"]["runCapRequests"],
+                          self.req["estimate"]["requests"]["runCap"]), (4310, 4310, 4310))
+        self.assertLess(self.req["approvedLimits"]["runCapRequests"],
+                        json.loads(self.nightly_approval(startTakeGrant=self.GRANT))["perRunCaps"]["runCapRequests"])
+        self.assertEqual(self.ordinary_errors(), [], "the actual derive -> ordinary-validator leg must admit 4310 under 4400")
         self.assertEqual(self.derive(), {"schema": I.ACTION_APPROVAL_SCHEMA, "requestSha256": hashlib.sha256(self.req_raw).hexdigest(),
                                          "reconciliationSha256": hashlib.sha256(rc_bytes).hexdigest(), "approvalRef": self.REF,
                                          "approvedBy": "owner", "selectionApprovalRef": self.REF})
@@ -2102,6 +2228,11 @@ class StandingEnvelope(Journal):
                 ("before start", {"now": self.slot - timedelta(minutes=1)}, "window"),
                 ("at end", {"now": I._utc(end)}, "window"),
                 ("run cap", {"req": self.changed(lambda r: r["approvedLimits"].update(runCapRequests=4399))}, "per-run"),
+                ("proposed allocation", {"req": self.changed(lambda r: r["proposedLimits"].update(runCapRequests=4309))}, "per-run"),
+                ("estimated allocation", {"req": self.changed(lambda r: r["estimate"]["requests"].update(runCap=4309))}, "per-run"),
+                ("allocation over ceiling", {"req": self.changed(lambda r: (r["proposedLimits"].update(runCapRequests=4401),
+                                                                               r["approvedLimits"].update(runCapRequests=4401),
+                                                                               r["estimate"]["requests"].update(runCap=4401)))}, "per-run"),
                 ("identity cap", {"req": self.changed(lambda r: r["approvedLimits"].update(identityCap=31))}, "per-run"),
                 ("estimate takes", {"req": self.changed(lambda r: r["estimate"].update(takes=41))}, "per-run"),
                 ("estimate starts", {"req": self.changed(lambda r: r["estimate"].update(starts=46))}, "per-run"),
@@ -2129,7 +2260,7 @@ class StandingEnvelope(Journal):
         self.assertTrue(self.derive())
 
     def test_an_exhausted_standing_limit_refuses_in_every_dimension(self):
-        need = {"requests": 4400, "identityReads": 32, "starts": self.req["estimate"]["starts"], "takes": self.req["estimate"]["takes"]}
+        need = self.need()
         self.assertTrue(self.derive())  # bootstrap + no period usage leaves headroom in every dimension
         for k in I.STANDING_PERIOD_DIMENSIONS:
             with self.subTest(k):

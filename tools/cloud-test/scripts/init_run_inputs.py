@@ -602,10 +602,15 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
     start, end = _utc(w.get("startUtc")), _utc(w.get("endUtc"))
     _need(start == slot and (end - start).total_seconds() == 60 * caps["windowMinutes"] and _utc(ap["validFromUtc"]) <= start
           and end <= _utc(ap["expiresUtc"]) and p_start <= start and end <= p_end and start <= now < end, "action-approval-standing-window")
-    lim, est = req.get("approvedLimits") or {}, req.get("estimate") or {}
+    proposed, lim, est = req.get("proposedLimits") or {}, req.get("approvedLimits") or {}, req.get("estimate") or {}
     run_cap = (est.get("requests") or {}).get("runCap")
-    _need(lim.get("runCapRequests") == caps["runCapRequests"] and lim.get("identityCap") == caps["identityReads"]
-          and _int(run_cap) and run_cap <= caps["runCapRequests"] and _int(est.get("identityReads")) and est["identityReads"] <= caps["identityReads"]
+    # The standing approval's per-run request cap is a ceiling.  This occurrence
+    # reserves the smaller admitted allocation, but every request document view
+    # of that allocation must agree exactly so unused standing headroom cannot be
+    # substituted into the envelope later.
+    _need(_int(lim.get("runCapRequests")) and proposed.get("runCapRequests") == lim["runCapRequests"] == run_cap
+          and run_cap <= caps["runCapRequests"] and lim.get("identityCap") == caps["identityReads"]
+          and _int(est.get("identityReads")) and est["identityReads"] <= caps["identityReads"]
           and _int(est.get("starts")) and est["starts"] <= caps["starts"] and _int(est.get("takes")) and est["takes"] <= caps["takes"],
           "action-approval-standing-per-run")
     # RETURN 1793570165.380389: the verified checkpoint's accounting period and every period ceiling are the standing approval's own, and

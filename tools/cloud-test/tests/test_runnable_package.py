@@ -346,9 +346,15 @@ class NothingIsIgnored(unittest.TestCase):
 
     def test_the_runner_dependencies_are_locked_to_playwright_1_57_0(self):
         lock = json.load(open(os.path.join(ROOT, "runner", "package-lock.json")))
+        package = json.load(open(os.path.join(ROOT, "runner", "package.json")))
+        self.assertEqual(package["dependencies"], lock["packages"][""]["dependencies"])
+        for name, version in package["dependencies"].items():
+            with self.subTest(name=name):
+                pinned = lock["packages"]["node_modules/" + name]
+                self.assertEqual(pinned["version"], version)
+                self.assertTrue(pinned["integrity"].startswith("sha512-"))
         self.assertEqual(lock["packages"]["node_modules/playwright"]["version"], "1.57.0")
         self.assertTrue(lock["packages"]["node_modules/playwright"]["integrity"].startswith("sha512-"))
-        self.assertEqual(json.load(open(os.path.join(ROOT, "runner", "package.json")))["dependencies"], {"pdfjs-dist": "4.10.38", "playwright": "1.57.0"})
         pdf = lock["packages"]["node_modules/pdfjs-dist"]
         self.assertEqual((pdf["version"], pdf["integrity"]), ("4.10.38", J("config", "test-config.v1.json")["tools"]["pdfjs"]["integrity"]))
 

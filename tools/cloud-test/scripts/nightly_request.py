@@ -298,7 +298,10 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
                     identityCap=period["identityReads"], startsCap=period["starts"], takesCap=period["takes"])
     proposed["guardCaps"] = dict(proposed.get("guardCaps") or {}, coaching=need["coachingRequests"])
     req["proposedLimits"] = proposed
-    req["approvedLimits"] = dict(req.get("approvedLimits") or {}, runCapRequests=caps["runCapRequests"], identityCap=caps["identityReads"],
+    # The standing approval is a ceiling, not a request to reserve unused
+    # headroom.  Bind this occurrence to the accepted budget's actual need so
+    # approved, proposed and estimated request caps remain one allocation.
+    req["approvedLimits"] = dict(req.get("approvedLimits") or {}, runCapRequests=need["runCapRequests"], identityCap=caps["identityReads"],
                                  cumulativeCeilingRequests=ap["periodCaps"]["requests"], startPressCaps=copy.deepcopy(start_caps),
                                  approvalRef=ref, approvedBy=ap["approvedBy"])
     estimate = copy.deepcopy(req.get("estimate") or {})

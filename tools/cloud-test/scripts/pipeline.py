@@ -57,7 +57,7 @@ def main():
     a.add_argument("--out-dir", required=True)
     a.add_argument("--stage", choices=["preflight", "final"], default="preflight")
     for k in ("latest-label", "offline-checks", "offline-proof", "stimulus-receipt", "run-record", "costs", "timings", "now", "generated-at", "isolation", "previous-isolation", "history-index", "counters", "approval", "reservations", "accepted-input-dir", "receiver-receipt", "receiver-manifest", "prior-state",
-              "journal-snapshot", "occurrence-reconciliation"):
+              "journal-snapshot", "occurrence-reconciliation", "occurrence-release-verification"):
         a.add_argument("--" + k)
     a.add_argument("--repo", default=os.path.abspath(os.path.join(ROOT, "..", "..")))
     a.add_argument("--config", default=os.path.join(ROOT, "config", "test-config.v1.json"))
@@ -102,7 +102,8 @@ def main():
         import aggregate_receiver
         try:
             # #1772 Code finding 4446324167: a recurring request's occurrence envelope (verified journal snapshot + its reconciliation)
-            occurrence = aggregate_receiver.read_occurrence(x.journal_snapshot, x.occurrence_reconciliation)
+            occurrence = aggregate_receiver.read_occurrence(x.journal_snapshot, x.occurrence_reconciliation,
+                                                            x.occurrence_release_verification)
             docs, accepted_bytes, verified_receipt = aggregate_receiver.verified_accepted(
                 x.receiver_manifest, x.request, x.accepted_input_dir, cfg, occurrence)
         except aggregate_receiver.Refused as err:
@@ -152,7 +153,8 @@ def main():
              "--receiver-manifest", x.receiver_manifest, "--accepted-input-dir", accepted_snapshot,
              "--stage", x.stage, "--base", ROOT, "--out", O("gate-status.json")]
         if occurrence is not None:
-            g += ["--journal-snapshot", x.journal_snapshot, "--occurrence-reconciliation", x.occurrence_reconciliation]
+            g += ["--journal-snapshot", x.journal_snapshot, "--occurrence-reconciliation", x.occurrence_reconciliation,
+                  "--occurrence-release-verification", x.occurrence_release_verification]
         if req.get("priority") == "nightly-regression":
             # Sam RETURN 1793624502.797169 #1: the history index is forwarded below only when the file exists; on the verified journal-
             # snapshot route G11 admits the snapshot without it (approval and reservations are added below with the recurring inputs).

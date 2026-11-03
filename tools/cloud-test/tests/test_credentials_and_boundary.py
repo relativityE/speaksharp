@@ -1,4 +1,5 @@
 """Credential exposure (owner item 5) and the boundary with the model-evaluation project."""
+import hashlib
 import json
 import os
 import re
@@ -107,9 +108,15 @@ class Credentials(unittest.TestCase):
                 scope = os.path.join(out, "plan", "producer-scope.json")
                 if fixed_parent == "wrong-scope":
                     scope += ".other"
-                command = shlex.join(["node", os.path.join(packet, "bundle/harness/with-authenticated-evidence.cjs"),
-                                      "--scope", scope, "--scope-sha256", "a" * 64,
-                                      "--plan", os.path.join(out, "plan/cfg/campaign-plan.json"), "--plan-sha256", "b" * 64])
+                args = ["node", os.path.join(packet, "bundle/harness/with-authenticated-evidence.cjs"),
+                        "--scope", scope, "--scope-sha256", "a" * 64,
+                        "--plan", os.path.join(out, "plan/cfg/campaign-plan.json"), "--plan-sha256", "b" * 64]
+                if fixed_parent in ("reused-admission", "wrong-admission", "missing-admission-digest"):
+                    receipt = os.path.join(out, "plan/run/admission/admission-receipt.json")
+                    args += ["--admission-receipt", receipt + (".other" if fixed_parent == "wrong-admission" else "")]
+                    if fixed_parent != "missing-admission-digest":
+                        args += ["--admission-receipt-sha256", "c" * 64]
+                command = shlex.join(args)
             harness = ("set -euo pipefail\nROOT=%r\nCFG=%r\nREQ=%r\nROUTE=%r\nHP=%r\nOUT=%r\n"
                        "ss_broker_service_role=\"${SUPABASE_SERVICE_ROLE_KEY:-}\"\n"
                        "ss_broker_telemetry_key=\"${POSTHOG_PERSONAL_API_KEY:-}\"\n"
@@ -182,6 +189,16 @@ class Credentials(unittest.TestCase):
         self.assertFalse({"SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY"} & set(denied.stdout.split()))
         self.assertNotIn("not-printed-", denied.stdout + denied.stderr)
 
+        reused = self.run_stage_env("run", env, route="github-producer", fixed_parent="reused-admission")
+        self.assertEqual(reused.returncode, 0, reused.stderr)
+        self.assertTrue({"SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY"} <= set(reused.stdout.split()))
+        for malformed in ("wrong-admission", "missing-admission-digest"):
+            with self.subTest(malformed=malformed):
+                result = self.run_stage_env("run", env, route="github-producer", fixed_parent=malformed)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse({"SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY"} & set(result.stdout.split()))
+                self.assertNotIn("not-printed-", result.stdout + result.stderr)
+
     def test_the_service_role_key_appears_only_where_it_is_forbidden_or_explained(self):
         allowed = ("config/test-config.v1.json", "scripts/execute_run.sh", "scripts/pipeline.py", "tests/", "README.md", "WORKFLOW.md", "CHANGELOG.md", "CREDENTIALS.md", "harness/", "report/", "templates/", "NEXT-RUN-PROPOSAL.md", "samples/", "config/history/")
         offenders = []
@@ -204,22 +221,120 @@ class Credentials(unittest.TestCase):
 class Boundary(unittest.TestCase):
     """The model-evaluation project stays entirely separate: nothing here references its workflows, gates or authorizations."""
     TOKENS = ("model-downselection", "private-model-smoke", "gemini-model-currency", "comparison_cell", "comparison-authorization", "downselection", "rwt_writes_ack")
+    RETAINED = {
+        "case-costs": "case-costs.json",
+        "comparison-prior": "comparison-prior.json",
+        "gap-ledger": "gap-ledger.json",
+        "prior-run-verification": "prior-run-verification.json",
+    }
 
-    def test_package_code_and_config_do_not_reference_the_model_evaluation_project(self):
+    @classmethod
+    def boundary_offenders(cls, root):
+        # Retained comparison evidence can truthfully name the historical
+        # producer that created it.  Exempt only files listed by the digest-
+        # pinned aggregate manifest; executable code, the manifest itself and
+        # any unlisted file under config/aggregate remain inside this boundary.
+        manifest_path = os.path.join(root, "config", "aggregate", "manifest.json")
+        manifest_raw = open(manifest_path, "rb").read()
+        aggregate = json.loads(manifest_raw)
+        with open(os.path.join(root, "config", "test-config.v1.json"), encoding="utf-8") as f:
+            receiver = (json.load(f).get("aggregateReceiver") or {})
+        retained = set()
+        entries = aggregate.get("components") or {}
+        root_rows = [{"name": name, "sha256": entries.get(name, {}).get("sha256")} for name in sorted(entries)]
+        component_root = hashlib.sha256(json.dumps(root_rows, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+        valid_manifest = (
+            receiver.get("activated") is True
+            and hashlib.sha256(manifest_raw).hexdigest() == receiver.get("manifestSha256")
+            and aggregate.get("schema") == "speaksharp.cloud-test.aggregate-receiver.v2-occurrence"
+            and set(entries) == set(cls.RETAINED)
+            and component_root == aggregate.get("bundleRootSha256") == receiver.get("bundleRootSha256")
+        )
+        if valid_manifest:
+            for name, filename in cls.RETAINED.items():
+                entry = entries[name]
+                path = os.path.join(root, "config", "aggregate", filename)
+                if (set(entry) == {"file", "sha256"} and entry.get("file") == filename
+                        and os.path.isfile(path) and not os.path.islink(path)
+                        and hashlib.sha256(open(path, "rb").read()).hexdigest() == entry.get("sha256")):
+                    retained.add(os.path.relpath(path, root))
         offenders = []
-        for r, _, fs in os.walk(ROOT):
+        for r, _, fs in os.walk(root):
             if os.sep + "harness" in r or os.sep + "report" + os.sep + "tests" in r or os.sep + "tests" in r or os.sep + "history" in r or os.sep + "samples" in r:
                 continue
             for fn in fs:
                 if not fn.endswith((".py", ".sh", ".json", ".cjs")):
                     continue
+                rel = os.path.relpath(os.path.join(r, fn), root)
+                if rel in retained:
+                    continue
                 text = open(os.path.join(r, fn), encoding="utf-8").read()
                 if fn == "test-config.v1.json":
                     cfg = json.loads(text); cfg.pop("boundary", None); text = json.dumps(cfg)
-                for t in self.TOKENS:
+                for t in cls.TOKENS:
                     if t in text:
-                        offenders.append((os.path.relpath(os.path.join(r, fn), ROOT), t))
-        self.assertEqual(offenders, [])
+                        offenders.append((rel, t))
+        return offenders
+
+    def test_package_code_and_config_do_not_reference_the_model_evaluation_project(self):
+        self.assertEqual(self.boundary_offenders(ROOT), [])
+
+    def test_only_manifest_listed_retained_evidence_gets_the_narrow_exception(self):
+        with tempfile.TemporaryDirectory() as root:
+            aggregate = os.path.join(root, "config", "aggregate")
+            os.makedirs(aggregate)
+            retained_bytes = b'{"historicalProducer":"model-downselection"}'
+            payloads = {name: (retained_bytes if name == "comparison-prior" else b'{}') for name in self.RETAINED}
+            entries = {name: {"file": filename, "sha256": hashlib.sha256(payloads[name]).hexdigest()}
+                       for name, filename in self.RETAINED.items()}
+            rows = [{"name": name, "sha256": entries[name]["sha256"]} for name in sorted(entries)]
+            root_sha = hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+            manifest = {"schema": "speaksharp.cloud-test.aggregate-receiver.v2-occurrence", "components": entries,
+                        "bundleRootSha256": root_sha}
+            manifest_bytes = json.dumps(manifest).encode()
+            with open(os.path.join(aggregate, "manifest.json"), "w", encoding="utf-8") as f:
+                f.write(manifest_bytes.decode())
+            with open(os.path.join(root, "config", "test-config.v1.json"), "w", encoding="utf-8") as f:
+                json.dump({"aggregateReceiver": {"activated": True, "manifestSha256": hashlib.sha256(manifest_bytes).hexdigest(),
+                                                  "bundleRootSha256": root_sha}}, f)
+            for name, filename in self.RETAINED.items():
+                with open(os.path.join(aggregate, filename), "wb") as f:
+                    f.write(payloads[name])
+            with open(os.path.join(aggregate, "unlisted.json"), "w", encoding="utf-8") as f:
+                f.write('{"runtime":"model-downselection"}')
+            self.assertEqual(self.boundary_offenders(root), [(os.path.join("config", "aggregate", "unlisted.json"), "model-downselection"),
+                                                             (os.path.join("config", "aggregate", "unlisted.json"), "downselection")])
+            with open(os.path.join(aggregate, "comparison-prior.json"), "w", encoding="utf-8") as f:
+                f.write('{"historicalProducer":"model-downselection","changed":true}')
+            self.assertIn((os.path.join("config", "aggregate", "comparison-prior.json"), "model-downselection"), self.boundary_offenders(root))
+
+    def test_traversal_or_executable_manifest_entries_never_gain_the_retained_exception(self):
+        with tempfile.TemporaryDirectory() as root:
+            aggregate = os.path.join(root, "config", "aggregate")
+            scripts = os.path.join(root, "config", "scripts")
+            os.makedirs(aggregate); os.makedirs(scripts)
+            runtime = b'# model-downselection executable\n'
+            runtime_path = os.path.join(scripts, "runtime.py")
+            with open(runtime_path, "wb") as f:
+                f.write(runtime)
+            entries = {name: {"file": filename, "sha256": hashlib.sha256(b'{}').hexdigest()}
+                       for name, filename in self.RETAINED.items()}
+            entries["comparison-prior"] = {"file": "../scripts/runtime.py", "sha256": hashlib.sha256(runtime).hexdigest()}
+            for name, filename in self.RETAINED.items():
+                if name != "comparison-prior":
+                    with open(os.path.join(aggregate, filename), "wb") as f:
+                        f.write(b'{}')
+            rows = [{"name": name, "sha256": entries[name]["sha256"]} for name in sorted(entries)]
+            root_sha = hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+            manifest = {"schema": "speaksharp.cloud-test.aggregate-receiver.v2-occurrence", "components": entries,
+                        "bundleRootSha256": root_sha}
+            manifest_bytes = json.dumps(manifest).encode()
+            with open(os.path.join(aggregate, "manifest.json"), "wb") as f:
+                f.write(manifest_bytes)
+            with open(os.path.join(root, "config", "test-config.v1.json"), "w", encoding="utf-8") as f:
+                json.dump({"aggregateReceiver": {"activated": True, "manifestSha256": hashlib.sha256(manifest_bytes).hexdigest(),
+                                                  "bundleRootSha256": root_sha}}, f)
+            self.assertIn((os.path.join("config", "scripts", "runtime.py"), "model-downselection"), self.boundary_offenders(root))
 
     def test_the_config_states_the_boundary(self):
         b = J("config", "test-config.v1.json").get("boundary") or {}

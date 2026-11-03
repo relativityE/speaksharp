@@ -265,7 +265,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertIn(token, script)
         self.assertIn('CT_BROWSER_RECEIPT=$RUNNER_TEMP/browser-receipt.json', steps[discover]["run"])
 
-    def test_retained_inputs_are_connected_and_manual_accounting_stays_explicitly_inactive(self):
+    def test_retained_inputs_are_connected_and_manual_accounting_is_pinned(self):
         env = self.jobs["live"]["env"]
         self.assertEqual(env["CT_RETAINED_GATE_MANIFEST"], "${{ github.workspace }}/tools/cloud-test/config/aggregate/manifest.json")
         self.assertEqual(env["CT_HISTORY_INDEX"], "${{ github.workspace }}/tools/cloud-test/config/history/index.json")
@@ -274,8 +274,12 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(env["CT_RECEIPTS_ROOT"], "${{ github.workspace }}/tools/cloud-test/config/history/receipts")
         with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:
             receiver = json.load(f)["aggregateReceiver"]
-        self.assertEqual(receiver, {"activated": False, "manifestSha256": None, "bundleRootSha256": None,
-                                    "note": receiver["note"]})
+        self.assertEqual(receiver, {
+            "activated": True,
+            "manifestSha256": "bf8313c89f9c532380c024fcf10d23fe350fec2ca35c2ad6736c01f357b3c52b",
+            "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
+            "note": receiver["note"],
+        })
         steps = self.jobs["live"]["steps"]
         bind = next(i for i, s in enumerate(steps) if s.get("name") == "Bind private runner paths and initialize the inactive accounting workspace")
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
@@ -313,8 +317,16 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertIn(token, runner)
         self.assertIn('blocked "$recurring is required for retained-input recurring gates"', runner)
         self.assertIn('cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json"', runner)
-        # #1772 Code finding 4446324167: a recurring run hands the receiver and the gates its occurrence envelope inputs
-        self.assertIn('occurrence_args=(--journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json")', runner)
+        # Nightly and approved manual full coverage share the authenticated v2 occurrence boundary. Historical inputs are verified before
+        # current release verification is derived; the final receiver then binds all three runtime inputs.
+        self.assertIn('--retained-out-dir "$retained"', runner)
+        self.assertIn('--ledger "$retained/gap-ledger.json"', runner)
+        self.assertIn('--phase admission-release', runner)
+        self.assertIn('--current-identity-ledger "$identity_ledger"', runner)
+        self.assertLess(runner.index('--phase admission-release'),
+                        runner.index('--current-identity-ledger "$identity_ledger"'))
+        self.assertIn('occurrence_args=(--journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json"', runner)
+        self.assertIn('--occurrence-release-verification "$OUT/release-verification.json")', runner)
         self.assertEqual(runner.count('${occurrence_args[@]+"${occurrence_args[@]}"}'), 2)
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         manual = open(os.path.join(ROOT, "scripts", "manual_reservation.py"), encoding="utf-8").read()

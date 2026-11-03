@@ -898,7 +898,12 @@ class ReviewedFeaturesReachRegressionWithoutABug(unittest.TestCase):
         self.assertEqual(out["commitVerdicts"][1]["features"], ["FEAT-001"])
 
     def test_the_shipped_feature_ledger_is_empty_and_invents_no_feature(self):
-        self.assertEqual(J("config", "feature-ledger.json")["features"], [])
+        features = J("config", "feature-ledger.json")["features"]
+        self.assertEqual([f["id"] for f in features], ["FEAT-R5-OBJECTIVE-PUBLICATION"])
+        self.assertEqual(features[0]["review"]["outcome"], "approved")
+        self.assertEqual(features[0]["review"]["reviewedBy"], "Sam (independent Codex source review)")
+        self.assertEqual(features[0]["review"]["reviewRef"],
+                         "codex-source-review:0d1047f31d5ddde09a90081c613a92307df83682:FEAT-R5-OBJECTIVE-PUBLICATION")
         t = J("templates", "feature-entry.template.json")
         for k in ("review", "expectedBehaviour", "coverage"):
             self.assertIn(k, t)
