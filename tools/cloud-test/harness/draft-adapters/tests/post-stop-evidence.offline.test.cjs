@@ -11,11 +11,18 @@ const focusControls=require(path.join(root,'focus-controls.cjs'));
 const repeatProbes=require(path.join(root,'repeat-probes.cjs')),smokeTiming=require(path.join(root,'oracles/pure/smokeTiming.cjs'));
 const {createCaseRecorder}=require('../../bundle/harness/case-results.cjs');
 const manifest=require(path.join(root,'oracles/pure/fixture-manifest.json')).fixtures;
+test('the 5a7 feedback product path is byte-identical to the originally inspected 663 source',()=>{
+ const repo=path.resolve(root,'../../../..'),expected={
+  'frontend/src/services/issueReportService.ts':'807f44d9d38ac4fb5b853b6475d4481f1b68738fbefcd0017dea2e9e1d8b5570',
+  'frontend/src/components/IssueReportDialog.tsx':'1b8006e4cdbafbd6810d3dd1c9a4b13fcb5a2b6f2101c36fb60a1b6b45314c95',
+  'frontend/src/services/telemetry/feedbackTelemetry.ts':'7b9a09ee584a30e87deb0042a11b769fe7c405030349013c438c560078e2ff39'};
+ for(const [file,digest] of Object.entries(expected))assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(repo,file))).digest('hex'),digest,file);
+});
 async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false,pcmReceipt=null,objectiveReceipt=null,saveFailure=false,finalWaitFailure=false,successfulCoaching=false,repeatWindowFailure=false}={}){
  const fixtureName=caseId==='AHT-01'?'open_mic_tts':caseId==='AHT-02'?'focus_points_tts':'focus_points_partial_tts';
  const fixture=manifest[fixtureName],contract=adapters.CONTRACTS[caseId],seen=[],writes=[],recorded=[];
  const c={caseId,campaignId:'UNIT-ONLY',sourceSha:adapters.SOURCE_SHA,servedSha:adapters.SOURCE_SHA,targetUrl:'https://unit.invalid',requiredAssertions:contract.rows,
-  account:{id:'11111111-1111-4111-8111-111111111111',mode:'existing-disposable',preprovisionReceipt:'unit/pre.json',analyticsExclusionReceipt:'unit/analytics.json',dispositionReceipt:'unit/disposition.json',effectiveFeatureAccessApproved:true},
+  account:{id:'11111111-1111-4111-8111-111111111111',mode:'existing-disposable',preprovisionReceipt:'unit/pre.json',analyticsExclusionReceipt:'unit/analytics.json',dispositionReceipt:'unit/disposition.json',bindingReceiptSha256:'a'.repeat(64),effectiveFeatureAccessApproved:true},
   readback:{origin:'https://unit.invalid',projectRef:'unit',anonKey:'synthetic-public',schemaSha256:'a'.repeat(64),ownerReadApproved:true,rlsReadQualificationReceipt:'unit/rls.json'},
   observerSourceReviewed:true,observerQualificationReceipt:'unit/observer.json',takeCap:contract.takes,startPressCap:contract.startPresses,
   fixture:{name:fixtureName,sha256:fixture.sha256,launchSha256:fixture.sha256,speechDurationMs:Math.round(fixture.speechSeconds*1000)},

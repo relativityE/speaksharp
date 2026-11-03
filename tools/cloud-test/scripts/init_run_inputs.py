@@ -45,7 +45,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "215cb2b88301f62fc4f6890569b166283fa634061ffcce5656a5b79ba5b36dbf"
+ONE_OFF_GRANT_SHA256 = "2051e5db7f8b8b9b3c98611aa2e8200a089266027dde9b9bf2510cb3da42292b"
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
@@ -1418,16 +1418,22 @@ def first_observation_export(cases_dir, selected):
           and all(re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", x or "") for x in selected), "first-observation-selection")
     expected = {"AHT-01": ("aht-01-first-observation.json", "existing-disposable"),
                 "AHT-15": ("aht-15-first-observation.json", "maintained-read-only")}
-    observations = []
+    observations, not_observed = [], []
     keys = {"contentSafe", "kind", "inventoryStatus", "role", "accountSubjectSha256", "sourceBindingSha256", "sourceSha",
             "servedSha", "observedAtUtc", "rowCount", "completedCount", "readableCompletedCount", "readableHistoryAvailable",
             "inventoryComplete", "readLimit", "sanitizer"}
     for case_id in [x for x in ("AHT-01", "AHT-15") if x in selected]:
-        case_dir = os.path.realpath(os.path.join(cases_dir, case_id))
+        candidate = os.path.join(cases_dir, case_id)
+        if not os.path.lexists(candidate):
+            not_observed.append({"caseId": case_id, "status": "NOT OBSERVED", "reason": "CASE NOT REACHED"})
+            continue
+        _need(not os.path.islink(candidate), "first-observation-case-dir")
+        case_dir = os.path.realpath(candidate)
         _need(case_dir.startswith(os.path.realpath(cases_dir) + os.sep) and os.path.isdir(case_dir), "first-observation-case-dir")
         result_file, (ref, role) = os.path.join(case_dir, "case-result.json"), expected[case_id]
         observation_file = os.path.join(case_dir, ref)
         if not os.path.exists(observation_file):
+            not_observed.append({"caseId": case_id, "status": "NOT OBSERVED", "reason": "OBSERVATION NOT PRODUCED"})
             continue
         _need(os.path.isfile(result_file) and not os.path.islink(result_file) and os.path.isfile(observation_file)
               and not os.path.islink(observation_file), "first-observation-regular-files")
@@ -1465,7 +1471,7 @@ def first_observation_export(cases_dir, selected):
         observations.append({"caseId": case_id, "evidenceRef": ref, "sha256": hashlib.sha256(raw).hexdigest(),
                              "observation": observation})
     return {"schema": "speaksharp-first-observations-v1", "contentSafe": True, "selectedCases": selected,
-            "observations": observations}
+            "observations": observations, "notObserved": not_observed}
 
 
 def case_timing_export(cases_dir, case_results_file, selected):

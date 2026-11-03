@@ -117,6 +117,18 @@ class FirstObservationExportTests(unittest.TestCase):
         self.assertEqual(out["observations"][1]["observation"]["inventoryStatus"], "UNKNOWN")
         self.assertNotIn("00000000-0000-4000-8000-000000000001", json.dumps(out))
 
+    def test_completed_observation_survives_when_a_later_selected_case_was_never_reached(self):
+        self.write_case("AHT-01")
+        out = I.first_observation_export(self.cases, ["AHT-%02d" % n for n in range(1, 16)])
+        self.assertEqual([x["caseId"] for x in out["observations"]], ["AHT-01"])
+        self.assertEqual(out["notObserved"], [{"caseId": "AHT-15", "status": "NOT OBSERVED", "reason": "CASE NOT REACHED"}])
+
+    def test_reached_case_without_an_inventory_is_explicitly_not_observed(self):
+        os.makedirs(os.path.join(self.cases, "AHT-15"))
+        out = I.first_observation_export(self.cases, ["AHT-15"])
+        self.assertEqual(out["observations"], [])
+        self.assertEqual(out["notObserved"], [{"caseId": "AHT-15", "status": "NOT OBSERVED", "reason": "OBSERVATION NOT PRODUCED"}])
+
     def test_unlinked_or_digest_substituted_observation_refuses(self):
         for linked, tamper, reason in ((False, False, "not-linked"), (True, True, "not-linked")):
             with self.subTest(linked=linked, tamper=tamper):

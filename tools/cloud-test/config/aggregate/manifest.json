@@ -1,7 +1,7 @@
 {
   "schema": "speaksharp.cloud-test.aggregate-receiver.v2-occurrence",
   "workflowVersion": "1.5.0",
-  "codeManifestSha256": "a8b2acf0c2b8b755f628addcff0a284d3043e0baf94bdfc388ee12e97464063d",
+  "codeManifestSha256": "ae5630c8cf8fe113537fa7bfc7b63abbfd95f5d6f5bca3ad0249162253ca786d",
   "components": {
     "case-costs": {
       "file": "case-costs.json",

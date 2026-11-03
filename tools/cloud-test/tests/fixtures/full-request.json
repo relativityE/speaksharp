@@ -281,8 +281,8 @@
     }
   },
   "harness": {
-    "codeManifestSha256": "a8b2acf0c2b8b755f628addcff0a284d3043e0baf94bdfc388ee12e97464063d",
-    "packetManifestSha256": "74d90fc873e67e5f95ef2d5a1b7c0840c1807109d267bbc2c965fc5d528d0ef1",
+    "codeManifestSha256": "ae5630c8cf8fe113537fa7bfc7b63abbfd95f5d6f5bca3ad0249162253ca786d",
+    "packetManifestSha256": "3a9881d8cb2f46485e642d96b044673ba906c8cb017a668f25e94b5b825def5d",
     "ownerApprovalRef": null,
     "offlineProofFile": "config/proofs/offline-proof-7701a6e8.json"
   },
