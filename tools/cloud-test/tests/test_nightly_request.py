@@ -232,7 +232,8 @@ class StartRelativeWindow(unittest.TestCase):
         moved["window"].update(startUtc="2026-11-02T03:29:00Z", endUtc="2026-11-02T08:59:00Z")
         refused(self, "nightly-request-not-the-derivation", N.verify, N.canon(moved), *args, initiation=self.LATE, **pins)
 
-    def test_admission_times_the_window_from_the_runs_own_trigger(self):
+    def anchored(self):
+        """The production admission path with the anchors patched to synthetic files; the clock and the chain read are injected."""
         from unittest import mock
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d)
@@ -241,14 +242,42 @@ class StartRelativeWindow(unittest.TestCase):
             files[name] = os.path.join(d, name + ".json")
             with open(files[name], "wb") as f:
                 f.write(raw)
-        with mock.patch.object(N, "APPROVAL_PATH", files["approval"]), mock.patch.object(N, "TEMPLATE_PATH", files["template"]), \
-                mock.patch.object(N, "BUDGET_PATH", files["budget"]), mock.patch.object(N, "TEMPLATE_SHA256", TEMPLATE_PIN), \
-                mock.patch.object(N, "BUDGET_SHA256", hashlib.sha256(budget()).hexdigest()), \
-                mock.patch.object(N, "writer_activated", return_value=True), mock.patch.object(N, "fresh_repo", return_value=d), \
-                mock.patch.object(N, "occurrences_from_chain", return_value=frozenset()):
-            key, digest, raw = N.admit("true", "1", "0 3 * * *", self.LATE, self.LATE + timedelta(minutes=1), "101", SHA, CFG, WF)
-        self.assertEqual((key, json.loads(raw)["window"]["startUtc"], digest), (OCCURRENCE, "2026-11-02T03:17:42Z", hashlib.sha256(raw).hexdigest()))
-        self.assertEqual(raw, derive(initiation=self.LATE))
+        return mock.patch.multiple(N, APPROVAL_PATH=files["approval"], TEMPLATE_PATH=files["template"], BUDGET_PATH=files["budget"],
+                                   TEMPLATE_SHA256=TEMPLATE_PIN, BUDGET_SHA256=hashlib.sha256(budget()).hexdigest(),
+                                   writer_activated=mock.Mock(return_value=True), fresh_repo=mock.Mock(return_value=d),
+                                   occurrences_from_chain=mock.Mock(return_value=frozenset()))
+
+    def test_admission_binds_the_slot_to_creation_and_opens_the_window_at_the_actual_start(self):
+        # Sam 1793730034.221639: creation (`created_at`) and actual start (`run_started_at`) differ; only the start anchors the window.
+        created = SLOT + timedelta(minutes=2)
+        admit = lambda started, now=self.LATE + timedelta(minutes=1): N.admit("true", "1", "0 3 * * *", created, now, "101", SHA, CFG, WF,
+                                                                               started=started)
+        with self.anchored():
+            key, digest, raw = admit(self.LATE)
+            self.assertEqual((key, json.loads(raw)["window"]["startUtc"], json.loads(raw)["nightly"]["initiationUtc"]),
+                             (OCCURRENCE, "2026-11-02T03:17:42Z", "2026-11-02T03:17:42Z"))
+            self.assertEqual((raw, digest), (derive(initiation=self.LATE), hashlib.sha256(raw).hexdigest()))
+            refused(self, "nightly-start-unrecorded", admit, None)
+            refused(self, "nightly-start-before-creation", admit, created - timedelta(seconds=1))
+            refused(self, "nightly-initiation-not-the-occurrence", admit, SLOT + timedelta(minutes=30, seconds=1),
+                    now=SLOT + timedelta(minutes=31))
+
+    def test_the_cli_carries_both_timestamps_to_admission(self):
+        import base64
+
+        def gate(*extra):
+            out = os.path.join(tempfile.mkdtemp(), "out")
+            self.addCleanup(shutil.rmtree, os.path.dirname(out))
+            with self.anchored(), mock.patch.object(N, "_now", return_value=self.LATE + timedelta(minutes=1)):
+                status = N.main(["nightly_request.py", "gate", "--switch", "true", "--attempt", "1", "--cron", "0 3 * * *",
+                                 "--trigger-utc", "2026-11-02T03:02:00Z", "--run-id", "101", "--tested-sha", SHA, "--outputs", out, *extra])
+            with open(out, encoding="utf-8") as f:
+                return status, dict(line.split("=", 1) for line in f.read().splitlines())
+        from unittest import mock
+        status, got = gate("--started-utc", "2026-11-02T03:17:42Z")
+        self.assertEqual((status, got["code"]), (0, "admitted"))
+        self.assertEqual(json.loads(base64.b64decode(got["request_b64"]))["window"]["startUtc"], "2026-11-02T03:17:42Z")
+        self.assertEqual(gate()[1]["code"], "nightly-start-unrecorded")
 
 
 class Derivation(unittest.TestCase):

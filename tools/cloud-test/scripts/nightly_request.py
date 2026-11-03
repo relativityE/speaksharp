@@ -9,9 +9,11 @@ proposal is anchored yet (TEMPLATE_SHA256 / BUDGET_SHA256 are None until indepen
            within the package's structural limits and valid, and the run's ORIGINAL trigger time bound to exactly one scheduled slot.
   derive   the request bytes from the anchored template, the standing approval (bound by digest), the accepted budget proposal (the derived
            need, bound by digest) and the occurrence. Every derived allocation must fit the approval and the structural limits. The window is
-           start-relative (PO 2026-11-03): [initiation, initiation + approved minutes], where the initiation is the run's own authenticated
-           start (GitHub's created_at, the same anchor as the manual smoke occurrence), bound to at most SCHEDULER_MAX_DELAY_MINUTES after the
-           slot. Scheduler delay therefore never consumes the window, and the window can never be reset or pushed later. The whole window must
+           start-relative (PO 2026-11-03): [initiation, initiation + approved minutes]. Two GitHub run timestamps are used, each for one job:
+           the run's creation (`created_at`, --trigger-utc) binds the slot, and its actual start (`run_started_at`, --started-utc, the anchor
+           the manual smoke occurrence uses) is the initiation. Admission refuses unless creation <= start <= slot + SCHEDULER_MAX_DELAY_MINUTES,
+           so queueing before the start never consumes the window, a start too late to bind refuses, and the window can never be reset or
+           pushed later. Time spent after the start (gate, record, reserve, setup) still counts against the window. The whole window must
            lie inside the approval's validity and its period; the caller's own ceiling and window-fit checks (init_run_inputs) prove the full
            setup + live + collect run still fits from `now`. The occurrence id is the approval period plus the slot (so a re-trigger for the
            same slot is a replay); a run id is only the execution identity.
@@ -200,10 +202,13 @@ def fresh_repo():
     return path
 
 
-def admit(switch, attempt, cron, trigger, now, run_id, tested_sha, cfg, workflow_text):
+def admit(switch, attempt, cron, trigger, now, run_id, tested_sha, cfg, workflow_text, started=None):
     """The whole nightly admission, BEFORE any record mutation or credential-bearing job: gate, anchored inputs, replay from the verified
-    chain, the derivation and the fit from now. Returns (occurrence id, request sha256, request bytes) or refuses."""
+    chain, the derivation and the fit from now. `trigger` is the run's creation (binds the slot); `started` is its actual start (the
+    window's initiation). Returns (occurrence id, request sha256, request bytes) or refuses."""
     ap, slot = gate(switch, attempt, APPROVAL_PATH, cron, trigger, now, cfg)
+    _need(isinstance(started, datetime), "nightly-start-unrecorded")
+    _need(trigger <= started, "nightly-start-before-creation")
     _need(TEMPLATE_PATH is not None, "nightly-template-not-received")
     _need(BUDGET_PATH is not None, "nightly-budget-not-accepted")
     with open(TEMPLATE_PATH, "rb") as f:
@@ -213,7 +218,7 @@ def admit(switch, attempt, cron, trigger, now, run_id, tested_sha, cfg, workflow
     with open(APPROVAL_PATH, "rb") as f:
         approval_raw = f.read()
     prior = occurrences_from_chain(fresh_repo(), state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT)
-    raw = derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, prior, cfg, workflow_text, initiation=trigger)
+    raw = derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, prior, cfg, workflow_text, initiation=started)
     check_fit(raw, now, cfg, workflow_text)
     return json.loads(raw)["nightly"]["occurrenceId"], hashlib.sha256(raw).hexdigest(), raw
 
@@ -370,7 +375,7 @@ def _now():
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("gate",))
-    for flag in ("--switch", "--attempt", "--trigger-utc", "--cron", "--run-id", "--tested-sha"):
+    for flag in ("--switch", "--attempt", "--trigger-utc", "--started-utc", "--cron", "--run-id", "--tested-sha"):
         a.add_argument(flag, default="")
     a.add_argument("--outputs", required=True)
     x = a.parse_args(argv[1:])
@@ -382,7 +387,8 @@ def main(argv):
             cfg = json.load(f)
         with open(WORKFLOW_PATH, encoding="utf-8") as f:
             workflow_text = f.read()
-        _, digest, raw = admit(x.switch, x.attempt, x.cron, _utc(x.trigger_utc), _now(), x.run_id, x.tested_sha, cfg, workflow_text)
+        _, digest, raw = admit(x.switch, x.attempt, x.cron, _utc(x.trigger_utc), _now(), x.run_id, x.tested_sha, cfg, workflow_text,
+                              started=_utc(x.started_utc) if x.started_utc else None)
     except Refused as e:
         code, status = str(e), (0 if str(e) == "nightly-switch-off" else 78)
     except (OSError, ValueError, KeyError, TypeError):
