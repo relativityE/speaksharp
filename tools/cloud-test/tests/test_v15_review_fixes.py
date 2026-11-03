@@ -906,6 +906,10 @@ class ReviewedFeaturesReachRegressionWithoutABug(unittest.TestCase):
         self.assertEqual(features[0]["review"]["reviewedBy"], "Sam (independent Codex source review)")
         self.assertEqual(features[0]["review"]["reviewRef"],
                          "codex-source-review:0d1047f31d5ddde09a90081c613a92307df83682:FEAT-R5-OBJECTIVE-PUBLICATION")
+        goal = next(f for f in features if f["id"] == "FEAT-OWNER-GOAL-UPDATE")
+        self.assertEqual(goal["coverage"]["verificationScope"], "source-controls-plus-normal-journey-regression")
+        self.assertIn("not independently exercised", goal["coverage"]["diagnosticLimit"])
+        self.assertEqual(goal["coverage"]["requirements"], [{"case": "AHT-02", "assertions": ["owner-bound", "focus-final", "saved-once"]}])
         t = J("templates", "feature-entry.template.json")
         for k in ("review", "expectedBehaviour", "coverage"):
             self.assertIn(k, t)

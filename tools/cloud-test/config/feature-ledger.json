@@ -82,9 +82,11 @@
       "coverage": {
         "route": "existing-rows",
         "requirements": [
-          {"case": "AHT-02", "assertions": ["focus-edit-cancel-save", "focus-new-set"]}
+          {"case": "AHT-02", "assertions": ["owner-bound", "focus-final", "saved-once"]}
         ],
-        "newRows": []
+        "newRows": [],
+        "verificationScope": "source-controls-plus-normal-journey-regression",
+        "diagnosticLimit": "The selected all-15 campaign proves the owner-bound Focus journey remains healthy; the two-save same-row goal update is source-tested but is not independently exercised by this approved live campaign."
       }
     },
     {
