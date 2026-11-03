@@ -57,6 +57,47 @@ def git(repo, *args):
     return r.returncode, r.stdout.strip()
 
 
+def backend_deployment(repo, backend, tested):
+    """Verify the declared backend deployment without relabelling its SHA.
+
+    Exact verification remains the normal route.  A source-equivalent route is
+    accepted only for Edge Function paths, and only when git independently
+    proves that the deployed and tested function trees equal the pinned tree.
+    Migrations and backend configuration are deliberately outside this route.
+    """
+    base = {"sha": backend.get("sha"), "source": backend.get("source"),
+            "verifiedAtUtc": backend.get("verifiedAtUtc"), "evidenceRef": backend.get("evidenceRef"),
+            "sourceEquivalentToSha": backend.get("sourceEquivalentToSha"),
+            "functionsTreeSha": backend.get("functionsTreeSha"), "verified": False}
+    common = (is_sha40(backend.get("sha")) and parse_utc(backend.get("verifiedAtUtc")) is not None
+              and bool(backend.get("evidenceRef")))
+    if backend.get("source") == "cloud-verified":
+        base["verified"] = bool(common and backend.get("sha") == tested)
+        base["mode"] = "exact"
+        return base
+    base["mode"] = "source-equivalent"
+    if not (common and backend.get("source") == "cloud-verified-source-equivalent"
+            and backend.get("sourceEquivalentToSha") == tested
+            and is_sha40(backend.get("functionsTreeSha"))):
+        return base
+    deployed_rc, deployed_tree = git(repo, "rev-parse", backend["sha"] + ":backend/supabase/functions")
+    tested_rc, tested_tree = git(repo, "rev-parse", tested + ":backend/supabase/functions")
+    base["deployedFunctionsTreeSha"] = deployed_tree if deployed_rc == 0 else None
+    base["testedFunctionsTreeSha"] = tested_tree if tested_rc == 0 else None
+    base["verified"] = (deployed_rc == 0 and tested_rc == 0 and deployed_tree == tested_tree
+                        and tested_tree == backend.get("functionsTreeSha"))
+    return base
+
+
+def backend_proves_paths(backend_result, product_paths):
+    if not backend_result.get("verified"):
+        return False
+    if backend_result.get("mode") == "exact":
+        return True
+    backend_paths = [p for p in product_paths if p.startswith("backend/")]
+    return bool(backend_paths) and all(p.startswith("backend/supabase/functions/") for p in backend_paths)
+
+
 def commits_in(repo, base, tip, cfg):
     rc, out = git(repo, "rev-list", "--reverse", "%s..%s" % (base, tip))
     if rc:
@@ -181,8 +222,9 @@ def main():
     elif not fe["fresh"]:
         N("frontend: the last verified identity read is %.0f hours old (limit %d); refresh it" % (fe["ageHours"], maxage))
     be = rel.get("backend") or {}
-    be_ok = be.get("source") == "cloud-verified" and parse_utc(be.get("verifiedAtUtc")) is not None and bool(be.get("evidenceRef")) and be.get("sha") == tested
-    out["backend"] = {"sha": be.get("sha"), "source": be.get("source"), "verifiedAtUtc": be.get("verifiedAtUtc"), "evidenceRef": be.get("evidenceRef"), "verified": be_ok}
+    be_result = backend_deployment(x.repo, be, tested)
+    be_ok = be_result["verified"]
+    out["backend"] = be_result
     # fixes: link ledger gaps to commits
     subjects = {}
     if out["git"]["available"]:
@@ -207,18 +249,17 @@ def main():
             else:
                 anc = git(x.repo, "merge-base", "--is-ancestor", commit, tested)[0] == 0
                 rec["ancestorOfTested"] = anc
-                found = next((c for c in (out["sinceBaseline"] or []) if c["sha"] == commit), None)
-                if found is None:
-                    _, files = git(x.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "--first-parent", commit)
-                    prod, backend, _f = classify(files.splitlines(), cfg["release"]["productPathPatterns"], cfg["release"]["testPathPatterns"])
-                else:
-                    backend = found["touchesBackend"]
+                # Recompute the complete path set here.  The human-facing
+                # sinceBaseline summary truncates productPaths for readability
+                # and must never become deployment-authority input.
+                _, files = git(x.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "--first-parent", commit)
+                prod, backend, _f = classify(files.splitlines(), cfg["release"]["productPathPatterns"], cfg["release"]["testPathPatterns"])
                 rec["touchesBackend"] = backend
                 if not anc:
                     rec.update(inclusion="not-in-release", basis="%s is not an ancestor of the tested SHA" % commit[:7])
                 elif not fe_ok:
                     rec.update(inclusion="unverified-deployment", basis="ancestor of the tested SHA, but the frontend deployment of the tested SHA is not verified (fresh)")
-                elif backend and not be_ok:
+                elif backend and not backend_proves_paths(be_result, prod):
                     rec.update(inclusion="unverified-deployment", basis="ancestor of the tested SHA and the frontend is verified, but the change touches backend paths and the backend deployment is %s" % (be.get("source") or "undeclared"))
                 else:
                     rec.update(inclusion="cloud-verified", basis="%s is an ancestor of the tested SHA; the frontend served SHA equals the tested SHA (%s)%s" % (commit[:7], fe["evidence"].split(":")[0], "; backend verified" if backend else "; frontend-only change"))
@@ -258,13 +299,13 @@ def main():
             else:
                 anc = git(x.repo, "merge-base", "--is-ancestor", commit, tested)[0] == 0
                 _, files = git(x.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "--first-parent", commit)
-                _p, backend, _f2 = classify(files.splitlines(), cfg["release"]["productPathPatterns"], cfg["release"]["testPathPatterns"])
+                prod, backend, _f2 = classify(files.splitlines(), cfg["release"]["productPathPatterns"], cfg["release"]["testPathPatterns"])
                 rec["touchesBackend"] = backend
                 if not anc:
                     rec.update(inclusion="not-in-release", basis="%s is not an ancestor of the tested SHA" % commit[:7])
                 elif not fe_ok:
                     rec.update(inclusion="unverified-deployment", basis="ancestor of the tested SHA, but the frontend deployment of the tested SHA is not verified (fresh)")
-                elif backend and not be_ok:
+                elif backend and not backend_proves_paths(be_result, prod):
                     rec.update(inclusion="unverified-deployment", basis="ancestor of the tested SHA, but the change touches backend paths and the backend deployment is %s" % (be.get("source") or "undeclared"))
                 else:
                     rec.update(inclusion="cloud-verified", basis="%s is an ancestor of the tested SHA; the frontend served SHA equals the tested SHA" % commit[:7])
