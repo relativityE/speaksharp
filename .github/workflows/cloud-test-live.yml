@@ -647,6 +647,7 @@ jobs:
           SETTLED: ${{ needs.journal-settle.outputs.settled }}
           SETTLE_RECEIPT_SHA256: ${{ needs.journal-settle.outputs.receipt_sha256 }}
           MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
         run: |
           set -euo pipefail
           P=tools/cloud-test/scripts/publish_latest_record.py
@@ -673,12 +674,20 @@ jobs:
               within_envelope=false
             fi
           fi
+          attestable=false
           if [ -f "$RUNNER_TEMP/record/latest-record.json" ] && [ "$LIVE_RESULT" != cancelled ] && [ "$within_envelope" = true ]; then
-            python3 -I "$P" complete --previous "$RUNNER_TEMP/previous.md" --record "$RUNNER_TEMP/record/latest-record.json" --out "$RUNNER_TEMP/body.md"
-          else
-            python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-              --status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)" --out "$RUNNER_TEMP/body.md"
+            # A terminal candidate is retained as an artifact only.  It is never
+            # PATCHed into the public comment before GitHub's server time is
+            # validated; an interrupted publisher therefore cannot strand a
+            # false completed record.
+            python3 -I "$P" complete --previous "$RUNNER_TEMP/previous.md" --record "$RUNNER_TEMP/record/latest-record.json" --out "$RUNNER_TEMP/candidate.md"
+            attestable=true
           fi
+          # The one public mutation is always fail-closed. Completion is proved
+          # only by completion-attestation.json after the response/deadline and
+          # exact readback checks below.
+          python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)" --out "$RUNNER_TEMP/body.md"
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/published.json"
           # GitHub's response timestamp, not this runner's post-request clock,
           # decides whether the completed record was actually published inside
@@ -691,13 +700,23 @@ jobs:
               --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --now "$published_at"
             publication_status=$?
             set -e
-            if [ "$publication_status" -ne 0 ]; then
-              python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-                --status incomplete --out "$RUNNER_TEMP/body.md"
-              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/published.json"
-            fi
+            if [ "$publication_status" -ne 0 ]; then attestable=false; fi
           fi
           # readback: the stored record must be exactly what was rendered (the PATCH is not compare-and-swap; this job is the sole publisher)
           gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/readback.json"
           python3 -I "$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/readback.json" \
             --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID"
+          if [ "$attestable" = true ]; then
+            python3 -I "$P" attest --candidate "$RUNNER_TEMP/candidate.md" --public-body "$RUNNER_TEMP/body.md" \
+              --published "$RUNNER_TEMP/published.json" --settle-receipt-sha256 "$SETTLE_RECEIPT_SHA256" \
+              --occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
+              --out "$RUNNER_TEMP/completion-attestation.json"
+          fi
+      - name: Retain the fail-closed completion attestation (1 day)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-completion-attestation
+          path: ${{ runner.temp }}/completion-attestation.json
+          retention-days: 1
+          if-no-files-found: ignore

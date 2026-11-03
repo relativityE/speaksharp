@@ -301,6 +301,36 @@ class Readback(unittest.TestCase):
         self.assertEqual(verify(body.replace('"runId":"101"', '"runId":"102"')), 78)  # any other change refuses
 
 
+class CompletionAttestation(unittest.TestCase):
+    def test_terminal_candidate_is_bound_to_the_public_incomplete_state_and_server_time(self):
+        running = started(P.parse_body(""))
+        candidate_body = P.render(P.complete(running, record()))
+        public_body = P.render(P.interrupt(running, "101", 1, "incomplete"))
+        att = P.completion_attestation(candidate_body, public_body,
+                                       {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, "3" * 64, "4" * 64)
+        self.assertEqual((att["schema"], att["runId"], att["publishedAt"]),
+                         (P.ATTESTATION_SCHEMA, "101", "2026-10-31T18:41:00Z"))
+
+    def test_no_attestation_for_missing_or_malformed_response_or_non_incomplete_publication(self):
+        running = started(P.parse_body(""))
+        candidate_body = P.render(P.complete(running, record()))
+        public_body = P.render(P.interrupt(running, "101", 1, "incomplete"))
+        bad = [({}, public_body),
+               ({"updated_at": "2026-10-31T18:41:00Z", "body": candidate_body}, public_body),
+               ({"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, candidate_body)]
+        for response, public in bad:
+            with self.subTest(response=response), self.assertRaises(P.Refused):
+                P.completion_attestation(candidate_body, public, response, "3" * 64, "4" * 64)
+
+        prior = P.complete(started(P.parse_body(""), "100"), record("100"))
+        different_running = P.begin(prior, "101", 1, SHA, "2026-10-31T19:00:00Z")
+        different = P.render(P.complete(different_running, record("101", startedUtc="2026-10-31T19:00:00Z",
+                                                                  endedUtc="2026-10-31T19:40:00Z")))
+        with self.assertRaisesRegex(P.Refused, "attestation-candidate-not-derived"):
+            P.completion_attestation(different, public_body,
+                                     {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, "3" * 64, "4" * 64)
+
+
 class Cli(unittest.TestCase):
     def test_the_cli_writes_the_body_and_refuses_with_exit_78(self):
         d = tempfile.mkdtemp(prefix="ct-latest-record-")

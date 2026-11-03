@@ -270,7 +270,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "0b37c1801154b077934b4881ba06cf3a5fe75e95b15d40fc5a6c461e10ad085a",
+            "manifestSha256": "dcbc5f8ee4d0278223807c1fcf6b99b5a72554c7bbc48f79d5f0f6f260222d7a",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
@@ -493,6 +493,15 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('published_at=', complete["run"])
         self.assertIn('--now "$published_at"', complete["run"])
         self.assertIn("publish_latest_record.py", complete["run"])
+        self.assertEqual(complete["run"].count("gh api --method PATCH"), 1)
+        self.assertIn('--out "$RUNNER_TEMP/candidate.md"', complete["run"])
+        self.assertNotIn('body=@$RUNNER_TEMP/candidate.md', complete["run"])
+        self.assertIn('--status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)"', complete["run"])
+        self.assertIn('if [ "$attestable" = true ]', complete["run"])
+        self.assertIn('attest --candidate "$RUNNER_TEMP/candidate.md"', complete["run"])
+        uploads = [s for s in self.jobs["record-complete"]["steps"] if s.get("uses") == "actions/upload-artifact@v4"]
+        self.assertEqual(len(uploads), 1)
+        self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/completion-attestation.json")
         # Settlement remains independent of the occurrence deadline: a late
         # publisher cannot claim completion, but held usage is still reconciled
         # under the accepted accounting period.

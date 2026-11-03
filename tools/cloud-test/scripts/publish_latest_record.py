@@ -16,6 +16,8 @@ Usage:
   publish_latest_record.py begin     --previous BODY --run-id N --attempt N --source-sha SHA --started-utc TS --out BODY
   publish_latest_record.py complete  --previous BODY --record RECORD.json --out BODY
   publish_latest_record.py interrupt --previous BODY --run-id N --attempt N --status cancelled|incomplete --out BODY
+  publish_latest_record.py attest    --candidate BODY --public-body BODY --published RESPONSE.json
+                                      --settle-receipt-sha256 SHA --occurrence-sha256 SHA --out ATTESTATION.json
 Exit 78 (BLOCKED_SETUP) on every refusal.
 """
 import argparse
@@ -30,6 +32,7 @@ import _netguard  # noqa: F401,E402  (offline: rendering never needs the network
 
 MARKER = "<!-- speaksharp-cloud-test-latest-record v1 -->"
 SCHEMA = "speaksharp.cloud-test.latest-record.v1"
+ATTESTATION_SCHEMA = "speaksharp.cloud-test.completion-attestation.v1"
 BOT_LOGIN = "github-actions[bot]"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
@@ -377,6 +380,39 @@ def interrupt(state, run_id, attempt, status):
     return dict(state, inProgress=dict(live, status=status))
 
 
+def completion_attestation(candidate_body, public_body, published, settle_receipt_sha256, occurrence_sha256):
+    """Bind a terminal candidate to the fail-closed public state GitHub actually stored.
+
+    The public comment is deliberately *incomplete*, never terminal.  A completed
+    occurrence exists only when this separate attestation is produced after the
+    PATCH response and deadline checks.  Therefore a missing/malformed response,
+    a timeout, or an interrupted correction cannot leave a visible false-complete
+    record behind.
+    """
+    candidate, public = parse_body(candidate_body), parse_body(public_body)
+    done, live = candidate.get("latestCompleted"), public.get("inProgress")
+    _need(done is not None and candidate.get("inProgress") is None, "attestation-candidate-not-terminal")
+    _need(live is not None and live.get("status") == "incomplete", "attestation-public-not-incomplete")
+    _need((done["runId"], done["attempt"], done["sourceSha"]) ==
+          (live.get("runId"), live.get("attempt"), live.get("sourceSha")), "attestation-attempt-mismatch")
+    # Rebuild the terminal state from the exact public predecessor. This binds
+    # its retained history and latest-completed predecessor too; matching only
+    # the run identity would let a different candidate be attested.
+    expected = complete(dict(public, inProgress=dict(live, status="running")), done)
+    _need(candidate == expected, "attestation-candidate-not-derived-from-public-state")
+    _need(isinstance(published, dict) and isinstance(published.get("updated_at"), str)
+          and UTC.match(published["updated_at"]), "attestation-published-at")
+    _need(isinstance(published.get("body"), str)
+          and published["body"].rstrip("\r\n") == public_body.rstrip("\r\n"), "attestation-public-readback")
+    _need(isinstance(settle_receipt_sha256, str) and SHA64.match(settle_receipt_sha256), "attestation-settlement")
+    _need(isinstance(occurrence_sha256, str) and SHA64.match(occurrence_sha256), "attestation-occurrence")
+    return {"schema": ATTESTATION_SCHEMA, "runId": done["runId"], "attempt": done["attempt"],
+            "sourceSha": done["sourceSha"], "candidateSha256": hashlib.sha256(candidate_body.encode()).hexdigest(),
+            "publicIncompleteSha256": hashlib.sha256(public_body.encode()).hexdigest(),
+            "publishedAt": published["updated_at"], "settleReceiptSha256": settle_receipt_sha256,
+            "occurrenceSha256": occurrence_sha256}
+
+
 def _read(path):
     with open(path, encoding="utf-8") as f:
         return f.read()
@@ -384,8 +420,9 @@ def _read(path):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "verify"))
-    for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url"):
+    a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "verify", "attest"))
+    for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url",
+                 "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--comment-id", type=int)
@@ -401,6 +438,13 @@ def main(argv):
             expected = _read(x.previous)
             stored = select(json.loads(_read(x.comments)), x.issue_url, x.bot_login, x.comment_id)["body"]
             _need(stored.rstrip("\r\n") == expected.rstrip("\r\n") and parse_body(stored) == parse_body(expected), "record-readback-differs")
+            return 0
+        if x.command == "attest":
+            attestation = completion_attestation(_read(x.candidate), _read(x.public_body), json.loads(_read(x.published)),
+                                                 x.settle_receipt_sha256, x.occurrence_sha256)
+            with open(x.out, "w", encoding="utf-8") as f:
+                json.dump(attestation, f, sort_keys=True, separators=(",", ":"))
+                f.write("\n")
             return 0
         state = parse_body(_read(x.previous))
         if x.command == "begin":
