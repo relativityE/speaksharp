@@ -61,12 +61,12 @@ test('runtime smoke lease path waits from a live lease to an authenticated idle 
   createDb:(page,c)=>{assert.equal(page.page,true);assert.equal(c.caseId,'AHT-01');return db;},
   read:async(actual,table,columns)=>{calls.push({actual,table,columns});return leaseSequence.shift();},
   readMic:async()=>micSequence.shift(),
-  wait:async ms=>{clock+=ms;},now:()=>clock,deadlineMs:1000,pollMs:250,
+  wait:async ms=>{clock+=ms;},deadlineWait:()=>new Promise(()=>{}),now:()=>clock,deadlineMs:1000,pollMs:250,
  });
  assert.equal(result.ready,true);
  assert.equal(result.reads,2);assert.equal(result.elapsedMs,250);
  assert.deepEqual(calls,[{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'},{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'}]);
- const unavailable=await adapters.smokeLeaseBoundary({}, {}, {createDb:()=>db,read:async()=>{throw Error('denied');},readMic:async()=>idle,now:()=>0});
+ const unavailable=await adapters.smokeLeaseBoundary({}, {}, {createDb:()=>db,read:async()=>{throw Error('denied');},readMic:async()=>idle,deadlineWait:()=>new Promise(()=>{}),now:()=>0});
  assert.equal(unavailable.code,'LEASE_READ_UNAVAILABLE');
 });
 
@@ -74,7 +74,7 @@ test('runtime smoke lease path stops at its bound without inferring expiry or fo
  const db={owner:true},idle={liveTracks:0,recording:false,recorderVisible:false};let clock=0,reads=0;
  const result=await adapters.smokeLeaseBoundary({},{}, {
   createDb:()=>db,read:async()=>{reads++;return [{state:'active'}];},readMic:async()=>idle,
-  wait:async ms=>{clock+=ms;},now:()=>clock,deadlineMs:500,pollMs:200,
+  wait:async ms=>{clock+=ms;},deadlineWait:()=>new Promise(()=>{}),now:()=>clock,deadlineMs:500,pollMs:200,
  });
  assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'LEASE_WAIT_DEADLINE',reads:3,elapsedMs:500});
  assert.equal(reads,3,'the deadline is checked before a fourth owner query begins');
@@ -86,10 +86,38 @@ test('production smoke lease path refuses an idle owner read that completes afte
   createDb:()=>db,
   read:async()=>{clock=501;return [];},
   readMic:async()=>{micReads++;return idle;},
-  wait:async ms=>{clock+=ms;},now:()=>clock,deadlineMs:500,pollMs:100,
+  wait:async ms=>{clock+=ms;},deadlineWait:()=>new Promise(()=>{}),now:()=>clock,deadlineMs:500,pollMs:100,
  });
  assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'LEASE_READ_DEADLINE',reads:0,elapsedMs:501});
  assert.equal(micReads,0,'an owner read that outlives the campaign deadline cannot be followed by a mic read or accepted as idle');
+});
+
+test('production smoke lease path bounds a never-resolving owner query and ignores its late settlement',async()=>{
+ let clock=0,micReads=0,resolveOwner;
+ const ownerPending=new Promise(resolve=>{resolveOwner=resolve;});
+ const result=await adapters.smokeLeaseBoundary({},{}, {
+  createDb:()=>({owner:true}),read:()=>ownerPending,readMic:async()=>{micReads++;return {liveTracks:0,recording:false,recorderVisible:false};},
+  deadlineWait:async ms=>{clock+=ms;},wait:async()=>{},now:()=>clock,deadlineMs:500,pollMs:100,
+ });
+ assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'LEASE_READ_DEADLINE',reads:0,elapsedMs:500});
+ resolveOwner([]);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(micReads,0,'a late owner settlement cannot resume the completed boundary or reach the mic/recording path');
+ assert.equal(result.ready,false);
+});
+
+test('production smoke lease path bounds a never-resolving mic read without an unhandled late rejection',async()=>{
+ let clock=0,deadlineCalls=0,rejectMic,unhandled=null;
+ const micPending=new Promise((_,reject)=>{rejectMic=reject;});
+ const result=await adapters.smokeLeaseBoundary({},{}, {
+  createDb:()=>({owner:true}),read:async()=>[],readMic:()=>micPending,
+  deadlineWait:ms=>{deadlineCalls++;if(deadlineCalls===1)return new Promise(()=>{});clock+=ms;return Promise.resolve();},
+  wait:async()=>{},now:()=>clock,deadlineMs:500,pollMs:100,
+ });
+ assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'MIC_READ_DEADLINE',reads:0,elapsedMs:500});
+ const listener=reason=>{unhandled=reason;};process.once('unhandledRejection',listener);
+ rejectMic(Error('late mic rejection'));await new Promise(resolve=>setImmediate(resolve));process.removeListener('unhandledRejection',listener);
+ assert.equal(unhandled,null,'the losing in-flight read has a rejection handler before the deadline race begins');
+ assert.equal(result.ready,false);
 });
 
 test('Focus smoke scores only point windows fully heard before Stop',()=>{

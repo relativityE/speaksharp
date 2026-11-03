@@ -87,17 +87,28 @@ const needs=(caseId,c)=>['minimal','smoke'].includes(c?.sampleMode)&&MINIMAL_NEE
 function notRun(message){const e=new Error(message);e.code='NOT_RUN';e.trustedBlocker=message;throw e;}
 function requireThat(value,message){if(!value)notRun(message);}
 function safeRef(x){return typeof x==='string'&&x.length<512&&!x.startsWith('/')&&!x.split('/').includes('..')&&!/[\r\n]/.test(x);}
-async function smokeLeaseBoundary(page,c,{createDb=createOwnerDb,read=ownerRows,readMic=observer.mic,wait=ms=>page.waitForTimeout(ms),now=()=>Date.now(),deadlineMs=smokeTiming.LEASE_WAIT_DEADLINE_MS,pollMs=smokeTiming.LEASE_POLL_MS}={}){
+async function smokeLeaseBoundary(page,c,{createDb=createOwnerDb,read=ownerRows,readMic=observer.mic,wait=ms=>page.waitForTimeout(ms),deadlineWait=ms=>page.waitForTimeout(ms),now=()=>Date.now(),deadlineMs=smokeTiming.LEASE_WAIT_DEADLINE_MS,pollMs=smokeTiming.LEASE_POLL_MS}={}){
  const startedAt=now();let reads=0,db=null;
  try{db=createDb(page,c);}catch{return {ready:false,code:'LEASE_READ_UNAVAILABLE',reads,elapsedMs:0};}
  for(;;){
   const elapsed=()=>Math.max(0,now()-startedAt);
   const expired=lastCode=>({ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode,reads,elapsedMs:elapsed()});
+  const bounded=async(operation,lastCode)=>{
+   const remaining=deadlineMs-elapsed();if(remaining<=0)return {timeout:expired(lastCode)};
+   // Both branches install fulfilment and rejection handlers before racing. A
+   // late query settlement therefore cannot become an unhandled rejection or
+   // re-enter this completed lease decision after the deadline wins.
+   const value=Promise.resolve().then(operation).then(result=>({kind:'value',result}),()=>({kind:'unavailable'}));
+   const timer=Promise.resolve().then(()=>deadlineWait(remaining)).then(()=>({kind:'deadline'}),()=>({kind:'deadline'}));
+   const outcome=await Promise.race([value,timer]);
+   if(outcome.kind==='deadline'||elapsed()>=deadlineMs)return {timeout:expired(lastCode)};
+   return outcome.kind==='value'?{value:outcome.result}:{value:null};
+  };
   if(elapsed()>=deadlineMs)return expired('LEASE_WAIT_DEADLINE');
-  let leaseRows=null;try{leaseRows=await read(db,'active_recording_lease','user_id,lease_id,state');}catch{/* fail closed below */}
-  if(elapsed()>=deadlineMs)return expired('LEASE_READ_DEADLINE');
-  let mic=null;try{mic=await readMic(page);}catch{/* fail closed below */}
-  if(elapsed()>=deadlineMs)return expired('MIC_READ_DEADLINE');
+  const owner=await bounded(()=>read(db,'active_recording_lease','user_id,lease_id,state'),'LEASE_READ_DEADLINE');
+  if(owner.timeout)return owner.timeout;const leaseRows=owner.value;
+  const local=await bounded(()=>readMic(page),'MIC_READ_DEADLINE');
+  if(local.timeout)return local.timeout;const mic=local.value;
   reads++;const state=smokeTiming.leaseBoundary({leaseRows,mic});const elapsedMs=elapsed();
   if(state.ready)return {...state,reads,elapsedMs};
   if(['LEASE_READ_UNAVAILABLE','MIC_STATE_UNAVAILABLE'].includes(state.code))return {...state,reads,elapsedMs};
