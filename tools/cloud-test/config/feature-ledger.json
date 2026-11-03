@@ -30,6 +30,117 @@
         "newRows": []
       },
       "rollout": {"flag": "__PRIVATE_OBJECTIVE_PUBLICATIONS_ENABLED__"}
+    },
+    {
+      "id": "FEAT-ACCEPTED-ATTEMPT-FAILURE-TELEMETRY",
+      "title": "Bind recording setup failures to the accepted attempt",
+      "area": "PG04",
+      "pr": "#1759",
+      "commit": "66328703bf47e865b730e229005411e78481d34c",
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Codex Code and Security review",
+        "reviewRef": "https://github.com/relativityE/speaksharp/pull/1759#issuecomment-6512806082",
+        "reviewedAtUtc": "2026-10-30T01:38:11Z"
+      },
+      "expectedBehaviour": {
+        "summary": "A recording setup failure is diagnosed against the accepted journey and attempt rather than ambient later state.",
+        "userVisible": false,
+        "criteria": "When an accepted Start attempt fails during setup, the emitted diagnostic retains that attempt's frozen journey identity; invalid or pre-acceptance identities do not become accepted-attempt evidence.",
+        "definedAtUtc": "2026-10-30T01:32:25Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "requirements": [
+          {"case": "AHT-12", "assertions": ["owner-bound", "press-bound-denial"]}
+        ],
+        "newRows": []
+      }
+    },
+    {
+      "id": "FEAT-OWNER-GOAL-UPDATE",
+      "title": "Update an existing owner's goal instead of inserting a duplicate",
+      "area": "PG02",
+      "pr": "#1767",
+      "commit": "ac5272dc23a4ed4fa134973016523f67a6f82e8b",
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Codex Code and Security review",
+        "reviewRef": "https://github.com/relativityE/speaksharp/pull/1767#issuecomment-6548327785",
+        "reviewedAtUtc": "2026-10-31T19:50:32Z"
+      },
+      "expectedBehaviour": {
+        "summary": "Saving an edited goal updates the existing owner-scoped row without creating a second current goal.",
+        "userVisible": true,
+        "criteria": "A second save for the same authenticated owner's existing goal performs the owner-scoped update, preserves permission failures, and leaves one current goal for the next Focus session.",
+        "definedAtUtc": "2026-10-31T19:50:32Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "requirements": [
+          {"case": "AHT-02", "assertions": ["focus-edit-cancel-save", "focus-new-set"]}
+        ],
+        "newRows": []
+      }
+    },
+    {
+      "id": "FEAT-PCM-BOUNDARY-RECEIPTS",
+      "title": "Retain content-free PCM boundary receipts for transcription diagnosis",
+      "area": "PG01",
+      "pr": "#1771",
+      "commit": "8969998d27b4dd891c84243b35869be726639900",
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Codex Code and Security review",
+        "reviewRef": "https://github.com/relativityE/speaksharp/pull/1771#issuecomment-6561811698",
+        "reviewedAtUtc": "2026-11-01T18:06:20Z"
+      },
+      "expectedBehaviour": {
+        "summary": "The private transcription path retains bounded PCM frame-boundary evidence without retaining speech content.",
+        "userVisible": false,
+        "criteria": "Accepted PCM frames have ordered, content-free boundary receipts through the private transcription fanout; frames after receipt closure are discarded and cannot overwrite the terminal receipt.",
+        "definedAtUtc": "2026-11-01T18:06:20Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "requirements": [
+          {"case": "AHT-02", "assertions": ["focus-live-durable", "no-cloud-stt"]},
+          {"case": "AHT-03", "assertions": ["focus-live-durable", "no-cloud-stt"]}
+        ],
+        "newRows": []
+      }
+    },
+    {
+      "id": "FEAT-REPLACEABLE-COACHING-ADAPTER",
+      "title": "Preserve Gemini coaching behind a replaceable provider adapter",
+      "area": "PG02",
+      "pr": "#1773",
+      "commit": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
+      "review": {
+        "outcome": "approved",
+        "reviewedBy": "Codex Code and Security review",
+        "reviewRef": "https://github.com/relativityE/speaksharp/pull/1773#issuecomment-6586629426",
+        "reviewedAtUtc": "2026-11-02T19:37:02Z"
+      },
+      "expectedBehaviour": {
+        "summary": "The coaching function resolves the incumbent Gemini implementation through a typed provider registry without changing the selected default.",
+        "userVisible": true,
+        "criteria": "With the existing configuration, saved Open Mic and Focus takes still request Gemini coaching through the registered adapter and return the same grounded two-part coaching contract; unselected model families are not activated.",
+        "definedAtUtc": "2026-11-02T19:37:02Z",
+        "confirmedByOwner": true
+      },
+      "coverage": {
+        "route": "existing-rows",
+        "requirements": [
+          {"case": "AHT-01", "assertions": ["grounded-coaching"]},
+          {"case": "AHT-02", "assertions": ["grounded-coaching"]},
+          {"case": "AHT-03", "assertions": ["grounded-coaching"]}
+        ],
+        "newRows": []
+      }
     }
   ]
 }
