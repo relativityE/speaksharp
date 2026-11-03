@@ -54,7 +54,9 @@ async function main(argv){
   const configs=cases.map(c=>({caseId:c.id,config:privateJson(c.configFile,c.configSha256)}));
   const admission=privateJson(plan.admissionConfigFile,plan.admissionConfigSha256),checkout=path.resolve(admission.checkoutDir||''),checkoutStat=fs.lstatSync(checkout);
   if(typeof admission.checkoutDir!=='string'||!path.isAbsolute(admission.checkoutDir)||!checkoutStat.isDirectory()||checkoutStat.isSymbolicLink()||fs.realpathSync(checkout)!==checkout)throw new Error('NOT_RUN: BOUND_ADMISSION_CHECKOUT_REQUIRED');
-  const producer=createProducer({scope,checkout}),attestation=privateJson(admission.runtimeAttestationFile,admission.runtimeAttestationSha256);
+  // `checkout` remains the independently bound tested-release tree for product execution. The privileged producer deliberately resolves its
+  // telemetry reader from the reviewed control tree, so an older tested release cannot remove a current transport refusal.
+  const producer=createProducer({scope}),attestation=privateJson(admission.runtimeAttestationFile,admission.runtimeAttestationSha256);
   require('./runtime-selection.cjs').validateGitHubSelection(attestation,admission,Date.now());assertJobReceipt(attestation,producer.job);
   const bindingSha256=validatePlanProducers(plan,scope,configs,producer);
   const directory=fs.realpathSync(path.dirname(args['--scope']));broker=await startBroker({directory,producer});

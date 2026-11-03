@@ -270,7 +270,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "3bc1d2aa792f538ef8c5a8020c35cd09f0f4d27802bae044d342ba08d50358ff",
+            "manifestSha256": "2e251b3fcd03ff0207e4edefe33ca62fb95e21d51e647838668453afad185268",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
@@ -421,9 +421,15 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_handoff_artifact_is_short_lived_and_not_the_authoritative_record(self):
         up = [s for s in self.jobs["live"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
-        self.assertEqual(len(up), 2)  # the closed record (record job) and the closed settle input for journal-settle (J1, every route)
-        self.assertTrue(all(u["with"]["retention-days"] == 1 for u in up))
-        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in up), ["latest-record.json", "settle-input.json"])
+        self.assertEqual(len(up), 3)  # two short-lived job handoffs plus the closed, content-safe first observations
+        short = [u for u in up if u["with"]["retention-days"] == 1]
+        self.assertEqual(len(short), 2)
+        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in short), ["latest-record.json", "settle-input.json"])
+        retained = next(u for u in up if u["with"]["retention-days"] == 90)
+        self.assertEqual(retained["with"]["path"], "${{ runner.temp }}/first-observations.json")
+        self.assertEqual(retained["with"]["if-no-files-found"], "error")
+        project_observations = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Project the linked content-safe first observations")
+        self.assertIn("init_run_inputs.py first-observations", project_observations["run"])
         settle = next(u for u in up if u["with"]["path"].endswith("settle-input.json"))
         self.assertEqual(settle["if"], "always()")
         # Sam 1793580806.654369: the public artifact is the closed projection, never the collector's run record; journal-settle validates it

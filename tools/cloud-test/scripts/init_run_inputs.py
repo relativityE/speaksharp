@@ -45,7 +45,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "3f41a15ce6735216eedef2ae08b578d3926bb320204fcd872c183ca29aef91d0"
+ONE_OFF_GRANT_SHA256 = "d341ed5c22027eb785486f82fe3a66317416d1946d1c0d0161d4096519230c0a"
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
@@ -1407,9 +1407,70 @@ def _write_private(path, doc):
         json.dump(doc, f, sort_keys=True)
 
 
+def first_observation_export(cases_dir, selected):
+    """Return the two content-safe first inventories, only when the case result links their exact bytes.
+
+    The case directory itself is ephemeral. This closed projection is safe to retain and can become the next run's history reference; a
+    present-but-unlinked or substituted observation refuses rather than silently disappearing when the runner is destroyed.
+    """
+    _need(isinstance(cases_dir, str) and os.path.isdir(cases_dir) and not os.path.islink(cases_dir), "first-observation-cases-dir")
+    _need(isinstance(selected, list) and selected and len(selected) == len(set(selected))
+          and all(re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", x or "") for x in selected), "first-observation-selection")
+    expected = {"AHT-01": ("aht-01-first-observation.json", "existing-disposable"),
+                "AHT-15": ("aht-15-first-observation.json", "maintained-read-only")}
+    observations = []
+    keys = {"contentSafe", "kind", "inventoryStatus", "role", "accountSubjectSha256", "sourceBindingSha256", "sourceSha",
+            "servedSha", "observedAtUtc", "rowCount", "completedCount", "readableCompletedCount", "readableHistoryAvailable",
+            "inventoryComplete", "readLimit", "sanitizer"}
+    for case_id in [x for x in ("AHT-01", "AHT-15") if x in selected]:
+        case_dir = os.path.realpath(os.path.join(cases_dir, case_id))
+        _need(case_dir.startswith(os.path.realpath(cases_dir) + os.sep) and os.path.isdir(case_dir), "first-observation-case-dir")
+        result_file, (ref, role) = os.path.join(case_dir, "case-result.json"), expected[case_id]
+        observation_file = os.path.join(case_dir, ref)
+        if not os.path.exists(observation_file):
+            continue
+        _need(os.path.isfile(result_file) and not os.path.islink(result_file) and os.path.isfile(observation_file)
+              and not os.path.islink(observation_file), "first-observation-regular-files")
+        raw = _read(observation_file)
+        _need(len(raw) <= 8192, "first-observation-size")
+        try:
+            result, observation = json.loads(_read(result_file)), json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            raise Refused("first-observation-json")
+        linked = {r for row in result.get("assertions", []) if isinstance(row, dict)
+                  for r in row.get("evidenceRefs", []) if isinstance(r, str)}
+        digests = result.get("evidenceDigests")
+        _need(ref in linked and isinstance(digests, dict) and digests.get(ref) == hashlib.sha256(raw).hexdigest(),
+              "first-observation-not-linked")
+        _need(isinstance(observation, dict) and set(observation) == keys and observation.get("contentSafe") is True
+              and observation.get("kind") == "first-account-observation" and observation.get("role") == role
+              and observation.get("inventoryStatus") in ("OBSERVED", "UNKNOWN") and observation.get("readLimit") == 100
+              and isinstance(observation.get("sanitizer"), dict) and observation["sanitizer"] == {"blockedStrings": 0, "droppedKeys": 0, "truncated": 0}
+              and re.fullmatch(r"[a-f0-9]{64}", observation.get("accountSubjectSha256", ""))
+              and re.fullmatch(r"[a-f0-9]{64}", observation.get("sourceBindingSha256", ""))
+              and re.fullmatch(r"[a-f0-9]{40}", observation.get("sourceSha", ""))
+              and observation.get("servedSha") == observation.get("sourceSha"), "first-observation-shape")
+        try:
+            _utc(observation.get("observedAtUtc"))
+        except (Refused, TypeError, ValueError):
+            raise Refused("first-observation-time")
+        counts = (observation.get("rowCount"), observation.get("completedCount"), observation.get("readableCompletedCount"))
+        if observation["inventoryStatus"] == "OBSERVED":
+            _need(all(type(v) is int and 0 <= v <= 100 for v in counts) and counts[2] <= counts[1] <= counts[0]
+                  and observation.get("readableHistoryAvailable") is (counts[2] > 0) and observation.get("inventoryComplete") is True,
+                  "first-observation-counts")
+        else:
+            _need(counts == (None, None, None) and observation.get("readableHistoryAvailable") is None
+                  and observation.get("inventoryComplete") is False, "first-observation-unknown")
+        observations.append({"caseId": case_id, "evidenceRef": ref, "sha256": hashlib.sha256(raw).hexdigest(),
+                             "observation": observation})
+    return {"schema": "speaksharp-first-observations-v1", "contentSafe": True, "selectedCases": selected,
+            "observations": observations}
+
+
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "window-check", "occurrence-check",
+    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "first-observations", "window-check", "occurrence-check",
                                        "occurrence-materialize", "completion-deadline"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
@@ -1421,6 +1482,9 @@ def main(argv):
     a.add_argument("--job-timeout-minutes", type=int)
     x = a.parse_args(argv[1:])
     try:
+        if x.command == "first-observations":
+            _write_private(x.out, first_observation_export(x.cases_dir, (x.cases or "").split(",")))
+            return 0
         if x.command == "completion-deadline":
             now = _utc(x.now) if x.now else datetime.now(timezone.utc)
             return 0 if completion_within_occurrence(_read(x.manual_occurrence_file), now) else 79

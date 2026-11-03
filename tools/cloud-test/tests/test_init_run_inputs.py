@@ -79,6 +79,71 @@ def action_approval(req, request_sha256, reconciliation_bytes, **over):
     return a
 
 
+class FirstObservationExportTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cases = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_case(self, case_id, status="OBSERVED", linked=True, tamper_digest=False):
+        d = os.path.join(self.cases, case_id)
+        os.makedirs(d)
+        ref = case_id.lower() + "-first-observation.json"
+        observed = status == "OBSERVED"
+        doc = {"contentSafe": True, "kind": "first-account-observation", "inventoryStatus": status,
+               "role": "existing-disposable" if case_id == "AHT-01" else "maintained-read-only",
+               "accountSubjectSha256": "a" * 64, "sourceBindingSha256": "b" * 64, "sourceSha": "c" * 40,
+               "servedSha": "c" * 40, "observedAtUtc": "2026-11-03T16:00:00Z",
+               "rowCount": 0 if observed else None, "completedCount": 0 if observed else None,
+               "readableCompletedCount": 0 if observed else None, "readableHistoryAvailable": False if observed else None,
+               "inventoryComplete": observed, "readLimit": 100,
+               "sanitizer": {"blockedStrings": 0, "droppedKeys": 0, "truncated": 0}}
+        raw = (json.dumps(doc, indent=2) + "\n").encode()
+        with open(os.path.join(d, ref), "wb") as f:
+            f.write(raw)
+        result = {"assertions": [{"id": "unit", "result": "NOT RUN", "evidenceRefs": [ref] if linked else []}],
+                  "evidenceDigests": {ref: ("f" * 64 if tamper_digest else hashlib.sha256(raw).hexdigest())}}
+        with open(os.path.join(d, "case-result.json"), "w", encoding="utf-8") as f:
+            json.dump(result, f)
+
+    def test_observed_and_unknown_records_are_exported_from_linked_exact_bytes(self):
+        self.write_case("AHT-01")
+        self.write_case("AHT-15", "UNKNOWN")
+        out = I.first_observation_export(self.cases, ["AHT-%02d" % n for n in range(1, 16)])
+        self.assertEqual(out["schema"], "speaksharp-first-observations-v1")
+        self.assertEqual([x["caseId"] for x in out["observations"]], ["AHT-01", "AHT-15"])
+        self.assertEqual(out["observations"][1]["observation"]["inventoryStatus"], "UNKNOWN")
+        self.assertNotIn("00000000-0000-4000-8000-000000000001", json.dumps(out))
+
+    def test_unlinked_or_digest_substituted_observation_refuses(self):
+        for linked, tamper, reason in ((False, False, "not-linked"), (True, True, "not-linked")):
+            with self.subTest(linked=linked, tamper=tamper):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+                self.write_case("AHT-01", linked=linked, tamper_digest=tamper)
+                with self.assertRaisesRegex(I.Refused, reason):
+                    I.first_observation_export(self.cases, ["AHT-01"])
+
+    def test_malicious_or_blocked_first_observation_refuses(self):
+        self.write_case("AHT-01")
+        p = os.path.join(self.cases, "AHT-01", "aht-01-first-observation.json")
+        with open(p, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["privateText"] = "secret"
+        raw = (json.dumps(doc) + "\n").encode()
+        with open(p, "wb") as f:
+            f.write(raw)
+        result_path = os.path.join(self.cases, "AHT-01", "case-result.json")
+        with open(result_path, encoding="utf-8") as f:
+            result = json.load(f)
+        result["evidenceDigests"]["aht-01-first-observation.json"] = hashlib.sha256(raw).hexdigest()
+        with open(result_path, "w", encoding="utf-8") as f:
+            json.dump(result, f)
+        with self.assertRaisesRegex(I.Refused, "shape"):
+            I.first_observation_export(self.cases, ["AHT-01"])
+
+
 def put(path, doc):
     with open(path, "w", encoding="utf-8") as f:
         f.write(doc if isinstance(doc, str) else json.dumps(doc))

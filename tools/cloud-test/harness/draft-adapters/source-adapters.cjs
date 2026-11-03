@@ -238,7 +238,7 @@ function installCoachingResponseHandler(page,coachingByRequest,{deadlineMs=3000}
 async function run(caseId,args){
  const {context,browser,guard,caseConfig:c,capabilities:cap}=args;
  const contract=preflight(caseId,c,cap,guard);const smoke=c.sampleMode==='smoke';const minimal=['minimal','smoke'].includes(c.sampleMode);const breadth=(c.sampleMode==='breadth'||minimal)&&['AHT-02','AHT-03'].includes(caseId);const assertions=[];let evidenceIndex=0,current='owner-bound',page=null,blocker=null,interruptionDiag=null;let cloudCount=0,sessionWriteRequests=0,startPresses=0;const coachingAttempts=[],coachingByRequest=new WeakMap();let lastPressAcquisitions=null;const executionSignals={authenticationRejected:false,startPressCapExceeded:false};
- const pages=[],contexts=[];const coachingTakeIds={first:null,second:null};let baselineIds=null,coachingCaptureController=null,coachingCapturePromise=null,focusPresentationWindow=null,interruptionRef=null,coachingCaptureFailure=null,pcmDiagnosticRefs=[];
+ const pages=[],contexts=[];const coachingTakeIds={first:null,second:null};let baseline=null,firstObservationRef=null,baselineIds=null,coachingCaptureController=null,coachingCapturePromise=null,focusPresentationWindow=null,interruptionRef=null,coachingCaptureFailure=null,pcmDiagnosticRefs=[];
  async function assertion(id,result,facts={},externalRefs=[]){
    // Evidence is booleans/counts/closed statuses only; never pass raw DOM, IDs, errors, URLs, or text here.
    const ref=await cap.writeEvidence(caseId.toLowerCase()+'-'+(++evidenceIndex)+'.json',{contentSafe:true,caseId,assertion:id,result,facts});
@@ -291,12 +291,11 @@ async function run(caseId,args){
   await check('owner-bound',ownerMatches,{ownerMatches:true,leaseBoundary:leaseFacts.code||'not-applicable',leaseReadCount:leaseFacts.reads});
   if(caseId==='AHT-07'){current='feedback-readback-preflight';const readProbe=await hook('feedbackAssociation','capability');await check('feedback-readback-preflight',readProbe.observed===true,{existingAuthenticatedReceiverBound:true,browserSelectNotRequired:true,actualDeliveryNotYetProven:true});}
   if(caseId!=='AHT-12'&&caseId!=='AHT-15')await context.grantPermissions(['microphone'],{origin:c.targetUrl});
-  let baseline,firstObservationRef=null;
   try{
    baseline=await rows();
    if(['AHT-01','AHT-15'].includes(caseId))firstObservationRef=await cap.writeEvidence(caseId.toLowerCase()+'-first-observation.json',firstObservation(baseline,c,new Date().toISOString()));
   }catch(error){
-   if(['AHT-01','AHT-15'].includes(caseId)){firstObservationRef=await cap.writeEvidence(caseId.toLowerCase()+'-first-observation.json',unknownFirstObservation(c,new Date().toISOString()));requireThat(safeRef(firstObservationRef),'first observation evidence reference invalid');}
+   if(['AHT-01','AHT-15'].includes(caseId)){firstObservationRef=await cap.writeEvidence(caseId.toLowerCase()+'-first-observation.json',unknownFirstObservation(c,new Date().toISOString()));requireThat(safeRef(firstObservationRef),'first observation evidence reference invalid');await assertion('first-observation-inventory','NOT RUN',{inventoryStatus:'UNKNOWN'},[firstObservationRef]);}
    throw error;
   }
   if(firstObservationRef)requireThat(safeRef(firstObservationRef),'first observation evidence reference invalid');
@@ -464,7 +463,7 @@ async function run(caseId,args){
   // Preserve every earlier assertion, especially FAIL; missing later evidence can never overwrite it.
   if(error?.code==='AUTH_REJECTED')executionSignals.authenticationRejected=true;if(error?.code==='START_PRESS_CAP')executionSignals.startPressCapExceeded=true;
   blocker=error?.trustedBlocker|| (error?.code==='PRODUCT_FAIL'?'observed-product-contradiction':'browser-or-oracle-step-interrupted');
-  {const failedPage=ui.failurePage(error,page);const trace=failedPage?await ui.controlTrace(failedPage):null;const leaseNotice=failedPage?await failedPage.getByText(/A recording is active on .+\. Stop it there/).first().isVisible().catch(()=>null):null;const diag={stage:ui.failureStage(error,page),step:current,capture:oracleSource.captureDiagnostic(error),leaseHeldNoticeVisible:leaseNotice,controlTrace:Array.isArray(trace)?trace:null,products:ui.productsDiagnostic(error),error:ui.safeErrorSummary(error)};interruptionDiag=diag;interruptionRef=await retainInterruptionEvidence({caseId,diag,assertions,writeEvidence:(name,value)=>cap.writeEvidence(name,value)});const interruptionRefs=[interruptionRef,...pcmDiagnosticRefs];if(current==='grounded-coaching')await recordCoachingFailure(interruptionRefs);if(!assertions.some(a=>a.id===current))await assertion(current,['NOT_RUN','AUTH_REJECTED','START_PRESS_CAP'].includes(error?.code)?'NOT RUN':'FAIL',{interrupted:true,diag},interruptionRefs);}
+  {const failedPage=ui.failurePage(error,page);const trace=failedPage?await ui.controlTrace(failedPage):null;const leaseNotice=failedPage?await failedPage.getByText(/A recording is active on .+\. Stop it there/).first().isVisible().catch(()=>null):null;const diag={stage:ui.failureStage(error,page),step:current,capture:oracleSource.captureDiagnostic(error),leaseHeldNoticeVisible:leaseNotice,controlTrace:Array.isArray(trace)?trace:null,products:ui.productsDiagnostic(error),error:ui.safeErrorSummary(error)};interruptionDiag=diag;interruptionRef=await retainInterruptionEvidence({caseId,diag,assertions,writeEvidence:(name,value)=>cap.writeEvidence(name,value)});const interruptionRefs=[interruptionRef,...(safeRef(firstObservationRef)?[firstObservationRef]:[]),...pcmDiagnosticRefs];if(current==='grounded-coaching')await recordCoachingFailure(interruptionRefs);if(!assertions.some(a=>a.id===current))await assertion(current,['NOT_RUN','AUTH_REJECTED','START_PRESS_CAP'].includes(error?.code)?'NOT RUN':'FAIL',{interrupted:true,diag},interruptionRefs);}
   await recordCoachingFailure();
   for(const id of contract.rows)if(!['owned-pages-closed','no-cloud-stt','start-press-budget'].includes(id)&&!assertions.some(a=>a.id===id))await assertion(id,'NOT RUN',{notReached:true});
  }finally{

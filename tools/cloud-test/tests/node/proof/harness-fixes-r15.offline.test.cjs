@@ -42,6 +42,14 @@ test('H3 the real driver retains each role first observation before the dependen
   assert.equal(returningEvidence?.v.readableHistoryAvailable,false);
   assert.equal(returning.res.blocker,'returning-account-has-no-verified-completed-history','no witness remains honest NOT RUN');
 });
+test('H4 an unavailable inventory keeps its UNKNOWN first observation linked through the interruption result',async()=>{
+  const readback=require(P+'/draft-adapters/browser-readback.cjs');
+  const unavailable=await fake('AHT-15',{extraStubs:{'./browser-readback.cjs':{...readback,validateReadback(){},sessions:async()=>{throw Object.assign(new Error('unit unavailable'),{code:'NOT_RUN'});}}}});
+  const unknown=unavailable.evidence.find(x=>x.name==='aht-15-first-observation.json');
+  assert.equal(unknown?.v.inventoryStatus,'UNKNOWN');
+  const unknownRef='e'+(unavailable.evidence.indexOf(unknown)+1)+'.json';
+  assert.ok(unavailable.res.assertions.some(row=>row.evidenceRefs?.includes(unknownRef)),'UNKNOWN inventory must survive in case-result evidenceDigests');
+});
 // ---------- F. Focus oracle: duplicate markers and contradictory states ----------
 test('F1 a duplicate marker is a FAIL even when the first marker is on the right point',()=>{
   const r=oracle.markerVerdict(frozen([[0,0,[Pn,Pn,Pn,Pn]],[5000,0,[Pn,Pn,Pn,Pn]]],{multiMarker:[[2500,2]]}));

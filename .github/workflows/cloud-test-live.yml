@@ -533,6 +533,22 @@ jobs:
             --case-results "$CT_OUT/plan/run/case-results.json" --request "$CT_REQUEST" --repo "$GITHUB_WORKSPACE" \
             --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" "${P[@]}" \
             --out "$RUNNER_TEMP/latest-record.json"
+      - name: Project the linked content-safe first observations
+        if: always() && steps.init.outcome == 'success'
+        env:
+          CASES: ${{ steps.init.outputs.cases }}
+        run: |
+          set -euo pipefail
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py first-observations \
+            --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" --out "$RUNNER_TEMP/first-observations.json"
+      - name: Retain the linked first observations for the next run
+        if: always() && steps.init.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-first-observations
+          path: ${{ runner.temp }}/first-observations.json
+          retention-days: 90
+          if-no-files-found: error
       - name: Project the closed settle input (ids, digests and counts only; without a run record, none)
         if: always()
         run: |

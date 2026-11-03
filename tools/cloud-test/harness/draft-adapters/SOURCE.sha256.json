@@ -103,7 +103,7 @@
     "source/rwtPaceGuide.ts": "88891647748c382ae3c08ce78b6e3aab6fcbb96dc4e0c609d38ac66568c2b8d9",
     "source/source-receipt.json": "21f153f9da8f5666af30b083b9a57af1a34c989a9b1952f2eedbd0a21c651954",
     "source/transcriptState.ts": "2110751d258cc3ef75dc333857b12b3132fa5f4bbae31caf09cbac87c32cc846",
-    "source-adapters.cjs": "d847d43c91a60612732a24997ae5208fb838ad60e9ca498221ff02c480e78668",
+    "source-adapters.cjs": "0a4495aa1cc805545c3a5a71be16938eb88ebf2556a332ce05de809486625079",
     "source-control-crosswalk.json": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a",
     "tests/claude-adapter-delta.offline.test.cjs": "d64ca555e8de7425110cd0484c4d9a0dfa83d995ae11e8591bc5f13bddc2ad99",
     "tests/coaching-lifecycle.offline.test.cjs": "1599b40cceb3ec58afe99dbf1deda05f8ad58de14dee89a1ca6c77fa24a3d928",
