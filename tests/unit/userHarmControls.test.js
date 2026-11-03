@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { USER_HARM_CONTROLS } from '../../scripts/lib/userHarmControls.mjs';
-import { mutateBytes, runTestEfficacy } from '../../scripts/run-test-efficacy.mjs';
+import { USER_HARM_CONTROLS, mutateBytes, runTestEfficacy } from '../../scripts/run-test-efficacy.mjs';
 
 const { test } = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
