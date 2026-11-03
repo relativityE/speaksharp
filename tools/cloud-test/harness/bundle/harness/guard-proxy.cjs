@@ -193,6 +193,15 @@ class Guard {
   pathRef(p) { return this.policy.logPaths ? p : 'sha256:' + crypto.createHash('sha256').update(p).digest('hex').slice(0, 16); }
   // First per-case allowance refusal: tell the supervisor once so it stops the case promptly and cleans up (distinct interruption, not a product outcome).
   noteAllowance(over){if(over!=='case-allowance'||this.allowanceSignalled)return;this.allowanceSignalled=true;try{this.log({kind:'allowance-exhausted'});}catch{/* log failure must not mask the stop */}try{this.opts?.onAllowanceExhausted?.();}catch{/* supervisor callback failure is surfaced by the cleanup check */}}
+  // #1778 review 4450562299: each case runs its own guard, so the stop is made campaign-wide by consuming the remaining coaching allowance
+  // in the shared campaign ledger; every later case's guard then refuses coaching (cap:coaching) before any send.
+  markCoachingProviderLimited(ev, status) {
+    this.coachingProviderLimited = true;
+    let consumed = 0;
+    try { while (consumed < 1000 && this.ledger.tryReserve(['coaching']) === null) consumed++; }
+    catch { this.fatal('guard-ledger-integrity', 'coaching-provider-limit'); return; }
+    this.log({ ...ev, kind: 'coaching-provider-limited', status, remainingCoachingAllowanceConsumed: consumed });
+  }
   deny(res, reason, ev) {
     this.c.denied[reason] = (this.c.denied[reason] || 0) + 1;
     this.log({ ...ev, decision: 'denied', reason });
@@ -538,9 +547,7 @@ class Guard {
       const coachingFailure = rule.cap === 'coaching' && status >= 400 ? [] : null;
       this.watch(ur,'data', (d) => { bytes += d.length; if (coachingFailure && bytes <= 65536) coachingFailure.push(d); });
       this.watch(ur,'end', () => {
-        if (coachingFailure && bytes <= 65536 && providerLimitRefusal(Buffer.concat(coachingFailure))) {
-          this.coachingProviderLimited = true; this.log({ ...ev, kind: 'coaching-provider-limited', status });
-        }
+        if (coachingFailure && bytes <= 65536 && providerLimitRefusal(Buffer.concat(coachingFailure))) this.markCoachingProviderLimited(ev, status);
         finish('completed', { status, bytes });
       });
       this.watch(ur,'error', () => finish('upstream-error', { status, sent: true }));

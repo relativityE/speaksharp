@@ -11,6 +11,20 @@
 **Supersedes:** the September current-status narrative and October baseline-only banner here. Historical evidence and archives remain unchanged.
 **Evidence Sources:** the exact GitHub PR, issue-comment and workflow receipts linked below.
 
+## 3 November 2026 nightly regression activation status
+
+Scope: the post-launch nightly regression (`cloud-test-live.yml` scheduled lane), registered by #1778 and **off by default**. The input
+contract is `tools/cloud-test/config/nightly/ACTIVATION-INPUTS.md`; this entry is its only current-status record.
+
+- **Pinned on main (shared with the approved manual all-15 run, via #1772/#1779):** reviewed state-ref root `92d6ebf9…`; accepted
+  accounting bootstrap `0a3e6027…` and root; aggregate receiver activated with its pinned manifest.
+- **In #1778:** the cron behind `RUN_NIGHTLY_REGRESSION`; the PO's standing approval (slack:1793668784.454189: $0, the all-15 envelope
+  per run, coaching capped at 4 invocations with a campaign-wide stop after a provider-limit refusal, 30 days from 2026-11-03T12:00Z,
+  30 runs); provider-condition coaching scoring.
+- **Not yet supplied:** the nightly template and budget anchors (from the reviewed all-15 request); a nightly period scope replacing the
+  manual run's accepted scope (which ends 2026-11-03T12:00Z) after that run settles; creating the switch, with Sam's approval.
+- **Target:** one verified scheduled run at 2026-11-04 03:00 UTC, after which the switch returns to `false`. No nightly run has occurred.
+
 ## 28 October 2026 post-R5 receiving addendum
 
 **HOLD — documentation receipt, not a new live verification.** This addendum supersedes
