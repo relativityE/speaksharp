@@ -482,10 +482,16 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_late_completion_is_incomplete_while_accounting_still_settles_safely(self):
         complete = next(s for s in self.jobs["record-complete"]["steps"] if "publish_latest_record.py" in s.get("run", ""))
+        self.assertEqual(self.jobs["record-complete"]["needs"], ["record-begin", "live", "journal-settle"])
         self.assertEqual(complete["env"]["MANUAL_OCCURRENCE_B64"], "${{ needs.record-begin.outputs.manual_occurrence_b64 }}")
+        self.assertEqual(complete["env"]["SETTLED"], "${{ needs.journal-settle.outputs.settled }}")
+        self.assertIn("settlement-not-verified", complete["run"])
         self.assertIn("init_run_inputs.py completion-deadline", complete["run"])
         self.assertIn('[ "$deadline_status" -eq 79 ]', complete["run"])
         self.assertIn('[ "$within_envelope" = true ]', complete["run"])
+        self.assertIn("publication_status", complete["run"])
+        self.assertIn('published_at=', complete["run"])
+        self.assertIn('--now "$published_at"', complete["run"])
         self.assertIn("publish_latest_record.py", complete["run"])
         # Settlement remains independent of the occurrence deadline: a late
         # publisher cannot claim completion, but held usage is still reconciled
@@ -493,6 +499,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         settle = writers_of(self.jobs, "journal-settle")
         self.assertIn("manual_reservation.py settle", settle)
         self.assertNotIn("completion-deadline", settle)
+        self.assertEqual(self.jobs["journal-settle"]["outputs"]["settled"], "${{ steps.settle.outputs.settled }}")
 
     def test_every_run_stage_name_is_supplied_and_the_bundle_reaches_only_prepare(self):
         with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:

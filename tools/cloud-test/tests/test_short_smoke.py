@@ -3,10 +3,14 @@ import copy
 import hashlib
 import json
 from datetime import datetime, timezone
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,8 +21,9 @@ from case_start_caps import CASE_IDS, MINIMAL_MINIMA, InputValidationError, requ
 import run_env  # noqa: E402
 import init_run_inputs as init  # noqa: E402
 import check_coverage as coverage  # noqa: E402
-from test_init_run_inputs import CFG, KEYS, NOW, live_request  # noqa: E402
+from test_init_run_inputs import ACCOUNT_ID, CFG, KEYS, NOW, SUPABASE_URL_OK, bundle_with, facts, live_request  # noqa: E402
 from test_case_start_caps import SyntheticBuilder  # noqa: E402
+import state_ref_writer  # noqa: E402
 
 
 def request():
@@ -163,6 +168,76 @@ class ShortSmokeContract(unittest.TestCase):
         finally:
             init.manual_reservation.ACCEPTED_SCOPE_SHA256 = original
 
+    def test_committed_grant_scope_real_reserve_then_prepare_on_verified_chain(self):
+        """The production reserve appends to a verified state chain, then the
+        production prepare path consumes that exact open reserve. No hand-built
+        checkpoint or direct approval-check shortcut participates."""
+        repo = str(ROOT.parents[1])
+        root = init.continuity_pins()["accepted_root"]
+        template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        start = "2026-11-03T17:30:00Z"
+        occurrence = init.materialize_authoritative_smoke_occurrence(repo, template, start)
+        occurrence_raw = json.dumps(occurrence, sort_keys=True, separators=(",", ":")).encode()
+        request_sha = hashlib.sha256(occurrence_raw).hexdigest()
+        bootstrap = (ROOT / "config/aggregate/accounting-bootstrap.json").read_bytes()
+        scope = (ROOT / "config/aggregate/period-scope.json").read_bytes()
+        source_sha = init._git(repo, "rev-parse", "HEAD")
+        run_id = "41600000001"
+
+        with tempfile.TemporaryDirectory(prefix="r10-real-path-") as tmp:
+            remote = str(Path(tmp) / "state.git")
+            writer = str(Path(tmp) / "writer")
+            subprocess.run(["git", "init", "-q", "--bare", remote], check=True)
+            subprocess.run(["git", "init", "-q", writer], check=True)
+            subprocess.run(["git", "-C", writer, "fetch", "-q", repo, root], check=True)
+            subprocess.run(["git", "-C", writer, "push", "-q", remote, "%s:%s" % (root, state_ref_writer.STATE_REF)], check=True)
+
+            reserve_dir = Path(tmp) / "reserve"
+            reserve_dir.mkdir()
+            init.manual_reservation.execute(
+                "reserve",
+                {"request": occurrence_raw, "admittedSha256": request_sha, "runId": run_id,
+                 "bootstrap": bootstrap, "scope": scope, "facts": b"{}", "atUtc": start},
+                writer, remote, root, str(reserve_dir / "journal.json"), str(reserve_dir / "receipt.json"),
+                init.continuity_pins(), remote, source_repo=repo)
+            head = state_ref_writer.fetch_head(writer, remote, remote)
+            chain = state_ref_writer.validate_chain(writer, head, root)
+            self.assertEqual(chain[-1][1][-1]["provenance"], "request-sha256:" + request_sha)
+
+            occurrence_file = Path(tmp) / "occurrence.json"
+            occurrence_file.write_bytes(occurrence_raw)
+            bundle = json.loads(bundle_with(ACCOUNT_ID))
+            maintained_id = bundle["accounts"]["maintained-read-only"]["accountId"]
+            nonsecret_facts = facts(
+                ownerApprovalReference="chat:PO_R10_ALL15_SMOKE_2026-11-03",
+                approvedBy="Akin", reviewer="review:unit@1",
+                producerReviewReference="review:producer@1",
+                accounts={
+                    "existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(),
+                                            "historyRef": "history:throwaway@r10"},
+                    "maintained-read-only": {"idSha256": hashlib.sha256(maintained_id.encode()).hexdigest(),
+                                             "historyRef": "history:free@r10"},
+                },
+                backend={"manifestRef": "receipt:backend@r10", "generation": 1,
+                         "completion": "OFF", "migration129": "absent"})
+            args = SimpleNamespace(
+                repo=repo, config="tools/cloud-test/config/test-config.v1.json", request=template_rel,
+                manual_occurrence_file=str(occurrence_file), manual_occurrence_sha256=request_sha,
+                workflow_start_utc=start, nightly_request_file=None, nightly_request_sha256=None,
+                facts=json.dumps(nonsecret_facts), run_id=run_id, attempt=1, source_sha=source_sha,
+                job_timeout_minutes=65, case10_observation=None)
+            with mock.patch.object(init, "state_chain", return_value=chain), \
+                    mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": json.dumps(bundle),
+                                                 "SUPABASE_URL": SUPABASE_URL_OK}):
+                prepared = init.prepare(args, datetime(2026, 11, 3, 17, 35, 0, tzinfo=timezone.utc))
+            self.assertEqual(prepared["requestSha256"], request_sha)
+            self.assertEqual(prepared["liveMinutes"], 40)
+            self.assertEqual(prepared["facts"]["actionApproval"]["selectionApprovalRef"],
+                             "chat:PO_R10_ALL15_SMOKE_2026-11-03")
+            self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
+                             "chat:PO_R10_SCOPE_EXTENSION_2026-11-03")
+
     def test_completion_deadline_marks_queue_delay_incomplete_without_changing_settlement_period(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
         value = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-03T17:30:00Z")
@@ -171,6 +246,15 @@ class ShortSmokeContract(unittest.TestCase):
         self.assertFalse(init.completion_within_occurrence(raw, datetime(2026, 11, 3, 18, 50, 1, tzinfo=timezone.utc)))
         scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
         self.assertLess(datetime(2026, 11, 3, 18, 50, 1, tzinfo=timezone.utc), init._utc(scope["periodEndUtc"]))
+        with tempfile.TemporaryDirectory(prefix="completion-deadline-") as tmp:
+            occurrence_file = Path(tmp) / "occurrence.json"
+            occurrence_file.write_bytes(raw)
+            self.assertEqual(init.main(["init_run_inputs.py", "completion-deadline",
+                                        "--manual-occurrence-file", str(occurrence_file),
+                                        "--now", "2026-11-03T18:50:00Z"]), 0)
+            self.assertEqual(init.main(["init_run_inputs.py", "completion-deadline",
+                                        "--manual-occurrence-file", str(occurrence_file),
+                                        "--now", "2026-11-03T18:50:01Z"]), 79)
 
     def test_all_fifteen_smoke_maps_to_distinct_builder_mode(self):
         mode, caps = request_caps(request())

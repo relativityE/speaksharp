@@ -32,7 +32,7 @@
       "starts": 42,
       "takes": 31
     },
-    "approvalRef": "chat:PO_R10_ALL15_SMOKE_2026-11-03",
+    "approvalRef": "chat:PO_R10_SCOPE_EXTENSION_2026-11-03",
     "sha256": "ecf4fa2b14286835aac70b2c60c95902653105b9a55658100a7a8523fb68829d"
   },
   "rootRefCreationSelected": true,

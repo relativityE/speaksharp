@@ -555,6 +555,9 @@ jobs:
     timeout-minutes: 3
     permissions:
       contents: write
+    outputs:
+      settled: ${{ steps.settle.outputs.settled }}
+      receipt_sha256: ${{ steps.settle.outputs.receipt_sha256 }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -566,6 +569,7 @@ jobs:
           path: ${{ runner.temp }}/settle
         continue-on-error: true
       - name: Append the settles from the closed settle input (without one, each reservation stays open and counted)
+        id: settle
         env:
           NIGHTLY_REQUEST_SHA256: ${{ needs.record-begin.outputs.nightly_request_sha256 }}
           NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
@@ -588,6 +592,8 @@ jobs:
             python3 -I tools/cloud-test/scripts/manual_reservation.py settle --journal "$RUNNER_TEMP/settle-journal" \
               --out "$RUNNER_TEMP/settle-receipt.json" --campaign-id "$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" runId)" \
               --run-id "$GITHUB_RUN_ID" --settle-input "$SETTLE" --scope tools/cloud-test/config/aggregate/period-scope.json
+            echo "settled=true" >> "$GITHUB_OUTPUT"
+            echo "receipt_sha256=$(sha256sum "$RUNNER_TEMP/settle-receipt.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
@@ -598,9 +604,19 @@ jobs:
           python3 -I tools/cloud-test/scripts/case10_observation.py settle --request "$RUNNER_TEMP/nightly-request.json" \
             --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --repo "$GITHUB_WORKSPACE" \
             --settle-input "$SETTLE"
+          echo "settled=true" >> "$GITHUB_OUTPUT"
+          echo "receipt_sha256=$(sha256sum "$RUNNER_TEMP/settle-receipt.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Hand the settlement receipt to the record job
+        if: steps.settle.outputs.settled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-settle-receipt
+          path: ${{ runner.temp }}/settle-receipt.json
+          retention-days: 1
+          if-no-files-found: error
   record-complete:
     name: Complete or interrupt the attempt in the latest record (no live credentials)
-    needs: [record-begin, live]
+    needs: [record-begin, live, journal-settle]
     if: always() && needs.record-begin.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -617,11 +633,19 @@ jobs:
         with:
           name: cloud-test-live-record
           path: ${{ runner.temp }}/record
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: cloud-test-settle-receipt
+          path: ${{ runner.temp }}/settlement
       - name: Write the terminal record, or mark the attempt interrupted
         env:
           GH_TOKEN: ${{ github.token }}
           COMMENT_ID: ${{ needs.record-begin.outputs.comment_id }}
           LIVE_RESULT: ${{ needs.live.result }}
+          SETTLE_RESULT: ${{ needs.journal-settle.result }}
+          SETTLED: ${{ needs.journal-settle.outputs.settled }}
+          SETTLE_RECEIPT_SHA256: ${{ needs.journal-settle.outputs.receipt_sha256 }}
           MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
         run: |
           set -euo pipefail
@@ -630,6 +654,12 @@ jobs:
           python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID" | python3 -I -c 'import json,sys; open(sys.argv[1],"w").write(json.load(sys.stdin)["body"])' "$RUNNER_TEMP/previous.md"
           within_envelope=true
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            receipt="$RUNNER_TEMP/settlement/settle-receipt.json"
+            if [ "$SETTLE_RESULT" != success ] || [ "$SETTLED" != true ] || [ ! -f "$receipt" ] || \
+               [ "$(sha256sum "$receipt" | cut -d' ' -f1)" != "$SETTLE_RECEIPT_SHA256" ]; then
+              echo "BLOCKED_SETUP: settlement-not-verified"
+              within_envelope=false
+            fi
             (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
             set +e
             python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline \
@@ -649,7 +679,24 @@ jobs:
             python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
               --status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)" --out "$RUNNER_TEMP/body.md"
           fi
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/published.json"
+          # GitHub's response timestamp, not this runner's post-request clock,
+          # decides whether the completed record was actually published inside
+          # the reviewed envelope. A late publication is replaced by the
+          # retained incomplete state; settlement remains safely recorded.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            published_at="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["updated_at"])' "$RUNNER_TEMP/published.json")"
+            set +e
+            python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline \
+              --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --now "$published_at"
+            publication_status=$?
+            set -e
+            if [ "$publication_status" -ne 0 ]; then
+              python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+                --status incomplete --out "$RUNNER_TEMP/body.md"
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" -F "body=@$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/published.json"
+            fi
+          fi
           # readback: the stored record must be exactly what was rendered (the PATCH is not compare-and-swap; this job is the sole publisher)
           gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/readback.json"
           python3 -I "$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/readback.json" \
