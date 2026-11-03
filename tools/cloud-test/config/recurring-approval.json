@@ -4,7 +4,7 @@
   "note": "The Product Owner's standing approval of recurring (nightly) cost, verbatim in Slack slack:1793668784.454189 (PO in Claude chat, 2026-11-03): $0 paid; per run the R10 envelope with coaching capped at 4 invocations (at most 12 provider attempts) and a stop after a provider-limit refusal; 30-day period from 2026-11-03T12:00Z, 30 runs; first run 2026-11-04 03:00 UTC; the switch returns to false after a verified pass. Gate G11 compares each nightly request and the period's usage with it.",
   "approvedBy": "PO",
   "approvalRef": "slack:1793668784.454189",
-  "approvedAtUtc": "2026-11-03T01:39:44Z",
+  "approvedAtUtc": "2026-11-03T01:19:44Z",
   "validFromUtc": "2026-11-03T12:00:00Z",
   "expiresUtc": "2026-12-03T12:00:00Z",
   "cadence": {
