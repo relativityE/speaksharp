@@ -897,7 +897,7 @@ class ReviewedFeaturesReachRegressionWithoutABug(unittest.TestCase):
         self.assertEqual(out["commitVerdicts"][0]["gaps"], ["GAP-01"])
         self.assertEqual(out["commitVerdicts"][1]["features"], ["FEAT-001"])
 
-    def test_the_shipped_feature_ledger_names_only_reviewed_features(self):
+    def test_the_shipped_feature_ledger_is_empty_and_invents_no_feature(self):
         features = J("config", "feature-ledger.json")["features"]
         self.assertEqual([f["id"] for f in features], ["FEAT-R5-OBJECTIVE-PUBLICATION", "FEAT-ACCEPTED-ATTEMPT-FAILURE-TELEMETRY",
                                                         "FEAT-OWNER-GOAL-UPDATE", "FEAT-PCM-BOUNDARY-RECEIPTS",
