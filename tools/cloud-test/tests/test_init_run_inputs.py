@@ -2206,6 +2206,29 @@ class StandingEnvelope(Journal):
                 self.use(self.nightly_approval(startTakeGrant=bad))
                 refused(self, "action-approval-standing-grant-shape", self.derive)
 
+    def test_the_window_opens_at_the_recorded_initiation_within_the_trigger_delay(self):
+        # PO 2026-11-03: start-relative nightly window. The request's window start, creation time and recorded initiation are one value,
+        # at most the scheduler's trigger delay after the slot; nothing can re-anchor it later.
+        late = self.slot + timedelta(minutes=17, seconds=42)
+        req = json.loads(self.nightly_derive(ap=self.nightly_approval(startTakeGrant=self.GRANT), run_id="101", initiation=late))
+        self.assertTrue(self.derive(req=req, now=late + timedelta(minutes=1)))
+        refused(self, "action-approval-standing-window", self.derive, req=req, now=late - timedelta(seconds=1))
+
+        def shifted(start):
+            r = copy.deepcopy(req)
+            r["window"].update(startUtc=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                               endUtc=(start + timedelta(minutes=330)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+            r["createdUtc"] = r["nightly"]["initiationUtc"] = r["window"]["startUtc"]
+            return r
+        self.assertTrue(self.derive(req=shifted(self.slot + timedelta(minutes=30)), now=self.slot + timedelta(minutes=31)))
+        for label, r in (("past the trigger delay", shifted(self.slot + timedelta(minutes=30, seconds=1))),
+                         ("before the slot", shifted(self.slot - timedelta(seconds=1))),
+                         ("initiation not the window start", self.changed(lambda x: x["nightly"].update(initiationUtc="2026-11-02T03:00:01Z"))),
+                         ("creation not the window start", self.changed(lambda x: x.update(createdUtc="2026-11-02T03:00:01Z"))),
+                         ("no recorded initiation", self.changed(lambda x: x["nightly"].pop("initiationUtc")))):
+            with self.subTest(label):
+                refused(self, "action-approval-standing-window", self.derive, req=r, now=self.slot + timedelta(minutes=31))
+
     def test_attempt_occurrence_and_replay_are_checked_before_derivation(self):
         refused(self, "action-approval-standing-attempt", self.derive, attempt=2)
         refused(self, "action-approval-standing-attempt", self.derive, req=self.changed(lambda r: r["nightly"].update(attempt=True)))

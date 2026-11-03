@@ -600,7 +600,11 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
     p_start, p_end = N.period_bounds(ap)
     w = req.get("window") or {}
     start, end = _utc(w.get("startUtc")), _utc(w.get("endUtc"))
-    _need(start == slot and (end - start).total_seconds() == 60 * caps["windowMinutes"] and _utc(ap["validFromUtc"]) <= start
+    # Start-relative (PO 2026-11-03): the window opens at the run's recorded initiation, which the request also carries as its creation time,
+    # never before its slot and at most the scheduler's trigger delay after it, so a late or re-anchored window cannot pass.
+    _need(w.get("startUtc") == n.get("initiationUtc") == req.get("createdUtc")
+          and 0 <= (start - slot).total_seconds() <= 60 * N.SCHEDULER_MAX_DELAY_MINUTES
+          and (end - start).total_seconds() == 60 * caps["windowMinutes"] and _utc(ap["validFromUtc"]) <= slot
           and end <= _utc(ap["expiresUtc"]) and p_start <= start and end <= p_end and start <= now < end, "action-approval-standing-window")
     proposed, lim, est = req.get("proposedLimits") or {}, req.get("approvedLimits") or {}, req.get("estimate") or {}
     run_cap = (est.get("requests") or {}).get("runCap")

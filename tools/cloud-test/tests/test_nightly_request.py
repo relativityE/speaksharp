@@ -56,9 +56,12 @@ def budget(**over):
     return json.dumps(b, sort_keys=True).encode()
 
 
-def derive(ap=None, bud=None, slot=SLOT, run_id="101", sha=SHA, prior=frozenset(), tpl=TEMPLATE, tpl_pin=TEMPLATE_PIN, bud_pin=None, wf=WF):
+def derive(ap=None, bud=None, slot=SLOT, run_id="101", sha=SHA, prior=frozenset(), tpl=TEMPLATE, tpl_pin=TEMPLATE_PIN, bud_pin=None, wf=WF,
+           initiation=None):
+    """`initiation` (the run's authenticated start) defaults to an on-time trigger at the slot."""
     ap, bud = ap or approval(), bud or budget()
-    return N.derive(tpl, ap, bud, slot, run_id, sha, prior, CFG, wf, template_pin=tpl_pin, budget_pin=bud_pin or hashlib.sha256(bud).hexdigest())
+    return N.derive(tpl, ap, bud, slot, run_id, sha, prior, CFG, wf, template_pin=tpl_pin, budget_pin=bud_pin or hashlib.sha256(bud).hexdigest(),
+                    initiation=slot if initiation is None else initiation)
 
 
 def refused(test, code, fn, *a, **k):
@@ -145,6 +148,24 @@ class Gate(unittest.TestCase):
         self.assertEqual(run("--switch", "true", "--attempt", "1", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")[:2],
                          (78, {"admitted": "false", "code": "recurring-approval-not-approved", "request_sha256": "", "request_b64": ""}))
 
+    def test_the_cli_reads_one_injected_clock_so_its_verdict_never_depends_on_the_real_date(self):
+        # Bezos 2026-11-03: this verdict used to follow the wall clock. The CLI now reads time only through N._now, injected here.
+        from unittest import mock
+        later = os.path.join(self.d, "later.json")
+        with open(later, "wb") as f:
+            f.write(approval(approvedAtUtc="2026-11-03T01:00:00Z", validFromUtc="2026-11-03T12:00:00Z", periodStartUtc="2026-11-03T12:00:00Z"))
+
+        def gate_code(now):
+            out = os.path.join(self.d, "clock-" + now.strftime("%Y%m%dT%H%M%S"))
+            with mock.patch.object(N, "APPROVAL_PATH", later), mock.patch.object(N, "_now", return_value=now), \
+                    mock.patch.object(N, "writer_activated", return_value=True):
+                status = N.main(["nightly_request.py", "gate", "--switch", "true", "--attempt", "1", "--cron", "0 3 * * *",
+                                 "--trigger-utc", "2026-11-02T03:01:00Z", "--run-id", "101", "--tested-sha", SHA, "--outputs", out])
+            with open(out, encoding="utf-8") as f:
+                return status, dict(line.split("=", 1) for line in f.read().splitlines())["code"]
+        self.assertEqual(gate_code(datetime(2026, 11, 2, 3, 1, tzinfo=timezone.utc)), (78, "recurring-approval-not-yet-valid"))
+        self.assertEqual(gate_code(datetime(2026, 11, 3, 13, 0, tzinfo=timezone.utc)), (78, "nightly-occurrence-outside-period"))
+
     def test_an_admitted_gate_outputs_exactly_the_admitted_bytes_beside_their_digest(self):
         import base64
         from unittest import mock
@@ -159,13 +180,85 @@ class Gate(unittest.TestCase):
         self.assertEqual(base64.b64decode(got["request_b64"], validate=True), raw)
 
 
+class StartRelativeWindow(unittest.TestCase):
+    """PO 2026-11-03: the window is timed from the run's own authenticated start (its initiation), bounded to the scheduler's trigger delay,
+    never reset, and still exactly one occurrence per slot."""
+    LATE = SLOT + timedelta(minutes=17, seconds=42)
+
+    def test_the_window_opens_at_the_initiation_and_the_occurrence_stays_the_slot(self):
+        on_time, late = json.loads(derive()), json.loads(derive(initiation=self.LATE))
+        self.assertEqual((late["window"]["startUtc"], late["window"]["endUtc"], late["createdUtc"]),
+                         ("2026-11-02T03:17:42Z", "2026-11-02T08:47:42Z", "2026-11-02T03:17:42Z"))
+        self.assertEqual((late["nightly"]["occurrence"], late["nightly"]["initiationUtc"]), ("2026-11-02T03:00:00Z", "2026-11-02T03:17:42Z"))
+        self.assertEqual((late["runId"], late["nightly"]["occurrenceId"]), (OCCURRENCE, OCCURRENCE))
+        self.assertEqual((on_time["window"]["startUtc"], on_time["nightly"]["initiationUtc"]), ("2026-11-02T03:00:00Z", "2026-11-02T03:00:00Z"))
+
+    def test_scheduler_delay_no_longer_consumes_the_window(self):
+        late = derive(initiation=self.LATE)
+        self.assertEqual(N.check_fit(late, self.LATE + timedelta(minutes=1), CFG, WF), 304)
+        # The same delay against slot-anchored bytes refuses (Bezos: a 330-minute window refused after about a minute of delay).
+        refused(self, "nightly-run-would-outlast-window", N.check_fit, derive(), self.LATE + timedelta(minutes=1), CFG, WF)
+        # Time the run itself spends after its initiation still counts: the window is never reset.
+        refused(self, "nightly-run-would-outlast-window", N.check_fit, late, self.LATE + timedelta(minutes=1, seconds=1), CFG, WF)
+
+    def test_the_initiation_is_bounded_to_the_trigger_delay(self):
+        self.assertTrue(derive(initiation=SLOT + timedelta(minutes=N.SCHEDULER_MAX_DELAY_MINUTES)))
+        for bad in (SLOT - timedelta(seconds=1), SLOT + timedelta(minutes=N.SCHEDULER_MAX_DELAY_MINUTES, seconds=1),
+                    SLOT.replace(tzinfo=None), "2026-11-02T03:05:00Z"):
+            with self.subTest(initiation=bad):
+                refused(self, "nightly-initiation-not-the-occurrence", derive, initiation=bad)
+        refused(self, "nightly-initiation-not-the-occurrence", N.derive, TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF,
+                template_pin=TEMPLATE_PIN, budget_pin=hashlib.sha256(budget()).hexdigest(), initiation=None)
+
+    def test_a_late_window_must_still_lie_inside_the_approval_and_its_period(self):
+        # The period ends 2026-12-01T08:40Z; an on-time window from the 03:00 slot ends 08:30, one initiated 11 minutes late would end 08:41.
+        slot = datetime(2026, 12, 1, 3, 0, tzinfo=timezone.utc)
+        for code, ap in (("nightly-window-outside-period", approval(periodStartUtc="2026-11-01T08:40:00Z")),
+                         ("nightly-window-outside-approval", approval(periodStartUtc="2026-11-01T08:40:00Z", expiresUtc="2026-12-01T08:40:00Z"))):
+            with self.subTest(code=code):
+                self.assertTrue(derive(ap=ap, slot=slot))
+                self.assertTrue(derive(ap=ap, slot=slot, initiation=slot + timedelta(minutes=10)))
+                refused(self, code, derive, ap=ap, slot=slot, initiation=slot + timedelta(minutes=10, seconds=1))
+
+    def test_a_retrigger_is_a_replay_and_a_window_can_never_be_reanchored(self):
+        late = derive(initiation=self.LATE)
+        for initiation in (self.LATE, SLOT + timedelta(minutes=29)):  # the same slot, triggered again later, is the same occurrence
+            refused(self, "nightly-occurrence-replayed", derive, initiation=initiation, prior=frozenset({OCCURRENCE}))
+        pins = {"template_pin": TEMPLATE_PIN, "budget_pin": hashlib.sha256(budget()).hexdigest()}
+        args = (TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF)
+        self.assertEqual(N.verify(late, *args, initiation=self.LATE, **pins), hashlib.sha256(late).hexdigest())
+        refused(self, "nightly-request-not-the-derivation", N.verify, late, *args, initiation=SLOT + timedelta(minutes=29), **pins)
+        moved = json.loads(late)
+        moved["window"].update(startUtc="2026-11-02T03:29:00Z", endUtc="2026-11-02T08:59:00Z")
+        refused(self, "nightly-request-not-the-derivation", N.verify, N.canon(moved), *args, initiation=self.LATE, **pins)
+
+    def test_admission_times_the_window_from_the_runs_own_trigger(self):
+        from unittest import mock
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        files = {}
+        for name, raw in (("template", TEMPLATE), ("budget", budget()), ("approval", approval())):
+            files[name] = os.path.join(d, name + ".json")
+            with open(files[name], "wb") as f:
+                f.write(raw)
+        with mock.patch.object(N, "APPROVAL_PATH", files["approval"]), mock.patch.object(N, "TEMPLATE_PATH", files["template"]), \
+                mock.patch.object(N, "BUDGET_PATH", files["budget"]), mock.patch.object(N, "TEMPLATE_SHA256", TEMPLATE_PIN), \
+                mock.patch.object(N, "BUDGET_SHA256", hashlib.sha256(budget()).hexdigest()), \
+                mock.patch.object(N, "writer_activated", return_value=True), mock.patch.object(N, "fresh_repo", return_value=d), \
+                mock.patch.object(N, "occurrences_from_chain", return_value=frozenset()):
+            key, digest, raw = N.admit("true", "1", "0 3 * * *", self.LATE, self.LATE + timedelta(minutes=1), "101", SHA, CFG, WF)
+        self.assertEqual((key, json.loads(raw)["window"]["startUtc"], digest), (OCCURRENCE, "2026-11-02T03:17:42Z", hashlib.sha256(raw).hexdigest()))
+        self.assertEqual(raw, derive(initiation=self.LATE))
+
+
 class Derivation(unittest.TestCase):
     def test_the_production_anchors_are_unset_so_production_derivation_refuses(self):
         self.assertEqual((N.TEMPLATE_SHA256, N.BUDGET_SHA256), (None, None))
         self.assertEqual((N.TEMPLATE_PATH, N.BUDGET_PATH), (None, None))
-        refused(self, "nightly-template-not-received", N.derive, TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF)
+        refused(self, "nightly-template-not-received", N.derive, TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF,
+                initiation=SLOT)
         refused(self, "nightly-budget-not-accepted", N.derive, TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF,
-                template_pin=TEMPLATE_PIN)
+                template_pin=TEMPLATE_PIN, initiation=SLOT)
 
     def test_deterministic_canonical_and_bound_to_every_input(self):
         raw = derive()
@@ -189,7 +282,7 @@ class Derivation(unittest.TestCase):
         self.assertEqual(C.request_caps(req, execution=True), ("full", dict(C.FULL_MINIMA)))
         self.assertEqual((req["nightly"]["occurrenceId"], req["nightly"]["budgetSha256"]), (OCCURRENCE, hashlib.sha256(budget()).hexdigest()))
         self.assertEqual(N.verify(raw, TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF, template_pin=TEMPLATE_PIN,
-                                  budget_pin=hashlib.sha256(budget()).hexdigest()), hashlib.sha256(raw).hexdigest())
+                                  budget_pin=hashlib.sha256(budget()).hexdigest(), initiation=SLOT), hashlib.sha256(raw).hexdigest())
 
     def test_every_derived_allocation_fits_the_approval_and_the_whole_window_its_validity_and_period(self):
         for over in ({"requests": {"runCap": 4401}}, {"identity": {"readsThisRun": 33}},
@@ -283,7 +376,7 @@ class Derivation(unittest.TestCase):
         raw = derive()
         self.assertEqual(N.check_fit(raw, SLOT + timedelta(minutes=1), CFG, WF), 304)  # 15 setup + 304 live + 10 collect = 329 of 330 minutes
         refused(self, "nightly-run-would-outlast-window", N.check_fit, raw, SLOT + timedelta(minutes=1, seconds=1), CFG, WF)
-        # Sam 1793554593.723039: a 360-minute nightly window covers the maximum 30-minute trigger delay; it stays anchored to the slot.
+        # Sam 1793554593.723039: the separate 360-minute nightly window ceiling (an on-time initiation here, so the window opens at the slot).
         self.assertEqual(N.NIGHTLY_MAX_WINDOW_MINUTES, 360)
         self.assertEqual(CFG["modes"]["full"]["limits"]["maxWindowMinutes"], 330, "the package config (and manual runs) are unchanged")
         wide = derive(ap=approval(perRunCaps={"windowMinutes": 360}))
@@ -304,7 +397,7 @@ class Derivation(unittest.TestCase):
     def test_template_approval_budget_and_request_substitution_never_verify(self):
         raw = derive()
         args = (TEMPLATE, approval(), budget(), SLOT, "101", SHA, frozenset(), CFG, WF)
-        pins = {"template_pin": TEMPLATE_PIN, "budget_pin": hashlib.sha256(budget()).hexdigest()}
+        pins = {"template_pin": TEMPLATE_PIN, "budget_pin": hashlib.sha256(budget()).hexdigest(), "initiation": SLOT}
         refused(self, "nightly-template-not-anchored", N.verify, raw, TEMPLATE + b" ", *args[1:], **pins)
         refused(self, "nightly-budget-not-anchored", N.verify, raw, TEMPLATE, approval(), budget(coaching={"cap": 14}), *args[3:], **pins)
         refused(self, "nightly-request-not-the-derivation", N.verify, raw, TEMPLATE, approval(approvalRef="slack:1793553999.000001"), *args[2:], **pins)

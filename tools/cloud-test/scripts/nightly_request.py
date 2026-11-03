@@ -8,10 +8,13 @@ proposal is anchored yet (TEMPLATE_SHA256 / BUDGET_SHA256 are None until indepen
            even with a missing approval), attempt 1, the state-ref writer activated, the standing approval complete, typed, chronological,
            within the package's structural limits and valid, and the run's ORIGINAL trigger time bound to exactly one scheduled slot.
   derive   the request bytes from the anchored template, the standing approval (bound by digest), the accepted budget proposal (the derived
-           need, bound by digest) and the occurrence. Every derived allocation must fit the approval and the structural limits; the whole window
-           [slot, slot + approved minutes] must lie inside the approval's validity and its period; the caller's own ceiling and window-fit checks
-           (init_run_inputs) prove the full setup + live + collect run still fits from `now`. The occurrence id is the approval period plus the
-           slot; a run id is only the execution identity.
+           need, bound by digest) and the occurrence. Every derived allocation must fit the approval and the structural limits. The window is
+           start-relative (PO 2026-11-03): [initiation, initiation + approved minutes], where the initiation is the run's own authenticated
+           start (GitHub's created_at, the same anchor as the manual smoke occurrence), bound to at most SCHEDULER_MAX_DELAY_MINUTES after the
+           slot. Scheduler delay therefore never consumes the window, and the window can never be reset or pushed later. The whole window must
+           lie inside the approval's validity and its period; the caller's own ceiling and window-fit checks (init_run_inputs) prove the full
+           setup + live + collect run still fits from `now`. The occurrence id is the approval period plus the slot (so a re-trigger for the
+           same slot is a replay); a run id is only the execution identity.
   verify   re-derive and require byte equality, so a substituted template, approval, budget or request never passes.
 Replay state: `occurrences_from_chain` reads reserved occurrence ids from the VERIFIED state-ref chain (pinned root through head). It is
 UNQUALIFIED until the writer is activated: admission is only atomic at the writer's compare-and-swap reserve, never at this read.
@@ -47,7 +50,8 @@ RUNTIME = "GitHub Actions SpeakSharp"
 # GitHub may start a scheduled run late; a trigger later than this after a slot cannot be bound to exactly one occurrence.
 SCHEDULER_MAX_DELAY_MINUTES = 30
 # Sam 1793554593.723039: a SEPARATE nightly full-run window ceiling (the reviewed full-mode 330 plus the maximum trigger delay). The package
-# config, manual runs and their approvals are unchanged; the window stays anchored to its slot and the remaining fit is checked before effects.
+# config, manual runs and their approvals are unchanged. The window starts at the run's initiation (at most the trigger delay after its slot)
+# and the remaining fit is checked before effects.
 NIGHTLY_MAX_WINDOW_MINUTES = 360
 SHA40 = re.compile(r"[0-9a-f]{40}")
 RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
@@ -209,7 +213,7 @@ def admit(switch, attempt, cron, trigger, now, run_id, tested_sha, cfg, workflow
     with open(APPROVAL_PATH, "rb") as f:
         approval_raw = f.read()
     prior = occurrences_from_chain(fresh_repo(), state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT)
-    raw = derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, prior, cfg, workflow_text)
+    raw = derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, prior, cfg, workflow_text, initiation=trigger)
     check_fit(raw, now, cfg, workflow_text)
     return json.loads(raw)["nightly"]["occurrenceId"], hashlib.sha256(raw).hexdigest(), raw
 
@@ -265,10 +269,13 @@ def check_estimate_requests(budget, tpl, est):
 
 
 def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, prior_occurrences, cfg, workflow_text,
-           template_pin=None, budget_pin=None):
-    """The one immutable request for this occurrence. Deterministic: the same inputs always give the same bytes. `template_pin` and `budget_pin`
-    are TEST-ONLY overrides; production uses the module anchors (None today, so production derivation refuses)."""
+           template_pin=None, budget_pin=None, *, initiation):
+    """The one immutable request for this occurrence. Deterministic: the same inputs always give the same bytes. `initiation` is the run's
+    authenticated start (the window's start). `template_pin` and `budget_pin` are TEST-ONLY overrides; production uses the module anchors
+    (None today, so production derivation refuses)."""
     _need(isinstance(run_id, str) and RUN_ID.fullmatch(run_id) is not None, "nightly-run-id")
+    _need(isinstance(slot, datetime) and isinstance(initiation, datetime) and initiation.tzinfo is not None
+          and slot <= initiation <= slot + timedelta(minutes=SCHEDULER_MAX_DELAY_MINUTES), "nightly-initiation-not-the-occurrence")
     _need(isinstance(tested_sha, str) and SHA40.fullmatch(tested_sha) is not None, "nightly-tested-sha")
     tpl = check_template(load_anchored(template_raw, TEMPLATE_SHA256 if template_pin is None else template_pin,
                                        "nightly-template-not-received", "nightly-template-not-anchored"))
@@ -285,16 +292,16 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
         need["coachingRequests"] = caps["coachingRequests"]
         coaching_basis = "%s; capped at %d invocations by the standing approval" % (coaching_basis, caps["coachingRequests"])
     _need(all(need[k] <= caps[k] for k in need), "nightly-need-exceeds-approval")
-    window_end = slot + timedelta(minutes=caps["windowMinutes"])
+    window_end = initiation + timedelta(minutes=caps["windowMinutes"])
     _need(_utc(ap["validFromUtc"]) <= slot and window_end <= _utc(ap["expiresUtc"]), "nightly-window-outside-approval")
     p_start, p_end = period_bounds(ap)
     _need(p_start <= slot and window_end <= p_end, "nightly-window-outside-period")
-    ref, occurrence = ap["approvalRef"], _iso(slot)
+    ref, occurrence, started = ap["approvalRef"], _iso(slot), _iso(initiation)
     req = copy.deepcopy(tpl)
-    req.update(runId=key, createdUtc=occurrence, synthetic=False, executionRuntime=RUNTIME, selectionApprovalRef=ref)
+    req.update(runId=key, createdUtc=started, synthetic=False, executionRuntime=RUNTIME, selectionApprovalRef=ref)
     for row in req["selection"]:
         row["startPressCap"] = start_caps[row["case"]]
-    req["window"] = {"startUtc": occurrence, "endUtc": _iso(window_end), "approvalRef": ref}
+    req["window"] = {"startUtc": started, "endUtc": _iso(window_end), "approvalRef": ref}
     req["harness"] = dict(req.get("harness") or {}, ownerApprovalRef=ref)
     # #1772 Code finding 4447377710: a recurring occurrence's cumulative limits are the STANDING approval's period caps, not the template's
     # one-off manual proposal, so a later occurrence validates against the allocation the standing approval actually grants.
@@ -319,7 +326,7 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
     check_estimate_requests(budget, tpl, estimate)
     req["estimate"] = estimate
     req["release"] = dict(req.get("release") or {}, testedSha=tested_sha)
-    req["nightly"] = {"occurrence": occurrence, "occurrenceId": key, "runId": run_id, "attempt": 1,
+    req["nightly"] = {"occurrence": occurrence, "initiationUtc": started, "occurrenceId": key, "runId": run_id, "attempt": 1,
                       "templateSha256": hashlib.sha256(template_raw).hexdigest(), "approvalSha256": hashlib.sha256(approval_raw).hexdigest(),
                       "budgetSha256": hashlib.sha256(budget_raw).hexdigest(), "standingApprovalRef": ref}
     # The exact execution contract is checked before these bytes can be admitted; a derived request may not rely on a later planner failure.
@@ -355,6 +362,11 @@ def verify(request_raw, *args, **kwargs):
     return hashlib.sha256(request_raw).hexdigest()
 
 
+def _now():
+    """The admission clock: the one place the CLI reads wall time, so tests inject it rather than depending on the real date."""
+    return datetime.now(timezone.utc)
+
+
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("gate",))
@@ -370,7 +382,7 @@ def main(argv):
             cfg = json.load(f)
         with open(WORKFLOW_PATH, encoding="utf-8") as f:
             workflow_text = f.read()
-        _, digest, raw = admit(x.switch, x.attempt, x.cron, _utc(x.trigger_utc), datetime.now(timezone.utc), x.run_id, x.tested_sha, cfg, workflow_text)
+        _, digest, raw = admit(x.switch, x.attempt, x.cron, _utc(x.trigger_utc), _now(), x.run_id, x.tested_sha, cfg, workflow_text)
     except Refused as e:
         code, status = str(e), (0 if str(e) == "nightly-switch-off" else 78)
     except (OSError, ValueError, KeyError, TypeError):
