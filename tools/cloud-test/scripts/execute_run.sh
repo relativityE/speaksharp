@@ -360,7 +360,7 @@ case "$STAGE" in
       run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py" --request "$REQ" --config "$CFG" \
         --workflow "$ROOT/workflow.json" --accepted-input-dir "$accepted" --receiver-receipt "$accepted/receiver-receipt.json" \
         --receiver-manifest "$CT_RETAINED_GATE_MANIFEST" ${retained_args[@]+"${retained_args[@]}"} \
-        --journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json" \
+        --journal-snapshot "$RES_IN" --reservations "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json" \
         --occurrence-release-verification "$OUT/release-verification.json" --offline-checks "$CT_OFFLINE_CHECKS" \
         --offline-proof "$CT_OFFLINE_PROOF" --stimulus-receipt "$OUT/stimulus-preflight-receipt.json" --stage final \
         --out-dir "$OUT/final-gates" --repo "${CT_CHECKOUT:-$REPO}" --enforce-go --require-secret-free

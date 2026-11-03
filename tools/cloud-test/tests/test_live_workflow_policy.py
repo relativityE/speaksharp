@@ -268,7 +268,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "ffaabb0a414a4aa94f1ba94235d985fcfd7840fe7356566e6e1dc62700c71032",
+            "manifestSha256": "e34b4f0a5c40287d7fd6a9989af1d018479055adc1c115565a8024dc76d8835b",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
@@ -313,13 +313,28 @@ class LiveWorkflowPolicy(unittest.TestCase):
         # current release verification is derived; the final receiver then binds all three runtime inputs.
         self.assertIn('--retained-out-dir "$retained"', runner)
         self.assertIn('--ledger "$retained/gap-ledger.json"', runner)
-        self.assertIn('--phase admission-release', runner)
+        self.assertIn('run_stage run node "$HP/bundle/harness/admission.cjs"', runner)
         self.assertIn('--current-identity-ledger "$identity_ledger"', runner)
-        self.assertLess(runner.index('--phase admission-release'),
+        self.assertLess(runner.index('run_stage run node "$HP/bundle/harness/admission.cjs"'),
                         runner.index('--current-identity-ledger "$identity_ledger"'))
-        self.assertIn('occurrence_args=(--journal-snapshot "$RES_IN" --occurrence-reconciliation "$OUT/reconciliation.json"', runner)
-        self.assertIn('--occurrence-release-verification "$OUT/release-verification.json")', runner)
-        self.assertEqual(runner.count('${occurrence_args[@]+"${occurrence_args[@]}"}'), 2)
+        # #1772 Code review 4449388865: the deferred v2 execution branch runs
+        # pipeline.py a second time after producing its own authenticated
+        # journal snapshot.  G11 consumes that file through --reservations;
+        # --journal-snapshot alone only authenticates the occurrence envelope.
+        # Inspect this exact invocation so the already-correct earlier pipeline
+        # call cannot conceal a regression in the deferred branch.
+        deferred = runner.split('marker="$OUT/manual-release-gates.deferred"', 1)[1]
+        deferred = deferred.split('run_stage gate-and-validate node "$ROOT/tests/node/plan-acceptance.cjs"', 1)[0]
+        final_pipeline = deferred.split('run_stage gate-and-validate python3 -I "$ROOT/scripts/pipeline.py"', 1)[1]
+
+        def carries_both_authenticated_snapshot_inputs(command):
+            return (command.count('--journal-snapshot "$RES_IN"') == 1
+                    and command.count('--reservations "$RES_IN"') == 1)
+
+        self.assertTrue(carries_both_authenticated_snapshot_inputs(final_pipeline))
+        broken = final_pipeline.replace('--reservations "$RES_IN"', '', 1)
+        self.assertFalse(carries_both_authenticated_snapshot_inputs(broken),
+                         "the deferred v2 route must fail its control if G11's independent reservations input is omitted")
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         manual = open(os.path.join(ROOT, "scripts", "manual_reservation.py"), encoding="utf-8").read()
         state = open(os.path.join(ROOT, "scripts", "state_ref_writer.py"), encoding="utf-8").read()
