@@ -210,9 +210,9 @@ jobs:
     # PO decision (Sam 1793647229.528719): the existing repository Secrets are the single stored source, read by reference here; nothing is
     # duplicated, regenerated or copied. Protected main, the protected environment's rules, this job's read-only permission and the
     # isolated writer jobs are unchanged.
-    # 329 minutes fit all 15 cases (sum of caseMaxMs 272 + admission 20 + inter-case 10 + cleanup 2 + setup 15 + collect 10); prepare refuses any
-    # selection that does not fit and bounds the run step to its live minutes, so collect and the record always keep their reserve.
-    timeout-minutes: 340
+    # Manual R10 smoke watchdog: 15 minutes setup + 40 minutes live ceiling + 10 minutes collection/settlement. These are admission bounds,
+    # not measured runtime. The separately owned scheduled lane retains its existing outer watchdog until measured full-depth timings replace it.
+    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}
     permissions:
       contents: read
     env:
@@ -307,6 +307,7 @@ jobs:
           # observe step hands them, with the bundle's account id and email, to case10_reader's own subprocess and to nothing else.
           CT_CASE10_PASSWORD: ${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}
           CT_CASE10_ANON_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}
+          JOB_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && '65' || '340' }}
         run: |
           set -euo pipefail
           # Sam 1793584373.385389: the Case 10 reader's credentials reach ONLY the observe child. They move into unexported shell variables at
@@ -333,7 +334,7 @@ jobs:
           unset C10_PASSWORD C10_ANON_KEY
           python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \
             --checkpoint "$RUNNER_TEMP/prior-state.json" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --source-sha "$GITHUB_SHA" --job-timeout-minutes 340 --out "$RUNNER_TEMP/run-inputs" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
+            --source-sha "$GITHUB_SHA" --job-timeout-minutes "$JOB_TIMEOUT_MINUTES" --out "$RUNNER_TEMP/run-inputs" --env-file "$GITHUB_ENV" --outputs "$GITHUB_OUTPUT"
       - name: Bind a clean detached checkout of the admitted tested release
         timeout-minutes: 2
         env:

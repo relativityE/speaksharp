@@ -32,7 +32,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (offline)
@@ -43,6 +43,39 @@ import state_ref_writer  # noqa: E402
 
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
+SMOKE_OCCURRENCE_WINDOW_MINUTES = 65
+
+
+def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by, tested_sha, backend_sha):
+    """Create the exact one-run bytes for an owner-selected R10 initiation.
+
+    The 65-minute window is 15 minutes setup + the existing 40-minute live
+    ceiling + 10 minutes collection/settlement.  It is an admission bound, not
+    a measured runtime.  The caller must subsequently authorize these exact
+    occurrence/release bytes and bind the ordinary action-approval envelope.
+    """
+    _need(template.get("coverageMode") == template.get("sampleMode") == "smoke", "smoke-occurrence-mode")
+    _need(template.get("runId") == "R10-3b040043-smoke15" and len(template.get("selection") or []) == 15,
+          "smoke-occurrence-selection")
+    _need(isinstance(initiation, str) and LR.UTC.match(initiation), "smoke-occurrence-initiation")
+    _need(_ref(approval_ref) and isinstance(approved_by, str) and approved_by.strip(), "smoke-occurrence-approval")
+    _need(isinstance(tested_sha, str) and LR.SHA40.match(tested_sha) and isinstance(backend_sha, str) and LR.SHA40.match(backend_sha),
+          "smoke-occurrence-release")
+    start = _utc(initiation)
+    out = json.loads(json.dumps(template))
+    out["proposal"] = False
+    out["createdUtc"] = initiation
+    out["window"] = {"startUtc": initiation,
+                     "endUtc": (start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                     "approvalRef": approval_ref,
+                     "basis": "actual-initiation + 15m setup + 40m live ceiling + 10m collection/settlement; structural bound, not measured runtime"}
+    out["selectionApprovalRef"] = approval_ref
+    out["approvedLimits"]["approvalRef"] = approval_ref
+    out["approvedLimits"]["approvedBy"] = approved_by
+    out["harness"]["ownerApprovalRef"] = approval_ref
+    out["release"]["testedSha"] = tested_sha
+    out["release"]["backend"]["sha"] = backend_sha
+    return out
 # NIGHTLY facts (Elon 1793560137.871769, pending Sam's content/pin decision): a scheduled run has no operator facts input, so its facts are
 # the committed file below, admitted only when its bytes hash to the reviewed pin. None today: every nightly prepare refuses.
 NIGHTLY_FACTS_PATH = "tools/cloud-test/config/nightly/facts.json"

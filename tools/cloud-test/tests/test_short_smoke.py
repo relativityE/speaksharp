@@ -2,6 +2,7 @@ import importlib.util
 import copy
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 import tempfile
@@ -60,6 +61,28 @@ def live_smoke_request():
 
 
 class ShortSmokeContract(unittest.TestCase):
+    def test_actual_initiation_derives_one_bounded_occurrence_that_admits(self):
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        start = "2026-11-03T16:00:00Z"
+        value = init.materialize_smoke_occurrence(template, start, "slack:exact-occurrence", "Akin", "a" * 40, "b" * 40)
+        self.assertEqual(value["window"]["startUtc"], start)
+        self.assertEqual(value["window"]["endUtc"], "2026-11-03T17:05:00Z")
+        self.assertIn("not measured runtime", value["window"]["basis"])
+        now = datetime(2026, 11, 3, 16, 0, 0, tzinfo=timezone.utc)
+        cases = init.check_request(value, now, init._request_keys())
+        cfg = json.loads((ROOT / "config/test-config.v1.json").read_text())
+        live = init.check_ceilings(cfg, value, cases, 65)
+        self.assertEqual(live, 40)
+        init.check_window_fit(value, now, live)
+
+    def test_occurrence_materializer_refuses_wrong_case_set_or_release(self):
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        with self.assertRaisesRegex(init.Refused, "smoke-occurrence-release"):
+            init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "Akin", "bad", "b" * 40)
+        template["selection"].pop()
+        with self.assertRaisesRegex(init.Refused, "smoke-occurrence-selection"):
+            init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "Akin", "a" * 40, "b" * 40)
+
     def test_all_fifteen_smoke_maps_to_distinct_builder_mode(self):
         mode, caps = request_caps(request())
         self.assertEqual(mode, "smoke")
@@ -97,6 +120,7 @@ class ShortSmokeContract(unittest.TestCase):
         self.assertEqual(smoke["limits"]["maxSelectedCases"], 15)
         self.assertEqual(smoke["limits"]["maxWindowMinutes"], 40)
         self.assertEqual(smoke["recordingWindowMs"]["AHT-03"], 22000)
+        self.assertEqual(smoke["recordingWindowMs"]["AHT-01"], 35000)
         self.assertEqual(smoke["recordingWindowMs"]["AHT-02"], 23100)
         self.assertTrue(all(v >= 5000 for v in smoke["recordingWindowMs"].values()))
         overhead = sum(smoke["window"][key] for key in ("admissionMaxMinutes", "interCaseAndReportMinutes", "cleanupReserveMinutes"))

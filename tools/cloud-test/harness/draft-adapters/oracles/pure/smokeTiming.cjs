@@ -3,7 +3,10 @@
 // Content-free timing policy for the bounded all-area smoke. Fixture duration remains
 // semantic truth; recordingWindowMs only controls how long the browser records.
 const WINDOWS=Object.freeze({
-  'AHT-01':22850,
+  // Open Mic is eligible for coaching only after both the 30 second and
+  // 75-word product gates.  Thirty-five seconds keeps the bounded smoke
+  // below the full fixture while leaving real margin over both gates.
+  'AHT-01':35000,
   'AHT-02':23100,
   'AHT-03':22000,
   'AHT-04':22850,
@@ -27,6 +30,7 @@ const WINDOWS=Object.freeze({
 // a separately reviewed reduction.
 const MODEL_FAILURE_SMOKE_DEADLINE_MS=30000;
 const MODEL_FAILURE_FULL_DEADLINE_MS=300000;
+const MODEL_SETTLEMENT_SMOKE_DEADLINE_MS=20000;
 const LEASE_WAIT_DEADLINE_MS=20000;
 const LEASE_POLL_MS=250;
 
@@ -41,6 +45,10 @@ function recordingWindowMs(caseId,{sampleMode,fixtureDurationMs,requestedMs}={})
 
 function modelFailureDeadlineMs({sampleMode}={}){
   return sampleMode==='smoke'?MODEL_FAILURE_SMOKE_DEADLINE_MS:MODEL_FAILURE_FULL_DEADLINE_MS;
+}
+
+function modelSettlementDeadlineMs({sampleMode}={}){
+  return sampleMode==='smoke'?MODEL_SETTLEMENT_SMOKE_DEADLINE_MS:MODEL_FAILURE_FULL_DEADLINE_MS;
 }
 
 function leaseBoundary({leaseRows,mic}){
@@ -60,4 +68,4 @@ function focusWindowVerdict({windows,expected,statuses,recordingWindowMs}){
   return {result:matching===eligible.length?'PASS':'FAIL',facts:{recordingWindowMs,eligiblePoints:eligible.length,matchingPoints:matching,unscoredPoints:windows.length-eligible.length}};
 }
 
-module.exports={WINDOWS,MODEL_FAILURE_SMOKE_DEADLINE_MS,MODEL_FAILURE_FULL_DEADLINE_MS,LEASE_WAIT_DEADLINE_MS,LEASE_POLL_MS,recordingWindowMs,modelFailureDeadlineMs,leaseBoundary,focusWindowVerdict};
+module.exports={WINDOWS,MODEL_FAILURE_SMOKE_DEADLINE_MS,MODEL_FAILURE_FULL_DEADLINE_MS,MODEL_SETTLEMENT_SMOKE_DEADLINE_MS,LEASE_WAIT_DEADLINE_MS,LEASE_POLL_MS,recordingWindowMs,modelFailureDeadlineMs,modelSettlementDeadlineMs,leaseBoundary,focusWindowVerdict};

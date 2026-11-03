@@ -400,7 +400,7 @@ class Guard {
       try{downloadFault.browserPrefixBinding=await this.browserPrefixObserver.bind(downloadFault.id);}
       catch{finish('harness-limited',{reason:'browser-prefix-request-not-established'});this.deny(res,'browser-prefix-request-not-established',ev);return;}
     }
-    if(downloadFault?.mode==='download-fails'){downloadFault.fired=true;this.log({...ev,kind:'download-fault',faultId:downloadFault.id,mode:downloadFault.mode,decision:'not-forwarded'});finish('fault-download-request-lost');req.resume();failConnection(req.socket);return;}
+    if(downloadFault?.mode==='download-fails'){downloadFault.fired=true;downloadFault.firedAtEpochMs=Date.now();this.log({...ev,kind:'download-fault',faultId:downloadFault.id,mode:downloadFault.mode,firedAtEpochMs:downloadFault.firedAtEpochMs,decision:'not-forwarded'});finish('fault-download-request-lost');req.resume();failConnection(req.socket);return;}
     if(observedCompletion){completionObservation=this.completionObserver.observe({host,method:req.method,pathname:u.pathname,bodyBuffer:requestBody,headers:req.headers});if(completionObservation){this.durableLog({kind:'completion-attempt-reserved',faultId:this.completionFaultId,...completionObservation});if(!completionObservation.permitted){finish('harness-limited',{reason:completionObservation.reason});this.deny(res,'unexpected-completion-attempt',ev);return;}}}
     if(feedbackCandidates.length){
       const request={host,method:req.method,pathname:u.pathname,search:u.search,bodyBuffer:requestBody,headers:req.headers,rawHeaders:req.rawHeaders};
@@ -481,8 +481,8 @@ class Guard {
                 if(this.browserPrefixObserver)downloadFault.browserPrefixReceipt=await this.browserPrefixObserver.received(downloadFault.browserPrefixBinding);
                 await this.offlineControl(true);
                 if(rec.outcome)return;
-                downloadFault.fired=true;downloadFault.browserOfflineApplied=true;downloadFault.bytesForwarded=held;
-                this.log({...ev,kind:'download-fault',faultId:downloadFault.id,mode:downloadFault.mode,upstreamStatus:status,bytesForwarded:held,declaredLength:+ur.headers['content-length'],browserOfflineApplied:true,decision:'browser-offline-after-prefix'});
+                downloadFault.fired=true;downloadFault.firedAtEpochMs=Date.now();downloadFault.browserOfflineApplied=true;downloadFault.bytesForwarded=held;
+                this.log({...ev,kind:'download-fault',faultId:downloadFault.id,mode:downloadFault.mode,firedAtEpochMs:downloadFault.firedAtEpochMs,upstreamStatus:status,bytesForwarded:held,declaredLength:+ur.headers['content-length'],browserOfflineApplied:true,decision:'browser-offline-after-prefix'});
                 finish('fault-download-interrupted',{status,bytes:held});res.end();up.destroy();
               }catch(e){if(!rec.outcome){finish('harness-limited',{reason:'browser-offline-application-unproved'});res.destroy();up.destroy();}}
             },'download-prefix'));
@@ -603,7 +603,7 @@ class Guard {
     }
   }
   summary() {
-    return { fatal:this.fatalState||null, caseAllowance:this.ledger?.caseAllowanceState?.()||null, port: this.port, spki: this.spki, feedbackFaults:(this.feedbackFaults||[]).map(f=>f.summary()), completionAttempts:this.completionObserver?.summary()||null, counters: this.c, ledgerUsed: this.ledger.state.used, caps: this.policy.caps, downloadFaults:this.downloadFaults.map(f=>({id:f.id,mode:f.mode,selected:f.selected,fired:f.fired,bytesForwarded:f.bytesForwarded,browserOfflineApplied:f.browserOfflineApplied===true,networkRestored:f.networkRestored===true,...(f.browserPrefixReceipt?{browserPrefixReceipt:f.browserPrefixReceipt}:{})})), faults: this.faults.map((f) => ({ id: f.id, mode: f.mode, fired: f.fired })) };
+    return { fatal:this.fatalState||null, caseAllowance:this.ledger?.caseAllowanceState?.()||null, port: this.port, spki: this.spki, feedbackFaults:(this.feedbackFaults||[]).map(f=>f.summary()), completionAttempts:this.completionObserver?.summary()||null, counters: this.c, ledgerUsed: this.ledger.state.used, caps: this.policy.caps, downloadFaults:this.downloadFaults.map(f=>({id:f.id,mode:f.mode,selected:f.selected,fired:f.fired,...(Number.isSafeInteger(f.firedAtEpochMs)?{firedAtEpochMs:f.firedAtEpochMs}:{}),bytesForwarded:f.bytesForwarded,browserOfflineApplied:f.browserOfflineApplied===true,networkRestored:f.networkRestored===true,...(f.browserPrefixReceipt?{browserPrefixReceipt:f.browserPrefixReceipt}:{})})), faults: this.faults.map((f) => ({ id: f.id, mode: f.mode, fired: f.fired })) };
   }
   async close(reason = 'close') {
     if(this.closePromise)return this.closePromise;

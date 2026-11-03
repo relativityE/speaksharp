@@ -31,7 +31,7 @@ function fakeWorld(s,events){
   async 'mic-download'(){
    if(s.fires!==false){modelRequests++;const f=faults[0];
     // A guard without a browser-prefix observer still fires (guard-proxy.cjs 473–476) and its summary omits the receipt (598).
-    if(s.noObserver){Object.assign(f,{fired:true,browserOfflineApplied:true,bytesForwarded:65536,...(s.noObserver==='null'?{browserPrefixReceipt:null}:{})});setStatus('error');return;}
+    if(s.noObserver){Object.assign(f,{fired:true,firedAtEpochMs:Date.now(),browserOfflineApplied:true,bytesForwarded:65536,...(s.noObserver==='null'?{browserPrefixReceipt:null}:{})});setStatus('error');return;}
     const deliver=list=>{for(const item of list)if(item==='close')prefix.close();else prefix.event('page-session',item[0],item[1]);};
     deliver(s.cdp??ESTABLISHED_CDP);
     if(s.closePrefix)prefix.close();
@@ -43,7 +43,7 @@ function fakeWorld(s,events){
      const pendingReceived=prefix.received(binding,{timeoutMs:25});
      if(s.duringReceived){s.journal?.push({kind:'test-received-pending',waiters:prefix.listenerCount('change')});deliver(s.duringReceived);}
      const receipt=await pendingReceived;
-     Object.assign(f,{fired:true,browserOfflineApplied:s.offlineApplied!==false,bytesForwarded:s.bytesForwarded??65536,
+     Object.assign(f,{fired:true,firedAtEpochMs:Date.now(),browserOfflineApplied:s.offlineApplied!==false,bytesForwarded:s.bytesForwarded??65536,
       browserPrefixReceipt:s.defenseReceipt?{...receipt,...s.defenseReceipt}:receipt});
     }catch{s.journal?.push({kind:'test-guard-harness-limited',reason:'browser-prefix-receipt-not-established'});}
    }

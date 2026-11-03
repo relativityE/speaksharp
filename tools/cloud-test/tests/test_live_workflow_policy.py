@@ -268,7 +268,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "e34b4f0a5c40287d7fd6a9989af1d018479055adc1c115565a8024dc76d8835b",
+            "manifestSha256": "465ffe8c6990ba9b5fac499f2408bbfc22419935ea66f9a30001b3b48e5b3751",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
@@ -445,9 +445,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_job_timeout_is_the_one_prepare_checks_and_the_run_step_is_bounded_to_the_live_minutes(self):
         live = self.jobs["live"]
-        self.assertLessEqual(live["timeout-minutes"], 360)
+        self.assertEqual(live["timeout-minutes"], "${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}")
         init = next(s for s in live["steps"] if s.get("id") == "init")
-        self.assertIn("--job-timeout-minutes %d " % live["timeout-minutes"], init["run"])
+        self.assertEqual(init["env"]["JOB_TIMEOUT_MINUTES"], "${{ github.event_name == 'workflow_dispatch' && '65' || '340' }}")
+        self.assertIn('--job-timeout-minutes "$JOB_TIMEOUT_MINUTES" ', init["run"])
         run = next(s for s in live["steps"] if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         self.assertEqual(run["timeout-minutes"], "${{ fromJSON(steps.init.outputs.live_minutes) }}")
 
@@ -644,7 +645,8 @@ class Case10ObserveCredentials(unittest.TestCase):
                "PRIOR_STATE": "{}", "NIGHTLY_REQUEST_B64": base64.b64encode(b"{}").decode(), "NIGHTLY_REQUEST_SHA256": "a" * 64,
                "REQUEST": "r.json", "FACTS": "f.json", "CT_CONFIG": "c.json", "GITHUB_WORKSPACE": d, "GITHUB_RUN_ID": "101",
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "4" * 40, "GITHUB_ENV": os.path.join(d, "env"), "GITHUB_OUTPUT": os.path.join(d, "out"),
-               "CT_CASE10_PASSWORD": "case10-pw-value" if event == "schedule" else "", "CT_CASE10_ANON_KEY": "case10-anon-value" if event == "schedule" else ""}
+               "CT_CASE10_PASSWORD": "case10-pw-value" if event == "schedule" else "", "CT_CASE10_ANON_KEY": "case10-anon-value" if event == "schedule" else "",
+               "JOB_TIMEOUT_MINUTES": "340" if event == "schedule" else "65"}
         p = subprocess.run(["bash", "-c", shadow + init["run"]], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
         out = {}

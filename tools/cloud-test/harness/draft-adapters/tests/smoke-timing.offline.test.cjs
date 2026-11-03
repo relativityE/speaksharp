@@ -5,7 +5,7 @@ const ui=require('../browser-actions.cjs');
 const focus=require('../focus-controls.cjs');
 const adapters=require('../source-adapters.cjs');
 
-test('short smoke recording windows halve 01,02,04-15 and leave 03 unchanged without rewriting fixture truth',()=>{
+test('smoke windows preserve AHT-01 eligibility and AHT-03 fixture truth while bounding the other cases',()=>{
  const fixture={"AHT-01":45700,"AHT-02":46200,"AHT-03":22000};
  for(let i=1;i<=15;i++){
   const id='AHT-'+String(i).padStart(2,'0'),fixtureDurationMs=fixture[id]??45700,requestedMs=timing.WINDOWS[id];
@@ -14,6 +14,8 @@ test('short smoke recording windows halve 01,02,04-15 and leave 03 unchanged wit
   assert.ok(requestedMs>=5000);
  }
  assert.equal(timing.WINDOWS['AHT-03'],22000);
+ assert.ok(timing.WINDOWS['AHT-01']>=30000,'Open Mic must cross the unchanged duration gate');
+ assert.ok(Math.floor(129*timing.WINDOWS['AHT-01']/45700)>=75,'the reviewed fixture window must retain at least 75 reference words');
  assert.throws(()=>timing.recordingWindowMs('AHT-02',{sampleMode:'smoke',fixtureDurationMs:46200,requestedMs:23101}),/differs/);
  assert.throws(()=>timing.recordingWindowMs('AHT-03',{sampleMode:'smoke',fixtureDurationMs:23000,requestedMs:22000}),/retain/);
 });
@@ -56,17 +58,31 @@ test('smoke fails closed on a short diagnostic ceiling while full acceptance pre
 
 test('model failure wait is event-driven and reports transition latency',async()=>{
  const calls=[];
- const page={evaluate:async(fn,arg)=>{calls.push({source:String(fn),arg});return {state:'init-failed',elapsedMs:37};}};
+ const page={evaluate:async(fn,arg)=>{calls.push({source:String(fn),arg});return {state:'init-failed',startedAtEpochMs:1000,observedAtEpochMs:1037,elapsedMs:37};}};
  const observed=await adapters.waitForModelFailure(page,{sampleMode:'smoke'});
- assert.deepEqual(observed,{state:'init-failed',elapsedMs:37});
+ assert.deepEqual(observed,{state:'init-failed',startedAtEpochMs:1000,observedAtEpochMs:1037,elapsedMs:37});
  assert.equal(calls[0].arg.deadlineMs,30000);
  assert.match(calls[0].source,/MutationObserver/);
  assert.match(calls[0].source,/attributeFilter:\['data-model-status'\]/);
 });
 
+test('AHT-04 settlement wait is bounded inside the smoke case and preserves an honest timeout',async()=>{
+ const calls=[];const page={evaluate:async(fn,arg)=>{calls.push({source:String(fn),arg});return {state:'loading',settled:false,elapsedMs:arg.deadlineMs};}};
+ assert.deepEqual(await adapters.waitForModelSettlement(page,{sampleMode:'smoke'}),{state:'loading',settled:false,elapsedMs:20000});
+ assert.equal(calls[0].arg.deadlineMs,20000);assert.match(calls[0].source,/MutationObserver/);
+});
+
+test('AHT-04 timeout preserves completed partial rows without duplicating the pending assertion',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../source-adapters.cjs'),'utf8');
+ const section=source.slice(source.indexOf("}else if(caseId==='AHT-04'){"),source.indexOf("}else if(['AHT-05','AHT-06'].includes(caseId)){"));
+ assert.equal((section.match(/assertion\('cold-pending-observed'/g)||[]).length,1,'only the pre-stimulus NOT RUN path may write this row directly');
+ assert.match(section,/executionSignals\.aht04ModelSettlement=\{settled:false,waitedMs:settlement\.elapsedMs\}/);
+ assert.match(section,/notRun\('model settlement not observed inside AHT-04 case deadline'\)/);
+});
+
 test('runtime smoke lease path waits from a live lease to an authenticated idle owner-table boundary',async()=>{
  const calls=[],db={owner:true},idle={liveTracks:0,recording:false,recorderVisible:false};let clock=0;
- const leaseSequence=[[{state:'active'}],[]],micSequence=[{...idle,liveTracks:1,recording:true},idle];
+ const leaseSequence=[[{state:'active'}],[],[]],micSequence=[{...idle,liveTracks:1,recording:true},idle,idle];
  const result=await adapters.smokeLeaseBoundary({page:true},{caseId:'AHT-01'}, {
   createDb:(page,c)=>{assert.equal(page.page,true);assert.equal(c.caseId,'AHT-01');return db;},
   read:async(actual,table,columns)=>{calls.push({actual,table,columns});return leaseSequence.shift();},
@@ -74,10 +90,21 @@ test('runtime smoke lease path waits from a live lease to an authenticated idle 
   wait:async ms=>{clock+=ms;},deadlineWait:()=>new Promise(()=>{}),now:()=>clock,deadlineMs:1000,pollMs:250,
  });
  assert.equal(result.ready,true);
- assert.equal(result.reads,2);assert.equal(result.elapsedMs,250);
- assert.deepEqual(calls,[{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'},{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'}]);
+ assert.equal(result.reads,3);assert.equal(result.elapsedMs,500);assert.equal(result.code,'LEASE_ABSENT_ENGINE_IDLE_CONFIRMED');
+ assert.deepEqual(calls,[{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'},{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'},{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'}]);
  const unavailable=await adapters.smokeLeaseBoundary({}, {}, {createDb:()=>db,read:async()=>{throw Error('denied');},readMic:async()=>idle,deadlineWait:()=>new Promise(()=>{}),now:()=>0});
  assert.equal(unavailable.code,'LEASE_READ_UNAVAILABLE');
+});
+
+test('late authoritative lease heartbeat defeats an earlier empty snapshot without forced release',async()=>{
+ const idle={liveTracks:0,recording:false,recorderVisible:false};let clock=0,index=0;
+ const sequence=[[],[{state:'active',lease_id:'late-heartbeat'}],[{state:'active',lease_id:'late-heartbeat'}]];
+ const result=await adapters.smokeLeaseBoundary({},{},{
+  createDb:()=>({owner:true}),read:async()=>sequence[Math.min(index++,sequence.length-1)],readMic:async()=>idle,
+  wait:async ms=>{clock+=ms;},deadlineWait:()=>new Promise(()=>{}),now:()=>clock,deadlineMs:500,pollMs:250,
+ });
+ assert.equal(result.ready,false);assert.equal(result.code,'LEASE_WAIT_TIMEOUT');assert.equal(result.lastCode,'LEASE_LIVE');
+ assert.equal(index,2,'the late heartbeat is read before any idle decision can be returned');
 });
 
 test('runtime smoke lease path stops at its bound without inferring expiry or forcing release',async()=>{
@@ -86,7 +113,7 @@ test('runtime smoke lease path stops at its bound without inferring expiry or fo
   createDb:()=>db,read:async()=>{reads++;return [{state:'active'}];},readMic:async()=>idle,
   wait:async ms=>{clock+=ms;},deadlineWait:()=>new Promise(()=>{}),now:()=>clock,deadlineMs:500,pollMs:200,
  });
- assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'LEASE_WAIT_DEADLINE',reads:3,elapsedMs:500});
+ assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'LEASE_LIVE',reads:3,elapsedMs:500});
  assert.equal(reads,3,'the deadline is checked before a fourth owner query begins');
 });
 

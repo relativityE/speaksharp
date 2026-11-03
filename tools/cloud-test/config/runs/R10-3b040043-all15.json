@@ -43,7 +43,7 @@
       "plannedRequests": 100,
       "startPressCap": 1,
       "gate": null,
-      "reason": "smoke coverage: 14 bounded rows; diagnoses GAP-02 without claiming full acceptance"
+      "reason": "smoke coverage: 13 bounded rows; diagnoses GAP-02; the two-take coaching comparison remains required by full-depth acceptance"
     },
     {
       "order": 3,
@@ -56,7 +56,7 @@
       "plannedRequests": 100,
       "startPressCap": 1,
       "gate": null,
-      "reason": "smoke coverage: 14 bounded rows; diagnoses GAP-02 without claiming full acceptance"
+      "reason": "smoke coverage: 13 bounded rows; diagnoses GAP-02; the two-take coaching comparison remains required by full-depth acceptance"
     },
     {
       "order": 4,
@@ -301,8 +301,8 @@
     }
   },
   "harness": {
-    "codeManifestSha256": "74d2687093f154b796c5146eddc3f231595bb6464fff94ff37650e7ef83459a2",
-    "packetManifestSha256": "ab4cdb8221b5f378103a5b5c8b98e047799f725a1a348e4d61c4fb09d527d81c",
+    "codeManifestSha256": "71ff2fd9463e5ea2763d0c5e727213e295129ea0263c13acfe1da2c3bc18fcff",
+    "packetManifestSha256": "f31fcdf2d648ff7c78090dffcf7f95a12a215d623b0ddc9efb38343a60d97173",
     "ownerApprovalRef": "slack:1793652215.171339",
     "offlineProofFile": "config/proofs/offline-proof-74d26870.json"
   },
