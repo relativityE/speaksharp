@@ -45,9 +45,9 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "ee1c0ea56b6f8323f7a307b0df4c1531de39352d3ab364656232bb2269e9943b"
+ONE_OFF_GRANT_SHA256 = "32ae7f00112d87924884c44fabb07a33cf5fa957d316aa1be00f5b222b4bfcb7"
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
-ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
+ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
                       "limits", "olderReleaseDiagnostic"}
 ONE_OFF_LIMITS = {"endToEndMinutes": 80, "liveMinutes": 40, "requestsIncludingIdentity": 2032,
@@ -86,7 +86,14 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
               "one-off-grant-release")
     _need(grant.get("limits") == ONE_OFF_LIMITS and grant.get("olderReleaseDiagnostic") is True,
           "one-off-grant-limits")
+    scope_path = os.path.join(repo, CONTINUITY_DIR, CONTINUITY_SCOPE)
+    _need(os.path.isfile(scope_path) and not os.path.islink(scope_path), "one-off-grant-accounting")
+    try:
+        accepted_scope = manual_reservation.accepted_scope(_read(scope_path), manual_reservation.ACCEPTED_SCOPE_SHA256)
+    except manual_reservation.Refused:
+        raise Refused("one-off-grant-accounting")
     _need(grant.get("periodScopeSha256") == manual_reservation.ACCEPTED_SCOPE_SHA256
+          and grant.get("scopeApprovalRef") == accepted_scope.get("approvalRef")
           and isinstance(grant.get("preReserveStateHead"), str) and LR.SHA40.match(grant["preReserveStateHead"]),
           "one-off-grant-accounting")
     if initiation is not None:
@@ -100,17 +107,17 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
         except (TypeError, ValueError):
             raise Refused("one-off-grant-checkpoint")
         _need(checkpoint.get("headSha") == grant.get("preReserveStateHead")
-              and checkpoint.get("scopeApprovalRef") == grant.get("approvalRef"), "one-off-grant-checkpoint")
+              and checkpoint.get("scopeApprovalRef") == grant.get("scopeApprovalRef"), "one-off-grant-checkpoint")
     return grant
 
 
 def materialize_authoritative_smoke_occurrence(repo, template, initiation):
     approval = one_off_grant(repo, template, initiation)
-    return materialize_smoke_occurrence(template, initiation, approval["approvalRef"], approval["approvedBy"],
+    return materialize_smoke_occurrence(template, initiation, approval["approvalRef"], approval["scopeApprovalRef"], approval["approvedBy"],
                                         approval["testedSha"], approval["backendSha"])
 
 
-def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by, tested_sha, backend_sha):
+def materialize_smoke_occurrence(template, initiation, approval_ref, scope_approval_ref, approved_by, tested_sha, backend_sha):
     """Create the exact one-run bytes for an owner-selected R10 initiation.
 
     The 80-minute occurrence is the bounded end-to-end workflow envelope:
@@ -125,7 +132,7 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by
     _need(template.get("runId") == "R10-3b040043-smoke15" and len(template.get("selection") or []) == 15,
           "smoke-occurrence-selection")
     _need(isinstance(initiation, str) and LR.UTC.match(initiation), "smoke-occurrence-initiation")
-    _need(_ref(approval_ref) and isinstance(approved_by, str) and approved_by.strip(), "smoke-occurrence-approval")
+    _need(_ref(approval_ref) and _ref(scope_approval_ref) and isinstance(approved_by, str) and approved_by.strip(), "smoke-occurrence-approval")
     _need(isinstance(tested_sha, str) and LR.SHA40.match(tested_sha) and isinstance(backend_sha, str) and LR.SHA40.match(backend_sha),
           "smoke-occurrence-release")
     start = _utc(initiation)
@@ -137,7 +144,9 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by
                      "approvalRef": approval_ref,
                      "basis": "actual initiation + 5m record + 3m reserve + 65m live-job ceiling + 5m parallel settlement/record completion + 2m structural slack; live ceiling remains 40m; not measured runtime"}
     out["selectionApprovalRef"] = approval_ref
-    out["approvedLimits"]["approvalRef"] = approval_ref
+    # The one-off grant selects this occurrence. The accepted period scope,
+    # independently, owns cumulative accounting.
+    out["approvedLimits"]["approvalRef"] = scope_approval_ref
     out["approvedLimits"]["approvedBy"] = approved_by
     out["harness"]["ownerApprovalRef"] = approval_ref
     out["release"]["testedSha"] = tested_sha
@@ -387,6 +396,26 @@ def check_window_remaining(req, now, live_minutes):
     end = _utc(req["window"]["endUtc"])
     _need(_int(live_minutes) and live_minutes > 0, "live-minutes")
     _need((end - now).total_seconds() >= 60 * (live_minutes + COLLECT_RESERVE_MINUTES), "approved-window-too-short-at-admission")
+
+
+def completion_within_occurrence(raw, now):
+    """Return whether R10 completed inside its reviewed 80-minute envelope.
+
+    Accounting may settle later inside the approved period so held usage is
+    reconciled safely, but a late workflow is incomplete rather than an
+    in-envelope terminal result.
+    """
+    try:
+        req = json.loads(raw)
+    except (TypeError, ValueError):
+        raise Refused("completion-occurrence-unreadable")
+    w = req.get("window") if isinstance(req, dict) else None
+    _need(req.get("runId") == "R10-3b040043-smoke15" and req.get("createdUtc") == (w or {}).get("startUtc")
+          and all(isinstance((w or {}).get(k), str) and LR.UTC.match(w[k]) for k in ("startUtc", "endUtc")),
+          "completion-occurrence-unreadable")
+    start, end = _utc(w["startUtc"]), _utc(w["endUtc"])
+    _need((end - start).total_seconds() == 60 * SMOKE_OCCURRENCE_WINDOW_MINUTES, "completion-occurrence-window")
+    return now <= end
 
 
 def check_release_lineage(repo, req, request_rel, source_sha, request_blob, cases, diagnostic, template_keys, grant=None):
@@ -804,7 +833,7 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
               "relative-occurrence-request-release")
         envelope = {"schema": ACTION_APPROVAL_SCHEMA, "requestSha256": request_sha256,
                     "reconciliationSha256": hashlib.sha256(reconciliation_bytes).hexdigest(),
-                    "approvalRef": approval["approvalRef"], "approvedBy": approval["approvedBy"],
+                    "approvalRef": approval["scopeApprovalRef"], "approvedBy": approval["approvedBy"],
                     "selectionApprovalRef": approval["approvalRef"]}
         return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
     return check_action_approval(supplied, request_sha256, reconciliation_bytes, req)
@@ -1369,17 +1398,20 @@ def _write_private(path, doc):
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "window-check", "occurrence-check",
-                                       "occurrence-materialize"))
+                                       "occurrence-materialize", "completion-deadline"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
                  "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
-                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc"):
+                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
     x = a.parse_args(argv[1:])
     try:
+        if x.command == "completion-deadline":
+            now = _utc(x.now) if x.now else datetime.now(timezone.utc)
+            return 0 if completion_within_occurrence(_read(x.manual_occurrence_file), now) else 79
         if x.command == "project":
             q = _load(x.qualification) if x.qualification and os.path.exists(x.qualification) else None
             prov = _load(x.provenance) if x.provenance and os.path.exists(x.provenance) else None

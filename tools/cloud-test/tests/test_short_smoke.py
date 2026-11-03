@@ -83,10 +83,10 @@ class ShortSmokeContract(unittest.TestCase):
     def test_occurrence_materializer_refuses_wrong_case_set_or_release(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
         with self.assertRaisesRegex(init.Refused, "smoke-occurrence-release"):
-            init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "Akin", "bad", "b" * 40)
+            init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "slack:scope", "Akin", "bad", "b" * 40)
         template["selection"].pop()
         with self.assertRaisesRegex(init.Refused, "smoke-occurrence-selection"):
-            init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "Akin", "a" * 40, "b" * 40)
+            init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "slack:scope", "Akin", "a" * 40, "b" * 40)
 
     def test_exact_occurrence_bytes_are_rederived_from_the_committed_template(self):
         template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
@@ -132,19 +132,27 @@ class ShortSmokeContract(unittest.TestCase):
         repo = str(ROOT.parents[1])
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
         occurrence = init.materialize_authoritative_smoke_occurrence(repo, template, "2026-11-03T17:30:00Z")
-        request_sha = hashlib.sha256(json.dumps(occurrence, sort_keys=True).encode()).hexdigest()
+        occurrence_raw = json.dumps(occurrence, sort_keys=True).encode()
+        request_sha = hashlib.sha256(occurrence_raw).hexdigest()
+        scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
         checkpoint = json.dumps({
             "headSha": "92d6ebf902351750c368d7d513116c6b1f19f80c",
-            "scopeApprovalRef": "chat:PO_R10_ALL15_SMOKE_2026-11-03",
+            "scopeApprovalRef": scope["approvalRef"],
         }, sort_keys=True).encode()
         for field in init.CALLER_AUTHORITY_FIELDS:
             with self.assertRaisesRegex(init.Refused, "one-off-caller-authority-refused"):
                 init.occurrence_action_approval({field: {}}, request_sha, checkpoint, occurrence, repo=repo)
+        # The same exact checker used immediately before the real reserve
+        # accepts the committed grant + committed scope + verified checkpoint.
+        init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, checkpoint, repo)
+        envelope = init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
+        self.assertEqual(envelope["approvalRef"], scope["approvalRef"])
+        self.assertEqual(envelope["selectionApprovalRef"], "chat:PO_R10_ALL15_SMOKE_2026-11-03")
         wrong_release = copy.deepcopy(occurrence)
         wrong_release["release"]["testedSha"] = "f" * 40
         with self.assertRaisesRegex(init.Refused, "relative-occurrence-request-release"):
             init.occurrence_action_approval({}, request_sha, checkpoint, wrong_release, repo=repo)
-        stale = json.dumps({"headSha": "f" * 40, "scopeApprovalRef": "chat:PO_R10_ALL15_SMOKE_2026-11-03"}).encode()
+        stale = json.dumps({"headSha": "f" * 40, "scopeApprovalRef": scope["approvalRef"]}).encode()
         with self.assertRaisesRegex(init.Refused, "one-off-grant-checkpoint"):
             init.occurrence_action_approval({}, request_sha, stale, occurrence, repo=repo)
         original = init.manual_reservation.ACCEPTED_SCOPE_SHA256
@@ -154,6 +162,15 @@ class ShortSmokeContract(unittest.TestCase):
                 init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
         finally:
             init.manual_reservation.ACCEPTED_SCOPE_SHA256 = original
+
+    def test_completion_deadline_marks_queue_delay_incomplete_without_changing_settlement_period(self):
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        value = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-03T17:30:00Z")
+        raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        self.assertTrue(init.completion_within_occurrence(raw, datetime(2026, 11, 3, 18, 50, 0, tzinfo=timezone.utc)))
+        self.assertFalse(init.completion_within_occurrence(raw, datetime(2026, 11, 3, 18, 50, 1, tzinfo=timezone.utc)))
+        scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
+        self.assertLess(datetime(2026, 11, 3, 18, 50, 1, tzinfo=timezone.utc), init._utc(scope["periodEndUtc"]))
 
     def test_all_fifteen_smoke_maps_to_distinct_builder_mode(self):
         mode, caps = request_caps(request())

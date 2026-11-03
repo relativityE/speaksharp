@@ -2,6 +2,7 @@
   "schema": "speaksharp.cloud-test.one-off-grant.v1",
   "status": "APPROVED",
   "approvalRef": "chat:PO_R10_ALL15_SMOKE_2026-11-03",
+  "scopeApprovalRef": "chat:PO_R10_SCOPE_EXTENSION_2026-11-03",
   "approvedBy": "Akin",
   "runId": "R10-3b040043-smoke15",
   "attempt": 1,

@@ -622,12 +622,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMMENT_ID: ${{ needs.record-begin.outputs.comment_id }}
           LIVE_RESULT: ${{ needs.live.result }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
         run: |
           set -euo pipefail
           P=tools/cloud-test/scripts/publish_latest_record.py
           gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/comments.json"
           python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$COMMENT_ID" | python3 -I -c 'import json,sys; open(sys.argv[1],"w").write(json.load(sys.stdin)["body"])' "$RUNNER_TEMP/previous.md"
-          if [ -f "$RUNNER_TEMP/record/latest-record.json" ] && [ "$LIVE_RESULT" != cancelled ]; then
+          within_envelope=true
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            set +e
+            python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline \
+              --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json"
+            deadline_status=$?
+            set -e
+            if [ "$deadline_status" -eq 79 ]; then
+              within_envelope=false
+            elif [ "$deadline_status" -ne 0 ]; then
+              echo "BLOCKED_SETUP: completion-occurrence-unreadable"
+              within_envelope=false
+            fi
+          fi
+          if [ -f "$RUNNER_TEMP/record/latest-record.json" ] && [ "$LIVE_RESULT" != cancelled ] && [ "$within_envelope" = true ]; then
             python3 -I "$P" complete --previous "$RUNNER_TEMP/previous.md" --record "$RUNNER_TEMP/record/latest-record.json" --out "$RUNNER_TEMP/body.md"
           else
             python3 -I "$P" interrupt --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \

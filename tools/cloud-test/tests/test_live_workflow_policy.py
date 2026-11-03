@@ -480,6 +480,20 @@ class LiveWorkflowPolicy(unittest.TestCase):
         run = next(s for s in live["steps"] if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         self.assertEqual(run["timeout-minutes"], "${{ fromJSON(steps.init.outputs.live_minutes) }}")
 
+    def test_late_completion_is_incomplete_while_accounting_still_settles_safely(self):
+        complete = next(s for s in self.jobs["record-complete"]["steps"] if "publish_latest_record.py" in s.get("run", ""))
+        self.assertEqual(complete["env"]["MANUAL_OCCURRENCE_B64"], "${{ needs.record-begin.outputs.manual_occurrence_b64 }}")
+        self.assertIn("init_run_inputs.py completion-deadline", complete["run"])
+        self.assertIn('[ "$deadline_status" -eq 79 ]', complete["run"])
+        self.assertIn('[ "$within_envelope" = true ]', complete["run"])
+        self.assertIn("publish_latest_record.py", complete["run"])
+        # Settlement remains independent of the occurrence deadline: a late
+        # publisher cannot claim completion, but held usage is still reconciled
+        # under the accepted accounting period.
+        settle = writers_of(self.jobs, "journal-settle")
+        self.assertIn("manual_reservation.py settle", settle)
+        self.assertNotIn("completion-deadline", settle)
+
     def test_every_run_stage_name_is_supplied_and_the_bundle_reaches_only_prepare(self):
         with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:
             names = json.load(f)["credentials"]["runEnvironment"]["stages"]["run"]
