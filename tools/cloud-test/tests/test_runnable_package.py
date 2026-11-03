@@ -87,6 +87,15 @@ class VendoredHarness(unittest.TestCase):
         errs, _ = VH.check(J("config", "test-config.v1.json"), d)
         self.assertTrue(any("AHT-12.cjs" in e for e in errs), errs)
 
+    def test_a_stale_inner_reviewed_dependency_hash_is_refused(self):
+        d = self.tree()
+        manifest = os.path.join(d, "tools/cloud-test/harness/bundle/config/reviewed-steps.EXAMPLE.json")
+        value = json.loads(Path(manifest).read_text())
+        value["steps"][0]["dependencies"][0]["sha256"] = "0" * 64
+        Path(manifest).write_text(json.dumps(value))
+        errs = VH.check_reviewed_graph(os.path.join(d, "tools/cloud-test/harness"))
+        self.assertTrue(any("bytes differ" in e for e in errs), errs)
+
     def test_a_manifest_listed_adapter_that_is_missing_is_refused(self):
         d = self.tree()
         os.unlink(os.path.join(d, "tools/cloud-test/harness/draft-adapters/AHT-04.cjs"))
