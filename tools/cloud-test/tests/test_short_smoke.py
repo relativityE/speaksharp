@@ -95,7 +95,7 @@ class ShortSmokeContract(unittest.TestCase):
         smoke = cfg["modes"]["smoke"]
         self.assertFalse(smoke["countsAsFullLiveRun"])
         self.assertEqual(smoke["limits"]["maxSelectedCases"], 15)
-        self.assertEqual(smoke["limits"]["maxWindowMinutes"], 49)
+        self.assertEqual(smoke["limits"]["maxWindowMinutes"], 40)
         self.assertEqual(smoke["recordingWindowMs"]["AHT-03"], 22000)
         self.assertEqual(smoke["recordingWindowMs"]["AHT-02"], 23100)
         self.assertTrue(all(v >= 5000 for v in smoke["recordingWindowMs"].values()))
@@ -119,9 +119,9 @@ class ShortSmokeContract(unittest.TestCase):
 
     def test_smoke_uses_its_own_forty_minute_live_ceiling(self):
         value = live_smoke_request()
-        self.assertEqual(init.check_ceilings(CFG, value, init.ALL_CASES, 74), 49)
+        self.assertEqual(init.check_ceilings(CFG, value, init.ALL_CASES, 65), 40)
         with self.assertRaisesRegex(init.Refused, "time-exceeds-job-timeout"):
-            init.check_ceilings(CFG, value, init.ALL_CASES, 73)
+            init.check_ceilings(CFG, value, init.ALL_CASES, 64)
 
     def test_pipeline_builds_executable_coverage_commands_from_the_request_mode(self):
         spec = importlib.util.spec_from_file_location("smoke_pipeline", SCRIPTS / "pipeline.py")

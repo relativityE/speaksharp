@@ -49,9 +49,19 @@ test('lease boundary passes only a fresh empty owner read plus an independently 
  assert.equal(timing.leaseBoundary({leaseRows:[],mic:null}).code,'MIC_STATE_UNAVAILABLE');
 });
 
-test('the unsupported short failure deadline is refused and production envelope is preserved',()=>{
- assert.equal(timing.modelFailureDeadlineMs({sampleMode:'smoke'}),300000);
+test('smoke fails closed on a short diagnostic ceiling while full acceptance preserves its separate envelope',()=>{
+ assert.equal(timing.modelFailureDeadlineMs({sampleMode:'smoke'}),30000);
  assert.equal(timing.modelFailureDeadlineMs({sampleMode:'full'}),300000);
+});
+
+test('model failure wait is event-driven and reports transition latency',async()=>{
+ const calls=[];
+ const page={evaluate:async(fn,arg)=>{calls.push({source:String(fn),arg});return {state:'init-failed',elapsedMs:37};}};
+ const observed=await adapters.waitForModelFailure(page,{sampleMode:'smoke'});
+ assert.deepEqual(observed,{state:'init-failed',elapsedMs:37});
+ assert.equal(calls[0].arg.deadlineMs,30000);
+ assert.match(calls[0].source,/MutationObserver/);
+ assert.match(calls[0].source,/attributeFilter:\['data-model-status'\]/);
 });
 
 test('runtime smoke lease path waits from a live lease to an authenticated idle owner-table boundary',async()=>{
@@ -143,5 +153,5 @@ test('source increment gives smoke an owner-read condition while preserving the 
  const source=fs.readFileSync(path.join(__dirname,'../source-adapters.cjs'),'utf8');
  assert.ok(source.includes("c.sampleMode==='smoke'"));
  assert.ok(source.includes('leaseFacts=await smokeLeaseBoundary(page,c)'));
- assert.ok(source.includes('smokeTiming.modelFailureDeadlineMs(c)'));
+ assert.ok(source.includes('waitForModelFailure(page,c)'));
 });

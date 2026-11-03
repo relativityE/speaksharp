@@ -87,6 +87,25 @@ const needs=(caseId,c)=>['minimal','smoke'].includes(c?.sampleMode)&&MINIMAL_NEE
 function notRun(message){const e=new Error(message);e.code='NOT_RUN';e.trustedBlocker=message;throw e;}
 function requireThat(value,message){if(!value)notRun(message);}
 function safeRef(x){return typeof x==='string'&&x.length<512&&!x.startsWith('/')&&!x.split('/').includes('..')&&!/[\r\n]/.test(x);}
+async function waitForModelFailure(page,c){
+ const deadlineMs=smokeTiming.modelFailureDeadlineMs(c),startedAt=Date.now();
+ const observed=await page.evaluate(({deadlineMs})=>new Promise(resolve=>{
+  const root=document.documentElement,startedAt=performance.now();let observer,timer,done=false;
+  const finish=state=>{if(done)return;done=true;if(observer)observer.disconnect();if(timer)clearTimeout(timer);resolve({state,elapsedMs:Math.round(performance.now()-startedAt)});};
+  const read=()=>root.getAttribute('data-model-status');
+  const terminal=()=>{const state=read();if(['error','init-failed'].includes(state)){finish(state);return true;}return false;};
+  if(terminal())return;
+  observer=new MutationObserver(terminal);observer.observe(root,{attributes:true,attributeFilter:['data-model-status']});
+  timer=setTimeout(()=>finish(null),deadlineMs);
+ }),{deadlineMs});
+ if(observed&&['error','init-failed',null].includes(observed.state)&&Number.isInteger(observed.elapsedMs))return observed;
+ // Scripted offline pages predate browser-evaluated promises. Keep their
+ // compatibility path bounded by the same ceiling; real browsers always use
+ // the MutationObserver route above.
+ const handle=await page.waitForFunction(()=>['error','init-failed'].includes(document.documentElement.getAttribute('data-model-status')),undefined,{timeout:deadlineMs});
+ if(handle?.dispose)await handle.dispose();
+ return {state:await page.locator('html').getAttribute('data-model-status'),elapsedMs:Math.max(0,Date.now()-startedAt)};
+}
 async function smokeLeaseBoundary(page,c,{createDb=createOwnerDb,read=ownerRows,readMic=observer.mic,wait=ms=>page.waitForTimeout(ms),deadlineWait=ms=>page.waitForTimeout(ms),now=()=>Date.now(),deadlineMs=smokeTiming.LEASE_WAIT_DEADLINE_MS,pollMs=smokeTiming.LEASE_POLL_MS}={}){
  const startedAt=now();let reads=0,db=null;
  try{db=createDb(page,c);}catch{return {ready:false,code:'LEASE_READ_UNAVAILABLE',reads,elapsedMs:0};}
@@ -348,7 +367,7 @@ async function run(caseId,args){
   }else if(['AHT-13','AHT-14'].includes(caseId)){
    await ui.openMic(page,c);await page.waitForFunction(()=>document.documentElement.getAttribute('data-model-status')==='download-required',undefined,{timeout:60000});
    const token=caseId+'-model';await observer.armStates(page,token);const setupBefore13=await setupSnapshot();const id=guard.armDownloadFault(c.downloadFault);current='download-fault-exercised';await ui.pressStart(page,'mic-download');
-   const failureState=await page.waitForFunction(()=>['error','init-failed'].includes(document.documentElement.getAttribute('data-model-status')),undefined,{timeout:smokeTiming.modelFailureDeadlineMs(c)}).then(()=>true,()=>false);
+   const failureTransition=await waitForModelFailure(page,c);const failureState=!!failureTransition.state;
    const fault=guard.summary().downloadFaults.find(x=>x.id===id);if(!fault?.fired){const out=await setupOutcome(setupBefore13);const modelStates=(await observer.states(page,token))||[];const reason=!setupBefore13.captureDeviceBound?'capture-device-not-bound':out.modelRequestsAfterPress===0?'no-model-request-after-press':'no-request-matched-fault-asset';await assertion('download-fault-exercised','NOT RUN',{fired:false,setupBlocked:true,setupReason:reason,...setupBefore13,...out,modelStates:modelStates.slice(0,12).map(s=>/^[a-z-]{1,24}$/.test(String(s))?String(s):'other')});blocker='setup-blocked-stimulus-not-established';notRun('download fault not fired at reviewed asset boundary');}
    if(caseId==='AHT-14'){
     requireThat(fault.browserOfflineApplied===true&&fault.bytesForwarded>0,'proxy prefix write and browser offline control not established');
@@ -359,7 +378,7 @@ async function run(caseId,args){
     }
    }
    await check('download-fault-exercised',true,{fired:true,bytesForwarded:fault.bytesForwarded||0,browserOfflineApplied:fault.browserOfflineApplied===true,...(caseId==='AHT-14'?{prefixEvidence:'correlated-browser-network-event',browserPrefixReceipt:'ESTABLISHED',browserPrefixBytes:fault.browserPrefixReceipt.bytes,modelConsumption:'NOT_ESTABLISHED'}:{})});const states=await observer.states(page,token);requireThat(states,'complete model-state history missing');
-   const retry=await page.getByTestId('mic-retry').isVisible();const mode=await ui.attr(page,'data-stt-mode');await check('download-failure-truthful',failureState&&!states.includes('ready')&&retry&&mode==='private',{failureState,claimedReady:states.includes('ready'),retryOffered:retry,stayedPrivate:mode==='private'});
+   const retry=await page.getByTestId('mic-retry').isVisible();const mode=await ui.attr(page,'data-stt-mode');await check('download-failure-truthful',failureState&&!states.includes('ready')&&retry&&mode==='private',{failureState,failureModelState:failureTransition.state||'deadline',failureTransitionMs:failureTransition.elapsedMs,claimedReady:states.includes('ready'),retryOffered:retry,stayedPrivate:mode==='private'});
    if(caseId==='AHT-14')await guard.resumeDownloadNetwork(id);if(!minimal){current='deliberate-recovery-saved';const saved=await ui.take(page,c);await check('deliberate-recovery-saved',ownSaved(await rows(),saved),{saved:true});await saveReopen(page,saved);}
   }else if(caseId==='AHT-15'){
    const entryMic=await observer.mic(page);await check('return-entry-mic-off',navigation.micOff(entryMic),{observed:!!entryMic,micOff:navigation.micOff(entryMic)});const target=navigation.existingTarget(baseline);
@@ -394,4 +413,4 @@ async function run(caseId,args){
  }
  return {caseId,contentSafe:true,assertions,blocker,executionSignals};
 }
-module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,installCoachingResponseHandler,smokeLeaseBoundary,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};
+module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,installCoachingResponseHandler,waitForModelFailure,smokeLeaseBoundary,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};

@@ -223,7 +223,7 @@
       "coachingCap": 20,
       "basis": "16 smoke takes x 125% retry allowance; the guard denies a coaching request beyond the cap"
     },
-    "githubRunnerMinutesMax": 49
+    "githubRunnerMinutesMax": 40
   },
   "proposedLimits": {
     "cumulativeCeilingRequests": 2032,
@@ -302,7 +302,7 @@
   },
   "harness": {
     "codeManifestSha256": "74d2687093f154b796c5146eddc3f231595bb6464fff94ff37650e7ef83459a2",
-    "packetManifestSha256": "9d9dac082d8a895f9677a26ae5ca502fb16e527a81b61f340373e542e01df953",
+    "packetManifestSha256": "ab4cdb8221b5f378103a5b5c8b98e047799f725a1a348e4d61c4fb09d527d81c",
     "ownerApprovalRef": "slack:1793652215.171339",
     "offlineProofFile": "config/proofs/offline-proof-74d26870.json"
   },

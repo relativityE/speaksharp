@@ -20,10 +20,13 @@ const WINDOWS=Object.freeze({
   'AHT-15':22850,
 });
 
-// The retained R5/R9 model-failure rows were NOT RUN and do not support a shorter
-// product-visible-error deadline. Smoke therefore preserves the production path's
-// existing five-minute bound until a completed run supplies timing evidence.
-const MODEL_FAILURE_DEADLINE_MS=300000;
+// The smoke path measures the real model-fault-to-visible-error transition. It
+// exits on the state mutation and fails closed after 30 seconds; it never waits
+// out the old five-minute production envelope merely to collect a diagnostic.
+// Full acceptance retains its existing ceiling until smoke telemetry justifies
+// a separately reviewed reduction.
+const MODEL_FAILURE_SMOKE_DEADLINE_MS=30000;
+const MODEL_FAILURE_FULL_DEADLINE_MS=300000;
 const LEASE_WAIT_DEADLINE_MS=20000;
 const LEASE_POLL_MS=250;
 
@@ -37,7 +40,7 @@ function recordingWindowMs(caseId,{sampleMode,fixtureDurationMs,requestedMs}={})
 }
 
 function modelFailureDeadlineMs({sampleMode}={}){
-  return sampleMode==='smoke'?MODEL_FAILURE_DEADLINE_MS:300000;
+  return sampleMode==='smoke'?MODEL_FAILURE_SMOKE_DEADLINE_MS:MODEL_FAILURE_FULL_DEADLINE_MS;
 }
 
 function leaseBoundary({leaseRows,mic}){
@@ -57,4 +60,4 @@ function focusWindowVerdict({windows,expected,statuses,recordingWindowMs}){
   return {result:matching===eligible.length?'PASS':'FAIL',facts:{recordingWindowMs,eligiblePoints:eligible.length,matchingPoints:matching,unscoredPoints:windows.length-eligible.length}};
 }
 
-module.exports={WINDOWS,MODEL_FAILURE_DEADLINE_MS,LEASE_WAIT_DEADLINE_MS,LEASE_POLL_MS,recordingWindowMs,modelFailureDeadlineMs,leaseBoundary,focusWindowVerdict};
+module.exports={WINDOWS,MODEL_FAILURE_SMOKE_DEADLINE_MS,MODEL_FAILURE_FULL_DEADLINE_MS,LEASE_WAIT_DEADLINE_MS,LEASE_POLL_MS,recordingWindowMs,modelFailureDeadlineMs,leaseBoundary,focusWindowVerdict};
