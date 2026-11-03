@@ -60,11 +60,27 @@ def live_smoke_request():
     return value
 
 
+def occurrence_authority(start="2026-11-03T16:00:00Z", expires="2026-11-04T12:00:00Z"):
+    return {"occurrenceApproval": {
+        "schema": init.OCCURRENCE_APPROVAL_SCHEMA,
+        "status": "APPROVED",
+        "approvalRef": "chat:PO_R10_SCOPE_EXTENSION_2026-11-03",
+        "approvedBy": "ProductOwner",
+        "runId": "R10-3b040043-smoke15",
+        "attempt": 1,
+        "windowMinutes": 80,
+        "testedSha": "a" * 40,
+        "backendSha": "b" * 40,
+        "notBeforeUtc": start,
+        "expiresUtc": expires,
+    }}
+
+
 class ShortSmokeContract(unittest.TestCase):
     def test_actual_initiation_derives_one_bounded_occurrence_that_admits(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
         start = "2026-11-03T16:00:00Z"
-        value = init.materialize_smoke_occurrence(template, start, "slack:exact-occurrence", "Akin", "a" * 40, "b" * 40)
+        value = init.materialize_authoritative_smoke_occurrence(template, occurrence_authority(), start)
         self.assertEqual(value["window"]["startUtc"], start)
         self.assertEqual(value["window"]["endUtc"], "2026-11-03T17:20:00Z")
         self.assertIn("not measured runtime", value["window"]["basis"])
@@ -91,9 +107,9 @@ class ShortSmokeContract(unittest.TestCase):
     def test_exact_occurrence_bytes_are_rederived_from_the_committed_template(self):
         template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        occurrence = init.materialize_smoke_occurrence(
-            template, "2026-11-03T16:00:00Z", "slack:exact-occurrence",
-            "Akin", "a" * 40, "b" * 40)
+        start = "2026-11-03T16:00:00Z"
+        facts = occurrence_authority()
+        occurrence = init.materialize_authoritative_smoke_occurrence(template, facts, start)
         raw = json.dumps(occurrence, sort_keys=True, separators=(",", ":")).encode()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "occurrence.json"
@@ -101,7 +117,7 @@ class ShortSmokeContract(unittest.TestCase):
             selected = init.select_manual_occurrence(
                 str(ROOT.parents[1]), template_rel, str(path),
                 hashlib.sha256(raw).hexdigest(),
-                init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"))
+                init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), facts, start)
             self.assertEqual(selected[2], raw)
 
             tampered = dict(occurrence)
@@ -112,7 +128,24 @@ class ShortSmokeContract(unittest.TestCase):
                 init.select_manual_occurrence(
                     str(ROOT.parents[1]), template_rel, str(path),
                     hashlib.sha256(bad).hexdigest(),
-                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"))
+                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), facts, start)
+
+    def test_occurrence_refuses_an_external_timestamp_or_expired_authority(self):
+        template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        facts = occurrence_authority()
+        occurrence = init.materialize_authoritative_smoke_occurrence(template, facts, "2026-11-03T16:00:00Z")
+        raw = json.dumps(occurrence, sort_keys=True, separators=(",", ":")).encode()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "occurrence.json"
+            path.write_bytes(raw)
+            with self.assertRaisesRegex(init.Refused, "manual-occurrence-not-the-workflow-start"):
+                init.select_manual_occurrence(
+                    str(ROOT.parents[1]), template_rel, str(path), hashlib.sha256(raw).hexdigest(),
+                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), facts, "2026-11-03T16:00:01Z")
+        expired = occurrence_authority(expires="2026-11-03T17:19:59Z")
+        with self.assertRaisesRegex(init.Refused, "relative-occurrence-approval-expired"):
+            init.materialize_authoritative_smoke_occurrence(template, expired, "2026-11-03T16:00:00Z")
 
     def test_all_fifteen_smoke_maps_to_distinct_builder_mode(self):
         mode, caps = request_caps(request())

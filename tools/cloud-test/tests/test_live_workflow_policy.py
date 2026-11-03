@@ -64,7 +64,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
                       '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n', init["run"])
         self.assertIn('else\n  (umask 077; printf \'%s\' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")\n'
                       '  SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \\\n'
-                      '    --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --facts "$FACTS")\nfi\n', init["run"])
+                      '    --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}" --facts "$FACTS")\nfi\n', init["run"])
         # Case 10 design A: on schedule only, the observation step runs on exactly the gate's bytes BEFORE prepare, and only a record it
         # actually placed reaches prepare; a dispatch never runs it.
         nightly_branch = init["run"].split('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n', 1)[1].split("else\n", 1)[0]
@@ -91,7 +91,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_no_default_permission_and_each_job_holds_only_its_own(self):
         self.assertEqual(self.doc["permissions"], {})
-        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write"})
+        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "actions": "read"})
         self.assertEqual(self.jobs["record-complete"]["permissions"], {"issues": "write", "actions": "read"})
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
@@ -437,22 +437,27 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('--settle-input "$SETTLE"', manual_settle)  # its evidence is the embedded record digest (RETURN 1793645360.787039 #3)
         self.assertNotIn("--record", manual_settle)
 
-    def test_the_dispatch_names_a_committed_template_and_carries_one_exact_occurrence_end_to_end(self):
+    def test_the_dispatch_names_a_committed_template_and_materializes_one_exact_occurrence_from_the_workflow_start(self):
         on = self.doc.get("on", self.doc.get(True))
-        self.assertEqual(sorted(on["workflow_dispatch"]["inputs"]),
-                         ["confirm", "facts", "occurrence_b64", "occurrence_sha256", "request"])
+        self.assertEqual(sorted(on["workflow_dispatch"]["inputs"]), ["confirm", "facts", "request"])
         begin = self.jobs["record-begin"]
         validate = next(s for s in begin["steps"] if s.get("id") == "manual-occurrence")
         self.assertLess(begin["steps"].index(validate), next(i for i, s in enumerate(begin["steps"]) if s.get("id") == "begin"))
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at', validate["run"])
+        self.assertIn("init_run_inputs.py occurrence-materialize", validate["run"])
         self.assertIn("init_run_inputs.py occurrence-check", validate["run"])
         self.assertIn('--manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256"', validate["run"])
+        self.assertIn('--workflow-start-utc "$workflow_start_utc"', validate["run"])
+        self.assertNotIn("inputs.occurrence", json.dumps(self.doc))
         self.assertEqual(begin["outputs"]["manual_occurrence_sha256"], "${{ steps.manual-occurrence.outputs.occurrence_sha256 }}")
         self.assertEqual(begin["outputs"]["manual_occurrence_b64"], "${{ steps.manual-occurrence.outputs.occurrence_b64 }}")
+        self.assertEqual(begin["outputs"]["manual_workflow_start_utc"], "${{ steps.manual-occurrence.outputs.workflow_start_utc }}")
         init = next(s for s in self.jobs["live"]["steps"] if s.get("id") == "init")
         self.assertEqual(init["env"]["REQUEST"], "${{ inputs.request }}")
         self.assertIn("init_run_inputs.py prepare", init["run"])
         self.assertIn('--request "$REQUEST"', init["run"])
         self.assertIn('--manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json"', init["run"])
+        self.assertIn('--workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}"', init["run"])
         for name in ("journal-reserve", "journal-settle"):
             writer = next(s for s in self.jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (s.get("env") or {}))
             self.assertEqual(writer["env"]["MANUAL_OCCURRENCE_SHA256"],
@@ -461,6 +466,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
                              "${{ needs.record-begin.outputs.manual_occurrence_b64 }}")
         self.assertIn('--request "$RUNNER_TEMP/manual-occurrence.json" --admitted-sha256 "$MANUAL_OCCURRENCE_SHA256"',
                       writers_of(self.jobs, "journal-reserve"))
+        reserve = next(s for s in self.jobs["journal-reserve"]["steps"] if "CT_STATE_PUSH_TOKEN" in (s.get("env") or {}))
+        self.assertEqual(reserve["env"]["MANUAL_WORKFLOW_START_UTC"], "${{ needs.record-begin.outputs.manual_workflow_start_utc }}")
+        self.assertIn('--workflow-start-utc "$MANUAL_WORKFLOW_START_UTC"', reserve["run"])
         self.assertIn('cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" runId', writers_of(self.jobs, "journal-settle"))
 
     def test_the_job_timeout_is_the_one_prepare_checks_and_the_run_step_is_bounded_to_the_live_minutes(self):

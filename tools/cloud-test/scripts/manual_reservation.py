@@ -263,9 +263,11 @@ def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint):
         facts = json.loads(facts_raw)
     except (TypeError, ValueError):
         raise Refused("manual-reservation-approval-facts")
-    _need(isinstance(facts, dict) and isinstance(facts.get("actionApproval"), dict), "manual-reservation-approval-facts")
+    _need(isinstance(facts, dict), "manual-reservation-approval-facts")
+    _need("actionApproval" in facts or "occurrenceApproval" in facts,
+          "manual-reservation-approval-facts")
     try:
-        I.check_action_approval(facts["actionApproval"], admitted_sha256, checkpoint, json.loads(request_raw))
+        I.occurrence_action_approval(facts, admitted_sha256, checkpoint, json.loads(request_raw))
     except I.Refused as err:
         raise Refused("manual-reservation-" + str(err))
 

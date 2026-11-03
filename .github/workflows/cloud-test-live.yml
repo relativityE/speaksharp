@@ -35,16 +35,8 @@ on:
         description: Repository path of the COMMITTED, reviewed R10 request template
         required: true
         type: string
-      occurrence_b64:
-        description: Base64 of the exact owner-selected occurrence materialized from the committed template (references and limits only)
-        required: true
-        type: string
-      occurrence_sha256:
-        description: SHA-256 of the exact decoded occurrence bytes
-        required: true
-        type: string
       facts:
-        description: Bounded JSON of the approval/review/receipt references and the account binding (references and digests only; never values)
+        description: Bounded JSON of approval/review/receipt references, relative occurrence authority and account binding (references and digests only; never values)
         required: true
         type: string
       confirm:
@@ -108,6 +100,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       issues: write
+      actions: read
     outputs:
       comment_id: ${{ steps.begin.outputs.comment_id }}
       prior_state: ${{ steps.begin.outputs.prior_state }}
@@ -118,6 +111,7 @@ jobs:
       # before this job mutates the latest record. Empty for a schedule.
       manual_occurrence_sha256: ${{ steps.manual-occurrence.outputs.occurrence_sha256 }}
       manual_occurrence_b64: ${{ steps.manual-occurrence.outputs.occurrence_b64 }}
+      manual_workflow_start_utc: ${{ steps.manual-occurrence.outputs.workflow_start_utc }}
     steps:
       - name: Refuse a re-run attempt and an unconfirmed or inactive dispatch
         env:
@@ -143,34 +137,41 @@ jobs:
             tools/cloud-test/config/runs
             tools/cloud-test/config/test-config.v1.json
             tools/cloud-test/templates/run-request.template.json
-      - name: Validate the exact manual occurrence before any record mutation
+      - name: Materialize the exact manual occurrence from the authoritative workflow start before any record mutation
         id: manual-occurrence
         env:
           MANUAL_REQUEST: ${{ inputs.request }}
-          MANUAL_OCCURRENCE_B64: ${{ inputs.occurrence_b64 }}
-          MANUAL_OCCURRENCE_SHA256: ${{ inputs.occurrence_sha256 }}
+          MANUAL_FACTS: ${{ inputs.facts }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = schedule ]; then
             echo 'occurrence_sha256=' >> "$GITHUB_OUTPUT"
             echo 'occurrence_b64=' >> "$GITHUB_OUTPUT"
+            echo 'workflow_start_utc=' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo 'BLOCKED_SETUP: request-not-in-the-reviewed-request-location'; exit 78 ;; esac
           case "$MANUAL_REQUEST" in *..*|*//*) echo 'BLOCKED_SETUP: request-path'; exit 78 ;; esac
-          [[ "$MANUAL_OCCURRENCE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'BLOCKED_SETUP: manual-occurrence-digest'; exit 78; }
-          (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
-          [ "$(sha256sum "$RUNNER_TEMP/manual-occurrence.json" | cut -d' ' -f1)" = "$MANUAL_OCCURRENCE_SHA256" ] || { echo 'BLOCKED_SETUP: manual-occurrence-not-the-selected-bytes'; exit 78; }
+          workflow_start_utc="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)"
+          [[ "$workflow_start_utc" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo 'BLOCKED_SETUP: workflow-start-unavailable'; exit 78; }
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-materialize --repo "$GITHUB_WORKSPACE" \
+            --request "$MANUAL_REQUEST" --facts "$MANUAL_FACTS" --workflow-start-utc "$workflow_start_utc" \
+            --source-sha "$GITHUB_SHA" --out "$RUNNER_TEMP/manual-occurrence.json"
+          MANUAL_OCCURRENCE_SHA256="$(sha256sum "$RUNNER_TEMP/manual-occurrence.json" | cut -d' ' -f1)"
           python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-check --repo "$GITHUB_WORKSPACE" \
             --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
             --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
+            --facts "$MANUAL_FACTS" --workflow-start-utc "$workflow_start_utc" \
             --source-sha "$GITHUB_SHA" --job-timeout-minutes 65
           echo "occurrence_sha256=$MANUAL_OCCURRENCE_SHA256" >> "$GITHUB_OUTPUT"
-          echo "occurrence_b64=$MANUAL_OCCURRENCE_B64" >> "$GITHUB_OUTPUT"
+          echo "occurrence_b64=$(base64 < "$RUNNER_TEMP/manual-occurrence.json" | tr -d '\n')" >> "$GITHUB_OUTPUT"
+          echo "workflow_start_utc=$workflow_start_utc" >> "$GITHUB_OUTPUT"
       - name: Begin the attempt in the latest record
         id: begin
         env:
           GH_TOKEN: ${{ github.token }}
+          WORKFLOW_START_UTC: ${{ steps.manual-occurrence.outputs.workflow_start_utc }}
         run: |
           set -euo pipefail
           P=tools/cloud-test/scripts/publish_latest_record.py
@@ -179,8 +180,9 @@ jobs:
           python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); open(sys.argv[2],"w").write(s["body"]); print(s["commentId"] or "")' "$RUNNER_TEMP/selected.json" "$RUNNER_TEMP/previous.md" > "$RUNNER_TEMP/comment-id"
           # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
           python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"
+          started_utc="${WORKFLOW_START_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
           python3 -I "$P" begin --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --source-sha "$GITHUB_SHA" --started-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$RUNNER_TEMP/body.md"
+            --source-sha "$GITHUB_SHA" --started-utc "$started_utc" --out "$RUNNER_TEMP/body.md"
           id="$(cat "$RUNNER_TEMP/comment-id")"
           if [ -n "$id" ]; then
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
@@ -214,6 +216,7 @@ jobs:
           MANUAL_FACTS: ${{ inputs.facts }}
           MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
           MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          MANUAL_WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
           CT_STATE_PUSH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -231,6 +234,7 @@ jobs:
             python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-check --repo "$GITHUB_WORKSPACE" \
               --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
               --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
+              --facts "$MANUAL_FACTS" --workflow-start-utc "$MANUAL_WORKFLOW_START_UTC" \
               --source-sha "$GITHUB_SHA" --job-timeout-minutes 65
             (umask 077; printf '%s' "$MANUAL_FACTS" > "$RUNNER_TEMP/manual-facts.json")
             python3 -I tools/cloud-test/scripts/manual_reservation.py reserve --journal "$RUNNER_TEMP/reserve-journal" \
@@ -351,6 +355,7 @@ jobs:
           NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
           MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
           MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          MANUAL_WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
           CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           # Case 10 observation (Sam 1793582780.014609): the AHT-10 role's password and the project's anon key, scheduled runs only. The
@@ -381,7 +386,7 @@ jobs:
           else
             (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
             SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \
-              --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --facts "$FACTS")
+              --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}" --facts "$FACTS")
           fi
           unset C10_PASSWORD C10_ANON_KEY
           python3 -I tools/cloud-test/scripts/init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \

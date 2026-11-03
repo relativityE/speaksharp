@@ -44,6 +44,42 @@ import state_ref_writer  # noqa: E402
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
+OCCURRENCE_APPROVAL_SCHEMA = "speaksharp.cloud-test.relative-occurrence-approval.v1"
+OCCURRENCE_APPROVAL_KEYS = {"schema", "status", "approvalRef", "approvedBy", "runId", "attempt", "windowMinutes",
+                            "testedSha", "backendSha", "notBeforeUtc", "expiresUtc"}
+
+
+def relative_occurrence_approval(facts, template, initiation):
+    """The exact owner-selected one-run rule; GitHub supplies the actual run start.
+
+    Approval fixes every mutable execution value except the initiation instant.  That instant is accepted only from the current workflow
+    run's authenticated `run_started_at`, passed separately by the workflow.  The resulting request remains one attempt and is rederived at
+    every job boundary from these same authority bytes and the same start.
+    """
+    approval = (facts or {}).get("occurrenceApproval")
+    _need(isinstance(approval, dict) and set(approval) == OCCURRENCE_APPROVAL_KEYS
+          and approval.get("schema") == OCCURRENCE_APPROVAL_SCHEMA and approval.get("status") == "APPROVED",
+          "relative-occurrence-approval-shape")
+    _need(_ref(approval.get("approvalRef")) and isinstance(approval.get("approvedBy"), str) and approval["approvedBy"],
+          "relative-occurrence-approval-reference")
+    _need(approval.get("runId") == template.get("runId") == "R10-3b040043-smoke15" and approval.get("attempt") == 1,
+          "relative-occurrence-approval-run")
+    _need(approval.get("windowMinutes") == SMOKE_OCCURRENCE_WINDOW_MINUTES,
+          "relative-occurrence-approval-window")
+    _need(isinstance(approval.get("testedSha"), str) and LR.SHA40.match(approval["testedSha"])
+          and isinstance(approval.get("backendSha"), str) and LR.SHA40.match(approval["backendSha"]),
+          "relative-occurrence-approval-release")
+    start = _utc(initiation)
+    _need(_utc(approval.get("notBeforeUtc")) <= start
+          and start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES) <= _utc(approval.get("expiresUtc")),
+          "relative-occurrence-approval-expired")
+    return approval
+
+
+def materialize_authoritative_smoke_occurrence(template, facts, initiation):
+    approval = relative_occurrence_approval(facts, template, initiation)
+    return materialize_smoke_occurrence(template, initiation, approval["approvalRef"], approval["approvedBy"],
+                                        approval["testedSha"], approval["backendSha"])
 
 
 def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by, tested_sha, backend_sha):
@@ -81,7 +117,7 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, approved_by
     return out
 
 
-def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha256, source_sha):
+def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha256, source_sha, facts=None, workflow_start_utc=None):
     """Admit an exact, approver-bound smoke occurrence derived from one committed template.
 
     The occurrence bytes travel unchanged through reservation and preparation.  They are never generated after the reserve, and they are
@@ -98,10 +134,9 @@ def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha
         template, occurrence = json.loads(template_raw), json.loads(raw)
     except ValueError:
         raise Refused("manual-occurrence-unreadable")
-    release, limits = occurrence.get("release") or {}, occurrence.get("approvedLimits") or {}
-    backend = release.get("backend") or {}
-    expected = materialize_smoke_occurrence(template, occurrence.get("createdUtc"), occurrence.get("selectionApprovalRef"),
-                                            limits.get("approvedBy"), release.get("testedSha"), backend.get("sha"))
+    _need(isinstance(workflow_start_utc, str) and occurrence.get("createdUtc") == workflow_start_utc,
+          "manual-occurrence-not-the-workflow-start")
+    expected = materialize_authoritative_smoke_occurrence(template, facts, workflow_start_utc)
     _need(occurrence == expected, "manual-occurrence-not-the-template-materialization")
     return occurrence_file, hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest(), raw, template_blob
 # NIGHTLY facts (Elon 1793560137.871769, pending Sam's content/pin decision): a scheduled run has no operator facts input, so its facts are
@@ -137,7 +172,8 @@ SHA64 = re.compile(r"^[0-9a-f]{64}$")
 RECEIPT_KEYS = {"pre", "rls", "analytics", "disp", "fence", "review"}  # build_plan.py 55
 BACKEND_KEYS = {"manifestRef", "generation", "completion", "migration129"}
 FACT_REQUIRED = {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "accounts"}
-FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic", "actionApproval", "case10RequestBound"}
+FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic", "actionApproval",
+                 "occurrenceApproval", "case10RequestBound"}
 # A manual run's builder Start/take action approval (case_start_caps.bind_inputs) is supplied by its approver.  A scheduled run instead
 # derives the occurrence-bound envelope from the exact request emitted by the credential-free nightly gate and the admitted reconciliation;
 # the standing approval already bound into that request remains the authority.  No reusable committed facts file can predict a future
@@ -720,6 +756,22 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
               and envelope.get("approvedBy") == lim.get("approvedBy") and envelope.get("selectionApprovalRef") == req.get("selectionApprovalRef"),
               "action-approval-standing-reference")
         return envelope
+    if supplied is None and facts.get("occurrenceApproval") is not None:
+        approval = relative_occurrence_approval(facts, req, req.get("createdUtc"))
+        window = req.get("window") or {}
+        _need(req.get("createdUtc") == window.get("startUtc")
+              and (_utc(window.get("endUtc")) - _utc(window.get("startUtc"))).total_seconds()
+              == 60 * SMOKE_OCCURRENCE_WINDOW_MINUTES,
+              "relative-occurrence-request-window")
+        release = req.get("release") or {}
+        _need(release.get("testedSha") == approval["testedSha"]
+              and (release.get("backend") or {}).get("sha") == approval["backendSha"],
+              "relative-occurrence-request-release")
+        envelope = {"schema": ACTION_APPROVAL_SCHEMA, "requestSha256": request_sha256,
+                    "reconciliationSha256": hashlib.sha256(reconciliation_bytes).hexdigest(),
+                    "approvalRef": approval["approvalRef"], "approvedBy": approval["approvedBy"],
+                    "selectionApprovalRef": approval["approvalRef"]}
+        return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
     return check_action_approval(supplied, request_sha256, reconciliation_bytes, req)
 
 
@@ -779,6 +831,7 @@ def prepare(x, now):
     nightly_sha = getattr(x, "nightly_request_sha256", None)
     occurrence_file = getattr(x, "manual_occurrence_file", None)
     occurrence_sha = getattr(x, "manual_occurrence_sha256", None)
+    workflow_start_utc = getattr(x, "workflow_start_utc", None)
     nightly = any(isinstance(v, str) and v for v in (nightly_file, nightly_sha))
     manual_occurrence = any(isinstance(v, str) and v for v in (occurrence_file, occurrence_sha))
     _need(not (nightly and x.request) and not (nightly and manual_occurrence), "request-source-ambiguous")
@@ -788,8 +841,14 @@ def prepare(x, now):
     if nightly:
         req_path, req_blob, req_raw = nightly_request(nightly_file, nightly_sha, x.run_id, x.source_sha)
     elif manual_occurrence:
+        try:
+            manual_facts = json.loads(x.facts or "null")
+        except ValueError:
+            raise Refused("facts-shape")
+        _need(isinstance(manual_facts, dict), "facts-shape")
         req_path, req_blob, req_raw, _template_blob = select_manual_occurrence(repo, x.request, occurrence_file,
-                                                                               occurrence_sha, x.source_sha)
+                                                                               occurrence_sha, x.source_sha, manual_facts,
+                                                                               workflow_start_utc)
     else:
         req_path, req_blob, req_raw = select_request(repo, x.request, x.source_sha)
     req, cfg, template_keys = json.loads(req_raw), _load(os.path.join(repo, x.config)), _request_keys()
@@ -798,7 +857,7 @@ def prepare(x, now):
     live_minutes = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
     check_window_fit(req, now, live_minutes)
     _need(not (nightly and x.facts), "nightly-facts-input-refused")
-    facts = nightly_facts(repo) if nightly else json.loads(x.facts or "null")
+    facts = nightly_facts(repo) if nightly else (manual_facts if manual_occurrence else json.loads(x.facts or "null"))
     _need(isinstance(facts, dict), "facts-shape")
     lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys)
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
@@ -1271,12 +1330,13 @@ def _write_private(path, doc):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "window-check", "occurrence-check"))
+    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "window-check", "occurrence-check",
+                                       "occurrence-materialize"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
                  "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
-                 "--manual-occurrence-file", "--manual-occurrence-sha256"):
+                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -1304,14 +1364,29 @@ def main(argv):
             return 0
         if x.command == "occurrence-check":
             repo = os.path.realpath(x.repo)
+            try:
+                occurrence_facts = json.loads(x.facts or "null")
+            except ValueError:
+                raise Refused("facts-shape")
             _path, _blob, raw, _template_blob = select_manual_occurrence(
                 repo, x.request, x.manual_occurrence_file,
-                x.manual_occurrence_sha256, x.source_sha)
+                x.manual_occurrence_sha256, x.source_sha, occurrence_facts,
+                x.workflow_start_utc)
             req = json.loads(raw)
             cases = check_request(req, datetime.now(timezone.utc), _request_keys())
             cfg = _load(os.path.join(repo, x.config))
             live = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
             check_window_fit(req, datetime.now(timezone.utc), live)
+            return 0
+        if x.command == "occurrence-materialize":
+            repo = os.path.realpath(x.repo)
+            _path, _blob, template_raw = select_request(repo, x.request, x.source_sha)
+            try:
+                template, occurrence_facts = json.loads(template_raw), json.loads(x.facts or "null")
+            except ValueError:
+                raise Refused("manual-occurrence-unreadable")
+            occurrence = materialize_authoritative_smoke_occurrence(template, occurrence_facts, x.workflow_start_utc)
+            _write_private(x.out, occurrence)
             return 0
         # Mask first: the whole bundle and every extracted value, before any refusal, output or environment export.
         if os.environ.get("GITHUB_ACTIONS") == "true":
