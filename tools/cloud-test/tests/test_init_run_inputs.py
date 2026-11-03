@@ -129,6 +129,13 @@ class FirstObservationExportTests(unittest.TestCase):
         self.assertEqual(out["observations"], [])
         self.assertEqual(out["notObserved"], [{"caseId": "AHT-15", "status": "NOT OBSERVED", "reason": "OBSERVATION NOT PRODUCED"}])
 
+    def test_dangling_observation_symlink_refuses_instead_of_disappearing(self):
+        directory = os.path.join(self.cases, "AHT-15")
+        os.makedirs(directory)
+        os.symlink(os.path.join(directory, "missing-observation.json"), os.path.join(directory, "aht-15-first-observation.json"))
+        with self.assertRaisesRegex(I.Refused, "regular-files"):
+            I.first_observation_export(self.cases, ["AHT-15"])
+
     def test_unlinked_or_digest_substituted_observation_refuses(self):
         for linked, tamper, reason in ((False, False, "not-linked"), (True, True, "not-linked")):
             with self.subTest(linked=linked, tamper=tamper):
@@ -201,6 +208,32 @@ class CaseTimingExportTests(unittest.TestCase):
                 self.fixture(tamper=tamper, executed_missing=missing)
                 with self.assertRaisesRegex(I.Refused, reason):
                     I.case_timing_export(self.cases, self.results, ["AHT-01"])
+
+    def test_earlier_timing_survives_later_guard_exit_without_summary(self):
+        self.fixture()
+        with open(self.results, encoding="utf-8") as f:
+            results = json.load(f)
+        results["cases"][1].update(result="FAIL", executionReceipt={"summarySha256": None})
+        with open(self.results, "w", encoding="utf-8") as f:
+            json.dump(results, f)
+        out = I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])
+        self.assertEqual(out["cases"][0]["timingStatus"], "OBSERVED")
+        self.assertEqual(out["cases"][1], {"caseId": "AHT-02", "result": "FAIL", "timingStatus": "NOT OBSERVED",
+                                           "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
+
+    def test_null_summary_digest_still_refuses_a_present_substituted_summary(self):
+        self.fixture()
+        with open(self.results, encoding="utf-8") as f:
+            results = json.load(f)
+        results["cases"][1].update(result="FAIL", executionReceipt={"summarySha256": None})
+        directory = os.path.join(self.cases, "AHT-02")
+        os.makedirs(directory)
+        with open(os.path.join(directory, "summary.json"), "w", encoding="utf-8") as f:
+            json.dump({"startedAt": "2026-11-03T16:00:00.000Z", "endedAt": "2026-11-03T16:00:01.000Z"}, f)
+        with open(self.results, "w", encoding="utf-8") as f:
+            json.dump(results, f)
+        with self.assertRaisesRegex(I.Refused, "case-timing-summary"):
+            I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])
 
     def test_timing_outside_the_run_ceiling_refuses(self):
         self.fixture(duration_seconds=2401)

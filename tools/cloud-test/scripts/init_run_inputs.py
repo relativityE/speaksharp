@@ -1432,7 +1432,7 @@ def first_observation_export(cases_dir, selected):
         _need(case_dir.startswith(os.path.realpath(cases_dir) + os.sep) and os.path.isdir(case_dir), "first-observation-case-dir")
         result_file, (ref, role) = os.path.join(case_dir, "case-result.json"), expected[case_id]
         observation_file = os.path.join(case_dir, ref)
-        if not os.path.exists(observation_file):
+        if not os.path.lexists(observation_file):
             not_observed.append({"caseId": case_id, "status": "NOT OBSERVED", "reason": "OBSERVATION NOT PRODUCED"})
             continue
         _need(os.path.isfile(result_file) and not os.path.islink(result_file) and os.path.isfile(observation_file)
@@ -1498,6 +1498,12 @@ def case_timing_export(cases_dir, case_results_file, selected):
                         "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
             continue
         summary = os.path.join(os.path.realpath(cases_dir), case_id, "summary.json")
+        _need("summarySha256" in receipt, "case-timing-summary-digest")
+        if receipt.get("summarySha256") is None:
+            _need(not os.path.lexists(summary), "case-timing-summary")
+            out.append({"caseId": case_id, "result": row["result"], "timingStatus": "NOT OBSERVED",
+                        "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
+            continue
         _need(os.path.isfile(summary) and not os.path.islink(summary), "case-timing-summary")
         raw = _read(summary)
         _need(hashlib.sha256(raw).hexdigest() == receipt.get("summarySha256"), "case-timing-summary-digest")
