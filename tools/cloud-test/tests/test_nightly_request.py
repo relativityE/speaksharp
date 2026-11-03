@@ -72,8 +72,8 @@ class Approval(unittest.TestCase):
         self.assertEqual(N.check_approval(approval(), SLOT, CFG)["status"], "APPROVED")
 
     def test_typed_complete_chronological_in_limit_and_valid(self):
-        with open(N.APPROVAL_PATH, "rb") as f:  # the PO's standing approval starts 2026-11-03T12:00Z, after this test slot
-            refused(self, "recurring-approval-not-yet-valid", N.check_approval, f.read(), SLOT, CFG)
+        with open(N.APPROVAL_PATH, "rb") as f:
+            refused(self, "recurring-approval-not-approved", N.check_approval, f.read(), SLOT, CFG)
         for raw, code in ((b"{", "recurring-approval-unreadable"), (approval(schema="x"), "recurring-approval-unreadable"),
                           (approval(status="NOT APPROVED"), "recurring-approval-not-approved"),
                           (approval(approvalRef=None), "recurring-approval-incomplete"),
@@ -143,7 +143,7 @@ class Gate(unittest.TestCase):
         code, out, err = run("--switch", "true", "--attempt", "2", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")
         self.assertEqual((code, out["code"], err.strip()), (78, "nightly-attempt", "BLOCKED_SETUP: nightly-attempt"))
         self.assertEqual(run("--switch", "true", "--attempt", "1", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")[:2],
-                         (78, {"admitted": "false", "code": "recurring-approval-not-yet-valid", "request_sha256": "", "request_b64": ""}))
+                         (78, {"admitted": "false", "code": "recurring-approval-not-approved", "request_sha256": "", "request_b64": ""}))
 
     def test_an_admitted_gate_outputs_exactly_the_admitted_bytes_beside_their_digest(self):
         import base64

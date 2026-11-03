@@ -18,12 +18,13 @@ contract is `tools/cloud-test/config/nightly/ACTIVATION-INPUTS.md`; this entry i
 
 - **Pinned on main (shared with the approved manual all-15 run, via #1772/#1779):** reviewed state-ref root `92d6ebf9…`; accepted
   accounting bootstrap `0a3e6027…` and root; aggregate receiver activated with its pinned manifest.
-- **In #1778:** the cron behind `RUN_NIGHTLY_REGRESSION`; the PO's standing approval (slack:1793668784.454189: $0, the all-15 envelope
-  per run, coaching capped at 4 invocations with a campaign-wide stop after a provider-limit refusal, 30 days from 2026-11-03T12:00Z,
-  30 runs); provider-condition coaching scoring.
-- **Not yet supplied:** the nightly template and budget anchors (from the reviewed all-15 request); a nightly period scope replacing the
-  manual run's accepted scope (which ends 2026-11-03T12:00Z) after that run settles; creating the switch, with Sam's approval.
-- **Target:** one verified scheduled run at 2026-11-04 03:00 UTC, after which the switch returns to `false`. No nightly run has occurred.
+- **In #1778 (HOLD, off):** the cron behind `RUN_NIGHTLY_REGRESSION`; provider-condition coaching scoring. The standing approval is
+  `NOT APPROVED`: the earlier PO approval (slack:1793668784.454189) covered the 330-minute all-15 envelope, which the PO has since ruled
+  out for the nightly, so it is retired and a fresh approval is needed for the reshaped run.
+- **Not yet supplied:** the reshaped nightly (a short user-journey smoke first, then a streamlined full-depth run, timed from the actual
+  start); its template and budget anchors; a fresh PO standing approval for that envelope; a nightly period scope replacing the manual
+  run's accepted scope after that run settles; creating the switch, with Sam's approval.
+- **Target:** one verified scheduled run, after which the switch returns to `false`. No nightly run has occurred.
 
 ## 28 October 2026 post-R5 receiving addendum
 
