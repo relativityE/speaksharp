@@ -602,12 +602,19 @@ def read_binding_inputs(env, argv):
         for _k in ('manifestRef', 'generation', 'completion', 'migration129'):
             if _k not in FBE:
                 raise InputValidationError('input-binding')
+        backend_identity = {'manifestRef': FBE['manifestRef'], 'source': env.get('BP_BACKEND_SOURCE') or FBE.get('source', 'owner-stated'),
+                            'generation': caps_module.integer(FBE['generation'], 'backend-generation'), 'completion': FBE['completion'],
+                            'facts': [{'name': 'migration-129', 'state': FBE['migration129']}],
+                            'verifiedAtUtc': env.get('BP_BACKEND_VERIFIED') or None}
+        if backend_identity['source'] == 'cloud-verified-source-equivalent':
+            request_backend = obj(obj(request.get('release'), 'request-release').get('backend'), 'request-backend')
+            require(request_backend.get('source') == backend_identity['source'], 'input-binding')
+            backend_identity.update({key: caps_module.text(request_backend.get(key), 'backend-' + key)
+                                     for key in ('sha', 'evidenceRef', 'sourceEquivalentToSha', 'functionsTreeSha')})
+            require(backend_identity['sourceEquivalentToSha'] == B, 'input-binding')
         plan['runIdentity'] = {'frontend': {'sourceSha': B, 'servedSha': B},
                                'runner': {'codeManifestSha256': shaf(f'{PACKET}/bundle/CODE.sha256'), 'packetManifestSha256': shaf(f'{PACKET}/PACKET-MANIFEST.sha256')},
-                               'backend': {'manifestRef': FBE['manifestRef'], 'source': env.get('BP_BACKEND_SOURCE') or FBE.get('source', 'owner-stated'),
-                                           'generation': caps_module.integer(FBE['generation'], 'backend-generation'), 'completion': FBE['completion'],
-                                           'facts': [{'name': 'migration-129', 'state': FBE['migration129']}],
-                                           'verifiedAtUtc': env.get('BP_BACKEND_VERIFIED') or None}}
+                               'backend': backend_identity}
         if env.get('BP_STIM'):
             plan['stimulusPreflight'] = {'file': env['BP_STIM'], 'sha256': shaf(env['BP_STIM'])}
         plan_sha = put(f'{PRIVATE}/cfg/campaign-plan.json', plan)
