@@ -144,6 +144,58 @@ class FirstObservationExportTests(unittest.TestCase):
             I.first_observation_export(self.cases, ["AHT-01"])
 
 
+class CaseTimingExportTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cases = self.tmp.name
+        self.results = os.path.join(self.cases, "case-results.json")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fixture(self, tamper=False, duration_seconds=12, executed_missing=False):
+        rows = []
+        for n in range(1, 16):
+            case_id = "AHT-%02d" % n
+            row = {"caseId": case_id, "result": "NOT RUN"}
+            if case_id == "AHT-01" and not executed_missing:
+                directory = os.path.join(self.cases, case_id)
+                os.makedirs(directory)
+                summary = {"startedAt": "2026-11-03T16:00:00.000Z",
+                           "endedAt": (datetime(2026, 11, 3, 16, 0, tzinfo=timezone.utc) + timedelta(seconds=duration_seconds)).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                           "privateError": "must-not-be-exported"}
+                raw = (json.dumps(summary) + "\n").encode()
+                with open(os.path.join(directory, "summary.json"), "wb") as f:
+                    f.write(raw)
+                row.update(result="PASS", executionReceipt={"summarySha256": "f" * 64 if tamper else hashlib.sha256(raw).hexdigest()})
+            elif case_id == "AHT-01":
+                row["result"] = "PASS"
+            rows.append(row)
+        with open(self.results, "w", encoding="utf-8") as f:
+            json.dump({"cases": rows}, f)
+
+    def test_observed_and_not_observed_timings_are_content_free(self):
+        self.fixture()
+        out = I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])
+        self.assertEqual(out["cases"][0], {"caseId": "AHT-01", "result": "PASS", "timingStatus": "OBSERVED",
+                                                  "startedAtUtc": "2026-11-03T16:00:00.000Z", "endedAtUtc": "2026-11-03T16:00:12.000Z", "durationMs": 12000})
+        self.assertEqual(out["cases"][1]["timingStatus"], "NOT OBSERVED")
+        self.assertNotIn("privateError", json.dumps(out))
+
+    def test_tampered_summary_or_executed_case_without_receipt_refuses(self):
+        for tamper, missing, reason in ((True, False, "summary-digest"), (False, True, "missing-receipt")):
+            with self.subTest(reason=reason):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name; self.results = os.path.join(self.cases, "case-results.json")
+                self.fixture(tamper=tamper, executed_missing=missing)
+                with self.assertRaisesRegex(I.Refused, reason):
+                    I.case_timing_export(self.cases, self.results, ["AHT-01"])
+
+    def test_timing_outside_the_run_ceiling_refuses(self):
+        self.fixture(duration_seconds=2401)
+        with self.assertRaisesRegex(I.Refused, "duration"):
+            I.case_timing_export(self.cases, self.results, ["AHT-01"])
+
+
 def put(path, doc):
     with open(path, "w", encoding="utf-8") as f:
         f.write(doc if isinstance(doc, str) else json.dumps(doc))

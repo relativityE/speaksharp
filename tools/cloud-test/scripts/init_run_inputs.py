@@ -45,7 +45,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "d341ed5c22027eb785486f82fe3a66317416d1946d1c0d0161d4096519230c0a"
+ONE_OFF_GRANT_SHA256 = "215cb2b88301f62fc4f6890569b166283fa634061ffcce5656a5b79ba5b36dbf"
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
@@ -1468,9 +1468,51 @@ def first_observation_export(cases_dir, selected):
             "observations": observations}
 
 
+def case_timing_export(cases_dir, case_results_file, selected):
+    """Project content-free per-case wall timings from the digest-bound supervisor summaries.
+
+    Full case directories remain private. This projection preserves the measurements needed to replace provisional ceilings without
+    publishing account, request, browser, assertion, or error content.
+    """
+    _need(isinstance(cases_dir, str) and os.path.isdir(cases_dir) and not os.path.islink(cases_dir), "case-timing-cases-dir")
+    _need(isinstance(selected, list) and selected and len(selected) == len(set(selected))
+          and all(re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", x or "") for x in selected), "case-timing-selection")
+    results = _load(case_results_file)
+    rows = results.get("cases") if isinstance(results, dict) else None
+    _need(isinstance(rows, list) and len(rows) == 15, "case-timing-results")
+    by_id = _unique(rows, "caseId", "case-timing-duplicate")
+    out = []
+    for case_id in selected:
+        row = by_id.get(case_id)
+        _need(isinstance(row, dict) and row.get("result") in ("PASS", "FAIL", "NOT RUN"), "case-timing-result")
+        receipt = row.get("executionReceipt")
+        if not isinstance(receipt, dict):
+            _need(row["result"] == "NOT RUN", "case-timing-missing-receipt")
+            out.append({"caseId": case_id, "result": row["result"], "timingStatus": "NOT OBSERVED",
+                        "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
+            continue
+        summary = os.path.join(os.path.realpath(cases_dir), case_id, "summary.json")
+        _need(os.path.isfile(summary) and not os.path.islink(summary), "case-timing-summary")
+        raw = _read(summary)
+        _need(hashlib.sha256(raw).hexdigest() == receipt.get("summarySha256"), "case-timing-summary-digest")
+        try:
+            doc = json.loads(raw)
+            stamps = (doc.get("startedAt"), doc.get("endedAt"))
+            _need(all(isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z", v)
+                      for v in stamps), "case-timing-time")
+            started, ended = (datetime.fromisoformat(v.replace("Z", "+00:00")) for v in stamps)
+        except (ValueError, TypeError, Refused):
+            raise Refused("case-timing-time")
+        duration = round((ended - started).total_seconds() * 1000)
+        _need(0 <= duration <= 40 * 60 * 1000, "case-timing-duration")
+        out.append({"caseId": case_id, "result": row["result"], "timingStatus": "OBSERVED",
+                    "startedAtUtc": doc["startedAt"], "endedAtUtc": doc["endedAt"], "durationMs": duration})
+    return {"schema": "speaksharp-case-timings-v1", "contentSafe": True, "selectedCases": selected, "cases": out}
+
+
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "first-observations", "window-check", "occurrence-check",
+    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "first-observations", "case-timings", "window-check", "occurrence-check",
                                        "occurrence-materialize", "completion-deadline"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
@@ -1484,6 +1526,9 @@ def main(argv):
     try:
         if x.command == "first-observations":
             _write_private(x.out, first_observation_export(x.cases_dir, (x.cases or "").split(",")))
+            return 0
+        if x.command == "case-timings":
+            _write_private(x.out, case_timing_export(x.cases_dir, x.case_results, (x.cases or "").split(",")))
             return 0
         if x.command == "completion-deadline":
             now = _utc(x.now) if x.now else datetime.now(timezone.utc)

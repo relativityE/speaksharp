@@ -41,8 +41,12 @@ function controlTelemetryReader(){
  // This producer is privileged control-plane code. It must never execute the reader from the tested-release checkout: that release can be
  // older than the reviewed control tree (and, specifically, can predate redirect refusal). The packet is vendored at this exact repo path.
  const repo=fs.realpathSync(path.resolve(__dirname,'../../../../..')),file=path.join(repo,'scripts/telemetry-readback-qualification.mts');
- const st=fs.lstatSync(file);if(!st.isFile()||st.isSymbolicLink()||fs.realpathSync(file)!==file)fail('CONTROL_TELEMETRY_READER_UNAVAILABLE');
- return {repo,file};
+ const runner=fs.realpathSync(path.join(repo,'tools/cloud-test/runner'));
+ let loader;try{loader=require.resolve('tsx',{paths:[runner]});}catch{fail('CONTROL_TELEMETRY_LOADER_UNAVAILABLE');}
+ const st=fs.lstatSync(file),lst=fs.lstatSync(loader),realLoader=fs.realpathSync(loader),tsxRoot=fs.realpathSync(path.join(runner,'node_modules/tsx'))+path.sep;
+ if(!st.isFile()||st.isSymbolicLink()||fs.realpathSync(file)!==file)fail('CONTROL_TELEMETRY_READER_UNAVAILABLE');
+ if(!lst.isFile()||lst.isSymbolicLink()||realLoader!==loader||!realLoader.startsWith(tsxRoot))fail('CONTROL_TELEMETRY_LOADER_UNAVAILABLE');
+ return {repo,file,loader};
 }
 function readTelemetry(request,{env,signal}){
  // Reuse the governed CONTROL-TREE reader. Do not reinterpret a missing/failed receipt as QUALIFIED.
@@ -52,7 +56,7 @@ function readTelemetry(request,{env,signal}){
  childEnv.POSTHOG_API_HOST=posthogApiOrigin(env.POSTHOG_API_HOST);
  childEnv.QUALIFICATION_STAGES='share_feedback';
  return new Promise((resolve,reject)=>{
-  const child=spawn(process.execPath,['--import','tsx',control.file,'--release-sha',request.sourceSha,'--journey-id',request.journeyId,'--traffic-type',request.trafficType,'--query-timeout-ms','30000'],{cwd:control.repo,env:childEnv,stdio:['ignore','pipe','pipe'],signal});
+  const child=spawn(process.execPath,['--import',control.loader,control.file,'--release-sha',request.sourceSha,'--journey-id',request.journeyId,'--traffic-type',request.trafficType,'--query-timeout-ms','30000'],{cwd:control.repo,env:childEnv,stdio:['ignore','pipe','pipe'],signal});
   let output='',size=0,overflow=false;
   const timer=setTimeout(()=>child.kill('SIGKILL'),40000);timer.unref();
   child.stdout.on('data',b=>{size+=b.length;if(size>1048576){overflow=true;child.kill('SIGKILL');}else output+=b.toString('utf8');});
