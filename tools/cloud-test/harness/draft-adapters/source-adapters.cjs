@@ -1,6 +1,7 @@
 'use strict';
 // SOURCE-DERIVED, TARGET-UNBOUND. No live claim. See README.md and contracts.json.
 // Never import native Playwright test fixtures or the repository's admin-bearing RWT helpers.
+const crypto=require('node:crypto');
 const ui=require('./browser-actions.cjs');
 const readback=require('./browser-readback.cjs');
 const observer=require('./browser-observers.cjs');
@@ -199,6 +200,25 @@ function preflight(caseId,c,cap,guard,configurationOnly=false){
 const coachingPolicy=require('./coaching-failure-policy.cjs');
 const continuesAfterUnavailableReader=r=>!!r&&r.result==='NOT RUN'&&r.observed===false&&r.evidenceReaderUnavailable===true;
 function ownSaved(rows,id){return !!id&&rows.length===1&&rows[0].id===id&&rows[0].status==='completed'&&rows[0].hasIdempotencyKey&&rows[0].transcriptState==='available'&&rows[0].transcriptLength>0;}
+function firstObservation(rows,c,observedAtUtc){
+ requireThat(Array.isArray(rows)&&rows.length<=100,'first observation rows unavailable');
+ requireThat(c?.account&&['existing-disposable','maintained-read-only'].includes(c.account.mode)&&typeof c.account.id==='string','first observation role unavailable');
+ requireThat(/^[0-9a-f]{40}$/.test(c.sourceSha||'')&&c.servedSha===c.sourceSha&&SHA.test(c.account.bindingReceiptSha256||''),'first observation source binding unavailable');
+ requireThat(typeof observedAtUtc==='string'&&!Number.isNaN(Date.parse(observedAtUtc)),'first observation time unavailable');
+ const completed=rows.filter(r=>r?.status==='completed');
+ const readable=completed.filter(r=>r.transcriptState==='available'&&Number.isInteger(r.transcriptLength)&&r.transcriptLength>0);
+ return {contentSafe:true,kind:'first-account-observation',inventoryStatus:'OBSERVED',role:c.account.mode,
+   accountSubjectSha256:crypto.createHash('sha256').update(c.account.id).digest('hex'),sourceBindingSha256:c.account.bindingReceiptSha256,
+   sourceSha:c.sourceSha,servedSha:c.servedSha,observedAtUtc,rowCount:rows.length,completedCount:completed.length,
+   readableCompletedCount:readable.length,readableHistoryAvailable:readable.length>0,inventoryComplete:true,readLimit:100};
+}
+function unknownFirstObservation(c,observedAtUtc){
+ requireThat(c?.account&&['existing-disposable','maintained-read-only'].includes(c.account.mode)&&typeof c.account.id==='string','first observation role unavailable');
+ return {contentSafe:true,kind:'first-account-observation',inventoryStatus:'UNKNOWN',role:c.account.mode,
+   accountSubjectSha256:crypto.createHash('sha256').update(c.account.id).digest('hex'),sourceBindingSha256:c.account.bindingReceiptSha256,
+   sourceSha:c.sourceSha,servedSha:c.servedSha,observedAtUtc,rowCount:null,completedCount:null,readableCompletedCount:null,
+   readableHistoryAvailable:null,inventoryComplete:false,readLimit:100};
+}
 function newestOnly(rows,oldId,newId){const old=rows.find(r=>r.id===oldId),next=rows.find(r=>r.id===newId);return !!old&&!!next&&oldId!==newId&&rows.length===2&&old.status==='completed'&&next.status==='completed'&&next.transcriptState==='available'&&next.transcriptLength>0&&old.transcriptState==='expired'&&old.transcriptLength===0;}
 async function retainInterruptionEvidence({caseId,diag,assertions,writeEvidence}){
  const ref=await writeEvidence(caseId.toLowerCase()+'-interruption.json',{contentSafe:true,caseId,kind:'interruption-diagnostic',diagnosticOnly:true,...diag,afterRecordedAssertion:assertions.some(row=>row.id===diag.step)});
@@ -271,9 +291,17 @@ async function run(caseId,args){
   await check('owner-bound',ownerMatches,{ownerMatches:true,leaseBoundary:leaseFacts.code||'not-applicable',leaseReadCount:leaseFacts.reads});
   if(caseId==='AHT-07'){current='feedback-readback-preflight';const readProbe=await hook('feedbackAssociation','capability');await check('feedback-readback-preflight',readProbe.observed===true,{existingAuthenticatedReceiverBound:true,browserSelectNotRequired:true,actualDeliveryNotYetProven:true});}
   if(caseId!=='AHT-12'&&caseId!=='AHT-15')await context.grantPermissions(['microphone'],{origin:c.targetUrl});
-  const baseline=await rows();
+  let baseline,firstObservationRef=null;
+  try{
+   baseline=await rows();
+   if(['AHT-01','AHT-15'].includes(caseId))firstObservationRef=await cap.writeEvidence(caseId.toLowerCase()+'-first-observation.json',firstObservation(baseline,c,new Date().toISOString()));
+  }catch(error){
+   if(['AHT-01','AHT-15'].includes(caseId)){firstObservationRef=await cap.writeEvidence(caseId.toLowerCase()+'-first-observation.json',unknownFirstObservation(c,new Date().toISOString()));requireThat(safeRef(firstObservationRef),'first observation evidence reference invalid');}
+   throw error;
+  }
+  if(firstObservationRef)requireThat(safeRef(firstObservationRef),'first observation evidence reference invalid');
   if(caseId==='AHT-10'&&!minimal&&baseline.length>98){current='recording-before-leave';notRun('Case10 full-path history exceeds existing 100-row readback capacity');}
-  if(caseId==='AHT-01'){if(baseline.length===0)await check('fresh-first-session',true,{existingSessions:0});else{current='fresh-first-session';await assertion('fresh-first-session','NOT RUN',{existingSessions:baseline.length,preconditionNotMet:true});notRun('fresh account precondition not met');}}
+  if(caseId==='AHT-01'){if(baseline.length===0)await check('fresh-first-session',true,{existingSessions:0},firstObservationRef?[firstObservationRef]:[]);else{current='fresh-first-session';await assertion('fresh-first-session','NOT RUN',{existingSessions:baseline.length,preconditionNotMet:true},firstObservationRef?[firstObservationRef]:[]);notRun('fresh account precondition not met');}}
   baselineIds=new Set(baseline.map(r=>r.id));
   if(['AHT-01','AHT-02','AHT-03'].includes(caseId)){
    const focus=caseId!=='AHT-01',timing=focusControls.plan(c),firstPresentation=[];
@@ -422,7 +450,7 @@ async function run(caseId,args){
   }else if(caseId==='AHT-15'){
    const entryMic=await observer.mic(page);await check('return-entry-mic-off',navigation.micOff(entryMic),{observed:!!entryMic,micOff:navigation.micOff(entryMic)});const target=navigation.existingTarget(baseline);
    await context.clearPermissions();await page.getByTestId('nav-analytics-link').first().click();await navigation.ready(page,{pathname:'/progress'});const before=await rows();await page.getByTestId('open-session-detail-'+target.id).or(page.getByTestId('open-session-detail-mobile-'+target.id)).first().waitFor({state:'visible',timeout:45000});
-   await check('history-preserved',navigation.unchanged(baseline,before),{historyRows:before.length,completedRows:before.filter(r=>r.status==='completed').length,ownedTargetListed:true});
+   await check('history-preserved',navigation.unchanged(baseline,before),{historyRows:before.length,completedRows:before.filter(r=>r.status==='completed').length,ownedTargetListed:true},firstObservationRef?[firstObservationRef]:[]);
    await ui.products(page,'open-mic');await navigation.ready(page,{pathname:'/session'});const openMic=await observer.mic(page);await ui.products(page,'focus-points');await ui.visible(page,'objective-setup-dialog');await ui.closeFocus(page);await ui.products(page,'open-mic');await navigation.ready(page,{pathname:'/session'});
    const switchMic=await observer.mic(page);requireThat(openMic&&switchMic,'product switching observer missing');await check('switches-mic-off',navigation.micOff(openMic)&&navigation.micOff(switchMic),{acquisitions:openMic.acquisitions+switchMic.acquisitions,liveTracks:switchMic.liveTracks});
    current='signed-out';await ui.signout(page);const signedOut=await ui.sessionCleared(page,c);await check('signed-out',signedOut,{sessionCleared:signedOut});
@@ -452,4 +480,4 @@ async function run(caseId,args){
  }
  return {caseId,contentSafe:true,assertions,blocker,executionSignals};
 }
-module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,installCoachingResponseHandler,armModelFailureObservation,measureEpochBridge,waitForModelFailure,waitForModelSettlement,smokeLeaseBoundary,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};
+module.exports={requiresCaptureDevice,continuesAfterUnavailableReader,retainInterruptionEvidence,firstObservation,unknownFirstObservation,installCoachingResponseHandler,armModelFailureObservation,measureEpochBridge,waitForModelFailure,waitForModelSettlement,smokeLeaseBoundary,run,preflight,configurationPreflight:(caseId,c)=>{preflight(caseId,c,null,null,true);const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];return {ready:true,caseId,requiredAssertions:contract.rows,requiredOracles:contract.oracles};},CONTRACTS,SMOKE_CONTRACTS,SOURCE_SHA};

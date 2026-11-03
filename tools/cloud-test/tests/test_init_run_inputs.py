@@ -331,6 +331,20 @@ class Account(unittest.TestCase):
         refused(self, "account-binding-shape", I.account_bindings, CFG, ["AHT-05"],
                 {"existing-disposable": dict(self.accounts()["existing-disposable"], role="existing-disposable")}, self.bundle())
 
+    def test_r10_first_discovery_derives_identity_only_inside_the_protected_bundle_boundary(self):
+        first = {role: {"idSha256": "FIRST-DISCOVERY",
+                        "historyRef": "first-observation:%s@R10-3b040043-smoke15" % role}
+                 for role in ("existing-disposable", "maintained-read-only")}
+        bound = I.account_bindings(CFG, I.ALL_CASES, first, self.bundle(), "R10-3b040043-smoke15")
+        self.assertEqual([row["role"] for row in bound], ["existing-disposable", "maintained-read-only"])
+        self.assertNotIn(ACCOUNT_ID, json.dumps(bound))
+        refused(self, "account-first-discovery-not-authorized", I.account_bindings, CFG, I.ALL_CASES,
+                first, self.bundle())
+        wrong = copy.deepcopy(first)
+        wrong["existing-disposable"]["historyRef"] = "history:invented@r9"
+        refused(self, "account-first-discovery-reference", I.account_bindings, CFG, I.ALL_CASES,
+                wrong, self.bundle(), "R10-3b040043-smoke15")
+
 
 class Facts(unittest.TestCase):
     def test_the_builder_schema_is_produced_without_the_account_binding_or_diagnostic(self):

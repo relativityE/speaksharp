@@ -45,7 +45,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "32ae7f00112d87924884c44fabb07a33cf5fa957d316aa1be00f5b222b4bfcb7"
+ONE_OFF_GRANT_SHA256 = "e2445bdbfb2567bf6bcd77b4c7b7de99462ec11544f8cc6dd23ade6de3e254c9"
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
@@ -540,7 +540,7 @@ def write_env_file(path, mapping):
         f.writelines("%s=%s\n" % kv for kv in sorted(mapping.items()))
 
 
-def account_bindings(cfg, cases, facts_accounts, bundle):
+def account_bindings(cfg, cases, facts_accounts, bundle, first_observation_run=None):
     """Every role the selection needs (Jensen's I1'/I2' contract: AHT-01..14 existing-disposable, AHT-15 maintained-read-only, so an all-15 run
     is 14+1), each bound to its own credential NAMES, its account ID from the private bundle (checked by digest against the approved binding)
     and its history reference. A role's names must be ones the run stage actually receives (config credentials.runEnvironment.stages.run);
@@ -556,9 +556,20 @@ def account_bindings(cfg, cases, facts_accounts, bundle):
         _need(isinstance(fa, dict) and set(fa) == {"idSha256", "historyRef"}, "account-binding-shape")
         account_id = (bundle["accounts"].get(role) or {}).get("accountId")
         _need(isinstance(account_id, str) and account_id.strip() == account_id and account_id, "account-id-source-missing")
-        _need(isinstance(fa["idSha256"], str) and SHA64.match(fa["idSha256"]) and
-              hashlib.sha256(account_id.encode()).hexdigest() == fa["idSha256"], "account-id-not-the-approved-account")
-        _need(_ref(fa["historyRef"]), "account-history-reference")
+        first = fa["idSha256"] == "FIRST-DISCOVERY"
+        if first:
+            # The one authorized R10 first-use route derives the subject digest
+            # inside the protected job from the already owner-selected bundle.
+            # It does not pretend that a prior campaign supplied history: the
+            # adapter retains the bounded first observation before dependent
+            # actions and links it from the case result.
+            _need(first_observation_run == "R10-3b040043-smoke15", "account-first-discovery-not-authorized")
+            _need(fa["historyRef"] == "first-observation:%s@%s" % (role, first_observation_run),
+                  "account-first-discovery-reference")
+        else:
+            _need(isinstance(fa["idSha256"], str) and SHA64.match(fa["idSha256"]) and
+                  hashlib.sha256(account_id.encode()).hexdigest() == fa["idSha256"], "account-id-not-the-approved-account")
+            _need(_ref(fa["historyRef"]), "account-history-reference")
         out.append({"role": role, "credentials": dict(names), "historyRef": fa["historyRef"]})
     return out
 
@@ -928,7 +939,8 @@ def prepare(x, now):
         grant = one_off_grant(repo, None, req.get("createdUtc"))
     lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys, grant)
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
-    accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle)
+    accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle,
+                                req.get("runId") if req.get("runId") == "R10-3b040043-smoke15" else None)
     entries = {b["role"]: role_account(bundle, b["role"], os.environ.get("SUPABASE_URL")) for b in accounts}
     observation = read_case10_observation(getattr(x, "case10_observation", None))
     chains = []

@@ -270,7 +270,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "dcbc5f8ee4d0278223807c1fcf6b99b5a72554c7bbc48f79d5f0f6f260222d7a",
+            "manifestSha256": "3bc1d2aa792f538ef8c5a8020c35cd09f0f4d27802bae044d342ba08d50358ff",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
@@ -506,7 +506,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
         uploads = [s for s in self.jobs["record-complete"]["steps"] if s.get("uses") == "actions/upload-artifact@v4"]
         self.assertEqual(len(uploads), 1)
         self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/completion")
-        self.assertEqual(uploads[0]["with"]["retention-days"], 2)
+        # A missed run must not make an otherwise valid terminal record
+        # unrecoverable after only a day or two.  GitHub's bounded maximum is
+        # the retention design; expired/missing evidence still fails closed.
+        self.assertEqual(uploads[0]["with"]["retention-days"], 90)
         self.assertIn('cp "$receipt" "$RUNNER_TEMP/completion/settle-receipt.json"', complete["run"])
         self.assertIn('cp "$RUNNER_TEMP/manual-occurrence.json" "$RUNNER_TEMP/completion/occurrence.json"', complete["run"])
         self.assertIn('cp "$RUNNER_TEMP/nightly-request.json" "$RUNNER_TEMP/completion/occurrence.json"', complete["run"])

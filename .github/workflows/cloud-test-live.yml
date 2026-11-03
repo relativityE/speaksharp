@@ -762,5 +762,8 @@ jobs:
         with:
           name: cloud-test-completion-attestation
           path: ${{ runner.temp }}/completion
-          retention-days: 2
+          # This artifact is the immutable counterpart of the durable pending
+          # record.  Keep it across missed nightly/manual runs; the next
+          # admitted run must still reconcile the exact bytes or refuse.
+          retention-days: 90
           if-no-files-found: ignore

@@ -389,6 +389,7 @@
     "package-unit-tests::test_init_run_inputs.Account.test_an_all_fifteen_selection_binds_fourteen_plus_one_each_to_its_own_names",
     "package-unit-tests::test_init_run_inputs.Account.test_missing_extra_or_wrong_role_bindings_are_refused",
     "package-unit-tests::test_init_run_inputs.Account.test_one_role_bound_to_its_credential_names_id_and_history",
+    "package-unit-tests::test_init_run_inputs.Account.test_r10_first_discovery_derives_identity_only_inside_the_protected_bundle_boundary",
     "package-unit-tests::test_init_run_inputs.Case10Bound.test_a_selected_case10_needs_exactly_the_bound_record_the_builder_validator_accepts",
     "package-unit-tests::test_init_run_inputs.Case10Bound.test_no_record_is_admitted_when_case10_needs_none",
     "package-unit-tests::test_init_run_inputs.Case10ObservationAdmission.test_missing_untrusted_replayed_or_two_source_observations_refuse",
