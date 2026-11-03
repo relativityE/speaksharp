@@ -123,10 +123,21 @@ class ShortSmokeContract(unittest.TestCase):
         with self.assertRaisesRegex(init.Refused, "time-exceeds-job-timeout"):
             init.check_ceilings(CFG, value, init.ALL_CASES, 73)
 
-    def test_pipeline_selects_the_smoke_catalog_on_the_real_coverage_path(self):
-        source = (ROOT / "scripts/pipeline.py").read_text()
-        self.assertIn('catalog_mode = "smoke" if req.get("coverageMode") == "smoke" else "full"', source)
-        self.assertIn('cfg["modes"][catalog_mode]["assertionCatalog"]["file"]', source)
+    def test_pipeline_builds_executable_coverage_commands_from_the_request_mode(self):
+        spec = importlib.util.spec_from_file_location("smoke_pipeline", SCRIPTS / "pipeline.py")
+        pipeline = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pipeline)
+        cfg = json.loads((ROOT / "config" / "test-config.v1.json").read_text())
+        with tempfile.TemporaryDirectory(prefix="smoke-pipeline-command-") as root:
+            root = Path(root)
+            request_path = root / "request.json"
+            request_path.write_text(json.dumps(live_smoke_request()))
+            command = pipeline.coverage_command(str(request_path), cfg, str(root / "coverage.json"))
+            self.assertEqual(command[0], "check_coverage.py")
+            self.assertEqual(Path(command[command.index("--catalog") + 1]).name, "smoke-assertion-catalog.json")
+            full = live_request(); full_path = root / "full.json"; full_path.write_text(json.dumps(full))
+            full_command = pipeline.coverage_command(str(full_path), cfg, str(root / "full-coverage.json"))
+            self.assertEqual(Path(full_command[full_command.index("--catalog") + 1]).name, "assertion-catalog.json")
 
     def test_real_builder_emits_the_pinned_smoke_contract_for_all_fifteen(self):
         with tempfile.TemporaryDirectory(prefix="cloud-test-smoke-builder-") as root:

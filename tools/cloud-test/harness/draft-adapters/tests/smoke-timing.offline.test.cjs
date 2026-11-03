@@ -54,17 +54,30 @@ test('the unsupported short failure deadline is refused and production envelope 
  assert.equal(timing.modelFailureDeadlineMs({sampleMode:'full'}),300000);
 });
 
-test('runtime smoke lease path uses the authenticated owner-table reader, not the session helper',async()=>{
- const calls=[],db={owner:true},idle={liveTracks:0,recording:false,recorderVisible:false};
+test('runtime smoke lease path waits from a live lease to an authenticated idle owner-table boundary',async()=>{
+ const calls=[],db={owner:true},idle={liveTracks:0,recording:false,recorderVisible:false};let clock=0;
+ const leaseSequence=[[{state:'active'}],[]],micSequence=[{...idle,liveTracks:1,recording:true},idle];
  const result=await adapters.smokeLeaseBoundary({page:true},{caseId:'AHT-01'}, {
   createDb:(page,c)=>{assert.equal(page.page,true);assert.equal(c.caseId,'AHT-01');return db;},
-  read:async(actual,table,columns)=>{calls.push({actual,table,columns});return [];},
-  readMic:async()=>idle,
+  read:async(actual,table,columns)=>{calls.push({actual,table,columns});return leaseSequence.shift();},
+  readMic:async()=>micSequence.shift(),
+  wait:async ms=>{clock+=ms;},now:()=>clock,deadlineMs:1000,pollMs:250,
  });
  assert.equal(result.ready,true);
- assert.deepEqual(calls,[{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'}]);
- const unavailable=await adapters.smokeLeaseBoundary({}, {}, {createDb:()=>db,read:async()=>{throw Error('denied');},readMic:async()=>idle});
+ assert.equal(result.reads,2);assert.equal(result.elapsedMs,250);
+ assert.deepEqual(calls,[{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'},{actual:db,table:'active_recording_lease',columns:'user_id,lease_id,state'}]);
+ const unavailable=await adapters.smokeLeaseBoundary({}, {}, {createDb:()=>db,read:async()=>{throw Error('denied');},readMic:async()=>idle,now:()=>0});
  assert.equal(unavailable.code,'LEASE_READ_UNAVAILABLE');
+});
+
+test('runtime smoke lease path stops at its bound without inferring expiry or forcing release',async()=>{
+ const db={owner:true},idle={liveTracks:0,recording:false,recorderVisible:false};let clock=0,reads=0;
+ const result=await adapters.smokeLeaseBoundary({},{}, {
+  createDb:()=>db,read:async()=>{reads++;return [{state:'active'}];},readMic:async()=>idle,
+  wait:async ms=>{clock+=ms;},now:()=>clock,deadlineMs:500,pollMs:200,
+ });
+ assert.deepEqual(result,{ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:'LEASE_LIVE',reads:4,elapsedMs:500});
+ assert.equal(reads,4);
 });
 
 test('Focus smoke scores only point windows fully heard before Stop',()=>{

@@ -24,6 +24,8 @@ const WINDOWS=Object.freeze({
 // product-visible-error deadline. Smoke therefore preserves the production path's
 // existing five-minute bound until a completed run supplies timing evidence.
 const MODEL_FAILURE_DEADLINE_MS=300000;
+const LEASE_WAIT_DEADLINE_MS=20000;
+const LEASE_POLL_MS=250;
 
 function recordingWindowMs(caseId,{sampleMode,fixtureDurationMs,requestedMs}={}){
   if(sampleMode!=='smoke')return fixtureDurationMs;
@@ -55,4 +57,4 @@ function focusWindowVerdict({windows,expected,statuses,recordingWindowMs}){
   return {result:matching===eligible.length?'PASS':'FAIL',facts:{recordingWindowMs,eligiblePoints:eligible.length,matchingPoints:matching,unscoredPoints:windows.length-eligible.length}};
 }
 
-module.exports={WINDOWS,MODEL_FAILURE_DEADLINE_MS,recordingWindowMs,modelFailureDeadlineMs,leaseBoundary,focusWindowVerdict};
+module.exports={WINDOWS,MODEL_FAILURE_DEADLINE_MS,LEASE_WAIT_DEADLINE_MS,LEASE_POLL_MS,recordingWindowMs,modelFailureDeadlineMs,leaseBoundary,focusWindowVerdict};

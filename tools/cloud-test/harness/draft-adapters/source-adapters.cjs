@@ -87,10 +87,18 @@ const needs=(caseId,c)=>['minimal','smoke'].includes(c?.sampleMode)&&MINIMAL_NEE
 function notRun(message){const e=new Error(message);e.code='NOT_RUN';e.trustedBlocker=message;throw e;}
 function requireThat(value,message){if(!value)notRun(message);}
 function safeRef(x){return typeof x==='string'&&x.length<512&&!x.startsWith('/')&&!x.split('/').includes('..')&&!/[\r\n]/.test(x);}
-async function smokeLeaseBoundary(page,c,{createDb=createOwnerDb,read=ownerRows,readMic=observer.mic}={}){
- let leaseRows=null;try{leaseRows=await read(createDb(page,c),'active_recording_lease','user_id,lease_id,state');}catch{/* fail closed below */}
- let mic=null;try{mic=await readMic(page);}catch{/* fail closed below */}
- return smokeTiming.leaseBoundary({leaseRows,mic});
+async function smokeLeaseBoundary(page,c,{createDb=createOwnerDb,read=ownerRows,readMic=observer.mic,wait=ms=>page.waitForTimeout(ms),now=()=>Date.now(),deadlineMs=smokeTiming.LEASE_WAIT_DEADLINE_MS,pollMs=smokeTiming.LEASE_POLL_MS}={}){
+ const startedAt=now();let reads=0,db=null;
+ try{db=createDb(page,c);}catch{return {ready:false,code:'LEASE_READ_UNAVAILABLE',reads,elapsedMs:0};}
+ for(;;){
+  let leaseRows=null;try{leaseRows=await read(db,'active_recording_lease','user_id,lease_id,state');}catch{/* fail closed below */}
+  let mic=null;try{mic=await readMic(page);}catch{/* fail closed below */}
+  reads++;const state=smokeTiming.leaseBoundary({leaseRows,mic});const elapsedMs=Math.max(0,now()-startedAt);
+  if(state.ready)return {...state,reads,elapsedMs};
+  if(['LEASE_READ_UNAVAILABLE','MIC_STATE_UNAVAILABLE'].includes(state.code))return {...state,reads,elapsedMs};
+  if(elapsedMs>=deadlineMs)return {ready:false,code:'LEASE_WAIT_TIMEOUT',lastCode:state.code,reads,elapsedMs};
+  await wait(Math.min(pollMs,deadlineMs-elapsedMs));
+ }
 }
 function preflight(caseId,c,cap,guard,configurationOnly=false){
  const contract=(c?.sampleMode==='smoke'?SMOKE_CONTRACTS:CONTRACTS)[caseId];requireThat(contract,'unknown case');requireThat(contract.unimplementedRequiredAssertions.length===0,'required harness implementation missing: '+contract.unimplementedRequiredAssertions.join(', '));

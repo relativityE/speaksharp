@@ -16,6 +16,8 @@ import check_gates as C
 import full_coverage_budget as FB
 import validate_run_request as V
 from test_full_coverage import catalog, costs
+from test_init_run_inputs import live_request
+from case_start_caps import MINIMAL_MINIMA
 
 
 class AggregateReceiver(unittest.TestCase):
@@ -216,6 +218,82 @@ class AggregateReceiver(unittest.TestCase):
         direct_gates = json.loads(standalone.read_text())["gates"]
         self.assertEqual(next(g["status"] for g in direct_gates if g["id"] == "G7"), "READY")
         self.assertEqual(next(g["status"] for g in direct_gates if g["id"] == "G2"), "READY")
+
+    def test_received_smoke_request_uses_smoke_denominator_in_actual_report_pipeline(self):
+        request_value = live_request()
+        request_value["coverageMode"] = "smoke"
+        request_value["sampleMode"] = "smoke"
+        request_value["priority"] = "journey-smoke"
+        for row in request_value["selection"]:
+            row["startPressCap"] = MINIMAL_MINIMA[row["case"]]
+            row["plannedRequests"] = 100
+        starts = sum(MINIMAL_MINIMA.values())
+        request_value["estimate"]["starts"] = starts
+        request_value["estimate"]["identityReads"] = 32
+        request_value["estimate"]["requests"].update(planned=1500, cleanupReserve=150, pooledSlack=350, runCap=2000)
+        request_value["estimate"].pop("window", None)
+        request_value["proposedLimits"]["startPressCaps"] = dict(MINIMAL_MINIMA)
+        request_value["proposedLimits"]["runCapRequests"] = 2000
+        request_value["proposedLimits"]["cumulativeCeilingRequests"] = request_value["approvedLimits"]["cumulativeCeilingRequests"]
+        request_value["approvedLimits"]["startPressCaps"] = dict(MINIMAL_MINIMA)
+        request_value["approvedLimits"]["runCapRequests"] = 2000
+        request_value["approvedLimits"]["approvalRef"] = self.docs["reconciliation"]["scopeApprovalRef"]
+        self.request = request_value
+        self.request_raw = json.dumps(self.request, sort_keys=True).encode()
+        self.manifest["requestSha256"] = hashlib.sha256(self.request_raw).hexdigest()
+        self.manifest["runId"] = self.request["runId"]
+        self.manifest["workflowVersion"] = self.request["workflowVersion"]
+        self.manifest["codeManifestSha256"] = self.request["harness"]["codeManifestSha256"]
+        release = self.docs["release-verification"]
+        release["frontend"] = dict(release["frontend"], evidence="synthetic identity ledger", ageHours=1.0)
+        release.setdefault("commitVerdicts", [])
+        release_raw = json.dumps(release, sort_keys=True).encode()
+        (self.root / "release-verification.json").write_bytes(release_raw)
+        self.manifest["components"]["release-verification"]["sha256"] = hashlib.sha256(release_raw).hexdigest()
+        self.manifest["bundleRootSha256"] = A.component_root(self.manifest["components"])
+        self.manifest_raw = json.dumps(self.manifest, sort_keys=True).encode()
+        self.pins = {"activated": True, "manifestSha256": hashlib.sha256(self.manifest_raw).hexdigest(),
+                     "bundleRootSha256": self.manifest["bundleRootSha256"]}
+        self.config["aggregateReceiver"] = dict(self.pins)
+
+        config = self.root / "smoke-config.json"; config.write_text(json.dumps(self.config))
+        request = self.root / "smoke-request.json"; request.write_bytes(self.request_raw)
+        manifest = self.root / "smoke-manifest.json"; manifest.write_bytes(self.manifest_raw)
+        accepted, output = self.root / "smoke-accepted", self.root / "smoke-output"
+        received = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "aggregate_receiver.py"),
+                                   "--manifest", str(manifest), "--request", str(request), "--config", str(config), "--out-dir", str(accepted)],
+                                  capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": str(self.root)})
+        self.assertEqual(received.returncode, 0, received.stdout + received.stderr)
+        proof = self.root / "smoke-proof.json"
+        proof.write_text(json.dumps({"result": "PASS", "codeManifestSha256": self.request["harness"]["codeManifestSha256"],
+                                     "testsPassed": 1, "testsFailed": 0,
+                                     "planControls": {"negative": 1, "negativeRefused": 1, "positive": 1, "positiveAccepted": 1},
+                                     "corrections": [{"id": "SYNTHETIC", "correction": "synthetic offline proof",
+                                                       "result": "PASS", "tests": [], "mutationControls": []}]}))
+        checks = self.root / "smoke-checks.json"; checks.write_text('{"passed":true}\n')
+        created = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        stimulus = self.root / "smoke-stimulus.json"
+        stimulus.write_text(json.dumps({"createdAt": created, "productTraffic": 0,
+            "codeManifestSha256": self.request["harness"]["codeManifestSha256"],
+            "cases": {s["case"]: {"ready": True} for s in self.request["selection"] if s.get("needsCaptureDevice")}}))
+        result = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "pipeline.py"),
+                                 "--request", str(request), "--config", str(config), "--workflow", os.path.join(ROOT, "workflow.json"),
+                                 "--accepted-input-dir", str(accepted), "--receiver-receipt", str(accepted / "receiver-receipt.json"),
+                                 "--receiver-manifest", str(manifest), "--offline-checks", str(checks), "--offline-proof", str(proof),
+                                 "--stimulus-receipt", str(stimulus), "--stage", "final", "--out-dir", str(output), "--require-secret-free"],
+                                capture_output=True, text=True, env={"PATH": os.environ["PATH"], "HOME": str(self.root)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        coverage = json.loads((output / "coverage.json").read_text())
+        self.assertEqual(coverage["kind"], "NO RUN")
+        self.assertEqual(coverage["coverageMode"], "smoke")
+        self.assertEqual(coverage["rowsRequired"], 141)
+        self.assertEqual(coverage["casesRequired"], 15)
+        self.assertFalse(coverage["fullLiveRun"])
+        summary = json.loads((output / "summary.json").read_text())
+        self.assertEqual(summary["fields"]["readinessBasis"]["runKind"], "NO RUN")
+        report = json.loads((output / "report" / "report.json").read_text())
+        self.assertEqual(report["coverageMode"], "smoke")
+        self.assertEqual(report["coverage"]["rowsRequired"], 141)
 
     def test_verified_buffers_are_consumed_even_if_the_caller_substitutes_after_validation(self):
         config = self.root / "active-config-substitution.json"; config.write_text(json.dumps(self.config))

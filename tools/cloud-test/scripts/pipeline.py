@@ -51,6 +51,24 @@ def credential_names(cfg):
     return sorted(n for n in os.environ if n in declared or (CRED.search(n) and not BENIGN.match(n)))
 
 
+def assertion_catalog(req, cfg):
+    """Return the reviewed denominator selected by the accepted request.
+
+    This is shared by the ordinary and accepted-input reporting routes so a
+    smoke request cannot be validated with one denominator and reported with
+    the full-live denominator.
+    """
+    mode = "smoke" if req.get("coverageMode") == "smoke" else "full"
+    return os.path.join(ROOT, cfg["modes"][mode]["assertionCatalog"]["file"])
+
+
+def coverage_command(req, cfg, output, case_results=None):
+    args = ["--request", req, "--catalog", assertion_catalog(load(req), cfg), "--out", output]
+    if case_results:
+        args += ["--case-results", case_results]
+    return ("check_coverage.py", *args)
+
+
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--request", required=True)
@@ -166,6 +184,7 @@ def main():
         if x.stimulus_receipt:
             g += ["--stimulus-receipt", x.stimulus_receipt]
         nightly = req.get("priority") == "nightly-regression"
+        accepted_reporting = nightly or req.get("coverageMode") == "smoke"
         if nightly:
             # Sam 1793589877.215059: a scheduled run on the accepted-input route still evaluates its recurring gates (G11 from the journal
             # snapshot the runner passes as --reservations, the history index and the standing approval) and G7 from the carried history.
@@ -195,12 +214,13 @@ def main():
                  O("nightly-history.json"))
             with open(O("nightly-history.html"), "w", encoding="utf-8") as f:
                 f.write(render_nightly_history({"nightlyHistory": nh}))
-        if nightly:
+        if accepted_reporting:
             # Option A (owner-approved; Sam 1793616419.679859): the real executive summary and report on the accepted route, through the
-            # ordinary unchanged consumers. The gap ledger is receipt-free: historical verdicts from the verified accepted comparison, raw
-            # evidence and signals UNOBSERVABLE, no latest run (so no gap closes and coverage is never a full live run).
-            cat = os.path.join(ROOT, cfg["modes"]["full"]["assertionCatalog"]["file"])
-            steps = [("check_coverage.py", "--request", x.request, "--catalog", cat, "--out", O("coverage.json")),
+            # ordinary unchanged consumers. Smoke uses its distinct assertion catalog and can never be represented as a full live run. The
+            # gap ledger is receipt-free: historical verdicts come from the verified accepted comparison, raw evidence and signals remain
+            # UNOBSERVABLE, and no latest run is supplied, so no gap closes merely because the report rendered.
+            cat = assertion_catalog(req, cfg)
+            steps = [coverage_command(x.request, cfg, O("coverage.json")),
                      ("derive_ledger.py", "--ledger", A("gap-ledger"), "--config", x.config, "--release-verification", A("release-verification"),
                       "--accepted-comparison", A("comparison-prior"), "--out", O("ledger-derived.json")),
                      ("spend_report.py", "--request", x.request, "--config", x.config, "--reconciliation", A("reconciliation"), "--out", O("spend.json"),
@@ -311,12 +331,9 @@ def main():
                 sys.exit(2)
         latest_cmp = O("comparisons/%s/comparison.json" % prev_label)
     # 6b. completeness of the latest run against the pinned assertion catalog (a partial or carried-forward result is never a full live run)
-    catalog_mode = "smoke" if req.get("coverageMode") == "smoke" else "full"
-    cat = os.path.join(ROOT, cfg["modes"][catalog_mode]["assertionCatalog"]["file"])
-    cv = ["--request", x.request, "--catalog", cat, "--out", O("coverage.json")]
-    if x.latest_label:
-        cv += ["--case-results", os.path.join(x.receipts_root, x.latest_label, "case-results.json")]
-    run("check_coverage.py", *cv)
+    cat = assertion_catalog(req, cfg)
+    cv = coverage_command(x.request, cfg, O("coverage.json"), os.path.join(x.receipts_root, x.latest_label, "case-results.json") if x.latest_label else None)
+    run(*cv)
     # 6c. full-coverage budget proposal (full mode only): per-case costs from the sealed guard logs, then the exact calculation
     bud = None
     if req.get("coverageMode") == "full":
