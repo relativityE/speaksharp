@@ -171,8 +171,10 @@ class ReleaseGate(unittest.TestCase):
         self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "unverified-deployment")
 
     def test_source_equivalent_edge_deployment_is_proven_from_git_trees(self):
-        f = Fixture([("fix(be): edge fn (#104)", ["backend/supabase/functions/x/index.ts"])])
+        f = Fixture([("fix(be): edge fn (#104)", ["backend/supabase/functions/x/index.ts"]),
+                     ("docs: later evidence", ["docs/evidence.md"])])
         deployed = f.shas["fix(be): edge fn (#104)"]
+        self.assertNotEqual(deployed, f.tested)
         tree = f.g("rev-parse", f.tested + ":backend/supabase/functions")
         backend = {"sha": deployed, "source": "cloud-verified-source-equivalent",
                    "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "run-url",
