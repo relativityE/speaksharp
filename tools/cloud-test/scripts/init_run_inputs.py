@@ -45,7 +45,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "e2445bdbfb2567bf6bcd77b4c7b7de99462ec11544f8cc6dd23ade6de3e254c9"
+ONE_OFF_GRANT_SHA256 = "9136fa44b8ca01fb80df08027211e97514991f2bbf8d3bcfe0e47a68250dc870"
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",

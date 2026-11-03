@@ -20,7 +20,7 @@ const oracleSource=require('./oracles/index.cjs');
 const {createOwnerDb,rows:ownerRows}=require('./oracles/owner-query.cjs');
 const finiteDenominator=require('./finite-aht-denominator.json');
 const smokeTiming=require('./oracles/pure/smokeTiming.cjs');
-const SOURCE_SHA='3b040043372f47f720fcd382bdc30b90bdf67e47';
+const SOURCE_SHA='5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2';
 const SHA=/^[0-9a-f]{64}$/;
 const CONTRACTS={
  'AHT-01':{rows:['fresh-first-session','saved-once','grounded-coaching','review-reopen','pdf-owner-take','same-target-repeat'],oracles:['coaching','pdfOwnerTake','sameTarget'],takes:2},
