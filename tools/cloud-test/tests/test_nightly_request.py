@@ -72,8 +72,8 @@ class Approval(unittest.TestCase):
         self.assertEqual(N.check_approval(approval(), SLOT, CFG)["status"], "APPROVED")
 
     def test_typed_complete_chronological_in_limit_and_valid(self):
-        with open(N.APPROVAL_PATH, "rb") as f:
-            refused(self, "recurring-approval-not-approved", N.check_approval, f.read(), SLOT, CFG)
+        with open(N.APPROVAL_PATH, "rb") as f:  # the PO's standing approval starts 2026-11-03T12:00Z, after this test slot
+            refused(self, "recurring-approval-not-yet-valid", N.check_approval, f.read(), SLOT, CFG)
         for raw, code in ((b"{", "recurring-approval-unreadable"), (approval(schema="x"), "recurring-approval-unreadable"),
                           (approval(status="NOT APPROVED"), "recurring-approval-not-approved"),
                           (approval(approvalRef=None), "recurring-approval-incomplete"),
@@ -143,7 +143,7 @@ class Gate(unittest.TestCase):
         code, out, err = run("--switch", "true", "--attempt", "2", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")
         self.assertEqual((code, out["code"], err.strip()), (78, "nightly-attempt", "BLOCKED_SETUP: nightly-attempt"))
         self.assertEqual(run("--switch", "true", "--attempt", "1", "--cron", "0 3 * * *", "--trigger-utc", "2026-11-02T03:01:00Z")[:2],
-                         (78, {"admitted": "false", "code": "recurring-approval-not-approved", "request_sha256": "", "request_b64": ""}))
+                         (78, {"admitted": "false", "code": "recurring-approval-not-yet-valid", "request_sha256": "", "request_b64": ""}))
 
     def test_an_admitted_gate_outputs_exactly_the_admitted_bytes_beside_their_digest(self):
         import base64
@@ -192,10 +192,26 @@ class Derivation(unittest.TestCase):
                                   budget_pin=hashlib.sha256(budget()).hexdigest()), hashlib.sha256(raw).hexdigest())
 
     def test_every_derived_allocation_fits_the_approval_and_the_whole_window_its_validity_and_period(self):
-        for over in ({"requests": {"runCap": 4401}}, {"identity": {"readsThisRun": 33}}, {"coaching": {"cap": 40}},
+        for over in ({"requests": {"runCap": 4401}}, {"identity": {"readsThisRun": 33}},
                      {"actions": {"takesMinimum": 41}}, {"window": {"proposedWindowMinutes": 331}}):
             with self.subTest(over=over):
                 refused(self, "nightly-need-exceeds-approval", derive, bud=budget(**over))
+        # PO 2026-11-02: coaching is a ceiling. A derived coaching need above the standing cap is clamped to it (rows it leaves unrun are
+        # NOT RUN), never raised, and the guard, estimate and basis all carry the approved cap.
+        cap = json.loads(approval())["perRunCaps"]["coachingRequests"]
+        clamped = json.loads(derive(bud=budget(coaching={"cap": cap + 25})))
+        self.assertEqual(clamped["proposedLimits"]["guardCaps"]["coaching"], cap)
+        self.assertEqual(clamped["estimate"]["providerBillableRequests"]["coachingCap"], cap)
+        self.assertIn("capped at %d invocations by the standing approval" % cap, clamped["estimate"]["providerBillableRequests"]["basis"])
+        within = json.loads(derive(bud=budget(coaching={"cap": cap - 1})))
+        self.assertEqual(within["estimate"]["providerBillableRequests"]["coachingCap"], cap - 1)
+        import validate_run_request as V
+        s = sample()
+        coaching_errors = lambda r: [e for e in V.validate(r, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation())[0] if "coachingCap" in e]
+        self.assertEqual(coaching_errors(clamped), [], "the validator admits the nightly's lower approved coaching ceiling")
+        raised = copy.deepcopy(clamped)
+        raised["estimate"]["providerBillableRequests"]["coachingCap"] = 10_000
+        self.assertTrue(coaching_errors(raised), "never a higher one")
         refused(self, "nightly-budget-shape", derive, bud=json.dumps({"requests": {}}).encode())
         refused(self, "nightly-budget-shape", derive, bud=budget(coaching={"cap": 1.5}))
         refused(self, "nightly-budget-shape", derive, bud=budget(coaching={"basis": ""}))

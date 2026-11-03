@@ -1,40 +1,40 @@
 {
   "schema": "speaksharp.cloud-test.recurring-approval.v1",
-  "status": "NOT APPROVED",
-  "note": "The Product Owner's standing approval of recurring (nightly) cost. Every value is null until the owner supplies it with a reference; gate G11 compares a nightly request, and the usage so far in the period, with it. Nothing in this package fills these in.",
-  "approvedBy": null,
-  "approvalRef": null,
-  "approvedAtUtc": null,
-  "validFromUtc": null,
-  "expiresUtc": null,
+  "status": "APPROVED",
+  "note": "The Product Owner's standing approval of recurring (nightly) cost, verbatim in Slack slack:1793668784.454189 (PO in Claude chat, 2026-11-03): $0 paid; per run the R10 envelope with coaching capped at 4 invocations (at most 12 provider attempts) and a stop after a provider-limit refusal; 30-day period from 2026-11-03T12:00Z, 30 runs; first run 2026-11-04 03:00 UTC; the switch returns to false after a verified pass. Gate G11 compares each nightly request and the period's usage with it.",
+  "approvedBy": "PO",
+  "approvalRef": "slack:1793668784.454189",
+  "approvedAtUtc": "2026-11-03T01:39:44Z",
+  "validFromUtc": "2026-11-03T12:00:00Z",
+  "expiresUtc": "2026-12-03T12:00:00Z",
   "cadence": {
-    "runsPerPeriod": null,
+    "runsPerPeriod": 30,
     "period": "30 days"
   },
   "perRunCaps": {
-    "runCapRequests": null,
-    "identityReads": null,
-    "starts": null,
-    "takes": null,
-    "coachingRequests": null,
-    "windowMinutes": null,
-    "githubRunnerMinutes": null,
+    "runCapRequests": 4310,
+    "identityReads": 32,
+    "starts": 42,
+    "takes": 31,
+    "coachingRequests": 4,
+    "windowMinutes": 330,
+    "githubRunnerMinutes": 359,
     "paidActionsUsd": 0
   },
   "periodCaps": {
-    "requests": null,
-    "identityReads": null,
-    "starts": null,
-    "takes": null,
-    "coachingRequests": null,
-    "githubRunnerMinutes": null,
+    "requests": 130260,
+    "identityReads": 960,
+    "starts": 1260,
+    "takes": 930,
+    "coachingRequests": 120,
+    "githubRunnerMinutes": 10770,
     "paidActionsUsd": 0
   },
-  "periodStartUtc": null,
+  "periodStartUtc": "2026-11-03T12:00:00Z",
   "dollarCaps": {
-    "providerUsd": null,
-    "cloudAgentUsd": null,
-    "githubBilledUsd": null,
-    "note": "unknown costs stay unknown; an owner-set dollar cap needs a measured or supplied unit cost"
+    "providerUsd": 0,
+    "cloudAgentUsd": 0,
+    "githubBilledUsd": 0,
+    "note": "PO: $0, free tier only"
   }
 }

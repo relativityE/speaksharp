@@ -74,6 +74,11 @@ const {Ledger,plain,safeKey}=require('./campaign-ledger.cjs');
 
 // Keep route matching in one production-owned function so offline controls can
 // exercise the exact decision used by onRequest without opening a socket.
+// The coaching Edge's own decoding (get-ai-suggestions providerDecode.ts, `diagnostics`): a provider-phase RESOURCE_EXHAUSTED is a limit refusal.
+function providerLimitRefusal(body) {
+  try { const d = JSON.parse(body.toString('utf8')).diagnostics; return !!d && d.phase === 'provider' && d.provider_error_status === 'RESOURCE_EXHAUSTED'; }
+  catch { return false; }
+}
 function matchPolicyRule(policy,host,method,pathname) {
   const rules=policy?.hosts?.[host]?.rules;
   if(!Array.isArray(rules))return null;
@@ -357,6 +362,8 @@ class Guard {
     if (!(await this.slot())) return this.deny(res, 'concurrency-wait', ev);
     if(streamFailed){this.releaseSlot();return;}
     if (this.closing) { this.releaseSlot(); return this.deny(res, 'closing', ev); }
+    // PO 2026-11-02 (Sam 1793655489.910839): after the coaching provider refuses for its own limit, no further coaching call is sent this run.
+    if (rule.cap === 'coaching' && this.coachingProviderLimited) { this.releaseSlot(); return this.deny(res, 'cap:coaching-provider-limit', ev); }
     const keys = ['total', rule.cap].concat(nav ? ['navigations'] : []);
     let over;try{over=this.ledger.tryReserve([...new Set(keys)]);}catch{this.releaseSlot();this.fatal('guard-ledger-integrity','request-reservation');res.destroy();return;}
     if (over) { this.releaseSlot(); this.noteAllowance?.(over); return this.deny(res, 'cap:' + over, ev); }
@@ -527,8 +534,15 @@ class Guard {
       for (let i = 0; i < ur.rawHeaders.length; i += 2) if (!HOP.has(ur.rawHeaders[i].toLowerCase())) raw.push(ur.rawHeaders[i], ur.rawHeaders[i + 1]);
       res.writeHead(status, ur.statusMessage, raw);
       let bytes = 0;
-      this.watch(ur,'data', (d) => { bytes += d.length; });
-      this.watch(ur,'end', () => finish('completed', { status, bytes }));
+      // A failed coaching response is read (bounded) for the Edge's own decoded provider status: RESOURCE_EXHAUSTED latches the stop above.
+      const coachingFailure = rule.cap === 'coaching' && status >= 400 ? [] : null;
+      this.watch(ur,'data', (d) => { bytes += d.length; if (coachingFailure && bytes <= 65536) coachingFailure.push(d); });
+      this.watch(ur,'end', () => {
+        if (coachingFailure && bytes <= 65536 && providerLimitRefusal(Buffer.concat(coachingFailure))) {
+          this.coachingProviderLimited = true; this.log({ ...ev, kind: 'coaching-provider-limited', status });
+        }
+        finish('completed', { status, bytes });
+      });
       this.watch(ur,'error', () => finish('upstream-error', { status, sent: true }));
       ur.pipe(res);
     });
@@ -668,4 +682,4 @@ function listenOwned(server,{signal,timeoutMs}={}) {
     try{server.listen(0,'127.0.0.1',()=>{if(settled){close();return;}settled=true;cleanup();resolve();});}catch{failed();}
   });
 }
-module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned };
+module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned, providerLimitRefusal };

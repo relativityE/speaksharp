@@ -279,6 +279,11 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
     caps, need = ap["perRunCaps"], dict(derived_need(budget), githubRunnerMinutes=nightly_runner_minutes(workflow_text))
     start_caps = need.pop("startPressCaps")
     coaching_basis = need.pop("coachingBasis")
+    # PO 2026-11-02: the standing approval caps coaching invocations (4; the Edge allows 3 provider attempts each, so at most 12). Coaching is a
+    # ceiling, not a requirement: rows the cap leaves unrun are reported NOT RUN, so the derived budget's coaching need is clamped, not refused.
+    if need["coachingRequests"] > caps["coachingRequests"]:
+        need["coachingRequests"] = caps["coachingRequests"]
+        coaching_basis = "%s; capped at %d invocations by the standing approval" % (coaching_basis, caps["coachingRequests"])
     _need(all(need[k] <= caps[k] for k in need), "nightly-need-exceeds-approval")
     window_end = slot + timedelta(minutes=caps["windowMinutes"])
     _need(_utc(ap["validFromUtc"]) <= slot and window_end <= _utc(ap["expiresUtc"]), "nightly-window-outside-approval")

@@ -267,11 +267,14 @@ class StandingApprovalOfRecurringCost(unittest.TestCase):
         g = CG.recurring_gate(sample()["req"], self.s["cfg"], ROOT, None, utc("2026-11-02T03:00:00Z"))
         self.assertEqual(g["status"], "READY")
 
-    def test_the_shipped_approval_is_empty_so_a_nightly_request_is_an_owner_input(self):
+    def test_the_shipped_approval_is_the_po_standing_approval_and_not_in_force_before_its_period(self):
+        # PO 2026-11-03 (slack:1793668784.454189): the shipped approval is real, but it starts at 2026-11-03T12:00Z, so an earlier slot is refused.
+        ap = J("config", "recurring-approval.json")
+        self.assertEqual((ap["status"], ap["approvalRef"], ap["validFromUtc"]), ("APPROVED", "slack:1793668784.454189", "2026-11-03T12:00:00Z"))
+        self.assertEqual((ap["perRunCaps"]["coachingRequests"], ap["perRunCaps"]["paidActionsUsd"]), (4, 0))
         g = CG.recurring_gate(request("R9-N2"), self.s["cfg"], ROOT, None, utc("2026-11-02T03:00:00Z"))
-        self.assertEqual(g["status"], "OWNER-INPUT-OPEN")
-        self.assertTrue(any("approvedBy" in n for n in g["needs"]))
-        self.assertEqual(J("config", "recurring-approval.json")["status"], "NOT APPROVED")
+        self.assertEqual(g["status"], "NOT-READY")
+        self.assertTrue(any("not in force" in n for n in g["needs"]), g)
 
     def test_a_complete_approval_covers_the_run(self):
         self.assertEqual(self.gate()["status"], "READY")
@@ -304,7 +307,7 @@ class StandingApprovalOfRecurringCost(unittest.TestCase):
         out = CG.evaluate(self.req, s["cfg"], s["ledger"], s["wf"], {"valid": True}, {"passed": True}, None, ROOT, "preflight", fake_rv(), reconciliation(), utc("2026-11-02T02:00:00Z"))
         st = {g["id"]: g["status"] for g in out["gates"]}
         self.assertEqual(st["G5"], "READY")
-        self.assertEqual(st["G11"], "OWNER-INPUT-OPEN")
+        self.assertEqual(st["G11"], "NOT-READY")  # the shipped standing approval is not yet in force at this slot
         self.assertEqual(out["decision"], "NO-GO")
 
 

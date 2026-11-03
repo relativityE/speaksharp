@@ -220,7 +220,9 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
                         E("%s plannedRequests %s differs from the derived estimate %s" % (s_["case"], s_.get("plannedRequests"), per[s_["case"]]["estimate"]))
                 if est["starts"] != budget["actions"]["startsMinimum"] or est["takes"] != budget["actions"]["takesMinimum"]:
                     E("estimate.starts/takes must equal the harness minimums for every row (%d Starts, %d takes)" % (budget["actions"]["startsMinimum"], budget["actions"]["takesMinimum"]))
-                if pb.get("coachingCap") != budget["coaching"]["cap"]:
+                # A nightly occurrence may carry the standing approval's lower coaching ceiling (PO 2026-11-02); never a higher one.
+                nightly_cap = req.get("priority") == "nightly-regression" and type(pb.get("coachingCap")) is int and 0 < pb["coachingCap"] <= budget["coaching"]["cap"]
+                if pb.get("coachingCap") != budget["coaching"]["cap"] and not nightly_cap:
                     E("estimate.providerBillableRequests.coachingCap must equal the derived coaching cap %d" % budget["coaching"]["cap"])
             if budget is not None:
                 w = est.get("window") or {}
