@@ -23,6 +23,10 @@ Usage:
                                       --occurrence OCCURRENCE.json --out BODY
   publish_latest_record.py attest    --candidate BODY --public-body BODY --published RESPONSE.json
                                       --settle-receipt-sha256 SHA --occurrence-sha256 SHA --out ATTESTATION.json
+  publish_latest_record.py unreserved-candidate --previous BODY
+                                      prints the in-progress run id and exits 0 only for an `incomplete` attempt with no pending completion
+  publish_latest_record.py reconcile-unreserved --previous BODY --evidence EVIDENCE.json --out BODY
+                                      retires an `incomplete` attempt that provably never reserved anything (see reconcile_unreserved)
 Exit 78 (BLOCKED_SETUP) on every refusal.
 """
 import argparse
@@ -433,6 +437,62 @@ def interrupt(state, run_id, attempt, status):
     return dict(state, inProgress=dict(live, status=status))
 
 
+# An attempt that stops BEFORE it reserves anything (for example run 41933223835: the reserve job refused the workflow token) leaves the record
+# `incomplete` with no pending completion and no completion artifact, and `begin` then refuses every later run as `previous-attempt-unreconciled`.
+# reconcile_unreserved is the one supported exit for that state. It retires the attempt only on independent evidence that it never reached a
+# reservation, keeps it in history as a failed, unqualified, all-NOT-RUN record, and never edits any other state.
+UNRESERVED_JOBS = (("record-begin", "Record the attempt", "success"),
+                   ("journal-reserve", "Reserve the run on the state-ref journal", "failure"),
+                   ("live", "Selected live journeys", "skipped"),
+                   ("journal-settle", "Settle the run's reservation", "skipped"))
+UNRESERVED_EVIDENCE_KEYS = {"run", "jobs", "journal", "testedSha"}
+
+
+def unreserved_candidate(state):
+    """The run id of an attempt that could be retired, else None: in progress, `incomplete`, no pending completion."""
+    live = state.get("inProgress")
+    if live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None:
+        return None
+    return live["runId"]
+
+
+def reconcile_unreserved(state, evidence):
+    """The state after retiring the incomplete attempt, or a refusal. `evidence` is closed:
+    run {runId, attempt, headSha, conclusion, updatedAt}: the failed run as GitHub reports it;
+    jobs [{name, conclusion}]: exactly one job per UNRESERVED_JOBS prefix, with the required conclusion (the reserve job failed; the live and
+      settle jobs were skipped, so nothing ran and nothing was spent);
+    journal {rootSha, headSha, runIds}: the validated state-ref chain; its root is the pinned reviewed root and no journal event names the run;
+    testedSha: the release the request under test names (the record schema requires one)."""
+    live = state.get("inProgress")
+    _need(live is not None and live.get("status") == "incomplete" and state.get("pendingCompletion") is None, "unreserved-not-a-candidate")
+    _need(isinstance(evidence, dict) and set(evidence) == UNRESERVED_EVIDENCE_KEYS, "unreserved-evidence")
+    run, jobs, journal = evidence["run"], evidence["jobs"], evidence["journal"]
+    _need(isinstance(run, dict) and set(run) == {"runId", "attempt", "headSha", "conclusion", "updatedAt"}, "unreserved-evidence")
+    _need((run["runId"], run["attempt"], run["headSha"]) == (live["runId"], live["attempt"], live["sourceSha"]), "unreserved-run-differs")
+    _need(run["conclusion"] == "failure", "unreserved-run-not-failed")
+    _need(isinstance(run["updatedAt"], str) and UTC.match(run["updatedAt"]) and live["startedUtc"] <= run["updatedAt"], "unreserved-time")
+    _need(isinstance(jobs, list) and all(isinstance(j, dict) and set(j) == {"name", "conclusion"} for j in jobs), "unreserved-evidence")
+    for _key, prefix, wanted in UNRESERVED_JOBS:
+        found = [j for j in jobs if isinstance(j["name"], str) and j["name"].startswith(prefix)]
+        _need(len(found) == 1 and found[0]["conclusion"] == wanted, "unreserved-job-" + _key)
+    import state_ref_writer
+    _need(isinstance(journal, dict) and set(journal) == {"rootSha", "headSha", "runIds"}, "unreserved-evidence")
+    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT and isinstance(journal["headSha"], str) and SHA40.match(journal["headSha"]), "unreserved-journal-root")
+    _need(isinstance(journal["runIds"], list) and all(isinstance(r, str) for r in journal["runIds"]) and run["runId"] not in journal["runIds"],
+          "unreserved-journal-names-the-run")
+    _need(isinstance(evidence["testedSha"], str) and SHA40.match(evidence["testedSha"]), "tested-sha")
+    record = sanitize_record({
+        "runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "testedSha": evidence["testedSha"],
+        "servedSha": None, "campaignId": None, "coverage": "unqualified", "requestSha256": None, "catalogSha256": None,
+        "startedUtc": live["startedUtc"], "endedUtc": run["updatedAt"], "outcome": "failed",
+        "cases": [{"caseId": "AHT-%02d" % n, "result": "NOT RUN", "rows": {"pass": 0, "fail": 0, "notRun": 0}, "codes": ["not-reserved"]}
+                  for n in range(1, 16)],
+        "codes": ["not-reserved", "reservation-refused", "recovered-unreserved"]})
+    prior = state.get("history")
+    history = fold_history(prior, record, None if prior is None else hashlib.sha256(canon(prior)).hexdigest())
+    return {"schema": SCHEMA, "latestCompleted": record, "inProgress": None, "history": history}
+
+
 def pending_completion(state, record, completion_deadline_utc, settle_receipt_sha256, occurrence_sha256):
     """Publish a durable, non-terminal candidate in the one mutable comment.
 
@@ -554,11 +614,12 @@ def _read(path):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "pending", "reconcile", "verify", "attest"))
+    a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "pending", "reconcile", "verify", "attest",
+                                       "unreserved-candidate", "reconcile-unreserved"))
     for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url",
                  "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256",
                  "--completion-deadline-utc", "--published-at", "--artifact-created-at", "--attestation",
-                 "--settle-receipt", "--occurrence"):
+                 "--settle-receipt", "--occurrence", "--evidence"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--comment-id", type=int)
@@ -583,7 +644,15 @@ def main(argv):
                 f.write("\n")
             return 0
         state = parse_body(_read(x.previous))
-        if x.command == "reconcile":
+        if x.command == "unreserved-candidate":
+            run_id = unreserved_candidate(state)
+            if run_id is None:
+                return 1
+            print(run_id)
+            return 0
+        if x.command == "reconcile-unreserved":
+            state = reconcile_unreserved(state, json.loads(_read(x.evidence)))
+        elif x.command == "reconcile":
             state = reconcile_pending(state, x.published_at, json.loads(_read(x.attestation)),
                                       open(x.settle_receipt, "rb").read(), open(x.occurrence, "rb").read(),
                                       x.artifact_created_at, _read(x.previous))

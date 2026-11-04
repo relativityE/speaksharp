@@ -53,7 +53,11 @@ UTC = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 # J1 (Sam 1793580621.313599): the job's ephemeral token, consumed ONLY by the one leased https push, as a per-process config entry scoped to
 # the approved URL. Never an argument, never written to any git config, never seen by fetch or any other git call (_git inherits no env).
 PUSH_TOKEN_ENV = "CT_STATE_PUSH_TOKEN"
-PUSH_TOKEN = re.compile(r"[A-Za-z0-9_.-]{20,255}")
+# GitHub's workflow token is a 377-character `ghs_` string today (measured in a hosted job, run 41933720896), so the old 255 cap refused the
+# genuine token and the reserve step reported it as missing. The bound only has to stop an obviously wrong value from reaching a header;
+# the character set stays closed, so a value with whitespace, a newline or a quote can never be injected.
+PUSH_TOKEN_MAX = 1024
+PUSH_TOKEN = re.compile(r"[A-Za-z0-9_.-]{20,%d}" % PUSH_TOKEN_MAX)
 IDENT = {"GIT_AUTHOR_NAME": "cloud-test-state", "GIT_AUTHOR_EMAIL": "cloud-test-state@invalid",
          "GIT_COMMITTER_NAME": "cloud-test-state", "GIT_COMMITTER_EMAIL": "cloud-test-state@invalid"}
 
@@ -235,12 +239,13 @@ def _child(repo, parent, events, event):
 
 def _push_auth(url, scheme):
     """The push's only credential: for https, the token in CT_STATE_PUSH_TOKEN as an Authorization header for exactly `url`, passed through
-    GIT_CONFIG_COUNT to the push subprocess alone. A missing or malformed token refuses before anything is sent; a file remote gets none."""
+    GIT_CONFIG_COUNT to the push subprocess alone. A missing token (push-token-missing) or a malformed one (push-token-malformed) refuses before anything is sent; a file remote gets none."""
     if scheme != "https":
         return {}
     import base64
     token = os.environ.get(PUSH_TOKEN_ENV)
-    _need(isinstance(token, str) and PUSH_TOKEN.fullmatch(token) is not None, "push-token-missing")
+    _need(isinstance(token, str) and token != "", "push-token-missing")
+    _need(PUSH_TOKEN.fullmatch(token) is not None, "push-token-malformed")
     basic = base64.b64encode(("x-access-token:" + token).encode()).decode()
     return {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.%s.extraheader" % url, "GIT_CONFIG_VALUE_0": "AUTHORIZATION: basic " + basic}
 

@@ -125,6 +125,26 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
 
+    def test_record_begin_retires_a_never_reserved_attempt_only_on_evidence_before_it_begins(self):
+        begin = next(st for st in self.jobs["record-begin"]["steps"] if st.get("id") == "begin")
+        run = begin["run"]
+        # manual dispatch only, and the request path reaches the step so the tested release is the request's own
+        self.assertEqual(begin["env"]["MANUAL_REQUEST"], "${{ inputs.request }}")
+        guard = 'if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unreserved_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then'
+        self.assertIn(guard, run)
+        # the evidence comes from GitHub's own run and jobs and the validated journal, and is consumed by the one recovery command
+        for needle in ('actions/runs/$unreserved_run" > "$RUNNER_TEMP/unreserved-run.json"', 'actions/runs/$unreserved_run/jobs?per_page=100',
+                       "unreserved_attempt_evidence.py --run", "reconcile-unreserved --previous", 'release.testedSha'):
+            self.assertIn(needle, run)
+        # it runs after the pending-completion reconcile and strictly before `begin`, so an unretired attempt still refuses there
+        self.assertLess(run.index("pendingCompletion"), run.index(guard))
+        self.assertLess(run.index("reconcile-unreserved"), run.index('"$P" begin --previous'))
+        # the step gained no credential and the job gained no permission (the PR-comment write is the only addition: test above)
+        self.assertIsNone(SECRET_REF.search(str(begin)))
+        self.assertNotIn("contents", self.jobs["record-begin"]["permissions"])
+        self.assertIn("tools/cloud-test/scripts", next(st for st in self.jobs["record-begin"]["steps"]
+                                                      if st.get("uses", "").startswith("actions/checkout@"))["with"]["sparse-checkout"])
+
     def test_the_record_jobs_hold_no_live_credential(self):
         for name in ("record-begin", "record-complete"):
             self.assertIsNone(SECRET_REF.search(str(self.jobs[name])), name)

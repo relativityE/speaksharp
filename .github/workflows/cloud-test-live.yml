@@ -176,6 +176,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW_START_UTC: ${{ steps.manual-occurrence.outputs.workflow_start_utc }}
+          MANUAL_REQUEST: ${{ inputs.request }}
         run: |
           set -euo pipefail
           P=tools/cloud-test/scripts/publish_latest_record.py
@@ -201,6 +202,21 @@ jobs:
               --settle-receipt "$RUNNER_TEMP/prior-completion/settle-receipt.json" \
               --occurrence "$RUNNER_TEMP/prior-completion/occurrence.json" --out "$RUNNER_TEMP/reconciled.md"
             mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
+          fi
+          # An attempt that stopped before it reserved anything (run 41933223835: the reserve job refused the workflow token) leaves an
+          # `incomplete` in-progress record with no completion artifact, and `begin` would refuse every later run. Retire it only on evidence
+          # that it never reserved: GitHub reports the run failed with the reserve job failed and the live and settle jobs skipped, and the
+          # validated state-ref journal (pinned reviewed root) names no event for it. The failed attempt stays in history as an unqualified,
+          # all-NOT-RUN record. Manual dispatch only; any other incomplete state still refuses in `begin`.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unreserved_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run" > "$RUNNER_TEMP/unreserved-run.json"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run/jobs?per_page=100" > "$RUNNER_TEMP/unreserved-jobs.json"
+            tested_sha="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$MANUAL_REQUEST" release.testedSha)"
+            python3 -I tools/cloud-test/scripts/unreserved_attempt_evidence.py --run "$RUNNER_TEMP/unreserved-run.json" \
+              --jobs "$RUNNER_TEMP/unreserved-jobs.json" --tested-sha "$tested_sha" --out "$RUNNER_TEMP/unreserved-evidence.json"
+            python3 -I "$P" reconcile-unreserved --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unreserved-evidence.json" \
+              --out "$RUNNER_TEMP/reconciled-unreserved.md"
+            mv "$RUNNER_TEMP/reconciled-unreserved.md" "$RUNNER_TEMP/previous.md"
           fi
           # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
           python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"

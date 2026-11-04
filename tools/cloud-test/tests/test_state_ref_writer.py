@@ -359,15 +359,27 @@ class PushTokenConfinement(unittest.TestCase):
         self.assertFalse(any(self.TOKEN in v for v in captured[0].values()))
 
     def test_a_missing_or_malformed_token_refuses_before_the_push_is_sent(self):
-        for value in (None, "", "short", "has space " + "x" * 30, "x" * 30 + "\nInjected: header", "x" * 256):
+        # Missing and malformed are different refusals: the first real run reported a 377-character, well-formed token as "missing".
+        for value, code in ((None, "push-token-missing"), ("", "push-token-missing"), ("short", "push-token-malformed"),
+                            ("has space " + "x" * 30, "push-token-malformed"), ("x" * 30 + "\nInjected: header", "push-token-malformed"),
+                            ("x" * 30 + '"', "push-token-malformed"), ("x" * (W.PUSH_TOKEN_MAX + 1), "push-token-malformed")):
             env = {} if value is None else {W.PUSH_TOKEN_ENV: value}
             with mock.patch.dict(os.environ, env, clear=False), mock.patch.object(W, "_git", lambda *a, **k: self.fail("sent")):
                 if value is None:
                     os.environ.pop(W.PUSH_TOKEN_ENV, None)
                 with self.assertRaises(W.Refused) as e:
                     W._push(self.repo, self.HTTPS, "a" * 40, "b" * 40, "https")
-                self.assertEqual(str(e.exception), "push-token-missing")
+                self.assertEqual(str(e.exception), code, repr(value[:12] if value else value))
         self.assertEqual(W._push_auth(self.remote, "file"), {})
+
+    def test_the_genuine_377_character_workflow_token_is_accepted(self):
+        # Measured in a hosted job (run 41933720896): length 377, only [A-Za-z0-9_.-], prefix ghs_. It was refused by the old 255 cap.
+        for token in ("ghs_" + "A1b2C3d4E5" * 37 + "xyz", "ghs_" + "a" * 20, "ghs_" + "Z" * (W.PUSH_TOKEN_MAX - 4)):
+            self.assertLessEqual(len(token), W.PUSH_TOKEN_MAX)
+            with mock.patch.dict(os.environ, {W.PUSH_TOKEN_ENV: token}):
+                extra = W._push_auth(self.HTTPS, "https")
+            self.assertEqual(set(extra), {"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"})
+        self.assertEqual(len("ghs_" + "A1b2C3d4E5" * 37 + "xyz"), 377)
 
 
 if __name__ == "__main__":
