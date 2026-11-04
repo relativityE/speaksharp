@@ -79,11 +79,11 @@ def _attempt(run_id, attempt):
     _need(isinstance(attempt, int) and not isinstance(attempt, bool) and attempt >= 1, "run-attempt")
 
 
-def sanitize_record(rec):
+def sanitize_record(rec, require_source=False):
     """The terminal record exactly as published; refuses anything outside the closed shape."""
     # Three identities, never conflated: the workflow source that ran the harness, the product release the request tested, and the release
     # observed served at admission (Sam 1793539017 RETURN, finding 4).
-    _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "campaignId", "coverage", "requestSha256", "catalogSha256",
+    _keys(rec, {"runId", "attempt", "sourceSha", "testedSha", "servedSha", "campaignId", "coverage", "coverageMode", "assertionDepth", "requestSha256", "catalogSha256",
                 "startedUtc", "endedUtc", "outcome", "cases", "codes", "rowVerdicts", "comparability", "evidence"}, "record")
     _attempt(rec.get("runId"), rec.get("attempt"))
     _need(isinstance(rec.get("sourceSha"), str) and SHA40.match(rec["sourceSha"]), "source-sha")
@@ -92,6 +92,13 @@ def sanitize_record(rec):
     # not, unqualified when the qualification was not bound to this record. Smoke is a diagnostic result, never full/nightly history.
     # Coverage is not the outcome: a fully executed baseline may still be failed.
     _need(rec.get("coverage") in ("batch", "smoke", "full", "incomplete", "unqualified"), "coverage")
+    mode, depth = rec.get("coverageMode"), rec.get("assertionDepth")
+    _need((mode is None) == (depth is None), "coverage-source")
+    _need(not require_source or rec.get("coverage") == "unqualified" or mode is not None, "coverage-source")
+    if mode is not None:
+        _need(mode in ("partial", "smoke", "full") and depth == ("smoke" if mode == "smoke" else "full"), "coverage-source")
+        allowed = {"partial": ("batch", "incomplete"), "smoke": ("smoke", "incomplete"), "full": ("full", "incomplete")}
+        _need(rec["coverage"] in allowed[mode], "coverage-source")
     for k in ("requestSha256", "catalogSha256"):
         _need(rec.get(k) is None if rec["coverage"] == "unqualified" else isinstance(rec.get(k), str) and SHA64.match(rec[k]), k)
     _need(rec.get("campaignId") is None if rec["coverage"] == "unqualified" else isinstance(rec.get("campaignId"), str) and CAMPAIGN.match(rec["campaignId"]), "campaign-id")
@@ -136,6 +143,8 @@ def sanitize_record(rec):
             "catalogSha256": rec.get("catalogSha256"),
             "startedUtc": rec["startedUtc"], "endedUtc": rec["endedUtc"], "outcome": rec["outcome"],
             "cases": sorted(out, key=lambda c: c["caseId"]), "codes": _codes(rec.get("codes", []), 16)}
+    if mode is not None:
+        out_rec.update(coverageMode=mode, assertionDepth=depth)
     if rv is not None:
         out_rec["rowVerdicts"] = dict(sorted(rv.items()))
     comp = rec.get("comparability")
@@ -160,7 +169,8 @@ def sanitize_record(rec):
 HISTORY_KEYS = {"sequence", "predecessorSha256", "occurrences", "rows", "lastComparison", "identities"}
 # each distinct comparability identity set is kept once (identities[]); an occurrence names it by index (identity), so the bound holds
 OCCURRENCE_KEYS = {"runId", "attempt", "campaignId", "requestSha256", "catalogSha256", "sourceSha", "testedSha", "servedSha", "endedUtc",
-                   "outcome", "coverage", "identity", "evidence", "rowEvidence"}
+                   "outcome", "coverage", "coverageMode", "assertionDepth", "identity", "evidence", "rowEvidence"}
+OCCURRENCE_OPTIONAL = {"identity", "evidence", "rowEvidence", "coverageMode", "assertionDepth"}
 COMPARABILITY_KEYS = {"codeManifestSha256", "packetManifestSha256", "mediaManifestSha256", "backendSha"}
 MAX_OCCURRENCES = 62          # two 31-day periods of nightly occurrences, retained in order
 MAX_HISTORY_BYTES = 48000     # serialized-size bound for the history block
@@ -171,12 +181,20 @@ def canon(doc):
     return json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()
 
 
+def _smoke_source(rec):
+    """New records preserve their source denominator explicitly; coverage fallback keeps existing v1 history readable."""
+    return rec.get("coverageMode") == "smoke" or (rec.get("coverageMode") is None and rec.get("coverage") == "smoke")
+
+
 def _occurrence(rec, identity):
     # usable row evidence needs at least one EXECUTED row (PASS or FAIL): an all-NOT-RUN map is not evidence (RETURN 1793576632.959179)
     executed = any(ch in "PF" for v in (rec.get("rowVerdicts") or {}).values() for ch in v)
     # Smoke rows remain visible in latestCompleted but never become G7/full/nightly carry-forward evidence.
-    qualified_rows = executed and rec["coverage"] in ("batch", "full", "incomplete") and rec.get("evidence") is not None
-    return dict({k: rec.get(k) for k in OCCURRENCE_KEYS - {"identity", "evidence", "rowEvidence"}}, identity=identity,
+    qualified_rows = executed and not _smoke_source(rec) and rec["coverage"] in ("batch", "full", "incomplete") and rec.get("evidence") is not None
+    values = {k: rec.get(k) for k in OCCURRENCE_KEYS - OCCURRENCE_OPTIONAL}
+    if rec.get("coverageMode") is not None:
+        values.update(coverageMode=rec["coverageMode"], assertionDepth=rec["assertionDepth"])
+    return dict(values, identity=identity,
                 evidence=rec.get("evidence"), rowEvidence=qualified_rows)
 
 
@@ -211,11 +229,15 @@ def sanitize_history(h):
     occ = h.get("occurrences")
     _need(isinstance(occ, list) and 1 <= len(occ) <= MAX_OCCURRENCES, "history-occurrences")
     for o in occ:
-        _need(isinstance(o, dict) and OCCURRENCE_KEYS - {"identity", "evidence", "rowEvidence"} <= set(o) <= OCCURRENCE_KEYS, "history-occurrence")
+        _need(isinstance(o, dict) and OCCURRENCE_KEYS - OCCURRENCE_OPTIONAL <= set(o) <= OCCURRENCE_KEYS, "history-occurrence")
+        mode, depth = o.get("coverageMode"), o.get("assertionDepth")
+        _need((mode is None) == (depth is None), "history-occurrence")
+        if mode is not None:
+            _need(mode in ("partial", "smoke", "full") and depth == ("smoke" if mode == "smoke" else "full"), "history-occurrence")
         _need(type(o.get("rowEvidence", False)) is bool and (o.get("evidence") is None or (isinstance(o["evidence"], dict)
               and set(o["evidence"]) == {"planSha256", "caseResultsSha256"})), "history-occurrence")
         # row evidence only from a qualified run with its qualification digests: an unqualified or row-empty occurrence never counts
-        _need(not o.get("rowEvidence") or (o["coverage"] in ("batch", "full", "incomplete") and o.get("evidence") is not None), "history-occurrence")
+        _need(not o.get("rowEvidence") or (not _smoke_source(o) and o["coverage"] in ("batch", "full", "incomplete") and o.get("evidence") is not None), "history-occurrence")
         _need(o.get("identity") is None or (type(o["identity"]) is int and 0 <= o["identity"] < len(ids)), "history-occurrence")
         _attempt(o.get("runId"), o.get("attempt"))
         _need(isinstance(o.get("endedUtc"), str) and UTC.match(o["endedUtc"]) and o.get("outcome") in ("passed", "failed"), "history-occurrence")
@@ -258,10 +280,10 @@ def fold_history(history, rec, expected_predecessor):
     rows = {cid: dict(r) for cid, r in (prior["rows"] if prior else {}).items()}
     index = len(occ) - 1
     comparison = {"runId": rec["runId"], "regressions": {}, "fixes": {}, "notComparable": {}}
-    acceptance_evidence = rec["coverage"] != "smoke"
+    acceptance_evidence = not _smoke_source(rec)
     if prior and acceptance_evidence and rec.get("rowVerdicts"):
         # row positions are catalog positions: a different catalog makes them incomparable, so the fold refuses rather than mixing them
-        _need(all(o.get("coverage") == "smoke" or o.get("catalogSha256") in (None, rec.get("catalogSha256"))
+        _need(all(_smoke_source(o) or o.get("catalogSha256") in (None, rec.get("catalogSha256"))
                   for o in prior["occurrences"]), "history-catalog-changed")
     for c in rec["cases"]:
         v = (rec.get("rowVerdicts") or {}).get(c["caseId"]) if acceptance_evidence else None
@@ -390,7 +412,7 @@ def begin(state, run_id, attempt, source_sha, started_utc):
 
 
 def complete(state, record):
-    rec = sanitize_record(record)
+    rec = sanitize_record(record, require_source=True)
     live = state["inProgress"]
     _need(live is not None and live["status"] == "running" and (live["runId"], live["attempt"], live["sourceSha"]) ==
           (rec["runId"], rec["attempt"], rec["sourceSha"]), "record-not-the-running-attempt")
@@ -418,7 +440,7 @@ def pending_completion(state, record, completion_deadline_utc, settle_receipt_sh
     `updated_at` is only known after the PATCH; the next admitted record-begin
     is the consumer that reconciles the candidate after checking that time.
     """
-    rec = sanitize_record(record)
+    rec = sanitize_record(record, require_source=True)
     live = state.get("inProgress")
     _need(live is not None and live.get("status") == "running" and
           (live.get("runId"), live.get("attempt"), live.get("sourceSha")) ==

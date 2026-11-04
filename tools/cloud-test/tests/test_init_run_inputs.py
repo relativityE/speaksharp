@@ -889,6 +889,52 @@ class Qualify(unittest.TestCase):
         self.assertEqual(I.LR.qualified_comparable(done["history"], clean["comparability"]), [])
         self.assertEqual(I.LR.parse_body(I.LR.render(done)), done)
 
+    def test_incomplete_smoke_keeps_its_source_depth_and_never_becomes_acceptance_history(self):
+        """The real frozen verifier/qualifier/project/pending/readback/complete path for Sam's incomplete-smoke RETURN."""
+        self.make_smoke()
+        self.write_case("AHT-15", [("a", "PASS"), ("b", "NOT RUN")], "NOT RUN")
+        request = self.request(mode="smoke")
+        record = self.collect(request)
+        q = self.qualify(mode="smoke")
+        self.assertEqual((q["coverageMode"], q["assertionDepth"], q["coverage"], q["outcome"]),
+                         ("smoke", "smoke", "incomplete", "failed"))
+        with open(self.results, "rb") as f:
+            case_results_raw = f.read()
+        request_path = os.path.join(self.d, "request-%d.json" % self.runs)
+        with open(request_path, "rb") as f:
+            request_raw = f.read()
+        catalog = {"cases": {cid: {"requiredAssertions": ["%s-a" % cid.lower(), "%s-b" % cid.lower()]}
+                             for cid in I.ALL_CASES}}
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q),
+                        case_results_raw, catalog, request_raw, b"synthetic-smoke-media")
+        self.assertEqual((rec["coverageMode"], rec["assertionDepth"], rec["coverage"], rec["outcome"]),
+                         ("smoke", "smoke", "incomplete", "failed"))
+        clean = I.LR.sanitize_record(rec)
+        running = I.LR.begin(I.LR.parse_body(""), "123", 1, "c" * 40, record["startedUtc"])
+        pending = I.LR.pending_completion(running, clean, "2026-11-01T14:40:00Z", "8" * 64, "9" * 64)
+        reread = I.LR.parse_body(I.LR.render(pending))["pendingCompletion"]["record"]
+        self.assertEqual((reread["coverageMode"], reread["coverage"]), ("smoke", "incomplete"))
+        done = I.LR.complete(running, clean)
+        self.assertEqual((done["history"]["occurrences"][0]["coverageMode"],
+                          done["history"]["occurrences"][0]["coverage"],
+                          done["history"]["occurrences"][0]["rowEvidence"]), ("smoke", "incomplete", False))
+        self.assertEqual(done["history"]["rows"], {})
+        self.assertEqual(I.LR.qualified_comparable(done["history"], clean["comparability"]), [])
+
+        # A second incomplete smoke remains diagnostic, and a later acceptance record with a different catalog is not blocked by either.
+        second = dict(clean, runId="124", startedUtc="2026-11-01T14:41:00Z", endedUtc="2026-11-01T15:00:00Z")
+        twice = I.LR.complete(I.LR.begin(done, "124", 1, "c" * 40, second["startedUtc"]), second)
+        self.assertEqual(I.LR.qualified_comparable(twice["history"], clean["comparability"]), [])
+        batch = I.LR.sanitize_record({"runId": "125", "attempt": 1, "sourceSha": "c" * 40, "testedSha": SHA,
+            "servedSha": SHA, "campaignId": "later-full-depth", "coverage": "batch", "coverageMode": "partial",
+            "assertionDepth": "full", "requestSha256": "d" * 64, "catalogSha256": "e" * 64,
+            "startedUtc": "2026-11-01T15:01:00Z", "endedUtc": "2026-11-01T15:20:00Z", "outcome": "passed",
+            "cases": [{"caseId": "AHT-05", "result": "PASS", "rows": {"pass": 1, "fail": 0, "notRun": 0}, "codes": []}],
+            "codes": [], "rowVerdicts": {"AHT-05": "P"}, "comparability": clean["comparability"],
+            "evidence": {"planSha256": "f" * 64, "caseResultsSha256": "0" * 64}})
+        accepted = I.LR.complete(I.LR.begin(twice, "125", 1, "c" * 40, batch["startedUtc"]), batch)
+        self.assertEqual(accepted["history"]["rows"]["AHT-05"]["last"]["runId"], "125")
+
     def test_a_request_substituted_after_admission_keeping_the_five_checked_fields_never_qualifies(self):
         # Sam 1793548687.416409: the five execution-identity checks (runId, selection, tested release, mode, harness CODE pin) do not bind the
         # request blob. Substitute window, approval and budget fields after admission while preserving those five exactly.
@@ -1132,9 +1178,15 @@ class Project(unittest.TestCase):
                 "harness": {"codeManifestSha256": "f" * 64}}
 
     def q(self, **over):
-        return dict({"qualified": True, "campaignId": "R6-unit", "testedSha": SHA, "servedSha": SHA, "caseResultsSha256": "d" * 64,
-                     "planSha256": "e" * 64, "cases": ["AHT-05", "AHT-09"], "coverage": "batch", "outcome": "passed",
-                     "codeManifestSha256": "f" * 64, "requestSha256": "1" * 64, "catalogSha256": "2" * 64}, **over)
+        value = dict({"qualified": True, "campaignId": "R6-unit", "testedSha": SHA, "servedSha": SHA, "caseResultsSha256": "d" * 64,
+                      "planSha256": "e" * 64, "cases": ["AHT-05", "AHT-09"], "coverageMode": "partial", "assertionDepth": "full",
+                      "coverage": "batch", "outcome": "passed",
+                      "codeManifestSha256": "f" * 64, "requestSha256": "1" * 64, "catalogSha256": "2" * 64}, **over)
+        if over.get("coverage") == "full" and "coverageMode" not in over:
+            value.update(coverageMode="full", assertionDepth="full")
+        elif over.get("coverage") == "smoke" and "coverageMode" not in over:
+            value.update(coverageMode="smoke", assertionDepth="smoke")
+        return value
 
     def project(self, *a):
         """Projection against the admitted request digest and the execution-provenance verdict this qualification fixture is bound to."""

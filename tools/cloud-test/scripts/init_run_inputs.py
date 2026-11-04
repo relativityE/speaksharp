@@ -1145,6 +1145,9 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     executed = counts["NOT RUN"] == 0
     return {"qualified": True, "campaignId": plan["campaignId"], "testedSha": plan["sourceSha"], "servedSha": results.get("servedSha"),
             "planSha256": digest(original_plan), "caseResultsSha256": digest(frozen["case-results.json"]), "cases": selected,
+            # Keep the request/plan denominator independent of execution completeness. In particular, a smoke run with one NOT RUN row
+            # has coverage=incomplete, but it is still smoke-depth diagnostic evidence and must never enter full/nightly history.
+            "coverageMode": coverage_mode, "assertionDepth": "smoke" if coverage_mode == "smoke" else "full",
             "coverage": ("full" if coverage_mode == "full" else "smoke" if coverage_mode == "smoke" else "batch") if executed else "incomplete",
             "outcome": "passed" if executed and counts["FAIL"] == 0 and all(o == "PASS" for o in case_outcomes) else "failed",
             "requestSha256": ids["requestSha256"], "catalogSha256": ids["catalogSha256"], "codeManifestSha256": digest(frozen["packet/CODE.sha256"]),
@@ -1340,6 +1343,8 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
                  provenance.get("campaignId") == campaign and type(provenance.get("runId")) is str and provenance.get("runId") == run_id and
                  type(provenance.get("attempt")) is int and provenance.get("attempt") == 1 and attempt == 1 and
                  q.get("outcome") in ("passed", "failed") and
+                 q.get("coverageMode") in ("partial", "smoke", "full") and
+                 q.get("assertionDepth") == ("smoke" if q.get("coverageMode") == "smoke" else "full") and
                  (q.get("coverage") in ("batch", "smoke", "incomplete") or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
                  isinstance(q.get("cases"), list) and set(q["cases"]) <= {c.get("case") for c in run_record.get("cases") or [] if isinstance(c, dict)})
     if qualified and q["coverage"] in ("batch", "smoke", "full"):
@@ -1370,6 +1375,8 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
            "requestSha256": q.get("requestSha256") if qualified else None, "catalogSha256": q.get("catalogSha256") if qualified else None,
            "outcome": "passed" if qualified and q["outcome"] == "passed" and selected and all(c["result"] == "PASS" for c in selected) else "failed",
            "cases": cases, "codes": [] if qualified else ["not-qualified"]}
+    if qualified:
+        rec.update(coverageMode=q["coverageMode"], assertionDepth=q["assertionDepth"])
     if row_verdicts:
         rec["rowVerdicts"] = row_verdicts
     if row_verdicts and request_raw is not None and media_manifest_raw is not None:
@@ -1384,7 +1391,7 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
         if all(isinstance(v, str) for v in comp.values()):
             rec["comparability"] = comp  # an identity that is not known leaves the rows not comparable, never a guessed match
     try:
-        return LR.sanitize_record(rec)
+        return LR.sanitize_record(rec, require_source=True)
     except LR.Refused as e:
         raise Refused("run-record-not-publishable:" + str(e))
 
