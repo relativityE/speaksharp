@@ -278,7 +278,10 @@ jobs:
     needs: [record-begin, journal-reserve]
     # Every run, scheduled or dispatched, starts only after its journal reserve landed (#1772 review 4446137323). Protected main only.
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.record-begin.result == 'success' && needs.journal-reserve.result == 'success' }}
-    runs-on: ubuntu-latest
+    # This is the only credentialed job that needs the preinstalled browser.
+    # Keep it on the supported image family whose rolling releases satisfy the
+    # reviewed Chrome >=156 baseline without a download or install.
+    runs-on: ubuntu-26.04
     environment: trusted-main-credentials
     # PO decision (Sam 1793647229.528719): the existing repository Secrets are the single stored source, read by reference here; nothing is
     # duplicated, regenerated or copied. Protected main, the protected environment's rules, this job's read-only permission and the

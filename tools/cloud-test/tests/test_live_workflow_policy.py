@@ -261,6 +261,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertLess(steps.index(provision), stage)
 
     def test_no_browser_or_unreviewed_package_is_installed_or_downloaded(self):
+        self.assertEqual(self.jobs["live"]["runs-on"], "ubuntu-26.04")
         low = self.text.lower().replace(self.B4_INSTALL, "").replace(self.PY_YAML_INSTALL, "")
         for banned in ("playwright install", "install-deps", "apt-get", "setup-chrome", "browser-actions/", "--archive", "curl ", "wget ",
                        "npm ci", "npm install", "pnpm install", "pip install", "npx "):
