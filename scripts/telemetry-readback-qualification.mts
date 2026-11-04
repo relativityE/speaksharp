@@ -207,6 +207,7 @@ async function main(): Promise<void> {
             try {
                 response = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId!)}/query/`, {
                     method: 'POST',
+                    redirect: 'error',
                     headers: { Authorization: `Bearer ${personalApiKey}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query: { kind: 'HogQLQuery', query: hogql } }),
                     signal: controller.signal,

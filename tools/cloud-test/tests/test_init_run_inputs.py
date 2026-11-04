@@ -79,6 +79,168 @@ def action_approval(req, request_sha256, reconciliation_bytes, **over):
     return a
 
 
+class FirstObservationExportTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cases = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_case(self, case_id, status="OBSERVED", linked=True, tamper_digest=False):
+        d = os.path.join(self.cases, case_id)
+        os.makedirs(d)
+        ref = case_id.lower() + "-first-observation.json"
+        observed = status == "OBSERVED"
+        doc = {"contentSafe": True, "kind": "first-account-observation", "inventoryStatus": status,
+               "role": "existing-disposable" if case_id == "AHT-01" else "maintained-read-only",
+               "accountSubjectSha256": "a" * 64, "sourceBindingSha256": "b" * 64, "sourceSha": "c" * 40,
+               "servedSha": "c" * 40, "observedAtUtc": "2026-11-03T16:00:00Z",
+               "rowCount": 0 if observed else None, "completedCount": 0 if observed else None,
+               "readableCompletedCount": 0 if observed else None, "readableHistoryAvailable": False if observed else None,
+               "inventoryComplete": observed, "readLimit": 100,
+               "sanitizer": {"blockedStrings": 0, "droppedKeys": 0, "truncated": 0}}
+        raw = (json.dumps(doc, indent=2) + "\n").encode()
+        with open(os.path.join(d, ref), "wb") as f:
+            f.write(raw)
+        result = {"assertions": [{"id": "unit", "result": "NOT RUN", "evidenceRefs": [ref] if linked else []}],
+                  "evidenceDigests": {ref: ("f" * 64 if tamper_digest else hashlib.sha256(raw).hexdigest())}}
+        with open(os.path.join(d, "case-result.json"), "w", encoding="utf-8") as f:
+            json.dump(result, f)
+
+    def test_observed_and_unknown_records_are_exported_from_linked_exact_bytes(self):
+        self.write_case("AHT-01")
+        self.write_case("AHT-15", "UNKNOWN")
+        out = I.first_observation_export(self.cases, ["AHT-%02d" % n for n in range(1, 16)])
+        self.assertEqual(out["schema"], "speaksharp-first-observations-v1")
+        self.assertEqual([x["caseId"] for x in out["observations"]], ["AHT-01", "AHT-15"])
+        self.assertEqual(out["observations"][1]["observation"]["inventoryStatus"], "UNKNOWN")
+        self.assertNotIn("00000000-0000-4000-8000-000000000001", json.dumps(out))
+
+    def test_completed_observation_survives_when_a_later_selected_case_was_never_reached(self):
+        self.write_case("AHT-01")
+        out = I.first_observation_export(self.cases, ["AHT-%02d" % n for n in range(1, 16)])
+        self.assertEqual([x["caseId"] for x in out["observations"]], ["AHT-01"])
+        self.assertEqual(out["notObserved"], [{"caseId": "AHT-15", "status": "NOT OBSERVED", "reason": "CASE NOT REACHED"}])
+
+    def test_reached_case_without_an_inventory_is_explicitly_not_observed(self):
+        os.makedirs(os.path.join(self.cases, "AHT-15"))
+        out = I.first_observation_export(self.cases, ["AHT-15"])
+        self.assertEqual(out["observations"], [])
+        self.assertEqual(out["notObserved"], [{"caseId": "AHT-15", "status": "NOT OBSERVED", "reason": "OBSERVATION NOT PRODUCED"}])
+
+    def test_dangling_observation_symlink_refuses_instead_of_disappearing(self):
+        directory = os.path.join(self.cases, "AHT-15")
+        os.makedirs(directory)
+        os.symlink(os.path.join(directory, "missing-observation.json"), os.path.join(directory, "aht-15-first-observation.json"))
+        with self.assertRaisesRegex(I.Refused, "regular-files"):
+            I.first_observation_export(self.cases, ["AHT-15"])
+
+    def test_unlinked_or_digest_substituted_observation_refuses(self):
+        for linked, tamper, reason in ((False, False, "not-linked"), (True, True, "not-linked")):
+            with self.subTest(linked=linked, tamper=tamper):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+                self.write_case("AHT-01", linked=linked, tamper_digest=tamper)
+                with self.assertRaisesRegex(I.Refused, reason):
+                    I.first_observation_export(self.cases, ["AHT-01"])
+
+    def test_malicious_or_blocked_first_observation_refuses(self):
+        self.write_case("AHT-01")
+        p = os.path.join(self.cases, "AHT-01", "aht-01-first-observation.json")
+        with open(p, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["privateText"] = "secret"
+        raw = (json.dumps(doc) + "\n").encode()
+        with open(p, "wb") as f:
+            f.write(raw)
+        result_path = os.path.join(self.cases, "AHT-01", "case-result.json")
+        with open(result_path, encoding="utf-8") as f:
+            result = json.load(f)
+        result["evidenceDigests"]["aht-01-first-observation.json"] = hashlib.sha256(raw).hexdigest()
+        with open(result_path, "w", encoding="utf-8") as f:
+            json.dump(result, f)
+        with self.assertRaisesRegex(I.Refused, "shape"):
+            I.first_observation_export(self.cases, ["AHT-01"])
+
+
+class CaseTimingExportTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cases = self.tmp.name
+        self.results = os.path.join(self.cases, "case-results.json")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fixture(self, tamper=False, duration_seconds=12, executed_missing=False):
+        rows = []
+        for n in range(1, 16):
+            case_id = "AHT-%02d" % n
+            row = {"caseId": case_id, "result": "NOT RUN"}
+            if case_id == "AHT-01" and not executed_missing:
+                directory = os.path.join(self.cases, case_id)
+                os.makedirs(directory)
+                summary = {"startedAt": "2026-11-03T16:00:00.000Z",
+                           "endedAt": (datetime(2026, 11, 3, 16, 0, tzinfo=timezone.utc) + timedelta(seconds=duration_seconds)).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                           "privateError": "must-not-be-exported"}
+                raw = (json.dumps(summary) + "\n").encode()
+                with open(os.path.join(directory, "summary.json"), "wb") as f:
+                    f.write(raw)
+                row.update(result="PASS", executionReceipt={"summarySha256": "f" * 64 if tamper else hashlib.sha256(raw).hexdigest()})
+            elif case_id == "AHT-01":
+                row["result"] = "PASS"
+            rows.append(row)
+        with open(self.results, "w", encoding="utf-8") as f:
+            json.dump({"cases": rows}, f)
+
+    def test_observed_and_not_observed_timings_are_content_free(self):
+        self.fixture()
+        out = I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])
+        self.assertEqual(out["cases"][0], {"caseId": "AHT-01", "result": "PASS", "timingStatus": "OBSERVED",
+                                                  "startedAtUtc": "2026-11-03T16:00:00.000Z", "endedAtUtc": "2026-11-03T16:00:12.000Z", "durationMs": 12000})
+        self.assertEqual(out["cases"][1]["timingStatus"], "NOT OBSERVED")
+        self.assertNotIn("privateError", json.dumps(out))
+
+    def test_tampered_summary_or_executed_case_without_receipt_refuses(self):
+        for tamper, missing, reason in ((True, False, "summary-digest"), (False, True, "missing-receipt")):
+            with self.subTest(reason=reason):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name; self.results = os.path.join(self.cases, "case-results.json")
+                self.fixture(tamper=tamper, executed_missing=missing)
+                with self.assertRaisesRegex(I.Refused, reason):
+                    I.case_timing_export(self.cases, self.results, ["AHT-01"])
+
+    def test_earlier_timing_survives_later_guard_exit_without_summary(self):
+        self.fixture()
+        with open(self.results, encoding="utf-8") as f:
+            results = json.load(f)
+        results["cases"][1].update(result="FAIL", executionReceipt={"summarySha256": None})
+        with open(self.results, "w", encoding="utf-8") as f:
+            json.dump(results, f)
+        out = I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])
+        self.assertEqual(out["cases"][0]["timingStatus"], "OBSERVED")
+        self.assertEqual(out["cases"][1], {"caseId": "AHT-02", "result": "FAIL", "timingStatus": "NOT OBSERVED",
+                                           "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
+
+    def test_null_summary_digest_still_refuses_a_present_substituted_summary(self):
+        self.fixture()
+        with open(self.results, encoding="utf-8") as f:
+            results = json.load(f)
+        results["cases"][1].update(result="FAIL", executionReceipt={"summarySha256": None})
+        directory = os.path.join(self.cases, "AHT-02")
+        os.makedirs(directory)
+        with open(os.path.join(directory, "summary.json"), "w", encoding="utf-8") as f:
+            json.dump({"startedAt": "2026-11-03T16:00:00.000Z", "endedAt": "2026-11-03T16:00:01.000Z"}, f)
+        with open(self.results, "w", encoding="utf-8") as f:
+            json.dump(results, f)
+        with self.assertRaisesRegex(I.Refused, "case-timing-summary"):
+            I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])
+
+    def test_timing_outside_the_run_ceiling_refuses(self):
+        self.fixture(duration_seconds=2401)
+        with self.assertRaisesRegex(I.Refused, "duration"):
+            I.case_timing_export(self.cases, self.results, ["AHT-01"])
+
+
 def put(path, doc):
     with open(path, "w", encoding="utf-8") as f:
         f.write(doc if isinstance(doc, str) else json.dumps(doc))
@@ -330,6 +492,20 @@ class Account(unittest.TestCase):
                 {"existing-disposable": dict(self.accounts()["existing-disposable"], historyRef="")}, self.bundle())
         refused(self, "account-binding-shape", I.account_bindings, CFG, ["AHT-05"],
                 {"existing-disposable": dict(self.accounts()["existing-disposable"], role="existing-disposable")}, self.bundle())
+
+    def test_r10_first_discovery_derives_identity_only_inside_the_protected_bundle_boundary(self):
+        first = {role: {"idSha256": "FIRST-DISCOVERY",
+                        "historyRef": "first-observation:%s@R10-3b040043-smoke15" % role}
+                 for role in ("existing-disposable", "maintained-read-only")}
+        bound = I.account_bindings(CFG, I.ALL_CASES, first, self.bundle(), "R10-3b040043-smoke15")
+        self.assertEqual([row["role"] for row in bound], ["existing-disposable", "maintained-read-only"])
+        self.assertNotIn(ACCOUNT_ID, json.dumps(bound))
+        refused(self, "account-first-discovery-not-authorized", I.account_bindings, CFG, I.ALL_CASES,
+                first, self.bundle())
+        wrong = copy.deepcopy(first)
+        wrong["existing-disposable"]["historyRef"] = "history:invented@r9"
+        refused(self, "account-first-discovery-reference", I.account_bindings, CFG, I.ALL_CASES,
+                wrong, self.bundle(), "R10-3b040043-smoke15")
 
 
 class Facts(unittest.TestCase):
@@ -591,6 +767,8 @@ class Qualify(unittest.TestCase):
     def request(self, selected=None, mode="partial"):
         """The committed request this campaign ran: runId = campaignId, the selection, the tested release and the harness CODE pin."""
         req = live_request(None if mode == "full" else list(selected or self.SELECTED), runId="C1")
+        if mode == "smoke":
+            req.update(coverageMode="smoke", sampleMode="smoke", priority="journey-smoke")
         req["release"]["testedSha"] = SHA
         req["harness"]["codeManifestSha256"] = self.sha(self.code)
         return req
@@ -605,6 +783,19 @@ class Qualify(unittest.TestCase):
         plan = J(self.plan)
         plan.pop("coverageMode"); plan.pop("assertionDepth")
         plan["selection"] = {"ids": list(I.ALL_CASES), "order": list(I.ALL_CASES), "ownerApprovalReference": "slack:1", "reason": "unit"}
+        put(self.plan, plan)
+        self.SELECTED = list(I.ALL_CASES)
+        for cid in I.ALL_CASES:
+            self.write_case(cid, [("a", "PASS"), ("b", "PASS")], refresh=False)
+        self.write_results()
+
+    def make_smoke(self):
+        """The real smoke builder's shape: explicit smoke markers and all 15 cases selected."""
+        plan = J(self.plan)
+        plan["coverageMode"] = "smoke"
+        plan["assertionDepth"] = "smoke"
+        plan["selection"] = {"ids": list(I.ALL_CASES), "order": list(I.ALL_CASES),
+                             "ownerApprovalReference": "slack:1", "reason": "unit smoke"}
         put(self.plan, plan)
         self.SELECTED = list(I.ALL_CASES)
         for cid in I.ALL_CASES:
@@ -670,6 +861,79 @@ class Qualify(unittest.TestCase):
             # the collector's campaign is the request runId; a qualification for another campaign never passes
             other = I.project(dict(record, runId="C2"), "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q))
             self.assertEqual((other["outcome"], other["coverage"]), ("failed", "unqualified"), mode)
+
+    def test_smoke_qualifies_projects_publishes_and_stays_out_of_acceptance_history(self):
+        self.make_smoke()
+        request = self.request(mode="smoke")
+        record = self.collect(request)
+        q = self.qualify(mode="smoke")
+        with open(self.results, "rb") as f:
+            case_results_raw = f.read()
+        request_path = os.path.join(self.d, "request-%d.json" % self.runs)
+        with open(request_path, "rb") as f:
+            request_raw = f.read()
+        catalog = {"cases": {cid: {"requiredAssertions": ["%s-a" % cid.lower(), "%s-b" % cid.lower()]}
+                             for cid in I.ALL_CASES}}
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q),
+                        case_results_raw, catalog, request_raw, b"synthetic-smoke-media")
+        self.assertEqual((q["coverage"], q["outcome"], rec["coverage"], rec["outcome"]),
+                         ("smoke", "passed", "smoke", "passed"))
+        clean = I.LR.sanitize_record(rec)
+        running = I.LR.begin(I.LR.parse_body(""), "123", 1, "c" * 40, record["startedUtc"])
+        pending = I.LR.pending_completion(running, clean, "2026-11-01T14:40:00Z", "8" * 64, "9" * 64)
+        self.assertEqual(I.LR.parse_body(I.LR.render(pending))["pendingCompletion"]["record"]["coverage"], "smoke")
+        done = I.LR.complete(running, clean)
+        self.assertEqual((done["history"]["occurrences"][0]["coverage"], done["history"]["occurrences"][0]["rowEvidence"]),
+                         ("smoke", False))
+        self.assertEqual(done["history"]["rows"], {})
+        self.assertEqual(I.LR.qualified_comparable(done["history"], clean["comparability"]), [])
+        self.assertEqual(I.LR.parse_body(I.LR.render(done)), done)
+
+    def test_incomplete_smoke_keeps_its_source_depth_and_never_becomes_acceptance_history(self):
+        """The real frozen verifier/qualifier/project/pending/readback/complete path for Sam's incomplete-smoke RETURN."""
+        self.make_smoke()
+        self.write_case("AHT-15", [("a", "PASS"), ("b", "NOT RUN")], "NOT RUN")
+        request = self.request(mode="smoke")
+        record = self.collect(request)
+        q = self.qualify(mode="smoke")
+        self.assertEqual((q["coverageMode"], q["assertionDepth"], q["coverage"], q["outcome"]),
+                         ("smoke", "smoke", "incomplete", "failed"))
+        with open(self.results, "rb") as f:
+            case_results_raw = f.read()
+        request_path = os.path.join(self.d, "request-%d.json" % self.runs)
+        with open(request_path, "rb") as f:
+            request_raw = f.read()
+        catalog = {"cases": {cid: {"requiredAssertions": ["%s-a" % cid.lower(), "%s-b" % cid.lower()]}
+                             for cid in I.ALL_CASES}}
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q),
+                        case_results_raw, catalog, request_raw, b"synthetic-smoke-media")
+        self.assertEqual((rec["coverageMode"], rec["assertionDepth"], rec["coverage"], rec["outcome"]),
+                         ("smoke", "smoke", "incomplete", "failed"))
+        clean = I.LR.sanitize_record(rec)
+        running = I.LR.begin(I.LR.parse_body(""), "123", 1, "c" * 40, record["startedUtc"])
+        pending = I.LR.pending_completion(running, clean, "2026-11-01T14:40:00Z", "8" * 64, "9" * 64)
+        reread = I.LR.parse_body(I.LR.render(pending))["pendingCompletion"]["record"]
+        self.assertEqual((reread["coverageMode"], reread["coverage"]), ("smoke", "incomplete"))
+        done = I.LR.complete(running, clean)
+        self.assertEqual((done["history"]["occurrences"][0]["coverageMode"],
+                          done["history"]["occurrences"][0]["coverage"],
+                          done["history"]["occurrences"][0]["rowEvidence"]), ("smoke", "incomplete", False))
+        self.assertEqual(done["history"]["rows"], {})
+        self.assertEqual(I.LR.qualified_comparable(done["history"], clean["comparability"]), [])
+
+        # A second incomplete smoke remains diagnostic, and a later acceptance record with a different catalog is not blocked by either.
+        second = dict(clean, runId="124", startedUtc="2026-11-01T14:41:00Z", endedUtc="2026-11-01T15:00:00Z")
+        twice = I.LR.complete(I.LR.begin(done, "124", 1, "c" * 40, second["startedUtc"]), second)
+        self.assertEqual(I.LR.qualified_comparable(twice["history"], clean["comparability"]), [])
+        batch = I.LR.sanitize_record({"runId": "125", "attempt": 1, "sourceSha": "c" * 40, "testedSha": SHA,
+            "servedSha": SHA, "campaignId": "later-full-depth", "coverage": "batch", "coverageMode": "partial",
+            "assertionDepth": "full", "requestSha256": "d" * 64, "catalogSha256": "e" * 64,
+            "startedUtc": "2026-11-01T15:01:00Z", "endedUtc": "2026-11-01T15:20:00Z", "outcome": "passed",
+            "cases": [{"caseId": "AHT-05", "result": "PASS", "rows": {"pass": 1, "fail": 0, "notRun": 0}, "codes": []}],
+            "codes": [], "rowVerdicts": {"AHT-05": "P"}, "comparability": clean["comparability"],
+            "evidence": {"planSha256": "f" * 64, "caseResultsSha256": "0" * 64}})
+        accepted = I.LR.complete(I.LR.begin(twice, "125", 1, "c" * 40, batch["startedUtc"]), batch)
+        self.assertEqual(accepted["history"]["rows"]["AHT-05"]["last"]["runId"], "125")
 
     def test_a_request_substituted_after_admission_keeping_the_five_checked_fields_never_qualifies(self):
         # Sam 1793548687.416409: the five execution-identity checks (runId, selection, tested release, mode, harness CODE pin) do not bind the
@@ -914,9 +1178,15 @@ class Project(unittest.TestCase):
                 "harness": {"codeManifestSha256": "f" * 64}}
 
     def q(self, **over):
-        return dict({"qualified": True, "campaignId": "R6-unit", "testedSha": SHA, "servedSha": SHA, "caseResultsSha256": "d" * 64,
-                     "planSha256": "e" * 64, "cases": ["AHT-05", "AHT-09"], "coverage": "batch", "outcome": "passed",
-                     "codeManifestSha256": "f" * 64, "requestSha256": "1" * 64, "catalogSha256": "2" * 64}, **over)
+        value = dict({"qualified": True, "campaignId": "R6-unit", "testedSha": SHA, "servedSha": SHA, "caseResultsSha256": "d" * 64,
+                      "planSha256": "e" * 64, "cases": ["AHT-05", "AHT-09"], "coverageMode": "partial", "assertionDepth": "full",
+                      "coverage": "batch", "outcome": "passed",
+                      "codeManifestSha256": "f" * 64, "requestSha256": "1" * 64, "catalogSha256": "2" * 64}, **over)
+        if over.get("coverage") == "full" and "coverageMode" not in over:
+            value.update(coverageMode="full", assertionDepth="full")
+        elif over.get("coverage") == "smoke" and "coverageMode" not in over:
+            value.update(coverageMode="smoke", assertionDepth="smoke")
+        return value
 
     def project(self, *a):
         """Projection against the admitted request digest and the execution-provenance verdict this qualification fixture is bound to."""

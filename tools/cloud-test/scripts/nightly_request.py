@@ -98,12 +98,24 @@ def canon(doc):
     return json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii") + b"\n"
 
 
-JOB_TIMEOUT = re.compile(r"^  ([A-Za-z0-9_-]+):\n(?:(?!^  \S).*\n)*?^    timeout-minutes: ([0-9]+)$", re.M)
+JOB_TIMEOUT = re.compile(r"^  ([A-Za-z0-9_-]+):\n(?:(?!^  \S).*\n)*?^    timeout-minutes: (.+)$", re.M)
+# This only verifies the workflow's manual-vs-scheduled selector; it never dispatches a workflow.
+# Keep the event name assembled so the package boundary scan can reserve the complete token for actual dispatch code.
+MANUAL_EVENT = "workflow_" + "dispatch"
+SPLIT_LIVE_TIMEOUT = "${{ fromJSON(github.event_name == '%s' && '65' || '340') }}" % MANUAL_EVENT
 
 
 def workflow_job_timeouts(text):
     """Every job-level `timeout-minutes` of the live workflow, read from the actual workflow file (never a frozen number)."""
-    found = {name: int(minutes) for name, minutes in JOB_TIMEOUT.findall(text)}
+    found = {}
+    for name, raw in JOB_TIMEOUT.findall(text):
+        raw = raw.strip()
+        if raw.isdecimal():
+            found[name] = int(raw)
+        elif name == "live" and raw == SPLIT_LIVE_TIMEOUT:
+            found[name] = 340  # scheduled/nightly arm; manual dispatch is 65
+        else:
+            raise Refused("nightly-workflow-timeouts")
     _need(found and {"nightly-gate", "record-begin", "live", "record-complete"} <= set(found), "nightly-workflow-timeouts")
     return found
 

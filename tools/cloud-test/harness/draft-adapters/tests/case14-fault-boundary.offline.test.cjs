@@ -24,14 +24,14 @@ function fakeWorld(s,events){
  const visible=new Set();const faults=[];let modelRequests=0,closed=false;
  const prefix=new BrowserPrefix({journal:entry=>s.journal?.push(entry)});
  const setStatus=status=>{attrs['data-model-status']=status;for(const id of ['mic-download','mic-retry','mic-start'])visible.delete(id);
-  visible.add(status==='download-required'?'mic-download':['error','init-failed'].includes(status)?'mic-retry':status==='ready'?'mic-start':'none');};
+  const next=status==='download-required'?'mic-download':['error','init-failed'].includes(status)?'mic-retry':status==='ready'?'mic-start':'none';if(!(s.hideRetry&&next==='mic-retry'))visible.add(next);};
  const clicks={
   // As guard-proxy.cjs does: the matched request binds the correlator (391–393); after the prefix write the receipt
   // comes from received() before offline (473). Either refusal leaves the fault unfired and harness-limited.
   async 'mic-download'(){
    if(s.fires!==false){modelRequests++;const f=faults[0];
     // A guard without a browser-prefix observer still fires (guard-proxy.cjs 473–476) and its summary omits the receipt (598).
-    if(s.noObserver){Object.assign(f,{fired:true,browserOfflineApplied:true,bytesForwarded:65536,...(s.noObserver==='null'?{browserPrefixReceipt:null}:{})});setStatus('error');return;}
+    if(s.noObserver){Object.assign(f,{fired:true,firedAtEpochMs:Date.now(),browserOfflineApplied:true,bytesForwarded:65536,...(s.noObserver==='null'?{browserPrefixReceipt:null}:{})});setStatus('error');return;}
     const deliver=list=>{for(const item of list)if(item==='close')prefix.close();else prefix.event('page-session',item[0],item[1]);};
     deliver(s.cdp??ESTABLISHED_CDP);
     if(s.closePrefix)prefix.close();
@@ -43,7 +43,7 @@ function fakeWorld(s,events){
      const pendingReceived=prefix.received(binding,{timeoutMs:25});
      if(s.duringReceived){s.journal?.push({kind:'test-received-pending',waiters:prefix.listenerCount('change')});deliver(s.duringReceived);}
      const receipt=await pendingReceived;
-     Object.assign(f,{fired:true,browserOfflineApplied:s.offlineApplied!==false,bytesForwarded:s.bytesForwarded??65536,
+     Object.assign(f,{fired:true,firedAtEpochMs:Date.now(),browserOfflineApplied:s.offlineApplied!==false,bytesForwarded:s.bytesForwarded??65536,
       browserPrefixReceipt:s.defenseReceipt?{...receipt,...s.defenseReceipt}:receipt});
     }catch{s.journal?.push({kind:'test-guard-harness-limited',reason:'browser-prefix-receipt-not-established'});}
    }
@@ -58,7 +58,7 @@ function fakeWorld(s,events){
   async waitFor({state}={}){if((state==='detached')===visible.has(id))throw Object.assign(new Error('synthetic wait timeout'),{name:'TimeoutError'});}});
  const requireClick=id=>{if(!visible.has(id))throw new Error('synthetic click on hidden control '+id);};
  const page=Object.assign(new EventEmitter(),{
-  setDefaultTimeout(){},setDefaultNavigationTimeout(){},waitForTimeout:async()=>{},isClosed:()=>closed,close:async()=>{closed=true;},evaluate:async()=>undefined,
+  setDefaultTimeout(){},setDefaultNavigationTimeout(){},waitForTimeout:async()=>{},isClosed:()=>closed,close:async()=>{closed=true;},evaluate:async fn=>String(fn).replace(/\s/g,'')==='()=>Date.now()'?Date.now():undefined,
   getByTestId:locator,getByText:()=>({first(){return this;},isVisible:async()=>false,waitFor:async()=>{throw new Error('synthetic copy absent');}}),
   locator:()=>({getAttribute:async n=>attrs[n]??null}),
   async waitForFunction(fn,arg){const previous=globalThis.document;globalThis.document=doc;let r;try{r=fn(arg);}finally{if(previous===undefined)delete globalThis.document;else globalThis.document=previous;}
@@ -231,5 +231,13 @@ test('Case14 (f) restoration fails: earlier verdicts are preserved, recovery is 
  assert.equal(f.row('download-failure-truthful')?.result,'PASS');
  for(const id of ['deliberate-recovery-saved','review-reopen'])assert.equal(f.row(id)?.result,'NOT RUN',id);
  assert.equal(f.result.blocker,'browser-or-oracle-step-interrupted');
+ assert.deepEqual(f.presses,['mic-download']);
+});
+
+test('Case14 missing Retry at the provisional diagnostic deadline is inconclusive, never a product FAIL',async()=>{
+ const f=await runWithFacts({hideRetry:true});
+ assert.equal(f.row('download-fault-exercised')?.result,'PASS');
+ assert.equal(f.row('download-failure-truthful')?.result,'NOT RUN');
+ assert.equal(f.facts('download-failure-truthful')?.reason,'retry-not-observed-before-provisional-diagnostic-deadline');
  assert.deepEqual(f.presses,['mic-download']);
 });

@@ -22,7 +22,7 @@ CASE_IDS = tuple("AHT-%02d" % n for n in range(1, 16))
 FULL_MINIMA = dict(zip(CASE_IDS, (4, 7, 4, 2, 2, 2, 2, 0, 3, 3, 4, 3, 3, 3, 0)))
 FULL_TAKES = dict(zip(CASE_IDS, (4, 7, 4, 1, 2, 2, 2, 0, 2, 2, 2, 1, 1, 1, 0)))
 MINIMAL_MINIMA = dict(zip(CASE_IDS, (2, 1, 1, 1, 1, 1, 1, 0, 1, 1, 3, 1, 1, 1, 0)))
-MODES = {("partial", "minimal"): "minimal", ("partial", "full"): "selected-full", ("full", "full"): "full"}
+MODES = {("partial", "minimal"): "minimal", ("partial", "full"): "selected-full", ("smoke", "smoke"): "smoke", ("full", "full"): "full"}
 RUNTIMES = ("Claude SpeakSharp R4", "GitHub Actions SpeakSharp")
 
 
@@ -63,9 +63,9 @@ def request_caps(request, *, execution=False):
             obj(parent[key], "optional-" + key)
     selection = r.get("selection")
     require(type(selection) is list and len(selection) > 0, "selection")
-    require(mode == "full" or len(selection) <= 6, "selection-count")
+    require(mode in ("full", "smoke") or len(selection) <= 6, "selection-count")
     caps = {}
-    minimum = MINIMAL_MINIMA if mode == "minimal" else FULL_MINIMA
+    minimum = MINIMAL_MINIMA if mode in ("minimal", "smoke") else FULL_MINIMA
     for index, row in enumerate(selection):
         obj(row, "selection-row")
         cid = row.get("case")
@@ -75,7 +75,7 @@ def request_caps(request, *, execution=False):
         require(cap >= minimum[cid], "selection-minimum")
         integer(row.get("plannedRequests"), "selection-requests")
         caps[cid] = cap
-    if mode == "full":
+    if mode in ("full", "smoke"):
         require(tuple(caps) == CASE_IDS, "full-selection")
     for name, group in (("proposed", proposed), ("approved", approved)):
         value = group.get("startPressCaps")
@@ -195,7 +195,7 @@ def case10_execution_bound(request, facts, account_id, request_sha256=None, run_
     digest, run, attempt 1 and time; the legacy record is then refused.
     """
     selected = [row for row in request["selection"] if row["case"] == "AHT-10"]
-    if not selected or request["sampleMode"] == "minimal":
+    if not selected or request["sampleMode"] in ("minimal", "smoke"):
         return None
     row = selected[0]
     if "observationContract" in row:

@@ -16,7 +16,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -36,7 +36,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -52,7 +52,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -68,7 +68,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -144,7 +148,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -184,7 +188,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -196,7 +200,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -214,7 +218,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -234,7 +238,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -250,7 +254,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -266,7 +270,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -342,7 +350,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -382,7 +390,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -394,7 +402,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -412,7 +420,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -432,7 +440,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -448,7 +456,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -464,7 +472,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -540,7 +552,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -580,7 +592,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -592,7 +604,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -610,7 +622,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -630,7 +642,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -646,7 +658,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -662,7 +674,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -738,7 +754,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -778,7 +794,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -790,7 +806,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -808,7 +824,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -828,7 +844,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -844,7 +860,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -860,7 +876,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -936,7 +956,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -976,7 +996,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -988,7 +1008,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1006,7 +1026,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -1026,7 +1046,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1042,7 +1062,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1058,7 +1078,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -1134,7 +1158,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -1174,7 +1198,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -1186,7 +1210,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1204,7 +1228,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -1224,7 +1248,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1240,7 +1264,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1256,7 +1280,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -1332,7 +1360,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -1372,7 +1400,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -1384,7 +1412,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1402,7 +1430,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -1422,7 +1450,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1438,7 +1466,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1454,7 +1482,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -1530,7 +1562,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -1570,7 +1602,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -1582,7 +1614,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1600,7 +1632,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -1620,7 +1652,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1636,7 +1668,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1652,7 +1684,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -1728,7 +1764,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -1768,7 +1804,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -1780,7 +1816,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1798,7 +1834,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -1818,7 +1854,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1834,7 +1870,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -1850,7 +1886,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -1926,7 +1966,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -1966,7 +2006,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -1978,7 +2018,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1996,7 +2036,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -2016,7 +2056,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2032,7 +2072,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2048,7 +2088,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -2124,7 +2168,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -2164,7 +2208,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -2176,7 +2220,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2194,7 +2238,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -2214,7 +2258,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2230,7 +2274,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2246,7 +2290,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -2322,7 +2370,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -2362,7 +2410,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -2374,7 +2422,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2392,7 +2440,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -2412,7 +2460,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2428,7 +2476,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2444,7 +2492,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -2520,7 +2572,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -2560,7 +2612,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -2572,7 +2624,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2590,7 +2642,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -2610,7 +2662,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2626,7 +2678,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2642,7 +2694,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -2718,7 +2774,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -2758,7 +2814,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -2770,7 +2826,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2788,7 +2844,7 @@
         },
         {
           "path": "bundle/harness/feedback-fault.cjs",
-          "sha256": "6b7226425849e3b5c785d165a0db8795d83b7318303a2be002f7a05106dce442"
+          "sha256": "f382d5716093e4a7d91ed9d6be1b9063912101b006a27f23f87d3e20c9168744"
         },
         {
           "path": "bundle/harness/reviewed-oracle-loader.cjs",
@@ -2808,7 +2864,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "838375c6aad1d755e082441339f24d813b5f5ddbbc8cb543eb4ea7bc18f70d17"
+          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2824,7 +2880,7 @@
         },
         {
           "path": "draft-adapters/durable-save-oracle.cjs",
-          "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d"
+          "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b"
         },
         {
           "path": "draft-adapters/feedback-retry-controls.cjs",
@@ -2840,7 +2896,11 @@
         },
         {
           "path": "draft-adapters/focus-controls.cjs",
-          "sha256": "08759d05c14372bd70e859812d8778113112002fe2f1d6823e0adb0ebefe674c"
+          "sha256": "e82d749313b9da87d265cd895ab9256b6c057edf8c391b5e2e376b4cab2aeb96"
+        },
+        {
+          "path": "draft-adapters/oracles/pure/smokeTiming.cjs",
+          "sha256": "0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d"
         },
         {
           "path": "draft-adapters/focus-oracle.cjs",
@@ -2916,7 +2976,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -2956,7 +3016,7 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         },
         {
           "path": "draft-adapters/repeat-probes.cjs",
@@ -2968,7 +3028,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "3fc06952a03dd622ad32801805048f827665fd3dff9e5905dcc70287f24fff37"
+          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -3038,7 +3098,7 @@
         },
         {
           "path": "draft-adapters/oracles/pure/rwtAbandonTakeover.cjs",
-          "sha256": "063040cabd051c6e0aec48db7083d480eacdbb8dc997bd7ac93b171bf82f57fa"
+          "sha256": "3645b168617ca244b5af80faa5e524db348ad9ff0984211a751338551ff1e573"
         },
         {
           "path": "draft-adapters/oracles/pure/rwtCoachingConsistency.cjs",
@@ -3074,13 +3134,13 @@
         },
         {
           "path": "draft-adapters/progress-numeric.cjs",
-          "sha256": "0572c8ba22b0e75879a32a23eced1a61f1a1a580ce6636db4e9be875a0abab13"
+          "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
         }
       ]
     },
     {
       "path": "draft-adapters/durable-save-oracle.cjs",
-      "sha256": "88a32f1329ad1f6a139e240bf086b315800ccfd19ef2217b030973be7d4f6f1d",
+      "sha256": "f109ce05087dd0a6aef78b96bcd01e25384e07215102c758a361d0cc98df2b7b",
       "dependencies": []
     }
   ]

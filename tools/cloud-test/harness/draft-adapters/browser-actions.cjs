@@ -124,7 +124,7 @@ async function saved(page, previous=null) {
   setStage(page,'save-readback');const id=await attr(page,'data-session-persisted-id');setStage(page,'save-complete');return id;
  });
 }
-async function speak(page,c) { await page.waitForTimeout(c.fixture.speechDurationMs); }
+async function speak(page,c) { await page.waitForTimeout(c.recordingWindowMs??c.fixture.speechDurationMs); }
 async function take(page,c, previous=null) { await start(page); await speak(page,c); await stop(page); return saved(page,previous); }
 async function repeat(page,c,previous,focus=false) {
   await pressStart(page,focus?'focus-points-retry':'verdict-practice-again',{timeout:30000});

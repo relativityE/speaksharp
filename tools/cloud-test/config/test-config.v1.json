@@ -1,7 +1,7 @@
 {
  "aggregateReceiver": {
   "activated": true,
-  "manifestSha256": "f01f83cc0d61d7610ad8c87ec8faad3ec57852b3ba8e916622eaa7db2f2a56c5",
+    "manifestSha256": "b07ae1de12226d691de45c214242805b1f15907fd6fa5b4b98a60c2430731d85",
   "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
   "note": "Active fail-closed receiver for the reviewed retained four-file aggregate. Current request, served-release identity, journal head and reconciliation remain occurrence-bound runtime evidence and are never admitted from this retained bundle."
  },
@@ -26,15 +26,16 @@
   "allowedPriorities": [
     "prove-deployed-fix",
     "restore-missing-evidence",
+    "journey-smoke",
     "full-coverage",
     "nightly-regression"
   ],
   "harness": {
     "packetDir": "tools/cloud-test/harness",
-    "expectedCodeManifestSha256": "33b6b0c1d33fc4ecbb18a9e3d8876dd8ae8afb3fd7b1a994ec9f9536f1fb5cf0",
+    "expectedCodeManifestSha256": "0c0add061d90402d9cfd3ab4641cc2010a0595982151993d3da3e95796b54188",
     "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
     "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
-    "expectedPacketManifestSha256": "cb4ad74d14c6b6bb6821ea5b1ff78f6d56c18e761d86855584891dc9b4dc53a1"
+    "expectedPacketManifestSha256": "6a66827b52c7f93a45e4a19603ef3de540ce2aa82f7851ea3f9bee8595b8e183"
   },
   "credentials": {
     "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",
@@ -229,7 +230,7 @@
     ]
   },
   "modes": {
-    "note": "Coverage scope and case depth are explicit. PARTIAL selects at most six cases, with either minimal or full case assertions; it never counts as a full all15 live run. FULL runs all 15 journeys with every required assertion. Partial and carried-forward results never count as a full live run.",
+    "note": "Coverage scope and case depth are explicit. PARTIAL selects at most six cases. SMOKE visits all 15 journeys with a reviewed short assertion set and never counts as full live acceptance. FULL runs all 15 journeys with every required assertion. Smoke, partial and carried-forward results never count as a full live run.",
     "partial": {
       "label": "PARTIAL",
       "sampleMode": "minimal",
@@ -241,6 +242,47 @@
         "maxIdentityReadsPerRun": 20,
         "maxWindowMinutes": 150
       }
+    },
+    "smoke": {
+      "label": "ALL-AREA SHORT SMOKE",
+      "sampleMode": "smoke",
+      "countsAsFullLiveRun": false,
+      "requiresOwnerDecision": true,
+      "limits": {
+        "maxSelectedCases": 15,
+        "maxRunCapRequests": 3000,
+        "maxIdentityReadsPerRun": 32,
+        "maxWindowMinutes": 40,
+        "note": "All 15 journeys, reduced recording windows and a smoke-only assertion denominator. These are structural maxima, not execution approval."
+      },
+    "assertionCatalog": {
+      "file": "config/smoke-assertion-catalog.json",
+      "sha256": "8eb37451129fb14b4c43b8bb6569cd3dcdb243ebb0f842b584e1fb429f6b573d",
+      "totalAssertions": 139,
+      "rule": "A smoke result executes every listed smoke row as PASS or FAIL. NOT RUN is incomplete. Smoke never counts as full live acceptance.",
+      "version": 1
+    },
+    "window": {
+      "admissionExpectedMinutes": 1,
+      "admissionMaxMinutes": 2,
+      "interCaseAndReportMinutes": 3,
+      "cleanupReserveMinutes": 2
+    },
+      "recordingWindowMs": {
+        "AHT-01": 35000, "AHT-02": 23100, "AHT-03": 22000,
+        "AHT-04": 22850, "AHT-05": 22850, "AHT-06": 22850,
+        "AHT-07": 22850, "AHT-08": 22850, "AHT-09": 22850,
+        "AHT-10": 22850, "AHT-11": 22850, "AHT-12": 22850,
+        "AHT-13": 22850, "AHT-14": 22850, "AHT-15": 22850
+      },
+      "caseMaxMs": {
+        "AHT-01": 225000, "AHT-02": 160000, "AHT-03": 123000,
+        "AHT-04": 64000, "AHT-05": 258000, "AHT-06": 252000,
+        "AHT-07": 247000, "AHT-08": 10000, "AHT-09": 190000,
+        "AHT-10": 166000, "AHT-11": 92000, "AHT-12": 73000,
+        "AHT-13": 45000, "AHT-14": 45000, "AHT-15": 17000
+      },
+      "timingBasis": "Completed-case maxima retain the prior R5/R9 wall-time basis. AHT-01 reserves 35 seconds for the unchanged 30-second/75-word eligibility gate. AHT-13/14 use provisional 30-second diagnostic transition ceilings plus bounded Retry observation; these are not measured product runtimes. Whole smoke is capped at 40 minutes."
     },
     "full": {
       "label": "FULL COVERAGE",

@@ -1,6 +1,7 @@
 """The one latest-run record (Sam 1793471205.454429): selection never takes a foreign comment, the previous completed record survives until a
 terminal replacement of the same attempt, an interrupted attempt blocks the next run, and only the closed record shape is ever rendered."""
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -15,17 +16,23 @@ BOT = {"login": "github-actions[bot]", "type": "Bot"}
 URL = "https://api.github.com/repos/relativityE/speaksharp/issues/1763"
 
 
-def comment(cid, user, body, url=URL):
-    return {"id": cid, "user": user, "body": body, "issue_url": url}
+def comment(cid, user, body, url=URL, updated="2026-10-31T18:41:00Z"):
+    return {"id": cid, "user": user, "body": body, "issue_url": url, "updated_at": updated}
 
 
 def record(run_id="101", outcome="passed", **over):
-    rec = {"runId": run_id, "attempt": 1, "sourceSha": SHA, "testedSha": "b" * 40, "servedSha": "b" * 40, "campaignId": "R6-unit", "coverage": "batch", "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": "2026-10-31T18:00:00Z",
+    rec = {"runId": run_id, "attempt": 1, "sourceSha": SHA, "testedSha": "b" * 40, "servedSha": "b" * 40, "campaignId": "R6-unit", "coverage": "batch", "coverageMode": "partial", "assertionDepth": "full", "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": "2026-10-31T18:00:00Z",
            "endedUtc": "2026-10-31T18:40:00Z", "outcome": outcome,
            "cases": [{"caseId": "AHT-05", "result": "PASS", "rows": {"pass": 6, "fail": 0, "notRun": 0}, "codes": []}] if outcome == "passed" else
            [{"caseId": "AHT-05", "result": "FAIL", "rows": {"pass": 4, "fail": 1, "notRun": 1}, "codes": ["observed-product-contradiction"]}],
            "codes": []}
     rec.update(over)
+    if "coverage" in over and "coverageMode" not in over:
+        mode = {"batch": "partial", "smoke": "smoke", "full": "full", "incomplete": "partial"}.get(rec["coverage"])
+        if mode is None:
+            rec.pop("coverageMode", None); rec.pop("assertionDepth", None)
+        else:
+            rec.update(coverageMode=mode, assertionDepth="smoke" if mode == "smoke" else "full")
     return rec
 
 
@@ -33,10 +40,35 @@ def started(state, run_id="101"):
     return P.begin(state, run_id, 1, SHA, "2026-10-31T18:00:00Z")
 
 
+def receipt_bytes(**over):
+    value = {"ref": "refs/heads/cloud-test-state", "previousSha": "1" * 40, "newSha": "2" * 40,
+             "ledgerBlobSha256": "3" * 64, "proposalSha256": "4" * 64}
+    value.update(over)
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def occurrence_bytes(**over):
+    value = {"runId": "R6-unit", "window": {"endUtc": "2026-10-31T19:00:00Z"}}
+    value.update(over)
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def completion_evidence(running, deadline="2026-10-31T19:00:00Z"):
+    settle, occurrence = receipt_bytes(), occurrence_bytes()
+    pending = P.pending_completion(running, record(), deadline, hashlib.sha256(settle).hexdigest(),
+                                   hashlib.sha256(occurrence).hexdigest())
+    public_body = P.render(pending)
+    candidate_body = P.render(P.complete(running, record()))
+    published = {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}
+    attestation = P.completion_attestation(candidate_body, public_body, published,
+                                           hashlib.sha256(settle).hexdigest(), hashlib.sha256(occurrence).hexdigest())
+    return pending, public_body, settle, occurrence, attestation
+
+
 class Selection(unittest.TestCase):
     def test_first_publication_has_no_comment_and_an_empty_state(self):
         sel = P.select([comment(1, {"login": "someone", "type": "User"}, "unrelated")], URL)
-        self.assertEqual(sel, {"commentId": None, "body": ""})
+        self.assertEqual(sel, {"commentId": None, "body": "", "updatedAt": None})
         self.assertEqual(P.parse_body(sel["body"]), {"schema": P.SCHEMA, "latestCompleted": None, "inProgress": None})
 
     def test_the_bots_marked_comment_on_the_bound_issue_is_selected_and_its_id_verified(self):
@@ -125,12 +157,14 @@ class ClosedShape(unittest.TestCase):
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
             P.sanitize_record(record(outcome="passed", cases=[]))
         # An all-PASS record is `failed` only when it says it was not qualified; it is never silently downgraded or upgraded.
-        unqualified = dict(record(), outcome="failed", coverage="unqualified", campaignId=None, requestSha256=None, catalogSha256=None)
+        unqualified = dict(record(), outcome="failed", coverage="unqualified", coverageMode=None, assertionDepth=None,
+                           campaignId=None, requestSha256=None, catalogSha256=None)
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
             P.sanitize_record(unqualified)
         self.assertEqual(P.sanitize_record(dict(unqualified, codes=["not-qualified"]))["outcome"], "failed")
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
-            P.sanitize_record(dict(record(), coverage="unqualified", campaignId=None, requestSha256=None, catalogSha256=None))
+            P.sanitize_record(dict(record(), coverage="unqualified", coverageMode=None, assertionDepth=None,
+                                   campaignId=None, requestSha256=None, catalogSha256=None))
         selected_only = record()
         selected_only["cases"] = selected_only["cases"] + [{"caseId": "AHT-06", "result": "NOT SELECTED", "rows": {"pass": 0, "fail": 0, "notRun": 0}, "codes": []}]
         self.assertEqual(P.sanitize_record(selected_only)["outcome"], "passed")
@@ -139,7 +173,7 @@ class ClosedShape(unittest.TestCase):
             with self.assertRaisesRegex(P.Refused, "not-selected-rows"):
                 P.sanitize_record(rows)
         with self.assertRaisesRegex(P.Refused, "full-coverage-needs-fifteen-executed"):
-            P.sanitize_record(dict(record(), coverage="full"))
+            P.sanitize_record(dict(record(), coverage="full", coverageMode="full", assertionDepth="full"))
         # Incomplete coverage is never passed, even when every row that ran is PASS; batch and full may be failed.
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
             P.sanitize_record(dict(record(), coverage="incomplete"))
@@ -149,7 +183,8 @@ class ClosedShape(unittest.TestCase):
         with self.assertRaisesRegex(P.Refused, "requestSha256"):
             P.sanitize_record(dict(record(), requestSha256="x"))
         with self.assertRaisesRegex(P.Refused, "not-selected-rows"):
-            P.sanitize_record(dict(selected_only, coverage="unqualified", campaignId=None, requestSha256=None, catalogSha256=None, outcome="failed",
+            P.sanitize_record(dict(selected_only, coverage="unqualified", coverageMode=None, assertionDepth=None,
+                                   campaignId=None, requestSha256=None, catalogSha256=None, outcome="failed",
                                    codes=["not-qualified"]))
         with self.assertRaisesRegex(P.Refused, "tested-sha"):
             P.sanitize_record({k: v for k, v in record().items() if k != "testedSha"})
@@ -162,6 +197,44 @@ class ClosedShape(unittest.TestCase):
         state = json.loads(P.JSON_BLOCK.findall(body)[0])
         self.assertEqual(set(state), {"schema", "latestCompleted", "inProgress", "history"})  # history: the bounded G7 carry-forward
         self.assertEqual(P.parse_body(body), state)
+
+    def test_smoke_publishes_terminal_results_but_never_becomes_acceptance_history(self):
+        smoke = P.sanitize_record(dict(record(), coverage="smoke", coverageMode="smoke", assertionDepth="smoke", rowVerdicts={"AHT-05": "PPPPPP"},
+                                       comparability={"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64,
+                                                      "mediaManifestSha256": "5" * 64, "backendSha": "6" * 40},
+                                       evidence={"planSha256": "7" * 64, "caseResultsSha256": "8" * 64}))
+        done = P.complete(started(P.parse_body("")), smoke)
+        self.assertEqual((done["latestCompleted"]["coverage"], done["latestCompleted"]["outcome"]), ("smoke", "passed"))
+        self.assertEqual((done["history"]["occurrences"][0]["coverage"], done["history"]["occurrences"][0]["rowEvidence"]),
+                         ("smoke", False))
+        self.assertEqual(done["history"]["rows"], {}, "smoke diagnostics must not seed full/nightly acceptance history")
+        self.assertEqual(P.qualified_comparable(done["history"], smoke["comparability"]), [])
+        self.assertEqual(P.parse_body(P.render(done)), done)
+
+        failed = dict(smoke, runId="102", startedUtc="2026-10-31T19:00:00Z", endedUtc="2026-10-31T19:40:00Z",
+                      outcome="failed", cases=[dict(smoke["cases"][0], result="FAIL", rows={"pass": 1, "fail": 1, "notRun": 0})],
+                      rowVerdicts={"AHT-05": "PF"})
+        failed_state = P.complete(started(done, "102"), failed)
+        self.assertEqual((failed_state["latestCompleted"]["coverage"], failed_state["latestCompleted"]["outcome"]), ("smoke", "failed"))
+        self.assertEqual(failed_state["history"]["rows"], {}, "failed smoke diagnostics also stay outside acceptance history")
+
+        # Missing-row smoke remains diagnostic even though execution coverage is `incomplete`; the preserved source denominator prevents
+        # it from entering acceptance history or creating a later catalog conflict.
+        incomplete = dict(smoke, runId="104", coverage="incomplete", startedUtc="2026-10-31T19:41:00Z", endedUtc="2026-10-31T19:59:00Z",
+                          outcome="failed", cases=[dict(smoke["cases"][0], result="NOT RUN", rows={"pass": 5, "fail": 0, "notRun": 1})],
+                          rowVerdicts={"AHT-05": "PPPPPN"})
+        incomplete_state = P.complete(P.begin(failed_state, "104", 1, SHA, incomplete["startedUtc"]), incomplete)
+        self.assertEqual((incomplete_state["history"]["occurrences"][-1]["coverage"],
+                          incomplete_state["history"]["occurrences"][-1]["coverageMode"],
+                          incomplete_state["history"]["occurrences"][-1]["rowEvidence"]), ("incomplete", "smoke", False))
+        self.assertEqual(incomplete_state["history"]["rows"], {})
+
+        # A later acceptance run has its own catalog lineage. Smoke occurrences neither seed its rows nor create a false catalog mismatch.
+        batch = P.sanitize_record(record("103", startedUtc="2026-10-31T20:00:00Z", endedUtc="2026-10-31T20:40:00Z",
+                                         catalogSha256="9" * 64, rowVerdicts={"AHT-05": "PPPPPP"},
+                                         evidence={"planSha256": "a" * 64, "caseResultsSha256": "b" * 64}))
+        accepted = P.complete(P.begin(incomplete_state, "103", 1, SHA, batch["startedUtc"]), batch)
+        self.assertEqual(accepted["history"]["rows"]["AHT-05"]["last"]["runId"], "103")
 
 
 class CarryForward(unittest.TestCase):
@@ -299,6 +372,68 @@ class Readback(unittest.TestCase):
         self.assertEqual(verify(body), 0)
         self.assertEqual(verify(body.rstrip("\n")), 0)  # a trailing newline difference only
         self.assertEqual(verify(body.replace('"runId":"101"', '"runId":"102"')), 78)  # any other change refuses
+
+
+class CompletionAttestation(unittest.TestCase):
+    def test_terminal_candidate_is_bound_to_the_public_incomplete_state_and_server_time(self):
+        running = started(P.parse_body(""))
+        _, public_body, settle, occurrence, att = completion_evidence(running)
+        self.assertEqual((att["schema"], att["runId"], att["publishedAt"]),
+                         (P.ATTESTATION_SCHEMA, "101", "2026-10-31T18:41:00Z"))
+        done = P.reconcile_pending(P.parse_body(public_body), "2026-10-31T18:41:00Z", att, settle, occurrence,
+                                   "2026-10-31T18:42:00Z", public_body)
+        self.assertEqual((done["latestCompleted"]["runId"], done["inProgress"]), ("101", None))
+
+    def test_no_attestation_for_missing_or_malformed_response_or_non_incomplete_publication(self):
+        running = started(P.parse_body(""))
+        candidate_body = P.render(P.complete(running, record()))
+        public_body = P.render(P.pending_completion(running, record(), "2026-10-31T19:00:00Z", "3" * 64, "4" * 64))
+        bad = [({}, public_body),
+               ({"updated_at": "2026-10-31T18:41:00Z", "body": candidate_body}, public_body),
+               ({"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, candidate_body)]
+        for response, public in bad:
+            with self.subTest(response=response), self.assertRaises(P.Refused):
+                P.completion_attestation(candidate_body, public, response, "3" * 64, "4" * 64)
+
+        prior = P.complete(started(P.parse_body(""), "100"), record("100"))
+        different_running = P.begin(prior, "101", 1, SHA, "2026-10-31T19:00:00Z")
+        different = P.render(P.complete(different_running, record("101", startedUtc="2026-10-31T19:00:00Z",
+                                                                  endedUtc="2026-10-31T19:40:00Z")))
+        with self.assertRaisesRegex(P.Refused, "attestation-candidate-not-derived"):
+            P.completion_attestation(different, public_body,
+                                     {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, "3" * 64, "4" * 64)
+
+    def test_pending_completion_is_durable_reconciles_once_and_late_or_edited_state_refuses(self):
+        running = started(P.parse_body(""))
+        pending, public_body, settle, occurrence, att = completion_evidence(running)
+        stored = P.parse_body(public_body)
+        self.assertEqual(stored["pendingCompletion"]["record"]["runId"], "101")
+        done = P.reconcile_pending(stored, "2026-10-31T18:41:00Z", att, settle, occurrence,
+                                   "2026-10-31T18:42:00Z", public_body)
+        self.assertEqual((done["latestCompleted"]["runId"], done["inProgress"]), ("101", None))
+        following = P.begin(done, "102", 1, SHA, "2026-10-31T20:00:00Z")
+        self.assertEqual(following["inProgress"]["runId"], "102")
+        with self.assertRaisesRegex(P.Refused, "pending-completion-late"):
+            P.reconcile_pending(stored, "2026-10-31T19:00:01Z", att, settle, occurrence,
+                                "2026-10-31T18:42:00Z", public_body)
+        edited = json.loads(json.dumps(stored))
+        edited["pendingCompletion"]["record"]["runId"] = "102"
+        with self.assertRaises(P.Refused):
+            P.parse_body(P.render(edited))
+
+    def test_reconciliation_refuses_missing_failed_late_or_tampered_completion_evidence(self):
+        running = started(P.parse_body(""))
+        stored, public_body, settle, occurrence, att = completion_evidence(running)
+        cases = [
+            (dict(att, schema="other"), settle, occurrence, "2026-10-31T18:42:00Z", public_body),
+            (att, settle + b" ", occurrence, "2026-10-31T18:42:00Z", public_body),
+            (att, settle, occurrence + b" ", "2026-10-31T18:42:00Z", public_body),
+            (att, settle, occurrence, "2026-10-31T19:00:01Z", public_body),
+            (att, settle, occurrence, "2026-10-31T18:42:00Z", public_body + "edited"),
+        ]
+        for bad_att, bad_settle, bad_occurrence, created, body in cases:
+            with self.subTest(created=created, body=body[-8:]), self.assertRaises(P.Refused):
+                P.reconcile_pending(stored, "2026-10-31T18:41:00Z", bad_att, bad_settle, bad_occurrence, created, body)
 
 
 class Cli(unittest.TestCase):

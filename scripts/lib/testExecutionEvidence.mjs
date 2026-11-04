@@ -279,6 +279,15 @@ export function unavailableExecutionInputs(root,files) {
     return route?.applicable===false?[{file,reason:route.unavailableReason}]:[];
   });
 }
+
+// The default remains a hard 60 s fail-closed ceiling. This one registered contract contains
+// 87 end-to-end child-process controls and took 82,685 ms on hosted run 41725470948; give only
+// that exact file a measured, bounded ceiling instead of weakening the lane globally.
+const VITEST_EXECUTION_TIMEOUT_OVERRIDES = Object.freeze({
+  'tests/unit/telemetryReadbackQualifierHarness1539.test.ts': 100_000,
+});
+export const vitestExecutionTimeoutMs = testFile => VITEST_EXECUTION_TIMEOUT_OVERRIDES[testFile] ?? 60_000;
+
 export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}={}) {
   const selected=(helpersOnly?[]:evidenceFiles
     .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
@@ -403,6 +412,7 @@ export function validateVitestExecution(receipt, expected, root) {
       || binding.testFile!==path.join(binding.cwd,testFile)
       || binding.inputSha256!==inputSha256 || phase.inputSha256!==inputSha256
       || binding.repoLockSha256!==hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))
+      || binding.timeoutMs!==vitestExecutionTimeoutMs(testFile)
       || result.testSha256!==hash(fs.readFileSync(path.join(root,testFile)))
       || JSON.stringify(binding.runtime)!==JSON.stringify(runtime)) throw new Error('Wrong execution phase/source/runtime identity');
     assertProvenance(binding.provenance,expected);

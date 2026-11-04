@@ -69,7 +69,7 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
     try:
         reconcile_caps(req, rc, request_sha256=request_sha256)
     except InputValidationError as error:
-        messages = {"mode-pair": "coverageMode must be partial or full with a matching sampleMode",
+        messages = {"mode-pair": "coverageMode must be partial, smoke or full with a matching sampleMode",
                     "selection-count": "selection exceeds the configured maximum 6",
                     "full-selection": "full coverage selects all 15 journeys exactly once in order",
                     "cumulative-starts": "Starts would exceed the cumulative cap"}
@@ -83,8 +83,9 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
     mode = request_mode(req)
     modes = cfg.get("modes") or {}
     full = mode == "full"
-    if mode not in ("partial", "full"):
-        E("coverageMode must be partial or full; there is no default (a run is exactly one mode)")
+    smoke = mode == "smoke"
+    if mode not in ("partial", "smoke", "full"):
+        E("coverageMode must be partial, smoke or full; there is no default (a run is exactly one mode)")
     elif req.get("sampleMode") not in modes[mode].get("allowedSampleModes", [modes[mode]["sampleMode"]]):
         E("sampleMode %r does not match the %s mode (%s); the mode is passed to the plan builder, never defaulted" % (req.get("sampleMode"), mode, modes[mode]["sampleMode"]))
     if req.get("executionRuntime", "Claude SpeakSharp R4") not in ("Claude SpeakSharp R4", "GitHub Actions SpeakSharp"):
@@ -111,6 +112,8 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         E("priority must be one of %s (no run for the sake of another report)" % cfg["allowedPriorities"])
     if full and req.get("priority") not in ("full-coverage", "nightly-regression"):
         E("a full-mode request must have priority full-coverage or nightly-regression")
+    if smoke and req.get("priority") != "journey-smoke":
+        E("a smoke-mode request must have priority journey-smoke")
     if not full and req.get("priority") in ("full-coverage", "nightly-regression"):
         E("priority %s is only for coverageMode full" % req.get("priority"))
     gaps = {g["id"]: g for g in ledger["gaps"]}
@@ -153,8 +156,8 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         E("selection is empty")
     if len(sel) > lim["maxSelectedCases"]:
         E("%d selected cases exceeds the configured maximum %d (broad rerun); a larger run is a config change with owner approval" % (len(sel), lim["maxSelectedCases"]))
-    if full and sorted(s.get("case") for s in sel) != ["AHT-%02d" % n for n in range(1, 16)]:
-        E("a full-coverage run selects all 15 journeys, AHT-01..AHT-15, exactly once; a subset is a partial run")
+    if (full or smoke) and sorted(s.get("case") for s in sel) != ["AHT-%02d" % n for n in range(1, 16)]:
+        E("a full or smoke run selects all 15 journeys, AHT-01..AHT-15, exactly once; a subset is a partial run")
     if [s.get("order") for s in sel] != list(range(1, len(sel) + 1)):
         E("selection order must be 1..n in run order")
     cases = [s.get("case") for s in sel]
@@ -164,8 +167,8 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         c = s.get("case")
         if not CASE_RE.match(str(c)):
             E("selected case %r is not AHT-01..AHT-15" % c)
-        if s.get("role") not in (("coverage", "target", "prerequisite") if full else ("target", "prerequisite")):
-            E("%s role must be %s" % (c, "coverage, target or prerequisite" if full else "target or prerequisite"))
+        if s.get("role") not in (("coverage", "target", "prerequisite") if (full or smoke) else ("target", "prerequisite")):
+            E("%s role must be %s" % (c, "coverage, target or prerequisite" if (full or smoke) else "target or prerequisite"))
         sg = s.get("gaps") or []
         if s.get("role") == "target" and not (sg and all(x in targeted for x in sg)):
             E("%s is a target but is not tied to a targeted gap" % c)

@@ -1,8 +1,8 @@
 'use strict';
-// G03 numeric comparison; selected d100 snapshots revalidated byte-for-byte at 66328703.
+// G03 numeric comparison; selected d100 snapshots revalidated byte-for-byte at served 5a7bf6a1.
 // Source qualification does not establish live product PASS.
 const pure=require('./oracles/pure/progressNumericSelected.cjs');
-const SOURCE_SHA='66328703bf47e865b730e229005411e78481d34c';
+const SOURCE_SHA='5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2';
 const ROW='same-target-numeric';
 const SELECT=Object.freeze({
  recommendation:'id,user_id,source_session_id,formula_version,target_metric,target_direction,target_value,target_units,source_metric_value,shown_text',
@@ -10,7 +10,7 @@ const SELECT=Object.freeze({
  evaluation:pure.EVAL_FIELDS+',user_id,formula_version'
 });
 function notRun(reason){const e=new Error(reason);e.code='NOT_RUN';e.trustedBlocker=reason;throw e;}
-function preflight(c){if(c?.sourceSha!==SOURCE_SHA||c?.servedSha!==SOURCE_SHA)notRun('G03 numeric source requires the exact revalidated 66328703 source/served binding');return {ready:true,sourceSha:SOURCE_SHA};}
+function preflight(c){if(c?.sourceSha!==SOURCE_SHA||c?.servedSha!==SOURCE_SHA)notRun('G03 numeric source requires the exact revalidated 5a7bf6a1 source/served binding');return {ready:true,sourceSha:SOURCE_SHA};}
 function answer(result,reason,more={}){return {result,facts:{sourceNumericContract:true,reason,...more}};}
 const normalize=x=>typeof x==='string'?x.replace(/\s+/gu,' ').trim():null;
 function expectedText(value){const f=pure.formatRepeatValues(value.metric,value.before,value.after);return normalize(`${pure.TARGET_METRIC_LABELS[value.metric]}: ${f.before} → ${f.after} ${value.units} (original session → linked repeat).${f.belowPrecision?' The stored values differ by less than the displayed precision.':''}`);}
