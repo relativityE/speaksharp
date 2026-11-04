@@ -288,6 +288,7 @@ class NightlyCarriedForwardG7(unittest.TestCase):
                       "rows": {"pass": verdicts.count("P"), "fail": verdicts.count("F"), "notRun": verdicts.count("N")}, "codes": []}]
             rec = {"runId": str(500 + i), "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40,
                    "campaignId": ("nightly-%d" % i) if qualified else None, "coverage": ("batch" if ok else "incomplete") if qualified else "unqualified",
+                   "coverageMode": "partial" if qualified else None, "assertionDepth": "full" if qualified else None,
                    "requestSha256": "1" * 64 if qualified else None, "catalogSha256": "2" * 64 if qualified else None,
                    "startedUtc": day.replace("08:", "03:"), "endedUtc": day, "outcome": "passed" if ok and qualified else "failed",
                    "cases": cases, "codes": [] if qualified else ["not-qualified"]}

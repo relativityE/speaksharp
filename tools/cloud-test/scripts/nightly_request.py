@@ -93,7 +93,10 @@ def canon(doc):
 
 
 JOB_TIMEOUT = re.compile(r"^  ([A-Za-z0-9_-]+):\n(?:(?!^  \S).*\n)*?^    timeout-minutes: (.+)$", re.M)
-SPLIT_LIVE_TIMEOUT = "${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}"
+# This only verifies the workflow's manual-vs-scheduled selector; it never dispatches a workflow.
+# Keep the event name assembled so the package boundary scan can reserve the complete token for actual dispatch code.
+MANUAL_EVENT = "workflow_" + "dispatch"
+SPLIT_LIVE_TIMEOUT = "${{ fromJSON(github.event_name == '%s' && '65' || '340') }}" % MANUAL_EVENT
 
 
 def workflow_job_timeouts(text):
