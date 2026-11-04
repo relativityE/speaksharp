@@ -93,11 +93,13 @@ async function inspectRole(origin, anon, role, account, otherId) {
   const otherProfile = await rows('user_profiles', otherId, 'id');
   const ownSessions = await rows('sessions', account.accountId, 'id,status');
   const otherSessions = await rows('sessions', otherId, 'id');
+  // The cross-profile read is a controlled denial: every account's own profile is proven visible to itself (the positive control), so an
+  // empty result here is RLS, not absence. A cross-session empty result is only controlled when the other account has its own sessions.
   if (ownProfile.length !== 1 || ownProfile[0]?.id !== account.accountId || otherProfile.length !== 0 || otherSessions.length !== 0) refuse('rls-isolation');
   const internalTester = auth.body.user.app_metadata?.internal_tester === true;
   if (!internalTester) refuse('analytics-classification');
-  return {authenticated: true, ownProfileVisible: true, crossProfileDenied: true, ownSessionRead: true,
-    crossSessionDenied: true, completedSessionPresent: ownSessions.some(row => row?.status === 'completed'), internalTester: true};
+  return {authenticated: true, ownProfileVisible: true, crossProfileDenied: true, ownSessionRead: true, ownSessionCount: ownSessions.length,
+    crossSessionEmpty: true, completedSessionPresent: ownSessions.some(row => row?.status === 'completed'), internalTester: true};
 }
 function args(argv) {
   const command = argv.shift(); const out = {};
@@ -114,6 +116,9 @@ async function prepare(values) {
   if (!plain(facts) || !plain(facts.receipts) || !plain(facts.accounts)
       || !REF.test(facts.receipts.fence || '') || !REF.test(facts.receipts.review || '')
       || !REF.test(facts.producerReviewReference || '')) refuse('facts-prerequisites');
+  // Disposition is an owner decision about the disposable account after the run, not something a read can observe: it must arrive as an
+  // explicit owner reference in the input facts and is never minted here.
+  if (!REF.test(facts.receipts.disp || '') || /^missing:|^r10-/.test(facts.receipts.disp)) refuse('disposition-reference-missing');
   const bundle = bundleFromEnvironment(), origin = originFor(bundle), anon = process.env.SUPABASE_ANON_KEY;
   if (typeof anon !== 'string' || !anon) refuse('anon-key-missing');
   const observations = {};
@@ -121,10 +126,15 @@ async function prepare(values) {
     const other = bundle.accounts[ROLES.find(candidate => candidate !== role)].accountId;
     observations[role] = await inspectRole(origin, anon, role, bundle.accounts[role], other);
   }
+  // The cross-session denial counts as controlled only when the other account's own sessions were visible to itself.
+  for (const role of ROLES) {
+    const otherRole = ROLES.find(candidate => candidate !== role);
+    observations[role].crossSessionDenial = observations[otherRole].ownSessionCount > 0 ? 'controlled' : 'uncontrolled-other-has-no-sessions';
+  }
   const receipt = {schema: 'speaksharp.cloud-test.prerequisite-preflight.v1', runId: values['--run-id'], sourceSha: values['--source-sha'],
     observedAt: new Date().toISOString(), mutationCount: 0, charges: {auth: 2, signedIn: 8, total: 10}, observations};
   const digest = sha(bytes(receipt));
-  const refs = {pre: `r10-preflight:${digest}`, rls: `r10-rls:${digest}`, analytics: `r10-analytics:${digest}`, disp: `r10-disposition:${digest}`};
+  const refs = {pre: `r10-preflight:${digest}`, rls: `r10-rls:${digest}`, analytics: `r10-analytics:${digest}`};
   const augmented = {...facts, receipts: {...facts.receipts, ...refs}};
   writePrivate(path.join(outDir, 'receipt.json'), receipt);
   writePrivate(path.join(outDir, 'facts.json'), augmented);

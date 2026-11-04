@@ -83,7 +83,11 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n'
                       '  (umask 077; printf \'%s\' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")\n'
                       '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n', init["run"])
+        # A dispatch's facts are exactly the prerequisite preflight's augmented facts (fail closed when that step did not produce them).
         self.assertIn('else\n  (umask 077; printf \'%s\' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")\n'
+                      '  [ -f "${CT_PREREQUISITE_FACTS:-}" ] && [ ! -L "${CT_PREREQUISITE_FACTS:-}" ] || '
+                      '{ echo \'BLOCKED_SETUP: prerequisite-facts-missing\'; exit 78; }\n'
+                      '  FACTS="$(cat "$CT_PREREQUISITE_FACTS")"\n'
                       '  SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \\\n'
                       '    --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}" --facts "$FACTS")\nfi\n', init["run"])
         # Case 10 design A: on schedule only, the observation step runs on exactly the gate's bytes BEFORE prepare, and only a record it
@@ -153,13 +157,13 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertNotRegex(self.text, r"vars\.%s\b" % name, name)
         self.assertNotRegex(self.text, r"vars\.[A-Z_]*(_EMAIL|_ACCOUNT_ID)\b")
         self.assertNotIn("secrets.THROWAWAY_TEST_EMAIL", self.text)
-        self.assertEqual(self.text.count("secrets.CLOUD_TEST_LIVE_ACCOUNTS"), 1)
+        self.assertEqual(self.text.count("secrets.CLOUD_TEST_LIVE_ACCOUNTS"), 2)  # prepare and the manual-only prerequisite preflight
         # A value derived from a Secret by an expression is not masked by Actions: the bundle is never parsed in a workflow expression.
         self.assertNotRegex(self.text, r"fromJSON\(\s*secrets\.")
         self.assertIn("THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}", self.text)
         # Case15 (Sam 1793554938.870679): the maintained-read-only role's password reaches the run step from its own Secret; its email
         # comes only from the private bundle, like THROWAWAY's.
-        self.assertEqual(self.text.count("FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}"), 1)
+        self.assertEqual(self.text.count("FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}"), 2)  # run step and the prerequisite preflight
         self.assertNotIn("FREE_TEST_EMAIL: ${{", self.text)
         self.assertNotIn("throwaway-email-not-secret", self.text)
 
@@ -579,8 +583,15 @@ class LiveWorkflowPolicy(unittest.TestCase):
         init = next(s for s in self.jobs["live"]["steps"] if s.get("id") == "init")
         self.assertEqual(init["env"]["CLOUD_TEST_LIVE_ACCOUNTS"], "${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}")
         self.assertEqual(init["env"]["SUPABASE_URL"], "${{ vars.SUPABASE_URL }}")
+        # PO 2026-11-04 (R10 first-use prerequisites): exactly two steps of the live job hold the private bundle: the manual-only preflight,
+        # which signs the two selected accounts in with their own passwords, and prepare. Nothing else does.
+        pre = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Prove the selected accounts' bounded first-use prerequisites")
+        self.assertEqual(pre["if"], "github.event_name == 'workflow_dispatch'")
+        self.assertEqual(set(pre["env"]), {"FACTS", "CLOUD_TEST_LIVE_ACCOUNTS", "SUPABASE_URL", "SUPABASE_ANON_KEY", "THROWAWAY_TEST_PASSWORD",
+                                           "FREE_TEST_PASSWORD"})
+        self.assertNotIn("SERVICE_ROLE", json.dumps(pre))
         holders = [s.get("name", s.get("uses")) for j in self.jobs.values() for s in j["steps"] if "CLOUD_TEST_LIVE_ACCOUNTS" in (s.get("env") or {})]
-        self.assertEqual(holders, [init["name"]])
+        self.assertEqual(holders, [pre["name"], init["name"]])
 
     def test_plan_build_receives_the_project_url_needed_to_resolve_account_bindings(self):
         setup = next(s for s in self.jobs["live"]["steps"] if "for stage in install-tools build-plan" in s.get("run", ""))
@@ -753,6 +764,9 @@ class Case10ObserveCredentials(unittest.TestCase):
         self.addCleanup(shutil.rmtree, d)
         calls = os.path.join(d, "calls")
         os.mkdir(calls)
+        facts_file = os.path.join(d, "prerequisite-facts.json")  # a dispatch reads its facts from the prerequisite preflight's output
+        with open(facts_file, "w", encoding="utf-8") as f:
+            f.write("{}")
         # the call index counts recorded files, so it survives the script's ( ... ) subshell
         shadow = ('python3() { __n=$(command ls "$CALLS" | command wc -l | command tr -d " "); env > "$CALLS/$__n.python3.env"; '
                   'printf "%s\\n" "$*" > "$CALLS/$__n.python3.argv"; }\n'
@@ -763,6 +777,7 @@ class Case10ObserveCredentials(unittest.TestCase):
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "4" * 40, "GITHUB_ENV": os.path.join(d, "env"), "GITHUB_OUTPUT": os.path.join(d, "out"),
                "MANUAL_OCCURRENCE_B64": base64.b64encode(b"{}").decode(), "MANUAL_OCCURRENCE_SHA256": "b" * 64,
                "CT_CASE10_PASSWORD": "case10-pw-value" if event == "schedule" else "", "CT_CASE10_ANON_KEY": "case10-anon-value" if event == "schedule" else "",
+               "CT_PREREQUISITE_FACTS": facts_file,
                "JOB_TIMEOUT_MINUTES": "340" if event == "schedule" else "65"}
         p = subprocess.run(["bash", "-c", shadow + init["run"]], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)

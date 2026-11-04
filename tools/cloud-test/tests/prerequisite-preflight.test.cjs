@@ -19,7 +19,7 @@ function fixture(t) {
   const facts = path.join(root, 'input.json');
   fs.writeFileSync(facts, JSON.stringify({ownerApprovalReference: 'slack:approval', approvedBy: 'PO', reviewer: 'Sam',
     producerReviewReference: 'github:producer-review', receipts: {pre: 'missing:pre', rls: 'missing:rls', analytics: 'missing:analytics',
-      disp: 'missing:disp', fence: 'slack:fence-current', review: 'github:review-current'},
+      disp: 'slack:owner-disposition', fence: 'slack:fence-current', review: 'github:review-current'},
     accounts: {'existing-disposable': {idSha256: 'FIRST-DISCOVERY', historyRef: 'first-observation:existing-disposable@R10-3b040043-smoke15'},
       'maintained-read-only': {idSha256: 'FIRST-DISCOVERY', historyRef: 'first-observation:maintained-read-only@R10-3b040043-smoke15'}}}));
   fs.chmodSync(facts, 0o600);
@@ -63,7 +63,25 @@ test('prepare proves own-token isolation without retaining secrets or identifier
   assert.match(facts.receipts.pre, /^r10-preflight:[0-9a-f]{64}$/);
   assert.equal(facts.receipts.fence, 'slack:fence-current');
   assert.equal(facts.receipts.review, 'github:review-current');
+  // Disposition is the owner's supplied reference, never minted from the observation digest.
+  assert.equal(facts.receipts.disp, 'slack:owner-disposition');
+  // Only the maintained account has sessions, so only the disposable account's cross-session read is a controlled denial.
+  assert.equal(receipt.observations['existing-disposable'].crossSessionDenial, 'controlled');
+  assert.equal(receipt.observations['maintained-read-only'].crossSessionDenial, 'uncontrolled-other-has-no-sessions');
   assert.equal(fs.statSync(path.join(f.root, 'receipt.json')).mode & 0o777, 0o600);
+});
+
+test('prepare refuses a missing, placeholder or self-minted disposition reference', async t => {
+  for (const disp of [undefined, 'missing:disp', 'r10-disposition:abc']) {
+    const f = fixture(t), original = global.fetch; global.fetch = successfulFetch();
+    const input = JSON.parse(fs.readFileSync(f.facts));
+    if (disp === undefined) delete input.receipts.disp; else input.receipts.disp = disp;
+    fs.writeFileSync(f.facts, JSON.stringify(input));
+    await assert.rejects(() => script.prepare({'--facts': f.facts, '--out-dir': f.root, '--run-id': 'R10-3b040043-smoke15', '--source-sha': SOURCE}),
+      /disposition-reference-missing/);
+    assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false);
+    global.fetch = original;
+  }
 });
 
 test('prepare fails closed when a cross-account row is visible and writes no receipt', async t => {

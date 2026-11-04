@@ -434,7 +434,7 @@ jobs:
             if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi
           else
             (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
-            [ -f "$CT_PREREQUISITE_FACTS" ] && [ ! -L "$CT_PREREQUISITE_FACTS" ] || { echo 'BLOCKED_SETUP: prerequisite-facts-missing'; exit 78; }
+            [ -f "${CT_PREREQUISITE_FACTS:-}" ] && [ ! -L "${CT_PREREQUISITE_FACTS:-}" ] || { echo 'BLOCKED_SETUP: prerequisite-facts-missing'; exit 78; }
             FACTS="$(cat "$CT_PREREQUISITE_FACTS")"
             SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \
               --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}" --facts "$FACTS")
