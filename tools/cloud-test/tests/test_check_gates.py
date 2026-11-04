@@ -207,10 +207,17 @@ class CheckGates(unittest.TestCase):
         self.assertEqual(old_errors, [])
         self.assertGreater(80, old_limit, "without both declarations the old 40-minute occurrence ceiling still blocks")
         smoke["window"].update({"endToEndMinutes": 80, "liveMinutes": 40})
+        self.assertTrue(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80)[1],
+                        "an ordinary smoke request cannot self-authorize the R10 envelope")
+        smoke.update({"runId": C.R10_SMOKE_RUN_ID, "priority": "journey-smoke", "createdUtc": smoke["window"]["startUtc"],
+                      "selectionApprovalRef": smoke["window"]["approvalRef"]})
         self.assertEqual(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80), (80, []))
-        for patch in ({"endToEndMinutes": 79}, {"liveMinutes": 41}, {"liveMinutes": None}, {"endToEndMinutes": None}):
+        for patch in ({"endToEndMinutes": 81}, {"endToEndMinutes": 10000}, {"liveMinutes": 1}, {"liveMinutes": 41},
+                      {"liveMinutes": None}, {"endToEndMinutes": None}):
             bad = copy.deepcopy(smoke)
             bad["window"].update(patch)
+            if isinstance(patch.get("liveMinutes"), int):
+                bad["estimate"]["githubRunnerMinutesMax"] = patch["liveMinutes"]
             self.assertTrue(C.occurrence_window_limit(bad, {"maxWindowMinutes": 40}, False, 80)[1], patch)
 
     def test_expected_pass_unconfirmed_is_owner_input(self):

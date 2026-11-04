@@ -22,6 +22,9 @@ READY, NOTREADY, OWNER, DEFERRED = "READY", "NOT-READY", "OWNER-INPUT-OPEN", "DE
 # A recurring nightly window may include GitHub's reviewed 30-minute trigger
 # delay. Manual/full requests retain the package's 330-minute ceiling.
 NIGHTLY_MAX_WINDOW_MINUTES = 360
+R10_SMOKE_RUN_ID = "R10-3b040043-smoke15"
+R10_END_TO_END_MINUTES = 80
+R10_LIVE_MINUTES = 40
 
 
 def canonical_sha(value):
@@ -52,15 +55,20 @@ def occurrence_window_limit(req, lim, recurring, minutes):
     if end_to_end is None and live is None:
         return lim["maxWindowMinutes"], []
     errors = []
-    if req.get("coverageMode") != "smoke" or not isinstance(end_to_end, int) or isinstance(end_to_end, bool) or end_to_end < 1:
-        errors.append("end-to-end occurrence minutes are missing or invalid")
-    if not isinstance(live, int) or isinstance(live, bool) or live < 1 or live > lim["maxWindowMinutes"]:
-        errors.append("live minutes are missing, invalid, or exceed the configured %d-minute ceiling" % lim["maxWindowMinutes"])
+    r10 = (req.get("runId") == R10_SMOKE_RUN_ID and req.get("coverageMode") == req.get("sampleMode") == "smoke"
+           and req.get("priority") == "journey-smoke" and req.get("createdUtc") == win.get("startUtc")
+           and req.get("selectionApprovalRef") == win.get("approvalRef"))
+    if not r10:
+        errors.append("a separate end-to-end occurrence envelope is not admitted for this request")
+    if end_to_end != R10_END_TO_END_MINUTES:
+        errors.append("R10 end-to-end occurrence must be exactly %d minutes" % R10_END_TO_END_MINUTES)
+    if live != R10_LIVE_MINUTES or live > lim["maxWindowMinutes"]:
+        errors.append("R10 live execution must be exactly %d minutes and within the configured ceiling" % R10_LIVE_MINUTES)
     if isinstance(end_to_end, int) and not isinstance(end_to_end, bool) and end_to_end != minutes:
         errors.append("declared end-to-end occurrence %d min does not equal the %.0f-minute window" % (end_to_end, minutes))
-    if isinstance(live, int) and not isinstance(live, bool) and est.get("githubRunnerMinutesMax") != live:
+    if est.get("githubRunnerMinutesMax") != R10_LIVE_MINUTES or est.get("githubRunnerMinutesMax") != live:
         errors.append("declared live minutes do not match the request estimate")
-    return end_to_end if isinstance(end_to_end, int) and not isinstance(end_to_end, bool) else lim["maxWindowMinutes"], errors
+    return R10_END_TO_END_MINUTES if not errors else lim["maxWindowMinutes"], errors
 
 
 # TEST-ONLY overrides of the authenticated journal source; production reads state_ref_writer.APPROVED_URL from the pinned REVIEWED_ROOT.
