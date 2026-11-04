@@ -429,6 +429,11 @@ jobs:
           git -C "$GITHUB_WORKSPACE" worktree add --detach "$tested" "$TESTED_SHA"
           [ "$(git -C "$tested" rev-parse HEAD)" = "$TESTED_SHA" ]
           [ -z "$(git -C "$tested" status --porcelain)" ]
+          # The privileged telemetry reader deliberately comes from the reviewed control tree rather than the
+          # possibly older tested release. Bind the same lockfile-installed, version-checked runtime packages
+          # into that control tree as well so its frontend imports resolve without a second install or download.
+          python3 -I "$GITHUB_WORKSPACE/tools/cloud-test/scripts/install_pdfjs.py" \
+            --config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$GITHUB_WORKSPACE" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright
           python3 -I "$GITHUB_WORKSPACE/tools/cloud-test/scripts/install_pdfjs.py" \
             --config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright
           [ -z "$(git -C "$tested" status --porcelain --untracked-files=no)" ]

@@ -229,14 +229,16 @@ class LiveWorkflowPolicy(unittest.TestCase):
         bounds = [steps[py].get("timeout-minutes"), steps[at].get("timeout-minutes"), steps[copy].get("timeout-minutes")]
         self.assertTrue(all(isinstance(b, int) and b > 0 for b in bounds), bounds)
         self.assertLessEqual(sum(bounds), I.SETUP_RESERVE_MINUTES)
-        # P1: the pin-verifying copy goes into the exact admitted tested-release
-        # checkout, never the workflow/source checkout.
+        # P1: the exact admitted tested-release and the reviewed control tree both receive the same
+        # pin-verified runtime packages. The former runs the journey; the latter runs the privileged
+        # telemetry reader. Neither path may fall back to an unverified install.
         self.assertLess(at, copy)
         self.assertLess(copy, first_stage)
         script = steps[copy]["run"]
         self.assertIn('git -C "$GITHUB_WORKSPACE" worktree add --detach "$tested" "$TESTED_SHA"', script)
+        self.assertIn('--config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$GITHUB_WORKSPACE" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', script)
         self.assertIn('--config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"', script)
-        self.assertIn('--bind-playwright', script)
+        self.assertEqual(script.count('--bind-playwright'), 2)
         self.assertIn('echo "CT_CHECKOUT=$tested"', script)
         self.assertEqual(steps[copy]["env"], {"TESTED_SHA": "${{ steps.init.outputs.tested_sha }}"})
         env = self.jobs["live"]["env"]
@@ -255,6 +257,8 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_the_tested_release_resolves_verified_playwright_without_a_second_install(self):
         steps = self.jobs["live"]["steps"]
         provision = next(s for s in steps if "install_pdfjs.py" in s.get("run", "") and "--checkout" in s.get("run", ""))
+        self.assertIn('--checkout "$GITHUB_WORKSPACE" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', provision["run"])
+        self.assertIn('--checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', provision["run"])
         self.assertIn('--runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', provision["run"])
         self.assertNotRegex(provision["run"], r"\b(npm|npx|pnpm|yarn|pip|apt|brew)\b")
         stage = next(i for i, s in enumerate(steps) if "for stage in install-tools build-plan" in s.get("run", ""))
