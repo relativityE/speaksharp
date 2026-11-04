@@ -29,7 +29,11 @@ with open(os.path.join(ROOT, "tests", "fixtures", "nightly-template.synthetic.js
     TEMPLATE = _f.read()
 TEMPLATE_PIN = hashlib.sha256(TEMPLATE).hexdigest()
 with open(os.path.join(REPO, ".github", "workflows", "cloud-test-live.yml"), encoding="utf-8") as _f:
-    WF = _f.read()
+    WF_REAL = _f.read()
+# The real workflow's live job is the 65-minute smoke job ceiling. These derivation tests use the FULL-depth synthetic template, so they run
+# against a full-depth workflow variant (live job 340); test_the_runner_minute_need_is_the_actual_workflow_allowance covers the real one.
+assert WF_REAL.count("\n    timeout-minutes: 65\n") == 1
+WF = WF_REAL.replace("\n    timeout-minutes: 65\n", "\n    timeout-minutes: 340\n")
 OCCURRENCE = "nightly-20261101T0000Z-20261102T0300Z"
 
 
@@ -62,6 +66,45 @@ def derive(ap=None, bud=None, slot=SLOT, run_id="101", sha=SHA, prior=frozenset(
     ap, bud = ap or approval(), bud or budget()
     return N.derive(tpl, ap, bud, slot, run_id, sha, prior, CFG, wf, template_pin=tpl_pin, budget_pin=bud_pin or hashlib.sha256(bud).hexdigest(),
                     initiation=slot if initiation is None else initiation)
+
+
+def smoke_template():
+    """SYNTHETIC smoke-depth nightly template: the full synthetic template at smoke depth, sized inside the smoke mode's limits."""
+    tpl = json.loads(TEMPLATE)
+    tpl.update(coverageMode="smoke", sampleMode="smoke")
+    for row in tpl["selection"]:
+        row["plannedRequests"] = 100
+    tpl["proposedLimits"]["runCapRequests"] = 2000
+    tpl["estimate"].update(requests={"planned": 1500, "cleanupReserve": 150, "pooledSlack": 350, "runCap": 2000}, starts=16, takes=16,
+                           window={"expectedMinutes": 30, "proposedMinutes": 80, "worstCaseMinutes": 40},
+                           providerBillableRequests={"coachingCap": 20, "basis": "SYNTHETIC smoke coaching allowance"})
+    return json.dumps(tpl, sort_keys=True).encode()
+
+
+SMOKE_TEMPLATE = smoke_template()
+
+
+def smoke_budget():
+    return json.dumps({"requests": {"runCap": 2000, "plannedSumOfEstimates": 1500, "cleanupReserve": 150, "pooledSlack": 350},
+                       "identity": {"readsThisRun": 32}, "actions": {"startsMinimum": 16, "takesMinimum": 16},
+                       "coaching": {"cap": 20, "basis": "SYNTHETIC smoke coaching allowance"}, "window": {"proposedWindowMinutes": 80},
+                       "perCase": [{"case": cid, "startsMin": C.MINIMAL_MINIMA[cid]} for cid in C.CASE_IDS]}, sort_keys=True).encode()
+
+
+def smoke_approval(**over):
+    """SYNTHETIC standing approval sized to the 40-minute live / 80-minute occurrence smoke envelope and the real 84 runner minutes."""
+    base = {"perRunCaps": {"runCapRequests": 2000, "identityReads": 32, "starts": 16, "takes": 16, "coachingRequests": 20, "windowMinutes": 80,
+                           "githubRunnerMinutes": 84},
+            "periodCaps": {"requests": 60000, "identityReads": 960, "starts": 480, "takes": 480, "coachingRequests": 600, "githubRunnerMinutes": 2520}}
+    base.update(over)
+    return approval(**base)
+
+
+def smoke_derive(**over):
+    """A smoke-depth nightly occurrence derived against the REAL workflow (65-minute live job)."""
+    kw = dict(ap=smoke_approval(), bud=smoke_budget(), tpl=SMOKE_TEMPLATE, tpl_pin=hashlib.sha256(SMOKE_TEMPLATE).hexdigest(), wf=WF_REAL)
+    kw.update(over)
+    return derive(**kw)
 
 
 def refused(test, code, fn, *a, **k):
@@ -238,11 +281,11 @@ class StartRelativeWindow(unittest.TestCase):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d)
         files = {}
-        for name, raw in (("template", TEMPLATE), ("budget", budget()), ("approval", approval())):
+        for name, raw in (("template", TEMPLATE), ("budget", budget()), ("approval", approval()), ("workflow", WF.encode())):
             files[name] = os.path.join(d, name + ".json")
             with open(files[name], "wb") as f:
                 f.write(raw)
-        return mock.patch.multiple(N, APPROVAL_PATH=files["approval"], TEMPLATE_PATH=files["template"], BUDGET_PATH=files["budget"],
+        return mock.patch.multiple(N, APPROVAL_PATH=files["approval"], WORKFLOW_PATH=files["workflow"], TEMPLATE_PATH=files["template"], BUDGET_PATH=files["budget"],
                                    TEMPLATE_SHA256=TEMPLATE_PIN, BUDGET_SHA256=hashlib.sha256(budget()).hexdigest(),
                                    writer_activated=mock.Mock(return_value=True), fresh_repo=mock.Mock(return_value=d),
                                    occurrences_from_chain=mock.Mock(return_value=frozenset()))
@@ -362,27 +405,76 @@ class Derivation(unittest.TestCase):
         refused(self, "nightly-occurrence-outside-period", derive, slot=datetime(2026, 12, 1, 3, 0, tzinfo=timezone.utc))
 
     def test_the_runner_minute_need_is_the_actual_workflow_allowance(self):
-        timeouts = N.workflow_job_timeouts(WF)
-        self.assertEqual(timeouts, {"nightly-gate": 3, "record-begin": 5, "journal-reserve": 3, "live": 340,
+        timeouts = N.workflow_job_timeouts(WF_REAL)
+        self.assertEqual(timeouts, {"nightly-gate": 3, "record-begin": 5, "journal-reserve": 3, "live": 65,
                                     "journal-settle": 3, "record-complete": 5})
-        self.assertEqual(N.nightly_runner_minutes(WF), 359, "a nightly run includes both serial journal transition jobs")
+        self.assertEqual(N.nightly_runner_minutes(WF_REAL), 84, "a nightly run includes both serial journal transition jobs")
+        # The real 65-minute job cannot hold a full-depth run: it refuses rather than overrun (Sam 2026-11-04: no 304-minute nightly).
+        refused(self, "nightly-time-exceeds-job-timeout", derive, wf=WF_REAL)
+        self.assertEqual(N.nightly_runner_minutes(WF), 359)
         refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 358}))
         self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 359})))
-        refused(self, "nightly-workflow-timeouts", derive, wf=WF.replace(
-            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}",
-            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '66' || '340') }}"))
+        refused(self, "nightly-workflow-timeouts", derive, wf=WF.replace("\n    timeout-minutes: 340\n", "\n    timeout-minutes: ${{ 340 }}\n"))
+
+    def test_a_smoke_depth_nightly_derives_against_the_real_workflow_inside_one_fixed_deadline(self):
+        # Sam 2026-11-04: the nightly keeps its gate-authenticated priority at smoke depth; the 65-minute live job holds 15 setup + 40 live +
+        # 10 collect, and the 80-minute occurrence deadline is fixed from the actual start: time spent before prepare is never given back.
+        raw = smoke_derive(initiation=SLOT + timedelta(minutes=4))
+        req = json.loads(raw)
+        self.assertEqual((req["priority"], req["coverageMode"], req["sampleMode"]), ("nightly-regression", "smoke", "smoke"))
+        self.assertEqual((req["window"]["startUtc"], req["window"]["endUtc"]), ("2026-11-02T03:04:00Z", "2026-11-02T04:24:00Z"))
+        self.assertEqual((req["estimate"]["githubRunnerMinutesMax"], req["estimate"]["requests"]["runCap"]), (84, 2000))
+        start = SLOT + timedelta(minutes=4)
+        self.assertEqual(N.check_fit(raw, start + timedelta(minutes=15), CFG, WF_REAL), 40)  # 15 queued minutes still leave 65
+        refused(self, "nightly-run-would-outlast-window", N.check_fit, raw, start + timedelta(minutes=15, seconds=1), CFG, WF_REAL)
+        refused(self, "nightly-need-exceeds-approval", smoke_derive, ap=smoke_approval(perRunCaps={"githubRunnerMinutes": 83}))
+        refused(self, "nightly-need-exceeds-approval", smoke_derive, bud=smoke_budget().replace(b'"proposedWindowMinutes": 80',
+                                                                                                    b'"proposedWindowMinutes": 81'))
+        # A smoke template under a job too short for its own ceiling refuses under the nightly's code (never relabelled as unreadable).
+        refused(self, "nightly-time-exceeds-job-timeout", smoke_derive, wf=WF_REAL.replace("\n    timeout-minutes: 65\n", "\n    timeout-minutes: 64\n"))
+        # Depth stays a pair: a mixed or partial template is not a nightly template.
+        for pair in (("smoke", "full"), ("full", "smoke"), ("partial", "minimal")):
+            bad = json.loads(SMOKE_TEMPLATE)
+            bad["coverageMode"], bad["sampleMode"] = pair
+            bad_raw = json.dumps(bad).encode()
+            refused(self, "nightly-template-shape", smoke_derive, tpl=bad_raw, tpl_pin=hashlib.sha256(bad_raw).hexdigest())
+
+    def test_a_late_nightly_completion_is_incomplete_against_its_own_fixed_deadline(self):
+        # Sam 2026-11-04 (late completion): the scheduled route uses the same completion check as the manual one, on the gate's own bytes.
+        import init_run_inputs as I
+        raw = smoke_derive(initiation=SLOT + timedelta(minutes=4))
+        end = datetime(2026, 11, 2, 4, 24, tzinfo=timezone.utc)
+        self.assertTrue(I.completion_within_occurrence(raw, end))
+        self.assertFalse(I.completion_within_occurrence(raw, end + timedelta(seconds=1)))
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        path = os.path.join(d, "nightly-request.json")
+        with open(path, "wb") as f:
+            f.write(raw)
+        for now, status in (("2026-11-02T04:24:00Z", 0), ("2026-11-02T04:24:01Z", 79)):
+            self.assertEqual(I.main(["init_run_inputs.py", "completion-deadline", "--occurrence-file", path, "--now", now]), status, now)
+        for mutate, code in ((lambda r: r["nightly"].update(initiationUtc="2026-11-02T03:00:00Z"), "completion-occurrence-unreadable"),
+                             (lambda r: r.update(createdUtc="2026-11-02T03:05:00Z"), "completion-occurrence-unreadable"),
+                             (lambda r: r.update(priority="full-coverage"), "completion-occurrence-unreadable"),
+                             (lambda r: r["window"].update(endUtc="2026-11-02T09:05:00Z"), "completion-occurrence-window")):
+            bad = json.loads(raw)
+            mutate(bad)
+            with self.assertRaises(I.Refused) as e:
+                I.completion_within_occurrence(json.dumps(bad).encode(), end)
+            self.assertEqual(str(e.exception), code)
 
     def test_the_derived_request_passes_the_ordinary_validator_as_one_contract(self):
         import validate_run_request as V
-        req = json.loads(derive())
+        full = json.loads(derive())
+        req = json.loads(smoke_derive())
         s = sample()
         cfg = copy.deepcopy(s["cfg"])
         cfg["harness"]["expectedCodeManifestSha256"] = req["harness"]["codeManifestSha256"]
         rc = reconciliation()
-        period = json.loads(approval())["periodCaps"]
+        period = json.loads(smoke_approval())["periodCaps"]
         rc["ceilings"] = dict(rc["ceilings"], requests=period["requests"], identityReads=period["identityReads"],
                               starts=period["starts"], takes=period["takes"])
-        accepted_budget = json.loads(budget())
+        accepted_budget = json.loads(smoke_budget())
         selected = {row["case"]: row for row in req["selection"]}
         for row in accepted_budget["perCase"]:
             row["estimate"] = selected[row["case"]]["plannedRequests"]
@@ -392,9 +484,20 @@ class Derivation(unittest.TestCase):
             accepted_budget["_catalog"] = json.load(catalog)
         errors, _ = V.validate(req, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)
         self.assertEqual(errors, [])
+        # The full-depth occurrence's runner allowance exceeds the real workflow's bound: the validator refuses it, never stretches it.
+        errors, _ = V.validate(full, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)
+        self.assertIn("githubRunnerMinutesMax exceeds the configured bound", errors)
+        # Priority and depth pair (Sam 2026-11-04): nightly-regression is full or smoke; full-coverage stays full only. (Partial
+        # nightly-regression is refused in test_nightly_regression, which builds a structurally valid partial request.)
+        for priority, mode, expected in (("full-coverage", "smoke", "priority full-coverage is only for coverageMode full"),
+                                         ("prove-deployed-fix", "smoke", "a smoke-mode request must have priority journey-smoke or nightly-regression")):
+            bad = copy.deepcopy(req)
+            bad["priority"], bad["coverageMode"] = priority, mode
+            errors, _ = V.validate(bad, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)
+            self.assertIn(expected, errors, (priority, mode))
 
         too_long = copy.deepcopy(req)
-        too_long["estimate"]["githubRunnerMinutesMax"] = N.nightly_runner_minutes(WF) + 1
+        too_long["estimate"]["githubRunnerMinutesMax"] = N.nightly_runner_minutes(WF_REAL) + 1
         errors, _ = V.validate(too_long, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)
         self.assertTrue(any("githubRunnerMinutesMax" in error for error in errors), errors)
 

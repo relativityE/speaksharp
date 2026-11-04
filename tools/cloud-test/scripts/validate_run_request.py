@@ -112,10 +112,14 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         E("priority must be one of %s (no run for the sake of another report)" % cfg["allowedPriorities"])
     if full and req.get("priority") not in ("full-coverage", "nightly-regression"):
         E("a full-mode request must have priority full-coverage or nightly-regression")
-    if smoke and req.get("priority") != "journey-smoke":
-        E("a smoke-mode request must have priority journey-smoke")
-    if not full and req.get("priority") in ("full-coverage", "nightly-regression"):
-        E("priority %s is only for coverageMode full" % req.get("priority"))
+    # Sam 2026-11-04 (PO-owned nightly): a nightly-regression occurrence may be smoke depth; it keeps the gate-authenticated nightly priority,
+    # and its coverage and results stay smoke (never full acceptance or full history).
+    if smoke and req.get("priority") not in ("journey-smoke", "nightly-regression"):
+        E("a smoke-mode request must have priority journey-smoke or nightly-regression")
+    if req.get("priority") == "full-coverage" and not full:
+        E("priority full-coverage is only for coverageMode full")
+    if req.get("priority") == "nightly-regression" and not (full or smoke):
+        E("priority nightly-regression is only for coverageMode full or smoke")
     gaps = {g["id"]: g for g in ledger["gaps"]}
     targeted = req.get("targetedGaps") or []
     if not targeted:

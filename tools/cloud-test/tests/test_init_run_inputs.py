@@ -2194,7 +2194,16 @@ class StandingEnvelope(Journal):
                                            worstCaseMinutes=req["estimate"]["window"]["worstCaseMinutes"])
         with open(os.path.join(ROOT, "config", "assertion-catalog.json"), encoding="utf-8") as catalog:
             accepted_budget["_catalog"] = json.load(catalog)
-        return V.validate(req, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)[0]
+        # This full-depth synthetic request was derived against the full-depth workflow variant (test_nightly_request.WF); the validator's
+        # runner bound is read from that same workflow, not the real one (whose 65-minute live job refuses full depth).
+        from unittest import mock
+        from test_nightly_request import WF
+        with tempfile.TemporaryDirectory(prefix="full-depth-wf-") as d:
+            path = os.path.join(d, "cloud-test-live.yml")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(WF)
+            with mock.patch("nightly_request.WORKFLOW_PATH", path):
+                return V.validate(req, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)[0]
 
     def reserve_on_chain(self, run="101", request_sha=None, at="2026-11-02T03:00:30Z", allocation=None, kind="reserve"):
         """Appends a nightly reserve (or its settle) through the REAL state-ref writer, as journal-reserve/-settle do around the live job."""

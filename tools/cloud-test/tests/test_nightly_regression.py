@@ -387,7 +387,7 @@ class SyntheticHistoryRules(unittest.TestCase):
             row["order"] = order
         synthetic_allocation(bad)
         errs, _ = V.validate(bad, s["cfg"], s["ledger"], s["wf"], fake_rv(), reconciliation(), None)
-        self.assertTrue(any("only for coverageMode full" in e for e in errs), errs)
+        self.assertIn("priority nightly-regression is only for coverageMode full or smoke", errs)
 
     def test_the_proposal_is_derived_flagged_and_keeps_unknown_costs_unknown(self):
         from _fixtures import reconciliation

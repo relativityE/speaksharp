@@ -99,10 +99,6 @@ def canon(doc):
 
 
 JOB_TIMEOUT = re.compile(r"^  ([A-Za-z0-9_-]+):\n(?:(?!^  \S).*\n)*?^    timeout-minutes: (.+)$", re.M)
-# This only verifies the workflow's manual-vs-scheduled selector; it never dispatches a workflow.
-# Keep the event name assembled so the package boundary scan can reserve the complete token for actual dispatch code.
-MANUAL_EVENT = "workflow_" + "dispatch"
-SPLIT_LIVE_TIMEOUT = "${{ fromJSON(github.event_name == '%s' && '65' || '340') }}" % MANUAL_EVENT
 
 
 def workflow_job_timeouts(text):
@@ -110,18 +106,15 @@ def workflow_job_timeouts(text):
     found = {}
     for name, raw in JOB_TIMEOUT.findall(text):
         raw = raw.strip()
-        if raw.isdecimal():
-            found[name] = int(raw)
-        elif name == "live" and raw == SPLIT_LIVE_TIMEOUT:
-            found[name] = 340  # scheduled/nightly arm; manual dispatch is 65
-        else:
-            raise Refused("nightly-workflow-timeouts")
+        # Every job deadline is one literal number (Sam 2026-11-04: the scheduled live job uses the 65-minute smoke job ceiling, not 340).
+        _need(raw.isdecimal(), "nightly-workflow-timeouts")
+        found[name] = int(raw)
     _need(found and {"nightly-gate", "record-begin", "live", "record-complete"} <= set(found), "nightly-workflow-timeouts")
     return found
 
 
 def nightly_runner_minutes(text):
-    """A nightly run's maximum runner allowance: the gate, both record jobs and the live job (353 today, against 350 for a dispatch)."""
+    """A nightly run's maximum runner allowance: every job's deadline, serially (3 + 5 + 3 + 65 + 3 + 5 = 84 today)."""
     return sum(workflow_job_timeouts(text).values())
 
 
@@ -242,8 +235,9 @@ def load_anchored(raw, pinned, missing, mismatch):
 
 
 def check_template(tpl):
-    _need(isinstance(tpl, dict) and tpl.get("priority") == "nightly-regression" and tpl.get("coverageMode") == "full"
-          and tpl.get("sampleMode") == "full" and "nightly" not in tpl and "fixtureScope" not in tpl and "synthetic" not in tpl
+    # Full depth, or smoke depth (Sam 2026-11-04): the nightly keeps its priority; a smoke occurrence is labeled and reported as smoke.
+    _need(isinstance(tpl, dict) and tpl.get("priority") == "nightly-regression"
+          and (tpl.get("coverageMode"), tpl.get("sampleMode")) in (("full", "full"), ("smoke", "smoke")) and "nightly" not in tpl and "fixtureScope" not in tpl and "synthetic" not in tpl
           and sorted(s.get("case") for s in tpl.get("selection") or [] if isinstance(s, dict)) == I.ALL_CASES, "nightly-template-shape")
     return tpl
 
@@ -356,8 +350,11 @@ def derive(template_raw, approval_raw, budget_raw, slot, run_id, tested_sha, pri
         case10_observation.contract_of(req)
     except case10_observation.Refused:
         raise Refused("nightly-case10-observation-contract")
-    # The caller's own ceiling checks against the live job's actual timeout.
-    I.check_ceilings(cfg, req, I.ALL_CASES, workflow_job_timeouts(workflow_text)["live"])
+    # The caller's own ceiling checks against the live job's actual timeout, under the caller's own refusal code.
+    try:
+        I.check_ceilings(cfg, req, I.ALL_CASES, workflow_job_timeouts(workflow_text)["live"])
+    except I.Refused as e:
+        raise Refused("nightly-" + str(e))
     return canon(req)
 
 

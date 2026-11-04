@@ -520,9 +520,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_job_timeout_is_the_one_prepare_checks_and_the_run_step_is_bounded_to_the_live_minutes(self):
         live = self.jobs["live"]
-        self.assertEqual(live["timeout-minutes"], "${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}")
+        # Sam 2026-11-04: scheduled and manual runs share the 65-minute smoke job ceiling (15 setup + 40 live + 10 collect); no 340-minute arm.
+        self.assertEqual(live["timeout-minutes"], 65)
         init = next(s for s in live["steps"] if s.get("id") == "init")
-        self.assertEqual(init["env"]["JOB_TIMEOUT_MINUTES"], "${{ github.event_name == 'workflow_dispatch' && '65' || '340' }}")
+        self.assertEqual(init["env"]["JOB_TIMEOUT_MINUTES"], "65")
         self.assertIn('--job-timeout-minutes "$JOB_TIMEOUT_MINUTES" ', init["run"])
         run = next(s for s in live["steps"] if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         self.assertEqual(run["timeout-minutes"], "${{ fromJSON(steps.init.outputs.live_minutes) }}")
@@ -539,6 +540,13 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn("publication_status", complete["run"])
         self.assertIn('published_at=', complete["run"])
         self.assertIn('--now "$published_at"', complete["run"])
+        # Sam 2026-11-04: both deadline checks (before publication, and on GitHub's publication time) apply to every route, never only to
+        # manual dispatch; each reads the run's own occurrence bytes.
+        self.assertEqual(complete["run"].count('init_run_inputs.py completion-deadline --occurrence-file "$occurrence_file"'), 2)
+        self.assertIn('occurrence_file="$RUNNER_TEMP/manual-occurrence.json"', complete["run"])
+        self.assertIn('occurrence_file="$RUNNER_TEMP/nightly-request.json"', complete["run"])
+        self.assertNotIn("--manual-occurrence-file", complete["run"])
+        self.assertEqual(complete["run"].count('if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then'), 2)  # occurrence source + artifact copy only
         self.assertEqual(complete["env"]["NIGHTLY_REQUEST_SHA256"], "${{ needs.record-begin.outputs.nightly_request_sha256 }}")
         self.assertIn('occurrence_sha256="$NIGHTLY_REQUEST_SHA256"', complete["run"])
         self.assertIn('cfg_get.py "$RUNNER_TEMP/nightly-request.json" window.endUtc', complete["run"])
@@ -770,7 +778,7 @@ class Case10ObserveCredentials(unittest.TestCase):
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "4" * 40, "GITHUB_ENV": os.path.join(d, "env"), "GITHUB_OUTPUT": os.path.join(d, "out"),
                "MANUAL_OCCURRENCE_B64": base64.b64encode(b"{}").decode(), "MANUAL_OCCURRENCE_SHA256": "b" * 64,
                "CT_CASE10_PASSWORD": "case10-pw-value" if event == "schedule" else "", "CT_CASE10_ANON_KEY": "case10-anon-value" if event == "schedule" else "",
-               "JOB_TIMEOUT_MINUTES": "340" if event == "schedule" else "65"}
+               "JOB_TIMEOUT_MINUTES": "65"}
         p = subprocess.run(["bash", "-c", shadow + init["run"]], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
         out = {}
