@@ -53,7 +53,9 @@ UTC = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 # J1 (Sam 1793580621.313599): the job's ephemeral token, consumed ONLY by the one leased https push, as a per-process config entry scoped to
 # the approved URL. Never an argument, never written to any git config, never seen by fetch or any other git call (_git inherits no env).
 PUSH_TOKEN_ENV = "CT_STATE_PUSH_TOKEN"
-PUSH_TOKEN = re.compile(r"[A-Za-z0-9_.-]{20,255}")
+# Opaque (GitHub: installation tokens, including Actions GITHUB_TOKEN, are ~520 characters since 2026-10-02 and must not be pattern-matched):
+# only bounded visible ASCII, so no whitespace, control or non-ASCII byte can reach the header; the content is never interpreted.
+PUSH_TOKEN = re.compile(r"[\x21-\x7e]{20,4096}")
 IDENT = {"GIT_AUTHOR_NAME": "cloud-test-state", "GIT_AUTHOR_EMAIL": "cloud-test-state@invalid",
          "GIT_COMMITTER_NAME": "cloud-test-state", "GIT_COMMITTER_EMAIL": "cloud-test-state@invalid"}
 
