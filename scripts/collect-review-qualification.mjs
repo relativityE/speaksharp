@@ -67,7 +67,7 @@ const SUMMARY_METADATA = /<!--\s*codex-security-review:v1\s+(\{[^]*?\})\s*-->/g;
  * `codex-security-review:v1` names the SECURITY review's full head. A failed or cancelled code review left no
  * `**Running**` (`3992603040`), and a Completed Code Review row left over from head A sat beside security metadata
  * for head B and qualified B with no code review of B (`3992907765`). Codex writes no structured code-review
- * metadata, so the binding comes from GitHub's lifecycle record, not from generated text:
+ * metadata when this legacy fallback was introduced, so its binding comes from GitHub's lifecycle record:
  *
  *   exactly one canonical Code Review row and one Security Review row, each `✅ **Completed**` with a readable
  *   completion time, a display commit that prefixes the metadata head, and trigger `Draft marked ready`;
@@ -127,34 +127,100 @@ function automaticReviewsBindHead({ body, pullRequest, head }) {
   return headsAtReady.size === 1 && headsAtReady.has(head);
 }
 
-function findTrustedCompletionMetadata({ pullRequest, head }) {
-  const blocks = (pullRequest?.comments?.nodes ?? [])
-    .filter((comment) => isCodex(comment?.author?.login))
-    .flatMap((comment) => [...String(comment?.body ?? '').matchAll(SUMMARY_METADATA)]
-      .map((match) => ({ comment, raw: match[1] })));
-  if (blocks.length !== 1) return null;
-  const [{ comment, raw }] = blocks;
-  const body = String(comment?.body ?? '');
-  if (!body.includes(SUMMARY_MARKER)) return null;
-  // A review the summary still shows running has not completed, whatever the metadata block says.
-  if (/\*\*Running\*\*/.test(body)) return null;
-  // #1438 Codex P1s `3992603040` + `3992907765` — both automatic reviews must have completed for THIS head's Ready
-  // trigger, bound through GitHub's lifecycle record. See `automaticReviewsBindHead`.
-  if (!automaticReviewsBindHead({ body, pullRequest, head })) return null;
-  let metadata;
+const REVIEW_STATE_KEY = 'codex-review-state:v1';
+const SECURITY_KEY = 'codex-security-review:v1';
+const REVIEW_STATE_METADATA = /<!--\s*codex-review-state:v1\s+(\{[^]*?\})\s*-->/g;
+const fullSha = (value) => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function metadataBlock(body, key, pattern) {
+  const matches = [...body.matchAll(pattern)];
+  // Count mentions as well: a valid block beside a malformed duplicate cannot qualify.
+  if (body.split(key).length !== 2 || matches.length !== 1) return null;
   try {
-    metadata = JSON.parse(raw);
-  } catch {
-    return null;
+    const raw = matches[0][1];
+    const value = JSON.parse(raw);
+    // System records use ordinary JSON encoding. Reject duplicate/escaped keys instead of silently taking
+    // JSON.parse's last value. Preserve whitespace inside strings when normalizing the envelope.
+    const compact = raw.replace(/("(?:\\.|[^"\\])*")|\s+/g, (match, string) => string ?? '');
+    if (JSON.stringify(value) !== compact) return null;
+    return { value, block: matches[0][0] };
   }
-  if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
-  if (typeof metadata.headSha !== 'string' || !/^[0-9a-f]{40}$/.test(metadata.headSha) || metadata.headSha !== head) {
-    return null;
+  catch { return null; /* Invalid system metadata is diagnosed by the caller and holds. */ }
+}
+
+/**
+ * Codex now supplies a full SHA for EACH review in codex-review-state:v1. The older Ready/branch-history
+ * workaround exists only because that code-review identity used to be absent. Never infer identity from
+ * the rendered table or result prose. New metadata must be the unique bot-authored summary envelope,
+ * and agree with the separate repository/PR-bound security record. Invalid new metadata cannot downgrade
+ * to the legacy path. Completion never clears a finding on any of the independently read surfaces.
+ */
+export function readReviewCompletion({ pullRequest, head, codeReview = null }) {
+  const result = { comment: null, source: null, code: null, security: null, reasons: [] };
+  const summaries = (pullRequest?.comments?.nodes ?? []).filter((comment) => isCodex(comment?.author?.login)
+    && [SUMMARY_MARKER, SECURITY_KEY, REVIEW_STATE_KEY].some((key) => String(comment?.body ?? '').includes(key)));
+  const refuse = (reason) => { result.reasons.push(reason); return result; };
+  if (summaries.length !== 1) return refuse(summaries.length ? 'review_summary_ambiguous' : 'review_summary_missing');
+  const [comment] = summaries;
+  const body = String(comment?.body ?? '');
+  if (!body.startsWith(`${SUMMARY_MARKER}\n`) || body.split(SUMMARY_MARKER).length !== 2) {
+    return refuse('review_summary_envelope_invalid');
   }
-  if (metadata.status !== 'completed') return null;
-  if ('repository' in metadata && metadata.repository !== pullRequest?.baseRepository?.nameWithOwner) return null;
-  if ('pullRequestNumber' in metadata && metadata.pullRequestNumber !== pullRequest?.number) return null;
-  return comment;
+  const securityBlock = metadataBlock(body, SECURITY_KEY, SUMMARY_METADATA);
+  const security = securityBlock?.value;
+  if (!object(security) || !fullSha(security.headSha) || typeof security.status !== 'string') {
+    return refuse('security_review_metadata_invalid');
+  }
+  result.security = { reviewedSha: security.headSha, status: security.status };
+  const modern = body.includes(REVIEW_STATE_KEY);
+  if (((modern || 'repository' in security) && security.repository !== pullRequest?.baseRepository?.nameWithOwner)
+      || ((modern || 'pullRequestNumber' in security) && security.pullRequestNumber !== pullRequest?.number)) {
+    return refuse('review_summary_subject_mismatch');
+  }
+  if (security.headSha !== head) result.reasons.push('security_review_head_mismatch');
+  if (security.status !== 'completed') result.reasons.push(`security_review_not_completed:${security.status}`);
+
+  if (modern) {
+    const stateBlock = metadataBlock(body, REVIEW_STATE_KEY, REVIEW_STATE_METADATA);
+    const state = stateBlock?.value;
+    const header = body.indexOf('\n## Codex Review Summary\n');
+    // Only the system envelope before the summary header counts, never a quoted example or appended prose.
+    const envelope = header < 0 ? null : body.slice(0, header).replace(SUMMARY_MARKER, '')
+      .replace(stateBlock?.block ?? '', '').replace(securityBlock.block, '').trim();
+    if (envelope !== '' || !object(state)
+        || Object.keys(state).sort().join(',') !== 'code_review,security_review') {
+      return refuse('review_state_metadata_invalid');
+    }
+    for (const key of ['code_review', 'security_review']) {
+      const row = state[key];
+      if (!object(row) || Object.keys(row).sort().join(',') !== 'commit_sha,has_any_findings,has_unresolved_findings,status'
+          || !fullSha(row.commit_sha) || typeof row.status !== 'string'
+          || ![true, false, null].includes(row.has_any_findings)
+          || ![true, false, null].includes(row.has_unresolved_findings)) return refuse('review_state_metadata_invalid');
+      if (key === 'code_review' && codeReview) {
+        result.code = { reviewedSha: head, status: 'completed' };
+        continue;
+      }
+      result[key === 'code_review' ? 'code' : 'security'] = { reviewedSha: row.commit_sha, status: row.status };
+      if (row.commit_sha !== head) result.reasons.push(`${key}_head_mismatch`);
+      if (row.status !== 'completed') result.reasons.push(`${key}_not_completed:${row.status}`);
+    }
+    if (state.security_review.commit_sha !== security.headSha || state.security_review.status !== security.status) {
+      result.reasons.push('security_review_metadata_conflict');
+    }
+    result.source = 'codex_review_state';
+  } else {
+    // GitHub's immutable review object proves Code completion only; Security still needs its own full-SHA record.
+    if (/\*\*Running\*\*/.test(body)) return refuse('legacy_review_still_running');
+    const legacyComplete = automaticReviewsBindHead({ body, pullRequest, head });
+    result.code = codeReview ? { reviewedSha: head, status: 'completed' }
+      : legacyComplete ? { reviewedSha: head, status: 'completed' } : null;
+    if (!result.code) result.reasons.push('legacy_code_review_ready_binding_missing');
+    result.source = 'codex_summary_metadata';
+  }
+  if (result.reasons.length === 0) result.comment = comment;
+  return result;
 }
 
 /**
@@ -235,12 +301,16 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
   if (pullRequest?.comments?.pageInfo?.hasPreviousPage) reasons.push('issue_comments_incomplete');
 
   const reviews = (pullRequest?.reviews?.nodes ?? [])
-    .filter((review) => isCodex(review?.author?.login) && review?.state !== 'DISMISSED' && review?.commit?.oid?.toLowerCase?.() === head)
+    .filter((review) => isCodex(review?.author?.login)
+      && ['COMMENTED', 'APPROVED', 'CHANGES_REQUESTED'].includes(review?.state)
+      && Number.isFinite(Date.parse(review?.submittedAt ?? ''))
+      && review?.commit?.oid?.toLowerCase?.() === head)
     .sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt)));
   const latest = reviews.at(-1);
-  // Only consulted when no review object exists at this head: a review that reported findings must never be
-  // masked by summary metadata, which establishes completion and nothing else.
-  const completion = latest ? null : findTrustedCompletionMetadata({ pullRequest, head });
+  // A GitHub review object proves Code completion, not a separate Security review. Always read both.
+  const completionState = readReviewCompletion({ pullRequest, head, codeReview: latest });
+  const completion = completionState.comment;
+  reasons.push(...completionState.reasons);
   const threadFindings = [];
   const p2DispositionFindingIds = [];
   for (const thread of pullRequest?.reviewThreads?.nodes ?? []) {
@@ -310,13 +380,38 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     repository: pullRequest?.baseRepository?.nameWithOwner ?? null,
     baseSha: pullRequest?.baseRefOid?.toLowerCase?.() ?? null,
     reviewSubmittedAt: latest?.submittedAt ?? completion?.createdAt ?? null,
-    /** Which surface established exact-head completion: a review object, or Codex's summary system metadata. */
-    reviewEvidence: latest ? 'review_object' : completion ? 'codex_summary_metadata' : null,
+    /** Which surface established Code completion; independent Security completion is also required. */
+    reviewEvidence: latest ? 'review_object' : completion ? completionState.source : null,
+    reviewDiagnostics: reviewCompletionDiagnostics({ pullRequest, head, latest, completionState }),
     /** Open P2 findings at this head. Reported for the ledger; deliberately not blocking. */
     advisoryFindingCount: advisoryCount,
     /** #1432 PM RETURN `5652158578` — exact-head release findings the owner disposed of as P2 (counted as advisory). */
     p2DispositionFindingIds,
   };
+}
+
+function reviewCompletionDiagnostics({ pullRequest, head, latest, completionState }) {
+  const historical = (pullRequest?.reviews?.nodes ?? []).filter((review) => isCodex(review?.author?.login)
+    && review?.state !== 'DISMISSED' && fullSha(review?.commit?.oid))
+    .sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt))).at(-1);
+  const code = latest ? { reviewedSha: head, status: 'completed', source: 'review_object' }
+    : completionState.code ?? (historical ? { reviewedSha: historical.commit.oid, status: 'completed' } : null);
+  const security = completionState.security;
+  const invalid = completionState.reasons.some((reason) => /invalid|ambiguous|conflict|subject_mismatch/.test(reason));
+  const nextActions = invalid ? ['Inspect the bot summary metadata and collector compatibility; do not repeat reviews or CI.']
+    : [['Code', code], ['Security', security]].flatMap(([label, state]) => {
+      if (state?.reviewedSha === head && state.status === 'completed') return [];
+      if (state?.reviewedSha === head && ['running', 'in_progress', 'queued', 'pending'].includes(state.status)) {
+        return [`Wait for the running ${label} review on ${head}; do not request a duplicate.`];
+      }
+      return [`Request ${label} review once on final head ${head}; freeze pushes while it completes.`];
+    });
+  if (completionState.reasons.includes('legacy_code_review_ready_binding_missing')) {
+    nextActions.splice(0, nextActions.length,
+      'Legacy summary lacks full-SHA Code metadata: after final pushes, use one draft-to-ready transition and wait for both automatic reviews.');
+  }
+  if (nextActions.length) nextActions.push('Review-only refresh uses the trusted Review Qualification lane; do not rerun engineering tests for a review-only hold.');
+  return { expectedHeadSha: head, code, security, summarySource: completionState.source, nextActions };
 }
 
 export function reviewThreadResolutionIsEnforced({ branchProtection, branchRules, branchRulesets }) {

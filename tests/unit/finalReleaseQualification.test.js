@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { codexSecuritySummary } from '../helpers/codexSecuritySummary.js';
 import { readFileSync } from 'node:fs';
 import {
   evaluateReviewQualification,
@@ -142,9 +143,11 @@ describe('Q-08 automated review qualification', () => {
     const github = {
       number: 1430,
       headRefOid: SHA,
+      baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
+      comments: { nodes: [codexSecuritySummary(SHA, 1430)], pageInfo: { hasPreviousPage: false } },
       files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
       reviews: {
-        nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        nodes: [{ author: { login: 'chatgpt-codex-connector' }, state: 'COMMENTED', commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
         pageInfo: { hasPreviousPage: false },
       },
       reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
@@ -159,9 +162,11 @@ describe('Q-08 automated review qualification', () => {
   const prWithFinding = (body) => ({
     number: 1430,
     headRefOid: SHA,
+    baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
+    comments: { nodes: [codexSecuritySummary(SHA, 1430)], pageInfo: { hasPreviousPage: false } },
     files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
     reviews: {
-      nodes: [{ author: { login: 'chatgpt-codex-connector[bot]' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+      nodes: [{ author: { login: 'chatgpt-codex-connector[bot]' }, state: 'COMMENTED', commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
       pageInfo: { hasPreviousPage: false },
     },
     reviewThreads: {
@@ -422,9 +427,11 @@ describe('Q-08 automated review qualification', () => {
     const github = {
       number: 1430,
       headRefOid: SHA,
+      baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
+      comments: { nodes: [codexSecuritySummary(SHA, 1430)], pageInfo: { hasPreviousPage: false } },
       files: { nodes: [{ path: 'scripts/review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
       reviews: {
-        nodes: [{ author: { login: 'chatgpt-codex-connector' }, commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
+        nodes: [{ author: { login: 'chatgpt-codex-connector' }, state: 'COMMENTED', commit: { oid: SHA }, submittedAt: '2026-09-08T10:00:00Z' }],
         pageInfo: { hasPreviousPage: false },
       },
       reviewThreads: {
@@ -951,6 +958,8 @@ describe('#1430 P1 — reopened threads and push qualification', () => {
   const pullWith = (threads, extra = {}) => ({
     number: 1,
     headRefOid: reviewedSha,
+    baseRepository: { nameWithOwner: 'relativityE/speaksharp' },
+    comments: { nodes: [codexSecuritySummary(reviewedSha, 1)], pageInfo: { hasPreviousPage: false } },
     baseRefName: 'main',
     files: { nodes: [{ path: 'scripts/collect-review-qualification.mjs' }], pageInfo: { hasNextPage: false } },
     reviews: {

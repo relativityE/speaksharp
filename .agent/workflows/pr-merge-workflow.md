@@ -38,7 +38,12 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    ```bash
    gh pr checks <PR#> --watch --interval 30
    ```
-   On red: `gh pr checks <PR#>` → open the failing job's log → fix on the same branch (pushing again re-runs CI).
+   On red: `gh pr checks <PR#>` → open the failing job's log and identify the failed boundary.
+   For review qualification, follow [QUALITY.md's exact-head decision tree](../../product_release/QUALITY.md#exact-head-review-avoid-repeated-review-and-ci-loops):
+   wait for already-running reviews, request only missing current-head Code/Security review once,
+   or diagnose invalid metadata. Refresh through the trusted review-only lane; do not push an
+   empty commit or rebuild engineering CI for a review-only hold. Implementation corrections
+   require a coherent push and fresh exact-head CI/reviews.
 8. **Merge — only after green, and run the guard from the authorized base, never the PR checkout.**
    Engineering qualification normally requires identical `ci.yml` blobs at head and live base.
    The separately reviewed contract admits exactly one owner-selected transition: repository

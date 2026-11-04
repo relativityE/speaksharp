@@ -280,9 +280,15 @@ export function formatReviewQualification(result) {
     : result.reviewScope === 'canonical_product_release_documentation'
     ? 'canonical product-release documentation'
     : result.reviewScope === 'test_integrity' ? 'test-integrity' : 'implementation';
-  return result.qualified
+  const verdict = result.qualified
     ? `REVIEW-QUALIFIED: completed zero-finding review covers current ${subject} head ${result.currentSha}`
     : `NOT REVIEW-QUALIFIED: ${result.reasons.join(', ')}`;
+  const diagnostics = result.reviewDiagnostics;
+  if (result.qualified || !diagnostics) return verdict;
+  const describe = (label, state) => `${label}: ${state?.status ?? 'missing'} at ${state?.reviewedSha ?? 'missing'}`;
+  return [verdict, `Expected head: ${diagnostics.expectedHeadSha}`,
+    describe('Code review', diagnostics.code), describe('Security review', diagnostics.security),
+    ...diagnostics.nextActions.map((action) => `Next: ${action}`)].join('\n');
 }
 
 function main() {

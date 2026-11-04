@@ -94,7 +94,12 @@ function fakeGraphql({
       body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 ${JSON.stringify({
         blockingSeverityThreshold: 'P0', headSha: HEAD, pullRequestNumber: 1430, repository: REPOSITORY, status: 'completed',
       })} -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-09-10T20:03:00Z">2026-09-10T20:03:00Z</relative-time> | \`${HEAD.slice(0, 7)}\` | Draft marked ready |\n| 🔒 **Security Review** | ✅ **Completed** <relative-time datetime="2026-09-10T20:04:00Z">2026-09-10T20:04:00Z</relative-time> | \`${HEAD.slice(0, 7)}\` | Draft marked ready |`,
-    }] : [],
+    }] : [{
+      author: { login: bot }, createdAt: '2026-09-10T20:05:01Z',
+      body: `<!-- codex-pull-request-review-summary -->\n<!-- codex-security-review:v1 ${JSON.stringify({
+        headSha: HEAD, pullRequestNumber: 1430, repository: REPOSITORY, status: 'completed',
+      })} -->\n## Codex Review Summary\n`,
+    }],
     pageInfo: { hasPreviousPage: false },
   };
   const body = JSON.stringify({ data: { repository: { pullRequest } } });

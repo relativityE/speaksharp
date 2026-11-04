@@ -111,6 +111,10 @@ successful default-OFF run authorizes migration, frontend deployment or activati
 - Avoid CI runs, PR-body rewrites, and ledger edits after every micro-edit. Update them at
   checkpoint boundaries.
 - Independently verify implementation claims against code and GitHub evidence.
+- Before requesting or repeating Code/Security reviews, follow
+  [QUALITY.md: exact-head review](./product_release/QUALITY.md#exact-head-review-avoid-repeated-review-and-ci-loops).
+  Freeze a final head, request each missing review once, wait for running reviews, and use the
+  review-only lane for receipt refreshes. A review hold alone is not a reason to rerun engineering CI.
 - “Captured” is not implemented. “Superseded” is not completed. A requirement is complete
   only when it is shipped, explicitly queued, rejected by the Product Owner, or archived
   with provenance.

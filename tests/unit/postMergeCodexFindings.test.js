@@ -15,6 +15,7 @@
  *                  finding's own resolved thread now makes it advisory; everything short of that still blocks.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { codexSecuritySummary } from '../helpers/codexSecuritySummary.js';
 import { evaluateReviewQualification, isSubstantiveImplementationFile } from '../../scripts/review-qualification.mjs';
 import {
   buildReviewReceipt, HEAD_REF_HISTORY_PAGE_SIZE, P2_TRANSFER_TARGETS, PULL_REQUEST_REVIEW_QUERY, readPullRequest,
@@ -525,7 +526,8 @@ describe('#1438 exact-head completion — a review object, or trusted summary me
   });
 
   it('CONTROL: an exact review object `commit.oid === head` still qualifies, without any lifecycle evidence', () => {
-    const receipt = receiptFor(pullRequest({ reviews: [codexReview(HEAD, at(25))], noTimeline: true, noHistory: true }));
+    const receipt = receiptFor(pullRequest({ reviews: [codexReview(HEAD, at(25))],
+      comments: [codexSecuritySummary(HEAD, PR)], noTimeline: true, noHistory: true }));
     expect(receipt).toMatchObject({ qualified: true, reviewEvidence: 'review_object', reviewedSha: HEAD, findingCount: 0 });
   });
 

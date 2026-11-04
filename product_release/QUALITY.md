@@ -241,6 +241,46 @@ Scripts are maintained only when invoked by package scripts, workflows, or docum
 
 Changing posture—signoff SHA, payment/activation state, deployed identities, and gate colors—lives only in `RELEASE_STATUS.md`. Every merge to `main` resets the signoff clock. Commercial qualification requires the complete identity/price contract in `ENTITLEMENTS_AND_BILLING.md`; neither a profile status nor green CI is sufficient.
 
+### Exact-head review: avoid repeated review and CI loops
+
+Finish and push one coherent checkpoint before requesting review. Record the full live PR head.
+Code and Security are separate completion requirements; each must cover that exact head. A new
+commit needs new review evidence. A completed review on an older head is historical evidence.
+
+For summary-only completion, the trusted collector accepts the unique Codex-authored summary's
+`codex-review-state:v1` system metadata when **both** `code_review` and `security_review` have the exact full
+`commit_sha` and `status: completed`. The separate `codex-security-review:v1` block must
+agree and identify this repository and PR. Manual requests, opening a PR and marking a draft
+ready are all usable with this format. A GitHub review object's immutable commit proves Code
+completion only; it cannot replace the independent Security completion. Completion never
+clears a P0/P1, a changes-requested review, an incomplete API read, or a live thread hold.
+
+The older security-only summary has no full-SHA Code record. Its fallback still requires both
+completed automatic rows, the latest Ready event and complete unambiguous branch history.
+Only that legacy path needs the draft-to-ready workaround. A malformed or conflicting newer
+record must hold; it must never fall back to the older, weaker identity information.
+
+Use the collector's receipt and log, which report the expected head, observed Code/Security
+heads and states, refusal reasons and next actions:
+
+| Observed condition | Action |
+| --- | --- |
+| Code or Security completed for an older head, missing, failed or cancelled | Freeze pushes; request only the missing review type once for the final head. |
+| Required review already running or queued for the final head | Wait. Do not submit duplicate review requests or toggle draft/ready. |
+| Both current-head system records completed, but metadata is malformed, duplicated, contradictory or unrecognized | Stop repeating reviews. Diagnose the summary/collector compatibility and retain the raw evidence. |
+| Legacy security-only metadata lacks the Ready binding | After final pushes, use one draft-to-ready transition and wait for both automatic reviews. |
+| P0/P1 or changes requested | Address the finding, push a coherent correction, and obtain fresh reviews of the replacement head. Resolving a same-head thread alone never clears it. |
+| Review-only failure with valid engineering evidence | Use the trusted **Review Qualification** lane. It reuses engineering evidence and reads live reviews; do not repeat builds, unit tests, E2E or live campaigns to repair a review receipt. |
+
+Codex summary comment creation/edits and review events wake the trusted review lane from
+`main`. Changes to its collector take effect there only after the normal protected integration;
+testing a candidate collector locally does not change trusted-main behavior. Before an authorized
+merge, the normal trusted-base guard still checks live head/base/threads and receipt freshness.
+Never use stale SHAs, prose footers, reactions, self-written completion markers, a qualification
+rerun, or a green engineering run as substitute review authority. Do not push empty commits to
+refresh a check. A review request or review-only refresh authorizes no merge, deployment,
+activation, live dispatch, or approval.
+
 ### Recommended RC reporting format
 
 Each RC gate should report: **Gate ID** (1–5); **Definition of green** (binary pass/fail); **Latest artifact** (run ID, trace/report/screenshot/log path); **Last updated by/date**; **Scope** (mocked / live / production / manual / benchmark); **Counted?** (RC-counted / advisory / diagnostic / utility). The release rule stays simple: the latest evidence for each blocking RC gate must be green; if one blocking gate is red or stale after relevant code changed, RC is not green.

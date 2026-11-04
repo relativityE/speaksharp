@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { codexSecuritySummary } from '../helpers/codexSecuritySummary.js';
 import { evaluateReviewQualification } from '../../scripts/review-qualification.mjs';
 import { buildReviewReceipt, readPullRequest } from '../../scripts/collect-review-qualification.mjs';
 
@@ -208,7 +209,7 @@ const pull = () => ({ number:1674, headRefOid:HEAD, baseRefOid:BASE, baseRefName
     author:{login:'chatgpt-codex-connector'},state:'COMMENTED',commit:{oid:HEAD},body:'reviewed',
     submittedAt:'2026-10-28T17:34:11Z'}],pageInfo:{hasPreviousPage:false}},
   reviewThreads:{nodes:[],pageInfo:{hasNextPage:false}},
-  comments:{nodes:[],pageInfo:{hasPreviousPage:false}}, documentationEvidence:evidence() });
+  comments:{nodes:[codexSecuritySummary(HEAD, 1674)],pageInfo:{hasPreviousPage:false}}, documentationEvidence:evidence() });
 afterEach(() => vi.unstubAllGlobals());
 describe('#1674 reviewed documentation/evidence scope', () => {
   it('admits the real 31 reviewed postimages without treating them as implementation', () => {
@@ -381,7 +382,7 @@ const pull = () => ({ number:1599, headRefOid:HEAD, baseRefOid:BASE, baseRefName
     author:{login:'chatgpt-codex-connector'},state:'COMMENTED',commit:{oid:HEAD},body:'reviewed',
     submittedAt:'2026-10-28T17:34:11Z'}],pageInfo:{hasPreviousPage:false}},
   reviewThreads:{nodes:[],pageInfo:{hasNextPage:false}},
-  comments:{nodes:[],pageInfo:{hasPreviousPage:false}}, documentationEvidence:evidence() });
+  comments:{nodes:[codexSecuritySummary(HEAD, 1599)],pageInfo:{hasPreviousPage:false}}, documentationEvidence:evidence() });
 describe('#1599 reviewed documentation/evidence scope', () => {
   it('refuses the previous complete archive tuple containing personal-machine paths', () => {
     const value = input();
