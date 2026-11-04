@@ -189,6 +189,33 @@ class ClosedShape(unittest.TestCase):
         self.assertEqual(set(state), {"schema", "latestCompleted", "inProgress", "history"})  # history: the bounded G7 carry-forward
         self.assertEqual(P.parse_body(body), state)
 
+    def test_smoke_publishes_terminal_results_but_never_becomes_acceptance_history(self):
+        smoke = P.sanitize_record(dict(record(), coverage="smoke", rowVerdicts={"AHT-05": "PPPPPP"},
+                                       comparability={"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64,
+                                                      "mediaManifestSha256": "5" * 64, "backendSha": "6" * 40},
+                                       evidence={"planSha256": "7" * 64, "caseResultsSha256": "8" * 64}))
+        done = P.complete(started(P.parse_body("")), smoke)
+        self.assertEqual((done["latestCompleted"]["coverage"], done["latestCompleted"]["outcome"]), ("smoke", "passed"))
+        self.assertEqual((done["history"]["occurrences"][0]["coverage"], done["history"]["occurrences"][0]["rowEvidence"]),
+                         ("smoke", False))
+        self.assertEqual(done["history"]["rows"], {}, "smoke diagnostics must not seed full/nightly acceptance history")
+        self.assertEqual(P.qualified_comparable(done["history"], smoke["comparability"]), [])
+        self.assertEqual(P.parse_body(P.render(done)), done)
+
+        failed = dict(smoke, runId="102", startedUtc="2026-10-31T19:00:00Z", endedUtc="2026-10-31T19:40:00Z",
+                      outcome="failed", cases=[dict(smoke["cases"][0], result="FAIL", rows={"pass": 1, "fail": 1, "notRun": 0})],
+                      rowVerdicts={"AHT-05": "PF"})
+        failed_state = P.complete(started(done, "102"), failed)
+        self.assertEqual((failed_state["latestCompleted"]["coverage"], failed_state["latestCompleted"]["outcome"]), ("smoke", "failed"))
+        self.assertEqual(failed_state["history"]["rows"], {}, "failed smoke diagnostics also stay outside acceptance history")
+
+        # A later acceptance run has its own catalog lineage. Smoke occurrences neither seed its rows nor create a false catalog mismatch.
+        batch = P.sanitize_record(record("103", startedUtc="2026-10-31T20:00:00Z", endedUtc="2026-10-31T20:40:00Z",
+                                         catalogSha256="9" * 64, rowVerdicts={"AHT-05": "PPPPPP"},
+                                         evidence={"planSha256": "a" * 64, "caseResultsSha256": "b" * 64}))
+        accepted = P.complete(P.begin(failed_state, "103", 1, SHA, batch["startedUtc"]), batch)
+        self.assertEqual(accepted["history"]["rows"]["AHT-05"]["last"]["runId"], "103")
+
 
 class CarryForward(unittest.TestCase):
     """G7 durable carry-forward (Sam 1793573813.598689): per-case last executed verdict and last-known-good across every completed night,

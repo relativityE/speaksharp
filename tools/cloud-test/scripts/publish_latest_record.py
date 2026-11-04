@@ -88,9 +88,10 @@ def sanitize_record(rec):
     _attempt(rec.get("runId"), rec.get("attempt"))
     _need(isinstance(rec.get("sourceSha"), str) and SHA40.match(rec["sourceSha"]), "source-sha")
     _need(isinstance(rec.get("testedSha"), str) and SHA40.match(rec["testedSha"]), "tested-sha")
-    # coverage (Sam 1793547120.015339): full/batch when every selected required row EXECUTED (PASS or FAIL), incomplete when any did not,
-    # unqualified when the qualification was not bound to this record. Coverage is not the outcome: a full baseline may be failed.
-    _need(rec.get("coverage") in ("batch", "full", "incomplete", "unqualified"), "coverage")
+    # coverage (Sam 1793547120.015339): full/batch/smoke when every selected required row EXECUTED (PASS or FAIL), incomplete when any did
+    # not, unqualified when the qualification was not bound to this record. Smoke is a diagnostic result, never full/nightly history.
+    # Coverage is not the outcome: a fully executed baseline may still be failed.
+    _need(rec.get("coverage") in ("batch", "smoke", "full", "incomplete", "unqualified"), "coverage")
     for k in ("requestSha256", "catalogSha256"):
         _need(rec.get(k) is None if rec["coverage"] == "unqualified" else isinstance(rec.get(k), str) and SHA64.match(rec[k]), k)
     _need(rec.get("campaignId") is None if rec["coverage"] == "unqualified" else isinstance(rec.get("campaignId"), str) and CAMPAIGN.match(rec["campaignId"]), "campaign-id")
@@ -118,7 +119,7 @@ def sanitize_record(rec):
     _need(rec["coverage"] != "full" or (len(ran) == 15 and all(c["rows"]["notRun"] == 0 for c in ran)), "full-coverage-needs-fifteen-executed")
     # `passed` needs every selected case PASS under bound qualification; an all-PASS record that was not qualified is `failed` (not-qualified).
     _need(rec["outcome"] == "failed" if not all_pass else
-          (rec["outcome"] == "passed" and rec["coverage"] in ("batch", "full")) or
+          (rec["outcome"] == "passed" and rec["coverage"] in ("batch", "smoke", "full")) or
           (rec["outcome"] == "failed" and (rec["coverage"] == "incomplete" or "not-qualified" in (rec.get("codes") or []))),
           "outcome-cases")
     rv = rec.get("rowVerdicts")
@@ -173,7 +174,8 @@ def canon(doc):
 def _occurrence(rec, identity):
     # usable row evidence needs at least one EXECUTED row (PASS or FAIL): an all-NOT-RUN map is not evidence (RETURN 1793576632.959179)
     executed = any(ch in "PF" for v in (rec.get("rowVerdicts") or {}).values() for ch in v)
-    qualified_rows = executed and rec["coverage"] != "unqualified" and rec.get("evidence") is not None
+    # Smoke rows remain visible in latestCompleted but never become G7/full/nightly carry-forward evidence.
+    qualified_rows = executed and rec["coverage"] in ("batch", "full", "incomplete") and rec.get("evidence") is not None
     return dict({k: rec.get(k) for k in OCCURRENCE_KEYS - {"identity", "evidence", "rowEvidence"}}, identity=identity,
                 evidence=rec.get("evidence"), rowEvidence=qualified_rows)
 
@@ -256,11 +258,13 @@ def fold_history(history, rec, expected_predecessor):
     rows = {cid: dict(r) for cid, r in (prior["rows"] if prior else {}).items()}
     index = len(occ) - 1
     comparison = {"runId": rec["runId"], "regressions": {}, "fixes": {}, "notComparable": {}}
-    if prior and rec.get("rowVerdicts"):
+    acceptance_evidence = rec["coverage"] != "smoke"
+    if prior and acceptance_evidence and rec.get("rowVerdicts"):
         # row positions are catalog positions: a different catalog makes them incomparable, so the fold refuses rather than mixing them
-        _need(all(o.get("catalogSha256") in (None, rec.get("catalogSha256")) for o in prior["occurrences"]), "history-catalog-changed")
+        _need(all(o.get("coverage") == "smoke" or o.get("catalogSha256") in (None, rec.get("catalogSha256"))
+                  for o in prior["occurrences"]), "history-catalog-changed")
     for c in rec["cases"]:
-        v = (rec.get("rowVerdicts") or {}).get(c["caseId"])
+        v = (rec.get("rowVerdicts") or {}).get(c["caseId"]) if acceptance_evidence else None
         if v is not None:
             row = rows.setdefault(c["caseId"], {"last": None, "lastKnownGood": None})
             last = list(row.get("rowLast") or "-" * len(v))
@@ -279,7 +283,7 @@ def fold_history(history, rec, expected_predecessor):
                     if ch == "P":
                         good[i] = index
             row.update(rowLast="".join(last), rowLastAt=at, rowGood=good)
-        if c["result"] not in ("PASS", "FAIL"):
+        if not acceptance_evidence or c["result"] not in ("PASS", "FAIL"):
             continue  # NOT RUN / NOT SELECTED never erase prior evidence
         entry = {"result": c["result"], "runId": rec["runId"], "endedUtc": rec["endedUtc"]}
         row = rows.setdefault(c["caseId"], {"last": None, "lastKnownGood": None})

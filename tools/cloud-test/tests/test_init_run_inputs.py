@@ -767,6 +767,8 @@ class Qualify(unittest.TestCase):
     def request(self, selected=None, mode="partial"):
         """The committed request this campaign ran: runId = campaignId, the selection, the tested release and the harness CODE pin."""
         req = live_request(None if mode == "full" else list(selected or self.SELECTED), runId="C1")
+        if mode == "smoke":
+            req.update(coverageMode="smoke", sampleMode="smoke", priority="journey-smoke")
         req["release"]["testedSha"] = SHA
         req["harness"]["codeManifestSha256"] = self.sha(self.code)
         return req
@@ -781,6 +783,19 @@ class Qualify(unittest.TestCase):
         plan = J(self.plan)
         plan.pop("coverageMode"); plan.pop("assertionDepth")
         plan["selection"] = {"ids": list(I.ALL_CASES), "order": list(I.ALL_CASES), "ownerApprovalReference": "slack:1", "reason": "unit"}
+        put(self.plan, plan)
+        self.SELECTED = list(I.ALL_CASES)
+        for cid in I.ALL_CASES:
+            self.write_case(cid, [("a", "PASS"), ("b", "PASS")], refresh=False)
+        self.write_results()
+
+    def make_smoke(self):
+        """The real smoke builder's shape: explicit smoke markers and all 15 cases selected."""
+        plan = J(self.plan)
+        plan["coverageMode"] = "smoke"
+        plan["assertionDepth"] = "smoke"
+        plan["selection"] = {"ids": list(I.ALL_CASES), "order": list(I.ALL_CASES),
+                             "ownerApprovalReference": "slack:1", "reason": "unit smoke"}
         put(self.plan, plan)
         self.SELECTED = list(I.ALL_CASES)
         for cid in I.ALL_CASES:
@@ -846,6 +861,33 @@ class Qualify(unittest.TestCase):
             # the collector's campaign is the request runId; a qualification for another campaign never passes
             other = I.project(dict(record, runId="C2"), "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q))
             self.assertEqual((other["outcome"], other["coverage"]), ("failed", "unqualified"), mode)
+
+    def test_smoke_qualifies_projects_publishes_and_stays_out_of_acceptance_history(self):
+        self.make_smoke()
+        request = self.request(mode="smoke")
+        record = self.collect(request)
+        q = self.qualify(mode="smoke")
+        with open(self.results, "rb") as f:
+            case_results_raw = f.read()
+        request_path = os.path.join(self.d, "request-%d.json" % self.runs)
+        with open(request_path, "rb") as f:
+            request_raw = f.read()
+        catalog = {"cases": {cid: {"requiredAssertions": ["%s-a" % cid.lower(), "%s-b" % cid.lower()]}
+                             for cid in I.ALL_CASES}}
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q),
+                        case_results_raw, catalog, request_raw, b"synthetic-smoke-media")
+        self.assertEqual((q["coverage"], q["outcome"], rec["coverage"], rec["outcome"]),
+                         ("smoke", "passed", "smoke", "passed"))
+        clean = I.LR.sanitize_record(rec)
+        running = I.LR.begin(I.LR.parse_body(""), "123", 1, "c" * 40, record["startedUtc"])
+        pending = I.LR.pending_completion(running, clean, "2026-11-01T14:40:00Z", "8" * 64, "9" * 64)
+        self.assertEqual(I.LR.parse_body(I.LR.render(pending))["pendingCompletion"]["record"]["coverage"], "smoke")
+        done = I.LR.complete(running, clean)
+        self.assertEqual((done["history"]["occurrences"][0]["coverage"], done["history"]["occurrences"][0]["rowEvidence"]),
+                         ("smoke", False))
+        self.assertEqual(done["history"]["rows"], {})
+        self.assertEqual(I.LR.qualified_comparable(done["history"], clean["comparability"]), [])
+        self.assertEqual(I.LR.parse_body(I.LR.render(done)), done)
 
     def test_a_request_substituted_after_admission_keeping_the_five_checked_fields_never_qualifies(self):
         # Sam 1793548687.416409: the five execution-identity checks (runId, selection, tested release, mode, harness CODE pin) do not bind the
