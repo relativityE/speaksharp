@@ -99,7 +99,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      # The latest-record comment lives on tracking PR #1763: GitHub requires the pull-requests permission for a PR's comments (run
+      # 41906815122: issues alone returned HTTP 403), and this job lists, creates or updates that comment.
       issues: write
+      pull-requests: write
       actions: read
     outputs:
       comment_id: ${{ steps.begin.outputs.comment_id }}
@@ -369,6 +372,33 @@ jobs:
           CT_PROOF_FILE="$RUNNER_TEMP/offline-proof.json" python3 -I scripts/run_offline_checks.py --out "$RUNNER_TEMP/offline-checks.json"
           echo "CT_OFFLINE_PROOF=$RUNNER_TEMP/offline-proof.json" >> "$GITHUB_ENV"
           echo "CT_OFFLINE_CHECKS=$RUNNER_TEMP/offline-checks.json" >> "$GITHUB_ENV"
+      - name: Prove the selected accounts' bounded first-use prerequisites
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          FACTS: ${{ inputs.facts }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "$CT_OUT" ]; then mkdir -m 700 "$CT_OUT"; fi
+          [ ! -L "$CT_OUT" ] && [ "$(stat -c '%a' "$CT_OUT")" = 700 ] || { echo 'BLOCKED_SETUP: private-output-root'; exit 78; }
+          preflight="$CT_OUT/prerequisite-preflight"
+          mkdir -m 700 "$preflight"
+          (umask 077; printf '%s' "$FACTS" > "$preflight/input-facts.json")
+          # The authorized occurrence (record-begin's selected bytes, checked by digest) bounds every request by its deadline.
+          (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$preflight/occurrence.json")
+          node tools/cloud-test/scripts/prerequisite_preflight.cjs prepare --facts "$preflight/input-facts.json" \
+            --out-dir "$preflight" --run-id R10-3b040043-smoke15 --source-sha "$GITHUB_SHA" \
+            --occurrence-file "$preflight/occurrence.json" --occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256"
+          {
+            echo "CT_PREREQUISITE_FACTS=$preflight/facts.json"
+            echo "CT_PREREQUISITE_RECEIPT=$preflight/receipt.json"
+          } >> "$GITHUB_ENV"
       - name: Select the committed request and bind this run's inputs
         id: init
         env:
@@ -409,6 +439,8 @@ jobs:
             if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi
           else
             (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            [ -f "${CT_PREREQUISITE_FACTS:-}" ] && [ ! -L "${CT_PREREQUISITE_FACTS:-}" ] || { echo 'BLOCKED_SETUP: prerequisite-facts-missing'; exit 78; }
+            FACTS="$(cat "$CT_PREREQUISITE_FACTS")"
             SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \
               --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}" --facts "$FACTS")
           fi
@@ -683,7 +715,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      # Updates and reads back the same latest-record comment on tracking PR #1763 (see record-begin).
       issues: write
+      pull-requests: write
       actions: read
     steps:
       - uses: actions/checkout@v6
