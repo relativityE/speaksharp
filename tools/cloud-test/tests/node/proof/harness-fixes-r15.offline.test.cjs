@@ -58,6 +58,9 @@ test('H3 the real driver retains each role first observation before the dependen
   const returningEvidence=returning.evidence.find(x=>x.name==='aht-15-first-observation.json');
   assert.equal(returningEvidence?.v.inventoryStatus,'OBSERVED');assert.equal(returningEvidence?.v.role,'maintained-read-only');
   assert.equal(returningEvidence?.v.readableHistoryAvailable,false);
+  const returningRef='e'+(returning.evidence.indexOf(returningEvidence)+1)+'.json';
+  const entryMic=returning.res.assertions.find(x=>x.id==='return-entry-mic-off');
+  assert.ok(entryMic?.evidenceRefs.includes(returningRef),'first observation must be linked before the returning-history precondition can stop the case');
   assert.equal(returning.res.blocker,'returning-account-has-no-verified-completed-history','no witness remains honest NOT RUN');
 });
 test('H4 an unavailable inventory keeps its UNKNOWN first observation linked through the interruption result',async()=>{

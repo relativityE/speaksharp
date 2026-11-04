@@ -449,7 +449,7 @@ async function run(caseId,args){
    else await check('download-failure-truthful',true,timingFacts);
    if(caseId==='AHT-14')await guard.resumeDownloadNetwork(id);if(!minimal){current='deliberate-recovery-saved';const saved=await ui.take(page,c);await check('deliberate-recovery-saved',ownSaved(await rows(),saved),{saved:true});await saveReopen(page,saved);}
   }else if(caseId==='AHT-15'){
-   const entryMic=await observer.mic(page);await check('return-entry-mic-off',navigation.micOff(entryMic),{observed:!!entryMic,micOff:navigation.micOff(entryMic)});const target=navigation.existingTarget(baseline);
+   const entryMic=await observer.mic(page);await check('return-entry-mic-off',navigation.micOff(entryMic),{observed:!!entryMic,micOff:navigation.micOff(entryMic)},firstObservationRef?[firstObservationRef]:[]);const target=navigation.existingTarget(baseline);
    await context.clearPermissions();await page.getByTestId('nav-analytics-link').first().click();await navigation.ready(page,{pathname:'/progress'});const before=await rows();await page.getByTestId('open-session-detail-'+target.id).or(page.getByTestId('open-session-detail-mobile-'+target.id)).first().waitFor({state:'visible',timeout:45000});
    await check('history-preserved',navigation.unchanged(baseline,before),{historyRows:before.length,completedRows:before.filter(r=>r.status==='completed').length,ownedTargetListed:true},firstObservationRef?[firstObservationRef]:[]);
    await ui.products(page,'open-mic');await navigation.ready(page,{pathname:'/session'});const openMic=await observer.mic(page);await ui.products(page,'focus-points');await ui.visible(page,'objective-setup-dialog');await ui.closeFocus(page);await ui.products(page,'open-mic');await navigation.ready(page,{pathname:'/session'});
