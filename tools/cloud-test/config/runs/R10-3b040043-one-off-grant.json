@@ -1,0 +1,27 @@
+{
+  "schema": "speaksharp.cloud-test.one-off-grant.v1",
+  "status": "APPROVED",
+  "approvalRef": "chat:PO_R10_ALL15_SMOKE_2026-11-03",
+  "scopeApprovalRef": "chat:PO_R10_SCOPE_EXTENSION_2026-11-03",
+  "approvedBy": "Akin",
+  "runId": "R10-3b040043-smoke15",
+  "attempt": 1,
+  "requestTemplateSha256": "0bc574b2b402cc1a56e7b9c5c4bf8601cb85ffc850f525c24e4393f8317fe8b3",
+  "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+  "backendSha": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
+  "periodScopeSha256": "2a56f3b9b1e90275daf2b7826fb30df932adcab39c6e87eb4c546959850ee948",
+  "preReserveStateHead": "92d6ebf902351750c368d7d513116c6b1f19f80c",
+  "notBeforeUtc": "2026-11-03T17:00:00Z",
+  "expiresUtc": "2026-11-04T14:00:00Z",
+  "limits": {
+    "endToEndMinutes": 80,
+    "liveMinutes": 40,
+    "requestsIncludingIdentity": 2032,
+    "identityReads": 32,
+    "starts": 16,
+    "takes": 16,
+    "coachingCalls": 20,
+    "retries": 0
+  },
+  "olderReleaseDiagnostic": true
+}

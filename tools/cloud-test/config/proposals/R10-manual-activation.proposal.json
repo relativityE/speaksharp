@@ -16,7 +16,7 @@
   },
   "periodScope": {
     "periodStartUtc": "2026-11-02T20:15:00Z",
-    "periodEndUtc": "2026-11-03T12:00:00Z",
+    "periodEndUtc": "2026-11-04T14:00:00Z",
     "carryover": "none",
     "knownMinimumCeilings": {
       "requests": 4342,
@@ -32,8 +32,8 @@
       "starts": 42,
       "takes": 31
     },
-    "approvalRef": "slack:1793652215.171339",
-    "sha256": "fc11db99e054a398e456e24a1a6f5bf31ccc5bfa7e70c871651f568f80b01e96"
+    "approvalRef": "chat:PO_R10_SCOPE_EXTENSION_2026-11-03",
+    "sha256": "2a56f3b9b1e90275daf2b7826fb30df932adcab39c6e87eb4c546959850ee948"
   },
   "rootRefCreationSelected": true,
   "activationPinsSelected": true,

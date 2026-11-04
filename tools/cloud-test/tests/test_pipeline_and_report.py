@@ -112,7 +112,7 @@ class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
         widths = {cid: len(c["requiredAssertions"]) for cid, c in catalog["cases"].items()}
         day = "2026-11-01T08:00:00Z"
         rec = {"runId": "800", "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40, "campaignId": "nightly-all",
-               "coverage": "full", "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": "2026-11-01T03:00:00Z", "endedUtc": day,
+               "coverage": "full", "coverageMode": "full", "assertionDepth": "full", "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": "2026-11-01T03:00:00Z", "endedUtc": day,
                "outcome": "passed", "cases": [{"caseId": cid, "result": "PASS", "rows": {"pass": w, "fail": 0, "notRun": 0}, "codes": []}
                                               for cid, w in widths.items()], "codes": [],
                "rowVerdicts": {cid: "P" * w for cid, w in widths.items()}, "comparability": SB.current_identities(req),
@@ -136,7 +136,7 @@ class NightlyHistoryThroughTheRealPipeline(unittest.TestCase):
             ok = first == "P"
             day = "2026-11-%02dT08:00:00Z" % (i + 1)
             rec = {"runId": str(700 + i), "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40,
-                   "campaignId": "nightly-%d" % i, "coverage": "batch" if ok else "incomplete", "requestSha256": "1" * 64,
+                   "campaignId": "nightly-%d" % i, "coverage": "batch" if ok else "incomplete", "coverageMode": "partial", "assertionDepth": "full", "requestSha256": "1" * 64,
                    "catalogSha256": "2" * 64, "startedUtc": day.replace("08:", "03:"), "endedUtc": day, "outcome": "passed" if ok else "failed",
                    "cases": [{"caseId": "AHT-05", "result": "PASS" if ok else "FAIL",
                               "rows": {"pass": v.count("P"), "fail": v.count("F"), "notRun": 0}, "codes": []}], "codes": [],

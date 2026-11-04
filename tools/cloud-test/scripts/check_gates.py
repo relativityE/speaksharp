@@ -22,6 +22,9 @@ READY, NOTREADY, OWNER, DEFERRED = "READY", "NOT-READY", "OWNER-INPUT-OPEN", "DE
 # A recurring nightly window may include GitHub's reviewed 30-minute trigger
 # delay. Manual/full requests retain the package's 330-minute ceiling.
 NIGHTLY_MAX_WINDOW_MINUTES = 360
+R10_SMOKE_RUN_ID = "R10-3b040043-smoke15"
+R10_END_TO_END_MINUTES = 80
+R10_LIVE_MINUTES = 40
 
 
 def canonical_sha(value):
@@ -35,6 +38,37 @@ def file_sha(path):
 
 def gate(gid, status, detail, needs=None):
     return {"id": gid, "status": status, "detail": detail, "needs": needs or []}
+
+
+def occurrence_window_limit(req, lim, recurring, minutes):
+    """Return the admitted occurrence ceiling and any fail-closed errors.
+
+    `maxWindowMinutes` remains the live-execution ceiling.  A materialized one-off smoke occurrence may
+    separately name its owner-approved end-to-end workflow envelope; both declarations must be present,
+    internally exact, and keep the live portion inside the configured ceiling.  Ordinary and nightly
+    requests retain their existing behavior.
+    """
+    if recurring:
+        return NIGHTLY_MAX_WINDOW_MINUTES, []
+    win, est = req.get("window") or {}, req.get("estimate") or {}
+    end_to_end, live = win.get("endToEndMinutes"), win.get("liveMinutes")
+    if end_to_end is None and live is None:
+        return lim["maxWindowMinutes"], []
+    errors = []
+    r10 = (req.get("runId") == R10_SMOKE_RUN_ID and req.get("coverageMode") == req.get("sampleMode") == "smoke"
+           and req.get("priority") == "journey-smoke" and req.get("createdUtc") == win.get("startUtc")
+           and req.get("selectionApprovalRef") == win.get("approvalRef"))
+    if not r10:
+        errors.append("a separate end-to-end occurrence envelope is not admitted for this request")
+    if end_to_end != R10_END_TO_END_MINUTES:
+        errors.append("R10 end-to-end occurrence must be exactly %d minutes" % R10_END_TO_END_MINUTES)
+    if live != R10_LIVE_MINUTES or live > lim["maxWindowMinutes"]:
+        errors.append("R10 live execution must be exactly %d minutes and within the configured ceiling" % R10_LIVE_MINUTES)
+    if isinstance(end_to_end, int) and not isinstance(end_to_end, bool) and end_to_end != minutes:
+        errors.append("declared end-to-end occurrence %d min does not equal the %.0f-minute window" % (end_to_end, minutes))
+    if est.get("githubRunnerMinutesMax") != R10_LIVE_MINUTES or est.get("githubRunnerMinutesMax") != live:
+        errors.append("declared live minutes do not match the request estimate")
+    return R10_END_TO_END_MINUTES if not errors else lim["maxWindowMinutes"], errors
 
 
 # TEST-ONLY overrides of the authenticated journal source; production reads state_ref_writer.APPROVED_URL from the pinned REVIEWED_ROOT.
@@ -276,7 +310,8 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         owner_missing.append("run window (start, end, approval reference) not set")
     else:
         mins = (parse_utc(win["endUtc"]) - parse_utc(win["startUtc"])).total_seconds() / 60
-        window_limit = NIGHTLY_MAX_WINDOW_MINUTES if recurring else lim["maxWindowMinutes"]
+        window_limit, window_errors = occurrence_window_limit(req, lim, recurring, mins)
+        need.extend(window_errors)
         if mins <= 0 or mins > window_limit:
             need.append("window length %.0f min is outside 1..%d" % (mins, window_limit))
         if parse_utc(win["endUtc"]) <= now:

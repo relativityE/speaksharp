@@ -198,6 +198,28 @@ class CheckGates(unittest.TestCase):
         r["window"]["endUtc"] = "2099-01-01T20:00:00Z"
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G5"], "NOT-READY")
 
+        # A reviewed smoke occurrence distinguishes its end-to-end workflow envelope from the unchanged
+        # live ceiling. Both values must be exact; neither omission nor an oversized live allowance passes.
+        smoke = copy.deepcopy(r)
+        smoke["coverageMode"] = smoke["sampleMode"] = "smoke"
+        smoke["estimate"]["githubRunnerMinutesMax"] = 40
+        old_limit, old_errors = C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80)
+        self.assertEqual(old_errors, [])
+        self.assertGreater(80, old_limit, "without both declarations the old 40-minute occurrence ceiling still blocks")
+        smoke["window"].update({"endToEndMinutes": 80, "liveMinutes": 40})
+        self.assertTrue(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80)[1],
+                        "an ordinary smoke request cannot self-authorize the R10 envelope")
+        smoke.update({"runId": C.R10_SMOKE_RUN_ID, "priority": "journey-smoke", "createdUtc": smoke["window"]["startUtc"],
+                      "selectionApprovalRef": smoke["window"]["approvalRef"]})
+        self.assertEqual(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80), (80, []))
+        for patch in ({"endToEndMinutes": 81}, {"endToEndMinutes": 10000}, {"liveMinutes": 1}, {"liveMinutes": 41},
+                      {"liveMinutes": None}, {"endToEndMinutes": None}):
+            bad = copy.deepcopy(smoke)
+            bad["window"].update(patch)
+            if isinstance(patch.get("liveMinutes"), int):
+                bad["estimate"]["githubRunnerMinutesMax"] = patch["liveMinutes"]
+            self.assertTrue(C.occurrence_window_limit(bad, {"maxWindowMinutes": 40}, False, 80)[1], patch)
+
     def test_expected_pass_unconfirmed_is_owner_input(self):
         r, l = approved(self.req, self.ledger)
         l["gaps"][2]["expectedPass"]["confirmedByOwner"] = False
@@ -266,6 +288,7 @@ class NightlyCarriedForwardG7(unittest.TestCase):
                       "rows": {"pass": verdicts.count("P"), "fail": verdicts.count("F"), "notRun": verdicts.count("N")}, "codes": []}]
             rec = {"runId": str(500 + i), "attempt": 1, "sourceSha": "a" * 40, "testedSha": "b" * 40, "servedSha": "b" * 40,
                    "campaignId": ("nightly-%d" % i) if qualified else None, "coverage": ("batch" if ok else "incomplete") if qualified else "unqualified",
+                   "coverageMode": "partial" if qualified else None, "assertionDepth": "full" if qualified else None,
                    "requestSha256": "1" * 64 if qualified else None, "catalogSha256": "2" * 64 if qualified else None,
                    "startedUtc": day.replace("08:", "03:"), "endedUtc": day, "outcome": "passed" if ok and qualified else "failed",
                    "cases": cases, "codes": [] if qualified else ["not-qualified"]}

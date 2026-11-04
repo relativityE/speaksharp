@@ -169,6 +169,9 @@ def main():
     print("mutation controls: %d caught of %d; %d refused" % (sum(isinstance(v, dict) and v.get("fail", 0) > 0 for v in mutations.values()), len(mutations), len(refusals)))
     if isinstance(proof, dict):
         print("plan controls: %s" % {k: v for k, v in proof.get("planControls", {}).items() if k != "mismatched"})
+        mismatched = proof.get("planControls", {}).get("mismatched") or []
+        if mismatched:
+            print("plan-control mismatches: %s" % ", ".join(str(v)[:120] for v in mismatched))
         print("corrections: %s" % ", ".join("%s %s" % (c["id"], c["result"]) for c in proof.get("corrections", [])))
         print("proof %s; refusals: %s" % (proof.get("result"), "; ".join(proof.get("refusals", [])) or "none"))
     for problem in problems:

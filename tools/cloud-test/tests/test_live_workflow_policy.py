@@ -30,6 +30,27 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(list(on), ["workflow_dispatch"])
         self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
 
+    def test_record_begin_sparse_checkout_contains_the_accounting_scope_used_by_one_off_grant(self):
+        checkout = next(step for step in self.jobs["record-begin"]["steps"]
+                        if str(step.get("uses", "")).startswith("actions/checkout@"))
+        patterns = [line.strip() for line in checkout["with"]["sparse-checkout"].splitlines() if line.strip()]
+        self.assertIn("tools/cloud-test/config/aggregate", patterns)
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = os.path.join(tmp, "sparse")
+            subprocess.run(["git", "clone", "--quiet", "--no-checkout", REPO, clone], check=True)
+            subprocess.run(["git", "-C", clone, "sparse-checkout", "init", "--cone"], check=True)
+            subprocess.run(["git", "-C", clone, "sparse-checkout", "set", *patterns], check=True)
+            subprocess.run(["git", "-C", clone, "checkout", "--quiet", "HEAD"], check=True)
+            probe = subprocess.run([
+                "python3", "-c",
+                "import os,sys;sys.path.insert(0,sys.argv[1]);import init_run_inputs as i;print(os.path.join(sys.argv[2],i.CONTINUITY_DIR,i.CONTINUITY_SCOPE))",
+                os.path.join(clone, "tools", "cloud-test", "scripts"),
+                clone,
+            ], check=True, capture_output=True, text=True)
+            scope = probe.stdout.strip()
+            self.assertEqual(scope, os.path.join(clone, "tools", "cloud-test", "config", "aggregate", "period-scope.json"))
+            self.assertTrue(os.path.isfile(scope), "record-begin must carry the scope one_off_grant reads")
+
     def test_a_scheduled_run_is_gated_before_any_record_secret_or_live_job_and_no_cron_is_registered(self):
         # Sam 1793553158.013909: the cron stays a proposed artifact; nothing here is registered.
         on = self.doc.get("on", self.doc.get(True))
@@ -62,7 +83,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n'
                       '  (umask 077; printf \'%s\' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")\n'
                       '  SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")\n', init["run"])
-        self.assertIn('else\n  SRC=(--request "$REQUEST" --facts "$FACTS")\nfi\n', init["run"])
+        self.assertIn('else\n  (umask 077; printf \'%s\' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")\n'
+                      '  SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \\\n'
+                      '    --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}" --facts "$FACTS")\nfi\n', init["run"])
         # Case 10 design A: on schedule only, the observation step runs on exactly the gate's bytes BEFORE prepare, and only a record it
         # actually placed reaches prepare; a dispatch never runs it.
         nightly_branch = init["run"].split('if [ "$GITHUB_EVENT_NAME" = schedule ]; then\n', 1)[1].split("else\n", 1)[0]
@@ -89,7 +112,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_no_default_permission_and_each_job_holds_only_its_own(self):
         self.assertEqual(self.doc["permissions"], {})
-        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write"})
+        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "actions": "read"})
         self.assertEqual(self.jobs["record-complete"]["permissions"], {"issues": "write", "actions": "read"})
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
@@ -206,14 +229,16 @@ class LiveWorkflowPolicy(unittest.TestCase):
         bounds = [steps[py].get("timeout-minutes"), steps[at].get("timeout-minutes"), steps[copy].get("timeout-minutes")]
         self.assertTrue(all(isinstance(b, int) and b > 0 for b in bounds), bounds)
         self.assertLessEqual(sum(bounds), I.SETUP_RESERVE_MINUTES)
-        # P1: the pin-verifying copy goes into the exact admitted tested-release
-        # checkout, never the workflow/source checkout.
+        # P1: the exact admitted tested-release and the reviewed control tree both receive the same
+        # pin-verified runtime packages. The former runs the journey; the latter runs the privileged
+        # telemetry reader. Neither path may fall back to an unverified install.
         self.assertLess(at, copy)
         self.assertLess(copy, first_stage)
         script = steps[copy]["run"]
         self.assertIn('git -C "$GITHUB_WORKSPACE" worktree add --detach "$tested" "$TESTED_SHA"', script)
+        self.assertIn('--config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$GITHUB_WORKSPACE" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', script)
         self.assertIn('--config "$GITHUB_WORKSPACE/$CT_CONFIG" --checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT"', script)
-        self.assertIn('--bind-playwright', script)
+        self.assertEqual(script.count('--bind-playwright'), 2)
         self.assertIn('echo "CT_CHECKOUT=$tested"', script)
         self.assertEqual(steps[copy]["env"], {"TESTED_SHA": "${{ steps.init.outputs.tested_sha }}"})
         env = self.jobs["live"]["env"]
@@ -232,12 +257,15 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_the_tested_release_resolves_verified_playwright_without_a_second_install(self):
         steps = self.jobs["live"]["steps"]
         provision = next(s for s in steps if "install_pdfjs.py" in s.get("run", "") and "--checkout" in s.get("run", ""))
+        self.assertIn('--checkout "$GITHUB_WORKSPACE" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', provision["run"])
+        self.assertIn('--checkout "$tested" --runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', provision["run"])
         self.assertIn('--runner-dir "$CT_EXISTING_DEPENDENCY_ROOT" --bind-playwright', provision["run"])
         self.assertNotRegex(provision["run"], r"\b(npm|npx|pnpm|yarn|pip|apt|brew)\b")
         stage = next(i for i, s in enumerate(steps) if "for stage in install-tools build-plan" in s.get("run", ""))
         self.assertLess(steps.index(provision), stage)
 
     def test_no_browser_or_unreviewed_package_is_installed_or_downloaded(self):
+        self.assertEqual(self.jobs["live"]["runs-on"], "ubuntu-26.04")
         low = self.text.lower().replace(self.B4_INSTALL, "").replace(self.PY_YAML_INSTALL, "")
         for banned in ("playwright install", "install-deps", "apt-get", "setup-chrome", "browser-actions/", "--archive", "curl ", "wget ",
                        "npm ci", "npm install", "pnpm install", "pip install", "npx "):
@@ -268,7 +296,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "e34b4f0a5c40287d7fd6a9989af1d018479055adc1c115565a8024dc76d8835b",
+            "manifestSha256": "5645ceca54118f32b6055e24fe6f3f5fa672111dab74b1c24b2dbc5497f54439",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
@@ -417,11 +445,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
                 if s.get("uses", "").startswith("actions/checkout@"):
                     self.assertIs(s["with"]["persist-credentials"], False)
 
-    def test_the_handoff_artifact_is_short_lived_and_not_the_authoritative_record(self):
+    def test_handoffs_are_short_lived_and_closed_observation_and_timing_projections_are_retained(self):
         up = [s for s in self.jobs["live"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
-        self.assertEqual(len(up), 2)  # the closed record (record job) and the closed settle input for journal-settle (J1, every route)
-        self.assertTrue(all(u["with"]["retention-days"] == 1 for u in up))
-        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in up), ["latest-record.json", "settle-input.json"])
+        self.assertEqual(len(up), 4)  # two short-lived job handoffs plus two closed, content-safe projections
+        short = [u for u in up if u["with"]["retention-days"] == 1]
+        self.assertEqual(len(short), 2)
+        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in short), ["latest-record.json", "settle-input.json"])
+        retained = [u for u in up if u["with"]["retention-days"] == 90]
+        self.assertEqual(sorted(u["with"]["path"] for u in retained),
+                         ["${{ runner.temp }}/case-timings.json", "${{ runner.temp }}/first-observations.json"])
+        self.assertTrue(all(u["with"]["if-no-files-found"] == "error" for u in retained))
+        project_observations = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Project the linked content-safe first observations")
+        self.assertIn("init_run_inputs.py first-observations", project_observations["run"])
+        project_timings = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Project content-free per-case timing telemetry")
+        self.assertIn("init_run_inputs.py case-timings", project_timings["run"])
+        self.assertIn('--case-results "$CT_OUT/plan/run/case-results.json"', project_timings["run"])
         settle = next(u for u in up if u["with"]["path"].endswith("settle-input.json"))
         self.assertEqual(settle["if"], "always()")
         # Sam 1793580806.654369: the public artifact is the closed projection, never the collector's run record; journal-settle validates it
@@ -435,21 +473,96 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('--settle-input "$SETTLE"', manual_settle)  # its evidence is the embedded record digest (RETURN 1793645360.787039 #3)
         self.assertNotIn("--record", manual_settle)
 
-    def test_the_dispatch_names_a_committed_request_and_never_generates_one(self):
+    def test_the_dispatch_names_a_committed_template_and_materializes_one_exact_occurrence_from_the_workflow_start(self):
         on = self.doc.get("on", self.doc.get(True))
         self.assertEqual(sorted(on["workflow_dispatch"]["inputs"]), ["confirm", "facts", "request"])
+        begin = self.jobs["record-begin"]
+        validate = next(s for s in begin["steps"] if s.get("id") == "manual-occurrence")
+        self.assertLess(begin["steps"].index(validate), next(i for i, s in enumerate(begin["steps"]) if s.get("id") == "begin"))
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at', validate["run"])
+        self.assertIn("init_run_inputs.py occurrence-materialize", validate["run"])
+        self.assertIn("init_run_inputs.py occurrence-check", validate["run"])
+        self.assertIn('--manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256"', validate["run"])
+        self.assertIn('--workflow-start-utc "$workflow_start_utc"', validate["run"])
+        self.assertNotIn("inputs.occurrence", json.dumps(self.doc))
+        self.assertEqual(begin["outputs"]["manual_occurrence_sha256"], "${{ steps.manual-occurrence.outputs.occurrence_sha256 }}")
+        self.assertEqual(begin["outputs"]["manual_occurrence_b64"], "${{ steps.manual-occurrence.outputs.occurrence_b64 }}")
+        self.assertEqual(begin["outputs"]["manual_workflow_start_utc"], "${{ steps.manual-occurrence.outputs.workflow_start_utc }}")
         init = next(s for s in self.jobs["live"]["steps"] if s.get("id") == "init")
         self.assertEqual(init["env"]["REQUEST"], "${{ inputs.request }}")
         self.assertIn("init_run_inputs.py prepare", init["run"])
         self.assertIn('--request "$REQUEST"', init["run"])
+        self.assertIn('--manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json"', init["run"])
+        self.assertIn('--workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}"', init["run"])
+        for name in ("journal-reserve", "journal-settle"):
+            writer = next(s for s in self.jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (s.get("env") or {}))
+            self.assertEqual(writer["env"]["MANUAL_OCCURRENCE_SHA256"],
+                             "${{ needs.record-begin.outputs.manual_occurrence_sha256 }}")
+            self.assertEqual(writer["env"]["MANUAL_OCCURRENCE_B64"],
+                             "${{ needs.record-begin.outputs.manual_occurrence_b64 }}")
+        self.assertIn('--request "$RUNNER_TEMP/manual-occurrence.json" --admitted-sha256 "$MANUAL_OCCURRENCE_SHA256"',
+                      writers_of(self.jobs, "journal-reserve"))
+        reserve = next(s for s in self.jobs["journal-reserve"]["steps"] if "CT_STATE_PUSH_TOKEN" in (s.get("env") or {}))
+        self.assertEqual(reserve["env"]["MANUAL_WORKFLOW_START_UTC"], "${{ needs.record-begin.outputs.manual_workflow_start_utc }}")
+        self.assertIn('--workflow-start-utc "$MANUAL_WORKFLOW_START_UTC"', reserve["run"])
+        self.assertIn('cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" runId', writers_of(self.jobs, "journal-settle"))
 
     def test_the_job_timeout_is_the_one_prepare_checks_and_the_run_step_is_bounded_to_the_live_minutes(self):
         live = self.jobs["live"]
-        self.assertLessEqual(live["timeout-minutes"], 360)
+        self.assertEqual(live["timeout-minutes"], "${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}")
         init = next(s for s in live["steps"] if s.get("id") == "init")
-        self.assertIn("--job-timeout-minutes %d " % live["timeout-minutes"], init["run"])
+        self.assertEqual(init["env"]["JOB_TIMEOUT_MINUTES"], "${{ github.event_name == 'workflow_dispatch' && '65' || '340' }}")
+        self.assertIn('--job-timeout-minutes "$JOB_TIMEOUT_MINUTES" ', init["run"])
         run = next(s for s in live["steps"] if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         self.assertEqual(run["timeout-minutes"], "${{ fromJSON(steps.init.outputs.live_minutes) }}")
+
+    def test_late_completion_is_incomplete_while_accounting_still_settles_safely(self):
+        complete = next(s for s in self.jobs["record-complete"]["steps"] if "publish_latest_record.py" in s.get("run", ""))
+        self.assertEqual(self.jobs["record-complete"]["needs"], ["record-begin", "live", "journal-settle"])
+        self.assertEqual(complete["env"]["MANUAL_OCCURRENCE_B64"], "${{ needs.record-begin.outputs.manual_occurrence_b64 }}")
+        self.assertEqual(complete["env"]["SETTLED"], "${{ needs.journal-settle.outputs.settled }}")
+        self.assertIn("settlement-not-verified", complete["run"])
+        self.assertIn("init_run_inputs.py completion-deadline", complete["run"])
+        self.assertIn('[ "$deadline_status" -eq 79 ]', complete["run"])
+        self.assertIn('[ "$within_envelope" = true ]', complete["run"])
+        self.assertIn("publication_status", complete["run"])
+        self.assertIn('published_at=', complete["run"])
+        self.assertIn('--now "$published_at"', complete["run"])
+        self.assertEqual(complete["env"]["NIGHTLY_REQUEST_SHA256"], "${{ needs.record-begin.outputs.nightly_request_sha256 }}")
+        self.assertIn('occurrence_sha256="$NIGHTLY_REQUEST_SHA256"', complete["run"])
+        self.assertIn('cfg_get.py "$RUNNER_TEMP/nightly-request.json" window.endUtc', complete["run"])
+        self.assertIn("publish_latest_record.py", complete["run"])
+        self.assertEqual(complete["run"].count("gh api --method PATCH"), 1)
+        self.assertIn('--out "$RUNNER_TEMP/candidate.md"', complete["run"])
+        self.assertNotIn('body=@$RUNNER_TEMP/candidate.md', complete["run"])
+        self.assertIn('--status "$([ "$LIVE_RESULT" = cancelled ] && echo cancelled || echo incomplete)"', complete["run"])
+        self.assertIn('pending --previous "$RUNNER_TEMP/previous.md"', complete["run"])
+        self.assertIn('if [ "$attestable" = true ]', complete["run"])
+        self.assertIn('attest --candidate "$RUNNER_TEMP/candidate.md"', complete["run"])
+        uploads = [s for s in self.jobs["record-complete"]["steps"] if s.get("uses") == "actions/upload-artifact@v4"]
+        self.assertEqual(len(uploads), 1)
+        self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/completion")
+        # A missed run must not make an otherwise valid terminal record
+        # unrecoverable after only a day or two.  GitHub's bounded maximum is
+        # the retention design; expired/missing evidence still fails closed.
+        self.assertEqual(uploads[0]["with"]["retention-days"], 90)
+        self.assertIn('cp "$receipt" "$RUNNER_TEMP/completion/settle-receipt.json"', complete["run"])
+        self.assertIn('cp "$RUNNER_TEMP/manual-occurrence.json" "$RUNNER_TEMP/completion/occurrence.json"', complete["run"])
+        self.assertIn('cp "$RUNNER_TEMP/nightly-request.json" "$RUNNER_TEMP/completion/occurrence.json"', complete["run"])
+        begin = next(s for s in self.jobs["record-begin"]["steps"] if "publish_latest_record.py" in s.get("run", ""))
+        self.assertIn('reconcile --previous "$RUNNER_TEMP/previous.md"', begin["run"])
+        self.assertIn('actions/runs/$pending_run_id/artifacts', begin["run"])
+        self.assertIn('actions/artifacts/$artifact_id/zip', begin["run"])
+        self.assertIn('--attestation "$RUNNER_TEMP/prior-completion/completion-attestation.json"', begin["run"])
+        self.assertIn('--settle-receipt "$RUNNER_TEMP/prior-completion/settle-receipt.json"', begin["run"])
+        self.assertIn('--occurrence "$RUNNER_TEMP/prior-completion/occurrence.json"', begin["run"])
+        # Settlement remains independent of the occurrence deadline: a late
+        # publisher cannot claim completion, but held usage is still reconciled
+        # under the accepted accounting period.
+        settle = writers_of(self.jobs, "journal-settle")
+        self.assertIn("manual_reservation.py settle", settle)
+        self.assertNotIn("completion-deadline", settle)
+        self.assertEqual(self.jobs["journal-settle"]["outputs"]["settled"], "${{ steps.settle.outputs.settled }}")
 
     def test_every_run_stage_name_is_supplied_and_the_bundle_reaches_only_prepare(self):
         with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as f:
@@ -644,7 +757,9 @@ class Case10ObserveCredentials(unittest.TestCase):
                "PRIOR_STATE": "{}", "NIGHTLY_REQUEST_B64": base64.b64encode(b"{}").decode(), "NIGHTLY_REQUEST_SHA256": "a" * 64,
                "REQUEST": "r.json", "FACTS": "f.json", "CT_CONFIG": "c.json", "GITHUB_WORKSPACE": d, "GITHUB_RUN_ID": "101",
                "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "4" * 40, "GITHUB_ENV": os.path.join(d, "env"), "GITHUB_OUTPUT": os.path.join(d, "out"),
-               "CT_CASE10_PASSWORD": "case10-pw-value" if event == "schedule" else "", "CT_CASE10_ANON_KEY": "case10-anon-value" if event == "schedule" else ""}
+               "MANUAL_OCCURRENCE_B64": base64.b64encode(b"{}").decode(), "MANUAL_OCCURRENCE_SHA256": "b" * 64,
+               "CT_CASE10_PASSWORD": "case10-pw-value" if event == "schedule" else "", "CT_CASE10_ANON_KEY": "case10-anon-value" if event == "schedule" else "",
+               "JOB_TIMEOUT_MINUTES": "340" if event == "schedule" else "65"}
         p = subprocess.run(["bash", "-c", shadow + init["run"]], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
         out = {}
@@ -669,7 +784,7 @@ class Case10ObserveCredentials(unittest.TestCase):
                 self.assertNotIn("case10-pw-value", env)
                 self.assertNotIn("case10-anon-value", env)
         dispatch = self.children("workflow_dispatch")
-        self.assertEqual([k[2] for k in sorted(dispatch)], ["tools/cloud-test/scripts/init_run_inputs.py"])
+        self.assertEqual([k[2] for k in sorted(dispatch)], ["base64", "tools/cloud-test/scripts/init_run_inputs.py"])
         for env in dispatch.values():
             self.assertFalse({"CT_CASE10_PASSWORD", "CT_CASE10_ANON_KEY"} & {line.split("=", 1)[0] for line in env.splitlines()})
 

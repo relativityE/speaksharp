@@ -469,6 +469,8 @@ function leaseRefusalWindowVerdict(w) {
     }
     if (w.a.boundaryUncertain)
         return { status: 'HOLD', detail: 'the first tab changed at the take-over boundary, so which window it belongs to is unknown' };
+    if (w.cold !== true)
+        return { status: 'HOLD', detail: 'the refused window was not proven to begin from the required cold model state' };
     if (!w.refusalCopyShown)
         return { status: 'FAIL', detail: 'the second tab was not told why it could not record' };
     if (modelWorkBeforeRefusal({ cold: w.cold, modelRequests: w.modelRequests, statusHistory: w.b.modelTransitions, statusAtRefusal: w.b.modelNow })) {

@@ -32,7 +32,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (offline)
@@ -43,6 +43,141 @@ import state_ref_writer  # noqa: E402
 
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
+SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
+ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
+ONE_OFF_GRANT_SHA256 = "d864d7043d4bf34695c4fdfd5cb098f4537aa9989cffba6f824e97733131f622"
+ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
+                      "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
+                      "limits", "olderReleaseDiagnostic"}
+ONE_OFF_LIMITS = {"endToEndMinutes": 80, "liveMinutes": 40, "requestsIncludingIdentity": 2032,
+                  "identityReads": 32, "starts": 16, "takes": 16, "coachingCalls": 20, "retries": 0}
+CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
+
+
+def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=None):
+    """The reviewed, content-addressed PO grant for exactly one R10 attempt.
+
+    Dispatch facts are evidence references, never authority.  The grant binds the committed template, deployed release, accepted accounting
+    scope, pre-reserve journal head and every one-run cap.  The only value supplied at execution is GitHub's authenticated run start.
+    """
+    path = os.path.join(repo, ONE_OFF_GRANT_PATH)
+    _need(os.path.isfile(path) and not os.path.islink(path), "one-off-grant-unreadable")
+    raw = _read(path)
+    _need(hashlib.sha256(raw).hexdigest() == ONE_OFF_GRANT_SHA256, "one-off-grant-not-the-reviewed-bytes")
+    try:
+        grant = json.loads(raw)
+    except ValueError:
+        raise Refused("one-off-grant-unreadable")
+    _need(isinstance(grant, dict) and set(grant) == ONE_OFF_GRANT_KEYS
+          and grant.get("schema") == "speaksharp.cloud-test.one-off-grant.v1" and grant.get("status") == "APPROVED",
+          "one-off-grant-shape")
+    _need(_ref(grant.get("approvalRef")) and grant.get("approvedBy") == "Akin"
+          and grant.get("runId") == "R10-3b040043-smoke15" and grant.get("attempt") == 1,
+          "one-off-grant-reference")
+    template_path = os.path.join(repo, ONE_OFF_TEMPLATE_PATH)
+    _need(os.path.isfile(template_path) and not os.path.islink(template_path)
+          and hashlib.sha256(_read(template_path)).hexdigest() == grant.get("requestTemplateSha256"),
+          "one-off-grant-not-the-request")
+    if template is not None:
+        _need(template.get("runId") == grant["runId"]
+              and (template.get("release") or {}).get("testedSha") == grant.get("testedSha")
+              and ((template.get("release") or {}).get("backend") or {}).get("sha") == grant.get("backendSha"),
+              "one-off-grant-release")
+    _need(grant.get("limits") == ONE_OFF_LIMITS and grant.get("olderReleaseDiagnostic") is True,
+          "one-off-grant-limits")
+    scope_path = os.path.join(repo, CONTINUITY_DIR, CONTINUITY_SCOPE)
+    _need(os.path.isfile(scope_path) and not os.path.islink(scope_path), "one-off-grant-accounting")
+    try:
+        accepted_scope = manual_reservation.accepted_scope(_read(scope_path), manual_reservation.ACCEPTED_SCOPE_SHA256)
+    except manual_reservation.Refused:
+        raise Refused("one-off-grant-accounting")
+    _need(grant.get("periodScopeSha256") == manual_reservation.ACCEPTED_SCOPE_SHA256
+          and grant.get("scopeApprovalRef") == accepted_scope.get("approvalRef")
+          and isinstance(grant.get("preReserveStateHead"), str) and LR.SHA40.match(grant["preReserveStateHead"]),
+          "one-off-grant-accounting")
+    if initiation is not None:
+        start = _utc(initiation)
+        _need(_utc(grant.get("notBeforeUtc")) <= start
+              and start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES) <= _utc(grant.get("expiresUtc")),
+              "one-off-grant-expired")
+    if reconciliation_bytes is not None:
+        try:
+            checkpoint = json.loads(reconciliation_bytes)
+        except (TypeError, ValueError):
+            raise Refused("one-off-grant-checkpoint")
+        _need(checkpoint.get("headSha") == grant.get("preReserveStateHead")
+              and checkpoint.get("scopeApprovalRef") == grant.get("scopeApprovalRef"), "one-off-grant-checkpoint")
+    return grant
+
+
+def materialize_authoritative_smoke_occurrence(repo, template, initiation):
+    approval = one_off_grant(repo, template, initiation)
+    return materialize_smoke_occurrence(template, initiation, approval["approvalRef"], approval["scopeApprovalRef"], approval["approvedBy"],
+                                        approval["testedSha"], approval["backendSha"])
+
+
+def materialize_smoke_occurrence(template, initiation, approval_ref, scope_approval_ref, approved_by, tested_sha, backend_sha):
+    """Create the exact one-run bytes for an owner-selected R10 initiation.
+
+    The 80-minute occurrence is the bounded end-to-end workflow envelope:
+    5 minutes to record, 3 to reserve, the existing 65-minute live-job bound
+    (15 setup + 40 live + 10 collect), and 5 for the parallel settle/record
+    completion jobs, with two minutes of structural slack.  It is not a
+    measured runtime and it does not raise the 40-minute live ceiling.  The
+    caller must subsequently authorize these exact occurrence/release bytes
+    and bind the ordinary action-approval envelope.
+    """
+    _need(template.get("coverageMode") == template.get("sampleMode") == "smoke", "smoke-occurrence-mode")
+    _need(template.get("runId") == "R10-3b040043-smoke15" and len(template.get("selection") or []) == 15,
+          "smoke-occurrence-selection")
+    _need(isinstance(initiation, str) and LR.UTC.match(initiation), "smoke-occurrence-initiation")
+    _need(_ref(approval_ref) and _ref(scope_approval_ref) and isinstance(approved_by, str) and approved_by.strip(), "smoke-occurrence-approval")
+    _need(isinstance(tested_sha, str) and LR.SHA40.match(tested_sha) and isinstance(backend_sha, str) and LR.SHA40.match(backend_sha),
+          "smoke-occurrence-release")
+    start = _utc(initiation)
+    out = json.loads(json.dumps(template))
+    out["proposal"] = False
+    out["createdUtc"] = initiation
+    out["window"] = {"startUtc": initiation,
+                     "endUtc": (start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                     "endToEndMinutes": ONE_OFF_LIMITS["endToEndMinutes"],
+                     "liveMinutes": ONE_OFF_LIMITS["liveMinutes"],
+                     "approvalRef": approval_ref,
+                     "basis": "actual initiation + 5m record + 3m reserve + 65m live-job ceiling + 5m parallel settlement/record completion + 2m structural slack; live ceiling remains 40m; not measured runtime"}
+    out["selectionApprovalRef"] = approval_ref
+    # The one-off grant selects this occurrence. The accepted period scope,
+    # independently, owns cumulative accounting.
+    out["approvedLimits"]["approvalRef"] = scope_approval_ref
+    out["approvedLimits"]["approvedBy"] = approved_by
+    out["harness"]["ownerApprovalRef"] = approval_ref
+    out["release"]["testedSha"] = tested_sha
+    out["release"]["backend"]["sha"] = backend_sha
+    return out
+
+
+def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha256, source_sha, workflow_start_utc=None):
+    """Admit an exact, approver-bound smoke occurrence derived from one committed template.
+
+    The occurrence bytes travel unchanged through reservation and preparation.  They are never generated after the reserve, and they are
+    accepted only when re-materializing the committed template from the occurrence's own selected initiation/release fields yields the
+    identical document.  The caller separately binds these exact bytes and the pre-reserve reconciliation in actionApproval.
+    """
+    _template_path, template_blob, template_raw = select_request(repo, template_rel, source_sha)
+    _need(isinstance(occurrence_file, str) and os.path.isfile(occurrence_file) and not os.path.islink(occurrence_file),
+          "manual-occurrence-unreadable")
+    raw = _read(occurrence_file)
+    _need(isinstance(occurrence_sha256, str) and SHA64.match(occurrence_sha256) and hashlib.sha256(raw).hexdigest() == occurrence_sha256,
+          "manual-occurrence-not-the-selected-bytes")
+    try:
+        template, occurrence = json.loads(template_raw), json.loads(raw)
+    except ValueError:
+        raise Refused("manual-occurrence-unreadable")
+    _need(isinstance(workflow_start_utc, str) and occurrence.get("createdUtc") == workflow_start_utc,
+          "manual-occurrence-not-the-workflow-start")
+    expected = materialize_authoritative_smoke_occurrence(repo, template, workflow_start_utc)
+    _need(occurrence == expected, "manual-occurrence-not-the-template-materialization")
+    return occurrence_file, hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest(), raw, template_blob
 # NIGHTLY facts (Elon 1793560137.871769, pending Sam's content/pin decision): a scheduled run has no operator facts input, so its facts are
 # the committed file below, admitted only when its bytes hash to the reviewed pin. None today: every nightly prepare refuses.
 NIGHTLY_FACTS_PATH = "tools/cloud-test/config/nightly/facts.json"
@@ -76,7 +211,8 @@ SHA64 = re.compile(r"^[0-9a-f]{64}$")
 RECEIPT_KEYS = {"pre", "rls", "analytics", "disp", "fence", "review"}  # build_plan.py 55
 BACKEND_KEYS = {"manifestRef", "generation", "completion", "migration129"}
 FACT_REQUIRED = {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "accounts"}
-FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic", "actionApproval", "case10RequestBound"}
+FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backend", "olderReleaseDiagnostic", "actionApproval",
+                 "occurrenceApproval", "case10RequestBound"}
 # A manual run's builder Start/take action approval (case_start_caps.bind_inputs) is supplied by its approver.  A scheduled run instead
 # derives the occurrence-bound envelope from the exact request emitted by the credential-free nightly gate and the admitted reconciliation;
 # the standing approval already bound into that request remains the authority.  No reusable committed facts file can predict a future
@@ -207,9 +343,14 @@ def check_request(req, now, template_keys, nightly=False):
     _need(isinstance((req.get("release") or {}).get("testedSha"), str) and LR.SHA40.match(req["release"]["testedSha"]), "request-release-sha")
     cases = [s.get("case") for s in req.get("selection") or [] if isinstance(s, dict)]
     _need(cases and len(cases) == len(req["selection"]) == len(set(cases)) and all(c in ROLE for c in cases), "case-selection")
-    _need(req.get("coverageMode") in ("partial", "full"), "coverage-mode")
-    _need(req["coverageMode"] == "partial" or sorted(cases) == ALL_CASES, "full-mode-needs-all-fifteen")
-    _need(req.get("sampleMode") == "full", "partial-selection-needs-selected-full-sampling")
+    _need(req.get("coverageMode") in ("partial", "smoke", "full"), "coverage-mode")
+    if req["coverageMode"] == "full":
+        _need(sorted(cases) == ALL_CASES, "full-mode-needs-all-fifteen")
+    if req["coverageMode"] == "smoke":
+        _need(sorted(cases) == ALL_CASES, "smoke-mode-needs-all-fifteen")
+        _need(req.get("sampleMode") == "smoke", "smoke-mode-needs-smoke-sampling")
+    else:
+        _need(req.get("sampleMode") == "full", "partial-selection-needs-selected-full-sampling")
     for ref in (req.get("selectionApprovalRef"), (req.get("harness") or {}).get("ownerApprovalRef"), (req.get("window") or {}).get("approvalRef")):
         _need(_ref(ref), "approval-reference-missing")
     lim = req.get("approvedLimits") or {}
@@ -223,8 +364,8 @@ def check_request(req, now, template_keys, nightly=False):
 
 def check_ceilings(cfg, req, cases, job_timeout_minutes):
     """Request, identity, paid and time ceilings, never raised by input. Returns the live-window minutes for the run step."""
-    full = req["coverageMode"] == "full"
-    mode = cfg["modes"]["full"]["limits"] if full else cfg["limits"]
+    coverage_mode = req["coverageMode"]
+    mode = cfg["modes"][coverage_mode]["limits"] if coverage_mode in ("smoke", "full") else cfg["limits"]
     _need(len(cases) <= mode["maxSelectedCases"], "selection-exceeds-mode-cap")
     lim, est = req["approvedLimits"], req.get("estimate") or {}
     # runCapRequests is per run; identityCap and cumulativeCeilingRequests are CUMULATIVE and are checked against verified prior usage.
@@ -233,8 +374,9 @@ def check_ceilings(cfg, req, cases, job_timeout_minutes):
     _need(_int(reqs.get("runCap")) and reqs["runCap"] <= lim["runCapRequests"], "estimate-exceeds-approved-run-cap")
     _need(_int(est.get("identityReads")) and est["identityReads"] <= mode["maxIdentityReadsPerRun"], "estimate-exceeds-per-run-identity-cap")
     _need(cfg["limits"]["maxPaidActionsUsd"] == 0 and est.get("paidActionsAuthorizedUsd") == 0, "paid-actions-refused")
-    w = cfg["modes"]["full"]["window"]
-    case_minutes = math.ceil(sum(cfg["modes"]["full"]["caseMaxMs"][c] for c in cases) / 60000)
+    w = cfg["modes"].get(coverage_mode, {}).get("window") or cfg["modes"]["full"]["window"]
+    case_limits = cfg["modes"].get(coverage_mode, {}).get("caseMaxMs") or cfg["modes"]["full"]["caseMaxMs"]
+    case_minutes = math.ceil(sum(case_limits[c] for c in cases) / 60000)
     live = case_minutes + w["admissionMaxMinutes"] + w["interCaseAndReportMinutes"] + w["cleanupReserveMinutes"]
     _need(live <= mode["maxWindowMinutes"], "time-exceeds-mode-window")
     worst = (est.get("window") or {}).get("worstCaseMinutes")
@@ -258,7 +400,27 @@ def check_window_remaining(req, now, live_minutes):
     _need((end - now).total_seconds() >= 60 * (live_minutes + COLLECT_RESERVE_MINUTES), "approved-window-too-short-at-admission")
 
 
-def check_release_lineage(repo, req, request_rel, source_sha, request_blob, cases, diagnostic, template_keys):
+def completion_within_occurrence(raw, now):
+    """Return whether R10 completed inside its reviewed 80-minute envelope.
+
+    Accounting may settle later inside the approved period so held usage is
+    reconciled safely, but a late workflow is incomplete rather than an
+    in-envelope terminal result.
+    """
+    try:
+        req = json.loads(raw)
+    except (TypeError, ValueError):
+        raise Refused("completion-occurrence-unreadable")
+    w = req.get("window") if isinstance(req, dict) else None
+    _need(req.get("runId") == "R10-3b040043-smoke15" and req.get("createdUtc") == (w or {}).get("startUtc")
+          and all(isinstance((w or {}).get(k), str) and LR.UTC.match(w[k]) for k in ("startUtc", "endUtc")),
+          "completion-occurrence-unreadable")
+    start, end = _utc(w["startUtc"]), _utc(w["endUtc"])
+    _need((end - start).total_seconds() == 60 * SMOKE_OCCURRENCE_WINDOW_MINUTES, "completion-occurrence-window")
+    return now <= end
+
+
+def check_release_lineage(repo, req, request_rel, source_sha, request_blob, cases, diagnostic, template_keys, grant=None):
     """Workflow source, tested product release and served release are distinct. The source may descend from the tested release only by
     schema-valid run requests in the ONE reviewed request location; anything else (product, dependency, harness, or any other JSON) refuses
     unless facts carry an older-release diagnostic approval bound to exactly this workflow SHA, tested SHA, request blob and selection.
@@ -281,6 +443,11 @@ def check_release_lineage(repo, req, request_rel, source_sha, request_blob, case
     if not beyond:
         _need(diagnostic is None, "diagnostic-declared-without-product-change")
         return "same" if tested == source_sha else "request-only-descendant"
+    if grant is not None:
+        _need(diagnostic is None and grant.get("olderReleaseDiagnostic") is True
+              and grant.get("testedSha") == tested and grant.get("runId") == req.get("runId"),
+              "source-changes-product-beyond-request")
+        return "reviewed-one-off-older-release-diagnostic"
     _need(diagnostic == {"approvalRef": (diagnostic or {}).get("approvalRef"), "workflowSha": source_sha, "testedSha": tested,
                          "requestBlob": request_blob, "cases": cases} and _ref(diagnostic["approvalRef"]), "source-changes-product-beyond-request")
     return "explicit-older-release-diagnostic"
@@ -375,7 +542,7 @@ def write_env_file(path, mapping):
         f.writelines("%s=%s\n" % kv for kv in sorted(mapping.items()))
 
 
-def account_bindings(cfg, cases, facts_accounts, bundle):
+def account_bindings(cfg, cases, facts_accounts, bundle, first_observation_run=None):
     """Every role the selection needs (Jensen's I1'/I2' contract: AHT-01..14 existing-disposable, AHT-15 maintained-read-only, so an all-15 run
     is 14+1), each bound to its own credential NAMES, its account ID from the private bundle (checked by digest against the approved binding)
     and its history reference. A role's names must be ones the run stage actually receives (config credentials.runEnvironment.stages.run);
@@ -391,9 +558,20 @@ def account_bindings(cfg, cases, facts_accounts, bundle):
         _need(isinstance(fa, dict) and set(fa) == {"idSha256", "historyRef"}, "account-binding-shape")
         account_id = (bundle["accounts"].get(role) or {}).get("accountId")
         _need(isinstance(account_id, str) and account_id.strip() == account_id and account_id, "account-id-source-missing")
-        _need(isinstance(fa["idSha256"], str) and SHA64.match(fa["idSha256"]) and
-              hashlib.sha256(account_id.encode()).hexdigest() == fa["idSha256"], "account-id-not-the-approved-account")
-        _need(_ref(fa["historyRef"]), "account-history-reference")
+        first = fa["idSha256"] == "FIRST-DISCOVERY"
+        if first:
+            # The one authorized R10 first-use route derives the subject digest
+            # inside the protected job from the already owner-selected bundle.
+            # It does not pretend that a prior campaign supplied history: the
+            # adapter retains the bounded first observation before dependent
+            # actions and links it from the case result.
+            _need(first_observation_run == "R10-3b040043-smoke15", "account-first-discovery-not-authorized")
+            _need(fa["historyRef"] == "first-observation:%s@%s" % (role, first_observation_run),
+                  "account-first-discovery-reference")
+        else:
+            _need(isinstance(fa["idSha256"], str) and SHA64.match(fa["idSha256"]) and
+                  hashlib.sha256(account_id.encode()).hexdigest() == fa["idSha256"], "account-id-not-the-approved-account")
+            _need(_ref(fa["historyRef"]), "account-history-reference")
         out.append({"role": role, "credentials": dict(names), "historyRef": fa["historyRef"]})
     return out
 
@@ -635,7 +813,7 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
     return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
 
 
-def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req, nightly=False, standing=None):
+def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req, nightly=False, standing=None, repo=None):
     """Return the exact builder envelope for this occurrence.
 
     Manual dispatches retain the approver-supplied, byte-bound envelope. Scheduled executions must not carry a reusable envelope in their
@@ -653,6 +831,24 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
               and envelope.get("approvedBy") == lim.get("approvedBy") and envelope.get("selectionApprovalRef") == req.get("selectionApprovalRef"),
               "action-approval-standing-reference")
         return envelope
+    if req.get("runId") == "R10-3b040043-smoke15":
+        _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")
+        _need(isinstance(repo, str), "one-off-grant-unreadable")
+        approval = one_off_grant(repo, None, req.get("createdUtc"), reconciliation_bytes)
+        window = req.get("window") or {}
+        _need(req.get("createdUtc") == window.get("startUtc")
+              and (_utc(window.get("endUtc")) - _utc(window.get("startUtc"))).total_seconds()
+              == 60 * SMOKE_OCCURRENCE_WINDOW_MINUTES,
+              "relative-occurrence-request-window")
+        release = req.get("release") or {}
+        _need(release.get("testedSha") == approval["testedSha"]
+              and (release.get("backend") or {}).get("sha") == approval["backendSha"],
+              "relative-occurrence-request-release")
+        envelope = {"schema": ACTION_APPROVAL_SCHEMA, "requestSha256": request_sha256,
+                    "reconciliationSha256": hashlib.sha256(reconciliation_bytes).hexdigest(),
+                    "approvalRef": approval["scopeApprovalRef"], "approvedBy": approval["approvedBy"],
+                    "selectionApprovalRef": approval["approvalRef"]}
+        return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
     return check_action_approval(supplied, request_sha256, reconciliation_bytes, req)
 
 
@@ -708,22 +904,45 @@ def prepare(x, now):
     repo = os.path.realpath(x.repo)
     _need(isinstance(x.run_id, str) and LR.RUN_ID.match(x.run_id) and x.attempt == 1, "run-identity")
     _need(isinstance(x.source_sha, str) and LR.SHA40.match(x.source_sha), "source-sha")
-    nightly = bool(x.nightly_request_file or x.nightly_request_sha256)
-    _need(not (nightly and x.request), "request-source-ambiguous")
+    nightly_file = getattr(x, "nightly_request_file", None)
+    nightly_sha = getattr(x, "nightly_request_sha256", None)
+    occurrence_file = getattr(x, "manual_occurrence_file", None)
+    occurrence_sha = getattr(x, "manual_occurrence_sha256", None)
+    workflow_start_utc = getattr(x, "workflow_start_utc", None)
+    nightly = any(isinstance(v, str) and v for v in (nightly_file, nightly_sha))
+    manual_occurrence = any(isinstance(v, str) and v for v in (occurrence_file, occurrence_sha))
+    _need(not (nightly and x.request) and not (nightly and manual_occurrence), "request-source-ambiguous")
+    _need(not manual_occurrence or (x.request and isinstance(occurrence_file, str) and occurrence_file
+                                    and isinstance(occurrence_sha, str) and occurrence_sha), "manual-occurrence-inputs")
     _need(_git(repo, "rev-parse", "HEAD") == x.source_sha, "checkout-not-at-source")
-    req_path, req_blob, req_raw = (nightly_request(x.nightly_request_file, x.nightly_request_sha256, x.run_id, x.source_sha) if nightly
-                                   else select_request(repo, x.request, x.source_sha))
+    if nightly:
+        req_path, req_blob, req_raw = nightly_request(nightly_file, nightly_sha, x.run_id, x.source_sha)
+    elif manual_occurrence:
+        try:
+            manual_facts = json.loads(x.facts or "null")
+        except ValueError:
+            raise Refused("facts-shape")
+        _need(isinstance(manual_facts, dict), "facts-shape")
+        req_path, req_blob, req_raw, _template_blob = select_manual_occurrence(repo, x.request, occurrence_file,
+                                                                               occurrence_sha, x.source_sha, workflow_start_utc)
+    else:
+        req_path, req_blob, req_raw = select_request(repo, x.request, x.source_sha)
     req, cfg, template_keys = json.loads(req_raw), _load(os.path.join(repo, x.config)), _request_keys()
     cases = check_request(req, now, template_keys, nightly)
     route = "github-producer" if set(cases) & PRODUCER_CASES else "github-direct"
     live_minutes = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
     check_window_fit(req, now, live_minutes)
     _need(not (nightly and x.facts), "nightly-facts-input-refused")
-    facts = nightly_facts(repo) if nightly else json.loads(x.facts or "null")
+    facts = nightly_facts(repo) if nightly else (manual_facts if manual_occurrence else json.loads(x.facts or "null"))
     _need(isinstance(facts, dict), "facts-shape")
-    lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys)
+    grant = None
+    if req.get("runId") == "R10-3b040043-smoke15":
+        _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")
+        grant = one_off_grant(repo, None, req.get("createdUtc"))
+    lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys, grant)
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
-    accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle)
+    accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle,
+                                req.get("runId") if req.get("runId") == "R10-3b040043-smoke15" else None)
     entries = {b["role"]: role_account(bundle, b["role"], os.environ.get("SUPABASE_URL")) for b in accounts}
     observation = read_case10_observation(getattr(x, "case10_observation", None))
     chains = []
@@ -740,7 +959,7 @@ def prepare(x, now):
     action_approval = occurrence_action_approval(
         facts, request_sha256, reconciliation, req, nightly,
         standing=lambda: standing_envelope(repo, req, request_sha256, reconciliation, accepted_scope, cases, cfg, now, x.attempt,
-                                           reserved_occurrences(chains[-1], own), held=own_held_allocation(chains[-1], own)))
+                                           reserved_occurrences(chains[-1], own), held=own_held_allocation(chains[-1], own)), repo=repo)
     facts = dict(facts, actionApproval=action_approval)
     check_case10_bound(req, facts, cases, entries, request_sha256, x.run_id, now, observation)
     # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.
@@ -820,7 +1039,9 @@ def identities(request_path, config_path, admitted_sha256):
     catalog file must still be the pinned bytes, and its exact per-case required-assertion sets are what qualification checks every case
     config against."""
     request = admitted_request(request_path, admitted_sha256)
-    pin = _load(config_path)["modes"]["full"]["assertionCatalog"]
+    cfg = _load(config_path)
+    mode = request.get("coverageMode")
+    pin = cfg["modes"]["smoke" if mode == "smoke" else "full"]["assertionCatalog"]
     catalog = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(config_path))), pin["file"])
     raw = _read(catalog)
     _need(hashlib.sha256(raw).hexdigest() == pin["sha256"], "assertion-catalog-not-pinned")
@@ -840,7 +1061,7 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     request, assertion catalog and harness CODE manifest."""
     selected = sorted(selected)
     _need(selected and all(c in ROLE for c in selected) and len(set(selected)) == len(selected), "case-selection")
-    _need(coverage_mode in ("partial", "full"), "coverage-mode")
+    _need(coverage_mode in ("partial", "smoke", "full"), "coverage-mode")
     frozen, original_plan, plan_file = _freeze(snapshot_dir, plan_path, case_results_path, cases_dir, approval, code_manifest)
     out = os.path.join(snapshot_dir, "verification.json")
     status = run_verifier(plan_file, os.path.join(snapshot_dir, "case-results.json"), os.path.join(snapshot_dir, "approval.json"),
@@ -880,6 +1101,8 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     # marks coverageMode partial + assertionDepth full; full mode adds no marker and selects all 15 (an explicit selection object is allowed).
     if coverage_mode == "full":
         _need(selected == ALL_CASES and "coverageMode" not in plan and "assertionDepth" not in plan, "plan-not-a-full-coverage-plan")
+    elif coverage_mode == "smoke":
+        _need(selected == ALL_CASES and plan.get("coverageMode") == "smoke" and plan.get("assertionDepth") == "smoke", "plan-not-an-all-fifteen-smoke-plan")
     else:
         _need(plan.get("coverageMode") == "partial" and plan.get("assertionDepth") == "full", "plan-not-a-selected-full-plan")
     counts = {"PASS": 0, "FAIL": 0, "NOT RUN": 0}
@@ -922,7 +1145,10 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     executed = counts["NOT RUN"] == 0
     return {"qualified": True, "campaignId": plan["campaignId"], "testedSha": plan["sourceSha"], "servedSha": results.get("servedSha"),
             "planSha256": digest(original_plan), "caseResultsSha256": digest(frozen["case-results.json"]), "cases": selected,
-            "coverage": ("full" if coverage_mode == "full" else "batch") if executed else "incomplete",
+            # Keep the request/plan denominator independent of execution completeness. In particular, a smoke run with one NOT RUN row
+            # has coverage=incomplete, but it is still smoke-depth diagnostic evidence and must never enter full/nightly history.
+            "coverageMode": coverage_mode, "assertionDepth": "smoke" if coverage_mode == "smoke" else "full",
+            "coverage": ("full" if coverage_mode == "full" else "smoke" if coverage_mode == "smoke" else "batch") if executed else "incomplete",
             "outcome": "passed" if executed and counts["FAIL"] == 0 and all(o == "PASS" for o in case_outcomes) else "failed",
             "requestSha256": ids["requestSha256"], "catalogSha256": ids["catalogSha256"], "codeManifestSha256": digest(frozen["packet/CODE.sha256"]),
             "planCases": len(rows), "requiredRows": sum(counts.values()), "passRows": counts["PASS"], "failRows": counts["FAIL"],
@@ -1117,9 +1343,11 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
                  provenance.get("campaignId") == campaign and type(provenance.get("runId")) is str and provenance.get("runId") == run_id and
                  type(provenance.get("attempt")) is int and provenance.get("attempt") == 1 and attempt == 1 and
                  q.get("outcome") in ("passed", "failed") and
-                 (q.get("coverage") in ("batch", "incomplete") or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
+                 q.get("coverageMode") in ("partial", "smoke", "full") and
+                 q.get("assertionDepth") == ("smoke" if q.get("coverageMode") == "smoke" else "full") and
+                 (q.get("coverage") in ("batch", "smoke", "incomplete") or (q.get("coverage") == "full" and sorted(q.get("cases") or []) == ALL_CASES)) and
                  isinstance(q.get("cases"), list) and set(q["cases"]) <= {c.get("case") for c in run_record.get("cases") or [] if isinstance(c, dict)})
-    if qualified and q["coverage"] in ("batch", "full"):
+    if qualified and q["coverage"] in ("batch", "smoke", "full"):
         # The qualification and the record derive from the same digest-bound case results; their outcomes must agree or neither counts.
         chosen = [c for c in run_record.get("cases") or [] if isinstance(c, dict) and c.get("case") in q["cases"]]
         qualified = (q["outcome"] == "passed") == (bool(chosen) and all(c.get("result") == "PASS" for c in chosen))
@@ -1147,6 +1375,8 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
            "requestSha256": q.get("requestSha256") if qualified else None, "catalogSha256": q.get("catalogSha256") if qualified else None,
            "outcome": "passed" if qualified and q["outcome"] == "passed" and selected and all(c["result"] == "PASS" for c in selected) else "failed",
            "cases": cases, "codes": [] if qualified else ["not-qualified"]}
+    if qualified:
+        rec.update(coverageMode=q["coverageMode"], assertionDepth=q["assertionDepth"])
     if row_verdicts:
         rec["rowVerdicts"] = row_verdicts
     if row_verdicts and request_raw is not None and media_manifest_raw is not None:
@@ -1161,7 +1391,7 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
         if all(isinstance(v, str) for v in comp.values()):
             rec["comparability"] = comp  # an identity that is not known leaves the rows not comparable, never a guessed match
     try:
-        return LR.sanitize_record(rec)
+        return LR.sanitize_record(rec, require_source=True)
     except LR.Refused as e:
         raise Refused("run-record-not-publishable:" + str(e))
 
@@ -1186,18 +1416,144 @@ def _write_private(path, doc):
         json.dump(doc, f, sort_keys=True)
 
 
+def first_observation_export(cases_dir, selected):
+    """Return the two content-safe first inventories, only when the case result links their exact bytes.
+
+    The case directory itself is ephemeral. This closed projection is safe to retain and can become the next run's history reference; a
+    present-but-unlinked or substituted observation refuses rather than silently disappearing when the runner is destroyed.
+    """
+    _need(isinstance(cases_dir, str) and os.path.isdir(cases_dir) and not os.path.islink(cases_dir), "first-observation-cases-dir")
+    _need(isinstance(selected, list) and selected and len(selected) == len(set(selected))
+          and all(re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", x or "") for x in selected), "first-observation-selection")
+    expected = {"AHT-01": ("aht-01-first-observation.json", "existing-disposable"),
+                "AHT-15": ("aht-15-first-observation.json", "maintained-read-only")}
+    observations, not_observed = [], []
+    keys = {"contentSafe", "kind", "inventoryStatus", "role", "accountSubjectSha256", "sourceBindingSha256", "sourceSha",
+            "servedSha", "observedAtUtc", "rowCount", "completedCount", "readableCompletedCount", "readableHistoryAvailable",
+            "inventoryComplete", "readLimit", "sanitizer"}
+    for case_id in [x for x in ("AHT-01", "AHT-15") if x in selected]:
+        candidate = os.path.join(cases_dir, case_id)
+        if not os.path.lexists(candidate):
+            not_observed.append({"caseId": case_id, "status": "NOT OBSERVED", "reason": "CASE NOT REACHED"})
+            continue
+        _need(not os.path.islink(candidate), "first-observation-case-dir")
+        case_dir = os.path.realpath(candidate)
+        _need(case_dir.startswith(os.path.realpath(cases_dir) + os.sep) and os.path.isdir(case_dir), "first-observation-case-dir")
+        result_file, (ref, role) = os.path.join(case_dir, "case-result.json"), expected[case_id]
+        observation_file = os.path.join(case_dir, ref)
+        if not os.path.lexists(observation_file):
+            not_observed.append({"caseId": case_id, "status": "NOT OBSERVED", "reason": "OBSERVATION NOT PRODUCED"})
+            continue
+        _need(os.path.isfile(result_file) and not os.path.islink(result_file) and os.path.isfile(observation_file)
+              and not os.path.islink(observation_file), "first-observation-regular-files")
+        raw = _read(observation_file)
+        _need(len(raw) <= 8192, "first-observation-size")
+        try:
+            result, observation = json.loads(_read(result_file)), json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            raise Refused("first-observation-json")
+        linked = {r for row in result.get("assertions", []) if isinstance(row, dict)
+                  for r in row.get("evidenceRefs", []) if isinstance(r, str)}
+        digests = result.get("evidenceDigests")
+        _need(ref in linked and isinstance(digests, dict) and digests.get(ref) == hashlib.sha256(raw).hexdigest(),
+              "first-observation-not-linked")
+        _need(isinstance(observation, dict) and set(observation) == keys and observation.get("contentSafe") is True
+              and observation.get("kind") == "first-account-observation" and observation.get("role") == role
+              and observation.get("inventoryStatus") in ("OBSERVED", "UNKNOWN") and observation.get("readLimit") == 100
+              and isinstance(observation.get("sanitizer"), dict) and observation["sanitizer"] == {"blockedStrings": 0, "droppedKeys": 0, "truncated": 0}
+              and re.fullmatch(r"[a-f0-9]{64}", observation.get("accountSubjectSha256", ""))
+              and re.fullmatch(r"[a-f0-9]{64}", observation.get("sourceBindingSha256", ""))
+              and re.fullmatch(r"[a-f0-9]{40}", observation.get("sourceSha", ""))
+              and observation.get("servedSha") == observation.get("sourceSha"), "first-observation-shape")
+        try:
+            _utc(observation.get("observedAtUtc"))
+        except (Refused, TypeError, ValueError):
+            raise Refused("first-observation-time")
+        counts = (observation.get("rowCount"), observation.get("completedCount"), observation.get("readableCompletedCount"))
+        if observation["inventoryStatus"] == "OBSERVED":
+            _need(all(type(v) is int and 0 <= v <= 100 for v in counts) and counts[2] <= counts[1] <= counts[0]
+                  and observation.get("readableHistoryAvailable") is (counts[2] > 0) and observation.get("inventoryComplete") is True,
+                  "first-observation-counts")
+        else:
+            _need(counts == (None, None, None) and observation.get("readableHistoryAvailable") is None
+                  and observation.get("inventoryComplete") is False, "first-observation-unknown")
+        observations.append({"caseId": case_id, "evidenceRef": ref, "sha256": hashlib.sha256(raw).hexdigest(),
+                             "observation": observation})
+    return {"schema": "speaksharp-first-observations-v1", "contentSafe": True, "selectedCases": selected,
+            "observations": observations, "notObserved": not_observed}
+
+
+def case_timing_export(cases_dir, case_results_file, selected):
+    """Project content-free per-case wall timings from the digest-bound supervisor summaries.
+
+    Full case directories remain private. This projection preserves the measurements needed to replace provisional ceilings without
+    publishing account, request, browser, assertion, or error content.
+    """
+    _need(isinstance(cases_dir, str) and os.path.isdir(cases_dir) and not os.path.islink(cases_dir), "case-timing-cases-dir")
+    _need(isinstance(selected, list) and selected and len(selected) == len(set(selected))
+          and all(re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", x or "") for x in selected), "case-timing-selection")
+    results = _load(case_results_file)
+    rows = results.get("cases") if isinstance(results, dict) else None
+    _need(isinstance(rows, list) and len(rows) == 15, "case-timing-results")
+    by_id = _unique(rows, "caseId", "case-timing-duplicate")
+    out = []
+    for case_id in selected:
+        row = by_id.get(case_id)
+        _need(isinstance(row, dict) and row.get("result") in ("PASS", "FAIL", "NOT RUN"), "case-timing-result")
+        receipt = row.get("executionReceipt")
+        if not isinstance(receipt, dict):
+            _need(row["result"] == "NOT RUN", "case-timing-missing-receipt")
+            out.append({"caseId": case_id, "result": row["result"], "timingStatus": "NOT OBSERVED",
+                        "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
+            continue
+        summary = os.path.join(os.path.realpath(cases_dir), case_id, "summary.json")
+        _need("summarySha256" in receipt, "case-timing-summary-digest")
+        if receipt.get("summarySha256") is None:
+            _need(not os.path.lexists(summary), "case-timing-summary")
+            out.append({"caseId": case_id, "result": row["result"], "timingStatus": "NOT OBSERVED",
+                        "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
+            continue
+        _need(os.path.isfile(summary) and not os.path.islink(summary), "case-timing-summary")
+        raw = _read(summary)
+        _need(hashlib.sha256(raw).hexdigest() == receipt.get("summarySha256"), "case-timing-summary-digest")
+        try:
+            doc = json.loads(raw)
+            stamps = (doc.get("startedAt"), doc.get("endedAt"))
+            _need(all(isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z", v)
+                      for v in stamps), "case-timing-time")
+            started, ended = (datetime.fromisoformat(v.replace("Z", "+00:00")) for v in stamps)
+        except (ValueError, TypeError, Refused):
+            raise Refused("case-timing-time")
+        duration = round((ended - started).total_seconds() * 1000)
+        _need(0 <= duration <= 40 * 60 * 1000, "case-timing-duration")
+        out.append({"caseId": case_id, "result": row["result"], "timingStatus": "OBSERVED",
+                    "startedAtUtc": doc["startedAt"], "endedAtUtc": doc["endedAt"], "durationMs": duration})
+    return {"schema": "speaksharp-case-timings-v1", "contentSafe": True, "selectedCases": selected, "cases": out}
+
+
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "window-check"))
+    a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "first-observations", "case-timings", "window-check", "occurrence-check",
+                                       "occurrence-materialize", "completion-deadline"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
-                 "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation"):
+                 "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
+                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
     x = a.parse_args(argv[1:])
     try:
+        if x.command == "first-observations":
+            _write_private(x.out, first_observation_export(x.cases_dir, (x.cases or "").split(",")))
+            return 0
+        if x.command == "case-timings":
+            _write_private(x.out, case_timing_export(x.cases_dir, x.case_results, (x.cases or "").split(",")))
+            return 0
+        if x.command == "completion-deadline":
+            now = _utc(x.now) if x.now else datetime.now(timezone.utc)
+            return 0 if completion_within_occurrence(_read(x.manual_occurrence_file), now) else 79
         if x.command == "project":
             q = _load(x.qualification) if x.qualification and os.path.exists(x.qualification) else None
             prov = _load(x.provenance) if x.provenance and os.path.exists(x.provenance) else None
@@ -1217,6 +1573,27 @@ def main(argv):
             return 0
         if x.command == "window-check":
             check_window_remaining(admitted_request(x.request, x.request_sha256), datetime.now(timezone.utc), int(x.live_minutes or 0))
+            return 0
+        if x.command == "occurrence-check":
+            repo = os.path.realpath(x.repo)
+            _path, _blob, raw, _template_blob = select_manual_occurrence(
+                repo, x.request, x.manual_occurrence_file,
+                x.manual_occurrence_sha256, x.source_sha, x.workflow_start_utc)
+            req = json.loads(raw)
+            cases = check_request(req, datetime.now(timezone.utc), _request_keys())
+            cfg = _load(os.path.join(repo, x.config))
+            live = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
+            check_window_fit(req, datetime.now(timezone.utc), live)
+            return 0
+        if x.command == "occurrence-materialize":
+            repo = os.path.realpath(x.repo)
+            _path, _blob, template_raw = select_request(repo, x.request, x.source_sha)
+            try:
+                template = json.loads(template_raw)
+            except ValueError:
+                raise Refused("manual-occurrence-unreadable")
+            occurrence = materialize_authoritative_smoke_occurrence(repo, template, x.workflow_start_utc)
+            _write_private(x.out, occurrence)
             return 0
         # Mask first: the whole bundle and every extracted value, before any refusal, output or environment export.
         if os.environ.get("GITHUB_ACTIONS") == "true":

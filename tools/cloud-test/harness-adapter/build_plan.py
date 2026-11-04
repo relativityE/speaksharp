@@ -100,7 +100,7 @@ def read_binding_inputs(env, argv):
     RUNTIME = env.get('BP_RUNTIME', 'Claude SpeakSharp R4')
     if RUNTIME not in ('Claude SpeakSharp R4', 'GitHub Actions SpeakSharp'):
         raise ValueError('BLOCKED_SETUP: unsupported execution runtime')
-    if MODE not in ('minimal', 'full', 'selected-full'):
+    if MODE not in ('minimal', 'smoke', 'full', 'selected-full'):
         raise InputValidationError('input-binding')
     PACKET = need('BP_PACKET')
     CHECKOUT = need('BP_CHECKOUT')
@@ -147,18 +147,22 @@ def read_binding_inputs(env, argv):
             'telemetry': 20 if feedback_delivery_selected else 0}
     MAXMS = {1: 1500000, 2: 2400000, 3: 1500000, 4: 1200000, 5: 900000, 6: 900000, 7: 1200000, 8: 300000,
              9: 900000, 10: 900000, 11: 900000, 12: 1500000, 13: 900000, 14: 900000, 15: 420000}
+    SMOKE_MAXMS = {1: 225000, 2: 160000, 3: 123000, 4: 64000, 5: 258000, 6: 252000, 7: 247000, 8: 10000,
+                   9: 190000, 10: 166000, 11: 92000, 12: 73000, 13: 45000, 14: 45000, 15: 17000}
+    SMOKE_WINDOWS = {1: 35000, 2: 23100, 3: 22000, **{n: 22850 for n in range(4, 16)}}
     require(not env.get('BP_PRESS_EXTRA'), 'press-extra-forbidden')
     TAKES = {1: 4, 2: 7, 3: 4, 4: 1, 5: 2, 6: 2, 7: 2, 8: 0, 9: 2, 10: 2, 11: 2, 12: 1, 13: 1, 14: 1, 15: 0}
     # Inactive rows retain their old defaults. Only a selected, bound allocation
     # can fund the three-action recovery path; generating a row grants nothing.
     PRESS = {1: 4, 2: 7, 3: 4, 4: 2, 5: 2, 6: 2, 7: 2, 8: 0, 9: 3, 10: 3, 11: 4, 12: 3, 13: 2, 14: 2, 15: 0}
     MINIMAL = MODE == 'minimal'
+    SMOKE = MODE == 'smoke'
     FULL = MODE == 'full'
     SELECTED_FULL = MODE == 'selected-full'
     MIN_TAKES = {1: 2, 2: 1, 3: 1, 4: 0, 5: 1, 6: 1, 7: 1, 8: 0, 9: 1, 10: 1, 11: 1, 12: 0, 13: 0, 14: 0, 15: 0}
     MIN_PRESS = {1: 2, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 0, 9: 1, 10: 1, 11: 3, 12: 1, 13: 1, 14: 1, 15: 0}
     MIN_EST = {1: 350, 2: 190, 3: 170, 4: 90, 5: 160, 6: 160, 7: 150, 8: 90, 9: 190, 10: 120, 11: 170, 12: 100, 13: 115, 14: 125, 15: 125}
-    if MINIMAL:
+    if MINIMAL or SMOKE:
         TAKES.update(MIN_TAKES); PRESS.update(MIN_PRESS)
     require(not env.get('BP_SKIP'), 'skip-forbidden')
     BP_CLEANUP = int(env.get('BP_CLEANUP', '50'))
@@ -225,7 +229,7 @@ def read_binding_inputs(env, argv):
     require(BP_CLEANUP == caps_module.integer(request['estimate']['requests'].get('cleanupReserve'), 'cleanup-estimate'), 'cleanup-binding')
     require(CAPS['total'] == caps_module.integer(request['approvedLimits'].get('runCapRequests'), 'request-cap'), 'request-cap-binding')
     require(CAPS['coaching'] == caps_module.integer(request['estimate']['providerBillableRequests'].get('coachingCap'), 'coaching-cap'), 'coaching-binding')
-    require(not (FULL or SELECTED_FULL) or SEL == list(range(1, 16)), 'full-denominator')
+    require(not (FULL or SELECTED_FULL or SMOKE) or SEL == list(range(1, 16)), 'full-denominator')
     gate_rows = []
     expected_gates = []
     for row in request['selection']:
@@ -255,6 +259,24 @@ def read_binding_inputs(env, argv):
         require(row.get('requiredAssertions') == contract['requiredAssertions'], 'catalog-assertions')
         require(type(row.get('minimumTakes')) is int and row['minimumTakes'] == contract['minimumAuthorizedTakes'], 'catalog-takes')
     require(catalog.get('minimumStarts') == 42 and catalog.get('minimumTakes') == 31 and catalog.get('totalAssertions') == 204, 'catalog-totals')
+    active_catalog_cases = catalog_cases
+    if SMOKE:
+        smoke_mode = obj(obj(configuration.get('modes'), 'package-modes').get('smoke'), 'package-smoke-mode')
+        smoke_pin = obj(smoke_mode.get('assertionCatalog'), 'smoke-catalog-pin')
+        require(smoke_pin.get('file') == 'config/smoke-assertion-catalog.json', 'smoke-catalog-path')
+        smoke_path = script_dir.parent / smoke_pin['file']
+        require(shaf(smoke_path) == smoke_pin.get('sha256'), 'smoke-catalog-digest')
+        smoke_catalog = obj(jload(smoke_path), 'smoke-catalog')
+        smoke_cases = obj(smoke_catalog.get('cases'), 'smoke-catalog-cases')
+        require(set(smoke_cases) == set(contracts), 'smoke-catalog-cases')
+        require(smoke_catalog.get('minimumStarts') == sum(MIN_PRESS.values()) and smoke_catalog.get('minimumTakes') == sum(MIN_TAKES.values()), 'smoke-catalog-caps')
+        require(smoke_catalog.get('totalAssertions') == sum(len(obj(row, 'smoke-catalog-case').get('requiredAssertions') or []) for row in smoke_cases.values()), 'smoke-catalog-total')
+        for cid, row in smoke_cases.items():
+            row = obj(row, 'smoke-catalog-case')
+            n = int(cid[-2:])
+            require(type(row.get('requiredAssertions')) is list and row['requiredAssertions'] and len(set(row['requiredAssertions'])) == len(row['requiredAssertions']), 'smoke-catalog-assertions')
+            require(row.get('minimumStarts') == MIN_PRESS[n] and row.get('minimumTakes') == MIN_TAKES[n], 'smoke-catalog-case-caps')
+        active_catalog_cases = smoke_cases
     PRESS.update({int(cid[-2:]): cap for cid, cap in binding['caps'].items()})
 
     if phase == 'phase1':
@@ -333,6 +355,10 @@ def read_binding_inputs(env, argv):
             c.update({'campaignId': CAMPAIGN, 'sourceSha': B, 'servedSha': B, 'targetUrl': f'https://{HOST_APP}',
                       'takeCap': TAKES[n], 'startPressCap': PRESS[n]})
             if MINIMAL: c['sampleMode'] = 'minimal'
+            if SMOKE:
+                c['sampleMode'] = 'smoke'
+                c['recordingWindowMs'] = SMOKE_WINDOWS[n]
+                c['requiredAssertions'] = active_catalog_cases[cid]['requiredAssertions']
             if n in SELECTED:
                 c['startPressApproval'] = {'caseId': cid, 'cap': PRESS[n],
                     'requestSha256': binding['requestSha256'], 'reconciliationSha256': binding['reconciliationSha256'],
@@ -543,10 +569,10 @@ def read_binding_inputs(env, argv):
         rows = []
         prod_cases = {1, 2, 3, 7, 8}
         oracle_cases = {1, 2, 3, 7, 8, 9, 10, 11}
-        for n in (range(1, 16) if SELECTED_FULL else SEL):
+        for n in (range(1, 16) if (SELECTED_FULL or SMOKE) else SEL):
             cid = f'AHT-{n:02d}'; drv = f'{PACKET}/draft-adapters/{cid}.cjs'
             r = {'id': cid, 'driverFile': drv, 'driverSha256': shaf(drv), 'configFile': idx['cases'][cid]['config'],
-                 'configSha256': idx['cases'][cid]['configSha256'], 'maxMs': MAXMS[n]}
+                 'configSha256': idx['cases'][cid]['configSha256'], 'maxMs': (SMOKE_MAXMS if SMOKE else MAXMS)[n]}
             if TAKES[n] > 0 or PRESS[n] > 0:
                 wav = f"{CHECKOUT}/tests/fixtures/rwt/{facts['media_of'][cid]}"; r['mediaFile'] = wav; r['mediaSha256'] = shaf(wav)
             if n in (5, 6):
@@ -563,10 +589,13 @@ def read_binding_inputs(env, argv):
                 'stepRoot': PACKET, 'stepManifestFile': f'{PRIVATE}/cfg/reviewed-steps.json', 'stepManifestSha256': idx['stepsSha256'],
                 'campaignLedger': adm['campaignLedger'], 'identityLedger': adm['identityLedger'], 'runRoot': f'{PRIVATE}/run',
                 'identityCap': IDENT_CAP, 'deadlineAt': T1, 'cleanupReserveMs': CLEANUP_MS, 'requirementMappings': [], 'cases': rows}
-        if MINIMAL:
+        if MINIMAL or SMOKE:
             plan['requestBudget'] = {'runCap': CAPS['total'], 'cleanupReserve': BP_CLEANUP,
                                      'estimates': {f'AHT-{k:02d}': v for k, v in MIN_EST.items()},
                                      'ceilings': {f'AHT-{k:02d}': ((v * 125 + 99) // 100 + 9) // 10 * 10 for k, v in MIN_EST.items()}}
+        if SMOKE:
+            plan['coverageMode'] = 'smoke'
+            plan['assertionDepth'] = 'smoke'
         if FULL or SELECTED_FULL:
             # full coverage: every case, every required assertion; the harness's own per-case caps (TAKES/PRESS) stay at the contract minimums
             if FULL and (sorted(BP_EST) != list(range(1, 16)) or SELECTED != list(range(1, 16))):

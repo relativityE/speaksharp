@@ -17,7 +17,7 @@ from _common import load  # noqa: E402
 from case_start_caps import request_caps  # noqa: E402
 
 
-SAMPLE = {"partial": "minimal", "full": "full"}
+SAMPLE = {"partial": "minimal", "smoke": "smoke", "full": "full"}
 BP_MODE = dict(SAMPLE)   # the request's coverageMode is the only source; a request without one fails here
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -81,7 +81,7 @@ def main():
         sys.exit("BLOCKED_SETUP: invalid Start allocation")
     mode = r.get("coverageMode")
     if mode not in BP_MODE:
-        sys.exit("coverageMode must be partial or full; the plan mode is never defaulted")
+        sys.exit("coverageMode must be partial, smoke or full; the plan mode is never defaulted")
     from _common import ROOT
     cfg = load(os.path.join(ROOT, "config", "test-config.v1.json"))
     allowed = cfg["modes"][mode].get("allowedSampleModes", [SAMPLE[mode]])
@@ -112,7 +112,7 @@ def main():
         "BP_RECONCILIATION_FILE": x.reconciliation, "BP_RECONCILIATION_SHA256": reconciliation_sha256,
     }
     env["BP_BACKEND_VERIFIED"] = "" if env["BP_BACKEND_VERIFIED"] == "-" else env["BP_BACKEND_VERIFIED"]
-    if builder_mode == "selected-full":
+    if builder_mode in ("selected-full", "smoke"):
         # Preserve the runner's fifteen-row denominator; only selection dispatches.
         env["BP_CASES"] = ",".join(str(n) for n in range(1, 16))
     missing = [k for k, v in env.items() if v in (None, "None") or (v == "" and k not in ("BP_GATES", "BP_BACKEND_VERIFIED"))]
