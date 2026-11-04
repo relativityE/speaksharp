@@ -112,8 +112,12 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_no_default_permission_and_each_job_holds_only_its_own(self):
         self.assertEqual(self.doc["permissions"], {})
-        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "actions": "read"})
-        self.assertEqual(self.jobs["record-complete"]["permissions"], {"issues": "write", "actions": "read"})
+        # Run 41906815122: the tracking target #1763 is a pull request, so its comments need the pull-requests permission; only the two
+        # record jobs (which list, create, update and read back that one comment) hold it, and no other job does.
+        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read"})
+        self.assertEqual(self.jobs["record-complete"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read"})
+        self.assertEqual(sorted(n for n, j in self.jobs.items() if "pull-requests" in (j.get("permissions") or {})),
+                         ["record-begin", "record-complete"])
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
 

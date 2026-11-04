@@ -99,8 +99,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      # The latest-record comment lives on tracking PR #1763: GitHub requires the pull-requests permission for a PR's comments (run
+      # 41906815122: issues alone returned HTTP 403), and this job lists, creates or updates that comment.
       issues: write
-      pull-requests: read
+      pull-requests: write
       actions: read
     outputs:
       comment_id: ${{ steps.begin.outputs.comment_id }}
@@ -684,7 +686,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      # Updates and reads back the same latest-record comment on tracking PR #1763 (see record-begin).
       issues: write
+      pull-requests: write
       actions: read
     steps:
       - uses: actions/checkout@v6
