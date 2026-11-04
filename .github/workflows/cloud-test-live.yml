@@ -100,6 +100,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       issues: write
+      pull-requests: read
       actions: read
     outputs:
       comment_id: ${{ steps.begin.outputs.comment_id }}
