@@ -20,6 +20,7 @@ sys.path.insert(0, str(SCRIPTS))
 from case_start_caps import CASE_IDS, MINIMAL_MINIMA, InputValidationError, request_caps  # noqa: E402
 import run_env  # noqa: E402
 import init_run_inputs as init  # noqa: E402
+import check_gates  # noqa: E402
 import check_coverage as coverage  # noqa: E402
 from test_init_run_inputs import ACCOUNT_ID, CFG, KEYS, NOW, SUPABASE_URL_OK, bundle_with, facts, live_request  # noqa: E402
 from test_case_start_caps import SyntheticBuilder  # noqa: E402
@@ -72,12 +73,16 @@ class ShortSmokeContract(unittest.TestCase):
         value = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, start)
         self.assertEqual(value["window"]["startUtc"], start)
         self.assertEqual(value["window"]["endUtc"], "2026-11-03T18:50:00Z")
+        self.assertEqual(value["window"]["endToEndMinutes"], 80)
+        self.assertEqual(value["window"]["liveMinutes"], 40)
         self.assertIn("not measured runtime", value["window"]["basis"])
         now = datetime(2026, 11, 3, 17, 30, 0, tzinfo=timezone.utc)
         cases = init.check_request(value, now, init._request_keys())
         cfg = json.loads((ROOT / "config/test-config.v1.json").read_text())
         live = init.check_ceilings(cfg, value, cases, 65)
         self.assertEqual(live, 40)
+        self.assertEqual(check_gates.occurrence_window_limit(
+            value, cfg["modes"]["smoke"]["limits"], False, 80), (80, []))
         init.check_window_fit(value, now, live)
         # A real dispatch has startup delay.  The occurrence must survive it,
         # while still refusing once less than live + collect remains.

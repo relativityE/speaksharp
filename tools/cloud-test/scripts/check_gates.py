@@ -37,6 +37,32 @@ def gate(gid, status, detail, needs=None):
     return {"id": gid, "status": status, "detail": detail, "needs": needs or []}
 
 
+def occurrence_window_limit(req, lim, recurring, minutes):
+    """Return the admitted occurrence ceiling and any fail-closed errors.
+
+    `maxWindowMinutes` remains the live-execution ceiling.  A materialized one-off smoke occurrence may
+    separately name its owner-approved end-to-end workflow envelope; both declarations must be present,
+    internally exact, and keep the live portion inside the configured ceiling.  Ordinary and nightly
+    requests retain their existing behavior.
+    """
+    if recurring:
+        return NIGHTLY_MAX_WINDOW_MINUTES, []
+    win, est = req.get("window") or {}, req.get("estimate") or {}
+    end_to_end, live = win.get("endToEndMinutes"), win.get("liveMinutes")
+    if end_to_end is None and live is None:
+        return lim["maxWindowMinutes"], []
+    errors = []
+    if req.get("coverageMode") != "smoke" or not isinstance(end_to_end, int) or isinstance(end_to_end, bool) or end_to_end < 1:
+        errors.append("end-to-end occurrence minutes are missing or invalid")
+    if not isinstance(live, int) or isinstance(live, bool) or live < 1 or live > lim["maxWindowMinutes"]:
+        errors.append("live minutes are missing, invalid, or exceed the configured %d-minute ceiling" % lim["maxWindowMinutes"])
+    if isinstance(end_to_end, int) and not isinstance(end_to_end, bool) and end_to_end != minutes:
+        errors.append("declared end-to-end occurrence %d min does not equal the %.0f-minute window" % (end_to_end, minutes))
+    if isinstance(live, int) and not isinstance(live, bool) and est.get("githubRunnerMinutesMax") != live:
+        errors.append("declared live minutes do not match the request estimate")
+    return end_to_end if isinstance(end_to_end, int) and not isinstance(end_to_end, bool) else lim["maxWindowMinutes"], errors
+
+
 # TEST-ONLY overrides of the authenticated journal source; production reads state_ref_writer.APPROVED_URL from the pinned REVIEWED_ROOT.
 JOURNAL_URL = None
 JOURNAL_ROOT = None
@@ -276,7 +302,8 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         owner_missing.append("run window (start, end, approval reference) not set")
     else:
         mins = (parse_utc(win["endUtc"]) - parse_utc(win["startUtc"])).total_seconds() / 60
-        window_limit = NIGHTLY_MAX_WINDOW_MINUTES if recurring else lim["maxWindowMinutes"]
+        window_limit, window_errors = occurrence_window_limit(req, lim, recurring, mins)
+        need.extend(window_errors)
         if mins <= 0 or mins > window_limit:
             need.append("window length %.0f min is outside 1..%d" % (mins, window_limit))
         if parse_utc(win["endUtc"]) <= now:

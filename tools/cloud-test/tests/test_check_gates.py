@@ -198,6 +198,21 @@ class CheckGates(unittest.TestCase):
         r["window"]["endUtc"] = "2099-01-01T20:00:00Z"
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G5"], "NOT-READY")
 
+        # A reviewed smoke occurrence distinguishes its end-to-end workflow envelope from the unchanged
+        # live ceiling. Both values must be exact; neither omission nor an oversized live allowance passes.
+        smoke = copy.deepcopy(r)
+        smoke["coverageMode"] = smoke["sampleMode"] = "smoke"
+        smoke["estimate"]["githubRunnerMinutesMax"] = 40
+        old_limit, old_errors = C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80)
+        self.assertEqual(old_errors, [])
+        self.assertGreater(80, old_limit, "without both declarations the old 40-minute occurrence ceiling still blocks")
+        smoke["window"].update({"endToEndMinutes": 80, "liveMinutes": 40})
+        self.assertEqual(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80), (80, []))
+        for patch in ({"endToEndMinutes": 79}, {"liveMinutes": 41}, {"liveMinutes": None}, {"endToEndMinutes": None}):
+            bad = copy.deepcopy(smoke)
+            bad["window"].update(patch)
+            self.assertTrue(C.occurrence_window_limit(bad, {"maxWindowMinutes": 40}, False, 80)[1], patch)
+
     def test_expected_pass_unconfirmed_is_owner_input(self):
         r, l = approved(self.req, self.ledger)
         l["gaps"][2]["expectedPass"]["confirmedByOwner"] = False

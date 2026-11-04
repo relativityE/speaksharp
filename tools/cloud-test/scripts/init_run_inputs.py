@@ -141,6 +141,8 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, scope_appro
     out["createdUtc"] = initiation
     out["window"] = {"startUtc": initiation,
                      "endUtc": (start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                     "endToEndMinutes": ONE_OFF_LIMITS["endToEndMinutes"],
+                     "liveMinutes": ONE_OFF_LIMITS["liveMinutes"],
                      "approvalRef": approval_ref,
                      "basis": "actual initiation + 5m record + 3m reserve + 65m live-job ceiling + 5m parallel settlement/record completion + 2m structural slack; live ceiling remains 40m; not measured runtime"}
     out["selectionApprovalRef"] = approval_ref
