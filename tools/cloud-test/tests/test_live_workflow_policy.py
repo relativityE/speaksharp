@@ -587,8 +587,12 @@ class LiveWorkflowPolicy(unittest.TestCase):
         # which signs the two selected accounts in with their own passwords, and prepare. Nothing else does.
         pre = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Prove the selected accounts' bounded first-use prerequisites")
         self.assertEqual(pre["if"], "github.event_name == 'workflow_dispatch'")
-        self.assertEqual(set(pre["env"]), {"FACTS", "CLOUD_TEST_LIVE_ACCOUNTS", "SUPABASE_URL", "SUPABASE_ANON_KEY", "THROWAWAY_TEST_PASSWORD",
-                                           "FREE_TEST_PASSWORD"})
+        self.assertEqual(set(pre["env"]), {"FACTS", "MANUAL_OCCURRENCE_SHA256", "MANUAL_OCCURRENCE_B64", "CLOUD_TEST_LIVE_ACCOUNTS",
+                                           "SUPABASE_URL", "SUPABASE_ANON_KEY", "THROWAWAY_TEST_PASSWORD", "FREE_TEST_PASSWORD"})
+        self.assertEqual((pre["env"]["MANUAL_OCCURRENCE_SHA256"], pre["env"]["MANUAL_OCCURRENCE_B64"]),
+                         ("${{ needs.record-begin.outputs.manual_occurrence_sha256 }}", "${{ needs.record-begin.outputs.manual_occurrence_b64 }}"))
+        # Every preflight request is bounded by the authorized occurrence's deadline (record-begin's bytes, checked by digest).
+        self.assertIn('--occurrence-file "$preflight/occurrence.json" --occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256"', pre["run"])
         self.assertNotIn("SERVICE_ROLE", json.dumps(pre))
         holders = [s.get("name", s.get("uses")) for j in self.jobs.values() for s in j["steps"] if "CLOUD_TEST_LIVE_ACCOUNTS" in (s.get("env") or {})]
         self.assertEqual(holders, [pre["name"], init["name"]])

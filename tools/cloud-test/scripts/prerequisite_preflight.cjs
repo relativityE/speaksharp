@@ -15,6 +15,12 @@ const PASSWORDS = Object.freeze({
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA40 = /^[0-9a-f]{40}$/;
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:@/#-]{2,159}$/;
+const RUN_ID = 'R10-3b040043-smoke15';
+const OCCURRENCE_WINDOW_MS = 80 * 60 * 1000;  // init_run_inputs.SMOKE_OCCURRENCE_WINDOW_MINUTES
+const REQUEST_TIMEOUT_MS = 10000;
+const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+// The one clock every deadline check reads; tests replace clock.now, production never does.
+const clock = {now: () => Date.now()};
 
 function refuse(code) { const error = new Error(code); error.code = 'BLOCKED_SETUP'; throw error; }
 function plain(value) { return value && typeof value === 'object' && !Array.isArray(value); }
@@ -61,21 +67,47 @@ function originFor(bundle) {
   if (origin.origin !== `https://${bundle.projectRef}.supabase.co` || origin.pathname !== '/' || origin.search || origin.hash) refuse('project-origin');
   return origin.origin;
 }
-async function request(url, options, code) {
+function authorizedOccurrence(file, expectedSha) {
+  // The occurrence the run was authorized for: exactly the bytes record-begin selected (by digest), the one-off R10 run, its creation
+  // equal to its window start, and the reviewed 80-minute window.
+  let raw;
+  try {
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 262144) refuse('occurrence-unreadable');
+    raw = fs.readFileSync(file);
+  } catch (error) { if (error.code === 'BLOCKED_SETUP') throw error; refuse('occurrence-unreadable'); }
+  if (!/^[0-9a-f]{64}$/.test(expectedSha || '') || sha(raw) !== expectedSha) refuse('occurrence-not-the-authorized-bytes');
+  let occurrence;
+  try { occurrence = JSON.parse(raw.toString('utf8')); } catch { refuse('occurrence-unreadable'); }
+  const window = plain(occurrence) ? occurrence.window : null;
+  if (!plain(window) || occurrence.runId !== RUN_ID || occurrence.createdUtc !== window.startUtc
+      || !UTC.test(window.startUtc || '') || !UTC.test(window.endUtc || '')) refuse('occurrence-shape');
+  const start = Date.parse(window.startUtc), end = Date.parse(window.endUtc);
+  if (end - start !== OCCURRENCE_WINDOW_MS) refuse('occurrence-window');
+  return {start, end};
+}
+function requireDeadline(deadline) {
+  // Before the first request and before every later one: the authorized window must be open, and the whole bounded request (its
+  // timeout) must finish before the deadline. Nothing is sent once it cannot.
+  const now = module.exports.clock.now();
+  if (!deadline || now < deadline.start || now + REQUEST_TIMEOUT_MS > deadline.end) refuse('occurrence-deadline');
+}
+async function request(url, options, code, deadline) {
+  requireDeadline(deadline);
   let response;
-  try { response = await fetch(url, {...options, redirect: 'error', signal: AbortSignal.timeout(10000)}); }
+  try { response = await fetch(url, {...options, redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)}); }
   catch { refuse(`${code}-transport`); }
   let body;
   try { body = await response.json(); } catch { refuse(`${code}-response`); }
   return {status: response.status, body};
 }
-async function inspectRole(origin, anon, role, account, otherId) {
+async function inspectRole(origin, anon, role, account, otherId, deadline) {
   const password = process.env[PASSWORDS[role]];
   if (typeof password !== 'string' || !password) refuse('role-password-missing');
   const auth = await request(`${origin}/auth/v1/token?grant_type=password`, {
     method: 'POST', headers: {apikey: anon, 'content-type': 'application/json'},
     body: JSON.stringify({email: account.email, password}),
-  }, 'auth');
+  }, 'auth', deadline);
   if (auth.status !== 200 || !plain(auth.body) || typeof auth.body.access_token !== 'string'
       || !plain(auth.body.user) || auth.body.user.id !== account.accountId) refuse('auth-binding');
   const token = auth.body.access_token;
@@ -85,7 +117,7 @@ async function inspectRole(origin, anon, role, account, otherId) {
     query.searchParams.set('select', select);
     query.searchParams.set(table === 'user_profiles' ? 'id' : 'user_id', `eq.${id}`);
     query.searchParams.set('limit', '2');
-    const result = await request(query, {method: 'GET', headers}, 'rls-read');
+    const result = await request(query, {method: 'GET', headers}, 'rls-read', deadline);
     if (result.status !== 200 || !Array.isArray(result.body) || result.body.length > 2) refuse('rls-read');
     return result.body;
   }
@@ -108,8 +140,9 @@ function args(argv) {
   return {command, out};
 }
 async function prepare(values) {
-  for (const key of ['--facts', '--out-dir', '--run-id', '--source-sha']) if (!values[key]) refuse('arguments');
-  if (values['--run-id'] !== 'R10-3b040043-smoke15' || !SHA40.test(values['--source-sha'])) refuse('run-binding');
+  for (const key of ['--facts', '--out-dir', '--run-id', '--source-sha', '--occurrence-file', '--occurrence-sha256']) if (!values[key]) refuse('arguments');
+  if (values['--run-id'] !== RUN_ID || !SHA40.test(values['--source-sha'])) refuse('run-binding');
+  const deadline = authorizedOccurrence(path.resolve(values['--occurrence-file']), values['--occurrence-sha256']);
   const outDir = path.resolve(values['--out-dir']); const stat = fs.lstatSync(outDir);
   if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o700) refuse('output-parent-not-private');
   const facts = readJson(path.resolve(values['--facts']), 'facts-unreadable');
@@ -124,7 +157,7 @@ async function prepare(values) {
   const observations = {};
   for (const role of ROLES) {
     const other = bundle.accounts[ROLES.find(candidate => candidate !== role)].accountId;
-    observations[role] = await inspectRole(origin, anon, role, bundle.accounts[role], other);
+    observations[role] = await inspectRole(origin, anon, role, bundle.accounts[role], other, deadline);
   }
   // The cross-session denial counts as controlled only when the other account's own sessions were visible to itself.
   for (const role of ROLES) {
@@ -162,4 +195,4 @@ async function main(argv = process.argv.slice(2)) {
   catch (error) { process.stderr.write(`BLOCKED_SETUP: ${error?.message || 'prerequisite-preflight'}\n`); return 78; }
 }
 if (require.main === module) main().then(code => { process.exitCode = code; });
-module.exports = {main, prepare, charge, canonical, bytes};
+module.exports = {main, prepare, charge, canonical, bytes, clock};
