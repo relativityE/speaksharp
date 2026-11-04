@@ -72,11 +72,14 @@ class LiveWorkflowPolicy(unittest.TestCase):
         step = gate["steps"][-1]
         self.assertEqual(step["env"], {"NIGHTLY_SWITCH": "${{ vars.RUN_NIGHTLY_REGRESSION }}", "SCHEDULE_CRON": "${{ github.event.schedule }}",
                                        "GH_TOKEN": "${{ github.token }}"})
-        # The trigger time is the run's creation, read only when the switch is on; the gate decides the switch before anything else.
-        self.assertIn('if [ "$NIGHTLY_SWITCH" = true ]; then TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '
-                      '--jq .created_at)"; fi', step["run"])
+        # Creation binds the slot and the actual start opens the window; both are read only when the switch is on, after the switch decision.
+        self.assertIn('if [ "$NIGHTLY_SWITCH" = true ]; then\n'
+                      '  TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"\n'
+                      '  STARTED_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)"\n'
+                      'fi', step["run"])
         self.assertIn('nightly_request.py gate --switch "$NIGHTLY_SWITCH" --attempt "$GITHUB_RUN_ATTEMPT"', step["run"])
-        self.assertIn('--cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --run-id "$GITHUB_RUN_ID" --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"',
+        self.assertIn('--cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --started-utc "$STARTED_UTC" --run-id "$GITHUB_RUN_ID" \\\n'
+                      '  --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"',
                       step["run"])
         self.assertEqual(gate["outputs"], {"admitted": "${{ steps.gate.outputs.admitted }}", "request_sha256": "${{ steps.gate.outputs.request_sha256 }}",
                                            "request_b64": "${{ steps.gate.outputs.request_b64 }}"})

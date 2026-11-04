@@ -87,13 +87,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TRIGGER_UTC=''
-          # The occurrence is bound to the run's ORIGINAL trigger time (its creation), read only when the switch is on.
-          if [ "$NIGHTLY_SWITCH" = true ]; then TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"; fi
+          TRIGGER_UTC='' STARTED_UTC=''
+          # The occurrence is bound to the run's ORIGINAL trigger time (its creation); its window opens at the run's actual start. Both are
+          # read only when the switch is on.
+          if [ "$NIGHTLY_SWITCH" = true ]; then
+            TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"
+            STARTED_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)"
+          fi
           # The WHOLE admission happens here, before any record mutation or credential-bearing job: gate, anchored template and budget,
           # replay from the verified state-ref chain, the derivation and the fit from now.
           python3 -I tools/cloud-test/scripts/nightly_request.py gate --switch "$NIGHTLY_SWITCH" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --run-id "$GITHUB_RUN_ID" --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"
+            --cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --started-utc "$STARTED_UTC" --run-id "$GITHUB_RUN_ID" \
+            --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"
 
   record-begin:
     name: Record the attempt (latest-record comment; no live credentials)
