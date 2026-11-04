@@ -43,7 +43,7 @@ APPROVAL = re.compile(r"slack-[0-9]{10}\.[0-9]{6}")
 RUN_RECORD_SCHEMA = "speaksharp.cloud-test.run-record.v1"
 # The exact PO-approved fresh-period scope, pinned with the bootstrap and writer
 # root.  A substituted scope is refused before any journal transition.
-ACCEPTED_SCOPE_SHA256 = "2a56f3b9b1e90275daf2b7826fb30df932adcab39c6e87eb4c546959850ee948"
+ACCEPTED_SCOPE_SHA256 = "ee31d2f9b9a3e0c75af903466e262041ab2b800a00d79d31a58cd404ea2b8eb9"
 
 
 class Refused(ValueError):
