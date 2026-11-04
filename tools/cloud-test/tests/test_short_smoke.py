@@ -136,7 +136,7 @@ class ShortSmokeContract(unittest.TestCase):
                     str(ROOT.parents[1]), template_rel, str(path), hashlib.sha256(raw).hexdigest(),
                     init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), "2026-11-03T17:30:01Z")
         with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
-            init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-04T10:40:01Z")
+            init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-04T12:40:01Z")
 
     def test_one_off_grant_rejects_caller_authority_release_checkpoint_and_scope_tampering(self):
         repo = str(ROOT.parents[1])

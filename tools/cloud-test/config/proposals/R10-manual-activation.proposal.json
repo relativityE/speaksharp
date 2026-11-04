@@ -16,7 +16,7 @@
   },
   "periodScope": {
     "periodStartUtc": "2026-11-02T20:15:00Z",
-    "periodEndUtc": "2026-11-04T12:00:00Z",
+    "periodEndUtc": "2026-11-04T14:00:00Z",
     "carryover": "none",
     "knownMinimumCeilings": {
       "requests": 4342,
@@ -33,7 +33,7 @@
       "takes": 31
     },
     "approvalRef": "chat:PO_R10_SCOPE_EXTENSION_2026-11-03",
-    "sha256": "ecf4fa2b14286835aac70b2c60c95902653105b9a55658100a7a8523fb68829d"
+    "sha256": "2a56f3b9b1e90275daf2b7826fb30df932adcab39c6e87eb4c546959850ee948"
   },
   "rootRefCreationSelected": true,
   "activationPinsSelected": true,
