@@ -14,6 +14,24 @@ const {summarizeAssertions}=require(P+'/bundle/harness/case-results.cjs');
 const {sanitizeEvidence}=require(P+'/bundle/harness/evidence-sanitizer.cjs');
 const Pn='pending',Pa='partial',Cv='covered';
 const frozen=(timeline,extra={})=>({frozen:true,samples:60,unreadable:0,timeline,multiMarker:[],...extra});
+test('R10 AHT-02/03 smoke executes only its reviewed denominator and never emits the excluded full-depth coaching row',async()=>{
+  const smokeTiming=require(P+'/draft-adapters/oracles/pure/smokeTiming.cjs');
+  const ownerStub={'./oracles/owner-query.cjs':{createOwnerDb:()=>({}),rows:async()=>[]}};
+  for(const id of ['AHT-02','AHT-03']){
+    const required=sourceAdapters.SMOKE_CONTRACTS[id].rows;
+    const r=await fake(id,{cfg:{sampleMode:'smoke',recordingWindowMs:smokeTiming.WINDOWS[id],requiredAssertions:required,takeCap:1,startPressCap:1},extraStubs:ownerStub});
+    assert.equal(r.res.blocker,null);
+    assert.equal(r.res.assertions.some(row=>row.id==='grounded-coaching'),false);
+    assert.deepEqual(r.res.assertions.filter(row=>!required.includes(row.id)).map(row=>row.id),[],'the live adapter must not add a row outside the selected smoke denominator');
+  }
+});
+test('R10 AHT-08 real adapter performs its required feedback receiver preflight',async()=>{
+  const required=sourceAdapters.SMOKE_CONTRACTS['AHT-08'].rows;
+  const r=await fake('AHT-08',{cfg:{sampleMode:'smoke',requiredAssertions:required,takeCap:0,startPressCap:0}});
+  const row=r.res.assertions.find(assertion=>assertion.id==='feedback-readback-preflight');
+  assert.equal(row?.result,'PASS');
+  assert.equal(r.recorded.filter(assertion=>assertion.id==='feedback-readback-preflight').length,1);
+});
 // ---------- H. first-use account history ----------
 test('H1 the first observation retains only bounded counts and a subject digest; fresh and returning accounts stay distinct',()=>{
   const cfg={sourceSha:'a'.repeat(40),servedSha:'a'.repeat(40),account:{mode:'existing-disposable',id:'11111111-1111-4111-8111-111111111111',bindingReceiptSha256:'b'.repeat(64)}};

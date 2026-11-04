@@ -30,6 +30,27 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(list(on), ["workflow_dispatch"])
         self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
 
+    def test_record_begin_sparse_checkout_contains_the_accounting_scope_used_by_one_off_grant(self):
+        checkout = next(step for step in self.jobs["record-begin"]["steps"]
+                        if str(step.get("uses", "")).startswith("actions/checkout@"))
+        patterns = [line.strip() for line in checkout["with"]["sparse-checkout"].splitlines() if line.strip()]
+        self.assertIn("tools/cloud-test/config/aggregate", patterns)
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = os.path.join(tmp, "sparse")
+            subprocess.run(["git", "clone", "--quiet", "--no-checkout", REPO, clone], check=True)
+            subprocess.run(["git", "-C", clone, "sparse-checkout", "init", "--cone"], check=True)
+            subprocess.run(["git", "-C", clone, "sparse-checkout", "set", *patterns], check=True)
+            subprocess.run(["git", "-C", clone, "checkout", "--quiet", "HEAD"], check=True)
+            probe = subprocess.run([
+                "python3", "-c",
+                "import os,sys;sys.path.insert(0,sys.argv[1]);import init_run_inputs as i;print(os.path.join(sys.argv[2],i.CONTINUITY_DIR,i.CONTINUITY_SCOPE))",
+                os.path.join(clone, "tools", "cloud-test", "scripts"),
+                clone,
+            ], check=True, capture_output=True, text=True)
+            scope = probe.stdout.strip()
+            self.assertEqual(scope, os.path.join(clone, "tools", "cloud-test", "config", "aggregate", "period-scope.json"))
+            self.assertTrue(os.path.isfile(scope), "record-begin must carry the scope one_off_grant reads")
+
     def test_a_scheduled_run_is_gated_before_any_record_secret_or_live_job_and_no_cron_is_registered(self):
         # Sam 1793553158.013909: the cron stays a proposed artifact; nothing here is registered.
         on = self.doc.get("on", self.doc.get(True))
@@ -270,7 +291,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "f0c1a58de572fc393541c828c0e095f285ad5e57733b30fbd592716ee8379113",
+            "manifestSha256": "0c6e2371cf20e2be54b5de82176fb8436e051b19e354f968f78daec17e859c1f",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })

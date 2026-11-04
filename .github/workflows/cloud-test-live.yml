@@ -134,6 +134,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             tools/cloud-test/scripts
+            tools/cloud-test/config/aggregate
             tools/cloud-test/config/runs
             tools/cloud-test/config/test-config.v1.json
             tools/cloud-test/templates/run-request.template.json
