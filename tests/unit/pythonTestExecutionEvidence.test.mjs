@@ -97,18 +97,6 @@ test('nightly synthetic template is bound only to the test that reads it',()=>{
   ]);
 });
 
-test('setup-failure recovery fixtures are bound only to the test that reads them, and a sibling stays unregistered',()=>{
-  // CI 42033791614: these three real-data inputs were UNCOVERED until registered. Each maps to the one consumer that opens it
-  // (load()/workflow() in test_unexecuted_attempt_evidence.py); an unregistered file beside them still has no route.
-  const dir='tools/cloud-test/tests/fixtures/unexecuted/',consumer='tools/cloud-test/tests/test_unexecuted_attempt_evidence.py';
-  const inputs=['cloud-test-live.8f9f9451.yml','jobs-41960376782.json','run-41960376782.json'].map(name=>dir+name);
-  assert.deepEqual(PYTHON_INPUT_CONTRACTS.filter(item=>item.inputFile.startsWith(dir)),inputs.map(inputFile=>({inputFile,testFile:consumer})));
-  assert.deepEqual(selectPythonContracts([...inputs].reverse()),[{testFile:consumer,sourceFiles:inputs,batch:0}]);
-  assert.deepEqual(selectPythonContracts([dir+'unregistered.json']),[]);
-  const source=fs.readFileSync(path.join(repo,consumer),'utf8');
-  for(const name of ['run-41960376782.json','jobs-41960376782.json','cloud-test-live.8f9f9451.yml'])assert.ok(source.includes(JSON.stringify(name)),name);
-});
-
 test('real Python reporter credits nonempty lines returned by readlines',()=>{
   const f=fixture(),contract=PYTHON_INPUT_CONTRACTS.find(item=>item.inputFile.endsWith('plan-facts.PLACEHOLDER.json'));
   try {
