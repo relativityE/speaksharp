@@ -19,8 +19,8 @@ name: Cloud Test live journeys (manual, GitHub-hosted)
 #    Each role's password comes only from its own Secret; the runner gives every case child only its own role's pair (14+1);
 #  - no evidence payload, transcript, account identifier or row content leaves the live job; only the closed latest record does.
 #
-# NIGHTLY (Sam 1793553158.013909 / 1793553275.772209): the reviewed cron from tools/cloud-test/config/nightly/schedule.proposed.yml is
-# registered below and stays off unless vars.RUN_NIGHTLY_REGRESSION is exactly "true" (PO 2026-11-02). A scheduled run first passes the credential-free nightly-gate job (switch,
+# NIGHTLY (Sam 1793553158.013909 / 1793553275.772209): source only. No `schedule:` trigger is registered here; the proposed cron lives in
+# tools/cloud-test/config/nightly/schedule.proposed.yml. A scheduled run would first pass the credential-free nightly-gate job (switch,
 # attempt 1, activated state-ref writer, valid standing approval); record-begin, and through it every later job including the always()
 # record job, runs only when that gate admitted it, so an inactive nightly holds no secret, makes no live effect or reservation write and
 # never overwrites the latest record. Manual and nightly share the ONE serialized concurrency group below (cancel-in-progress: false).
@@ -29,11 +29,6 @@ name: Cloud Test live journeys (manual, GitHub-hosted)
 # 1793472499.701439); before every update the record jobs verify the comment's
 # issue, author, marker and id.
 on:
-  # Activation wiring: the reviewed proposed cron (config/nightly/schedule.proposed.yml), registered. Every scheduled invocation first passes the
-  # credential-free nightly-gate job, which stays quiet while vars.RUN_NIGHTLY_REGRESSION is not exactly "true", and refuses until the
-  # writer root, standing approval, template and budget are pinned; nothing downstream (secrets, record, reserve, live) runs before it admits.
-  schedule:
-    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       request:
@@ -82,23 +77,18 @@ jobs:
       - name: Evaluate the nightly gate (quiet when switched off; a visible failure for any other refusal)
         id: gate
         env:
-          NIGHTLY_SWITCH: ${{ vars.RUN_NIGHTLY_REGRESSION }}
+          NIGHTLY_SWITCH: ${{ vars.CLOUD_TEST_NIGHTLY_ENABLED }}
           SCHEDULE_CRON: ${{ github.event.schedule }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TRIGGER_UTC='' STARTED_UTC=''
-          # The occurrence is bound to the run's ORIGINAL trigger time (its creation); its window opens at the run's actual start. Both are
-          # read only when the switch is on.
-          if [ "$NIGHTLY_SWITCH" = true ]; then
-            TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"
-            STARTED_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .run_started_at)"
-          fi
+          TRIGGER_UTC=''
+          # The occurrence is bound to the run's ORIGINAL trigger time (its creation), read only when the switch is on.
+          if [ "$NIGHTLY_SWITCH" = true ]; then TRIGGER_UTC="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)"; fi
           # The WHOLE admission happens here, before any record mutation or credential-bearing job: gate, anchored template and budget,
           # replay from the verified state-ref chain, the derivation and the fit from now.
           python3 -I tools/cloud-test/scripts/nightly_request.py gate --switch "$NIGHTLY_SWITCH" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --started-utc "$STARTED_UTC" --run-id "$GITHUB_RUN_ID" \
-            --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"
+            --cron "$SCHEDULE_CRON" --trigger-utc "$TRIGGER_UTC" --run-id "$GITHUB_RUN_ID" --tested-sha "$GITHUB_SHA" --outputs "$GITHUB_OUTPUT"
 
   record-begin:
     name: Record the attempt (latest-record comment; no live credentials)
@@ -109,7 +99,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      # The latest-record comment lives on tracking PR #1763: GitHub requires the pull-requests permission for a PR's comments (run
+      # 41906815122: issues alone returned HTTP 403), and this job lists, creates or updates that comment.
       issues: write
+      pull-requests: write
       actions: read
     outputs:
       comment_id: ${{ steps.begin.outputs.comment_id }}
@@ -209,12 +202,33 @@ jobs:
               --occurrence "$RUNNER_TEMP/prior-completion/occurrence.json" --out "$RUNNER_TEMP/reconciled.md"
             mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
           fi
+          # Run 41933223835 stopped at the reserve job (the workflow token was refused) before any reservation, so its `incomplete` in-progress
+          # record has no completion artifact and `begin` would refuse every later run. Exactly that one attempt may be retired, and only on
+          # evidence that it never reserved: GitHub reports the run failed with the reserve job failed and the live and settle jobs skipped, and
+          # the validated state-ref journal (pinned reviewed root) names no event for it. It is kept in the record as retired history, never as
+          # a completed run; usage, attempt and reservation records are not touched. Any other stuck attempt still refuses in `begin`.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unreserved_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run" > "$RUNNER_TEMP/unreserved-run.json"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run/jobs?per_page=100" > "$RUNNER_TEMP/unreserved-jobs.json"
+            python3 -I tools/cloud-test/scripts/unreserved_attempt_evidence.py --run "$RUNNER_TEMP/unreserved-run.json" \
+              --jobs "$RUNNER_TEMP/unreserved-jobs.json" --out "$RUNNER_TEMP/unreserved-evidence.json"
+            python3 -I "$P" retire-unreserved --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unreserved-evidence.json" \
+              --out "$RUNNER_TEMP/retired-unreserved.md"
+            mv "$RUNNER_TEMP/retired-unreserved.md" "$RUNNER_TEMP/previous.md"
+            retired_unreserved=1
+          fi
           # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
           python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"
           started_utc="${WORKFLOW_START_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
           python3 -I "$P" begin --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --source-sha "$GITHUB_SHA" --started-utc "$started_utc" --out "$RUNNER_TEMP/body.md"
           id="$(cat "$RUNNER_TEMP/comment-id")"
+          if [ "${retired_unreserved:-}" = 1 ]; then
+            # Re-read the stored comment immediately before publishing and bind it to the exact record the retirement consumed: a record that
+            # changed since it was selected is never overwritten.
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" > "$RUNNER_TEMP/predecessor-current.json"
+            python3 -I "$P" verify-predecessor --selected "$RUNNER_TEMP/selected.json" --current "$RUNNER_TEMP/predecessor-current.json"
+          fi
           if [ -n "$id" ]; then
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
           else
@@ -298,7 +312,7 @@ jobs:
     # isolated writer jobs are unchanged.
     # Manual R10 smoke watchdog: 15 minutes setup + 40 minutes live ceiling + 10 minutes collection/settlement. These are admission bounds,
     # not measured runtime. The separately owned scheduled lane retains its existing outer watchdog until measured full-depth timings replace it.
-    timeout-minutes: 65
+    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}
     permissions:
       contents: read
     env:
@@ -379,6 +393,33 @@ jobs:
           CT_PROOF_FILE="$RUNNER_TEMP/offline-proof.json" python3 -I scripts/run_offline_checks.py --out "$RUNNER_TEMP/offline-checks.json"
           echo "CT_OFFLINE_PROOF=$RUNNER_TEMP/offline-proof.json" >> "$GITHUB_ENV"
           echo "CT_OFFLINE_CHECKS=$RUNNER_TEMP/offline-checks.json" >> "$GITHUB_ENV"
+      - name: Prove the selected accounts' bounded first-use prerequisites
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          FACTS: ${{ inputs.facts }}
+          MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
+          MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
+          CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "$CT_OUT" ]; then mkdir -m 700 "$CT_OUT"; fi
+          [ ! -L "$CT_OUT" ] && [ "$(stat -c '%a' "$CT_OUT")" = 700 ] || { echo 'BLOCKED_SETUP: private-output-root'; exit 78; }
+          preflight="$CT_OUT/prerequisite-preflight"
+          mkdir -m 700 "$preflight"
+          (umask 077; printf '%s' "$FACTS" > "$preflight/input-facts.json")
+          # The authorized occurrence (record-begin's selected bytes, checked by digest) bounds every request by its deadline.
+          (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$preflight/occurrence.json")
+          node tools/cloud-test/scripts/prerequisite_preflight.cjs prepare --facts "$preflight/input-facts.json" \
+            --out-dir "$preflight" --run-id R10-3b040043-smoke15 --source-sha "$GITHUB_SHA" \
+            --occurrence-file "$preflight/occurrence.json" --occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256"
+          {
+            echo "CT_PREREQUISITE_FACTS=$preflight/facts.json"
+            echo "CT_PREREQUISITE_RECEIPT=$preflight/receipt.json"
+          } >> "$GITHUB_ENV"
       - name: Select the committed request and bind this run's inputs
         id: init
         env:
@@ -396,7 +437,7 @@ jobs:
           # observe step hands them, with the bundle's account id and email, to case10_reader's own subprocess and to nothing else.
           CT_CASE10_PASSWORD: ${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}
           CT_CASE10_ANON_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}
-          JOB_TIMEOUT_MINUTES: '65'
+          JOB_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && '65' || '340' }}
         run: |
           set -euo pipefail
           # Sam 1793584373.385389: the Case 10 reader's credentials reach ONLY the observe child. They move into unexported shell variables at
@@ -419,6 +460,8 @@ jobs:
             if [ -f "$RUNNER_TEMP/case10-observation.json" ]; then SRC+=(--case10-observation "$RUNNER_TEMP/case10-observation.json"); fi
           else
             (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
+            [ -f "${CT_PREREQUISITE_FACTS:-}" ] && [ ! -L "${CT_PREREQUISITE_FACTS:-}" ] || { echo 'BLOCKED_SETUP: prerequisite-facts-missing'; exit 78; }
+            FACTS="$(cat "$CT_PREREQUISITE_FACTS")"
             SRC=(--request "$REQUEST" --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" \
               --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" --workflow-start-utc "${MANUAL_WORKFLOW_START_UTC-}" --facts "$FACTS")
           fi
@@ -693,7 +736,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      # Updates and reads back the same latest-record comment on tracking PR #1763 (see record-begin).
       issues: write
+      pull-requests: write
       actions: read
     steps:
       - uses: actions/checkout@v6
@@ -736,28 +781,25 @@ jobs:
           fi
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             (umask 077; printf '%s' "$MANUAL_OCCURRENCE_B64" | base64 -d > "$RUNNER_TEMP/manual-occurrence.json")
-            occurrence_file="$RUNNER_TEMP/manual-occurrence.json"
             completion_deadline_utc="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" window.endUtc)"
             occurrence_sha256="$MANUAL_OCCURRENCE_SHA256"
+            set +e
+            python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline \
+              --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json"
+            deadline_status=$?
+            set -e
+            if [ "$deadline_status" -eq 79 ]; then
+              within_envelope=false
+            elif [ "$deadline_status" -ne 0 ]; then
+              echo "BLOCKED_SETUP: completion-occurrence-unreadable"
+              within_envelope=false
+            fi
           else
             (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
-            occurrence_file="$RUNNER_TEMP/nightly-request.json"
             completion_deadline_utc="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/nightly-request.json" window.endUtc)"
             occurrence_sha256="$NIGHTLY_REQUEST_SHA256"
             [[ "$completion_deadline_utc" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo 'BLOCKED_SETUP: completion-occurrence-unreadable'; exit 78; }
             [[ "$occurrence_sha256" =~ ^[0-9a-f]{64}$ ]] || { echo 'BLOCKED_SETUP: completion-occurrence-unreadable'; exit 78; }
-          fi
-          # Sam 2026-11-04: the fixed occurrence deadline applies to BOTH routes. A late run, manual or scheduled, is incomplete; settlement
-          # stays safely recorded either way.
-          set +e
-          python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline --occurrence-file "$occurrence_file"
-          deadline_status=$?
-          set -e
-          if [ "$deadline_status" -eq 79 ]; then
-            within_envelope=false
-          elif [ "$deadline_status" -ne 0 ]; then
-            echo "BLOCKED_SETUP: completion-occurrence-unreadable"
-            within_envelope=false
           fi
           attestable=false
           if [ -f "$RUNNER_TEMP/record/latest-record.json" ] && [ "$LIVE_RESULT" != cancelled ] && [ "$within_envelope" = true ]; then
@@ -784,12 +826,15 @@ jobs:
           # decides whether the completed record was actually published inside
           # the reviewed envelope. A late publication is replaced by the
           # retained incomplete state; settlement remains safely recorded.
-          published_at="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["updated_at"])' "$RUNNER_TEMP/published.json")"
-          set +e
-          python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline --occurrence-file "$occurrence_file" --now "$published_at"
-          publication_status=$?
-          set -e
-          if [ "$publication_status" -ne 0 ]; then attestable=false; fi
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            published_at="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["updated_at"])' "$RUNNER_TEMP/published.json")"
+            set +e
+            python3 -I tools/cloud-test/scripts/init_run_inputs.py completion-deadline \
+              --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --now "$published_at"
+            publication_status=$?
+            set -e
+            if [ "$publication_status" -ne 0 ]; then attestable=false; fi
+          fi
           # readback: the stored record must be exactly what was rendered (the PATCH is not compare-and-swap; this job is the sole publisher)
           gh api "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" --jq '[.]' > "$RUNNER_TEMP/readback.json"
           python3 -I "$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/readback.json" \

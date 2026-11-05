@@ -94,10 +94,6 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         E("schema is not speaksharp.cloud-test.run-request.v2")
     if not req.get("runId"):
         E("runId missing")
-    # Sam 1793681502.390299: the nightly occurrence id form (nightly_request.occurrence_id) carries the nightly-only coaching exemption in the
-    # campaign runner, so only a nightly-regression request may use it.
-    elif re.fullmatch(r"nightly-[0-9]{8}T[0-9]{4}Z-[0-9]{8}T[0-9]{4}Z", str(req.get("runId"))) and req.get("priority") != "nightly-regression":
-        E("runId uses the nightly occurrence form but the request is not a nightly-regression occurrence")
     if req.get("workflowVersion") != wf["version"]:
         E("workflowVersion %r does not equal the workflow in this package (%s); state a deviation or update the request" % (req.get("workflowVersion"), wf["version"]))
     if req.get("configVersion") != cfg["configVersion"]:
@@ -112,14 +108,10 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         E("priority must be one of %s (no run for the sake of another report)" % cfg["allowedPriorities"])
     if full and req.get("priority") not in ("full-coverage", "nightly-regression"):
         E("a full-mode request must have priority full-coverage or nightly-regression")
-    # Sam 2026-11-04 (PO-owned nightly): a nightly-regression occurrence may be smoke depth; it keeps the gate-authenticated nightly priority,
-    # and its coverage and results stay smoke (never full acceptance or full history).
-    if smoke and req.get("priority") not in ("journey-smoke", "nightly-regression"):
-        E("a smoke-mode request must have priority journey-smoke or nightly-regression")
-    if req.get("priority") == "full-coverage" and not full:
-        E("priority full-coverage is only for coverageMode full")
-    if req.get("priority") == "nightly-regression" and not (full or smoke):
-        E("priority nightly-regression is only for coverageMode full or smoke")
+    if smoke and req.get("priority") != "journey-smoke":
+        E("a smoke-mode request must have priority journey-smoke")
+    if not full and req.get("priority") in ("full-coverage", "nightly-regression"):
+        E("priority %s is only for coverageMode full" % req.get("priority"))
     gaps = {g["id"]: g for g in ledger["gaps"]}
     targeted = req.get("targetedGaps") or []
     if not targeted:
@@ -231,9 +223,7 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
                         E("%s plannedRequests %s differs from the derived estimate %s" % (s_["case"], s_.get("plannedRequests"), per[s_["case"]]["estimate"]))
                 if est["starts"] != budget["actions"]["startsMinimum"] or est["takes"] != budget["actions"]["takesMinimum"]:
                     E("estimate.starts/takes must equal the harness minimums for every row (%d Starts, %d takes)" % (budget["actions"]["startsMinimum"], budget["actions"]["takesMinimum"]))
-                # A nightly occurrence may carry the standing approval's lower coaching ceiling (PO 2026-11-02); never a higher one.
-                nightly_cap = req.get("priority") == "nightly-regression" and type(pb.get("coachingCap")) is int and 0 < pb["coachingCap"] <= budget["coaching"]["cap"]
-                if pb.get("coachingCap") != budget["coaching"]["cap"] and not nightly_cap:
+                if pb.get("coachingCap") != budget["coaching"]["cap"]:
                     E("estimate.providerBillableRequests.coachingCap must equal the derived coaching cap %d" % budget["coaching"]["cap"])
             if budget is not None:
                 w = est.get("window") or {}

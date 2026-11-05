@@ -17,11 +17,3 @@ test('observed duplicate makes FAIL and safety stop',()=>{const s=summary();s.gu
 test('pending launch cleanup failure is an unsafe case boundary even without exposed error payload',()=>{const {evaluateCaseBoundary}=require('../harness/campaign-runner.cjs');const r=evaluateCaseBoundary({assertions:[]},{launchCleanupFailure:true,guard:{completionAttempts:null,feedbackFaults:[],counters:{denied:{}}},ownedProcessesRemaining:[]},{status:0});assert.equal(r.safetyStop,true);});
 
 test('transferred media cleanup failure remains unsafe independent of process exit',()=>{const r=evaluateCaseBoundary({assertions:[]},{mediaCleanupFailure:true,guard:{completionAttempts:null,feedbackFaults:[],counters:{denied:{}}},ownedProcessesRemaining:[]},{status:0});assert.equal(r.safetyStop,true);});
-// #1778 review 4450776221 (Sam 1793681502.390299): coaching limits are nonfatal for a NIGHTLY occurrence only; a manual run still stops.
-for(const cap of ['cap:coaching','cap:coaching-provider-limit'])test(cap+' is nonfatal only for a nightly occurrence',()=>{const s=summary();s.guard.counters.denied[cap]=2;
-  const nightly=evaluateCaseBoundary(result(),s,{status:0},{nightly:true});assert.deepEqual(nightly.capDenials,[]);assert.equal(nightly.safetyStop,false);
-  assert.deepEqual(evaluateCaseBoundary(result(),s,{status:0}).capDenials,[cap],'manual runs keep the existing safety stop');
-  const mixed=summary();mixed.guard.counters.denied={[cap]:1,'cap:public':1};assert.deepEqual(evaluateCaseBoundary(result(),mixed,{status:0},{nightly:true}).capDenials,['cap:public']);});
-test('only the exact nightly occurrence id selects the nightly boundary',()=>{const {NIGHTLY_OCCURRENCE}=require('../harness/campaign-runner.cjs');
-  assert.equal(NIGHTLY_OCCURRENCE.test('nightly-20261103T1200Z-20261104T0300Z'),true);
-  for(const id of ['R10-manual','nightly-20261103T1200Z-20261104T0300Z-x','xnightly-20261103T1200Z-20261104T0300Z','nightly-2026-11-03'])assert.equal(NIGHTLY_OCCURRENCE.test(id),false,id);});

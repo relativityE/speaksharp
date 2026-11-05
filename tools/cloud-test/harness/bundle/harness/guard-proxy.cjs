@@ -24,7 +24,6 @@ const tls = require('tls');
 const net = require('net');
 const fs = require('fs');
 const os = require('os');
-const zlib = require('zlib');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
@@ -75,17 +74,6 @@ const {Ledger,plain,safeKey}=require('./campaign-ledger.cjs');
 
 // Keep route matching in one production-owned function so offline controls can
 // exercise the exact decision used by onRequest without opening a socket.
-// The coaching Edge's own decoding (get-ai-suggestions providerDecode.ts, `diagnostics`): a provider-phase RESOURCE_EXHAUSTED is a limit refusal.
-// Bounded decoding of a coaching failure body by its Content-Encoding (identity is requested; this covers an upstream that ignores it).
-function decodedBody(body, encoding) {
-  const e = String(encoding || 'identity').trim().toLowerCase(), opts = { maxOutputLength: 262144 };
-  try { return e === 'gzip' || e === 'x-gzip' ? zlib.gunzipSync(body, opts) : e === 'br' ? zlib.brotliDecompressSync(body, opts) : e === 'deflate' ? zlib.inflateSync(body, opts) : body; }
-  catch { return Buffer.alloc(0); }
-}
-function providerLimitRefusal(body) {
-  try { const d = JSON.parse(body.toString('utf8')).diagnostics; return !!d && d.phase === 'provider' && d.provider_error_status === 'RESOURCE_EXHAUSTED'; }
-  catch { return false; }
-}
 function matchPolicyRule(policy,host,method,pathname) {
   const rules=policy?.hosts?.[host]?.rules;
   if(!Array.isArray(rules))return null;
@@ -200,15 +188,6 @@ class Guard {
   pathRef(p) { return this.policy.logPaths ? p : 'sha256:' + crypto.createHash('sha256').update(p).digest('hex').slice(0, 16); }
   // First per-case allowance refusal: tell the supervisor once so it stops the case promptly and cleans up (distinct interruption, not a product outcome).
   noteAllowance(over){if(over!=='case-allowance'||this.allowanceSignalled)return;this.allowanceSignalled=true;try{this.log({kind:'allowance-exhausted'});}catch{/* log failure must not mask the stop */}try{this.opts?.onAllowanceExhausted?.();}catch{/* supervisor callback failure is surfaced by the cleanup check */}}
-  // #1778 review 4450562299: each case runs its own guard, so the stop is made campaign-wide by consuming the remaining coaching allowance
-  // in the shared campaign ledger; every later case's guard then refuses coaching (cap:coaching) before any send.
-  markCoachingProviderLimited(ev, status) {
-    this.coachingProviderLimited = true;
-    let consumed = 0;
-    try { while (consumed < 1000 && this.ledger.tryReserve(['coaching']) === null) consumed++; }
-    catch { this.fatal('guard-ledger-integrity', 'coaching-provider-limit'); return; }
-    this.log({ ...ev, kind: 'coaching-provider-limited', status, remainingCoachingAllowanceConsumed: consumed });
-  }
   deny(res, reason, ev) {
     this.c.denied[reason] = (this.c.denied[reason] || 0) + 1;
     this.log({ ...ev, decision: 'denied', reason });
@@ -378,8 +357,6 @@ class Guard {
     if (!(await this.slot())) return this.deny(res, 'concurrency-wait', ev);
     if(streamFailed){this.releaseSlot();return;}
     if (this.closing) { this.releaseSlot(); return this.deny(res, 'closing', ev); }
-    // PO 2026-11-02 (Sam 1793655489.910839): after the coaching provider refuses for its own limit, no further coaching call is sent this run.
-    if (rule.cap === 'coaching' && this.coachingProviderLimited) { this.releaseSlot(); return this.deny(res, 'cap:coaching-provider-limit', ev); }
     const keys = ['total', rule.cap].concat(nav ? ['navigations'] : []);
     let over;try{over=this.ledger.tryReserve([...new Set(keys)]);}catch{this.releaseSlot();this.fatal('guard-ledger-integrity','request-reservation');res.destroy();return;}
     if (over) { this.releaseSlot(); this.noteAllowance?.(over); return this.deny(res, 'cap:' + over, ev); }
@@ -460,8 +437,6 @@ class Guard {
       const k = req.rawHeaders[i]; if (HOP.has(k.toLowerCase())) continue;
       headers[k] = headers[k] !== undefined ? [].concat(headers[k], req.rawHeaders[i + 1]) : req.rawHeaders[i + 1];
     }
-    // #1778 review 4450776214: a coaching response must be readable for the provider-limit stop, so coaching calls request identity encoding.
-    if(rule.cap==='coaching'){for(const k of Object.keys(headers))if(k.toLowerCase()==='accept-encoding')delete headers[k];headers['accept-encoding']='identity';}
     if(downloadFault?.mode==='offline-mid-download'){for(const k of Object.keys(headers))if(k.toLowerCase()==='accept-encoding')delete headers[k];headers['accept-encoding']='identity';} // compressed/chunked responses carry no Content-Length, so the prefix fault could never fire (AHT-14)
     // http.request over the already-established upstream TLS socket: no agent, no DNS, no second
     // connection. (An agent would ignore createConnection and resolve the host directly.)
@@ -553,13 +528,8 @@ class Guard {
       for (let i = 0; i < ur.rawHeaders.length; i += 2) if (!HOP.has(ur.rawHeaders[i].toLowerCase())) raw.push(ur.rawHeaders[i], ur.rawHeaders[i + 1]);
       res.writeHead(status, ur.statusMessage, raw);
       let bytes = 0;
-      // A failed coaching response is read (bounded) for the Edge's own decoded provider status: RESOURCE_EXHAUSTED latches the stop above.
-      const coachingFailure = rule.cap === 'coaching' && status >= 400 ? [] : null;
-      this.watch(ur,'data', (d) => { bytes += d.length; if (coachingFailure && bytes <= 65536) coachingFailure.push(d); });
-      this.watch(ur,'end', () => {
-        if (coachingFailure && bytes <= 65536 && providerLimitRefusal(decodedBody(Buffer.concat(coachingFailure), ur.headers['content-encoding']))) this.markCoachingProviderLimited(ev, status);
-        finish('completed', { status, bytes });
-      });
+      this.watch(ur,'data', (d) => { bytes += d.length; });
+      this.watch(ur,'end', () => finish('completed', { status, bytes }));
       this.watch(ur,'error', () => finish('upstream-error', { status, sent: true }));
       ur.pipe(res);
     });
@@ -699,4 +669,4 @@ function listenOwned(server,{signal,timeoutMs}={}) {
     try{server.listen(0,'127.0.0.1',()=>{if(settled){close();return;}settled=true;cleanup();resolve();});}catch{failed();}
   });
 }
-module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned, providerLimitRefusal, decodedBody };
+module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned };

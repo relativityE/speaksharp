@@ -135,8 +135,11 @@ class ShortSmokeContract(unittest.TestCase):
                 init.select_manual_occurrence(
                     str(ROOT.parents[1]), template_rel, str(path), hashlib.sha256(raw).hexdigest(),
                     init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), "2026-11-03T17:30:01Z")
+        init.materialize_authoritative_smoke_occurrence(
+            str(ROOT.parents[1]), template, "2026-11-05T16:40:00Z")
         with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
-            init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-04T12:40:01Z")
+            init.materialize_authoritative_smoke_occurrence(
+                str(ROOT.parents[1]), template, "2026-11-05T16:40:01Z")
 
     def test_one_off_grant_rejects_caller_authority_release_checkpoint_and_scope_tampering(self):
         repo = str(ROOT.parents[1])
@@ -157,7 +160,7 @@ class ShortSmokeContract(unittest.TestCase):
         init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, checkpoint, repo)
         envelope = init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
         self.assertEqual(envelope["approvalRef"], scope["approvalRef"])
-        self.assertEqual(envelope["selectionApprovalRef"], "chat:PO_R10_ALL15_SMOKE_2026-11-03")
+        self.assertEqual(envelope["selectionApprovalRef"], "slack:1793814535.013849")
         wrong_release = copy.deepcopy(occurrence)
         wrong_release["release"]["testedSha"] = "f" * 40
         with self.assertRaisesRegex(init.Refused, "relative-occurrence-request-release"):
@@ -215,7 +218,7 @@ class ShortSmokeContract(unittest.TestCase):
             bundle = json.loads(bundle_with(ACCOUNT_ID))
             maintained_id = bundle["accounts"]["maintained-read-only"]["accountId"]
             nonsecret_facts = facts(
-                ownerApprovalReference="chat:PO_R10_ALL15_SMOKE_2026-11-03",
+                ownerApprovalReference="slack:1793814535.013849",
                 approvedBy="Akin", reviewer="review:unit@1",
                 producerReviewReference="review:producer@1",
                 accounts={
@@ -239,9 +242,9 @@ class ShortSmokeContract(unittest.TestCase):
             self.assertEqual(prepared["requestSha256"], request_sha)
             self.assertEqual(prepared["liveMinutes"], 40)
             self.assertEqual(prepared["facts"]["actionApproval"]["selectionApprovalRef"],
-                             "chat:PO_R10_ALL15_SMOKE_2026-11-03")
+                             "slack:1793814535.013849")
             self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
-                             "chat:PO_R10_SCOPE_EXTENSION_2026-11-03")
+                             "slack:1793814535.013849")
 
     def test_completion_deadline_marks_queue_delay_incomplete_without_changing_settlement_period(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())

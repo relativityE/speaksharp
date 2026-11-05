@@ -2194,16 +2194,7 @@ class StandingEnvelope(Journal):
                                            worstCaseMinutes=req["estimate"]["window"]["worstCaseMinutes"])
         with open(os.path.join(ROOT, "config", "assertion-catalog.json"), encoding="utf-8") as catalog:
             accepted_budget["_catalog"] = json.load(catalog)
-        # This full-depth synthetic request was derived against the full-depth workflow variant (test_nightly_request.WF); the validator's
-        # runner bound is read from that same workflow, not the real one (whose 65-minute live job refuses full depth).
-        from unittest import mock
-        from test_nightly_request import WF
-        with tempfile.TemporaryDirectory(prefix="full-depth-wf-") as d:
-            path = os.path.join(d, "cloud-test-live.yml")
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(WF)
-            with mock.patch("nightly_request.WORKFLOW_PATH", path):
-                return V.validate(req, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)[0]
+        return V.validate(req, cfg, s["ledger"], s["wf"], fake_rv(), rc, accepted_budget)[0]
 
     def reserve_on_chain(self, run="101", request_sha=None, at="2026-11-02T03:00:30Z", allocation=None, kind="reserve"):
         """Appends a nightly reserve (or its settle) through the REAL state-ref writer, as journal-reserve/-settle do around the live job."""
@@ -2484,29 +2475,6 @@ class StandingEnvelope(Journal):
             with self.subTest(grant=str(bad)[:70]):
                 self.use(self.nightly_approval(startTakeGrant=bad))
                 refused(self, "action-approval-standing-grant-shape", self.derive)
-
-    def test_the_window_opens_at_the_recorded_initiation_within_the_trigger_delay(self):
-        # PO 2026-11-03: start-relative nightly window. The request's window start, creation time and recorded initiation are one value,
-        # at most the scheduler's trigger delay after the slot; nothing can re-anchor it later.
-        late = self.slot + timedelta(minutes=17, seconds=42)
-        req = json.loads(self.nightly_derive(ap=self.nightly_approval(startTakeGrant=self.GRANT), run_id="101", initiation=late))
-        self.assertTrue(self.derive(req=req, now=late + timedelta(minutes=1)))
-        refused(self, "action-approval-standing-window", self.derive, req=req, now=late - timedelta(seconds=1))
-
-        def shifted(start):
-            r = copy.deepcopy(req)
-            r["window"].update(startUtc=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                               endUtc=(start + timedelta(minutes=330)).strftime("%Y-%m-%dT%H:%M:%SZ"))
-            r["createdUtc"] = r["nightly"]["initiationUtc"] = r["window"]["startUtc"]
-            return r
-        self.assertTrue(self.derive(req=shifted(self.slot + timedelta(minutes=30)), now=self.slot + timedelta(minutes=31)))
-        for label, r in (("past the trigger delay", shifted(self.slot + timedelta(minutes=30, seconds=1))),
-                         ("before the slot", shifted(self.slot - timedelta(seconds=1))),
-                         ("initiation not the window start", self.changed(lambda x: x["nightly"].update(initiationUtc="2026-11-02T03:00:01Z"))),
-                         ("creation not the window start", self.changed(lambda x: x.update(createdUtc="2026-11-02T03:00:01Z"))),
-                         ("no recorded initiation", self.changed(lambda x: x["nightly"].pop("initiationUtc")))):
-            with self.subTest(label):
-                refused(self, "action-approval-standing-window", self.derive, req=r, now=self.slot + timedelta(minutes=31))
 
     def test_attempt_occurrence_and_replay_are_checked_before_derivation(self):
         refused(self, "action-approval-standing-attempt", self.derive, attempt=2)

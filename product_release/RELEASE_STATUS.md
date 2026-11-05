@@ -11,25 +11,6 @@
 **Supersedes:** the September current-status narrative and October baseline-only banner here. Historical evidence and archives remain unchanged.
 **Evidence Sources:** the exact GitHub PR, issue-comment and workflow receipts linked below.
 
-## 3 November 2026 nightly regression activation status
-
-Scope: the post-launch nightly regression (`cloud-test-live.yml` scheduled lane), registered by #1778 and **off by default**. The input
-contract is `tools/cloud-test/config/nightly/ACTIVATION-INPUTS.md`; this entry is its only current-status record.
-
-- **Pinned on main (shared with the approved manual all-15 run, via #1772/#1779):** reviewed state-ref root `92d6ebf9…`; accepted
-  accounting bootstrap `0a3e6027…` and root; aggregate receiver activated with its pinned manifest.
-- **In #1778 (HOLD, off):** the cron behind `RUN_NIGHTLY_REGRESSION`; provider-condition coaching scoring; a start-relative occurrence window
-  (the slot bound by the run's creation, the window opened at its actual start `run_started_at`, at most 30 minutes after the slot, never
-  reset); a smoke-depth nightly that keeps the gate-authenticated `nightly-regression` priority and is labeled and reported as smoke, never
-  full acceptance; the scheduled live job at the 65-minute smoke job ceiling (no 340-minute arm; a full-depth nightly now refuses); and the
-  completion deadline enforced on the scheduled route as on the manual one (a late run is incomplete; settlement still records). The
-  standing approval is `NOT APPROVED`: the earlier PO approval (slack:1793668784.454189) covered the retired 330-minute envelope.
-- **Not yet supplied:** the one-off R10 run (it runs before #1778 lands); a fresh PO standing approval sized from R10's measured usage;
-  the nightly smoke template and budget anchors and the nightly facts file; a served release matching the tested revision; a nightly
-  period scope after R10 settles; creating the switch, with Sam's approval. Worst-case serial job allowances total 84 minutes against the
-  80-minute occurrence, so the measured R10 timings decide whether the setup and collect reserves can be tightened.
-- **Target:** one verified scheduled run, after which the switch returns to `false`. No nightly run has occurred.
-
 ## 28 October 2026 post-R5 receiving addendum
 
 **HOLD — documentation receipt, not a new live verification.** This addendum supersedes

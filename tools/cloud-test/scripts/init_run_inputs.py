@@ -45,7 +45,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "d864d7043d4bf34695c4fdfd5cb098f4537aa9989cffba6f824e97733131f622"
+ONE_OFF_GRANT_SHA256 = "bcf56ea222cca17bc7f96a158d159f5760c9b60d1bbef2346bb49672801e2bb1"
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
@@ -401,7 +401,7 @@ def check_window_remaining(req, now, live_minutes):
 
 
 def completion_within_occurrence(raw, now):
-    """Return whether the occurrence (the R10 one-off, or a gate-derived nightly) completed inside its fixed occurrence deadline.
+    """Return whether R10 completed inside its reviewed 80-minute envelope.
 
     Accounting may settle later inside the approved period so held usage is
     reconciled safely, but a late workflow is incomplete rather than an
@@ -412,19 +412,11 @@ def completion_within_occurrence(raw, now):
     except (TypeError, ValueError):
         raise Refused("completion-occurrence-unreadable")
     w = req.get("window") if isinstance(req, dict) else None
-    _need(isinstance(req, dict) and req.get("createdUtc") == (w or {}).get("startUtc")
+    _need(req.get("runId") == "R10-3b040043-smoke15" and req.get("createdUtc") == (w or {}).get("startUtc")
           and all(isinstance((w or {}).get(k), str) and LR.UTC.match(w[k]) for k in ("startUtc", "endUtc")),
           "completion-occurrence-unreadable")
     start, end = _utc(w["startUtc"]), _utc(w["endUtc"])
-    n = req.get("nightly")
-    if req.get("runId") == "R10-3b040043-smoke15":
-        _need((end - start).total_seconds() == 60 * SMOKE_OCCURRENCE_WINDOW_MINUTES, "completion-occurrence-window")
-    else:
-        # A nightly occurrence: the deadline is the start-relative window the gate derived (bounded by the nightly window ceiling).
-        import nightly_request as N  # lazy: nightly_request imports this module
-        _need(req.get("priority") == "nightly-regression" and isinstance(n, dict) and n.get("initiationUtc") == w["startUtc"],
-              "completion-occurrence-unreadable")
-        _need(0 < (end - start).total_seconds() <= 60 * N.NIGHTLY_MAX_WINDOW_MINUTES, "completion-occurrence-window")
+    _need((end - start).total_seconds() == 60 * SMOKE_OCCURRENCE_WINDOW_MINUTES, "completion-occurrence-window")
     return now <= end
 
 
@@ -786,11 +778,7 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
     p_start, p_end = N.period_bounds(ap)
     w = req.get("window") or {}
     start, end = _utc(w.get("startUtc")), _utc(w.get("endUtc"))
-    # Start-relative (PO 2026-11-03): the window opens at the run's recorded initiation, which the request also carries as its creation time,
-    # never before its slot and at most the scheduler's trigger delay after it, so a late or re-anchored window cannot pass.
-    _need(w.get("startUtc") == n.get("initiationUtc") == req.get("createdUtc")
-          and 0 <= (start - slot).total_seconds() <= 60 * N.SCHEDULER_MAX_DELAY_MINUTES
-          and (end - start).total_seconds() == 60 * caps["windowMinutes"] and _utc(ap["validFromUtc"]) <= slot
+    _need(start == slot and (end - start).total_seconds() == 60 * caps["windowMinutes"] and _utc(ap["validFromUtc"]) <= start
           and end <= _utc(ap["expiresUtc"]) and p_start <= start and end <= p_end and start <= now < end, "action-approval-standing-window")
     proposed, lim, est = req.get("proposedLimits") or {}, req.get("approvedLimits") or {}, req.get("estimate") or {}
     run_cap = (est.get("requests") or {}).get("runCap")
@@ -1551,7 +1539,7 @@ def main(argv):
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
                  "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
-                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now", "--occurrence-file"):
+                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -1565,7 +1553,7 @@ def main(argv):
             return 0
         if x.command == "completion-deadline":
             now = _utc(x.now) if x.now else datetime.now(timezone.utc)
-            return 0 if completion_within_occurrence(_read(x.occurrence_file or x.manual_occurrence_file), now) else 79
+            return 0 if completion_within_occurrence(_read(x.manual_occurrence_file), now) else 79
         if x.command == "project":
             q = _load(x.qualification) if x.qualification and os.path.exists(x.qualification) else None
             prov = _load(x.provenance) if x.provenance and os.path.exists(x.provenance) else None
