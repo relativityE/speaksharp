@@ -120,6 +120,9 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
 # usage in the period. A release, an executed attempt, an open reservation or any doubt refuses, so the grant still authorizes exactly one
 # attempt that runs. The settles' evidence is validated by the reviewed writer when it appends; the digest shape here is not proof.
 SETUP_FAILURE_ZERO_KEYS = ("requests", "identityReads", "starts", "takes", "coachingRequests")
+# A setup failure in which only the prerequisite preflight ran settles at its bounded charge (unexecuted_attempt_evidence preflight-bound):
+# at most this many campaign requests, still no identity read, Start, take or coaching call. Nothing larger is a setup-only failure.
+SETUP_FAILURE_MAX_REQUESTS = 10
 
 
 def _setup_failure_pairs(chain, anchor, head):
@@ -128,27 +131,32 @@ def _setup_failure_pairs(chain, anchor, head):
     events = chain[-1][1]
     if not events or len(events) % 2:
         return False
+    pairs = 0
     for reserved, settled in zip(events[0::2], events[1::2]):
         same = all(reserved.get(k) == settled.get(k) for k in ("campaignId", "runId", "attempt"))
         held, used = reserved.get("allocation") or {}, settled.get("allocation") or {}
+        pairs += 1
         if not (reserved.get("type") == "reserve" and settled.get("type") == "settle" and same
-                and all(type(used.get(k)) is int and used[k] == 0 for k in SETUP_FAILURE_ZERO_KEYS)
+                and all(type(used.get(k)) is int and used[k] == 0 for k in SETUP_FAILURE_ZERO_KEYS if k != "requests")
+                and type(used.get("requests")) is int and 0 <= used["requests"] <= SETUP_FAILURE_MAX_REQUESTS
                 and type(used.get("runnerMinutes")) is int and 0 <= used["runnerMinutes"] <= held.get("runnerMinutes", -1)
                 and re.fullmatch(r"evidence-sha256:[0-9a-f]{64}", str(settled.get("provenance"))) is not None):
             return False
-    return True
+    return pairs
 
 
 def _setup_failures_only(checkpoint, grant, chain):
     period = checkpoint.get("period")
     unknown = checkpoint.get("unknown")
-    return (_setup_failure_pairs(chain, grant.get("preReserveStateHead"), checkpoint.get("headSha"))
+    pairs = _setup_failure_pairs(chain, grant.get("preReserveStateHead"), checkpoint.get("headSha"))
+    return (bool(pairs)
             and checkpoint.get("source") == "accepted-rollup"
             and checkpoint.get("root") == grant.get("preReserveStateHead") == accounting_rollup.ACCEPTED_ROOT
             and isinstance(checkpoint.get("headSha"), str) and LR.SHA40.match(checkpoint["headSha"]) is not None
             and type(checkpoint.get("outstandingReservations")) is int and checkpoint["outstandingReservations"] == 0
             and checkpoint.get("openReservationsByRequest") == {}
-            and isinstance(period, dict) and all(type(period.get(k)) is int and period[k] == 0 for k in SETUP_FAILURE_ZERO_KEYS)
+            and isinstance(period, dict) and all(type(period.get(k)) is int and period[k] == 0 for k in SETUP_FAILURE_ZERO_KEYS if k != "requests")
+            and type(period.get("requests")) is int and 0 <= period["requests"] <= SETUP_FAILURE_MAX_REQUESTS * pairs
             and type(period.get("runnerMinutes")) is int and period["runnerMinutes"] >= 0
             and isinstance(unknown, dict) and unknown and not any(unknown.values()))
 

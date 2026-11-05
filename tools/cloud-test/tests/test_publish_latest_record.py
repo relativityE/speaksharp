@@ -791,7 +791,7 @@ class RetireUnexecuted(unittest.TestCase):
                          (self.RUN, 1, self.HEAD, "reserved-not-executed", "2026-11-05T03:14:52Z"))
         self.assertEqual(second["predecessorSha256"], self.pred(stuck))
         self.assertEqual(second["evidence"], {"runStatus": "completed", "runConclusion": "failure", "runUpdatedUtc": "2026-11-05T03:21:45Z",
-                                              "evidenceSha256": "481b8c00d1903aa330ffc44ff40401121780219aef28a58f59726bead4304218",
+                                              "evidenceSha256": "81a1dcb7f10903d73f5b812eb20d5f2ff610c08904b1774ea8223389125d078c",
                                               "journalHeadSha": "0909b53ff6dc767105633ddc14db520c762dff64", "runnerMinutes": 6,
                                               "settleAtUtc": "2026-11-05T03:21:44Z"})
         self.assertIn("Reserved, not executed: no credential-bearing step ran (not a completed run)", P.render(after))

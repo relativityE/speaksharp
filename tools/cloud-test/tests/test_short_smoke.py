@@ -206,6 +206,9 @@ class ShortSmokeContract(unittest.TestCase):
         raw = lambda d: json.dumps(d, sort_keys=True).encode()
         approve = lambda cp, ch: init.occurrence_action_approval({}, request_sha, raw(cp), occurrence, repo=repo, chain=ch)
         init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, raw(settled), repo, chain)
+        # a preflight-only setup failure (R10 run 42059286564) settles at its bound, 10 campaign requests and nothing else: still admitted
+        bounded = chain[:2] + [node(settled_head, [reserve, dict(settle, allocation=dict(settle["allocation"], requests=10))])]
+        self.assertEqual(approve(dict(settled, period=dict(settled["period"], requests=10)), bounded)["selectionApprovalRef"], "slack:1793883995.722959")
         self.assertEqual(approve(settled, chain)["selectionApprovalRef"], "slack:1793883995.722959")
         # prepare: the verified head adds this run's own open reserve; the approval chain is computed at its parent, which admits
         own_reserve = dict(reserve, runId="41999999999", provenance="request-sha256:" + request_sha, atUtc="2026-11-05T12:00:05Z")
@@ -220,8 +223,9 @@ class ShortSmokeContract(unittest.TestCase):
                           bad_settle(allocation=dict(settle["allocation"], runnerMinutes=41)),
                           [node("f" * 40, []), node(reserved_head, [reserve]), node(settled_head, [reserve, settle])],
                           chain[:2] + [node("b" * 40, [reserve, settle])]]
-        for key in ("requests", "identityReads", "starts", "takes", "coachingRequests"):
+        for key in ("identityReads", "starts", "takes", "coachingRequests"):
             chain_refusals.append(bad_settle(allocation=dict(settle["allocation"], **{key: 1})))
+        chain_refusals.append(bad_settle(allocation=dict(settle["allocation"], requests=11)))      # above the preflight's bounded charge
         for bad in chain_refusals:
             with self.assertRaisesRegex(init.Refused, "one-off-grant-checkpoint"):
                 approve(settled, bad)
@@ -230,7 +234,8 @@ class ShortSmokeContract(unittest.TestCase):
                            dict(settled, root="f" * 40), dict(settled, source="other"), dict(settled, scopeApprovalRef="slack:1.000001"),
                            dict(settled, unknown={"coachingRequests": True, "runnerMinutes": False}), dict(settled, unknown={}),
                            {k: v for k, v in settled.items() if k != "period"}]
-        for key in ("requests", "identityReads", "starts", "takes", "coachingRequests"):
+        rollup_refusals.append(dict(settled, period=dict(settled["period"], requests=11)))          # more than one preflight's bound
+        for key in ("identityReads", "starts", "takes", "coachingRequests"):
             rollup_refusals.append(dict(settled, period=dict(settled["period"], **{key: 1})))
             rollup_refusals.append(dict(settled, period={k: v for k, v in settled["period"].items() if k != key}))
         for bad in rollup_refusals:
