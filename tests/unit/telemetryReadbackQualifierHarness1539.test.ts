@@ -362,6 +362,11 @@ describe('the declared column lists are the queries the script actually sends', 
         expect(selectAliases(src.slice(start, src.indexOf('FROM events', start) + 'FROM events '.length))).toEqual([...ACQUISITION_COLUMNS]);
     });
 
+    it('the privileged telemetry reader refuses redirects instead of following an attacker-controlled hop', () => {
+        const src = readFileSync(resolve(ROOT, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+        expect(src).toMatch(/fetch\(`\$\{apiHost\}\/api\/projects\/.*redirect:\s*'error'/s);
+    });
+
     it('decodeByColumns refuses a short row and a duplicated name', () => {
         expect(decodeByColumns(['a', 'b'], ['a', 'b'], [['only-one']])).toMatchObject({ ok: false });
         expect(decodeByColumns(['a', 'b'], ['a', 'a'], [])).toMatchObject({ ok: false });

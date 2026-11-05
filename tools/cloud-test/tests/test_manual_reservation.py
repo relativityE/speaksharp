@@ -239,6 +239,37 @@ class ManualReservation(Journal):
         self.refused("manual-reservation-transition-without-open-reservation", self.execute, "settle", settle, "s2")
         self.refused("manual-reservation-not-reserved", self.execute, "settle", dict(settle, runId="41400000009"), "s3")
 
+    def test_the_reserve_path_sends_a_current_format_long_token_and_refuses_an_injected_one_before_any_append(self):
+        """Run 41933223835 refused manual-reservation-push-token-missing on GitHub's ~520-character GITHUB_TOKEN. Offline, the whole
+        reserve path runs as if over https: each https git call is captured, then replayed against the temporary bare remote without the
+        credential. A synthetic opaque 520-character token reaches only the push and the reservation lands; an injected one refuses with
+        nothing appended."""
+        long_token = "ghs_123456_" + ".".join(("eyJ" + "aB3-_x9Z" * 64)[:n] for n in (36, 391, 80))
+        self.assertEqual(len(long_token), 520)
+        real, seen = W._git, []
+
+        def over_https(repo, *args, data=None, scheme="file", extra=None):
+            if scheme == "https":
+                seen.append((args[0], dict(extra or {})))
+                return real(repo, *args, data=data, scheme="file", extra=None)
+            return real(repo, *args, data=data, scheme=scheme, extra=extra)
+        before = self.head()
+        with mock.patch.object(W, "_transport", lambda url, approved: "https"), mock.patch.object(W, "_git", over_https):
+            with mock.patch.dict(os.environ, {W.PUSH_TOKEN_ENV: long_token + "\nX-Injected: 1"}):
+                self.refused("manual-reservation-push-token-missing", self.execute, "reserve", self.reserve_inputs(), "bad")
+            self.assertEqual(self.head(), before, "an injected token appends nothing")
+            self.assertNotIn("push", [c for c, _ in seen])
+            with mock.patch.dict(os.environ, {W.PUSH_TOKEN_ENV: long_token}):
+                e = self.execute("reserve", self.reserve_inputs(), "good")
+        self.assertEqual(e["type"], "reserve")
+        self.assertNotEqual(self.head(), before)
+        self.assertEqual(self.receive()["outstandingReservations"], 1)
+        pushes = [x for c, x in seen if c == "push"]
+        self.assertEqual(len(pushes), 1)
+        self.assertEqual(pushes[0]["GIT_CONFIG_KEY_0"], "http.%s.extraheader" % self.remote)
+        self.assertTrue(all(x == {} for c, x in seen if c != "push"), "only the push carries the credential")
+        self.assertFalse(any(long_token in json.dumps(x) for _, x in seen), "the token is sent only base64-encoded in the header")
+
     def test_phase_bound_journals_allow_exact_retries_and_refuse_cross_phase_reuse(self):
         directory = os.path.join(self.d, "phase-journals")
         os.mkdir(directory)
@@ -391,7 +422,7 @@ class ManualReservation(Journal):
                          ("92d6ebf902351750c368d7d513116c6b1f19f80c",
                           "0a3e60271dc703f12cf02684450a9f74bc7f60d5c3f610a86bb9eaddc268f174",
                           "92d6ebf902351750c368d7d513116c6b1f19f80c",
-                          "fc11db99e054a398e456e24a1a6f5bf31ccc5bfa7e70c871651f568f80b01e96"))
+                          "ee31d2f9b9a3e0c75af903466e262041ab2b800a00d79d31a58cd404ea2b8eb9"))
 
 
 if __name__ == "__main__":

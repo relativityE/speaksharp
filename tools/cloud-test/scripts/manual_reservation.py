@@ -43,7 +43,7 @@ APPROVAL = re.compile(r"slack-[0-9]{10}\.[0-9]{6}")
 RUN_RECORD_SCHEMA = "speaksharp.cloud-test.run-record.v1"
 # The exact PO-approved fresh-period scope, pinned with the bootstrap and writer
 # root.  A substituted scope is refused before any journal transition.
-ACCEPTED_SCOPE_SHA256 = "fc11db99e054a398e456e24a1a6f5bf31ccc5bfa7e70c871651f568f80b01e96"
+ACCEPTED_SCOPE_SHA256 = "ee31d2f9b9a3e0c75af903466e262041ab2b800a00d79d31a58cd404ea2b8eb9"
 
 
 class Refused(ValueError):
@@ -189,7 +189,7 @@ def _in_period(scope, at_utc, code):
     _need(accounting_rollup._utc(scope["periodStartUtc"]) <= accounting_rollup._utc(at_utc) < accounting_rollup._utc(scope["periodEndUtc"]), code)
 
 
-def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=state_ref_writer.APPROVED_URL):
+def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=state_ref_writer.APPROVED_URL, source_repo=None):
     """One manual transition on the state ref; returns the appended event. `pins` holds the accepted bootstrap digest, its root and the
     accepted scope digest; `root` must be that accepted root, so the journal appended to is the one the rollup reads."""
     _need(root is not None and root == pins.get("accepted_root"), "manual-reservation-root-mismatch")
@@ -244,7 +244,8 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
                 rollup = accounting_rollup.receive(inputs["bootstrap"], scope, chain, pins.get("accepted_sha256"), pins.get("accepted_root"))
                 # #1772 RETURN 1793645360.787039 #2: the authenticated action approval is admitted against THIS checkpoint (the head the
                 # reserve is appended on) before anything is written, so a stale or invalid approval consumes no cap and leaves no reservation.
-                admit_action_approval(inputs.get("facts"), inputs["request"], inputs["admittedSha256"], accounting_rollup.checkpoint_bytes(rollup))
+                admit_action_approval(inputs.get("facts"), inputs["request"], inputs["admittedSha256"],
+                                      accounting_rollup.checkpoint_bytes(rollup), source_repo)
                 # Admission and headroom are checked immediately before the
                 # first append.  A recovered exact transition was already
                 # checked at its original parent and is reverified below.
@@ -255,7 +256,7 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
     return event
 
 
-def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint):
+def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint, source_repo=None):
     """#1772 RETURN 1793645360.787039 #2: the dispatched facts' action approval, admitted by the SAME check prepare applies
     (init_run_inputs.check_action_approval) against the checkpoint bytes the reserve will be appended on. Refuses before any write."""
     import init_run_inputs as I
@@ -263,9 +264,15 @@ def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint):
         facts = json.loads(facts_raw)
     except (TypeError, ValueError):
         raise Refused("manual-reservation-approval-facts")
-    _need(isinstance(facts, dict) and isinstance(facts.get("actionApproval"), dict), "manual-reservation-approval-facts")
+    _need(isinstance(facts, dict), "manual-reservation-approval-facts")
     try:
-        I.check_action_approval(facts["actionApproval"], admitted_sha256, checkpoint, json.loads(request_raw))
+        request = json.loads(request_raw)
+    except (TypeError, ValueError):
+        raise Refused("manual-reservation-request-unreadable")
+    if request.get("runId") != "R10-3b040043-smoke15":
+        _need("actionApproval" in facts, "manual-reservation-approval-facts")
+    try:
+        I.occurrence_action_approval(facts, admitted_sha256, checkpoint, request, repo=source_repo)
     except I.Refused as err:
         raise Refused("manual-reservation-" + str(err))
 
@@ -295,7 +302,7 @@ def _read(path):
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("reserve", "settle", "release"))
-    for flag in ("--repo", "--journal", "--out", "--request", "--admitted-sha256", "--run-id", "--bootstrap", "--scope", "--campaign-id",
+    for flag in ("--repo", "--source-repo", "--journal", "--out", "--request", "--admitted-sha256", "--run-id", "--bootstrap", "--scope", "--campaign-id",
                  "--record", "--settle-input", "--facts", "--now"):
         a.add_argument(flag)
     x = a.parse_args(argv[1:])
@@ -315,7 +322,7 @@ def main(argv):
         pins = {"accepted_sha256": accounting_rollup.ACCEPTED_BOOTSTRAP_SHA256, "accepted_root": accounting_rollup.ACCEPTED_ROOT,
                 "accepted_scope_sha256": ACCEPTED_SCOPE_SHA256}
         execute(x.command, inputs, x.repo or _isolated_repo(), state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT, x.journal, x.out,
-                pins)
+                pins, source_repo=x.source_repo)
         return 0
     except Refused as e:
         print("BLOCKED_SETUP: " + str(e), file=sys.stderr)

@@ -8,11 +8,69 @@ const oracle=require(P+'/draft-adapters/focus-oracle.cjs');
 const pres=require(P+'/draft-adapters/presentation-controls.cjs');
 const policy=require(P+'/draft-adapters/coaching-failure-policy.cjs');
 const outcome=require(P+'/bundle/harness/outcome-class.cjs');
+const sourceAdapters=require(P+'/draft-adapters/source-adapters.cjs');
 const {verifyStimulusReceipt}=require(P+'/bundle/harness/stimulus-receipt.cjs');
 const {summarizeAssertions}=require(P+'/bundle/harness/case-results.cjs');
 const {sanitizeEvidence}=require(P+'/bundle/harness/evidence-sanitizer.cjs');
 const Pn='pending',Pa='partial',Cv='covered';
 const frozen=(timeline,extra={})=>({frozen:true,samples:60,unreadable:0,timeline,multiMarker:[],...extra});
+test('R10 AHT-02/03 smoke executes only its reviewed denominator and never emits the excluded full-depth coaching row',async()=>{
+  const smokeTiming=require(P+'/draft-adapters/oracles/pure/smokeTiming.cjs');
+  const ownerStub={'./oracles/owner-query.cjs':{createOwnerDb:()=>({}),rows:async()=>[]}};
+  for(const id of ['AHT-02','AHT-03']){
+    const required=sourceAdapters.SMOKE_CONTRACTS[id].rows;
+    const r=await fake(id,{cfg:{sampleMode:'smoke',recordingWindowMs:smokeTiming.WINDOWS[id],requiredAssertions:required,takeCap:1,startPressCap:1},extraStubs:ownerStub});
+    assert.equal(r.res.blocker,null);
+    assert.equal(r.res.assertions.some(row=>row.id==='grounded-coaching'),false);
+    assert.deepEqual(r.res.assertions.filter(row=>!required.includes(row.id)).map(row=>row.id),[],'the live adapter must not add a row outside the selected smoke denominator');
+  }
+});
+test('R10 AHT-08 real adapter performs its required feedback receiver preflight',async()=>{
+  const required=sourceAdapters.SMOKE_CONTRACTS['AHT-08'].rows;
+  const r=await fake('AHT-08',{cfg:{sampleMode:'smoke',requiredAssertions:required,takeCap:0,startPressCap:0}});
+  const row=r.res.assertions.find(assertion=>assertion.id==='feedback-readback-preflight');
+  assert.equal(row?.result,'PASS');
+  assert.equal(r.recorded.filter(assertion=>assertion.id==='feedback-readback-preflight').length,1);
+});
+// ---------- H. first-use account history ----------
+test('H1 the first observation retains only bounded counts and a subject digest; fresh and returning accounts stay distinct',()=>{
+  const cfg={sourceSha:'a'.repeat(40),servedSha:'a'.repeat(40),account:{mode:'existing-disposable',id:'11111111-1111-4111-8111-111111111111',bindingReceiptSha256:'b'.repeat(64)}};
+  const fresh=sourceAdapters.firstObservation([],cfg,'2026-11-03T16:00:00Z');
+  assert.equal(fresh.inventoryStatus,'OBSERVED');assert.equal(fresh.rowCount,0);assert.equal(fresh.inventoryComplete,true);assert.equal(fresh.readableHistoryAvailable,false);
+  assert.match(fresh.accountSubjectSha256,/^[0-9a-f]{64}$/);assert.ok(!JSON.stringify(fresh).includes(cfg.account.id));
+  const returning=sourceAdapters.firstObservation([{status:'completed',transcriptState:'available',transcriptLength:12}],{...cfg,account:{...cfg.account,mode:'maintained-read-only'}},'2026-11-03T16:00:01Z');
+  assert.equal(returning.completedCount,1);assert.equal(returning.readableCompletedCount,1);assert.equal(returning.readableHistoryAvailable,true);
+});
+test('H2 unavailable or oversized history stays UNKNOWN/refused, never zero or a complete inventory',()=>{
+  const cfg={sourceSha:'a'.repeat(40),servedSha:'a'.repeat(40),account:{mode:'maintained-read-only',id:'11111111-1111-4111-8111-111111111111',bindingReceiptSha256:'b'.repeat(64)}};
+  const unknown=sourceAdapters.unknownFirstObservation(cfg,'2026-11-03T16:00:00Z');
+  assert.equal(unknown.inventoryStatus,'UNKNOWN');assert.equal(unknown.rowCount,null);assert.equal(unknown.inventoryComplete,false);assert.equal(unknown.readableHistoryAvailable,null);
+  assert.throws(()=>sourceAdapters.firstObservation(Array.from({length:101},()=>({})),cfg,'2026-11-03T16:00:00Z'),/rows unavailable/);
+});
+test('H3 the real driver retains each role first observation before the dependent journey verdict',async()=>{
+  const fresh=await fake('AHT-01');
+  const freshEvidence=fresh.evidence.find(x=>x.name==='aht-01-first-observation.json');
+  assert.equal(freshEvidence?.v.inventoryStatus,'OBSERVED');assert.equal(freshEvidence?.v.role,'existing-disposable');assert.equal(freshEvidence?.v.rowCount,0);
+  const freshness=fresh.res.assertions.find(x=>x.id==='fresh-first-session');
+  assert.ok(freshness?.evidenceRefs.length>=2,'freshness result must link its first-observation evidence');
+
+  const returning=await fake('AHT-15');
+  const returningEvidence=returning.evidence.find(x=>x.name==='aht-15-first-observation.json');
+  assert.equal(returningEvidence?.v.inventoryStatus,'OBSERVED');assert.equal(returningEvidence?.v.role,'maintained-read-only');
+  assert.equal(returningEvidence?.v.readableHistoryAvailable,false);
+  const returningRef='e'+(returning.evidence.indexOf(returningEvidence)+1)+'.json';
+  const entryMic=returning.res.assertions.find(x=>x.id==='return-entry-mic-off');
+  assert.ok(entryMic?.evidenceRefs.includes(returningRef),'first observation must be linked before the returning-history precondition can stop the case');
+  assert.equal(returning.res.blocker,'returning-account-has-no-verified-completed-history','no witness remains honest NOT RUN');
+});
+test('H4 an unavailable inventory keeps its UNKNOWN first observation linked through the interruption result',async()=>{
+  const readback=require(P+'/draft-adapters/browser-readback.cjs');
+  const unavailable=await fake('AHT-15',{extraStubs:{'./browser-readback.cjs':{...readback,validateReadback(){},sessions:async()=>{throw Object.assign(new Error('unit unavailable'),{code:'NOT_RUN'});}}}});
+  const unknown=unavailable.evidence.find(x=>x.name==='aht-15-first-observation.json');
+  assert.equal(unknown?.v.inventoryStatus,'UNKNOWN');
+  const unknownRef='e'+(unavailable.evidence.indexOf(unknown)+1)+'.json';
+  assert.ok(unavailable.res.assertions.some(row=>row.evidenceRefs?.includes(unknownRef)),'UNKNOWN inventory must survive in case-result evidenceDigests');
+});
 // ---------- F. Focus oracle: duplicate markers and contradictory states ----------
 test('F1 a duplicate marker is a FAIL even when the first marker is on the right point',()=>{
   const r=oracle.markerVerdict(frozen([[0,0,[Pn,Pn,Pn,Pn]],[5000,0,[Pn,Pn,Pn,Pn]]],{multiMarker:[[2500,2]]}));

@@ -7,7 +7,8 @@ import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
   changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase,
-  registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness} from '../../scripts/lib/testExecutionEvidence.mjs';
+  registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness,
+  vitestExecutionTimeoutMs} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths,runVitestExecution,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
@@ -945,7 +946,8 @@ test('execution-only consumer binds actual source, runtime, command and controll
       .split('\0').filter(Boolean).sort().map(name=>[name,hash(fs.readFileSync(path.join(dir,name)))]);
     const inputSha256=hash(JSON.stringify(entries));const cwd=path.join(dir,'isolated');
     const binding={runId:randomUUID(),phaseId:randomUUID(),phase:'execution',provenance:expected,cwd,
-      testFile:path.join(cwd,file),inputSha256,repoLockSha256:hash(fs.readFileSync(path.join(dir,'pnpm-lock.yaml'))),runtime:runtimeIdentity(dir)};
+      testFile:path.join(cwd,file),inputSha256,repoLockSha256:hash(fs.readFileSync(path.join(dir,'pnpm-lock.yaml'))),runtime:runtimeIdentity(dir),
+      timeoutMs:vitestExecutionTimeoutMs(file)};
     binding.command=[canonicalPath(process.execPath),path.join(cwd,'node_modules/vitest/vitest.mjs'),'run','--config','frontend/vitest.config.mjs',
       '--coverage.enabled=false','--retry=0','--reporter=json','--reporter=./scripts/efficacy-reporter.mjs',`--outputFile=${path.join(cwd,'efficacy-report.json')}`,file];
     const tasks=[{id:'file',parentId:null,type:'suite',mode:'run',result:{state:'pass',hooks:{},errors:[]}},
@@ -973,6 +975,7 @@ test('execution-only consumer binds actual source, runtime, command and controll
       [r=>{r.tests[0].phase.binding.provenance={...expected,runAttempt:'2'};},/provenance/],
       [r=>{r.tests[0].phase.binding.inputSha256=hash('wrong source');},/phase\/source\/runtime/],
       [r=>{r.tests[0].phase.binding.runtime.node='wrong';},/phase\/source\/runtime/],
+      [r=>{r.tests[0].phase.binding.timeoutMs=999_999;},/phase\/source\/runtime/],
       [r=>{r.tests[0].phase.binding.command[3]='--testNamePattern=other';},/command\/collection/],
       [r=>{r.tests[0].phase.envelope.finished.files[0].tasks[1].mode='skip';},/setup\/hook\/suite/],
       [r=>{r.tests[0].phase.execution.status=1;},/process failed/],
@@ -982,6 +985,11 @@ test('execution-only consumer binds actual source, runtime, command and controll
     const paths=[file,'tests/e2e/other.spec.ts','backend/supabase/functions/other/index_test.ts','tests/db/account-closure-full-chain.sql'];
     assert.deepEqual(executionCoverage(paths,{root:dir,base,expected,execution:receipt}).rows.map(row=>row.status),['EXECUTED','NOT RUN','NOT RUN','NOT RUN']);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('only the measured telemetry readback contract receives the bounded 100-second execution ceiling',()=>{
+  assert.equal(vitestExecutionTimeoutMs('tests/unit/telemetryReadbackQualifierHarness1539.test.ts'),100_000);
+  assert.equal(vitestExecutionTimeoutMs('tests/unit/another-contract.test.ts'),60_000);
 });
 
 // Hosted CI always runs these; local opt-in requires installed Vitest, with no fallback.

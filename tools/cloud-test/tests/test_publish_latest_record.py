@@ -1,31 +1,40 @@
 """The one latest-run record (Sam 1793471205.454429): selection never takes a foreign comment, the previous completed record survives until a
 terminal replacement of the same attempt, an interrupted attempt blocks the next run, and only the closed record shape is ever rendered."""
 import json
+import hashlib
 import os
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from _fixtures import ROOT
 import publish_latest_record as P
+import state_ref_writer as W
 
 SHA = "a" * 40
 BOT = {"login": "github-actions[bot]", "type": "Bot"}
 URL = "https://api.github.com/repos/relativityE/speaksharp/issues/1763"
 
 
-def comment(cid, user, body, url=URL):
-    return {"id": cid, "user": user, "body": body, "issue_url": url}
+def comment(cid, user, body, url=URL, updated="2026-10-31T18:41:00Z"):
+    return {"id": cid, "user": user, "body": body, "issue_url": url, "updated_at": updated}
 
 
 def record(run_id="101", outcome="passed", **over):
-    rec = {"runId": run_id, "attempt": 1, "sourceSha": SHA, "testedSha": "b" * 40, "servedSha": "b" * 40, "campaignId": "R6-unit", "coverage": "batch", "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": "2026-10-31T18:00:00Z",
+    rec = {"runId": run_id, "attempt": 1, "sourceSha": SHA, "testedSha": "b" * 40, "servedSha": "b" * 40, "campaignId": "R6-unit", "coverage": "batch", "coverageMode": "partial", "assertionDepth": "full", "requestSha256": "1" * 64, "catalogSha256": "2" * 64, "startedUtc": "2026-10-31T18:00:00Z",
            "endedUtc": "2026-10-31T18:40:00Z", "outcome": outcome,
            "cases": [{"caseId": "AHT-05", "result": "PASS", "rows": {"pass": 6, "fail": 0, "notRun": 0}, "codes": []}] if outcome == "passed" else
            [{"caseId": "AHT-05", "result": "FAIL", "rows": {"pass": 4, "fail": 1, "notRun": 1}, "codes": ["observed-product-contradiction"]}],
            "codes": []}
     rec.update(over)
+    if "coverage" in over and "coverageMode" not in over:
+        mode = {"batch": "partial", "smoke": "smoke", "full": "full", "incomplete": "partial"}.get(rec["coverage"])
+        if mode is None:
+            rec.pop("coverageMode", None); rec.pop("assertionDepth", None)
+        else:
+            rec.update(coverageMode=mode, assertionDepth="smoke" if mode == "smoke" else "full")
     return rec
 
 
@@ -33,10 +42,35 @@ def started(state, run_id="101"):
     return P.begin(state, run_id, 1, SHA, "2026-10-31T18:00:00Z")
 
 
+def receipt_bytes(**over):
+    value = {"ref": "refs/heads/cloud-test-state", "previousSha": "1" * 40, "newSha": "2" * 40,
+             "ledgerBlobSha256": "3" * 64, "proposalSha256": "4" * 64}
+    value.update(over)
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def occurrence_bytes(**over):
+    value = {"runId": "R6-unit", "window": {"endUtc": "2026-10-31T19:00:00Z"}}
+    value.update(over)
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def completion_evidence(running, deadline="2026-10-31T19:00:00Z"):
+    settle, occurrence = receipt_bytes(), occurrence_bytes()
+    pending = P.pending_completion(running, record(), deadline, hashlib.sha256(settle).hexdigest(),
+                                   hashlib.sha256(occurrence).hexdigest())
+    public_body = P.render(pending)
+    candidate_body = P.render(P.complete(running, record()))
+    published = {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}
+    attestation = P.completion_attestation(candidate_body, public_body, published,
+                                           hashlib.sha256(settle).hexdigest(), hashlib.sha256(occurrence).hexdigest())
+    return pending, public_body, settle, occurrence, attestation
+
+
 class Selection(unittest.TestCase):
     def test_first_publication_has_no_comment_and_an_empty_state(self):
         sel = P.select([comment(1, {"login": "someone", "type": "User"}, "unrelated")], URL)
-        self.assertEqual(sel, {"commentId": None, "body": ""})
+        self.assertEqual(sel, {"commentId": None, "body": "", "updatedAt": None})
         self.assertEqual(P.parse_body(sel["body"]), {"schema": P.SCHEMA, "latestCompleted": None, "inProgress": None})
 
     def test_the_bots_marked_comment_on_the_bound_issue_is_selected_and_its_id_verified(self):
@@ -125,12 +159,14 @@ class ClosedShape(unittest.TestCase):
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
             P.sanitize_record(record(outcome="passed", cases=[]))
         # An all-PASS record is `failed` only when it says it was not qualified; it is never silently downgraded or upgraded.
-        unqualified = dict(record(), outcome="failed", coverage="unqualified", campaignId=None, requestSha256=None, catalogSha256=None)
+        unqualified = dict(record(), outcome="failed", coverage="unqualified", coverageMode=None, assertionDepth=None,
+                           campaignId=None, requestSha256=None, catalogSha256=None)
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
             P.sanitize_record(unqualified)
         self.assertEqual(P.sanitize_record(dict(unqualified, codes=["not-qualified"]))["outcome"], "failed")
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
-            P.sanitize_record(dict(record(), coverage="unqualified", campaignId=None, requestSha256=None, catalogSha256=None))
+            P.sanitize_record(dict(record(), coverage="unqualified", coverageMode=None, assertionDepth=None,
+                                   campaignId=None, requestSha256=None, catalogSha256=None))
         selected_only = record()
         selected_only["cases"] = selected_only["cases"] + [{"caseId": "AHT-06", "result": "NOT SELECTED", "rows": {"pass": 0, "fail": 0, "notRun": 0}, "codes": []}]
         self.assertEqual(P.sanitize_record(selected_only)["outcome"], "passed")
@@ -139,7 +175,7 @@ class ClosedShape(unittest.TestCase):
             with self.assertRaisesRegex(P.Refused, "not-selected-rows"):
                 P.sanitize_record(rows)
         with self.assertRaisesRegex(P.Refused, "full-coverage-needs-fifteen-executed"):
-            P.sanitize_record(dict(record(), coverage="full"))
+            P.sanitize_record(dict(record(), coverage="full", coverageMode="full", assertionDepth="full"))
         # Incomplete coverage is never passed, even when every row that ran is PASS; batch and full may be failed.
         with self.assertRaisesRegex(P.Refused, "outcome-cases"):
             P.sanitize_record(dict(record(), coverage="incomplete"))
@@ -149,7 +185,8 @@ class ClosedShape(unittest.TestCase):
         with self.assertRaisesRegex(P.Refused, "requestSha256"):
             P.sanitize_record(dict(record(), requestSha256="x"))
         with self.assertRaisesRegex(P.Refused, "not-selected-rows"):
-            P.sanitize_record(dict(selected_only, coverage="unqualified", campaignId=None, requestSha256=None, catalogSha256=None, outcome="failed",
+            P.sanitize_record(dict(selected_only, coverage="unqualified", coverageMode=None, assertionDepth=None,
+                                   campaignId=None, requestSha256=None, catalogSha256=None, outcome="failed",
                                    codes=["not-qualified"]))
         with self.assertRaisesRegex(P.Refused, "tested-sha"):
             P.sanitize_record({k: v for k, v in record().items() if k != "testedSha"})
@@ -162,6 +199,44 @@ class ClosedShape(unittest.TestCase):
         state = json.loads(P.JSON_BLOCK.findall(body)[0])
         self.assertEqual(set(state), {"schema", "latestCompleted", "inProgress", "history"})  # history: the bounded G7 carry-forward
         self.assertEqual(P.parse_body(body), state)
+
+    def test_smoke_publishes_terminal_results_but_never_becomes_acceptance_history(self):
+        smoke = P.sanitize_record(dict(record(), coverage="smoke", coverageMode="smoke", assertionDepth="smoke", rowVerdicts={"AHT-05": "PPPPPP"},
+                                       comparability={"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64,
+                                                      "mediaManifestSha256": "5" * 64, "backendSha": "6" * 40},
+                                       evidence={"planSha256": "7" * 64, "caseResultsSha256": "8" * 64}))
+        done = P.complete(started(P.parse_body("")), smoke)
+        self.assertEqual((done["latestCompleted"]["coverage"], done["latestCompleted"]["outcome"]), ("smoke", "passed"))
+        self.assertEqual((done["history"]["occurrences"][0]["coverage"], done["history"]["occurrences"][0]["rowEvidence"]),
+                         ("smoke", False))
+        self.assertEqual(done["history"]["rows"], {}, "smoke diagnostics must not seed full/nightly acceptance history")
+        self.assertEqual(P.qualified_comparable(done["history"], smoke["comparability"]), [])
+        self.assertEqual(P.parse_body(P.render(done)), done)
+
+        failed = dict(smoke, runId="102", startedUtc="2026-10-31T19:00:00Z", endedUtc="2026-10-31T19:40:00Z",
+                      outcome="failed", cases=[dict(smoke["cases"][0], result="FAIL", rows={"pass": 1, "fail": 1, "notRun": 0})],
+                      rowVerdicts={"AHT-05": "PF"})
+        failed_state = P.complete(started(done, "102"), failed)
+        self.assertEqual((failed_state["latestCompleted"]["coverage"], failed_state["latestCompleted"]["outcome"]), ("smoke", "failed"))
+        self.assertEqual(failed_state["history"]["rows"], {}, "failed smoke diagnostics also stay outside acceptance history")
+
+        # Missing-row smoke remains diagnostic even though execution coverage is `incomplete`; the preserved source denominator prevents
+        # it from entering acceptance history or creating a later catalog conflict.
+        incomplete = dict(smoke, runId="104", coverage="incomplete", startedUtc="2026-10-31T19:41:00Z", endedUtc="2026-10-31T19:59:00Z",
+                          outcome="failed", cases=[dict(smoke["cases"][0], result="NOT RUN", rows={"pass": 5, "fail": 0, "notRun": 1})],
+                          rowVerdicts={"AHT-05": "PPPPPN"})
+        incomplete_state = P.complete(P.begin(failed_state, "104", 1, SHA, incomplete["startedUtc"]), incomplete)
+        self.assertEqual((incomplete_state["history"]["occurrences"][-1]["coverage"],
+                          incomplete_state["history"]["occurrences"][-1]["coverageMode"],
+                          incomplete_state["history"]["occurrences"][-1]["rowEvidence"]), ("incomplete", "smoke", False))
+        self.assertEqual(incomplete_state["history"]["rows"], {})
+
+        # A later acceptance run has its own catalog lineage. Smoke occurrences neither seed its rows nor create a false catalog mismatch.
+        batch = P.sanitize_record(record("103", startedUtc="2026-10-31T20:00:00Z", endedUtc="2026-10-31T20:40:00Z",
+                                         catalogSha256="9" * 64, rowVerdicts={"AHT-05": "PPPPPP"},
+                                         evidence={"planSha256": "a" * 64, "caseResultsSha256": "b" * 64}))
+        accepted = P.complete(P.begin(incomplete_state, "103", 1, SHA, batch["startedUtc"]), batch)
+        self.assertEqual(accepted["history"]["rows"]["AHT-05"]["last"]["runId"], "103")
 
 
 class CarryForward(unittest.TestCase):
@@ -299,6 +374,359 @@ class Readback(unittest.TestCase):
         self.assertEqual(verify(body), 0)
         self.assertEqual(verify(body.rstrip("\n")), 0)  # a trailing newline difference only
         self.assertEqual(verify(body.replace('"runId":"101"', '"runId":"102"')), 78)  # any other change refuses
+
+
+class CompletionAttestation(unittest.TestCase):
+    def test_terminal_candidate_is_bound_to_the_public_incomplete_state_and_server_time(self):
+        running = started(P.parse_body(""))
+        _, public_body, settle, occurrence, att = completion_evidence(running)
+        self.assertEqual((att["schema"], att["runId"], att["publishedAt"]),
+                         (P.ATTESTATION_SCHEMA, "101", "2026-10-31T18:41:00Z"))
+        done = P.reconcile_pending(P.parse_body(public_body), "2026-10-31T18:41:00Z", att, settle, occurrence,
+                                   "2026-10-31T18:42:00Z", public_body)
+        self.assertEqual((done["latestCompleted"]["runId"], done["inProgress"]), ("101", None))
+
+    def test_no_attestation_for_missing_or_malformed_response_or_non_incomplete_publication(self):
+        running = started(P.parse_body(""))
+        candidate_body = P.render(P.complete(running, record()))
+        public_body = P.render(P.pending_completion(running, record(), "2026-10-31T19:00:00Z", "3" * 64, "4" * 64))
+        bad = [({}, public_body),
+               ({"updated_at": "2026-10-31T18:41:00Z", "body": candidate_body}, public_body),
+               ({"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, candidate_body)]
+        for response, public in bad:
+            with self.subTest(response=response), self.assertRaises(P.Refused):
+                P.completion_attestation(candidate_body, public, response, "3" * 64, "4" * 64)
+
+        prior = P.complete(started(P.parse_body(""), "100"), record("100"))
+        different_running = P.begin(prior, "101", 1, SHA, "2026-10-31T19:00:00Z")
+        different = P.render(P.complete(different_running, record("101", startedUtc="2026-10-31T19:00:00Z",
+                                                                  endedUtc="2026-10-31T19:40:00Z")))
+        with self.assertRaisesRegex(P.Refused, "attestation-candidate-not-derived"):
+            P.completion_attestation(different, public_body,
+                                     {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}, "3" * 64, "4" * 64)
+
+    def test_pending_completion_is_durable_reconciles_once_and_late_or_edited_state_refuses(self):
+        running = started(P.parse_body(""))
+        pending, public_body, settle, occurrence, att = completion_evidence(running)
+        stored = P.parse_body(public_body)
+        self.assertEqual(stored["pendingCompletion"]["record"]["runId"], "101")
+        done = P.reconcile_pending(stored, "2026-10-31T18:41:00Z", att, settle, occurrence,
+                                   "2026-10-31T18:42:00Z", public_body)
+        self.assertEqual((done["latestCompleted"]["runId"], done["inProgress"]), ("101", None))
+        following = P.begin(done, "102", 1, SHA, "2026-10-31T20:00:00Z")
+        self.assertEqual(following["inProgress"]["runId"], "102")
+        with self.assertRaisesRegex(P.Refused, "pending-completion-late"):
+            P.reconcile_pending(stored, "2026-10-31T19:00:01Z", att, settle, occurrence,
+                                "2026-10-31T18:42:00Z", public_body)
+        edited = json.loads(json.dumps(stored))
+        edited["pendingCompletion"]["record"]["runId"] = "102"
+        with self.assertRaises(P.Refused):
+            P.parse_body(P.render(edited))
+
+    def test_reconciliation_refuses_missing_failed_late_or_tampered_completion_evidence(self):
+        running = started(P.parse_body(""))
+        stored, public_body, settle, occurrence, att = completion_evidence(running)
+        cases = [
+            (dict(att, schema="other"), settle, occurrence, "2026-10-31T18:42:00Z", public_body),
+            (att, settle + b" ", occurrence, "2026-10-31T18:42:00Z", public_body),
+            (att, settle, occurrence + b" ", "2026-10-31T18:42:00Z", public_body),
+            (att, settle, occurrence, "2026-10-31T19:00:01Z", public_body),
+            (att, settle, occurrence, "2026-10-31T18:42:00Z", public_body + "edited"),
+        ]
+        for bad_att, bad_settle, bad_occurrence, created, body in cases:
+            with self.subTest(created=created, body=body[-8:]), self.assertRaises(P.Refused):
+                P.reconcile_pending(stored, "2026-10-31T18:41:00Z", bad_att, bad_settle, bad_occurrence, created, body)
+
+
+REAL_FAILED_ATTEMPT_BODY = '<!-- speaksharp-cloud-test-latest-record v1 -->\n**Cloud test: latest run record** (bot-maintained; replaced only by the next terminal run)\n\nLatest completed: none yet.\nIn progress: run 41933223835 attempt 1, status incomplete.\n\n```json\n{"inProgress":{"attempt":1,"runId":"41933223835","sourceSha":"af1781ba6e07524c82dea3a66a1b7cb772c14e51","startedUtc":"2026-11-04T23:22:38Z","status":"incomplete"},"latestCompleted":null,"schema":"speaksharp.cloud-test.latest-record.v1"}\n```\n\n'  # the bot comment on tracking PR #1763 after run 41933223835 (the reserve job refused the workflow token)
+RUN = "41933223835"
+SRC = "af1781ba6e07524c82dea3a66a1b7cb772c14e51"
+JOBS = (("Record the attempt (latest-record comment; no live credentials)", "success"),
+        ("Nightly gate (switch, attempt, activated writer, standing approval; no credentials)", "skipped"),
+        ("Reserve the run on the state-ref journal (the one push before the run)", "failure"),
+        ("Complete or interrupt the attempt in the latest record (no live credentials)", "success"),
+        ("Selected live journeys (existing stage runner; preinstalled browser)", "skipped"),
+        ("Settle the run's reservation on the state-ref journal (the one push after the run)", "skipped"))
+PRED = hashlib.sha256(REAL_FAILED_ATTEMPT_BODY.encode("utf-8")).hexdigest()
+
+
+def stuck_state(prior=None, run_id=RUN, source=SRC):
+    running = P.begin(prior or P.parse_body(""), run_id, 1, source, "2026-11-04T23:22:38Z")
+    return P.interrupt(running, run_id, 1, "incomplete")
+
+
+def job(name, conclusion, **over):
+    return dict({"name": name, "status": "completed" if conclusion is not None else "in_progress", "conclusion": conclusion,
+                 "runId": RUN, "attempt": 1, "headSha": SRC}, **over)
+
+
+def evidence(**over):
+    ev = {"run": {"runId": RUN, "attempt": 1, "headSha": SRC, "status": "completed", "conclusion": "failure", "updatedAt": "2026-11-04T23:23:13Z"},
+          "jobs": [job(n, c) for n, c in JOBS],
+          "journal": {"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": []},
+          "collectedAt": "2026-11-05T01:11:20Z"}
+    ev.update(over)
+    return ev
+
+
+def jobs_with(prefix, **over):
+    return [dict(j, **over) if j["name"].startswith(prefix) else j for j in evidence()["jobs"]]
+
+
+def run_with(**o):
+    return dict(evidence()["run"], **o)
+
+
+def retire(state, ev=None, pred=PRED):
+    return P.retire_unreserved(state, evidence() if ev is None else ev, pred)
+
+
+class RetireUnreserved(unittest.TestCase):
+    """Run 41933223835 never reserved anything and left an incomplete record that blocks every later run. The only exit retires exactly that
+    attempt as history on closed evidence. It never creates a completed run and never touches any other record."""
+
+    def test_the_real_record_is_retired_not_completed_and_the_next_run_can_begin(self):
+        real = P.parse_body(REAL_FAILED_ATTEMPT_BODY)
+        self.assertEqual((real["inProgress"]["runId"], real["inProgress"]["status"]), (RUN, "incomplete"))
+        with self.assertRaisesRegex(P.Refused, "previous-attempt-unreconciled"):
+            P.begin(real, "41999999999", 1, SRC, "2026-11-05T00:00:00Z")   # the defect this removes
+        after = retire(real)
+        stored = P.parse_body(P.render(after))                            # renders and re-parses cleanly
+        self.assertEqual(stored, after)
+        self.assertIsNone(stored["inProgress"])
+        self.assertIsNone(stored["latestCompleted"], "no completion is manufactured")
+        self.assertNotIn("history", stored, "no history occurrence is manufactured either")
+        entry, = stored["retiredAttempts"]
+        self.assertEqual((entry["runId"], entry["attempt"], entry["sourceSha"], entry["retiredReason"]), (RUN, 1, SRC, "never-reserved"))
+        self.assertEqual(entry["predecessorSha256"], PRED, "the retirement is bound to the exact record body it consumed")
+        ev = entry["evidence"]
+        self.assertEqual((ev["runStatus"], ev["reserveJob"], ev["liveJob"], ev["settleJob"], ev["journalEventsNamingRun"]),
+                         ("completed", "failure", "skipped", "skipped", 0))
+        self.assertEqual(ev["journalHeadSha"], W.REVIEWED_ROOT, "the journal was read at genesis")
+        body = P.render(after)
+        self.assertIn("Latest completed: none yet.", body)
+        self.assertIn("Retired without a reservation (not a completed run)", body)
+        nxt = P.begin(stored, "41999999999", 1, SRC, "2026-11-05T00:00:00Z")
+        self.assertEqual((nxt["inProgress"]["runId"], len(nxt["retiredAttempts"])), ("41999999999", 1))
+
+    def test_only_inProgress_and_retiredAttempts_change_and_the_prior_history_is_identical(self):
+        first = P.complete(started(P.parse_body(""), "100"), record("100"))
+        before = P.parse_body(P.render(first))
+        after = retire(stuck_state(before))
+        same = lambda st: {k: v for k, v in st.items() if k not in ("inProgress", "retiredAttempts")}
+        self.assertEqual(same(after), same(before), "latestCompleted and history come back exactly as read")
+        self.assertEqual(P.canon(after["history"]), P.canon(before["history"]), "byte-identical history")
+        self.assertEqual(after["history"]["rows"]["AHT-05"]["lastKnownGood"]["runId"], "100")
+        self.assertEqual([o["runId"] for o in after["history"]["occurrences"]], ["100"], "the retired attempt is not a history occurrence")
+
+    def test_the_retirement_itself_refuses_to_return_a_changed_history(self):
+        # the invariant is enforced in code, not assumed: a retirement that altered the prior record or history would refuse
+        first = P.complete(started(P.parse_body(""), "100"), record("100"))
+        stuck = stuck_state(P.parse_body(P.render(first)))
+        real = P._with_retired
+        tampers = {"history": lambda st: dict(st["history"], sequence=st["history"]["sequence"] + 1),
+                   "latestCompleted": lambda st: dict(st["latestCompleted"], outcome="failed"),
+                   "pendingCompletion": lambda st: {"x": 1}}
+        for key, change in tampers.items():
+            with mock.patch.object(P, "_with_retired", lambda state, entry, key=key, change=change: dict(real(state, entry), **{key: change(state)})):
+                with self.assertRaisesRegex(P.Refused, "unreserved-history-changed", msg=key):
+                    retire(stuck)
+
+    def test_retired_history_survives_a_later_completion_and_reconcile(self):
+        after = retire(stuck_state())
+        running = P.begin(after, "102", 1, SHA, "2026-11-05T01:00:00Z")
+        done = P.complete(running, record("102", startedUtc="2026-11-05T01:00:00Z", endedUtc="2026-11-05T01:40:00Z"))
+        self.assertEqual([r["runId"] for r in done["retiredAttempts"]], [RUN])
+        self.assertEqual(P.parse_body(P.render(done)), done)
+        interrupted = P.interrupt(P.begin(after, "103", 1, SHA, "2026-11-05T02:00:00Z"), "103", 1, "cancelled")
+        self.assertEqual([r["runId"] for r in interrupted["retiredAttempts"]], [RUN])
+
+    def test_a_different_run_is_never_a_candidate_and_still_blocks_begin(self):
+        # negative control: a different run, a different source, or an attempt in another state
+        others = {"another run id": stuck_state(run_id="41933223836"), "another source sha": stuck_state(source="c" * 40)}
+        for name, state in others.items():
+            self.assertIsNone(P.unreserved_candidate(state), name)
+            with self.assertRaisesRegex(P.Refused, "unreserved-not-a-candidate"):
+                retire(state)
+            with self.assertRaisesRegex(P.Refused, "previous-attempt-unreconciled"):
+                P.begin(state, "41999999999", 1, SRC, "2026-11-05T00:00:00Z")
+        running = P.begin(P.parse_body(""), RUN, 1, SRC, "2026-11-04T23:22:38Z")
+        settle, occurrence = receipt_bytes(), occurrence_bytes()
+        pending = P.pending_completion(running, record(RUN, sourceSha=SRC), "2026-11-05T19:00:00Z", hashlib.sha256(settle).hexdigest(),
+                                       hashlib.sha256(occurrence).hexdigest())
+        for name, state in {"running": running, "cancelled": P.interrupt(running, RUN, 1, "cancelled"), "pending completion": pending,
+                            "nothing in progress": P.parse_body("")}.items():
+            self.assertIsNone(P.unreserved_candidate(state), name)
+            with self.assertRaisesRegex(P.Refused, "unreserved-not-a-candidate"):
+                retire(state)
+        # the evidence names a different run than the record's attempt
+        for ev in (evidence(run=run_with(runId="41933223836")), evidence(run=run_with(attempt=2)), evidence(run=run_with(headSha="c" * 40))):
+            with self.assertRaisesRegex(P.Refused, "unreserved-run-differs"):
+                retire(stuck_state(), ev)
+
+    def test_a_job_that_is_not_of_this_run_attempt_and_source_refuses(self):
+        # review return: each job must belong to the failed attempt. A job copied from another run, attempt or source is not evidence about this one,
+        # even when its name and conclusion are exactly the expected ones.
+        for field, value in (("runId", "41933223836"), ("attempt", 2), ("headSha", "c" * 40), ("runId", None), ("attempt", None)):
+            for prefix in ("Reserve the run", "Selected live", "Settle the run", "Record the attempt", "Nightly gate"):
+                with self.assertRaisesRegex(P.Refused, "unreserved-job-not-of-the-run"):
+                    retire(stuck_state(), evidence(jobs=jobs_with(prefix, **{field: value})))
+
+    def test_the_failed_run_must_be_completed_and_every_matched_job_too(self):
+        for status in ("in_progress", "queued", "waiting", None, "requested"):
+            with self.assertRaisesRegex(P.Refused, "unreserved-run-not-completed"):
+                retire(stuck_state(), evidence(run=run_with(status=status)))
+        for prefix, code in (("Reserve the run", "unreserved-job-reserveJob"), ("Selected live", "unreserved-job-liveJob"),
+                             ("Settle the run", "unreserved-job-settleJob")):
+            for status in ("in_progress", "queued", None):
+                with self.assertRaisesRegex(P.Refused, code):
+                    retire(stuck_state(), evidence(jobs=jobs_with(prefix, status=status)))
+
+    def test_the_journal_must_have_been_freshly_read_at_genesis(self):
+        # review return: the head must equal the pinned genesis, not merely lack an event naming the run
+        moved = "e" * 40
+        for journal, code in (({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": []}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": ["999"]}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": ["999"]}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": moved, "headSha": moved, "runIds": []}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": [RUN]}, "unreserved-journal-names-the-run"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": [RUN]}, "unreserved-journal-names-the-run"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": "none"}, "unreserved-journal-names-the-run"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": "short", "runIds": []}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT}, "unreserved-evidence")):
+            with self.assertRaisesRegex(P.Refused, code):
+                retire(stuck_state(), evidence(journal=journal))
+        # and evidence collected before the run finished is not a fresh read of anything that matters
+        for stamp in ("2026-11-04T23:23:12Z", "2026-11-04T10:00:00Z", "not-a-time", None):
+            with self.assertRaisesRegex(P.Refused, "unreserved-time"):
+                retire(stuck_state(), evidence(collectedAt=stamp))
+
+    def test_an_actual_reservation_refuses(self):
+        # negative control: the run reserved (its reserve job did not fail, or it got as far as a live or settle job)
+        for ev, code in ((evidence(jobs=jobs_with("Reserve the run", conclusion="success")), "unreserved-job-reserveJob"),
+                         (evidence(jobs=jobs_with("Selected live", conclusion="success")), "unreserved-job-liveJob"),
+                         (evidence(jobs=jobs_with("Selected live", conclusion="failure")), "unreserved-job-liveJob"),
+                         (evidence(jobs=jobs_with("Settle the run", conclusion="success")), "unreserved-job-settleJob"),
+                         (evidence(jobs=jobs_with("Settle the run", conclusion="failure")), "unreserved-job-settleJob")):
+            with self.assertRaisesRegex(P.Refused, code):
+                retire(stuck_state(), ev)
+
+    def test_uncertain_evidence_refuses(self):
+        # negative control: anything missing, ambiguous, still running or unverifiable is not evidence of absence
+        without = lambda prefix: [j for j in evidence()["jobs"] if not j["name"].startswith(prefix)]
+        duplicate = evidence()["jobs"] + [job("Selected live journeys (copy)", "skipped")]
+        cases = [
+            (evidence(jobs=without("Reserve the run")), "unreserved-job-reserveJob"),
+            (evidence(jobs=without("Selected live")), "unreserved-job-liveJob"),
+            (evidence(jobs=without("Settle the run")), "unreserved-job-settleJob"),
+            (evidence(jobs=duplicate), "unreserved-job-liveJob"),
+            (evidence(jobs=jobs_with("Reserve the run", conclusion=None)), "unreserved-job-reserveJob"),
+            (evidence(jobs=jobs_with("Reserve the run", conclusion="cancelled")), "unreserved-job-reserveJob"),
+            (evidence(jobs=jobs_with("Selected live", conclusion=None)), "unreserved-job-liveJob"),
+            (evidence(jobs=jobs_with("Selected live", conclusion="cancelled")), "unreserved-job-liveJob"),
+            (evidence(jobs=[]), "unreserved-job-reserveJob"),
+            (evidence(run=run_with(conclusion=None)), "unreserved-run-not-failed"),
+            (evidence(run=run_with(conclusion="cancelled")), "unreserved-run-not-failed"),
+            (evidence(run=run_with(conclusion="success")), "unreserved-run-not-failed"),
+            (evidence(run=run_with(updatedAt="not-a-time")), "unreserved-time"),
+            (evidence(run=run_with(updatedAt="2026-11-04T23:00:00Z")), "unreserved-time"),
+            (dict(evidence(), extra=1), "unreserved-evidence"),
+            ({k: v for k, v in evidence().items() if k != "journal"}, "unreserved-evidence"),
+            ({k: v for k, v in evidence().items() if k != "collectedAt"}, "unreserved-evidence"),
+            ({}, "unreserved-evidence"),
+            (evidence(jobs=[dict(job("Reserve the run", "failure"), extra=1)]), "unreserved-evidence"),
+            (evidence(jobs=[{"name": "Reserve the run", "conclusion": "failure"}]), "unreserved-evidence"),
+            (evidence(run={k: v for k, v in run_with().items() if k != "status"}), "unreserved-evidence"),
+        ]
+        for ev, code in cases:
+            with self.assertRaisesRegex(P.Refused, code):
+                retire(stuck_state(), ev)
+
+    def test_the_retirement_requires_a_bound_predecessor_digest(self):
+        for bad in (None, "", "short", "G" * 64, 5):
+            with self.assertRaisesRegex(P.Refused, "unreserved-predecessor"):
+                retire(stuck_state(), pred=bad)
+
+    def test_a_retired_attempt_is_not_retired_twice_and_the_bound_holds(self):
+        after = retire(stuck_state())
+        with self.assertRaisesRegex(P.Refused, "unreserved-not-a-candidate"):
+            retire(after)
+        full = retire(stuck_state())["retiredAttempts"]
+        full = [dict(full[0], runId=str(41900000000 + i)) for i in range(P.RETIRED_MAX)]
+        with self.assertRaisesRegex(P.Refused, "retired-attempts-bound"):
+            retire(dict(stuck_state(), retiredAttempts=full))
+
+    def test_a_stored_retired_entry_must_be_exactly_the_closed_shape(self):
+        good = retire(stuck_state())
+        entry = good["retiredAttempts"][0]
+        ev = entry["evidence"]
+        mutations = [dict(entry, extra="x"), dict(entry, retiredReason="completed"), {k: v for k, v in entry.items() if k != "startedUtc"},
+                     {k: v for k, v in entry.items() if k != "predecessorSha256"}, dict(entry, predecessorSha256="short"),
+                     dict(entry, evidence=dict(ev, journalEventsNamingRun=1)), dict(entry, evidence=dict(ev, reserveJob="success")),
+                     dict(entry, evidence=dict(ev, runStatus="in_progress")), dict(entry, evidence=dict(ev, journalHeadSha="e" * 40)),
+                     dict(entry, evidence=dict(ev, collectedUtc="2026-11-04T00:00:00Z")),
+                     dict(entry, evidence=dict(ev, note="free text")), dict(entry, runId="not-a-run")]
+        for bad in mutations:
+            body = P.render(good).replace(json.dumps(entry, sort_keys=True, separators=(",", ":")), json.dumps(bad, sort_keys=True, separators=(",", ":")))
+            self.assertNotEqual(body, P.render(good), "the mutation is applied")
+            with self.assertRaises(P.Refused):
+                P.parse_body(body)
+        for bad_list in ([], "x"):
+            with self.assertRaises(P.Refused):
+                P.parse_body(P.render(good).replace('"retiredAttempts":[' + json.dumps(entry, sort_keys=True, separators=(",", ":")) + "]",
+                                                    '"retiredAttempts":' + json.dumps(bad_list)))
+
+    def test_the_record_must_be_unchanged_between_selection_and_publication(self):
+        # review return: re-read the stored comment immediately before publishing and bind it to the record that was selected
+        selected = {"commentId": 6644906621, "body": REAL_FAILED_ATTEMPT_BODY, "updatedAt": "2026-11-04T23:23:08Z"}
+        current = {"id": 6644906621, "body": REAL_FAILED_ATTEMPT_BODY, "updated_at": "2026-11-04T23:23:08Z", "user": {"login": "ignored"}}
+        P.verify_predecessor(selected, current)                                              # unchanged: accepted
+        for name, bad in {"body edited": dict(current, body=REAL_FAILED_ATTEMPT_BODY + " "),
+                          "body replaced": dict(current, body=P.render(P.parse_body(""))),
+                          "updated since": dict(current, updated_at="2026-11-05T01:12:00Z"),
+                          "another comment": dict(current, id=6644906622),
+                          "no id": {k: v for k, v in current.items() if k != "id"},
+                          "no body": {k: v for k, v in current.items() if k != "body"},
+                          "not a comment": []}.items():
+            with self.assertRaisesRegex(P.Refused, "record-predecessor-moved", msg=name):
+                P.verify_predecessor(selected, bad)
+        for bad_selected in ({}, {"commentId": None, "body": "x", "updatedAt": "t"}, []):
+            with self.assertRaisesRegex(P.Refused, "record-predecessor-moved"):
+                P.verify_predecessor(bad_selected, current)
+
+    def test_the_cli_reports_a_candidate_retires_binds_the_predecessor_and_refuses_with_exit_78(self):
+        d = tempfile.mkdtemp(prefix="ct-unreserved-")
+        self.addCleanup(shutil.rmtree, d, True)
+        script = os.path.join(ROOT, "scripts", "publish_latest_record.py")
+        prev, ev, out, sel, cur = (os.path.join(d, n) for n in ("prev.md", "ev.json", "out.md", "sel.json", "cur.json"))
+        with open(prev, "w", encoding="utf-8") as f:
+            f.write(REAL_FAILED_ATTEMPT_BODY)
+        with open(ev, "w", encoding="utf-8") as f:
+            json.dump(evidence(), f)
+        run = lambda *a: subprocess.run(["python3", "-I", script, *a], capture_output=True, text=True, timeout=60)
+        found = run("unreserved-candidate", "--previous", prev)
+        self.assertEqual((found.returncode, found.stdout.strip()), (0, RUN))
+        done = run("retire-unreserved", "--previous", prev, "--evidence", ev, "--out", out)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        with open(out, encoding="utf-8") as f:
+            state = P.parse_body(f.read())
+        self.assertIsNone(state["inProgress"])
+        self.assertEqual(state["retiredAttempts"][0]["predecessorSha256"], PRED, "the CLI binds the digest of the exact body it read")
+        self.assertEqual(run("unreserved-candidate", "--previous", out).returncode, 1)
+        with open(sel, "w", encoding="utf-8") as f:
+            json.dump({"commentId": 7, "body": "same", "updatedAt": "t1"}, f)
+        for body, code in (("same", 0), ("different", 78)):
+            with open(cur, "w", encoding="utf-8") as f:
+                json.dump({"id": 7, "body": body, "updated_at": "t1"}, f)
+            r = run("verify-predecessor", "--selected", sel, "--current", cur)
+            self.assertEqual(r.returncode, code, r.stderr)
+        self.assertIn("record-predecessor-moved", r.stderr)
+        with open(ev, "w", encoding="utf-8") as f:
+            json.dump(evidence(jobs=[]), f)
+        refused = run("retire-unreserved", "--previous", prev, "--evidence", ev, "--out", out + ".2")
+        self.assertEqual(refused.returncode, 78)
+        self.assertIn("unreserved-job-", refused.stderr)
+        self.assertFalse(os.path.exists(out + ".2"), "a refusal writes no body")
 
 
 class Cli(unittest.TestCase):

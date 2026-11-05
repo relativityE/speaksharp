@@ -69,11 +69,13 @@ class R10ActivationProposal(unittest.TestCase):
         self.assertEqual(scope["carryover"], "none")
         self.assertEqual(scope["knownMinimumCeilings"], expected)
         self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]),
-                         (expected, "slack:1793652215.171339", "fc11db99e054a398e456e24a1a6f5bf31ccc5bfa7e70c871651f568f80b01e96"))
+                         (expected, "slack:1793814535.013849", "ee31d2f9b9a3e0c75af903466e262041ab2b800a00d79d31a58cd404ea2b8eb9"))
         self.assertTrue(self.proposal["rootRefCreationSelected"])
         self.assertTrue(self.proposal["activationPinsSelected"])
         scope_path = ROOT / "config/aggregate/period-scope.json"
         self.assertEqual(accounting_rollup.hashlib.sha256(scope_path.read_bytes()).hexdigest(), scope["sha256"])
+        committed_scope = accounting_rollup.parse_scope(json.loads(scope_path.read_text()))
+        self.assertEqual(committed_scope["approvalRef"], scope["approvalRef"])
         self.assertFalse(self.proposal["knownLaterRunsResolved"])
 
     def test_known_measured_usage_is_not_relabelled_as_current_headroom(self):

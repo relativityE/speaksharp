@@ -8,33 +8,44 @@ const adapters=require(path.join(root,'source-adapters.cjs'));
 const ui=require(path.join(root,'browser-actions.cjs')),readback=require(path.join(root,'browser-readback.cjs'));
 const observer=require(path.join(root,'browser-observers.cjs')),presentation=require(path.join(root,'presentation-controls.cjs'));
 const focusControls=require(path.join(root,'focus-controls.cjs'));
+const repeatProbes=require(path.join(root,'repeat-probes.cjs')),smokeTiming=require(path.join(root,'oracles/pure/smokeTiming.cjs'));
 const {createCaseRecorder}=require('../../bundle/harness/case-results.cjs');
 const manifest=require(path.join(root,'oracles/pure/fixture-manifest.json')).fixtures;
-async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false,pcmReceipt=null,objectiveReceipt=null,saveFailure=false,finalWaitFailure=false}={}){
+test('the 5a7 feedback product path is byte-identical to the originally inspected 663 source',()=>{
+ const repo=path.resolve(root,'../../../..'),expected={
+  'frontend/src/services/issueReportService.ts':'807f44d9d38ac4fb5b853b6475d4481f1b68738fbefcd0017dea2e9e1d8b5570',
+  'frontend/src/components/IssueReportDialog.tsx':'1b8006e4cdbafbd6810d3dd1c9a4b13fcb5a2b6f2101c36fb60a1b6b45314c95',
+  'frontend/src/services/telemetry/feedbackTelemetry.ts':'7b9a09ee584a30e87deb0042a11b769fe7c405030349013c438c560078e2ff39'};
+ for(const [file,digest] of Object.entries(expected))assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(repo,file))).digest('hex'),digest,file);
+});
+async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false,pcmReceipt=null,objectiveReceipt=null,saveFailure=false,finalWaitFailure=false,successfulCoaching=false,repeatWindowFailure=false}={}){
  const fixtureName=caseId==='AHT-01'?'open_mic_tts':caseId==='AHT-02'?'focus_points_tts':'focus_points_partial_tts';
  const fixture=manifest[fixtureName],contract=adapters.CONTRACTS[caseId],seen=[],writes=[],recorded=[];
  const c={caseId,campaignId:'UNIT-ONLY',sourceSha:adapters.SOURCE_SHA,servedSha:adapters.SOURCE_SHA,targetUrl:'https://unit.invalid',requiredAssertions:contract.rows,
-  account:{id:'11111111-1111-4111-8111-111111111111',mode:'existing-disposable',preprovisionReceipt:'unit/pre.json',analyticsExclusionReceipt:'unit/analytics.json',dispositionReceipt:'unit/disposition.json',effectiveFeatureAccessApproved:true},
+  account:{id:'11111111-1111-4111-8111-111111111111',mode:'existing-disposable',preprovisionReceipt:'unit/pre.json',analyticsExclusionReceipt:'unit/analytics.json',dispositionReceipt:'unit/disposition.json',bindingReceiptSha256:'a'.repeat(64),effectiveFeatureAccessApproved:true},
   readback:{origin:'https://unit.invalid',projectRef:'unit',anonKey:'synthetic-public',schemaSha256:'a'.repeat(64),ownerReadApproved:true,rlsReadQualificationReceipt:'unit/rls.json'},
   observerSourceReviewed:true,observerQualificationReceipt:'unit/observer.json',takeCap:contract.takes,startPressCap:contract.startPresses,
   fixture:{name:fixtureName,sha256:fixture.sha256,launchSha256:fixture.sha256,speechDurationMs:Math.round(fixture.speechSeconds*1000)},
   oracleBindings:Object.fromEntries(contract.oracles.map(n=>[n,{sha256:'b'.repeat(64),reviewReceipt:'unit/review.json',module:'unit/'+n+'.cjs'}])),
   privateEvidenceProducers:{'coaching-authority':{reviewed:true}},pdfParser:{package:'pdfjs-dist',version:'4.10.38',sha256:'c'.repeat(64)}};
  if(caseId!=='AHT-01')c.focus={topic:fixture.topic,points:fixture.points,expectedFinal:fixture.expectedFinal,speechWindows:fixture.pointAudioWindows,expectsLive:fixture.pointAudioWindows.map(Boolean),newPoints:[fixture.points[0],fixture.points[1],'A closing promise we never make'],editedPoints:fixture.points.slice(0,3)};
- let closed=false,saved=false;const old=[];
+ let closed=false,savedCount=0;const old=[];
  const patch=(o,k,v)=>{old.push([o,k,o[k]]);o[k]=v;};
- const page=Object.assign(new EventEmitter(),{setDefaultTimeout(){},setDefaultNavigationTimeout(){},waitForTimeout:async()=>{},waitForFunction:async()=>{if(finalWaitFailure)throw new Error('synthetic final wait failure');},isClosed:()=>closed,close:async()=>{closed=true;},
+ const page=Object.assign(new EventEmitter(),{setDefaultTimeout(){},setDefaultNavigationTimeout(){},waitForTimeout:async()=>{},waitForFunction:async()=>{if(finalWaitFailure)throw new Error('synthetic final wait failure');},isClosed:()=>closed,close:async()=>{closed=true;},goto:async()=>{},waitForURL:async()=>{},
   getByText:()=>({first(){return this;},isVisible:async()=>false}),
-  getByTestId:id=>({getAttribute:async()=>id.startsWith('focus-point-')?(falseFullFocus?'covered':c.focus.expectedFinal[Number(id.slice(12))]):'ready'})});
+  getByTestId:id=>({getAttribute:async()=>id.startsWith('focus-point-')?(falseFullFocus?'covered':c.focus.expectedFinal[Number(id.slice(12))]):'ready',waitFor:async()=>{},click:async()=>{},count:async()=>id==='focus-points-rail'?0:1})});
  patch(ui,'login',async()=>true);patch(ui,'openMic',async()=>{});patch(ui,'products',async()=>{});patch(ui,'setupFocus',async()=>{});
- let delayedResponse=null;patch(ui,'start',async()=>seen.push('start'));patch(ui,'stop',async()=>{seen.push('stop');if(coaching502){const request={url:()=>c.readback.origin+'/functions/v1/get-ai-suggestions',method:()=> 'POST',postDataJSON:()=>({sessionId:'take-A',client_attempt:1}),timing:()=>({responseEnd:40})};page.emit('request',request);const response=()=>page.emit('response',{request:()=>request,status:()=>502,headers:()=>({'content-type':'application/json'}),text:async()=>JSON.stringify({error:'AI coaching could not be generated. Please try again.',reason:'provider_timeout'})});if(late502)delayedResponse=response;else response();}});patch(ui,'saved',async()=>{if(saveFailure)throw new Error('synthetic save failure');saved=true;return 'take-A';});
+ let delayedResponse=null;patch(ui,'start',async()=>seen.push('start'));patch(ui,'stop',async()=>{seen.push('stop');if(coaching502){const request={url:()=>c.readback.origin+'/functions/v1/get-ai-suggestions',method:()=> 'POST',postDataJSON:()=>({sessionId:'take-A',client_attempt:1}),timing:()=>({responseEnd:40})};page.emit('request',request);const response=()=>page.emit('response',{request:()=>request,status:()=>502,headers:()=>({'content-type':'application/json'}),text:async()=>JSON.stringify({error:'AI coaching could not be generated. Please try again.',reason:'provider_timeout'})});if(late502)delayedResponse=response;else response();}});
  patch(ui,'reopen',async()=>{seen.push('reopen');delayedResponse?.();return{before:'d'.repeat(64),after:(wrongReopen?'e':'d').repeat(64)};});
  patch(observer,'install',async()=>{});patch(observer,'mic',async()=>({acquisitions:0,liveTracks:0,recording:false,recorderVisible:false}));patch(observer,'pcmBoundaryBaseline',async()=>({observedAtMs:10,captureIds:[]}));patch(observer,'pcmBoundaries',async()=>pcmReceipt);patch(observer,'objectivePublicationBaseline',async()=>({observedAtMs:10,sequence:0}));patch(observer,'objectivePublication',async()=>objectiveReceipt??{schema:'objective-publication-diagnostic.v1',diagnosticOnly:true,selectionStatus:'passed',selectionCode:'OBJECTIVE_CURRENT_PUBLICATION_SELECTED',validated:true,currentTakeMatched:true,fixtureStatusMatched:true,domStatusMatched:true,countMatched:true,selected:{sequence:1,createdAtMs:20,pointCount:c.focus?.expectedFinal.length??0,coveredCount:0,partialCount:0,missingCount:0,witnessSha256:'a'.repeat(64)}});
- patch(readback,'sessions',async()=>[...(staleOwner?Array.from({length:24},(_,i)=>({id:'old-'+i,status:'completed'})):[]),...(saved?[{id:wrongSavedTake?'take-B':'take-A',status:'completed',hasIdempotencyKey:true,transcriptState:'available',transcriptLength:20,transcriptSha256:'d'.repeat(64)}]:[])]);
+ patch(ui,'saved',async()=>{if(saveFailure)throw new Error('synthetic save failure');savedCount++;return savedCount===1?'take-A':'take-B';});
+ patch(readback,'sessions',async()=>[...(staleOwner?Array.from({length:24},(_,i)=>({id:'old-'+i,status:'completed'})):[]),...(savedCount===1?[{id:wrongSavedTake?'take-B':'take-A',status:'completed',hasIdempotencyKey:true,transcriptState:'available',transcriptLength:20,transcriptSha256:'d'.repeat(64)}]:savedCount>=2?[{id:'take-A',status:'completed',hasIdempotencyKey:true,transcriptState:'expired',transcriptLength:0,transcriptSha256:null},{id:'take-B',status:'completed',hasIdempotencyKey:true,transcriptState:'available',transcriptLength:20,transcriptSha256:'e'.repeat(64)}]:[])]);
  for(const method of ['openMicReview','beforeFocus','afterFocus'])patch(presentation,method,async()=>[]);
  patch(presentation,'beginFocusLive',async()=>({}));patch(presentation,'freezeFocusLiveDetailed',async()=>({rows:[],observed:null}));patch(presentation,'disposeFocusLive',async()=>{});
  patch(presentation,'group',id=>({id,result:'PASS',facts:{synthetic:true}}));patch(focusControls,'backReload',async()=>[]);
- const oracles=Object.fromEntries(contract.oracles.map(name=>[name,async a=>{seen.push(name+':'+a.phase);if(name==='coaching'&&a.phase==='capture'){const error=Error('synthetic missing saved inputs; private-content');if(!unknownCaptureError)error.code='NOT_RUN';throw error;}return a.phase==='assert'?{observed:true,result:'PASS',contentSafe:true,evidenceRefs:['unit/oracle.json']}:{observed:true};}]));
+ patch(repeatProbes,'beginRapidRepeat',()=>({}));patch(repeatProbes,'rapidRepeat',async()=>[{id:'rapid-repeat-gate',result:'PASS',facts:{}},{id:'rapid-repeat-release',result:'PASS',facts:{}}]);patch(repeatProbes,'nextStart',async()=>[{id:'next-start',result:'PASS',facts:{}},{id:'next-start-release',result:'PASS',facts:{}}]);patch(repeatProbes,'cancelRapidWindow',async()=>{});
+ if(repeatWindowFailure)patch(smokeTiming,'repeatRecordingWindowMs',()=>{throw new Error('synthetic repeat window failure');});
+ const oracles=Object.fromEntries(contract.oracles.map(name=>[name,async a=>{seen.push(name+':'+a.phase);if(name==='coaching'&&a.phase==='capture'&&!successfulCoaching){const error=Error('synthetic missing saved inputs; private-content');if(!unknownCaptureError)error.code='NOT_RUN';throw error;}return a.phase==='assert'?{observed:true,result:'PASS',contentSafe:true,evidenceRefs:['unit/oracle.json']}:{observed:true};}]));
  try{return {result:await adapters.run(caseId,{context:{newPage:async()=>page,grantPermissions:async()=>{}},guard:{summary:()=>({ledgerUsed:{model:0}})},caseConfig:c,capabilities:{credentials:{email:'synthetic@example.invalid',password:'synthetic-only'},oracles,recordStartPress:async()=>{},writeEvidence:async(name,value)=>{writes.push(value);return name;},recordAssertion:async row=>{recorded.push(row);seen.push('assert:'+row.id);}}}),seen,writes,recorded};}
  finally{for(const [o,k,v]of old.reverse())o[k]=v;}
 }
@@ -74,6 +85,18 @@ test('AHT-01 stale 24-session fixture stops before recording intent',async()=>{
  const f=await execute('AHT-01',{staleOwner:true});
  assert.equal(f.recorded.find(r=>r.id==='fresh-first-session')?.result,'NOT RUN');
  assert.equal(f.seen.includes('start'),false,'a known nonfresh owner must not consume a recording attempt');
+});
+test('AHT-01 full mode reaches the second Start with the full fixture window',async()=>{
+ const f=await execute('AHT-01',{successfulCoaching:true});
+ assert.equal(f.seen.filter(x=>x==='start').length,2);
+ assert.equal(f.recorded.find(r=>r.id==='same-target-repeat')?.result,'PASS');
+ assert.equal(f.recorded.find(r=>r.id==='owned-pages-closed')?.result,'PASS');
+});
+test('AHT-01 closes its owned page when the full-mode repeat window fails after the second Start',async()=>{
+ const f=await execute('AHT-01',{successfulCoaching:true,repeatWindowFailure:true});
+ assert.equal(f.seen.filter(x=>x==='start').length,2);
+ assert.notEqual(f.recorded.find(r=>r.id==='same-target-repeat')?.result,'PASS');
+ assert.equal(f.recorded.find(r=>r.id==='owned-pages-closed')?.result,'PASS');
 });
 
 const pcmCapture=(captureId='11111111-1111-4111-8111-111111111111',createdAtMs=20)=>({schema:'speaksharp.pcm-boundaries.v1',captureId,createdAtMs,sampleRateHz:16000,

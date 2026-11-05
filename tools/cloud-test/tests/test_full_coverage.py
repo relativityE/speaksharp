@@ -253,7 +253,7 @@ class SeparateModeLimits(unittest.TestCase):
     def test_a_request_with_no_mode_is_invalid_there_is_no_default(self):
         req = full_request(); del req["coverageMode"]
         errs, _ = validate(req)
-        self.assertTrue(any("coverageMode must be partial or full" in e for e in errs), errs)
+        self.assertTrue(any("coverageMode must be partial, smoke or full" in e for e in errs), errs)
 
     def test_the_sample_mode_must_match_the_mode(self):
         req = full_request(); req["sampleMode"] = "minimal"

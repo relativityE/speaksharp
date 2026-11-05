@@ -309,10 +309,12 @@ class PushTokenConfinement(unittest.TestCase):
     """J1 (Sam 1793580621.313599): the writer itself consumes CT_STATE_PUSH_TOKEN, for the one leased https push only. Offline: the https
     subprocess is intercepted before it runs; the file-remote append is real. Reuses StateRef's fixture without rerunning its tests."""
     setUp, fresh, commit, propose = StateRef.setUp, StateRef.fresh, StateRef.commit, StateRef.propose
-    TOKEN = "ghs_" + "A1b2C3d4" * 5
+    TOKEN = "ghs_" + "A1b2C3d4" * 5   # short legacy-style form
+    # Current stateless form, synthetic and opaque: ghs_<app id>_<three base64url segments>, 520 characters; never decoded.
+    LONG_TOKEN = "ghs_123456_" + ".".join(("eyJ" + "aB3-_x9Z" * 64)[:n] for n in (36, 391, 80))
     HTTPS = W.APPROVED_URL
 
-    def calls(self, fn, *a):
+    def calls(self, fn, *a, token=None):
         seen = []
         real = W._git
 
@@ -321,21 +323,23 @@ class PushTokenConfinement(unittest.TestCase):
             if scheme == "https":
                 return 0, b""
             return real(repo, *args, data=data, scheme=scheme, extra=extra)
-        with mock.patch.dict(os.environ, {W.PUSH_TOKEN_ENV: self.TOKEN}), mock.patch.object(W, "_git", spy):
+        with mock.patch.dict(os.environ, {W.PUSH_TOKEN_ENV: token or self.TOKEN}), mock.patch.object(W, "_git", spy):
             fn(*a)
         return seen
 
     def test_only_the_https_push_receives_the_token_scoped_to_the_approved_url_and_never_as_an_argument(self):
         import base64
-        seen = self.calls(W._push, self.repo, self.HTTPS, "a" * 40, "b" * 40, "https")
-        self.assertEqual(len(seen), 1)
-        args, extra = seen[0]
-        self.assertEqual(args[0], "push")
-        self.assertEqual(set(extra), {"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"})
-        self.assertEqual((extra["GIT_CONFIG_COUNT"], extra["GIT_CONFIG_KEY_0"]), ("1", "http.%s.extraheader" % self.HTTPS))
-        self.assertEqual(extra["GIT_CONFIG_VALUE_0"],
-                         "AUTHORIZATION: basic " + base64.b64encode(("x-access-token:" + self.TOKEN).encode()).decode())
-        self.assertFalse(any(self.TOKEN in a for a in args))
+        self.assertEqual((len(self.TOKEN), len(self.LONG_TOKEN)), (44, 520))
+        for token in (self.TOKEN, self.LONG_TOKEN):
+            seen = self.calls(W._push, self.repo, self.HTTPS, "a" * 40, "b" * 40, "https", token=token)
+            self.assertEqual(len(seen), 1)
+            args, extra = seen[0]
+            self.assertEqual(args[0], "push")
+            self.assertEqual(set(extra), {"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"})
+            self.assertEqual((extra["GIT_CONFIG_COUNT"], extra["GIT_CONFIG_KEY_0"]), ("1", "http.%s.extraheader" % self.HTTPS))
+            self.assertEqual(extra["GIT_CONFIG_VALUE_0"],
+                             "AUTHORIZATION: basic " + base64.b64encode(("x-access-token:" + token).encode()).decode())
+            self.assertFalse(any(token in a for a in args))
 
     def test_fetch_and_every_other_git_call_get_no_credential(self):
         def https_fetch():
@@ -359,7 +363,9 @@ class PushTokenConfinement(unittest.TestCase):
         self.assertFalse(any(self.TOKEN in v for v in captured[0].values()))
 
     def test_a_missing_or_malformed_token_refuses_before_the_push_is_sent(self):
-        for value in (None, "", "short", "has space " + "x" * 30, "x" * 30 + "\nInjected: header", "x" * 256):
+        x = "x" * 30
+        for value in (None, "", "short", "x" * 19, "has space " + x, x + "\nInjected: header", x + "\r\nX: y", x + "\t",
+                      x + "\x7f", x + "\u00e9", x + "\u2028", "x" * 4097):
             env = {} if value is None else {W.PUSH_TOKEN_ENV: value}
             with mock.patch.dict(os.environ, env, clear=False), mock.patch.object(W, "_git", lambda *a, **k: self.fail("sent")):
                 if value is None:
