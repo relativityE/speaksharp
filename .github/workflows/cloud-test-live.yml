@@ -202,6 +202,20 @@ jobs:
               --occurrence "$RUNNER_TEMP/prior-completion/occurrence.json" --out "$RUNNER_TEMP/reconciled.md"
             mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
           fi
+          # Run 41933223835 stopped at the reserve job (the workflow token was refused) before any reservation, so its `incomplete` in-progress
+          # record has no completion artifact and `begin` would refuse every later run. Exactly that one attempt may be retired, and only on
+          # evidence that it never reserved: GitHub reports the run failed with the reserve job failed and the live and settle jobs skipped, and
+          # the validated state-ref journal (pinned reviewed root) names no event for it. It is kept in the record as retired history, never as
+          # a completed run; usage, attempt and reservation records are not touched. Any other stuck attempt still refuses in `begin`.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unreserved_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run" > "$RUNNER_TEMP/unreserved-run.json"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run/jobs?per_page=100" > "$RUNNER_TEMP/unreserved-jobs.json"
+            python3 -I tools/cloud-test/scripts/unreserved_attempt_evidence.py --run "$RUNNER_TEMP/unreserved-run.json" \
+              --jobs "$RUNNER_TEMP/unreserved-jobs.json" --out "$RUNNER_TEMP/unreserved-evidence.json"
+            python3 -I "$P" retire-unreserved --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unreserved-evidence.json" \
+              --out "$RUNNER_TEMP/retired-unreserved.md"
+            mv "$RUNNER_TEMP/retired-unreserved.md" "$RUNNER_TEMP/previous.md"
+          fi
           # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
           python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"
           started_utc="${WORKFLOW_START_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
