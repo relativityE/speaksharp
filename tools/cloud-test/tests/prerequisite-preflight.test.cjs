@@ -193,3 +193,48 @@ test('run as a script (the workflow entry), the deadline check works and an expi
     assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false, label);
   }
 });
+
+test('run as a script inside an open window, prepare completes its normal path with the network intercepted only at fetch', async t => {
+  // Sam 1793895799.280589: the workflow-faithful success case. The real CLI entry and argument parsing, the real occurrence and deadline
+  // checks against the real clock, the real request sequence, receipt and facts writing; only fetch is a synthetic Supabase at the boundary.
+  // It proves the script's own path end to end offline. It does NOT prove the hosted step's environment, real credentials, real Supabase
+  // RLS behaviour or the live workflow wiring; only a real run does.
+  const {spawnSync} = require('node:child_process');
+  const entry = path.join(__dirname, '..', 'scripts', 'prerequisite_preflight.cjs');
+  const f = fixture(t), startMs = Date.now() - MINUTE;
+  f.occurrence = writeOccurrence(f.root, {createdUtc: iso(startMs), window: {startUtc: iso(startMs), endUtc: iso(startMs + 80 * MINUTE), approvalRef: 'slack:renewal'}});
+  const calls = path.join(f.root, 'fetch-calls'), preload = path.join(f.root, 'synthetic-supabase.cjs');
+  fs.writeFileSync(preload, `const fs = require('node:fs'); const IDS = ${JSON.stringify(IDS)}, EMAILS = ${JSON.stringify(EMAILS)};
+const json = (status, body) => ({status, json: async () => body});
+globalThis.fetch = async (url, options) => {
+  fs.appendFileSync(${JSON.stringify(calls)}, new URL(url).pathname + '\\n');
+  const parsed = new URL(url);
+  if (parsed.pathname === '/auth/v1/token') {
+    const role = Object.keys(EMAILS).find(key => EMAILS[key] === JSON.parse(options.body).email);
+    return json(200, {access_token: 'private-token-' + role, user: {id: IDS[role], app_metadata: {internal_tester: true}}});
+  }
+  const role = Object.keys(IDS).find(key => options.headers.authorization === 'Bearer private-token-' + key);
+  const target = parsed.searchParams.get(parsed.pathname.endsWith('user_profiles') ? 'id' : 'user_id')?.replace(/^eq\\./, '');
+  if (target !== IDS[role]) return json(200, []);
+  if (parsed.pathname.endsWith('user_profiles')) return json(200, [{id: IDS[role]}]);
+  return json(200, role === 'maintained-read-only' ? [{id: 'history-row', status: 'completed'}] : []);
+};\n`);
+  const child = spawnSync(process.execPath, ['--require', preload, entry, 'prepare', ...Object.entries(args(f)).flat()],
+    {env: process.env, encoding: 'utf8', timeout: 30000});
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.stderr, '');
+  const sent = fs.readFileSync(calls, 'utf8').trim().split('\n');
+  assert.equal(sent.length, 10, 'exactly the bounded request count');
+  assert.equal(sent.filter(p => p === '/auth/v1/token').length, 2);
+  const receiptBytes = fs.readFileSync(path.join(f.root, 'receipt.json'), 'utf8');
+  for (const forbidden of [...Object.values(IDS), ...Object.values(EMAILS), 'throwaway-secret', 'free-secret', 'anon-secret-value', 'private-token']) {
+    assert.equal(receiptBytes.includes(forbidden), false, forbidden);
+    assert.equal(child.stdout.includes(forbidden), false, forbidden);
+  }
+  const receipt = JSON.parse(receiptBytes), facts = JSON.parse(fs.readFileSync(path.join(f.root, 'facts.json')));
+  assert.deepEqual(receipt.charges, {auth: 2, signedIn: 8, total: 10});
+  assert.equal(receipt.mutationCount, 0);
+  assert.match(facts.receipts.pre, /^r10-preflight:[0-9a-f]{64}$/);
+  assert.equal(facts.receipts.disp, 'slack:owner-disposition');
+  assert.equal(fs.statSync(path.join(f.root, 'receipt.json')).mode & 0o777, 0o600);
+});
