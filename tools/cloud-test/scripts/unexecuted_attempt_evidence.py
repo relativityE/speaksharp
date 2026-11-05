@@ -37,12 +37,21 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (this module opens no socket itself; the one journal fetch is state_ref_writer's `git` subprocess)
 
-SCHEMA = "speaksharp.cloud-test.unexecuted-attempt-evidence.v2"
+SCHEMA = "speaksharp.cloud-test.unexecuted-attempt-evidence.v3"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
 SECRET = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)")
 PRODUCT_KEYS = ("requests", "identityReads", "starts", "takes", "coachingRequests")
+# Accounting by what the credential-bearing steps of the live job did (Sam 1793897345.841829 / 1793897309.565819; PO 11-05):
+#   none            - every credential-bearing step skipped: nothing product-capable ran, zero product usage;
+#   preflight-bound - the prerequisite preflight is the ONLY credential-bearing step that ran (it failed, or succeeded before a later
+#                     non-credential failure) and every later one is skipped: at most its fixed charge, PREFLIGHT_REQUESTS campaign requests
+#                     (2 sign-ins + 8 own-token reads, prerequisite_preflight.cjs charge), and no Start, take, coaching call or identity read;
+#   capped          - any other credential-bearing step ran: its usage is unknown, so it settles at the reserved caps (never less).
+PREFLIGHT_STEP = "Prove the selected accounts' bounded first-use prerequisites"
+PREFLIGHT_REQUESTS = 10
+ACCOUNTING = ("none", "preflight-bound", "capped")
 LIVE_JOB_PREFIX = "Selected live journeys"
 JOB_PREFIXES = (("record", "Record the attempt", "success"), ("gate", "Nightly gate", "skipped"),
                 ("reserve", "Reserve the run on the state-ref journal", "success"), ("live", LIVE_JOB_PREFIX, "failure"),
@@ -169,30 +178,46 @@ def _rules(doc):
     _need(all(s["status"] == "completed" for s in steps), "unexecuted-step-active")
     # the product-capable step must be among the credential-bearing ones, so a mis-parsed workflow cannot yield an empty or partial list
     _need(doc["credentialSteps"] and any(step.startswith("Stage runner (run)") for _job, step in doc["credentialSteps"]), "unexecuted-credential-steps")
+    ran = []
     for job_name, step_name in doc["credentialSteps"]:
         _need(job_name == live["name"], "unexecuted-credential-job")
         found = [s for s in steps if s["name"] == step_name]
-        _need(len(found) == 1 and found[0]["conclusion"] == "skipped", "unexecuted-credential-step-ran")
-        _need(found[0]["number"] > failed[0]["number"], "unexecuted-credential-step-before-failure")
+        _need(len(found) == 1, "unexecuted-credential-step-missing")       # missing or duplicated is uncertain, never skipped
+        step = found[0]
+        if step["conclusion"] == "skipped":
+            continue
+        # a credential-bearing step that ran must be the failure itself or have succeeded before it; nothing ran after the failure
+        _need(step["number"] <= failed[0]["number"] and step["conclusion"] in ("success", "failure"), "unexecuted-credential-step-ran")
+        ran.append(step_name)
+    accounting = "none" if not ran else "preflight-bound" if ran == [PREFLIGHT_STEP] else "capped"
+    _need(doc["accounting"] == accounting, "unexecuted-accounting")
     # the journal: freshly validated; its LAST event is this run's reserve (nothing after it settles or releases it)
     reserve = journal.get("reserve")
     _need(SHA40.match(str(journal.get("rootSha"))) and SHA40.match(str(journal.get("headSha"))) and isinstance(reserve, dict)
           and reserve.get("type") == "reserve" and reserve.get("runId") == ident["runId"] and reserve.get("attempt") == ident["attempt"]
           and isinstance(reserve.get("allocation"), dict), "unexecuted-journal")
-    usage = {k: 0 for k in PRODUCT_KEYS}
+    held = reserve["allocation"]
+    _need(all(type(held.get(k)) is int and held[k] >= 0 for k in PRODUCT_KEYS), "unexecuted-journal")
+    if accounting == "capped":
+        usage = {k: held[k] for k in PRODUCT_KEYS}
+    else:
+        usage = {k: 0 for k in PRODUCT_KEYS}
+        if accounting == "preflight-bound":
+            usage["requests"] = min(PREFLIGHT_REQUESTS, held["requests"])
     usage["runnerMinutes"] = max(1, int(math.ceil(_seconds(live) / 60.0)))
     ended = max(_utc(j["completedAt"], "unexecuted-job-time") for j in jobs if j["conclusion"] != "skipped")
     return usage, ended.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _check_shape(doc):
-    keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "workflowSha256", "journal", "usage", "atUtc"}
+    keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "workflowSha256", "accounting", "journal", "usage", "atUtc"}
     _need(isinstance(doc, dict) and set(doc) == keys and doc["schema"] == SCHEMA, "unexecuted-shape")
     ident = doc["identity"]
     _need(isinstance(ident, dict) and set(ident) == {"runId", "attempt", "headSha"} and isinstance(ident["runId"], str)
           and re.fullmatch(r"[1-9][0-9]{0,19}", ident["runId"]) is not None and type(ident["attempt"]) is int and ident["attempt"] >= 1
           and SHA40.match(str(ident["headSha"])), "unexecuted-identity")
     _need(isinstance(doc["workflowSha256"], str) and SHA64.match(doc["workflowSha256"]), "unexecuted-shape")
+    _need(doc["accounting"] in ACCOUNTING, "unexecuted-shape")
     _need(isinstance(doc["failedStep"], str), "unexecuted-shape")
     run = doc["run"]
     _need(isinstance(run, dict) and set(run) == {"runId", "attempt", "headSha", "status", "conclusion", "startedAt", "updatedAt"}, "unexecuted-shape")
@@ -227,6 +252,14 @@ def open_reserve(chain):
     return last if isinstance(last, dict) and last.get("type") == "reserve" else None
 
 
+def _derive_accounting(jobs, cred):
+    """The accounting mode the steps imply (re-verified by _rules); "capped" whenever it is not clearly none or preflight-bound."""
+    live = _live(jobs)
+    names = {step: [s for s in live.get("steps") or [] if s.get("name") == step] for _job, step in cred}
+    ran = [step for step, found in names.items() if len(found) == 1 and found[0].get("conclusion") != "skipped"]
+    return "none" if not ran else "preflight-bound" if ran == [PREFLIGHT_STEP] else "capped"
+
+
 def build_evidence(run, jobs_doc, chain, workflow_text):
     """The evidence document for GitHub's run and jobs JSON, the validated journal chain [(sha, events, ...)] and the run's own workflow text at
     its head, or a refusal. The chain's open last event must be this run's reserve, and no other event may name this run."""
@@ -245,6 +278,7 @@ def build_evidence(run, jobs_doc, chain, workflow_text):
                    "conclusion": run.get("conclusion"), "startedAt": run.get("run_started_at"), "updatedAt": run.get("updated_at")},
            "jobs": jobs, "failedStep": failed[0]["name"], "credentialSteps": [list(p) for p in credential_steps(workflow_text)],
            "workflowSha256": hashlib.sha256(workflow_text.encode("utf-8")).hexdigest(),
+           "accounting": _derive_accounting(jobs, credential_steps(workflow_text)),
            "journal": {"rootSha": chain[0][0], "headSha": chain[-1][0], "reserve": reserve}, "usage": {}, "atUtc": "1970-01-01T00:00:00Z"}
     doc["usage"], doc["atUtc"] = _rules(doc)
     check_evidence(doc)

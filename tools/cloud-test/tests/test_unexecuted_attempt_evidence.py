@@ -17,7 +17,7 @@ RUN_ID = "41960376782"
 HEAD = "8f9f9451bb6bf37ba2bca524acd92d933e2b826c"
 ROOT_SHA = "92d6ebf902351750c368d7d513116c6b1f19f80c"
 LIVE = "Selected live journeys (existing stage runner; preinstalled browser)"
-DIGEST = "481b8c00d1903aa330ffc44ff40401121780219aef28a58f59726bead4304218"
+DIGEST = "81a1dcb7f10903d73f5b812eb20d5f2ff610c08904b1774ea8223389125d078c"
 # The known facts of run 41960376782 (no longer a pin in the module, Sam 1793881491.714239): the journal head and reserve event as appended, the
 # step it failed at, and the credential-bearing steps of its workflow at its head.
 PIN = {"attempt": 1, "headSha": HEAD, "failedStep": "Generate the exact-head browser-bound proof and offline checks",
@@ -204,10 +204,55 @@ class Evidence(unittest.TestCase):
             self.refused("unexecuted-failed-step", build, None, jobs)                  # a credential step that ran and failed is a second failure
             jobs = self.jobs()
             self.live(jobs)["steps"] = [s for s in self.live(jobs)["steps"] if s["name"] != name]
-            self.refused("unexecuted-credential-step-ran", build, None, jobs)          # missing is uncertain, not skipped
+            self.refused("unexecuted-credential-step-missing", build, None, jobs)      # missing is uncertain, not skipped
             jobs = self.jobs()
             self.live(jobs)["steps"].append(dict(self.step(jobs, name)))
-            self.refused("unexecuted-credential-step-ran", build, None, jobs)          # duplicated
+            self.refused("unexecuted-credential-step-missing", build, None, jobs)      # duplicated
+
+    def failed_at(self, failing, succeeded=()):
+        """The real jobs with the failure moved: the proof succeeded, `succeeded` steps ran, `failing` failed, every later step skipped."""
+        jobs = self.jobs()
+        for step in self.live(jobs)["steps"]:
+            step["conclusion"] = "success" if step["name"] == PIN["failedStep"] or step["name"] in succeeded else step["conclusion"]
+        self.step(jobs, failing)["conclusion"] = "failure"
+        return jobs
+
+    def test_a_failed_preflight_settles_at_its_bounded_request_charge_and_nothing_else(self):
+        # R10 run 42059286564 (Sam 1793897345.841829; PO 11-05): only the prerequisite preflight ran, and it failed. Its fixed charge is 10
+        # campaign requests (2 sign-ins + 8 own-token reads, prerequisite_preflight.cjs charge); it makes no served-release identity read, no
+        # Start, take or coaching call, and every later credential-bearing step is skipped.
+        for jobs in (self.failed_at(U.PREFLIGHT_STEP),                                                        # the preflight itself failed
+                     self.failed_at("Bind a clean detached checkout of the admitted tested release", ())):     # ... or a later step
+            if self.step(jobs, U.PREFLIGHT_STEP)["conclusion"] != "failure":
+                self.step(jobs, U.PREFLIGHT_STEP)["conclusion"] = "skipped"
+            doc = build(jobs=jobs)
+            if self.step(jobs, U.PREFLIGHT_STEP)["conclusion"] == "failure":
+                self.assertEqual((doc["accounting"], doc["failedStep"]), ("preflight-bound", U.PREFLIGHT_STEP))
+                self.assertEqual(U.check_evidence(doc)[1], {"requests": 10, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6})
+        jobs = self.failed_at("Bind a clean detached checkout of the admitted tested release", (U.PREFLIGHT_STEP,))
+        self.assertEqual(build(jobs=jobs)["accounting"], "preflight-bound")              # the preflight succeeded, a non-credential step failed
+        doc = build(jobs=self.failed_at(U.PREFLIGHT_STEP))
+        self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting="none"))        # it cannot be claimed as zero
+        self.refused("unexecuted-usage-differs", U.check_evidence, dict(doc, usage=dict(doc["usage"], requests=0)))
+
+    def test_any_other_credential_bearing_step_that_ran_settles_at_the_reserved_caps(self):
+        # usage after a non-preflight credential step is unknown: retained at the caps, never less (Sam 1793897309.565819)
+        for failing, succeeded in (("Select the committed request and bind this run's inputs", (U.PREFLIGHT_STEP,)),
+                                   ("Stage runner (install-tools, plans, stimulus preflight, gates)", (U.PREFLIGHT_STEP, "Select the committed request and bind this run's inputs")),
+                                   ("Collect, verify the binding, qualify every selected row, and project the closed record",
+                                    (U.PREFLIGHT_STEP, "Select the committed request and bind this run's inputs",
+                                     "Stage runner (install-tools, plans, stimulus preflight, gates)", "Stage runner (run), bounded to the selected cases' live minutes"))):
+            jobs = self.failed_at(failing, succeeded)
+            for name in ("Bind a clean detached checkout of the admitted tested release", "Place the admitted continuity checkpoint as the runner's reconciliation",
+                         "Approved window still fits the live run"):
+                step = next((s for s in self.live(jobs)["steps"] if s["name"].startswith(name[:30])), None)
+                if step is not None and step["conclusion"] == "skipped" and step["number"] < self.step(jobs, failing)["number"]:
+                    step["conclusion"] = "success"
+            doc = build(jobs=jobs)
+            self.assertEqual(doc["accounting"], "capped", failing)
+            held = PIN["reserved"]["allocation"]
+            self.assertEqual({k: v for k, v in U.check_evidence(doc)[1].items() if k != "runnerMinutes"},
+                             {k: held[k] for k in U.PRODUCT_KEYS}, failing)
 
     def test_the_live_job_must_have_failed_at_exactly_one_step_and_no_step_may_be_active(self):
         self.assertEqual(build()["failedStep"], PIN["failedStep"])

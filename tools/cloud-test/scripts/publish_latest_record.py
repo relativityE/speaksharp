@@ -385,10 +385,15 @@ def render(state):
     if live:
         lines.append("In progress: run %s attempt %d, status %s." % (live["runId"], live["attempt"], live["status"]))
     for r in state.get("retiredAttempts") or []:
-        if r["retiredReason"] == "reserved-not-executed":
+        if r["retiredReason"] == "reserved-not-executed":      # rendered exactly as before, so stored records read back unchanged
             lines.append("Reserved, not executed: no credential-bearing step ran (not a completed run): run %s attempt %d at `%s`, started %s; "
                          "0 product usage, %d runner minute(s), evidence `%s`." % (
                              r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"], r["evidence"]["runnerMinutes"], r["evidence"]["evidenceSha256"][:12]))
+            continue
+        if r["retiredReason"] in RESERVED_REASONS:
+            lines.append("%s (not a completed run): run %s attempt %d at `%s`, started %s; %d runner minute(s), evidence `%s`." % (
+                RESERVED_REASONS[r["retiredReason"]], r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"],
+                r["evidence"]["runnerMinutes"], r["evidence"]["evidenceSha256"][:12]))
             continue
         lines.append("Retired without a reservation (not a completed run): run %s attempt %d at `%s`, started %s." % (
             r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"]))
@@ -477,18 +482,23 @@ UNRESERVED_JOBS = (("reserveJob", "Reserve the run on the state-ref journal", ("
 UNRESERVED_EVIDENCE_KEYS = {"run", "jobs", "journal", "collectedAt"}
 
 
+# The retirement reason follows the evidence's accounting (unexecuted_attempt_evidence.ACCOUNTING); the settle carries the usage itself.
+RESERVED_REASONS = {"reserved-not-executed": "Reserved, not executed: no credential-bearing step ran; 0 product usage",
+                    "reserved-preflight-only": "Reserved, setup failed: only the prerequisite preflight ran; settled at its bounded request charge",
+                    "reserved-capped": "Reserved, setup failed after a credential-bearing step ran; usage unknown, settled at the reserved caps"}
+ACCOUNTING_REASON = {"none": "reserved-not-executed", "preflight-bound": "reserved-preflight-only", "capped": "reserved-capped"}
 UNEXECUTED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "evidenceSha256", "journalHeadSha", "runnerMinutes", "settleAtUtc"}
 
 
 def sanitize_retired(r):
     """A retired-attempt entry exactly as stored; anything outside the closed shape of its reason refuses."""
     _keys(r, RETIRED_KEYS, "retired-attempt")
-    _need(set(r) == RETIRED_KEYS and r["retiredReason"] in ("never-reserved", "reserved-not-executed"), "retired-attempt")
+    _need(set(r) == RETIRED_KEYS and (r["retiredReason"] == "never-reserved" or r["retiredReason"] in RESERVED_REASONS), "retired-attempt")
     _need(isinstance(r["predecessorSha256"], str) and SHA64.match(r["predecessorSha256"]), "retired-attempt")
     _attempt(r["runId"], r["attempt"])
     _need(isinstance(r["sourceSha"], str) and SHA40.match(r["sourceSha"]) and isinstance(r["startedUtc"], str) and UTC.match(r["startedUtc"]), "retired-attempt")
     ev = r["evidence"]
-    if r["retiredReason"] == "reserved-not-executed":
+    if r["retiredReason"] in RESERVED_REASONS:
         _keys(ev, UNEXECUTED_EVIDENCE_KEYS, "retired-evidence")
         _need(set(ev) == UNEXECUTED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure"
               and type(ev["runnerMinutes"]) is int and 0 < ev["runnerMinutes"] <= 1000
@@ -607,7 +617,7 @@ def retire_unexecuted(state, evidence, predecessor_sha256):
     _need((run["runId"], run["attempt"], run["headSha"]) == (live["runId"], live["attempt"], live["sourceSha"]), "unexecuted-run-differs")
     _need(live["startedUtc"] <= run["updatedAt"], "unexecuted-time")
     entry = sanitize_retired({"runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "startedUtc": live["startedUtc"],
-                              "retiredReason": "reserved-not-executed", "predecessorSha256": predecessor_sha256,
+                              "retiredReason": ACCOUNTING_REASON[evidence["accounting"]], "predecessorSha256": predecessor_sha256,
                               "evidence": {"runStatus": run["status"], "runConclusion": run["conclusion"], "runUpdatedUtc": run["updatedAt"],
                                            "evidenceSha256": digest, "journalHeadSha": evidence["journal"]["headSha"],
                                            "runnerMinutes": usage["runnerMinutes"], "settleAtUtc": at_utc}})

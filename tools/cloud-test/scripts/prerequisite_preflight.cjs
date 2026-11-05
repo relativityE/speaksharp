@@ -89,7 +89,7 @@ function authorizedOccurrence(file, expectedSha) {
 function requireDeadline(deadline) {
   // Before the first request and before every later one: the authorized window must be open, and the whole bounded request (its
   // timeout) must finish before the deadline. Nothing is sent once it cannot.
-  const now = module.exports.clock.now();
+  const now = clock.now();   // the lexical clock: tests replace clock.now on the same exported object
   if (!deadline || now < deadline.start || now + REQUEST_TIMEOUT_MS > deadline.end) refuse('occurrence-deadline');
 }
 async function request(url, options, code, deadline) {
@@ -194,5 +194,6 @@ async function main(argv = process.argv.slice(2)) {
   try { const parsed = args([...argv]); if (parsed.command === 'prepare') await prepare(parsed.out); else charge(parsed.out); return 0; }
   catch (error) { process.stderr.write(`BLOCKED_SETUP: ${error?.message || 'prerequisite-preflight'}\n`); return 78; }
 }
-if (require.main === module) main().then(code => { process.exitCode = code; });
+// Exports first, then the CLI entry: R10 run 42059286564 ran main() while module.exports was still empty.
 module.exports = {main, prepare, charge, canonical, bytes, clock};
+if (require.main === module) main().then(code => { process.exitCode = code; });
