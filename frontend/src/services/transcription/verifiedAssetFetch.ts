@@ -1,4 +1,6 @@
 /** Shared model-response verification. The caller owns consent and egress policy. */
+/** The one cache the verified loaders write to. ModelManager's readiness probe reads the same name, so the two can never drift apart. */
+export const VERIFIED_MODEL_CACHE = 'speaksharp-verified-model-v1';
 export interface AssetResponsePin { url: string; sha256: string; bytes?: number }
 const digest = async (bytes: ArrayBuffer) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)))
     .map(n=>n.toString(16).padStart(2,'0')).join('');
@@ -24,7 +26,7 @@ export function createVerifiedAssetFetch(pins: readonly AssetResponsePin[], scop
         const headers=new Headers(response.headers);headers.delete('content-encoding');headers.set('content-length',String(body.byteLength));
         const verified=new Response(body,{status:response.status,statusText:response.statusText,headers});
         Object.defineProperty(verified,'url',{value:response.url||url});
-        if(!cached && storage){const cache=await storage.open('speaksharp-verified-model-v1');await cache.put(url,verified.clone());}
+        if(!cached && storage){const cache=await storage.open(VERIFIED_MODEL_CACHE);await cache.put(url,verified.clone());}
         return verified;
     };
 }

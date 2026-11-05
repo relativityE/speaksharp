@@ -22,6 +22,8 @@ describe('verified cached model delivery',()=>{
   it('indexes only byte- and hash-matching entries without network access',async()=>{
     const {file,pin}=await fixture();const index=await indexCachedAssets([pin],[{...pin,file}]);expect(index.size).toBe(1);
     expect(index.has('https://model.example.invalid/unapproved.bin')).toBe(false);
+    // The index owns open descriptors. Left to garbage collection they raise Node's DEP0137 warning, an error in a future Node.
+    await closeVerifiedAssetIndex(index);expect([...index.values()].every(entry=>entry.handle.fd===-1)).toBe(true);
   });
   it('refuses missing or duplicate inventory and changed model bytes',async()=>{
     const {file,pin}=await fixture();

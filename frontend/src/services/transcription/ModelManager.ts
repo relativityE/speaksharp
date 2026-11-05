@@ -2,6 +2,7 @@ import logger from '@/lib/logger';
 import { PRIV_STT_V4, PRIV_STT_MODELS } from './sttConstants';
 import { resolvePrivateModel } from './utils/privateModelFlag';
 import { CANDIDATES } from './candidateRegistry';
+import { VERIFIED_MODEL_CACHE } from './verifiedAssetFetch';
 
 /**
  * ModelManager
@@ -14,6 +15,21 @@ import { CANDIDATES } from './candidateRegistry';
  */
 export class ModelManager {
     private static readonly TRANSFORMERS_CACHE = 'transformers-cache';
+    // Every cache a loader may have written the model to: the library's own cache (the incumbent) and the verified loaders' cache
+    // (v4 and package-v2 candidates load with useBrowserCache=false and store digest-verified responses there). Probing only the first
+    // reported CACHE_MISS after every successful candidate load.
+    private static readonly MODEL_CACHES = [this.TRANSFORMERS_CACHE, VERIFIED_MODEL_CACHE] as const;
+
+    /** The URLs of every entry in every model cache that exists; [] when none does or CacheStorage is unavailable. */
+    private static async cachedModelUrls(): Promise<string[]> {
+        const urls: string[] = [];
+        for (const name of this.MODEL_CACHES) {
+            if (!(await caches.has(name))) continue;
+            const cache = await caches.open(name);
+            urls.push(...(await cache.keys()).map((request) => request.url));
+        }
+        return urls;
+    }
     // Model-aware: track the SELECTED Private model so cache-detection + size gate the download/ready
     // UX on what will actually load. The default is PRIV_STT_MODELS.DEFAULT — v2 whisper-base.en
     // (~80MB, self-hosted under public/models/, no Hugging Face). tiny.en remains an internal/emergency
@@ -89,22 +105,13 @@ export class ModelManager {
             return false;
         }
 
-        const hasCache = await caches.has(this.TRANSFORMERS_CACHE);
+        const cachedUrls = await this.cachedModelUrls();
 
-        if (!hasCache) {
-            logger.info({ engineType: 'transformers-js', cacheName: this.TRANSFORMERS_CACHE }, '[ModelManager] Cache not found (First Use)');
+        if (cachedUrls.length === 0) {
+            logger.info({ engineType: 'transformers-js', cacheNames: this.MODEL_CACHES }, '[ModelManager] No model cache entries (First Use)');
             return false;
         }
 
-        const cache = await caches.open(this.TRANSFORMERS_CACHE);
-        const keys = await cache.keys();
-
-        if (keys.length === 0) {
-            logger.warn({ engineType: 'transformers-js', cacheName: this.TRANSFORMERS_CACHE }, '[ModelManager] Cache exists but is empty');
-            return false;
-        }
-
-        const cachedUrls = keys.map((request) => request.url);
         const missingFiles = requiredFiles.filter(
             (requiredFile) => !cachedUrls.some((url) => this.isTransformersModelAsset(url, requiredFile, modelPath)),
         );
@@ -112,14 +119,14 @@ export class ModelManager {
         if (missingFiles.length > 0) {
             logger.warn({
                 engineType: 'transformers-js',
-                cacheName: this.TRANSFORMERS_CACHE,
-                keyCount: keys.length,
+                cacheNames: this.MODEL_CACHES,
+                keyCount: cachedUrls.length,
                 missingFiles,
             }, '[ModelManager] Cache exists but required model assets are missing');
             return false;
         }
 
-        logger.info({ engineType: 'transformers-js', cacheName: this.TRANSFORMERS_CACHE, keyCount: keys.length }, '[ModelManager] Required model assets detected in cache');
+        logger.info({ engineType: 'transformers-js', cacheNames: this.MODEL_CACHES, keyCount: cachedUrls.length }, '[ModelManager] Required model assets detected in cache');
         return true;
     }
 
@@ -144,22 +151,13 @@ export class ModelManager {
             return false;
         }
 
-        const hasCache = await caches.has(this.TRANSFORMERS_CACHE);
+        const cachedUrls = await this.cachedModelUrls();
 
-        if (!hasCache) {
-            logger.info({ engineType: 'transformers-js-v4', cacheName: this.TRANSFORMERS_CACHE }, '[ModelManager] Cache not found (First Use)');
+        if (cachedUrls.length === 0) {
+            logger.info({ engineType: 'transformers-js-v4', cacheNames: this.MODEL_CACHES }, '[ModelManager] No model cache entries (First Use)');
             return false;
         }
 
-        const cache = await caches.open(this.TRANSFORMERS_CACHE);
-        const keys = await cache.keys();
-
-        if (keys.length === 0) {
-            logger.warn({ engineType: 'transformers-js-v4', cacheName: this.TRANSFORMERS_CACHE }, '[ModelManager] Cache exists but is empty');
-            return false;
-        }
-
-        const cachedUrls = keys.map((request) => request.url);
         const missingFiles = requiredFiles.filter(
             (requiredFile) => !cachedUrls.some((url) => this.isTransformersV4ModelAsset(url, requiredFile, modelPath)),
         );
@@ -167,14 +165,14 @@ export class ModelManager {
         if (missingFiles.length > 0) {
             logger.warn({
                 engineType: 'transformers-js-v4',
-                cacheName: this.TRANSFORMERS_CACHE,
-                keyCount: keys.length,
+                cacheNames: this.MODEL_CACHES,
+                keyCount: cachedUrls.length,
                 missingFiles,
             }, '[ModelManager] Cache exists but required v4 model assets are missing');
             return false;
         }
 
-        logger.info({ engineType: 'transformers-js-v4', cacheName: this.TRANSFORMERS_CACHE, keyCount: keys.length }, '[ModelManager] Required v4 model assets detected in cache');
+        logger.info({ engineType: 'transformers-js-v4', cacheNames: this.MODEL_CACHES, keyCount: cachedUrls.length }, '[ModelManager] Required v4 model assets detected in cache');
         return true;
     }
 
