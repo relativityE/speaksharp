@@ -1,1 +1,1 @@
-{"events":[],"schema":"speaksharp.cloud-test.state-ledger.v1"}
+{"events":[{"allocation":{"coachingRequests":20,"identityReads":32,"requests":2032,"runnerMinutes":40,"starts":16,"takes":16},"atUtc":"2026-11-05T03:15:17Z","attempt":1,"campaignId":"R10-3b040043-smoke15","provenance":"request-sha256:c7e6698a9c9aeb09504a83bff2078a1d41478943067f1084f39a901cdd2cc4ee","runId":"41960376782","type":"reserve"}],"schema":"speaksharp.cloud-test.state-ledger.v1"}
