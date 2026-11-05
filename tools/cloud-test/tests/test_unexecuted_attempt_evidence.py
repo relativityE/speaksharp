@@ -15,10 +15,20 @@ import unexecuted_attempt_evidence as U
 FX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "unexecuted")
 RUN_ID = "41960376782"
 HEAD = "8f9f9451bb6bf37ba2bca524acd92d933e2b826c"
-PIN = U.UNEXECUTED_ATTEMPTS[RUN_ID]
 ROOT_SHA = "92d6ebf902351750c368d7d513116c6b1f19f80c"
 LIVE = "Selected live journeys (existing stage runner; preinstalled browser)"
-DIGEST = "ee620b386e60dd988f8eac73a6c0c4901063f6614f119360b6759302c622925e"
+DIGEST = "481b8c00d1903aa330ffc44ff40401121780219aef28a58f59726bead4304218"
+# The known facts of run 41960376782 (no longer a pin in the module, Sam 1793881491.714239): the journal head and reserve event as appended, the
+# step it failed at, and the credential-bearing steps of its workflow at its head.
+PIN = {"attempt": 1, "headSha": HEAD, "failedStep": "Generate the exact-head browser-bound proof and offline checks",
+       "journalHeadSha": "0909b53ff6dc767105633ddc14db520c762dff64",
+       "reserved": {"type": "reserve", "campaignId": "R10-3b040043-smoke15", "runId": RUN_ID, "attempt": 1,
+                    "allocation": {"requests": 2032, "identityReads": 32, "starts": 16, "takes": 16, "coachingRequests": 20, "runnerMinutes": 40},
+                    "provenance": "request-sha256:c7e6698a9c9aeb09504a83bff2078a1d41478943067f1084f39a901cdd2cc4ee", "atUtc": "2026-11-05T03:15:17Z"},
+       "credentialSteps": [[LIVE, "Prove the selected accounts' bounded first-use prerequisites"],
+                           [LIVE, "Select the committed request and bind this run's inputs"],
+                           [LIVE, "Stage runner (install-tools, plans, stimulus preflight, gates)"],
+                           [LIVE, "Stage runner (run), bounded to the selected cases' live minutes"]]}
 
 
 def load(name):
@@ -31,17 +41,24 @@ def chain(head=None, events=None):
     return [(ROOT_SHA, []), (head or PIN["journalHeadSha"], [dict(PIN["reserved"])] if events is None else events)]
 
 
-def build(run=None, jobs=None, ch=None):
-    return U.build_evidence(run or load("run-41960376782.json"), jobs or load("jobs-41960376782.json"), ch or chain(), RUN_ID)
+def workflow():
+    with open(os.path.join(FX, "cloud-test-live.8f9f9451.yml"), encoding="utf-8") as f:
+        return f.read()
+
+
+def build(run=None, jobs=None, ch=None, wf=None):
+    return U.build_evidence(run or load("run-41960376782.json"), jobs or load("jobs-41960376782.json"), ch or chain(), wf or workflow())
 
 
 class Evidence(unittest.TestCase):
     def test_the_pending_probe_is_keyed_on_the_journal_not_the_record(self):
-        # Sam 1793881260.206739: only the pinned reserve still open at its pinned head is pending, whatever the record says
+        # Sam 1793881260.206739 / 1793881491.714239: the run whose reserve is the journal's open last event is pending, whatever the record says
         self.assertEqual(U.pending_run(chain()), RUN_ID)
+        self.assertEqual(U.pending_run(chain(head="e" * 40, events=[dict(PIN["reserved"]), {"type": "settle", "runId": RUN_ID},
+                                                                    dict(PIN["reserved"], runId="41999999998")])), "41999999998")
         settle = {"type": "settle", "runId": RUN_ID}
-        for other in (chain(events=[dict(PIN["reserved"]), settle]), chain(head="e" * 40), [(ROOT_SHA, [])],
-                      chain(events=[dict(PIN["reserved"], runId="1")]), chain(events=[])):
+        for other in (chain(events=[dict(PIN["reserved"]), settle]), [(ROOT_SHA, [])], chain(events=[]),
+                      chain(events=[dict(PIN["reserved"]), {"type": "release", "runId": RUN_ID}])):
             self.assertIsNone(U.pending_run(other))
         with self.assertRaises(U.Refused):
             U.pending_run([])
@@ -74,11 +91,13 @@ class Evidence(unittest.TestCase):
         a, b = build(), build()
         self.assertEqual(U.canon(a), U.canon(b))
         base = U.check_evidence(a)[0]
-        for path in (("run", "updatedAt"), ("journal", "headSha")):
-            doc = copy.deepcopy(a)
-            doc[path[0]][path[1]] = doc[path[0]][path[1]][:-1] + ("0" if doc[path[0]][path[1]][-1] != "0" else "1")
-            with self.assertRaises(U.Refused):
-                U.check_evidence(doc)
+        doc = copy.deepcopy(a)
+        doc["run"]["updatedAt"] = "2026-11-05T03:14:00Z"                    # before the run started
+        with self.assertRaises(U.Refused):
+            U.check_evidence(doc)
+        doc = copy.deepcopy(a)
+        doc["journal"]["headSha"] = "1" * 40                               # any head is valid shape, but it is a different document: the
+        self.assertNotEqual(U.check_evidence(doc)[0], base)                # settle refuses at any other actual head (test_manual_reservation)
         # a harmless-looking reorder of jobs changes the digest, and the document is still valid: the digest binds the exact bytes
         doc = copy.deepcopy(a)
         doc["jobs"].reverse()
@@ -101,12 +120,28 @@ class Evidence(unittest.TestCase):
         ok = "jobs:\n  a:\n    name: A\n    steps:\n      - name: S\n        run: echo ${{ secrets.X }}\n      - name: T\n        run: echo ${{ secrets.GITHUB_TOKEN }}\n"
         self.assertEqual(U.credential_steps(ok), [("A", "S")])
 
-    def test_only_the_pinned_run_attempt_and_head_is_accepted(self):
-        run = load("run-41960376782.json")
-        self.refused("unexecuted-not-a-pinned-attempt", U.build_evidence, dict(run, id=41960376783), self.jobs(), chain(), "41960376783")
-        self.refused("unexecuted-not-a-pinned-attempt", U.build_evidence, run, self.jobs(), chain(), "41933223835")
-        self.refused("unexecuted-run-differs", build, dict(run, run_attempt=2))
-        self.refused("unexecuted-run-differs", build, dict(run, head_sha="a" * 40))
+    def test_a_new_run_that_reserved_and_then_failed_in_setup_is_evidence_too(self):
+        # Sam 1793881491.714239: a NEW run identity with a successful reserve and every credential-bearing step skipped, not a pinned entry
+        new_id, new_head = 41999999997, "c" * 40
+        run = dict(load("run-41960376782.json"), id=new_id, head_sha=new_head)
+        jobs = self.jobs()
+        for j in jobs["jobs"]:
+            j.update(run_id=new_id, head_sha=new_head)
+        reserve = dict(PIN["reserved"], runId=str(new_id), atUtc="2026-11-06T03:15:17Z")
+        settled_old = [dict(PIN["reserved"]), dict(PIN["reserved"], type="settle")]
+        ch = [(ROOT_SHA, []), ("2" * 40, settled_old[:1]), ("3" * 40, settled_old), ("4" * 40, settled_old + [reserve])]
+        self.assertEqual(U.pending_run(ch), str(new_id))
+        doc = build(run, jobs, ch)
+        digest, usage, at_utc = U.check_evidence(doc)
+        self.assertEqual((doc["identity"], doc["journal"]["reserve"], doc["journal"]["headSha"]), ({"runId": str(new_id), "attempt": 1, "headSha": new_head}, reserve, "4" * 40))
+        self.assertEqual(usage, {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6})
+        self.assertNotEqual(digest, DIGEST)
+        # the run, its jobs and the journal's open reserve must all be the same identity
+        self.refused("unexecuted-journal", build, dict(run, id=41999999996), None, ch)
+        self.refused("unexecuted-journal", build, run, jobs, chain())                                   # the open reserve is another run's
+        self.refused("unexecuted-run-differs", U.check_evidence, dict(doc, identity=dict(doc["identity"], headSha="d" * 40)))
+        self.refused("unexecuted-journal", build, dict(load("run-41960376782.json"), run_attempt=2))     # the reserve is attempt 1
+        self.refused("unexecuted-job-not-of-the-run", build, dict(load("run-41960376782.json"), head_sha="a" * 40))
 
     def test_the_run_must_be_completed_and_failed(self):
         run = load("run-41960376782.json")
@@ -135,15 +170,22 @@ class Evidence(unittest.TestCase):
         jobs["jobs"].append(dict(jobs["jobs"][2]))
         self.refused("unexecuted-jobs", build, None, jobs)                 # a duplicate
 
-    def test_a_hand_edited_document_cannot_drop_or_swap_a_credential_step(self):
-        # the document carries the credential-bearing steps it was checked against; they must be exactly the pinned ones (derived from the workflow
-        # at that head), so a step that ran cannot be removed from the list to make the rest look skipped
-        for label, change in (("drop one", lambda d: d["credentialSteps"].pop()),
-                              ("empty", lambda d: d["credentialSteps"].clear()),
-                              ("swap one", lambda d: d["credentialSteps"].__setitem__(0, [d["credentialSteps"][0][0], "Collect, verify the binding"]))):
+    def test_the_credential_steps_come_from_the_runs_own_workflow_and_must_cover_the_product_step(self):
+        # derived from the workflow text at the run's head (its sha256 is bound in the document); the product-capable stage-runner run step must be
+        # among them, so an empty, partial or mis-parsed list cannot make a run that executed look skipped
+        doc = build()
+        self.assertEqual(sorted(doc["credentialSteps"]), sorted(PIN["credentialSteps"]))
+        self.assertEqual(doc["workflowSha256"], hashlib.sha256(workflow().encode("utf-8")).hexdigest())
+        for label, change in (("drop the product step", lambda d: d.__setitem__("credentialSteps", [p for p in d["credentialSteps"] if not p[1].startswith("Stage runner (run)")])),
+                              ("empty", lambda d: d["credentialSteps"].clear())):
             doc = build()
             change(doc)
             self.refused("unexecuted-credential-steps", U.check_evidence, doc)
+        doc = build()
+        doc["credentialSteps"][0] = [doc["credentialSteps"][0][0], "Discover the preinstalled browser against the reviewed baseline"]
+        with self.assertRaises(U.Refused):
+            U.check_evidence(doc)                                      # a step that is not skipped cannot be listed as one
+        self.refused("unexecuted-credential-steps", build, None, None, None, "jobs:\n  live:\n    name: X\n    steps:\n      - name: A\n        run: true\n")
 
     def test_the_live_job_that_succeeded_or_is_still_running_is_not_evidence(self):
         for status, conclusion in (("completed", "success"), ("in_progress", None), ("completed", "cancelled")):
@@ -167,7 +209,8 @@ class Evidence(unittest.TestCase):
             self.live(jobs)["steps"].append(dict(self.step(jobs, name)))
             self.refused("unexecuted-credential-step-ran", build, None, jobs)          # duplicated
 
-    def test_the_live_job_must_have_failed_at_the_pinned_step_and_no_step_may_be_active(self):
+    def test_the_live_job_must_have_failed_at_exactly_one_step_and_no_step_may_be_active(self):
+        self.assertEqual(build()["failedStep"], PIN["failedStep"])
         jobs = self.jobs()
         self.step(jobs, PIN["failedStep"])["conclusion"] = "success"
         self.refused("unexecuted-failed-step", build, None, jobs)
@@ -178,12 +221,11 @@ class Evidence(unittest.TestCase):
         next(s for s in self.live(jobs)["steps"] if s["name"].startswith("Collect, verify"))["status"] = "in_progress"
         self.refused("unexecuted-step-active", build, None, jobs)
 
-    def test_the_journal_must_be_exactly_genesis_plus_the_one_pinned_reserve(self):
-        other = dict(PIN["reserved"], allocation=dict(PIN["reserved"]["allocation"], takes=15))
+    def test_the_journals_open_last_event_must_be_this_runs_one_reserve(self):
         settle = dict(PIN["reserved"], type="settle", allocation={k: 0 for k in PIN["reserved"]["allocation"]})
-        for label, ch in (("another head", chain(head="1" * 40)),
-                          ("a different reserve", chain(events=[other])),
-                          ("another run's reserve", chain(events=[dict(PIN["reserved"], runId="41933223835")])),
+        self.assertEqual(build(ch=chain(head="1" * 40))["journal"]["headSha"], "1" * 40)            # any head, read from the journal
+        for label, ch in (("another run's reserve", chain(events=[dict(PIN["reserved"], runId="41933223835")])),
+                          ("a second reserve of this run", chain(events=[dict(PIN["reserved"]), dict(PIN["reserved"])])),
                           ("an extra event", chain(events=[dict(PIN["reserved"]), dict(PIN["reserved"], runId="41999999999")])),
                           ("already settled", [(ROOT_SHA, []), ("2" * 40, [dict(PIN["reserved"])]), ("3" * 40, [dict(PIN["reserved"]), settle])]),
                           ("genesis only", [(ROOT_SHA, [])])):
@@ -204,7 +246,10 @@ class Evidence(unittest.TestCase):
         self.refused("unexecuted-shape", U.check_evidence, doc)
         doc = build()
         doc["identity"]["runId"] = "41933223835"
-        self.refused("unexecuted-not-a-pinned-attempt", U.check_evidence, doc)
+        self.refused("unexecuted-run-differs", U.check_evidence, doc)
+        doc = build()
+        doc["identity"]["runId"] = "not-a-run"
+        self.refused("unexecuted-identity", U.check_evidence, doc)
 
     def test_runner_time_is_the_live_job_rounded_up_and_never_zero(self):
         jobs = self.jobs()

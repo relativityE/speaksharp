@@ -28,9 +28,9 @@ Usage:
                                       with no pending completion; exits 1 otherwise
   publish_latest_record.py retire-unreserved --previous BODY --evidence EVIDENCE.json --out BODY
                                       retires that one attempt as `never-reserved` history, only on the closed evidence (see retire_unreserved)
-  publish_latest_record.py unexecuted-candidate --previous BODY
-                                      prints the run id and exits 0 only when the in-progress attempt is a pinned UNEXECUTED attempt (see
-                                      unexecuted_attempt_evidence.UNEXECUTED_ATTEMPTS), `incomplete`, with no pending completion
+  publish_latest_record.py unexecuted-candidate --previous BODY --evidence EVIDENCE.json
+                                      prints the run id and exits 0 only when the in-progress attempt is `incomplete`, with no pending
+                                      completion, and is exactly the run the unexecuted-attempt evidence is about
   publish_latest_record.py retire-unexecuted --previous BODY --evidence EVIDENCE.json --out BODY
                                       retires that attempt as `reserved-not-executed` history, only on the closed evidence (see retire_unexecuted)
   publish_latest_record.py verify-predecessor --selected SELECTED.json --current COMMENT.json
@@ -506,14 +506,12 @@ def sanitize_retired(r):
 
 
 def unreserved_candidate(state):
-    """The run id when the in-progress attempt is `incomplete` with no pending completion and is not a pinned reserved attempt (which has its own
-    retirement), else None. Sam 1793881260.206739: any manual attempt that stopped before reserving (41933223835, or a later run interrupted
+    """The run id when the in-progress attempt is `incomplete` with no pending completion, else None. The workflow tries the reserved-attempt
+    retirement first, so a reserved attempt reaching here is refused below (the journal names it). Sam 1793881260.206739: any manual attempt that stopped before reserving (41933223835, or a later run interrupted
     before its reserve) must be retirable, or one setup failure wedges every later run. Being a candidate proves nothing: retire_unreserved
     retires it only on GitHub's evidence and a journal that names no event for it; otherwise it refuses and `begin` keeps refusing."""
     live = state.get("inProgress")
     if live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None:
-        return None
-    if unexecuted_candidate(state) is not None:
         return None
     return live["runId"]
 
@@ -576,21 +574,21 @@ def retire_unreserved(state, evidence, predecessor_sha256):
     return out
 
 
-def unexecuted_candidate(state):
-    """The run id when the in-progress attempt is exactly a pinned unexecuted attempt (run id, attempt and head), `incomplete`, with no pending
-    completion; else None. Any other stuck attempt is NOT a candidate: `begin` keeps refusing it."""
-    import unexecuted_attempt_evidence as U
+def unexecuted_candidate(state, evidence):
+    """The run id when the in-progress attempt is `incomplete`, with no pending completion, and is exactly the run (id, attempt and head) the
+    unexecuted-attempt evidence is about; else None. Which run that is comes from the journal's open reserve (unexecuted_attempt_evidence
+    pending), never from a pinned list (Sam 1793881491.714239)."""
     live = state.get("inProgress")
-    if live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None:
+    if live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None or not isinstance(evidence, dict):
         return None
-    pin = U.UNEXECUTED_ATTEMPTS.get(live.get("runId"))
-    if pin is None or (live.get("attempt"), live.get("sourceSha")) != (pin["attempt"], pin["headSha"]):
+    ident = evidence.get("identity") or {}
+    if (live.get("runId"), live.get("attempt"), live.get("sourceSha")) != (ident.get("runId"), ident.get("attempt"), ident.get("headSha")):
         return None
     return live["runId"]
 
 
 def retire_unexecuted(state, evidence, predecessor_sha256):
-    """The state after retiring the pinned RESERVED attempt that did not execute, or a refusal. `evidence` is the closed document of
+    """The state after retiring a RESERVED attempt that did not execute, or a refusal. `evidence` is the closed document of
     unexecuted_attempt_evidence, re-verified HERE (never trusted from the caller): the pinned run, attempt and head, completed and failed, every job
     of that run, the live job failed at the pinned step with every credential-bearing step skipped, the journal (freshly validated from the pinned
     root) at the pinned head holding this run's one reserve, and the usage and settle time recomputed. The attempt is kept as `retiredAttempts`
@@ -598,7 +596,7 @@ def retire_unexecuted(state, evidence, predecessor_sha256):
     journal-reserve, at that exact head. `predecessor_sha256` binds the exact record body consumed. Only inProgress and retiredAttempts change;
     latestCompleted, history, pendingCompletion and the earlier retired entries come back exactly as read, which is checked, not assumed."""
     import unexecuted_attempt_evidence as U
-    _need(unexecuted_candidate(state) is not None, "unexecuted-not-a-candidate")
+    _need(unexecuted_candidate(state, evidence) is not None, "unexecuted-not-a-candidate")
     live = state["inProgress"]
     _need(isinstance(predecessor_sha256, str) and SHA64.match(predecessor_sha256), "unexecuted-predecessor")
     try:
@@ -795,7 +793,7 @@ def main(argv):
             print(run_id)
             return 0
         if x.command == "unexecuted-candidate":
-            run_id = unexecuted_candidate(state)
+            run_id = unexecuted_candidate(state, json.loads(_read(x.evidence)) if x.evidence else None)
             if run_id is None:
                 return 1
             print(run_id)

@@ -5,25 +5,24 @@ accounting settle (manual_reservation.py `settle-unexecuted`), the record retire
 workflow's digest hand-off between them. The document's sha256 is the settle's `evidence-sha256:` provenance, so the settle's journal commit is
 a deterministic function of it.
 
-The identity is PINNED (UNEXECUTED_ATTEMPTS): run, attempt, head, campaign, the journal head the reservation must still sit at, the reserve event
-as appended, and the credential-bearing steps of the workflow AT THAT HEAD. The record job holds no `contents` permission, so those steps are
-pinned here, and a test re-derives them from a committed copy of that workflow (credential_steps) so the pin cannot drift from the source. A
-new identity is a new reviewed entry, never a parameter.
+Any reserved attempt qualifies (Sam 1793881491.714239), never a pinned list: the run identity comes from GitHub's run, the reserve from the
+journal (its open last event), and the credential-bearing steps from that run's OWN workflow at its head (fetched by commit SHA; its sha256 is in
+the document), parsed by credential_steps. The record job holds no `contents` permission, so the caller supplies that workflow text.
 
 What is proved, all required (any miss, ambiguity or active job refuses):
-  * the run is exactly the pinned one, `completed` and `failure`, and every job carries this run id, attempt and head;
+  * the run is `completed` and `failure`, and every job carries this run id, attempt and head;
   * the reserve job and the record, settle and complete jobs are `success`; the nightly gate is `skipped`; the live job `failure`, completed;
-  * the live job failed at the pinned step, and every credential-bearing step is `skipped`: a product-capable step cannot run without a credential;
-  * the journal, freshly validated from the pinned reviewed root, is at the pinned head: genesis plus exactly this run's one `reserve`, equal to the
-    pinned event, and no settle or release.
+  * the live job failed at exactly one step, before every credential-bearing step, and each of those is `skipped` (the product-capable
+    stage-runner run step must be among them): a product-capable step cannot run without a credential;
+  * the journal, freshly validated from the pinned reviewed root, ends with this run's one `reserve`: no settle or release follows it.
 Usage is DERIVED, never read: requests, identity reads, Starts, takes and coaching are 0 (no credential step ran) and runner minutes are the live
 job's measured seconds (started to completed) rounded up to whole minutes, the job the reserved runner minutes (live minutes) cover. The other jobs
 are listed in the document and sit outside the campaign allocation. `atUtc` is the latest job completion, a fixed fact.
 
 Nothing here opens a socket: callers pass GitHub's run JSON and jobs JSON (with steps) and the validated journal chain.
-CLI: unexecuted_attempt_evidence.py collect --run RUN.json --jobs JOBS.json --out EVIDENCE.json   (reads the journal from the approved remote)
+CLI: unexecuted_attempt_evidence.py collect --run RUN.json --jobs JOBS.json --workflow WORKFLOW.yml --out EVIDENCE.json   (reads the journal)
      unexecuted_attempt_evidence.py check --evidence EVIDENCE.json                                (prints the sha256 and the settle time)
-     unexecuted_attempt_evidence.py pending   (prints the pinned run whose reserve is still open at its pinned head, or nothing; reads the journal)
+     unexecuted_attempt_evidence.py pending   (prints the run whose reserve is the journal's open last event, or nothing; reads the journal)
 Exit 78 (BLOCKED_SETUP) on every refusal.
 """
 import argparse
@@ -38,7 +37,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (this module opens no socket itself; the one journal fetch is state_ref_writer's `git` subprocess)
 
-SCHEMA = "speaksharp.cloud-test.unexecuted-attempt-evidence.v1"
+SCHEMA = "speaksharp.cloud-test.unexecuted-attempt-evidence.v2"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
@@ -48,24 +47,6 @@ LIVE_JOB_PREFIX = "Selected live journeys"
 JOB_PREFIXES = (("record", "Record the attempt", "success"), ("gate", "Nightly gate", "skipped"),
                 ("reserve", "Reserve the run on the state-ref journal", "success"), ("live", LIVE_JOB_PREFIX, "failure"),
                 ("settle", "Settle the run's reservation", "success"), ("complete", "Complete or interrupt the attempt", "success"))
-
-# The one attempt this recovery covers. `reserved` is the reserve event exactly as it sits on the journal.
-UNEXECUTED_ATTEMPTS = {
-    "41960376782": {
-        "attempt": 1,
-        "headSha": "8f9f9451bb6bf37ba2bca524acd92d933e2b826c",
-        "failedStep": "Generate the exact-head browser-bound proof and offline checks",
-        "journalHeadSha": "0909b53ff6dc767105633ddc14db520c762dff64",
-        "reserved": {"type": "reserve", "campaignId": "R10-3b040043-smoke15", "runId": "41960376782", "attempt": 1,
-                     "allocation": {"requests": 2032, "identityReads": 32, "starts": 16, "takes": 16, "coachingRequests": 20, "runnerMinutes": 40},
-                     "provenance": "request-sha256:c7e6698a9c9aeb09504a83bff2078a1d41478943067f1084f39a901cdd2cc4ee", "atUtc": "2026-11-05T03:15:17Z"},
-        "credentialSteps": [["Selected live journeys (existing stage runner; preinstalled browser)", "Prove the selected accounts' bounded first-use prerequisites"],
-                            ["Selected live journeys (existing stage runner; preinstalled browser)", "Select the committed request and bind this run's inputs"],
-                            ["Selected live journeys (existing stage runner; preinstalled browser)", "Stage runner (install-tools, plans, stimulus preflight, gates)"],
-                            ["Selected live journeys (existing stage runner; preinstalled browser)", "Stage runner (run), bounded to the selected cases' live minutes"]],
-    },
-}
-
 
 class Refused(ValueError):
     pass
@@ -166,10 +147,11 @@ def _seconds(job):
     return int((end - start).total_seconds())
 
 
-def _rules(doc, pin):
-    """The deterministic verification of the shaped document against the pinned identity. Returns (usage, atUtc)."""
-    run, jobs, journal = doc["run"], doc["jobs"], doc["journal"]
-    _need((run["runId"], run["attempt"], run["headSha"]) == (doc["identity"]["runId"], pin["attempt"], pin["headSha"]), "unexecuted-run-differs")
+def _rules(doc):
+    """The deterministic verification of the shaped document. Returns (usage, atUtc). Sam 1793881491.714239: ANY reserved attempt that stopped in
+    setup, not a pinned list. Its credential-bearing steps are those of its OWN workflow at its head (workflowSha256), parsed by credential_steps."""
+    ident, run, jobs, journal = doc["identity"], doc["run"], doc["jobs"], doc["journal"]
+    _need((run["runId"], run["attempt"], run["headSha"]) == (ident["runId"], ident["attempt"], ident["headSha"]), "unexecuted-run-differs")
     _need(run["status"] == "completed" and run["conclusion"] == "failure", "unexecuted-run-not-failed")
     _utc(run["startedAt"], "unexecuted-run-time")
     _need(_utc(run["updatedAt"], "unexecuted-run-time") >= _utc(run["startedAt"], "unexecuted-run-time"), "unexecuted-run-time")
@@ -183,17 +165,20 @@ def _rules(doc, pin):
     steps = live["steps"]
     _need(0 < len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"} for s in steps), "unexecuted-steps")
     failed = [s for s in steps if s["conclusion"] == "failure"]
-    _need(len(failed) == 1 and failed[0]["name"] == pin["failedStep"] and doc["failedStep"] == failed[0]["name"], "unexecuted-failed-step")
+    _need(len(failed) == 1 and doc["failedStep"] == failed[0]["name"], "unexecuted-failed-step")
     _need(all(s["status"] == "completed" for s in steps), "unexecuted-step-active")
-    _need(doc["credentialSteps"] == pin["credentialSteps"], "unexecuted-credential-steps")
+    # the product-capable step must be among the credential-bearing ones, so a mis-parsed workflow cannot yield an empty or partial list
+    _need(doc["credentialSteps"] and any(step.startswith("Stage runner (run)") for _job, step in doc["credentialSteps"]), "unexecuted-credential-steps")
     for job_name, step_name in doc["credentialSteps"]:
         _need(job_name == live["name"], "unexecuted-credential-job")
         found = [s for s in steps if s["name"] == step_name]
         _need(len(found) == 1 and found[0]["conclusion"] == "skipped", "unexecuted-credential-step-ran")
         _need(found[0]["number"] > failed[0]["number"], "unexecuted-credential-step-before-failure")
-    # the journal: freshly validated, at the pinned head, with this run's one reserve and nothing else
-    _need(SHA40.match(str(journal.get("rootSha"))) and journal.get("headSha") == pin["journalHeadSha"] and journal.get("reserve") == pin["reserved"],
-          "unexecuted-journal")
+    # the journal: freshly validated; its LAST event is this run's reserve (nothing after it settles or releases it)
+    reserve = journal.get("reserve")
+    _need(SHA40.match(str(journal.get("rootSha"))) and SHA40.match(str(journal.get("headSha"))) and isinstance(reserve, dict)
+          and reserve.get("type") == "reserve" and reserve.get("runId") == ident["runId"] and reserve.get("attempt") == ident["attempt"]
+          and isinstance(reserve.get("allocation"), dict), "unexecuted-journal")
     usage = {k: 0 for k in PRODUCT_KEYS}
     usage["runnerMinutes"] = max(1, int(math.ceil(_seconds(live) / 60.0)))
     ended = max(_utc(j["completedAt"], "unexecuted-job-time") for j in jobs if j["conclusion"] != "skipped")
@@ -201,12 +186,14 @@ def _rules(doc, pin):
 
 
 def _check_shape(doc):
-    keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "journal", "usage", "atUtc"}
+    keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "workflowSha256", "journal", "usage", "atUtc"}
     _need(isinstance(doc, dict) and set(doc) == keys and doc["schema"] == SCHEMA, "unexecuted-shape")
     ident = doc["identity"]
-    _need(isinstance(ident, dict) and set(ident) == {"runId", "attempt", "headSha"} and ident["runId"] in UNEXECUTED_ATTEMPTS, "unexecuted-not-a-pinned-attempt")
-    pin = UNEXECUTED_ATTEMPTS[ident["runId"]]
-    _need((ident["attempt"], ident["headSha"]) == (pin["attempt"], pin["headSha"]), "unexecuted-not-a-pinned-attempt")
+    _need(isinstance(ident, dict) and set(ident) == {"runId", "attempt", "headSha"} and isinstance(ident["runId"], str)
+          and re.fullmatch(r"[1-9][0-9]{0,19}", ident["runId"]) is not None and type(ident["attempt"]) is int and ident["attempt"] >= 1
+          and SHA40.match(str(ident["headSha"])), "unexecuted-identity")
+    _need(isinstance(doc["workflowSha256"], str) and SHA64.match(doc["workflowSha256"]), "unexecuted-shape")
+    _need(isinstance(doc["failedStep"], str), "unexecuted-shape")
     run = doc["run"]
     _need(isinstance(run, dict) and set(run) == {"runId", "attempt", "headSha", "status", "conclusion", "startedAt", "updatedAt"}, "unexecuted-shape")
     jobs = doc["jobs"]
@@ -221,32 +208,45 @@ def _check_shape(doc):
     u = doc["usage"]
     _need(isinstance(u, dict) and set(u) == set(PRODUCT_KEYS) | {"runnerMinutes"} and all(type(v) is int and v >= 0 for v in u.values()), "unexecuted-shape")
     _need(isinstance(doc["atUtc"], str) and UTC.match(doc["atUtc"]), "unexecuted-shape")
-    return pin
 
 
 def check_evidence(doc):
     """(sha256, usage, atUtc) for an evidence document, or a refusal. The usage and the settle time are RECOMPUTED here and must equal what the
     document carries, so a document claiming other usage or another time is refused. The digest binds the document byte for byte."""
-    pin = _check_shape(doc)
-    usage, at_utc = _rules(doc, pin)
+    _check_shape(doc)
+    usage, at_utc = _rules(doc)
     _need(doc["usage"] == usage and doc["atUtc"] == at_utc, "unexecuted-usage-differs")
     return hashlib.sha256(canon(doc)).hexdigest(), usage, at_utc
 
 
-def build_evidence(run, jobs_doc, chain, run_id):
-    """The evidence document for GitHub's run and jobs JSON and the validated journal chain [(sha, events, ...)], or a refusal."""
-    _need(isinstance(run, dict) and run_id in UNEXECUTED_ATTEMPTS and str(run.get("id")) == run_id, "unexecuted-not-a-pinned-attempt")
-    pin = UNEXECUTED_ATTEMPTS[run_id]
-    _need(isinstance(chain, list) and len(chain) == 2, "unexecuted-journal")
-    reserves = [e for e in chain[-1][1] if isinstance(e, dict)]
-    _need(len(reserves) == 1 and reserves[0].get("type") == "reserve", "unexecuted-journal")
-    doc = {"schema": SCHEMA, "identity": {"runId": run_id, "attempt": pin["attempt"], "headSha": pin["headSha"]},
-           "run": {"runId": str(run.get("id")), "attempt": run.get("run_attempt"), "headSha": run.get("head_sha"), "status": run.get("status"),
+def open_reserve(chain):
+    """The chain's last event when it is a reserve (so nothing after it settles or releases it), else None."""
+    _need(isinstance(chain, list) and chain, "unexecuted-journal")
+    events = chain[-1][1]
+    last = events[-1] if events else None
+    return last if isinstance(last, dict) and last.get("type") == "reserve" else None
+
+
+def build_evidence(run, jobs_doc, chain, workflow_text):
+    """The evidence document for GitHub's run and jobs JSON, the validated journal chain [(sha, events, ...)] and the run's own workflow text at
+    its head, or a refusal. The chain's open last event must be this run's reserve, and no other event may name this run."""
+    _need(isinstance(run, dict) and isinstance(run.get("id"), int), "unexecuted-run")
+    run_id = str(run["id"])
+    reserve = open_reserve(chain)
+    _need(reserve is not None and reserve.get("runId") == run_id and reserve.get("attempt") == run.get("run_attempt")
+          and [e for e in chain[-1][1] if isinstance(e, dict) and e.get("runId") == run_id] == [reserve], "unexecuted-journal")
+    jobs = _shape_jobs(jobs_doc)
+    _need(len(jobs) == len(JOB_PREFIXES), "unexecuted-jobs")
+    live = _live(jobs)
+    failed = [s for s in live.get("steps") or [] if s.get("conclusion") == "failure"]
+    _need(len(failed) == 1, "unexecuted-failed-step")
+    doc = {"schema": SCHEMA, "identity": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha")},
+           "run": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha"), "status": run.get("status"),
                    "conclusion": run.get("conclusion"), "startedAt": run.get("run_started_at"), "updatedAt": run.get("updated_at")},
-           "jobs": _shape_jobs(jobs_doc), "failedStep": pin["failedStep"], "credentialSteps": [list(p) for p in pin["credentialSteps"]],
-           "journal": {"rootSha": chain[0][0], "headSha": chain[-1][0], "reserve": reserves[0]}, "usage": {}, "atUtc": "1970-01-01T00:00:00Z"}
-    _need(isinstance(doc["jobs"], list) and len(doc["jobs"]) == len(JOB_PREFIXES), "unexecuted-jobs")
-    doc["usage"], doc["atUtc"] = _rules(doc, pin)
+           "jobs": jobs, "failedStep": failed[0]["name"], "credentialSteps": [list(p) for p in credential_steps(workflow_text)],
+           "workflowSha256": hashlib.sha256(workflow_text.encode("utf-8")).hexdigest(),
+           "journal": {"rootSha": chain[0][0], "headSha": chain[-1][0], "reserve": reserve}, "usage": {}, "atUtc": "1970-01-01T00:00:00Z"}
+    doc["usage"], doc["atUtc"] = _rules(doc)
     check_evidence(doc)
     return doc
 
@@ -268,21 +268,17 @@ def fetch_chain():
 
 
 def pending_run(chain):
-    """Sam 1793881260.206739: the settle is keyed on the JOURNAL, not the record. The pinned run whose reserve is still the open last event at
-    its pinned head, or None. A run interrupted after the record retired that attempt but before the settle leaves exactly this state, and the
-    next dispatch must still reach the settle."""
-    _need(isinstance(chain, list) and chain, "unexecuted-journal")
-    head, events = chain[-1][0], chain[-1][1]
-    for run_id, pin in sorted(UNEXECUTED_ATTEMPTS.items()):
-        if head == pin["journalHeadSha"] and events and events[-1] == pin["reserved"]:
-            return run_id
-    return None
+    """Sam 1793881260.206739 / 1793881491.714239: the settle is keyed on the JOURNAL, not the record. The run whose reserve is the chain's open
+    last event, or None. A dispatch interrupted after a retirement but before its settle leaves exactly this state, and the next dispatch must
+    still reach the settle. Whether that run really did not execute is decided only by build_evidence on GitHub's report of it."""
+    reserve = open_reserve(chain)
+    return None if reserve is None else reserve.get("runId")
 
 
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("collect", "check", "pending"))
-    for flag in ("--run", "--jobs", "--out", "--evidence", "--run-id"):
+    for flag in ("--run", "--jobs", "--workflow", "--out", "--evidence"):
         a.add_argument(flag)
     x = a.parse_args(argv[1:])
     try:
@@ -297,12 +293,14 @@ def main(argv):
                 digest, usage, at_utc = check_evidence(json.loads(f.read()))
             print(digest, at_utc, usage["runnerMinutes"])
             return 0
-        _need(bool(x.run and x.jobs and x.out), "unexecuted-input-unreadable")
+        _need(bool(x.run and x.jobs and x.workflow and x.out), "unexecuted-input-unreadable")
         with open(x.run, encoding="utf-8") as f:
             run = json.load(f)
         with open(x.jobs, encoding="utf-8") as f:
             jobs = json.load(f)
-        doc = build_evidence(run, jobs, fetch_chain(), str(run.get("id")))
+        with open(x.workflow, encoding="utf-8") as f:
+            workflow_text = f.read()
+        doc = build_evidence(run, jobs, fetch_chain(), workflow_text)
         with open(x.out, "wb") as f:
             f.write(canon(doc) + b"\n")
         return 0

@@ -401,19 +401,16 @@ class ManualReservation(Journal):
         self.execute("settle", dict(late, atUtc="2026-12-01T23:59:59Z"), "s4")
         self.assertEqual(self.receive()["outstandingReservations"], 0)
 
-    # ---- settle-unexecuted: the pinned reserved attempt whose live job failed in setup (run 41960376782) ----
+    # ---- settle-unexecuted: a reserved attempt whose live job failed in setup (the real run 41960376782; any such run, Sam 1793881491.714239) ----
     UNEXEC_RUN = "41960376782"
 
     def unexec(self, scope_bytes=None):
-        """A journal holding the pinned attempt's one reserve, the pin re-pointed at it (the real head and event are not reproducible in a synthetic
-        journal), and the closed evidence built from the REAL run and jobs fixtures. Returns (doc, digest, reserve event, head before)."""
+        """A journal whose open last event is the attempt's reserve, and the closed evidence built from the REAL run, jobs and workflow fixtures
+        against it (no pin: the reserve is read from the journal). Returns (doc, digest, reserve event, head before)."""
         import test_unexecuted_attempt_evidence as T
         event = self.reserved(run=self.UNEXEC_RUN)
         head = self.head()
-        patch = mock.patch.dict(U.UNEXECUTED_ATTEMPTS, {self.UNEXEC_RUN: dict(U.UNEXECUTED_ATTEMPTS[self.UNEXEC_RUN], journalHeadSha=head, reserved=event)})
-        patch.start()
-        self.addCleanup(patch.stop)
-        doc = U.build_evidence(T.load("run-41960376782.json"), T.load("jobs-41960376782.json"), self.chain(), self.UNEXEC_RUN)
+        doc = U.build_evidence(T.load("run-41960376782.json"), T.load("jobs-41960376782.json"), self.chain(), T.workflow())
         return doc, U.check_evidence(doc)[0], event, head
 
     def settle_unexec(self, doc, digest, name, scope_bytes=None, url=None, pins=None):
@@ -478,7 +475,7 @@ class ManualReservation(Journal):
         self.refused("manual-unexecuted-usage-differs", self.settle_unexec, bad, U.canon(bad) and hashlib.sha256(U.canon(bad)).hexdigest(), "d2")
         other = json.loads(json.dumps(doc))
         other["identity"]["runId"] = "41933223835"
-        self.refused("manual-unexecuted-not-a-pinned-attempt", self.settle_unexec, other, digest, "d3")
+        self.refused("manual-unexecuted-run-differs", self.settle_unexec, other, digest, "d3")
         ran = json.loads(json.dumps(doc))
         live = next(j for j in ran["jobs"] if j["name"].startswith("Selected live journeys"))
         next(s for s in live["steps"] if s["name"].startswith("Stage runner (run)"))["conclusion"] = "success"

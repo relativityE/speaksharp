@@ -906,20 +906,23 @@ class UnexecutedAttemptRecovery(unittest.TestCase):
 
     def test_record_begin_retires_the_pinned_attempt_after_the_evidence_and_before_begin_and_the_one_patch(self):
         run = self.begin()
-        order = [run.index(x) for x in ("unexecuted_attempt_evidence.py pending", "unexecuted_attempt_evidence.py collect",
-                                        "unexecuted_attempt_evidence.py check", "unreserved-candidate", "unexecuted-candidate",
-                                        "retire-unexecuted", " begin --previous", "verify-predecessor", "gh api --method PATCH")]
+        order = [run.index(x) for x in ("unexecuted_attempt_evidence.py pending", "git fetch --quiet --no-tags --depth=1 origin \"$open_head\"",
+                                        "unexecuted_attempt_evidence.py collect", "unexecuted_attempt_evidence.py check", "unexecuted-candidate",
+                                        "retire-unexecuted", "unreserved-candidate", " begin --previous", "verify-predecessor", "gh api --method PATCH")]
         self.assertEqual(order, sorted(order), "journal-keyed evidence, retirements, then begin, the predecessor re-read and the one PATCH")
         self.assertEqual(run.count("gh api --method PATCH"), 1)
         # Sam 1793881260.206739: the settle evidence is collected whenever the journal still holds the pinned reserve open, NOT only when the
         # record still names that attempt, so an interruption between the retirement and the settle is recovered by the next dispatch
-        probe = run[run.index("unexecuted_sha256=''"):run.index("unreserved-candidate")]
+        probe = run[run.index("unexecuted_sha256=''"):run.index("unexecuted-candidate")]
         self.assertIn('[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]', probe, "a manual dispatch only")
         self.assertNotIn("previous.md", probe, "the probe does not consult the record")
         self.assertIn('actions/runs/$open_run/jobs?per_page=100', probe)
+        # Sam 1793881491.714239: any reserved attempt; its credential steps come from ITS OWN workflow at its head, fetched without a credential
+        self.assertIn('git show "$open_head:.github/workflows/cloud-test-live.yml" > "$RUNNER_TEMP/unexecuted-workflow.yml"', probe)
+        self.assertIn('--workflow "$RUNNER_TEMP/unexecuted-workflow.yml"', probe)
         block = run[run.index("unexecuted-candidate") - 160:run.index(" begin --previous")]
         self.assertIn("retired_unreserved=1", block, "a retirement is bound to its predecessor before the PATCH, like the earlier one")
-        self.assertIn('[ -n "$unexecuted_sha256" ] || { echo "BLOCKED_SETUP: unexecuted-evidence-missing"; exit 78; }', block)
+        self.assertIn('[ -n "$unexecuted_sha256" ] && unexecuted_run="$(python3 -I "$P" unexecuted-candidate --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unexecuted-evidence.json")"', block)
         self.assertIn("unexecuted_sha256=''", run)
         outputs = self.jobs["record-begin"]["outputs"]
         self.assertEqual(outputs["unexecuted_evidence_sha256"], "${{ steps.begin.outputs.unexecuted_evidence_sha256 }}")
@@ -929,7 +932,8 @@ class UnexecutedAttemptRecovery(unittest.TestCase):
     def test_the_earlier_never_reserved_retirement_is_unchanged(self):
         run = self.begin()
         self.assertIn('unreserved-candidate --previous "$RUNNER_TEMP/previous.md"', run)
-        self.assertLess(run.index("unreserved-candidate"), run.index("unexecuted-candidate"))
+        # the reserved-attempt retirement runs first, so a reserved attempt never reaches the never-reserved path (which would refuse it)
+        self.assertLess(run.index("unexecuted-candidate"), run.index("unreserved-candidate"))
 
     def test_journal_reserve_settles_before_it_reserves_in_its_one_writer_step_for_a_manual_dispatch_with_retired_evidence_only(self):
         run = writers_of(self.jobs, "journal-reserve")

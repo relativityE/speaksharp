@@ -231,7 +231,8 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
             on_run = [e for e in chain[-1][1] if e["runId"] == run_id]
             if on_run == [held, event]:
                 return event          # the exact settle is already on the verified chain: nothing to append
-            _need(head == doc["journal"]["headSha"] and len(chain) == 2 and on_run == [held], "manual-unexecuted-journal-moved")
+            _need(head == doc["journal"]["headSha"] and chain[-1][1] and chain[-1][1][-1] == held and on_run == [held],
+                  "manual-unexecuted-journal-moved")
         else:
             _need(command == "settle", "manual-reservation-command")
             # Sam 1793557361.926929: a late settle is refused before the append; the reservation stays held (counted at its caps) until an

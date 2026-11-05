@@ -554,9 +554,8 @@ class RetireUnreserved(unittest.TestCase):
         settle, occurrence = receipt_bytes(), occurrence_bytes()
         pending = P.pending_completion(running, record(RUN, sourceSha=SRC), "2026-11-05T19:00:00Z", hashlib.sha256(settle).hexdigest(),
                                        hashlib.sha256(occurrence).hexdigest())
-        pinned = stuck_state(run_id="41960376782", source="8f9f9451bb6bf37ba2bca524acd92d933e2b826c")
         for name, state in {"running": running, "cancelled": P.interrupt(running, RUN, 1, "cancelled"), "pending completion": pending,
-                            "nothing in progress": P.parse_body(""), "the pinned reserved attempt": pinned}.items():
+                            "nothing in progress": P.parse_body("")}.items():
             self.assertIsNone(P.unreserved_candidate(state), name)
             with self.assertRaisesRegex(P.Refused, "unreserved-not-a-candidate"):
                 retire(state)
@@ -776,7 +775,7 @@ class RetireUnexecuted(unittest.TestCase):
 
     def test_the_real_record_is_retired_as_reserved_not_executed_and_the_next_run_can_begin(self):
         stuck = self.real_stuck()
-        self.assertEqual((P.unexecuted_candidate(stuck), stuck["inProgress"]["status"]), (self.RUN, "incomplete"))
+        self.assertEqual((P.unexecuted_candidate(stuck, self.evidence()), stuck["inProgress"]["status"]), (self.RUN, "incomplete"))
         with self.assertRaisesRegex(P.Refused, "previous-attempt-unreconciled"):
             P.begin(stuck, "41999999999", 1, self.HEAD, "2026-11-05T05:00:00Z")      # the defect this removes
         after = P.retire_unexecuted(stuck, self.evidence(), self.pred(stuck))
@@ -792,7 +791,7 @@ class RetireUnexecuted(unittest.TestCase):
                          (self.RUN, 1, self.HEAD, "reserved-not-executed", "2026-11-05T03:14:52Z"))
         self.assertEqual(second["predecessorSha256"], self.pred(stuck))
         self.assertEqual(second["evidence"], {"runStatus": "completed", "runConclusion": "failure", "runUpdatedUtc": "2026-11-05T03:21:45Z",
-                                              "evidenceSha256": "ee620b386e60dd988f8eac73a6c0c4901063f6614f119360b6759302c622925e",
+                                              "evidenceSha256": "481b8c00d1903aa330ffc44ff40401121780219aef28a58f59726bead4304218",
                                               "journalHeadSha": "0909b53ff6dc767105633ddc14db520c762dff64", "runnerMinutes": 6,
                                               "settleAtUtc": "2026-11-05T03:21:44Z"})
         self.assertIn("Reserved, not executed: no credential-bearing step ran (not a completed run)", P.render(after))
@@ -828,7 +827,7 @@ class RetireUnexecuted(unittest.TestCase):
         done = P.complete(started(retired, "102"), record("102"))
         self.assertEqual([r["runId"] for r in done["retiredAttempts"]], [RUN, self.RUN])
 
-    def test_only_the_pinned_incomplete_attempt_is_a_candidate(self):
+    def test_only_the_incomplete_attempt_the_evidence_is_about_is_a_candidate(self):
         retired = retire(P.parse_body(REAL_FAILED_ATTEMPT_BODY))
         for label, state in (("another run", stuck_state(run_id="41999999999", source=self.HEAD)),
                              ("another head", P.interrupt(P.begin(retired, self.RUN, 1, "c" * 40, "2026-11-05T03:14:52Z"), self.RUN, 1, "incomplete")),
@@ -836,9 +835,10 @@ class RetireUnexecuted(unittest.TestCase):
                              ("still running", P.begin(retired, self.RUN, 1, self.HEAD, "2026-11-05T03:14:52Z")),
                              ("nothing in progress", retired),
                              ("a pending completion", dict(self.real_stuck(), pendingCompletion={"x": 1}))):
-            self.assertIsNone(P.unexecuted_candidate(state), label)
+            self.assertIsNone(P.unexecuted_candidate(state, self.evidence()), label)
             with self.assertRaisesRegex(P.Refused, "unexecuted-not-a-candidate", msg=label):
                 P.retire_unexecuted(state, self.evidence(), PRED)
+        self.assertIsNone(P.unexecuted_candidate(self.real_stuck(), None), "no evidence, no candidate")
 
     def test_the_evidence_is_reverified_here_never_trusted(self):
         import test_unexecuted_attempt_evidence as T
@@ -855,7 +855,11 @@ class RetireUnexecuted(unittest.TestCase):
             P.retire_unexecuted(stuck, ran, pred)
         wrong = self.evidence()
         wrong["identity"]["runId"] = "41933223835"
-        with self.assertRaisesRegex(P.Refused, "unexecuted-not-a-pinned-attempt"):
+        with self.assertRaisesRegex(P.Refused, "unexecuted-not-a-candidate"):
+            P.retire_unexecuted(stuck, wrong, pred)          # it is not about the record's attempt
+        wrong = self.evidence()
+        wrong["run"]["runId"] = "41933223835"
+        with self.assertRaisesRegex(P.Refused, "unexecuted-run-differs"):
             P.retire_unexecuted(stuck, wrong, pred)
         with self.assertRaisesRegex(P.Refused, "unexecuted-predecessor"):
             P.retire_unexecuted(stuck, self.evidence(), "short")
@@ -899,14 +903,15 @@ class RetireUnexecuted(unittest.TestCase):
             f.write(P.render(stuck))
         with open(ev, "wb") as f:
             f.write(P.canon(self.evidence()) + b"\n")
-        c = run("unexecuted-candidate", "--previous", prev)
+        self.assertEqual(run("unexecuted-candidate", "--previous", prev).returncode, 1, "no evidence, no candidate")
+        c = run("unexecuted-candidate", "--previous", prev, "--evidence", ev)
         self.assertEqual((c.returncode, c.stdout.strip()), (0, self.RUN))
         r = run("retire-unexecuted", "--previous", prev, "--evidence", ev, "--out", out)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out, encoding="utf-8") as f:
             after = P.parse_body(f.read())
         self.assertIsNone(after["inProgress"])
-        self.assertEqual(run("unexecuted-candidate", "--previous", out).returncode, 1)
+        self.assertEqual(run("unexecuted-candidate", "--previous", out, "--evidence", ev).returncode, 1)
         again = run("retire-unexecuted", "--previous", out, "--evidence", ev, "--out", os.path.join(d, "x.md"))
         self.assertEqual((again.returncode, again.stderr.strip()), (78, "BLOCKED_SETUP: unexecuted-not-a-candidate"))
 
