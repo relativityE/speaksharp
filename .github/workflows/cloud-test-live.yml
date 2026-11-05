@@ -380,6 +380,14 @@ jobs:
             --receipt "$RUNNER_TEMP/browser-receipt.json" > "$RUNNER_TEMP/chrome-path.txt"
           echo "CT_CHROME=$(cat "$RUNNER_TEMP/chrome-path.txt")" >> "$GITHUB_ENV"
           echo "CT_BROWSER_RECEIPT=$RUNNER_TEMP/browser-receipt.json" >> "$GITHUB_ENV"
+      # R10 run 41960376782 failed here (FAIL package-unit-tests) on ubuntu-26.04 with CT_REQUIRE_INTEGRATION=1: the package's strict no-route
+      # clean-room test needs unshare -rn, which AppArmor blocks for unprivileged users. The same suite passed with this exact step in
+      # cloud-test.yml (diagnostic run 41988007600: 1179 tests, 0 failures). Re-enable it on this ephemeral runner only, then prove it works.
+      - name: Allow the clean-room network namespace on this ephemeral runner
+        timeout-minutes: 1
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -rn true
       - name: Generate the exact-head browser-bound proof and offline checks
         env:
           CT_REQUIRE_INTEGRATION: '1'

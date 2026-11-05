@@ -30,6 +30,19 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(list(on), ["workflow_dispatch"])
         self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
 
+    def test_only_the_live_job_enables_the_clean_room_namespace_immediately_before_the_offline_proof(self):
+        """R10 run 41960376782: the offline proof's package tests need unshare -rn, which ubuntu runners block through AppArmor. The live job
+        re-enables it exactly as cloud-test.yml does, on its own ephemeral runner, right before the proof, with no credential and no other job."""
+        name = "Allow the clean-room network namespace on this ephemeral runner"
+        holders = [(job, i) for job, spec in self.jobs.items() for i, st in enumerate(spec.get("steps") or []) if st.get("name") == name]
+        self.assertEqual([job for job, _ in holders], ["live"])
+        steps = self.jobs["live"]["steps"]
+        i = holders[0][1]
+        self.assertEqual(steps[i + 1]["name"], "Generate the exact-head browser-bound proof and offline checks")
+        self.assertEqual(steps[i]["run"], "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\nunshare -rn true\n")
+        self.assertEqual(set(steps[i]), {"name", "timeout-minutes", "run"})   # no env, secrets, uses or with
+        self.assertEqual(self.text.count("sudo "), 1, "no other step gains sudo")
+
     def test_record_begin_sparse_checkout_contains_the_accounting_scope_used_by_one_off_grant(self):
         checkout = next(step for step in self.jobs["record-begin"]["steps"]
                         if str(step.get("uses", "")).startswith("actions/checkout@"))
