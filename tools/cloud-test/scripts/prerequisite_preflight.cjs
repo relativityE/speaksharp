@@ -128,10 +128,15 @@ async function inspectRole(origin, anon, role, account, otherId, deadline) {
   // The cross-profile read is a controlled denial: every account's own profile is proven visible to itself (the positive control), so an
   // empty result here is RLS, not absence. A cross-session empty result is only controlled when the other account has its own sessions.
   if (ownProfile.length !== 1 || ownProfile[0]?.id !== account.accountId || otherProfile.length !== 0 || otherSessions.length !== 0) refuse('rls-isolation');
-  const internalTester = auth.body.user.app_metadata?.internal_tester === true;
-  if (!internalTester) refuse('analytics-classification');
+  // Analytics exclusion is the product's own server-issued traffic class (frontend/src/services/telemetry/trafficType.ts), read from
+  // app_metadata only, never user-writable user_metadata. Automated qualification is `canary` (the RWT journeys' run-owned claim);
+  // `internal_test` is a human dogfood session. Same precedence as the product: canary before internal_test. Anything else is `user`,
+  // the customer funnel, and refuses before any Start (run 42094874240: the #1784 check accepted only internal_tester).
+  const claims = auth.body.user.app_metadata;
+  const trafficClass = claims?.canary === true ? 'canary' : claims?.internal_tester === true ? 'internal_test' : null;
+  if (!trafficClass) refuse('analytics-classification');
   return {authenticated: true, ownProfileVisible: true, crossProfileDenied: true, ownSessionRead: true, ownSessionCount: ownSessions.length,
-    crossSessionEmpty: true, completedSessionPresent: ownSessions.some(row => row?.status === 'completed'), internalTester: true};
+    crossSessionEmpty: true, completedSessionPresent: ownSessions.some(row => row?.status === 'completed'), trafficClass};
 }
 function args(argv) {
   const command = argv.shift(); const out = {};

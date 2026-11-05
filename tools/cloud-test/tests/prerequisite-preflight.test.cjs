@@ -57,13 +57,14 @@ function countingFetch(inner) {
   return {calls, fetch};
 }
 function response(status, body) { return {status, json: async () => body}; }
-function successfulFetch() {
+function successfulFetch(claims = {app_metadata: {canary: true}}) {
   return async (url, options) => {
     const parsed = new URL(url);
     if (parsed.pathname === '/auth/v1/token') {
       const email = JSON.parse(options.body).email;
       const role = Object.keys(EMAILS).find(key => EMAILS[key] === email);
-      return response(200, {access_token: `private-token-${role}`, user: {id: IDS[role], app_metadata: {internal_tester: true}}});
+      const metadata = typeof claims === 'function' ? claims(role) : claims;
+      return response(200, {access_token: `private-token-${role}`, user: {id: IDS[role], ...metadata}});
     }
     const token = options.headers.authorization;
     const role = Object.keys(IDS).find(key => token === `Bearer private-token-${key}`);
@@ -110,6 +111,45 @@ test('prepare refuses a missing, placeholder or self-minted disposition referenc
     assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false);
     global.fetch = original;
   }
+});
+
+test('the analytics class is the server-issued app_metadata claim: canary before internal_test; anything else refuses before a Start', async t => {
+  // Run 42094874240 refused analytics-classification: the #1784 predicate accepted only the human `internal_tester` class, while automated
+  // qualification is `canary` (trafficType.ts; the RWT journeys' run-owned claim). Same precedence as the product.
+  useClock(t, [START + MINUTE]);
+  const cases = [
+    [{app_metadata: {canary: true}}, 'canary'],
+    [{app_metadata: {internal_tester: true}}, 'internal_test'],
+    [{app_metadata: {canary: true, internal_tester: true}}, 'canary'],
+  ];
+  for (const [claims, expected] of cases) {
+    const f = fixture(t), original = global.fetch; global.fetch = successfulFetch(claims);
+    try {
+      await script.prepare(args(f));
+      const receipt = JSON.parse(fs.readFileSync(path.join(f.root, 'receipt.json'), 'utf8'));
+      for (const role of ['existing-disposable', 'maintained-read-only']) assert.equal(receipt.observations[role].trafficClass, expected);
+    } finally { global.fetch = original; }
+  }
+  // Customer traffic, a non-boolean claim, or a claim only in user-writable user_metadata: refused, and nothing is written.
+  const refused = [
+    {app_metadata: {}},
+    {app_metadata: {canary: 'true', internal_tester: 1}},
+    {app_metadata: {}, user_metadata: {canary: true, internal_tester: true}},
+  ];
+  for (const claims of refused) {
+    const f = fixture(t), original = global.fetch; global.fetch = successfulFetch(claims);
+    try {
+      await assert.rejects(() => script.prepare(args(f)), /analytics-classification/);
+      assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false);
+    } finally { global.fetch = original; }
+  }
+  // One classified and one unclassified account still refuses the whole preflight.
+  const f = fixture(t), original = global.fetch;
+  global.fetch = successfulFetch(role => role === 'maintained-read-only' ? {app_metadata: {}} : {app_metadata: {canary: true}});
+  try {
+    await assert.rejects(() => script.prepare(args(f)), /analytics-classification/);
+    assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false);
+  } finally { global.fetch = original; }
 });
 
 test('prepare fails closed when a cross-account row is visible and writes no receipt', async t => {
@@ -211,7 +251,7 @@ globalThis.fetch = async (url, options) => {
   const parsed = new URL(url);
   if (parsed.pathname === '/auth/v1/token') {
     const role = Object.keys(EMAILS).find(key => EMAILS[key] === JSON.parse(options.body).email);
-    return json(200, {access_token: 'private-token-' + role, user: {id: IDS[role], app_metadata: {internal_tester: true}}});
+    return json(200, {access_token: 'private-token-' + role, user: {id: IDS[role], app_metadata: {canary: true}}});
   }
   const role = Object.keys(IDS).find(key => options.headers.authorization === 'Bearer private-token-' + key);
   const target = parsed.searchParams.get(parsed.pathname.endsWith('user_profiles') ? 'id' : 'user_id')?.replace(/^eq\\./, '');
