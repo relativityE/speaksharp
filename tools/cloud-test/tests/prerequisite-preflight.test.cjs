@@ -173,3 +173,23 @@ test('the deadline is re-checked before every request: once it passes mid-sequen
   assert.equal(counted.calls.length, 3);
   assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false);
 });
+
+test('run as a script (the workflow entry), the deadline check works and an expired or not-yet-open occurrence sends nothing', async t => {
+  // R10 run 42059286564: the CLI entry called main() before module.exports was assigned, so the deadline check's clock read threw
+  // "Cannot read properties of undefined (reading 'now')". Imported-function tests could not see it; this spawns the script itself.
+  const {spawnSync} = require('node:child_process');
+  const entry = path.join(__dirname, '..', 'scripts', 'prerequisite_preflight.cjs');
+  for (const [label, startMs] of [['expired', Date.now() - 2 * 80 * MINUTE], ['not yet open', Date.now() + 60 * MINUTE]]) {
+    const f = fixture(t);
+    f.occurrence = writeOccurrence(f.root, {createdUtc: iso(startMs), window: {startUtc: iso(startMs), endUtc: iso(startMs + 80 * MINUTE), approvalRef: 'slack:renewal'}});
+    // any network attempt from the child is recorded and fails: the refusal must come first
+    const marker = path.join(f.root, 'fetch-called'), preload = path.join(f.root, 'no-fetch.cjs');
+    fs.writeFileSync(preload, `globalThis.fetch = async () => { require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'x'); throw new Error('network'); };\n`);
+    const argv = Object.entries(args(f)).flat();
+    const child = spawnSync(process.execPath, ['--require', preload, entry, 'prepare', ...argv], {env: process.env, encoding: 'utf8', timeout: 30000});
+    assert.equal(child.status, 78, `${label}: ${child.stderr}`);
+    assert.equal(child.stderr.trim(), 'BLOCKED_SETUP: occurrence-deadline', label);
+    assert.equal(fs.existsSync(marker), false, `${label}: no request may be attempted`);
+    assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false, label);
+  }
+});
