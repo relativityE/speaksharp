@@ -106,9 +106,31 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
             checkpoint = json.loads(reconciliation_bytes)
         except (TypeError, ValueError):
             raise Refused("one-off-grant-checkpoint")
-        _need(checkpoint.get("headSha") == grant.get("preReserveStateHead")
-              and checkpoint.get("scopeApprovalRef") == grant.get("scopeApprovalRef"), "one-off-grant-checkpoint")
+        _need(isinstance(checkpoint, dict) and checkpoint.get("scopeApprovalRef") == grant.get("scopeApprovalRef")
+              and (checkpoint.get("headSha") == grant.get("preReserveStateHead") or _setup_failures_only(checkpoint, grant)),
+              "one-off-grant-checkpoint")
     return grant
+
+
+# The grant's single attempt must reach the cases. An attempt that stopped in setup before any product request (R10 runs 41933223835 and
+# 41960376782) is reserved and then settled from evidence with zero product usage, which moves the journal head without consuming the grant.
+# Past the pinned head, a checkpoint is admitted only when the accepted rollup shows the chain still descends from that same pinned head as
+# its root, holds no open reservation, and counts no product usage in the period: only measured runner minutes. Any executed attempt, any
+# open reservation or any unknown usage refuses, so the grant still authorizes exactly one attempt that runs.
+SETUP_FAILURE_ZERO_KEYS = ("requests", "identityReads", "starts", "takes", "coachingRequests")
+
+
+def _setup_failures_only(checkpoint, grant):
+    period = checkpoint.get("period")
+    unknown = checkpoint.get("unknown")
+    return (checkpoint.get("source") == "accepted-rollup"
+            and checkpoint.get("root") == grant.get("preReserveStateHead") == accounting_rollup.ACCEPTED_ROOT
+            and isinstance(checkpoint.get("headSha"), str) and LR.SHA40.match(checkpoint["headSha"]) is not None
+            and type(checkpoint.get("outstandingReservations")) is int and checkpoint["outstandingReservations"] == 0
+            and checkpoint.get("openReservationsByRequest") == {}
+            and isinstance(period, dict) and all(type(period.get(k)) is int and period[k] == 0 for k in SETUP_FAILURE_ZERO_KEYS)
+            and type(period.get("runnerMinutes")) is int and period["runnerMinutes"] >= 0
+            and isinstance(unknown, dict) and unknown and not any(unknown.values()))
 
 
 def materialize_authoritative_smoke_occurrence(repo, template, initiation):

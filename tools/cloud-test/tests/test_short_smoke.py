@@ -176,6 +176,39 @@ class ShortSmokeContract(unittest.TestCase):
         finally:
             init.manual_reservation.ACCEPTED_SCOPE_SHA256 = original
 
+    def test_one_off_grant_survives_only_zero_usage_setup_failure_settles_past_its_pinned_head(self):
+        """R10 runs 41933223835 and 41960376782 stopped in setup. A setup failure that reserved is settled from evidence with zero product
+        usage, which moves the journal head. The grant admits such a checkpoint, and only one with no open reservation, no product usage and
+        no unknown usage, rooted at its pinned head; a run that executed, or any doubt, still refuses."""
+        repo = str(ROOT.parents[1])
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        occurrence = init.materialize_authoritative_smoke_occurrence(repo, template, "2026-11-03T17:30:00Z")
+        occurrence_raw = json.dumps(occurrence, sort_keys=True).encode()
+        request_sha = hashlib.sha256(occurrence_raw).hexdigest()
+        scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
+        root = "92d6ebf902351750c368d7d513116c6b1f19f80c"
+        # the accepted rollup at the head after 41960376782's evidence-bound settle (computed with the real writer and rollup)
+        settled = {"source": "accepted-rollup", "root": root, "headSha": "6430357513fcc5f4bba12f8deab3c06bb5b01996",
+                   "scopeApprovalRef": scope["approvalRef"], "outstandingReservations": 0, "openReservationsByRequest": {},
+                   "period": {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6},
+                   "unknown": {"coachingRequests": False, "runnerMinutes": False}}
+        raw = lambda d: json.dumps(d, sort_keys=True).encode()
+        init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, raw(settled), repo)
+        self.assertEqual(init.occurrence_action_approval({}, request_sha, raw(settled), occurrence, repo=repo)["selectionApprovalRef"],
+                         "slack:1793814535.013849")
+        held = dict(settled, headSha="0909b53ff6dc767105633ddc14db520c762dff64", outstandingReservations=1,
+                    openReservationsByRequest={"c7e6698a": 1})
+        refusals = [held, dict(settled, outstandingReservations=1), dict(settled, openReservationsByRequest={"x": 1}),
+                    dict(settled, root="f" * 40), dict(settled, source="other"), dict(settled, scopeApprovalRef="slack:1.000001"),
+                    dict(settled, unknown={"coachingRequests": True, "runnerMinutes": False}), dict(settled, unknown={}),
+                    {k: v for k, v in settled.items() if k != "period"}]
+        for key in ("requests", "identityReads", "starts", "takes", "coachingRequests"):
+            refusals.append(dict(settled, period=dict(settled["period"], **{key: 1})))
+            refusals.append(dict(settled, period={k: v for k, v in settled["period"].items() if k != key}))
+        for bad in refusals:
+            with self.assertRaisesRegex(init.Refused, "one-off-grant-checkpoint"):
+                init.occurrence_action_approval({}, request_sha, raw(bad), occurrence, repo=repo)
+
     def test_committed_grant_scope_real_reserve_then_prepare_on_verified_chain(self):
         """The production reserve appends to a verified state chain, then the
         production prepare path consumes that exact open reserve. No hand-built
