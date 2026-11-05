@@ -194,7 +194,7 @@ test('run as a script (the workflow entry), the deadline check works and an expi
   }
 });
 
-test('run as a script inside an open window, prepare completes its normal path with the network intercepted only at fetch', async t => {
+test('run as scripts inside an open window, prepare then charge complete their normal path with the network intercepted only at fetch', async t => {
   // Sam 1793895799.280589: the workflow-faithful success case. The real CLI entry and argument parsing, the real occurrence and deadline
   // checks against the real clock, the real request sequence, receipt and facts writing; only fetch is a synthetic Supabase at the boundary.
   // It proves the script's own path end to end offline. It does NOT prove the hosted step's environment, real credentials, real Supabase
@@ -219,8 +219,11 @@ globalThis.fetch = async (url, options) => {
   if (parsed.pathname.endsWith('user_profiles')) return json(200, [{id: IDS[role]}]);
   return json(200, role === 'maintained-read-only' ? [{id: 'history-row', status: 'completed'}] : []);
 };\n`);
+  // Only the names the workflow step supplies (cloud-test-live.yml "Prove the selected accounts' ..."), not this process's environment.
+  const stepEnv = {PATH: process.env.PATH, HOME: process.env.HOME || os.tmpdir()};
+  for (const name of ['CLOUD_TEST_LIVE_ACCOUNTS', 'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'THROWAWAY_TEST_PASSWORD', 'FREE_TEST_PASSWORD']) stepEnv[name] = process.env[name];
   const child = spawnSync(process.execPath, ['--require', preload, entry, 'prepare', ...Object.entries(args(f)).flat()],
-    {env: process.env, encoding: 'utf8', timeout: 30000});
+    {env: stepEnv, encoding: 'utf8', timeout: 30000});
   assert.equal(child.status, 0, child.stderr);
   assert.equal(child.stderr, '');
   const sent = fs.readFileSync(calls, 'utf8').trim().split('\n');
@@ -237,4 +240,18 @@ globalThis.fetch = async (url, options) => {
   assert.match(facts.receipts.pre, /^r10-preflight:[0-9a-f]{64}$/);
   assert.equal(facts.receipts.disp, 'slack:owner-disposition');
   assert.equal(fs.statSync(path.join(f.root, 'receipt.json')).mode & 0o777, 0o600);
+  // Bezos #1787 H3: then charge, exactly as execute_run.sh runs it: `env -i PATH HOME node ... charge`, with no credential, fetch
+  // preload or harness environment. It must import the produced receipt into the admitted ledger as 10 requests, and only once.
+  const ledgerFile = path.join(f.root, 'campaign-ledger.json');
+  Ledger.initialize(ledgerFile, {total: 2000, preflight: 10, auth: 2, 'signed-in': 8});
+  const chargeArgs = [entry, 'charge', '--receipt', path.join(f.root, 'receipt.json'), '--ledger', ledgerFile];
+  const bare = {PATH: process.env.PATH, HOME: process.env.HOME || os.tmpdir()};
+  const charged = spawnSync(process.execPath, chargeArgs, {env: bare, encoding: 'utf8', timeout: 30000});
+  assert.equal(charged.status, 0, charged.stderr);
+  assert.equal(charged.stdout, 'prerequisite preflight charged 10 existing campaign requests\n');
+  assert.deepEqual(JSON.parse(fs.readFileSync(ledgerFile)).used, {total: 10, preflight: 10, auth: 2, 'signed-in': 8});
+  const again = spawnSync(process.execPath, chargeArgs, {env: bare, encoding: 'utf8', timeout: 30000});
+  assert.equal(again.status, 78);
+  assert.equal(again.stderr, 'BLOCKED_SETUP: preflight-import-not-first\n');
+  assert.equal(JSON.parse(fs.readFileSync(ledgerFile)).reservations, 10);
 });

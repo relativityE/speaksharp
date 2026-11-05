@@ -32,6 +32,9 @@ export const NATIVE_HELPERS=Object.freeze([
   {file:'tests/live/helpers/fixtureAudioStream.ts',consumer:'tests/live/helpers/fixtureAudioStream.node.test.mjs',
     callables:['injectAlignedFixtureAudio','resetFixtureAudioToStart','getFixtureGetUserMediaCalls'],
     claim:'actual harness state-machine callables with fake browser objects in node:vm; browser/audio/model NOT RUN'},
+  // A change to the R10 preflight script alone must still run its test, including the spawned CLI entry (run 42059286564).
+  {file:'tools/cloud-test/scripts/prerequisite_preflight.cjs',consumer:'tools/cloud-test/tests/prerequisite-preflight.test.cjs',
+    callables:['prepare','charge'],claim:'actual preflight callables and script entry with a synthetic fetch; hosted step, credentials and Supabase NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {
