@@ -729,6 +729,161 @@ class RetireUnreserved(unittest.TestCase):
         self.assertFalse(os.path.exists(out + ".2"), "a refusal writes no body")
 
 
+class RetireUnexecuted(unittest.TestCase):
+    """Run 41960376782 RESERVED, then its live job failed in setup with every credential-bearing step skipped. Its `incomplete` record blocks
+    `begin`. Exactly that pinned attempt is retired as `reserved-not-executed` on the closed unexecuted-attempt evidence, never as a completion."""
+    RUN = "41960376782"
+    HEAD = "8f9f9451bb6bf37ba2bca524acd92d933e2b826c"
+
+    def evidence(self):
+        import test_unexecuted_attempt_evidence as T
+        return T.build()
+
+    def real_stuck(self):
+        """The record as it stands on #1763: the earlier never-reserved retirement kept, then this attempt begun and left `incomplete`."""
+        retired = retire(P.parse_body(REAL_FAILED_ATTEMPT_BODY))
+        return P.parse_body(P.render(P.interrupt(P.begin(retired, self.RUN, 1, self.HEAD, "2026-11-05T03:14:52Z"), self.RUN, 1, "incomplete")))
+
+    def pred(self, state):
+        return hashlib.sha256(P.render(state).encode("utf-8")).hexdigest()
+
+    def test_the_real_record_is_retired_as_reserved_not_executed_and_the_next_run_can_begin(self):
+        stuck = self.real_stuck()
+        self.assertEqual((P.unexecuted_candidate(stuck), stuck["inProgress"]["status"]), (self.RUN, "incomplete"))
+        with self.assertRaisesRegex(P.Refused, "previous-attempt-unreconciled"):
+            P.begin(stuck, "41999999999", 1, self.HEAD, "2026-11-05T05:00:00Z")      # the defect this removes
+        after = P.retire_unexecuted(stuck, self.evidence(), self.pred(stuck))
+        stored = P.parse_body(P.render(after))
+        self.assertEqual(stored, after)
+        self.assertIsNone(stored["inProgress"])
+        self.assertIsNone(stored["latestCompleted"], "no completion is manufactured")
+        self.assertNotIn("history", stored)
+        first, second = stored["retiredAttempts"]
+        self.assertEqual((first["runId"], first["retiredReason"]), (RUN, "never-reserved"), "the earlier entry is kept")
+        self.assertEqual(first, stuck["retiredAttempts"][0], "and is byte-identical")
+        self.assertEqual((second["runId"], second["attempt"], second["sourceSha"], second["retiredReason"], second["startedUtc"]),
+                         (self.RUN, 1, self.HEAD, "reserved-not-executed", "2026-11-05T03:14:52Z"))
+        self.assertEqual(second["predecessorSha256"], self.pred(stuck))
+        self.assertEqual(second["evidence"], {"runStatus": "completed", "runConclusion": "failure", "runUpdatedUtc": "2026-11-05T03:21:45Z",
+                                              "evidenceSha256": "ee620b386e60dd988f8eac73a6c0c4901063f6614f119360b6759302c622925e",
+                                              "journalHeadSha": "0909b53ff6dc767105633ddc14db520c762dff64", "runnerMinutes": 6,
+                                              "settleAtUtc": "2026-11-05T03:21:44Z"})
+        self.assertIn("Reserved, not executed: no credential-bearing step ran (not a completed run)", P.render(after))
+        nxt = P.begin(stored, "41999999999", 1, self.HEAD, "2026-11-05T05:00:00Z")
+        self.assertEqual((nxt["inProgress"]["runId"], len(nxt["retiredAttempts"])), ("41999999999", 2))
+
+    def test_prior_history_and_retired_entries_come_back_byte_identical(self):
+        first = P.complete(started(P.parse_body(""), "100"), record("100"))
+        before = P.parse_body(P.render(first))
+        stuck = P.parse_body(P.render(P.interrupt(P.begin(before, self.RUN, 1, self.HEAD, "2026-11-05T03:14:52Z"), self.RUN, 1, "incomplete")))
+        after = P.retire_unexecuted(stuck, self.evidence(), self.pred(stuck))
+        same = lambda st: {k: v for k, v in st.items() if k not in ("inProgress", "retiredAttempts")}
+        self.assertEqual(same(after), same(before))
+        self.assertEqual(P.canon(after["history"]), P.canon(before["history"]))
+        self.assertEqual([o["runId"] for o in after["history"]["occurrences"]], ["100"], "the retired attempt is not a history occurrence")
+        real = P._with_retired
+        tampers = {"history": lambda st: dict(st["history"], sequence=st["history"]["sequence"] + 1),
+                   "latestCompleted": lambda st: dict(st["latestCompleted"], outcome="failed")}
+        for key, change in tampers.items():
+            with mock.patch.object(P, "_with_retired", lambda state, entry, key=key, change=change: dict(real(state, entry), **{key: change(state)})):
+                with self.assertRaisesRegex(P.Refused, "unexecuted-history-changed", msg=key):
+                    P.retire_unexecuted(stuck, self.evidence(), self.pred(stuck))
+        # an altered earlier retired entry also refuses
+        stuck_entries = P.parse_body(P.render(retire(P.parse_body(REAL_FAILED_ATTEMPT_BODY))))
+        running = P.interrupt(P.begin(stuck_entries, self.RUN, 1, self.HEAD, "2026-11-05T03:14:52Z"), self.RUN, 1, "incomplete")
+        with mock.patch.object(P, "_with_retired", lambda state, entry: dict(real(state, entry), retiredAttempts=[dict(entry)])):
+            with self.assertRaisesRegex(P.Refused, "unexecuted-history-changed"):
+                P.retire_unexecuted(running, self.evidence(), self.pred(running))
+
+    def test_retired_history_survives_a_later_completion(self):
+        stuck = self.real_stuck()
+        retired = P.retire_unexecuted(stuck, self.evidence(), self.pred(stuck))
+        done = P.complete(started(retired, "102"), record("102"))
+        self.assertEqual([r["runId"] for r in done["retiredAttempts"]], [RUN, self.RUN])
+
+    def test_only_the_pinned_incomplete_attempt_is_a_candidate(self):
+        retired = retire(P.parse_body(REAL_FAILED_ATTEMPT_BODY))
+        for label, state in (("another run", stuck_state(run_id="41999999999", source=self.HEAD)),
+                             ("another head", P.interrupt(P.begin(retired, self.RUN, 1, "c" * 40, "2026-11-05T03:14:52Z"), self.RUN, 1, "incomplete")),
+                             ("attempt 2", dict(self.real_stuck(), inProgress=dict(self.real_stuck()["inProgress"], attempt=2))),
+                             ("still running", P.begin(retired, self.RUN, 1, self.HEAD, "2026-11-05T03:14:52Z")),
+                             ("nothing in progress", retired),
+                             ("a pending completion", dict(self.real_stuck(), pendingCompletion={"x": 1}))):
+            self.assertIsNone(P.unexecuted_candidate(state), label)
+            with self.assertRaisesRegex(P.Refused, "unexecuted-not-a-candidate", msg=label):
+                P.retire_unexecuted(state, self.evidence(), PRED)
+
+    def test_the_evidence_is_reverified_here_never_trusted(self):
+        import test_unexecuted_attempt_evidence as T
+        stuck = self.real_stuck()
+        pred = self.pred(stuck)
+        bad = self.evidence()
+        bad["usage"]["runnerMinutes"] = 40
+        with self.assertRaisesRegex(P.Refused, "unexecuted-usage-differs"):
+            P.retire_unexecuted(stuck, bad, pred)
+        ran = self.evidence()      # a hand-edited document: a credential step that ran
+        live = next(j for j in ran["jobs"] if j["name"] == T.LIVE)
+        next(s for s in live["steps"] if s["name"].startswith("Stage runner (run)"))["conclusion"] = "success"
+        with self.assertRaisesRegex(P.Refused, "unexecuted-credential-step-ran"):
+            P.retire_unexecuted(stuck, ran, pred)
+        wrong = self.evidence()
+        wrong["identity"]["runId"] = "41933223835"
+        with self.assertRaisesRegex(P.Refused, "unexecuted-not-a-pinned-attempt"):
+            P.retire_unexecuted(stuck, wrong, pred)
+        with self.assertRaisesRegex(P.Refused, "unexecuted-predecessor"):
+            P.retire_unexecuted(stuck, self.evidence(), "short")
+        # evidence of the pinned run, but the record's in-progress attempt began after the run ended
+        late = P.parse_body(P.render(P.interrupt(P.begin(retire(P.parse_body(REAL_FAILED_ATTEMPT_BODY)), self.RUN, 1, self.HEAD, "2026-11-05T04:00:00Z"),
+                                                 self.RUN, 1, "incomplete")))
+        with self.assertRaisesRegex(P.Refused, "unexecuted-time"):
+            P.retire_unexecuted(late, self.evidence(), self.pred(late))
+
+    def test_a_replay_is_refused_because_the_attempt_is_no_longer_in_progress(self):
+        stuck = self.real_stuck()
+        once = P.retire_unexecuted(stuck, self.evidence(), self.pred(stuck))
+        with self.assertRaisesRegex(P.Refused, "unexecuted-not-a-candidate"):
+            P.retire_unexecuted(once, self.evidence(), self.pred(once))
+
+    def test_the_closed_entry_shape_refuses_anything_else(self):
+        stuck = self.real_stuck()
+        entry = P.retire_unexecuted(stuck, self.evidence(), self.pred(stuck))["retiredAttempts"][1]
+        P.sanitize_retired(entry)
+        for label, change in (("extra evidence key", lambda e: e["evidence"].update(extra=1)),
+                              ("a missing key", lambda e: e["evidence"].pop("runnerMinutes")),
+                              ("another reason", lambda e: e.update(retiredReason="whatever")),
+                              ("zero minutes", lambda e: e["evidence"].update(runnerMinutes=0)),
+                              ("a short digest", lambda e: e["evidence"].update(evidenceSha256="abc")),
+                              ("not failed", lambda e: e["evidence"].update(runConclusion="success")),
+                              ("an extra top key", lambda e: e.update(extra=1))):
+            e = json.loads(json.dumps(entry))
+            change(e)
+            with self.assertRaisesRegex(P.Refused, "retired-(attempt|evidence)|unsanitized-field", msg=label):
+                P.sanitize_retired(e)
+
+    def test_the_cli_candidate_and_retirement_refuse_and_write(self):
+        import test_unexecuted_attempt_evidence as T
+        d = tempfile.mkdtemp(prefix="ct-unexecuted-")
+        self.addCleanup(shutil.rmtree, d, True)
+        script = os.path.join(ROOT, "scripts", "publish_latest_record.py")
+        run = lambda *a: subprocess.run(["python3", "-I", script, *a], capture_output=True, text=True, timeout=60)
+        prev, ev, out = os.path.join(d, "prev.md"), os.path.join(d, "ev.json"), os.path.join(d, "out.md")
+        stuck = self.real_stuck()
+        with open(prev, "w", encoding="utf-8") as f:
+            f.write(P.render(stuck))
+        with open(ev, "wb") as f:
+            f.write(P.canon(self.evidence()) + b"\n")
+        c = run("unexecuted-candidate", "--previous", prev)
+        self.assertEqual((c.returncode, c.stdout.strip()), (0, self.RUN))
+        r = run("retire-unexecuted", "--previous", prev, "--evidence", ev, "--out", out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding="utf-8") as f:
+            after = P.parse_body(f.read())
+        self.assertIsNone(after["inProgress"])
+        self.assertEqual(run("unexecuted-candidate", "--previous", out).returncode, 1)
+        again = run("retire-unexecuted", "--previous", out, "--evidence", ev, "--out", os.path.join(d, "x.md"))
+        self.assertEqual((again.returncode, again.stderr.strip()), (78, "BLOCKED_SETUP: unexecuted-not-a-candidate"))
+
+
 class Cli(unittest.TestCase):
     def test_the_cli_writes_the_body_and_refuses_with_exit_78(self):
         d = tempfile.mkdtemp(prefix="ct-latest-record-")

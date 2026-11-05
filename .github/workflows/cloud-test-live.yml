@@ -115,6 +115,10 @@ jobs:
       manual_occurrence_sha256: ${{ steps.manual-occurrence.outputs.occurrence_sha256 }}
       manual_occurrence_b64: ${{ steps.manual-occurrence.outputs.occurrence_b64 }}
       manual_workflow_start_utc: ${{ steps.manual-occurrence.outputs.workflow_start_utc }}
+      # The closed evidence of a reserved attempt that did not execute, retired in this job (empty when none was); journal-reserve settles its
+      # reservation from exactly these bytes, bound by the digest.
+      unexecuted_evidence_sha256: ${{ steps.begin.outputs.unexecuted_evidence_sha256 }}
+      unexecuted_evidence_b64: ${{ steps.begin.outputs.unexecuted_evidence_b64 }}
     steps:
       - name: Refuse a re-run attempt and an unconfirmed or inactive dispatch
         env:
@@ -217,6 +221,25 @@ jobs:
             mv "$RUNNER_TEMP/retired-unreserved.md" "$RUNNER_TEMP/previous.md"
             retired_unreserved=1
           fi
+          # Run 41960376782 RESERVED and then its live job failed in setup: every credential-bearing step was skipped, so nothing product-capable ran,
+          # yet its `incomplete` record blocks `begin` and its open reservation holds the period's caps. Exactly that pinned attempt (run, attempt,
+          # head) is retired here as `reserved-not-executed`, only on closed, deterministic evidence rebuilt from GitHub's run and jobs (with steps)
+          # and the freshly validated journal (at the pinned head: genesis plus that one reserve). It is kept as retired history, never a completed
+          # run. This job settles nothing: journal-reserve settles the reservation from the same evidence digest, at that exact head.
+          unexecuted_sha256=''
+          unexecuted_b64=''
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unexecuted_run="$(python3 -I "$P" unexecuted-candidate --previous "$RUNNER_TEMP/previous.md")"; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$unexecuted_run" > "$RUNNER_TEMP/unexecuted-run.json"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$unexecuted_run/jobs?per_page=100" > "$RUNNER_TEMP/unexecuted-jobs.json"
+            python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py collect --run "$RUNNER_TEMP/unexecuted-run.json" \
+              --jobs "$RUNNER_TEMP/unexecuted-jobs.json" --out "$RUNNER_TEMP/unexecuted-evidence.json"
+            python3 -I "$P" retire-unexecuted --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unexecuted-evidence.json" \
+              --out "$RUNNER_TEMP/retired-unexecuted.md"
+            mv "$RUNNER_TEMP/retired-unexecuted.md" "$RUNNER_TEMP/previous.md"
+            retired_unreserved=1
+            unexecuted_sha256="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py check --evidence "$RUNNER_TEMP/unexecuted-evidence.json" | cut -d' ' -f1)"
+            unexecuted_b64="$(base64 < "$RUNNER_TEMP/unexecuted-evidence.json" | tr -d '\n')"
+          fi
           # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
           python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"
           started_utc="${WORKFLOW_START_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
@@ -235,6 +258,8 @@ jobs:
             id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" -F "body=@$RUNNER_TEMP/body.md" --jq .id)"
           fi
           echo "comment_id=$id" >> "$GITHUB_OUTPUT"
+          echo "unexecuted_evidence_sha256=$unexecuted_sha256" >> "$GITHUB_OUTPUT"
+          echo "unexecuted_evidence_b64=$unexecuted_b64" >> "$GITHUB_OUTPUT"
 
   journal-reserve:
     name: Reserve the run on the state-ref journal (the one push before the run)
@@ -262,10 +287,23 @@ jobs:
           MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
           MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
           MANUAL_WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
+          UNEXECUTED_EVIDENCE_SHA256: ${{ needs.record-begin.outputs.unexecuted_evidence_sha256 }}
+          UNEXECUTED_EVIDENCE_B64: ${{ needs.record-begin.outputs.unexecuted_evidence_b64 }}
           CT_STATE_PUSH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" != schedule ]; then
+            # An attempt retired as reserved-not-executed by record-begin still holds its caps on the journal. Close it FIRST, from its closed
+            # evidence alone: zero product usage and the live job's measured runner minutes, provenance `evidence-sha256:<digest>`, atUtc the
+            # evidence's terminal time. The writer re-validates the evidence, recomputes its digest and appends only when the freshly read journal
+            # is exactly the evidence's head (genesis plus that one reserve); an identical settle already on the chain is a no-op. The reserve
+            # below then runs at the new head. Without retired evidence nothing is settled.
+            if [ -n "$UNEXECUTED_EVIDENCE_SHA256" ]; then
+              (umask 077; printf '%s' "$UNEXECUTED_EVIDENCE_B64" | base64 -d > "$RUNNER_TEMP/unexecuted-evidence.json")
+              python3 -I tools/cloud-test/scripts/manual_reservation.py settle-unexecuted --journal "$RUNNER_TEMP/unexecuted-settle-journal" \
+                --out "$RUNNER_TEMP/unexecuted-settle-receipt.json" --unexecuted-evidence "$RUNNER_TEMP/unexecuted-evidence.json" \
+                --unexecuted-sha256 "$UNEXECUTED_EVIDENCE_SHA256" --scope tools/cloud-test/config/aggregate/period-scope.json
+            fi
             # Manual dispatch: the committed request at this protected-main commit, reserved under its admitted digest before the live job
             # prepares; prepare then admits the approver's checkpoint immediately before this reserve (init_run_inputs.manual_approval_chain).
             # The writer admits that same action approval against the append's checkpoint FIRST and appends nothing otherwise; it writes
