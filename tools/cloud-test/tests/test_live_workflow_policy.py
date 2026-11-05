@@ -30,6 +30,19 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(list(on), ["workflow_dispatch"])
         self.assertEqual(self.doc["concurrency"], {"group": "cloud-test-live", "cancel-in-progress": False})
 
+    def test_only_the_live_job_enables_the_clean_room_namespace_immediately_before_the_offline_proof(self):
+        """R10 run 41960376782: the offline proof's package tests need unshare -rn, which ubuntu runners block through AppArmor. The live job
+        re-enables it exactly as cloud-test.yml does, on its own ephemeral runner, right before the proof, with no credential and no other job."""
+        name = "Allow the clean-room network namespace on this ephemeral runner"
+        holders = [(job, i) for job, spec in self.jobs.items() for i, st in enumerate(spec.get("steps") or []) if st.get("name") == name]
+        self.assertEqual([job for job, _ in holders], ["live"])
+        steps = self.jobs["live"]["steps"]
+        i = holders[0][1]
+        self.assertEqual(steps[i + 1]["name"], "Generate the exact-head browser-bound proof and offline checks")
+        self.assertEqual(steps[i]["run"], "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\nunshare -rn true\n")
+        self.assertEqual(set(steps[i]), {"name", "timeout-minutes", "run"})   # no env, secrets, uses or with
+        self.assertEqual(self.text.count("sudo "), 1, "no other step gains sudo")
+
     def test_record_begin_sparse_checkout_contains_the_accounting_scope_used_by_one_off_grant(self):
         checkout = next(step for step in self.jobs["record-begin"]["steps"]
                         if str(step.get("uses", "")).startswith("actions/checkout@"))
@@ -853,7 +866,7 @@ class ManualPathNeverRunsOnSchedule(unittest.TestCase):
             jobs = yaml.safe_load(f)["jobs"]
         for name, command in (("journal-reserve", "manual_reservation.py reserve"), ("journal-settle", "manual_reservation.py settle")):
             run = writers_of(jobs, name)
-            branch = run[run.index('if [ "$GITHUB_EVENT_NAME" != schedule ]; then'):run.index("\nfi\n", run.index("manual_reservation.py"))]
+            branch = run[run.index('if [ "$GITHUB_EVENT_NAME" != schedule ]; then'):run.index("\nfi\n", run.index(command))]
             self.assertIn(command, branch)
             self.assertIn("exit 0", branch, "the manual branch never falls through to the nightly commands")
             # the dispatched request is confined to the one reviewed request location and must be committed at this protected-main commit
@@ -866,15 +879,85 @@ class ManualPathNeverRunsOnSchedule(unittest.TestCase):
         # checkout as its transport repository (#1), and the continuity inputs are the ones init_run_inputs reads (addendum).
         self.assertIn('--facts "$RUNNER_TEMP/manual-facts.json"', writers_of(jobs, "journal-reserve"))
         import init_run_inputs as I
-        for name in ("journal-reserve", "journal-settle"):
+        for name, command in (("journal-reserve", "manual_reservation.py reserve"), ("journal-settle", "manual_reservation.py settle")):
             run = writers_of(jobs, name)
-            manual = run[run.index("manual_reservation.py"):run.index("exit 0", run.index("manual_reservation.py"))]
+            # anchored on the reserve / settle command itself: the reserve step also holds the evidence-bound settle of a retired attempt, tested below
+            manual = run[run.index(command):run.index("exit 0", run.index(command))]
             self.assertNotIn("--repo", manual)
             self.assertIn("--scope %s/%s" % (I.CONTINUITY_DIR, I.CONTINUITY_SCOPE), manual)
         self.assertIn("--bootstrap %s/%s" % (I.CONTINUITY_DIR, I.CONTINUITY_BOOTSTRAP), writers_of(jobs, "journal-reserve"))
         live = " ".join(st.get("run", "") for st in jobs["live"]["steps"])
         self.assertNotIn("manual-reserve", live)
         self.assertNotIn("manual-settle", live)
+
+
+class UnexecutedAttemptRecovery(unittest.TestCase):
+    """Run 41960376782 reserved, then its live job failed in setup. record-begin retires exactly that pinned attempt on closed evidence it
+    collects with its existing `actions: read`; journal-reserve settles the reservation from the same evidence digest, at the exact journal head,
+    in its one writer step and before the new reserve. No job gains a permission, and the live job is untouched."""
+    @classmethod
+    def setUpClass(cls):
+        import yaml
+        with open(YML, encoding="utf-8") as f:
+            cls.jobs = yaml.safe_load(f)["jobs"]
+
+    def begin(self):
+        return next(s for s in self.jobs["record-begin"]["steps"] if s.get("id") == "begin")["run"]
+
+    def test_record_begin_retires_the_pinned_attempt_after_the_evidence_and_before_begin_and_the_one_patch(self):
+        run = self.begin()
+        order = [run.index(x) for x in ("unexecuted_attempt_evidence.py pending", "git fetch --quiet --no-tags --depth=1 origin \"$open_head\"",
+                                        "unexecuted_attempt_evidence.py collect", "unexecuted_attempt_evidence.py check", "unexecuted-candidate",
+                                        "retire-unexecuted", "unreserved-candidate", " begin --previous", "verify-predecessor", "gh api --method PATCH")]
+        self.assertEqual(order, sorted(order), "journal-keyed evidence, retirements, then begin, the predecessor re-read and the one PATCH")
+        self.assertEqual(run.count("gh api --method PATCH"), 1)
+        # Sam 1793881260.206739: the settle evidence is collected whenever the journal still holds the pinned reserve open, NOT only when the
+        # record still names that attempt, so an interruption between the retirement and the settle is recovered by the next dispatch
+        probe = run[run.index("unexecuted_sha256=''"):run.index("unexecuted-candidate")]
+        self.assertIn('[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]', probe, "a manual dispatch only")
+        self.assertNotIn("previous.md", probe, "the probe does not consult the record")
+        self.assertIn('actions/runs/$open_run/jobs?per_page=100', probe)
+        # Sam 1793881491.714239: any reserved attempt; its credential steps come from ITS OWN workflow at its head, fetched without a credential
+        self.assertIn('git show "$open_head:.github/workflows/cloud-test-live.yml" > "$RUNNER_TEMP/unexecuted-workflow.yml"', probe)
+        self.assertIn('--workflow "$RUNNER_TEMP/unexecuted-workflow.yml"', probe)
+        block = run[run.index("unexecuted-candidate") - 160:run.index(" begin --previous")]
+        self.assertIn("retired_unreserved=1", block, "a retirement is bound to its predecessor before the PATCH, like the earlier one")
+        self.assertIn('[ -n "$unexecuted_sha256" ] && unexecuted_run="$(python3 -I "$P" unexecuted-candidate --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unexecuted-evidence.json")"', block)
+        self.assertIn("unexecuted_sha256=''", run)
+        outputs = self.jobs["record-begin"]["outputs"]
+        self.assertEqual(outputs["unexecuted_evidence_sha256"], "${{ steps.begin.outputs.unexecuted_evidence_sha256 }}")
+        self.assertEqual(outputs["unexecuted_evidence_b64"], "${{ steps.begin.outputs.unexecuted_evidence_b64 }}")
+        self.assertIn('echo "unexecuted_evidence_sha256=$unexecuted_sha256" >> "$GITHUB_OUTPUT"', run)
+
+    def test_the_earlier_never_reserved_retirement_is_unchanged(self):
+        run = self.begin()
+        self.assertIn('unreserved-candidate --previous "$RUNNER_TEMP/previous.md"', run)
+        # the reserved-attempt retirement runs first, so a reserved attempt never reaches the never-reserved path (which would refuse it)
+        self.assertLess(run.index("unexecuted-candidate"), run.index("unreserved-candidate"))
+
+    def test_journal_reserve_settles_before_it_reserves_in_its_one_writer_step_for_a_manual_dispatch_with_retired_evidence_only(self):
+        run = writers_of(self.jobs, "journal-reserve")
+        writer = next(s for s in self.jobs["journal-reserve"]["steps"] if "CT_STATE_PUSH_TOKEN" in (s.get("env") or {}))
+        self.assertEqual(sum(1 for s in self.jobs["journal-reserve"]["steps"] if "CT_STATE_PUSH_TOKEN" in (s.get("env") or {})), 1)
+        self.assertEqual(writer["env"]["UNEXECUTED_EVIDENCE_SHA256"], "${{ needs.record-begin.outputs.unexecuted_evidence_sha256 }}")
+        self.assertEqual(writer["env"]["UNEXECUTED_EVIDENCE_B64"], "${{ needs.record-begin.outputs.unexecuted_evidence_b64 }}")
+        settle, reserve = run.index("manual_reservation.py settle-unexecuted"), run.index("manual_reservation.py reserve")
+        self.assertLess(settle, reserve)
+        self.assertLess(run.index('if [ "$GITHUB_EVENT_NAME" != schedule ]; then'), settle, "inside the manual branch, never reached by a schedule")
+        guard = run[run.rindex("if [", 0, settle):settle]
+        self.assertIn('[ -n "$UNEXECUTED_EVIDENCE_SHA256" ]', guard)
+        self.assertIn('--unexecuted-sha256 "$UNEXECUTED_EVIDENCE_SHA256"', run)
+        self.assertIn("--scope tools/cloud-test/config/aggregate/period-scope.json", run[settle:reserve])
+        self.assertIn('base64 -d > "$RUNNER_TEMP/unexecuted-evidence.json"', run[:settle + 200])
+
+    def test_no_job_gains_a_permission_and_the_live_job_is_untouched(self):
+        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read"})
+        self.assertEqual(self.jobs["journal-reserve"]["permissions"], {"contents": "write"})
+        self.assertEqual([n for n, j in self.jobs.items() if (j.get("permissions") or {}).get("contents") == "write"], ["journal-reserve", "journal-settle"])
+        live = json.dumps(self.jobs["live"])
+        for needle in ("unexecuted", "settle-unexecuted", "retire-unexecuted"):
+            self.assertNotIn(needle, live)
+        self.assertNotIn("unexecuted_evidence", json.dumps(self.jobs["record-complete"]))
 
 
 def writers_of(jobs, name):

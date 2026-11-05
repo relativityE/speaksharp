@@ -160,7 +160,7 @@ class ShortSmokeContract(unittest.TestCase):
         init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, checkpoint, repo)
         envelope = init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
         self.assertEqual(envelope["approvalRef"], scope["approvalRef"])
-        self.assertEqual(envelope["selectionApprovalRef"], "slack:1793814535.013849")
+        self.assertEqual(envelope["selectionApprovalRef"], "slack:1793883995.722959")
         wrong_release = copy.deepcopy(occurrence)
         wrong_release["release"]["testedSha"] = "f" * 40
         with self.assertRaisesRegex(init.Refused, "relative-occurrence-request-release"):
@@ -175,6 +175,67 @@ class ShortSmokeContract(unittest.TestCase):
                 init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
         finally:
             init.manual_reservation.ACCEPTED_SCOPE_SHA256 = original
+
+    def test_one_off_grant_survives_only_zero_usage_setup_failure_settles_past_its_pinned_head(self):
+        """R10 runs 41933223835 and 41960376782 stopped in setup. A setup failure that reserved is settled from evidence with zero product
+        usage, which moves the journal head. Past its pinned head the grant admits only a verified chain of complete reserve -> settle pairs
+        with zero on all five product counters (runner minutes counted) whose accepted rollup agrees (Sam 1793874766.615719); prepare excludes
+        the current run's own reserve. A release, an executed or open attempt, a missing chain or any doubt still refuses."""
+        repo = str(ROOT.parents[1])
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        occurrence = init.materialize_authoritative_smoke_occurrence(repo, template, "2026-11-03T17:30:00Z")
+        occurrence_raw = json.dumps(occurrence, sort_keys=True).encode()
+        request_sha = hashlib.sha256(occurrence_raw).hexdigest()
+        scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
+        root, reserved_head, settled_head = ("92d6ebf902351750c368d7d513116c6b1f19f80c", "0909b53ff6dc767105633ddc14db520c762dff64",
+                                             "6430357513fcc5f4bba12f8deab3c06bb5b01996")
+        # the real journal events of run 41960376782 and its evidence-bound settle (computed with the real writer and rollup)
+        held = {"requests": 2032, "identityReads": 32, "starts": 16, "takes": 16, "coachingRequests": 20, "runnerMinutes": 40}
+        reserve = {"type": "reserve", "campaignId": "R10-3b040043-smoke15", "runId": "41960376782", "attempt": 1, "allocation": held,
+                   "provenance": "request-sha256:c7e6698a9c9aeb09504a83bff2078a1d41478943067f1084f39a901cdd2cc4ee", "atUtc": "2026-11-05T03:15:17Z"}
+        settle = dict(reserve, type="settle", atUtc="2026-11-05T03:21:44Z",
+                      allocation={"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6},
+                      provenance="evidence-sha256:ee620b386e60dd988f8eac73a6c0c4901063f6614f119360b6759302c622925e")
+        led = lambda events: json.dumps({"events": events, "schema": "speaksharp.cloud-test.state-ledger.v1"}, sort_keys=True).encode()
+        node = lambda sha, events: (sha, events, led(events))   # validate_chain's (sha, events, ledger bytes)
+        chain = [node(root, []), node(reserved_head, [reserve]), node(settled_head, [reserve, settle])]
+        settled = {"source": "accepted-rollup", "root": root, "headSha": settled_head,
+                   "scopeApprovalRef": scope["approvalRef"], "outstandingReservations": 0, "openReservationsByRequest": {},
+                   "period": {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6},
+                   "unknown": {"coachingRequests": False, "runnerMinutes": False}}
+        raw = lambda d: json.dumps(d, sort_keys=True).encode()
+        approve = lambda cp, ch: init.occurrence_action_approval({}, request_sha, raw(cp), occurrence, repo=repo, chain=ch)
+        init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, raw(settled), repo, chain)
+        self.assertEqual(approve(settled, chain)["selectionApprovalRef"], "slack:1793883995.722959")
+        # prepare: the verified head adds this run's own open reserve; the approval chain is computed at its parent, which admits
+        own_reserve = dict(reserve, runId="41999999999", provenance="request-sha256:" + request_sha, atUtc="2026-11-05T12:00:05Z")
+        full = chain + [node("a" * 40, [reserve, settle, own_reserve])]
+        parent = init.manual_approval_chain(full, ("R10-3b040043-smoke15", "41999999999", 1, request_sha))
+        self.assertEqual(parent, chain)
+        self.assertEqual(approve(settled, parent)["selectionApprovalRef"], "slack:1793883995.722959")
+        bad_settle = lambda **over: chain[:2] + [node(settled_head, [reserve, dict(settle, **over)])]
+        chain_refusals = [None, [], chain[:2], [node(root, []), node(settled_head, [reserve])],
+                          bad_settle(type="release"), bad_settle(runId="41960376783"), bad_settle(attempt=2),
+                          bad_settle(provenance="approval:slack-1793814535.013849"),
+                          bad_settle(allocation=dict(settle["allocation"], runnerMinutes=41)),
+                          [node("f" * 40, []), node(reserved_head, [reserve]), node(settled_head, [reserve, settle])],
+                          chain[:2] + [node("b" * 40, [reserve, settle])]]
+        for key in ("requests", "identityReads", "starts", "takes", "coachingRequests"):
+            chain_refusals.append(bad_settle(allocation=dict(settle["allocation"], **{key: 1})))
+        for bad in chain_refusals:
+            with self.assertRaisesRegex(init.Refused, "one-off-grant-checkpoint"):
+                approve(settled, bad)
+        rollup_refusals = [dict(settled, headSha=reserved_head, outstandingReservations=1, openReservationsByRequest={"c7e6698a": 1}),
+                           dict(settled, outstandingReservations=1), dict(settled, openReservationsByRequest={"x": 1}),
+                           dict(settled, root="f" * 40), dict(settled, source="other"), dict(settled, scopeApprovalRef="slack:1.000001"),
+                           dict(settled, unknown={"coachingRequests": True, "runnerMinutes": False}), dict(settled, unknown={}),
+                           {k: v for k, v in settled.items() if k != "period"}]
+        for key in ("requests", "identityReads", "starts", "takes", "coachingRequests"):
+            rollup_refusals.append(dict(settled, period=dict(settled["period"], **{key: 1})))
+            rollup_refusals.append(dict(settled, period={k: v for k, v in settled["period"].items() if k != key}))
+        for bad in rollup_refusals:
+            with self.assertRaisesRegex(init.Refused, "one-off-grant-checkpoint"):
+                approve(bad, chain)
 
     def test_committed_grant_scope_real_reserve_then_prepare_on_verified_chain(self):
         """The production reserve appends to a verified state chain, then the
@@ -218,7 +279,7 @@ class ShortSmokeContract(unittest.TestCase):
             bundle = json.loads(bundle_with(ACCOUNT_ID))
             maintained_id = bundle["accounts"]["maintained-read-only"]["accountId"]
             nonsecret_facts = facts(
-                ownerApprovalReference="slack:1793814535.013849",
+                ownerApprovalReference="slack:1793883995.722959",
                 approvedBy="Akin", reviewer="review:unit@1",
                 producerReviewReference="review:producer@1",
                 accounts={
@@ -242,7 +303,7 @@ class ShortSmokeContract(unittest.TestCase):
             self.assertEqual(prepared["requestSha256"], request_sha)
             self.assertEqual(prepared["liveMinutes"], 40)
             self.assertEqual(prepared["facts"]["actionApproval"]["selectionApprovalRef"],
-                             "slack:1793814535.013849")
+                             "slack:1793883995.722959")
             self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
                              "slack:1793814535.013849")
 

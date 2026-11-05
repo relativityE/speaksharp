@@ -115,6 +115,10 @@ jobs:
       manual_occurrence_sha256: ${{ steps.manual-occurrence.outputs.occurrence_sha256 }}
       manual_occurrence_b64: ${{ steps.manual-occurrence.outputs.occurrence_b64 }}
       manual_workflow_start_utc: ${{ steps.manual-occurrence.outputs.workflow_start_utc }}
+      # The closed evidence of a reserved attempt that did not execute, retired in this job (empty when none was); journal-reserve settles its
+      # reservation from exactly these bytes, bound by the digest.
+      unexecuted_evidence_sha256: ${{ steps.begin.outputs.unexecuted_evidence_sha256 }}
+      unexecuted_evidence_b64: ${{ steps.begin.outputs.unexecuted_evidence_b64 }}
     steps:
       - name: Refuse a re-run attempt and an unconfirmed or inactive dispatch
         env:
@@ -202,11 +206,40 @@ jobs:
               --occurrence "$RUNNER_TEMP/prior-completion/occurrence.json" --out "$RUNNER_TEMP/reconciled.md"
             mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
           fi
-          # Run 41933223835 stopped at the reserve job (the workflow token was refused) before any reservation, so its `incomplete` in-progress
-          # record has no completion artifact and `begin` would refuse every later run. Exactly that one attempt may be retired, and only on
-          # evidence that it never reserved: GitHub reports the run failed with the reserve job failed and the live and settle jobs skipped, and
-          # the validated state-ref journal (pinned reviewed root) names no event for it. It is kept in the record as retired history, never as
-          # a completed run; usage, attempt and reservation records are not touched. Any other stuck attempt still refuses in `begin`.
+          # Sam 1793881260.206739 / 1793881491.714239: a reserved attempt that stopped in setup is settled from evidence keyed on the JOURNAL, not
+          # the record. Whenever the freshly validated chain ends with an open reserve, that run's closed evidence is collected here (GitHub's run
+          # and jobs with steps, and its own workflow at its head, fetched by commit SHA from the public origin, no credential) and handed to journal-reserve,
+          # which settles it before any new reserve, whatever the record shows. If that run did execute, the evidence refuses and nothing
+          # continues. A dispatch interrupted anywhere between this retirement and that settle is therefore recovered by the next one.
+          unexecuted_sha256=''
+          unexecuted_b64=''
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            open_run="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py pending)"
+            if [ -n "$open_run" ]; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$open_run" > "$RUNNER_TEMP/unexecuted-run.json"
+              gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$open_run/jobs?per_page=100" > "$RUNNER_TEMP/unexecuted-jobs.json"
+              open_head="$(python3 -I -c 'import json,re,sys; h=json.load(open(sys.argv[1])).get("head_sha"); assert re.fullmatch(r"[0-9a-f]{40}", str(h)); print(h)' "$RUNNER_TEMP/unexecuted-run.json")"
+              git fetch --quiet --no-tags --depth=1 origin "$open_head"
+              git show "$open_head:.github/workflows/cloud-test-live.yml" > "$RUNNER_TEMP/unexecuted-workflow.yml"
+              python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py collect --run "$RUNNER_TEMP/unexecuted-run.json" \
+                --jobs "$RUNNER_TEMP/unexecuted-jobs.json" --workflow "$RUNNER_TEMP/unexecuted-workflow.yml" --out "$RUNNER_TEMP/unexecuted-evidence.json"
+              unexecuted_sha256="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py check --evidence "$RUNNER_TEMP/unexecuted-evidence.json" | cut -d' ' -f1)"
+              unexecuted_b64="$(base64 < "$RUNNER_TEMP/unexecuted-evidence.json" | tr -d '\n')"
+            fi
+          fi
+          # That reserved attempt, while it is still the `incomplete` one, is retired as `reserved-not-executed` from exactly that evidence. It is
+          # kept as retired history, never a completed run; journal-reserve settles the reservation from the same digest.
+          if [ -n "$unexecuted_sha256" ] && unexecuted_run="$(python3 -I "$P" unexecuted-candidate --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unexecuted-evidence.json")"; then
+            python3 -I "$P" retire-unexecuted --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unexecuted-evidence.json" \
+              --out "$RUNNER_TEMP/retired-unexecuted.md"
+            mv "$RUNNER_TEMP/retired-unexecuted.md" "$RUNNER_TEMP/previous.md"
+            retired_unreserved=1
+          fi
+          # Any manual attempt that stopped before reserving (41933223835; or a later run interrupted before its own reserve, after or before the
+          # settle above) has an `incomplete` record with no completion artifact, and `begin` would refuse every later run. It is retired only on
+          # evidence that it never reserved: GitHub reports the run failed with its reserve job failed or skipped and its live and settle jobs
+          # skipped, and the freshly validated state-ref journal (pinned reviewed root, any head) names no event for it. It is kept in the record as
+          # retired history, never as a completed run; usage, attempt and reservation records are not touched. Anything else still refuses.
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unreserved_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run" > "$RUNNER_TEMP/unreserved-run.json"
             gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run/jobs?per_page=100" > "$RUNNER_TEMP/unreserved-jobs.json"
@@ -235,6 +268,8 @@ jobs:
             id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" -F "body=@$RUNNER_TEMP/body.md" --jq .id)"
           fi
           echo "comment_id=$id" >> "$GITHUB_OUTPUT"
+          echo "unexecuted_evidence_sha256=$unexecuted_sha256" >> "$GITHUB_OUTPUT"
+          echo "unexecuted_evidence_b64=$unexecuted_b64" >> "$GITHUB_OUTPUT"
 
   journal-reserve:
     name: Reserve the run on the state-ref journal (the one push before the run)
@@ -262,10 +297,23 @@ jobs:
           MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
           MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
           MANUAL_WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
+          UNEXECUTED_EVIDENCE_SHA256: ${{ needs.record-begin.outputs.unexecuted_evidence_sha256 }}
+          UNEXECUTED_EVIDENCE_B64: ${{ needs.record-begin.outputs.unexecuted_evidence_b64 }}
           CT_STATE_PUSH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" != schedule ]; then
+            # An attempt retired as reserved-not-executed by record-begin still holds its caps on the journal. Close it FIRST, from its closed
+            # evidence alone: zero product usage and the live job's measured runner minutes, provenance `evidence-sha256:<digest>`, atUtc the
+            # evidence's terminal time. The writer re-validates the evidence, recomputes its digest and appends only when the freshly read journal
+            # is exactly the evidence's head (genesis plus that one reserve); an identical settle already on the chain is a no-op. The reserve
+            # below then runs at the new head. Without retired evidence nothing is settled.
+            if [ -n "$UNEXECUTED_EVIDENCE_SHA256" ]; then
+              (umask 077; printf '%s' "$UNEXECUTED_EVIDENCE_B64" | base64 -d > "$RUNNER_TEMP/unexecuted-evidence.json")
+              python3 -I tools/cloud-test/scripts/manual_reservation.py settle-unexecuted --journal "$RUNNER_TEMP/unexecuted-settle-journal" \
+                --out "$RUNNER_TEMP/unexecuted-settle-receipt.json" --unexecuted-evidence "$RUNNER_TEMP/unexecuted-evidence.json" \
+                --unexecuted-sha256 "$UNEXECUTED_EVIDENCE_SHA256" --scope tools/cloud-test/config/aggregate/period-scope.json
+            fi
             # Manual dispatch: the committed request at this protected-main commit, reserved under its admitted digest before the live job
             # prepares; prepare then admits the approver's checkpoint immediately before this reserve (init_run_inputs.manual_approval_chain).
             # The writer admits that same action approval against the append's checkpoint FIRST and appends nothing otherwise; it writes
@@ -380,6 +428,14 @@ jobs:
             --receipt "$RUNNER_TEMP/browser-receipt.json" > "$RUNNER_TEMP/chrome-path.txt"
           echo "CT_CHROME=$(cat "$RUNNER_TEMP/chrome-path.txt")" >> "$GITHUB_ENV"
           echo "CT_BROWSER_RECEIPT=$RUNNER_TEMP/browser-receipt.json" >> "$GITHUB_ENV"
+      # R10 run 41960376782 failed here (FAIL package-unit-tests) on ubuntu-26.04 with CT_REQUIRE_INTEGRATION=1: the package's strict no-route
+      # clean-room test needs unshare -rn, which AppArmor blocks for unprivileged users. The same suite passed with this exact step in
+      # cloud-test.yml (diagnostic run 41988007600: 1179 tests, 0 failures). Re-enable it on this ephemeral runner only, then prove it works.
+      - name: Allow the clean-room network namespace on this ephemeral runner
+        timeout-minutes: 1
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -rn true
       - name: Generate the exact-head browser-bound proof and offline checks
         env:
           CT_REQUIRE_INTEGRATION: '1'
