@@ -125,6 +125,37 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
         self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
 
+    def test_record_begin_retires_only_the_exact_never_reserved_attempt_on_evidence_before_it_begins(self):
+        begin = next(st for st in self.jobs["record-begin"]["steps"] if st.get("id") == "begin")
+        run = begin["run"]
+        guard = 'if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unreserved_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then'
+        self.assertIn(guard, run)
+        # the evidence is GitHub's own report of that run and its jobs plus the validated journal, consumed by the one retirement command
+        for needle in ('actions/runs/$unreserved_run" > "$RUNNER_TEMP/unreserved-run.json"', 'actions/runs/$unreserved_run/jobs?per_page=100',
+                       "unreserved_attempt_evidence.py --run", "retire-unreserved --previous"):
+            self.assertIn(needle, run)
+        # no release identity is borrowed from the new dispatch's request, and nothing is completed
+        for forbidden in ("testedSha", "tested_sha", "cfg_get.py", "MANUAL_REQUEST", " complete --previous"):
+            self.assertNotIn(forbidden, run[run.index(guard):run.index('"$P" begin --previous')])
+        self.assertNotIn("MANUAL_REQUEST", begin.get("env") or {})
+        # after the pending-completion reconcile and strictly before `begin`, so any other stuck attempt still refuses there
+        self.assertLess(run.index("pendingCompletion"), run.index(guard))
+        self.assertLess(run.index("retire-unreserved"), run.index('"$P" begin --previous'))
+        # review return: when a retirement happened, the stored comment is re-read and bound to the selected record immediately before the one
+        # publication, and a record that moved since is never overwritten
+        publish = run.index('--method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id"')
+        reread = run.index('verify-predecessor --selected "$RUNNER_TEMP/selected.json" --current "$RUNNER_TEMP/predecessor-current.json"')
+        self.assertIn('retired_unreserved=1', run[run.index(guard):run.index('"$P" begin --previous')])
+        self.assertIn('if [ "${retired_unreserved:-}" = 1 ]; then', run)
+        self.assertLess(run.index('"$P" begin --previous'), run.index('if [ "${retired_unreserved:-}" = 1 ]; then'))
+        self.assertLess(reread, publish)
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" > "$RUNNER_TEMP/predecessor-current.json"', run)
+        # the step gained no credential and the job no permission beyond the PR-comment write
+        self.assertIsNone(SECRET_REF.search(str(begin)))
+        self.assertNotIn("contents", self.jobs["record-begin"]["permissions"])
+        self.assertIn("tools/cloud-test/scripts", next(st for st in self.jobs["record-begin"]["steps"]
+                                                      if st.get("uses", "").startswith("actions/checkout@"))["with"]["sparse-checkout"])
+
     def test_the_record_jobs_hold_no_live_credential(self):
         for name in ("record-begin", "record-complete"):
             self.assertIsNone(SECRET_REF.search(str(self.jobs[name])), name)
