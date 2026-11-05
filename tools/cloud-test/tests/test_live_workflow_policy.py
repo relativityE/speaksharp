@@ -16,6 +16,12 @@ YML = os.path.join(REPO, ".github", "workflows", "cloud-test-live.yml")
 SECRET_REF = re.compile(r"\$\{\{\s*[^}]*secrets\.")
 
 
+
+# TEMPORARY (PO 2026-11-05): protected main, or a MANUAL dispatch of exactly the R10 candidate branch. Restored to the
+# main-only form before merge; the environment gate on the live job is asserted unchanged below.
+PROTECTED_MAIN = ("((github.ref == 'refs/heads/main' && github.ref_protected == true) || "
+                  "(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class'))")
+
 class LiveWorkflowPolicy(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -116,7 +122,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \\\n  --checkpoint', init["run"])
         self.assertEqual(init["run"].count("--facts"), 1, "a scheduled run never passes a facts input")
         self.assertEqual(begin["needs"], "nightly-gate")
-        self.assertEqual(begin["if"], "${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && "
+        self.assertEqual(begin["if"], "${{ !cancelled() && " + PROTECTED_MAIN + " && "
                                       "(github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && "
                                       "needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}")
         self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || '
@@ -172,7 +178,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_the_record_jobs_hold_no_live_credential(self):
         for name in ("record-begin", "record-complete"):
             self.assertIsNone(SECRET_REF.search(str(self.jobs[name])), name)
-        protected_main = "github.ref == 'refs/heads/main' && github.ref_protected == true"
+        protected_main = PROTECTED_MAIN
         self.assertIn(protected_main, self.jobs["record-begin"]["if"])
         self.assertIn(protected_main, self.jobs["live"]["if"])
         self.assertIn("needs.record-begin.result == 'success'", self.jobs["live"]["if"])
