@@ -160,7 +160,7 @@ class ShortSmokeContract(unittest.TestCase):
         init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, checkpoint, repo)
         envelope = init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
         self.assertEqual(envelope["approvalRef"], scope["approvalRef"])
-        self.assertEqual(envelope["selectionApprovalRef"], "slack:1793814535.013849")
+        self.assertEqual(envelope["selectionApprovalRef"], "slack:1793883995.722959")
         wrong_release = copy.deepcopy(occurrence)
         wrong_release["release"]["testedSha"] = "f" * 40
         with self.assertRaisesRegex(init.Refused, "relative-occurrence-request-release"):
@@ -206,13 +206,13 @@ class ShortSmokeContract(unittest.TestCase):
         raw = lambda d: json.dumps(d, sort_keys=True).encode()
         approve = lambda cp, ch: init.occurrence_action_approval({}, request_sha, raw(cp), occurrence, repo=repo, chain=ch)
         init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, raw(settled), repo, chain)
-        self.assertEqual(approve(settled, chain)["selectionApprovalRef"], "slack:1793814535.013849")
+        self.assertEqual(approve(settled, chain)["selectionApprovalRef"], "slack:1793883995.722959")
         # prepare: the verified head adds this run's own open reserve; the approval chain is computed at its parent, which admits
         own_reserve = dict(reserve, runId="41999999999", provenance="request-sha256:" + request_sha, atUtc="2026-11-05T12:00:05Z")
         full = chain + [node("a" * 40, [reserve, settle, own_reserve])]
         parent = init.manual_approval_chain(full, ("R10-3b040043-smoke15", "41999999999", 1, request_sha))
         self.assertEqual(parent, chain)
-        self.assertEqual(approve(settled, parent)["selectionApprovalRef"], "slack:1793814535.013849")
+        self.assertEqual(approve(settled, parent)["selectionApprovalRef"], "slack:1793883995.722959")
         bad_settle = lambda **over: chain[:2] + [node(settled_head, [reserve, dict(settle, **over)])]
         chain_refusals = [None, [], chain[:2], [node(root, []), node(settled_head, [reserve])],
                           bad_settle(type="release"), bad_settle(runId="41960376783"), bad_settle(attempt=2),
@@ -279,7 +279,7 @@ class ShortSmokeContract(unittest.TestCase):
             bundle = json.loads(bundle_with(ACCOUNT_ID))
             maintained_id = bundle["accounts"]["maintained-read-only"]["accountId"]
             nonsecret_facts = facts(
-                ownerApprovalReference="slack:1793814535.013849",
+                ownerApprovalReference="slack:1793883995.722959",
                 approvedBy="Akin", reviewer="review:unit@1",
                 producerReviewReference="review:producer@1",
                 accounts={
@@ -303,7 +303,7 @@ class ShortSmokeContract(unittest.TestCase):
             self.assertEqual(prepared["requestSha256"], request_sha)
             self.assertEqual(prepared["liveMinutes"], 40)
             self.assertEqual(prepared["facts"]["actionApproval"]["selectionApprovalRef"],
-                             "slack:1793814535.013849")
+                             "slack:1793883995.722959")
             self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
                              "slack:1793814535.013849")
 
