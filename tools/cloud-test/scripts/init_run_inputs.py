@@ -55,7 +55,7 @@ ONE_OFF_LIMITS = {"endToEndMinutes": 80, "liveMinutes": 40, "requestsIncludingId
 CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
 
 
-def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=None):
+def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=None, chain=None):
     """The reviewed, content-addressed PO grant for exactly one R10 attempt.
 
     Dispatch facts are evidence references, never authority.  The grant binds the committed template, deployed release, accepted accounting
@@ -107,23 +107,43 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
         except (TypeError, ValueError):
             raise Refused("one-off-grant-checkpoint")
         _need(isinstance(checkpoint, dict) and checkpoint.get("scopeApprovalRef") == grant.get("scopeApprovalRef")
-              and (checkpoint.get("headSha") == grant.get("preReserveStateHead") or _setup_failures_only(checkpoint, grant)),
+              and (checkpoint.get("headSha") == grant.get("preReserveStateHead") or _setup_failures_only(checkpoint, grant, chain)),
               "one-off-grant-checkpoint")
     return grant
 
 
 # The grant's single attempt must reach the cases. An attempt that stopped in setup before any product request (R10 runs 41933223835 and
 # 41960376782) is reserved and then settled from evidence with zero product usage, which moves the journal head without consuming the grant.
-# Past the pinned head, a checkpoint is admitted only when the accepted rollup shows the chain still descends from that same pinned head as
-# its root, holds no open reservation, and counts no product usage in the period: only measured runner minutes. Any executed attempt, any
-# open reservation or any unknown usage refuses, so the grant still authorizes exactly one attempt that runs.
+# Past the pinned head, a checkpoint is admitted only when (Sam 1793874766.615719) the verified chain the checkpoint was computed on adds,
+# after that pinned head, nothing but complete reserve -> settle pairs of one attempt each whose settle carries zero on all five product
+# counters (runner minutes stay counted), and the accepted rollup agrees: rooted at that head, no open reservation, no product or unknown
+# usage in the period. A release, an executed attempt, an open reservation or any doubt refuses, so the grant still authorizes exactly one
+# attempt that runs. The settles' evidence is validated by the reviewed writer when it appends; the digest shape here is not proof.
 SETUP_FAILURE_ZERO_KEYS = ("requests", "identityReads", "starts", "takes", "coachingRequests")
 
 
-def _setup_failures_only(checkpoint, grant):
+def _setup_failure_pairs(chain, anchor, head):
+    if not (isinstance(chain, list) and len(chain) >= 2 and chain[0][0] == anchor and chain[-1][0] == head and chain[0][1] == []):
+        return False
+    events = chain[-1][1]
+    if not events or len(events) % 2:
+        return False
+    for reserved, settled in zip(events[0::2], events[1::2]):
+        same = all(reserved.get(k) == settled.get(k) for k in ("campaignId", "runId", "attempt"))
+        held, used = reserved.get("allocation") or {}, settled.get("allocation") or {}
+        if not (reserved.get("type") == "reserve" and settled.get("type") == "settle" and same
+                and all(type(used.get(k)) is int and used[k] == 0 for k in SETUP_FAILURE_ZERO_KEYS)
+                and type(used.get("runnerMinutes")) is int and 0 <= used["runnerMinutes"] <= held.get("runnerMinutes", -1)
+                and re.fullmatch(r"evidence-sha256:[0-9a-f]{64}", str(settled.get("provenance"))) is not None):
+            return False
+    return True
+
+
+def _setup_failures_only(checkpoint, grant, chain):
     period = checkpoint.get("period")
     unknown = checkpoint.get("unknown")
-    return (checkpoint.get("source") == "accepted-rollup"
+    return (_setup_failure_pairs(chain, grant.get("preReserveStateHead"), checkpoint.get("headSha"))
+            and checkpoint.get("source") == "accepted-rollup"
             and checkpoint.get("root") == grant.get("preReserveStateHead") == accounting_rollup.ACCEPTED_ROOT
             and isinstance(checkpoint.get("headSha"), str) and LR.SHA40.match(checkpoint["headSha"]) is not None
             and type(checkpoint.get("outstandingReservations")) is int and checkpoint["outstandingReservations"] == 0
@@ -835,7 +855,7 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
     return check_action_approval(envelope, request_sha256, reconciliation_bytes, req)
 
 
-def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req, nightly=False, standing=None, repo=None):
+def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req, nightly=False, standing=None, repo=None, chain=None):
     """Return the exact builder envelope for this occurrence.
 
     Manual dispatches retain the approver-supplied, byte-bound envelope. Scheduled executions must not carry a reusable envelope in their
@@ -856,7 +876,7 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
     if req.get("runId") == "R10-3b040043-smoke15":
         _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")
         _need(isinstance(repo, str), "one-off-grant-unreadable")
-        approval = one_off_grant(repo, None, req.get("createdUtc"), reconciliation_bytes)
+        approval = one_off_grant(repo, None, req.get("createdUtc"), reconciliation_bytes, chain)
         window = req.get("window") or {}
         _need(req.get("createdUtc") == window.get("startUtc")
               and (_utc(window.get("endUtc")) - _utc(window.get("startUtc"))).total_seconds()
@@ -967,7 +987,7 @@ def prepare(x, now):
                                 req.get("runId") if req.get("runId") == "R10-3b040043-smoke15" else None)
     entries = {b["role"]: role_account(bundle, b["role"], os.environ.get("SUPABASE_URL")) for b in accounts}
     observation = read_case10_observation(getattr(x, "case10_observation", None))
-    chains = []
+    chains, approval_chains = [], []
 
     request_sha256 = hashlib.sha256(req_raw).hexdigest()
     own = (req["runId"], x.run_id, x.attempt, request_sha256) if nightly else None
@@ -976,12 +996,14 @@ def prepare(x, now):
         chains.append(state_chain(root))
         # #1772 review 4446137323: a manual run's reserve is appended by the journal-reserve writer job before this read-only job prepares,
         # so its approver's action approval names the checkpoint immediately before that reserve (manual_approval_chain).
-        return chains[-1] if nightly else manual_approval_chain(chains[-1], (req["runId"], x.run_id, x.attempt, request_sha256))
+        approval_chains.append(chains[-1] if nightly else manual_approval_chain(chains[-1], (req["runId"], x.run_id, x.attempt, request_sha256)))
+        return approval_chains[-1]
     reconciliation, accepted_scope = checkpoint_and_scope(repo, req, chain_reader=read_chain, own=own)
     action_approval = occurrence_action_approval(
         facts, request_sha256, reconciliation, req, nightly,
         standing=lambda: standing_envelope(repo, req, request_sha256, reconciliation, accepted_scope, cases, cfg, now, x.attempt,
-                                           reserved_occurrences(chains[-1], own), held=own_held_allocation(chains[-1], own)), repo=repo)
+                                           reserved_occurrences(chains[-1], own), held=own_held_allocation(chains[-1], own)), repo=repo,
+        chain=approval_chains[-1] if approval_chains else None)
     facts = dict(facts, actionApproval=action_approval)
     check_case10_bound(req, facts, cases, entries, request_sha256, x.run_id, now, observation)
     # The producer route's cases (01/02/03/07/08) all run as existing-disposable; it is also the primary id for the account-id file.

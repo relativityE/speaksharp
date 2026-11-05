@@ -274,7 +274,7 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
                 # #1772 RETURN 1793645360.787039 #2: the authenticated action approval is admitted against THIS checkpoint (the head the
                 # reserve is appended on) before anything is written, so a stale or invalid approval consumes no cap and leaves no reservation.
                 admit_action_approval(inputs.get("facts"), inputs["request"], inputs["admittedSha256"],
-                                      accounting_rollup.checkpoint_bytes(rollup), source_repo)
+                                      accounting_rollup.checkpoint_bytes(rollup), source_repo, chain)
                 # Admission and headroom are checked immediately before the
                 # first append.  A recovered exact transition was already
                 # checked at its original parent and is reverified below.
@@ -285,7 +285,7 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
     return event
 
 
-def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint, source_repo=None):
+def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint, source_repo=None, chain=None):
     """#1772 RETURN 1793645360.787039 #2: the dispatched facts' action approval, admitted by the SAME check prepare applies
     (init_run_inputs.check_action_approval) against the checkpoint bytes the reserve will be appended on. Refuses before any write."""
     import init_run_inputs as I
@@ -301,7 +301,7 @@ def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint, s
     if request.get("runId") != "R10-3b040043-smoke15":
         _need("actionApproval" in facts, "manual-reservation-approval-facts")
     try:
-        I.occurrence_action_approval(facts, admitted_sha256, checkpoint, request, repo=source_repo)
+        I.occurrence_action_approval(facts, admitted_sha256, checkpoint, request, repo=source_repo, chain=chain)
     except I.Refused as err:
         raise Refused("manual-reservation-" + str(err))
 
