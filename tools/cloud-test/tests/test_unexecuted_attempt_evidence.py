@@ -36,6 +36,16 @@ def build(run=None, jobs=None, ch=None):
 
 
 class Evidence(unittest.TestCase):
+    def test_the_pending_probe_is_keyed_on_the_journal_not_the_record(self):
+        # Sam 1793881260.206739: only the pinned reserve still open at its pinned head is pending, whatever the record says
+        self.assertEqual(U.pending_run(chain()), RUN_ID)
+        settle = {"type": "settle", "runId": RUN_ID}
+        for other in (chain(events=[dict(PIN["reserved"]), settle]), chain(head="e" * 40), [(ROOT_SHA, [])],
+                      chain(events=[dict(PIN["reserved"], runId="1")]), chain(events=[])):
+            self.assertIsNone(U.pending_run(other))
+        with self.assertRaises(U.Refused):
+            U.pending_run([])
+
     def refused(self, code, fn, *a):
         with self.assertRaises(U.Refused) as e:
             fn(*a)

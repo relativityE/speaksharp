@@ -121,12 +121,12 @@ class EndToEnd(unittest.TestCase):
         state = P.retire_unreserved(stuck(), evidence, PRED)
         self.assertEqual((state["inProgress"], state["latestCompleted"], [r["runId"] for r in state["retiredAttempts"]]), (None, None, [RUN_ID]))
 
-    def test_the_retirement_refuses_when_the_collected_journal_is_not_at_genesis(self):
-        for events, code in (([{"runId": RUN_ID}], "unreserved-journal-names-the-run"), ([{"runId": "999"}], "unreserved-journal-not-genesis"),
-                             ([{"type": "x"}], "unreserved-journal-not-genesis")):
-            _status, evidence = self.collect(RUN, [jobs_page()], chain(*events))
-            with self.assertRaisesRegex(P.Refused, code):
-                P.retire_unreserved(stuck(), evidence, PRED)
+    def test_the_retirement_refuses_only_when_the_collected_journal_names_the_run(self):
+        _status, evidence = self.collect(RUN, [jobs_page()], chain({"runId": RUN_ID}))
+        with self.assertRaisesRegex(P.Refused, "unreserved-journal-names-the-run"):
+            P.retire_unreserved(stuck(), evidence, PRED)
+        _status, evidence = self.collect(RUN, [jobs_page()], chain({"runId": "999"}))       # another run's event is not this run's reservation
+        self.assertIsNone(P.retire_unreserved(stuck(), evidence, PRED)["inProgress"])
 
     def test_the_retirement_refuses_when_the_collected_run_did_not_complete_fail_or_reserved(self):
         reserved = dict(jobs_page(), jobs=[api_job(i, n, "success" if n.startswith("Reserve") else c) for i, (n, c) in enumerate(JOBS)])

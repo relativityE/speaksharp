@@ -206,11 +206,27 @@ jobs:
               --occurrence "$RUNNER_TEMP/prior-completion/occurrence.json" --out "$RUNNER_TEMP/reconciled.md"
             mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
           fi
-          # Run 41933223835 stopped at the reserve job (the workflow token was refused) before any reservation, so its `incomplete` in-progress
-          # record has no completion artifact and `begin` would refuse every later run. Exactly that one attempt may be retired, and only on
-          # evidence that it never reserved: GitHub reports the run failed with the reserve job failed and the live and settle jobs skipped, and
-          # the validated state-ref journal (pinned reviewed root) names no event for it. It is kept in the record as retired history, never as
-          # a completed run; usage, attempt and reservation records are not touched. Any other stuck attempt still refuses in `begin`.
+          # Sam 1793881260.206739: the settle of the pinned reserved attempt is keyed on the JOURNAL, not the record. Whenever the freshly validated
+          # chain still holds 41960376782's reserve open at its pinned head, its closed evidence is collected here and handed to journal-reserve,
+          # whatever the record shows, so a dispatch interrupted after the retirement but before the settle cannot leave it unsettled.
+          unexecuted_sha256=''
+          unexecuted_b64=''
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            open_run="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py pending)"
+            if [ -n "$open_run" ]; then
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$open_run" > "$RUNNER_TEMP/unexecuted-run.json"
+              gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$open_run/jobs?per_page=100" > "$RUNNER_TEMP/unexecuted-jobs.json"
+              python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py collect --run "$RUNNER_TEMP/unexecuted-run.json" \
+                --jobs "$RUNNER_TEMP/unexecuted-jobs.json" --out "$RUNNER_TEMP/unexecuted-evidence.json"
+              unexecuted_sha256="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py check --evidence "$RUNNER_TEMP/unexecuted-evidence.json" | cut -d' ' -f1)"
+              unexecuted_b64="$(base64 < "$RUNNER_TEMP/unexecuted-evidence.json" | tr -d '\n')"
+            fi
+          fi
+          # Any manual attempt that stopped before reserving (41933223835; or a later run interrupted before its own reserve, after or before the
+          # settle above) has an `incomplete` record with no completion artifact, and `begin` would refuse every later run. It is retired only on
+          # evidence that it never reserved: GitHub reports the run failed with its reserve job failed or skipped and its live and settle jobs
+          # skipped, and the freshly validated state-ref journal (pinned reviewed root, any head) names no event for it. It is kept in the record as
+          # retired history, never as a completed run; usage, attempt and reservation records are not touched. Anything else still refuses.
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unreserved_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run" > "$RUNNER_TEMP/unreserved-run.json"
             gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$unreserved_run/jobs?per_page=100" > "$RUNNER_TEMP/unreserved-jobs.json"
@@ -221,24 +237,15 @@ jobs:
             mv "$RUNNER_TEMP/retired-unreserved.md" "$RUNNER_TEMP/previous.md"
             retired_unreserved=1
           fi
-          # Run 41960376782 RESERVED and then its live job failed in setup: every credential-bearing step was skipped, so nothing product-capable ran,
-          # yet its `incomplete` record blocks `begin` and its open reservation holds the period's caps. Exactly that pinned attempt (run, attempt,
-          # head) is retired here as `reserved-not-executed`, only on closed, deterministic evidence rebuilt from GitHub's run and jobs (with steps)
-          # and the freshly validated journal (at the pinned head: genesis plus that one reserve). It is kept as retired history, never a completed
-          # run. This job settles nothing: journal-reserve settles the reservation from the same evidence digest, at that exact head.
-          unexecuted_sha256=''
-          unexecuted_b64=''
+          # Run 41960376782 RESERVED and then its live job failed in setup: every credential-bearing step was skipped, so nothing product-capable ran.
+          # While it is the `incomplete` attempt, it is retired as `reserved-not-executed` from exactly the evidence collected above (its reserve is
+          # still open at the pinned head); without that evidence it refuses. journal-reserve settles the reservation from the same digest.
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && unexecuted_run="$(python3 -I "$P" unexecuted-candidate --previous "$RUNNER_TEMP/previous.md")"; then
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$unexecuted_run" > "$RUNNER_TEMP/unexecuted-run.json"
-            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$unexecuted_run/jobs?per_page=100" > "$RUNNER_TEMP/unexecuted-jobs.json"
-            python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py collect --run "$RUNNER_TEMP/unexecuted-run.json" \
-              --jobs "$RUNNER_TEMP/unexecuted-jobs.json" --out "$RUNNER_TEMP/unexecuted-evidence.json"
+            [ -n "$unexecuted_sha256" ] || { echo "BLOCKED_SETUP: unexecuted-evidence-missing"; exit 78; }
             python3 -I "$P" retire-unexecuted --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unexecuted-evidence.json" \
               --out "$RUNNER_TEMP/retired-unexecuted.md"
             mv "$RUNNER_TEMP/retired-unexecuted.md" "$RUNNER_TEMP/previous.md"
             retired_unreserved=1
-            unexecuted_sha256="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py check --evidence "$RUNNER_TEMP/unexecuted-evidence.json" | cut -d' ' -f1)"
-            unexecuted_b64="$(base64 < "$RUNNER_TEMP/unexecuted-evidence.json" | tr -d '\n')"
           fi
           # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
           python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"

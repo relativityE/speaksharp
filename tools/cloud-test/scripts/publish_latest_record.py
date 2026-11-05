@@ -469,9 +469,11 @@ RETIRED_MAX = 8
 RETIRED_KEYS = {"runId", "attempt", "sourceSha", "startedUtc", "retiredReason", "predecessorSha256", "evidence"}
 RETIRED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "collectedUtc", "reserveJob", "liveJob", "settleJob", "journalRootSha",
                          "journalHeadSha", "journalEventsNamingRun"}
-UNRESERVED_JOBS = (("reserveJob", "Reserve the run on the state-ref journal", "failure"),
-                   ("liveJob", "Selected live journeys", "skipped"),
-                   ("settleJob", "Settle the run's reservation", "skipped"))
+# A never-reserved attempt: its reserve job failed or never ran, and its live and settle jobs were skipped. The journal check below is what
+# proves no reservation exists; the jobs only have to agree with it.
+UNRESERVED_JOBS = (("reserveJob", "Reserve the run on the state-ref journal", ("failure", "skipped")),
+                   ("liveJob", "Selected live journeys", ("skipped",)),
+                   ("settleJob", "Settle the run's reservation", ("skipped",)))
 UNRESERVED_EVIDENCE_KEYS = {"run", "jobs", "journal", "collectedAt"}
 
 
@@ -495,21 +497,23 @@ def sanitize_retired(r):
               and isinstance(ev["journalHeadSha"], str) and SHA40.match(ev["journalHeadSha"]), "retired-evidence")
         return {k: (dict(sorted(v.items())) if k == "evidence" else v) for k, v in sorted(r.items())}
     _keys(ev, RETIRED_EVIDENCE_KEYS, "retired-evidence")
-    _need(set(ev) == RETIRED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure" and ev["reserveJob"] == "failure"
-          and ev["liveJob"] == "skipped" and ev["settleJob"] == "skipped" and ev["journalEventsNamingRun"] == 0
+    _need(set(ev) == RETIRED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure"
+          and ev["reserveJob"] in ("failure", "skipped") and ev["liveJob"] == "skipped" and ev["settleJob"] == "skipped"
+          and ev["journalEventsNamingRun"] == 0
           and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("runUpdatedUtc", "collectedUtc")) and ev["runUpdatedUtc"] <= ev["collectedUtc"]
-          and all(isinstance(ev[k], str) and SHA40.match(ev[k]) for k in ("journalRootSha", "journalHeadSha"))
-          and ev["journalHeadSha"] == ev["journalRootSha"], "retired-evidence")   # the journal was still at genesis when it was read
+          and all(isinstance(ev[k], str) and SHA40.match(ev[k]) for k in ("journalRootSha", "journalHeadSha")), "retired-evidence")
     return {k: (dict(sorted(v.items())) if k == "evidence" else v) for k, v in sorted(r.items())}
 
 
 def unreserved_candidate(state):
-    """The run id when the in-progress attempt is exactly the one retirable attempt and is `incomplete` with no pending completion, else None.
-    Any other stuck attempt is NOT a candidate: `begin` keeps refusing it."""
+    """The run id when the in-progress attempt is `incomplete` with no pending completion and is not a pinned reserved attempt (which has its own
+    retirement), else None. Sam 1793881260.206739: any manual attempt that stopped before reserving (41933223835, or a later run interrupted
+    before its reserve) must be retirable, or one setup failure wedges every later run. Being a candidate proves nothing: retire_unreserved
+    retires it only on GitHub's evidence and a journal that names no event for it; otherwise it refuses and `begin` keeps refusing."""
     live = state.get("inProgress")
     if live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None:
         return None
-    if (live.get("runId"), live.get("attempt"), live.get("sourceSha")) != (RETIRABLE_ATTEMPT["runId"], RETIRABLE_ATTEMPT["attempt"], RETIRABLE_ATTEMPT["sourceSha"]):
+    if unexecuted_candidate(state) is not None:
         return None
     return live["runId"]
 
@@ -525,8 +529,8 @@ def retire_unreserved(state, evidence, predecessor_sha256):
     jobs [{name, status, conclusion, runId, attempt, headSha}]: every job belongs to that run, attempt and source; exactly one job per
       UNRESERVED_JOBS prefix, `completed`, the reserve job `failure`, the live and settle jobs `skipped` (a missing, duplicated, running,
       cancelled or successful job is uncertain or contradicting, and refuses);
-    journal {rootSha, headSha, runIds}: the state-ref head freshly read and validated from the pinned reviewed root: it IS the root (genesis,
-      no event of any run), so nothing was ever reserved or settled;
+    journal {rootSha, headSha, runIds}: the state-ref head freshly read and validated from the pinned reviewed root, at any head, naming no event
+      of this run, so this attempt never reserved or settled anything (other runs' events, such as an earlier settle, are untouched);
     collectedAt: when that was read, not before the run finished.
     `predecessor_sha256` binds the exact record body this retirement consumed. Only inProgress and retiredAttempts change; latestCompleted and
     history come back exactly as read, which is checked here, not assumed."""
@@ -549,15 +553,15 @@ def retire_unreserved(state, evidence, predecessor_sha256):
     seen = {}
     for key, prefix, wanted in UNRESERVED_JOBS:
         found = [j for j in jobs if isinstance(j["name"], str) and j["name"].startswith(prefix)]
-        _need(len(found) == 1 and found[0]["status"] == "completed" and found[0]["conclusion"] == wanted, "unreserved-job-" + key)
+        _need(len(found) == 1 and found[0]["status"] == "completed" and found[0]["conclusion"] in wanted, "unreserved-job-" + key)
         seen[key] = found[0]["conclusion"]
     import state_ref_writer
     _need(isinstance(journal, dict) and set(journal) == {"rootSha", "headSha", "runIds"}, "unreserved-evidence")
     _need(isinstance(journal["runIds"], list) and all(isinstance(r, str) for r in journal["runIds"]) and run["runId"] not in journal["runIds"],
           "unreserved-journal-names-the-run")
-    # genesis: the freshly read head equals the pinned reviewed root, so the journal holds no event at all
-    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT and journal["headSha"] == journal["rootSha"] and journal["runIds"] == [],
-          "unreserved-journal-not-genesis")
+    # the freshly read chain is validated from the pinned reviewed root; at whatever head, no event names this run
+    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT and isinstance(journal["headSha"], str) and SHA40.match(journal["headSha"]),
+          "unreserved-journal-unverified")
     entry = sanitize_retired({"runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "startedUtc": live["startedUtc"],
                               "retiredReason": "never-reserved", "predecessorSha256": predecessor_sha256,
                               "evidence": {"runStatus": "completed", "runConclusion": "failure", "runUpdatedUtc": run["updatedAt"], "collectedUtc": collected,

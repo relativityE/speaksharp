@@ -23,6 +23,7 @@ are listed in the document and sit outside the campaign allocation. `atUtc` is t
 Nothing here opens a socket: callers pass GitHub's run JSON and jobs JSON (with steps) and the validated journal chain.
 CLI: unexecuted_attempt_evidence.py collect --run RUN.json --jobs JOBS.json --out EVIDENCE.json   (reads the journal from the approved remote)
      unexecuted_attempt_evidence.py check --evidence EVIDENCE.json                                (prints the sha256 and the settle time)
+     unexecuted_attempt_evidence.py pending   (prints the pinned run whose reserve is still open at its pinned head, or nothing; reads the journal)
 Exit 78 (BLOCKED_SETUP) on every refusal.
 """
 import argparse
@@ -266,13 +267,30 @@ def fetch_chain():
     return W.validate_chain(repo, head, W.REVIEWED_ROOT)
 
 
+def pending_run(chain):
+    """Sam 1793881260.206739: the settle is keyed on the JOURNAL, not the record. The pinned run whose reserve is still the open last event at
+    its pinned head, or None. A run interrupted after the record retired that attempt but before the settle leaves exactly this state, and the
+    next dispatch must still reach the settle."""
+    _need(isinstance(chain, list) and chain, "unexecuted-journal")
+    head, events = chain[-1][0], chain[-1][1]
+    for run_id, pin in sorted(UNEXECUTED_ATTEMPTS.items()):
+        if head == pin["journalHeadSha"] and events and events[-1] == pin["reserved"]:
+            return run_id
+    return None
+
+
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("collect", "check"))
+    a.add_argument("command", choices=("collect", "check", "pending"))
     for flag in ("--run", "--jobs", "--out", "--evidence", "--run-id"):
         a.add_argument(flag)
     x = a.parse_args(argv[1:])
     try:
+        if x.command == "pending":
+            run_id = pending_run(fetch_chain())
+            if run_id is not None:
+                print(run_id)
+            return 0
         if x.command == "check":
             _need(bool(x.evidence), "unexecuted-input-unreadable")
             with open(x.evidence, "rb") as f:

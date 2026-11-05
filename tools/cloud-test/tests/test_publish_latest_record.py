@@ -541,21 +541,22 @@ class RetireUnreserved(unittest.TestCase):
         interrupted = P.interrupt(P.begin(after, "103", 1, SHA, "2026-11-05T02:00:00Z"), "103", 1, "cancelled")
         self.assertEqual([r["runId"] for r in interrupted["retiredAttempts"]], [RUN])
 
-    def test_a_different_run_is_never_a_candidate_and_still_blocks_begin(self):
-        # negative control: a different run, a different source, or an attempt in another state
+    def test_any_incomplete_run_is_a_candidate_but_retires_only_on_its_own_evidence_and_begin_refuses_until_then(self):
+        # Sam 1793881260.206739: a later run interrupted before its reserve must be retirable too. Being a candidate proves nothing.
         others = {"another run id": stuck_state(run_id="41933223836"), "another source sha": stuck_state(source="c" * 40)}
         for name, state in others.items():
-            self.assertIsNone(P.unreserved_candidate(state), name)
-            with self.assertRaisesRegex(P.Refused, "unreserved-not-a-candidate"):
-                retire(state)
+            self.assertEqual(P.unreserved_candidate(state), state["inProgress"]["runId"], name)
+            with self.assertRaisesRegex(P.Refused, "unreserved-run-differs"):
+                retire(state)                                  # the evidence is of 41933223835, not of this attempt
             with self.assertRaisesRegex(P.Refused, "previous-attempt-unreconciled"):
                 P.begin(state, "41999999999", 1, SRC, "2026-11-05T00:00:00Z")
         running = P.begin(P.parse_body(""), RUN, 1, SRC, "2026-11-04T23:22:38Z")
         settle, occurrence = receipt_bytes(), occurrence_bytes()
         pending = P.pending_completion(running, record(RUN, sourceSha=SRC), "2026-11-05T19:00:00Z", hashlib.sha256(settle).hexdigest(),
                                        hashlib.sha256(occurrence).hexdigest())
+        pinned = stuck_state(run_id="41960376782", source="8f9f9451bb6bf37ba2bca524acd92d933e2b826c")
         for name, state in {"running": running, "cancelled": P.interrupt(running, RUN, 1, "cancelled"), "pending completion": pending,
-                            "nothing in progress": P.parse_body("")}.items():
+                            "nothing in progress": P.parse_body(""), "the pinned reserved attempt": pinned}.items():
             self.assertIsNone(P.unreserved_candidate(state), name)
             with self.assertRaisesRegex(P.Refused, "unreserved-not-a-candidate"):
                 retire(state)
@@ -563,6 +564,31 @@ class RetireUnreserved(unittest.TestCase):
         for ev in (evidence(run=run_with(runId="41933223836")), evidence(run=run_with(attempt=2)), evidence(run=run_with(headSha="c" * 40))):
             with self.assertRaisesRegex(P.Refused, "unreserved-run-differs"):
                 retire(stuck_state(), ev)
+
+    def test_an_interrupted_later_run_that_never_reserved_is_retired_at_any_journal_head(self):
+        # Sam 1793881260.206739: the dispatch after 41960376782 can fail before the old settle (journal still at its open reserve) or after it
+        # but before its own reserve (journal at the settle). Either way its record is incomplete and it never reserved: it is retired and
+        # the next run begins. History, latestCompleted and earlier retired entries come back unchanged.
+        y, ysrc = "41999999998", "b" * 40
+        prior = retire(stuck_state())                                             # 41933223835 already retired earlier
+        state = stuck_state(prior=prior, run_id=y, source=ysrc)
+        self.assertEqual(P.unreserved_candidate(state), y)
+        y_jobs = [dict(j, runId=y, headSha=ysrc) for j in evidence()["jobs"]]
+        for head in ("0909b53ff6dc767105633ddc14db520c762dff64", "6430357513fcc5f4bba12f8deab3c06bb5b01996"):
+            ev = evidence(run=run_with(runId=y, headSha=ysrc), jobs=y_jobs,
+                          journal={"rootSha": W.REVIEWED_ROOT, "headSha": head, "runIds": ["41960376782"]})
+            out = P.retire_unreserved(state, ev, PRED)
+            self.assertEqual([r["runId"] for r in out["retiredAttempts"]], [RUN, y])
+            self.assertEqual(out["retiredAttempts"][0], prior["retiredAttempts"][0])
+            self.assertEqual((out["latestCompleted"], out.get("history")), (state["latestCompleted"], state.get("history")))
+            self.assertEqual(P.parse_body(P.render(out)), out)
+            self.assertEqual(P.begin(out, "41999999999", 1, SRC, "2026-11-05T13:00:00Z")["inProgress"]["status"], "running")
+            # its reserve job may have failed (interrupted at the settle) or never run (interrupted earlier); either is never-reserved
+            skipped = [dict(j, conclusion="skipped") if j["name"].startswith("Reserve the run") else j for j in y_jobs]
+            self.assertEqual(P.retire_unreserved(state, dict(ev, jobs=skipped), PRED)["inProgress"], None)
+            # but a journal naming this run means it reserved: refused, and begin still refuses
+            with self.assertRaisesRegex(P.Refused, "unreserved-journal-names-the-run"):
+                P.retire_unreserved(state, dict(ev, journal=dict(ev["journal"], runIds=["41960376782", y])), PRED)
 
     def test_a_job_that_is_not_of_this_run_attempt_and_source_refuses(self):
         # review return: each job must belong to the failed attempt. A job copied from another run, attempt or source is not evidence about this one,
@@ -582,17 +608,17 @@ class RetireUnreserved(unittest.TestCase):
                 with self.assertRaisesRegex(P.Refused, code):
                     retire(stuck_state(), evidence(jobs=jobs_with(prefix, status=status)))
 
-    def test_the_journal_must_have_been_freshly_read_at_genesis(self):
-        # review return: the head must equal the pinned genesis, not merely lack an event naming the run
+    def test_the_freshly_validated_journal_must_name_no_event_of_the_run(self):
+        # at any head (Sam 1793881260.206739); other runs' events, such as an earlier settle, are not this run's reservation
         moved = "e" * 40
-        for journal, code in (({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": []}, "unreserved-journal-not-genesis"),
-                              ({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": ["999"]}, "unreserved-journal-not-genesis"),
-                              ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": ["999"]}, "unreserved-journal-not-genesis"),
-                              ({"rootSha": moved, "headSha": moved, "runIds": []}, "unreserved-journal-not-genesis"),
+        for journal in ({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": []}, {"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": ["999"]},
+                        {"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": []}):
+            self.assertIsNone(retire(stuck_state(), evidence(journal=journal))["inProgress"])
+        for journal, code in (({"rootSha": moved, "headSha": moved, "runIds": []}, "unreserved-journal-unverified"),
                               ({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": [RUN]}, "unreserved-journal-names-the-run"),
                               ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": [RUN]}, "unreserved-journal-names-the-run"),
                               ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": "none"}, "unreserved-journal-names-the-run"),
-                              ({"rootSha": W.REVIEWED_ROOT, "headSha": "short", "runIds": []}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": "short", "runIds": []}, "unreserved-journal-unverified"),
                               ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT}, "unreserved-evidence")):
             with self.assertRaisesRegex(P.Refused, code):
                 retire(stuck_state(), evidence(journal=journal))
@@ -663,7 +689,8 @@ class RetireUnreserved(unittest.TestCase):
         mutations = [dict(entry, extra="x"), dict(entry, retiredReason="completed"), {k: v for k, v in entry.items() if k != "startedUtc"},
                      {k: v for k, v in entry.items() if k != "predecessorSha256"}, dict(entry, predecessorSha256="short"),
                      dict(entry, evidence=dict(ev, journalEventsNamingRun=1)), dict(entry, evidence=dict(ev, reserveJob="success")),
-                     dict(entry, evidence=dict(ev, runStatus="in_progress")), dict(entry, evidence=dict(ev, journalHeadSha="e" * 40)),
+                     dict(entry, evidence=dict(ev, runStatus="in_progress")), dict(entry, evidence=dict(ev, journalHeadSha="short")),
+                     dict(entry, evidence=dict(ev, reserveJob="cancelled")),
                      dict(entry, evidence=dict(ev, collectedUtc="2026-11-04T00:00:00Z")),
                      dict(entry, evidence=dict(ev, note="free text")), dict(entry, runId="not-a-run")]
         for bad in mutations:
