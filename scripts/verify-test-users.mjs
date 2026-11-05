@@ -11,6 +11,12 @@
  * VERIFY_TARGET=canaries: strictly read-only canary identity inspection (scripts/lib/canaryReadOnlyVerify.mjs).
  * It never authenticates as a canary, so credential viability is not tested.
  *
+ * VERIFY_TARGET=live-journey-accounts: the Cloud test live run's two REQUIRED accounts, by role only, from the private
+ * CLOUD_TEST_LIVE_ACCOUNTS bundle (existing-disposable and maintained-read-only, both expected Free; Secret-only transport, masked
+ * before any output). It reports per role whether the auth user exists, whether its profile carries the expected tier and whether the
+ * account's id equals the bundle's accountId; a role passes only when all three hold.
+ * It never prints or returns an email (masked or not), an id, a count or a raw error; it never signs in, so password viability is untested.
+ *
  * This script intentionally performs no writes.
  */
 
@@ -124,6 +130,118 @@ export async function completedSessionCount(supabase, userId) {
   return !error && Number.isInteger(count) && count >= 0 ? count : null;
 }
 
+export const LIVE_JOURNEY_ROLES = Object.freeze([
+  { role: 'existing-disposable', expectedTier: 'free' },
+  { role: 'maintained-read-only', expectedTier: 'free' },
+]);
+export const LIVE_ACCOUNTS_BUNDLE_LIMIT = 4096;
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const PROJECT_REF = /^[a-z0-9]{20}$/;
+// One explicit shared email contract (Sam 1793545693.919369): printable ASCII without space or "@" on both sides of exactly one "@", at
+// most 254 characters. No control, whitespace or non-ASCII character can pass, so both consumers agree on every input.
+const EMAIL_ASCII = /^[\x21-\x3f\x41-\x7e]+@[\x21-\x3f\x41-\x7e]+$/;
+
+/**
+ * The private CLOUD_TEST_LIVE_ACCOUNTS bundle (Sam 1793544453.003099), validated exactly as tools/cloud-test/scripts/init_run_inputs.py
+ * does, in the same order and with the same codes (shared vectors in both test suites):
+ *   {"version":1,"projectRef":"<20 lower-case alphanumerics>","accounts":{"existing-disposable":{"email","accountId"},
+ *    "maintained-read-only":{"email","accountId"}}}
+ * Configuration only: any other key (a password, a token) is refused. Errors are fixed codes and never quote the bundle.
+ */
+export function parseLiveAccountsBundle(raw) {
+  const fail = (code) => { throw new Error(`LIVE_JOURNEY_ACCOUNTS_CONFIG: ${code}`); };
+  if (typeof raw !== 'string' || !raw.trim()) fail('bundle-missing');
+  if (Buffer.byteLength(raw, 'utf8') > LIVE_ACCOUNTS_BUNDLE_LIMIT) fail('bundle-too-large');
+  let doc;
+  try { doc = JSON.parse(raw); } catch { fail('bundle-not-json'); }
+  const exact = (o, keys) => Boolean(o) && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).sort().join('\n') === [...keys].sort().join('\n');
+  const roles = LIVE_JOURNEY_ROLES.map((r) => r.role);
+  if (!exact(doc, ['version', 'projectRef', 'accounts']) || doc.version !== 1 || !exact(doc.accounts, roles)) fail('bundle-shape');
+  for (const role of roles) if (!exact(doc.accounts[role], ['email', 'accountId'])) fail('bundle-shape');
+  if (typeof doc.projectRef !== 'string' || !PROJECT_REF.test(doc.projectRef)) fail('bundle-project');
+  for (const role of roles) {
+    const { email } = doc.accounts[role];
+    if (typeof email !== 'string' || email.length > 254 || !EMAIL_ASCII.test(email)) fail('bundle-email');
+  }
+  for (const role of roles) if (typeof doc.accounts[role].accountId !== 'string' || !UUID_V4.test(doc.accounts[role].accountId)) fail('bundle-account-id');
+  const [a, b] = roles.map((role) => doc.accounts[role]);
+  if (a.email.toLowerCase() === b.email.toLowerCase() || a.accountId === b.accountId) fail('bundle-duplicate');
+  return { projectRef: doc.projectRef, accounts: Object.fromEntries(roles.map((role) => [role, { email: doc.accounts[role].email, accountId: doc.accounts[role].accountId }])) };
+}
+
+/**
+ * The approved Supabase project origin, exactly: https://<projectRef>.supabase.co (a trailing "/" and the default port are the same
+ * origin). HTTP, any userinfo or "@", another port, another or suffixed domain, any path, query or fragment, and unparseable input refuse.
+ */
+export function isProjectOrigin(supabaseUrl, projectRef) {
+  if (typeof supabaseUrl !== 'string' || supabaseUrl.includes('@')) return false;
+  let u;
+  try { u = new URL(supabaseUrl); } catch { return false; }
+  return u.protocol === 'https:' && !u.username && !u.password && u.port === '' && u.hostname === `${projectRef}.supabase.co`
+    && u.pathname === '/' && !u.search && !u.hash;
+}
+
+/**
+ * Every value to mask before any other output: the whole raw bundle (even when it is not valid JSON) and, when it parses, each email
+ * (as given and lower-cased) and account id.
+ */
+export function liveJourneyMaskValues(raw) {
+  const values = [raw];
+  try {
+    for (const { email, accountId } of Object.values(parseLiveAccountsBundle(raw).accounts)) values.push(email, email.toLowerCase(), accountId);
+  } catch { /* the raw bundle alone is masked; the parse error is reported later as a fixed code */ }
+  return values;
+}
+
+/**
+ * GitHub workflow-command lines that mask each value. Command data is escaped (% -> %25, CR -> %0D, LF -> %0A) so an embedded line break
+ * cannot end the command and print the rest of the value; a multi-line value is also masked line by line, because the log is masked per
+ * line. Every returned string is exactly one line.
+ */
+export function maskCommands(values) {
+  const escape = (v) => v.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  const out = new Set();
+  for (const value of values) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    out.add(`::add-mask::${escape(value)}`);
+    for (const line of value.split(/\r\n|\r|\n/)) if (line.trim() && line !== value) out.add(`::add-mask::${escape(line)}`);
+  }
+  return [...out];
+}
+
+/**
+ * Role-only verification of the live run's two required accounts from the private bundle. Read-only: the existing auth-user listing and
+ * one user_profiles select. SUPABASE_URL must be exactly the bundle project's HTTPS origin. Any read failure becomes one fixed code, so no SDK
+ * message can carry an email or id. Returns { target, results, allPass } and nothing else: per role { role, authUserExists, tierMatches,
+ * idMatches, pass }, where idMatches compares the found account's id with the bundle's accountId and pass needs all three.
+ */
+export async function verifyLiveJourneyAccounts({ supabase, raw, supabaseUrl, listUsers = listAllAuthUsers }) {
+  const bundle = parseLiveAccountsBundle(raw);
+  if (!isProjectOrigin(supabaseUrl, bundle.projectRef)) throw new Error('LIVE_JOURNEY_ACCOUNTS_CONFIG: bundle-project-mismatch');
+  const wanted = LIVE_JOURNEY_ROLES.map((r) => ({ ...r, email: bundle.accounts[r.role].email.toLowerCase(), accountId: bundle.accounts[r.role].accountId }));
+  let byEmail, profiles;
+  try {
+    byEmail = new Map((await listUsers(supabase)).filter((u) => u.email).map((u) => [u.email.toLowerCase(), u]));
+    const found = wanted.map((w) => byEmail.get(w.email)).filter(Boolean);
+    profiles = new Map();
+    if (found.length) {
+      const { data, error } = await supabase.from('user_profiles').select('id, subscription_status').in('id', found.map((u) => u.id));
+      if (error) throw new Error('profiles');
+      for (const row of data || []) profiles.set(row.id, row);
+    }
+  } catch {
+    throw new Error('LIVE_JOURNEY_ACCOUNTS_READ_FAILED');
+  }
+  const results = wanted.map((w) => {
+    const user = byEmail.get(w.email);
+    const profile = user ? profiles.get(user.id) : null;
+    const tierMatches = Boolean(profile && profile.subscription_status === w.expectedTier);
+    const idMatches = Boolean(user && user.id === w.accountId);
+    return { role: w.role, authUserExists: Boolean(user), tierMatches, idMatches, pass: Boolean(user && tierMatches && idMatches) };
+  });
+  return { target: 'live-journey-accounts', results, allPass: results.every((r) => r.pass) };
+}
+
 export function statusLine(status, result) {
   const prefix = status === 'PASS' ? 'PASS' : 'FAIL';
   const details = [
@@ -152,9 +270,33 @@ async function main() {
     process.exit(1);
   }
 
-  if (!['reviewers', 'canaries'].includes(VERIFY_TARGET)) {
-    console.error(`FAIL verifier config: unknown VERIFY_TARGET '${VERIFY_TARGET}' (expected reviewers or canaries)`);
+  if (!['reviewers', 'canaries', 'live-journey-accounts'].includes(VERIFY_TARGET)) {
+    console.error(`FAIL verifier config: unknown VERIFY_TARGET '${VERIFY_TARGET}' (expected reviewers, canaries or live-journey-accounts)`);
     process.exit(1);
+  }
+
+  if (VERIFY_TARGET === 'live-journey-accounts') {
+    // Mask first: the whole bundle (even malformed) and every extracted value, before any other output or error.
+    const raw = process.env.CLOUD_TEST_LIVE_ACCOUNTS;
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      for (const command of maskCommands(liveJourneyMaskValues(raw))) process.stdout.write(`${command}\n`);
+    }
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    let outcome;
+    try {
+      outcome = await verifyLiveJourneyAccounts({ supabase: adminClient, raw, supabaseUrl: SUPABASE_URL });
+    } catch (error) {
+      // Only this module's own fixed codes are printed; anything else is reported as a read failure.
+      const message = error instanceof Error && /^LIVE_JOURNEY_ACCOUNTS_[A-Z_]+(: [a-z-]+)?$/.test(error.message) ? error.message : 'LIVE_JOURNEY_ACCOUNTS_READ_FAILED';
+      console.error(`FAIL ${message}`);
+      process.exit(1);
+    }
+    console.log('Live-journey account verification (read-only; role only; no sign-in)');
+    console.log(JSON.stringify({ checkedAt: new Date().toISOString(), ...outcome }, null, 2));
+    if (!outcome.allPass) process.exit(1);
+    return;
   }
 
   if (VERIFY_TARGET === 'canaries') {
