@@ -215,6 +215,7 @@ jobs:
             python3 -I "$P" retire-unreserved --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/unreserved-evidence.json" \
               --out "$RUNNER_TEMP/retired-unreserved.md"
             mv "$RUNNER_TEMP/retired-unreserved.md" "$RUNNER_TEMP/previous.md"
+            retired_unreserved=1
           fi
           # The state BEFORE this attempt, for the run-scoped initializer: sanitized record fields only.
           python3 -I -c 'import json,sys; sys.path.insert(0,sys.argv[2]); import publish_latest_record as P; print("prior_state="+json.dumps(P.parse_body(open(sys.argv[1]).read()),sort_keys=True))' "$RUNNER_TEMP/previous.md" tools/cloud-test/scripts >> "$GITHUB_OUTPUT"
@@ -222,6 +223,12 @@ jobs:
           python3 -I "$P" begin --previous "$RUNNER_TEMP/previous.md" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --source-sha "$GITHUB_SHA" --started-utc "$started_utc" --out "$RUNNER_TEMP/body.md"
           id="$(cat "$RUNNER_TEMP/comment-id")"
+          if [ "${retired_unreserved:-}" = 1 ]; then
+            # Re-read the stored comment immediately before publishing and bind it to the exact record the retirement consumed: a record that
+            # changed since it was selected is never overwritten.
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" > "$RUNNER_TEMP/predecessor-current.json"
+            python3 -I "$P" verify-predecessor --selected "$RUNNER_TEMP/selected.json" --current "$RUNNER_TEMP/predecessor-current.json"
+          fi
           if [ -n "$id" ]; then
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
           else

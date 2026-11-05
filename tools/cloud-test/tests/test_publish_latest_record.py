@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from _fixtures import ROOT
 import publish_latest_record as P
@@ -446,6 +447,7 @@ JOBS = (("Record the attempt (latest-record comment; no live credentials)", "suc
         ("Complete or interrupt the attempt in the latest record (no live credentials)", "success"),
         ("Selected live journeys (existing stage runner; preinstalled browser)", "skipped"),
         ("Settle the run's reservation on the state-ref journal (the one push after the run)", "skipped"))
+PRED = hashlib.sha256(REAL_FAILED_ATTEMPT_BODY.encode("utf-8")).hexdigest()
 
 
 def stuck_state(prior=None, run_id=RUN, source=SRC):
@@ -453,20 +455,30 @@ def stuck_state(prior=None, run_id=RUN, source=SRC):
     return P.interrupt(running, run_id, 1, "incomplete")
 
 
+def job(name, conclusion, **over):
+    return dict({"name": name, "status": "completed" if conclusion is not None else "in_progress", "conclusion": conclusion,
+                 "runId": RUN, "attempt": 1, "headSha": SRC}, **over)
+
+
 def evidence(**over):
-    ev = {"run": {"runId": RUN, "attempt": 1, "headSha": SRC, "conclusion": "failure", "updatedAt": "2026-11-04T23:23:13Z"},
-          "jobs": [{"name": n, "conclusion": c} for n, c in JOBS],
-          "journal": {"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": []}}
+    ev = {"run": {"runId": RUN, "attempt": 1, "headSha": SRC, "status": "completed", "conclusion": "failure", "updatedAt": "2026-11-04T23:23:13Z"},
+          "jobs": [job(n, c) for n, c in JOBS],
+          "journal": {"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": []},
+          "collectedAt": "2026-11-05T01:11:20Z"}
     ev.update(over)
     return ev
 
 
-def jobs_with(prefix, conclusion):
-    return [dict(j, conclusion=conclusion) if j["name"].startswith(prefix) else j for j in evidence()["jobs"]]
+def jobs_with(prefix, **over):
+    return [dict(j, **over) if j["name"].startswith(prefix) else j for j in evidence()["jobs"]]
 
 
 def run_with(**o):
     return dict(evidence()["run"], **o)
+
+
+def retire(state, ev=None, pred=PRED):
+    return P.retire_unreserved(state, evidence() if ev is None else ev, pred)
 
 
 class RetireUnreserved(unittest.TestCase):
@@ -478,7 +490,7 @@ class RetireUnreserved(unittest.TestCase):
         self.assertEqual((real["inProgress"]["runId"], real["inProgress"]["status"]), (RUN, "incomplete"))
         with self.assertRaisesRegex(P.Refused, "previous-attempt-unreconciled"):
             P.begin(real, "41999999999", 1, SRC, "2026-11-05T00:00:00Z")   # the defect this removes
-        after = P.retire_unreserved(real, evidence())
+        after = retire(real)
         stored = P.parse_body(P.render(after))                            # renders and re-parses cleanly
         self.assertEqual(stored, after)
         self.assertIsNone(stored["inProgress"])
@@ -486,26 +498,42 @@ class RetireUnreserved(unittest.TestCase):
         self.assertNotIn("history", stored, "no history occurrence is manufactured either")
         entry, = stored["retiredAttempts"]
         self.assertEqual((entry["runId"], entry["attempt"], entry["sourceSha"], entry["retiredReason"]), (RUN, 1, SRC, "never-reserved"))
-        self.assertEqual(entry["evidence"]["journalEventsNamingRun"], 0)
-        self.assertEqual((entry["evidence"]["reserveJob"], entry["evidence"]["liveJob"], entry["evidence"]["settleJob"]), ("failure", "skipped", "skipped"))
+        self.assertEqual(entry["predecessorSha256"], PRED, "the retirement is bound to the exact record body it consumed")
+        ev = entry["evidence"]
+        self.assertEqual((ev["runStatus"], ev["reserveJob"], ev["liveJob"], ev["settleJob"], ev["journalEventsNamingRun"]),
+                         ("completed", "failure", "skipped", "skipped", 0))
+        self.assertEqual(ev["journalHeadSha"], W.REVIEWED_ROOT, "the journal was read at genesis")
         body = P.render(after)
         self.assertIn("Latest completed: none yet.", body)
         self.assertIn("Retired without a reservation (not a completed run)", body)
         nxt = P.begin(stored, "41999999999", 1, SRC, "2026-11-05T00:00:00Z")
         self.assertEqual((nxt["inProgress"]["runId"], len(nxt["retiredAttempts"])), ("41999999999", 1))
 
-    def test_only_inProgress_and_retiredAttempts_change(self):
+    def test_only_inProgress_and_retiredAttempts_change_and_the_prior_history_is_identical(self):
         first = P.complete(started(P.parse_body(""), "100"), record("100"))
         before = P.parse_body(P.render(first))
-        stuck = stuck_state(before)
-        after = P.retire_unreserved(stuck, evidence())
+        after = retire(stuck_state(before))
         same = lambda st: {k: v for k, v in st.items() if k not in ("inProgress", "retiredAttempts")}
         self.assertEqual(same(after), same(before), "latestCompleted and history come back exactly as read")
+        self.assertEqual(P.canon(after["history"]), P.canon(before["history"]), "byte-identical history")
         self.assertEqual(after["history"]["rows"]["AHT-05"]["lastKnownGood"]["runId"], "100")
         self.assertEqual([o["runId"] for o in after["history"]["occurrences"]], ["100"], "the retired attempt is not a history occurrence")
 
+    def test_the_retirement_itself_refuses_to_return_a_changed_history(self):
+        # the invariant is enforced in code, not assumed: a retirement that altered the prior record or history would refuse
+        first = P.complete(started(P.parse_body(""), "100"), record("100"))
+        stuck = stuck_state(P.parse_body(P.render(first)))
+        real = P._with_retired
+        tampers = {"history": lambda st: dict(st["history"], sequence=st["history"]["sequence"] + 1),
+                   "latestCompleted": lambda st: dict(st["latestCompleted"], outcome="failed"),
+                   "pendingCompletion": lambda st: {"x": 1}}
+        for key, change in tampers.items():
+            with mock.patch.object(P, "_with_retired", lambda state, entry, key=key, change=change: dict(real(state, entry), **{key: change(state)})):
+                with self.assertRaisesRegex(P.Refused, "unreserved-history-changed", msg=key):
+                    retire(stuck)
+
     def test_retired_history_survives_a_later_completion_and_reconcile(self):
-        after = P.retire_unreserved(stuck_state(), evidence())
+        after = retire(stuck_state())
         running = P.begin(after, "102", 1, SHA, "2026-11-05T01:00:00Z")
         done = P.complete(running, record("102", startedUtc="2026-11-05T01:00:00Z", endedUtc="2026-11-05T01:40:00Z"))
         self.assertEqual([r["runId"] for r in done["retiredAttempts"]], [RUN])
@@ -514,12 +542,12 @@ class RetireUnreserved(unittest.TestCase):
         self.assertEqual([r["runId"] for r in interrupted["retiredAttempts"]], [RUN])
 
     def test_a_different_run_is_never_a_candidate_and_still_blocks_begin(self):
-        # negative control: a different run, a different source, or a different attempt state
+        # negative control: a different run, a different source, or an attempt in another state
         others = {"another run id": stuck_state(run_id="41933223836"), "another source sha": stuck_state(source="c" * 40)}
         for name, state in others.items():
             self.assertIsNone(P.unreserved_candidate(state), name)
             with self.assertRaisesRegex(P.Refused, "unreserved-not-a-candidate"):
-                P.retire_unreserved(state, evidence())
+                retire(state)
             with self.assertRaisesRegex(P.Refused, "previous-attempt-unreconciled"):
                 P.begin(state, "41999999999", 1, SRC, "2026-11-05T00:00:00Z")
         running = P.begin(P.parse_body(""), RUN, 1, SRC, "2026-11-04T23:22:38Z")
@@ -530,73 +558,117 @@ class RetireUnreserved(unittest.TestCase):
                             "nothing in progress": P.parse_body("")}.items():
             self.assertIsNone(P.unreserved_candidate(state), name)
             with self.assertRaisesRegex(P.Refused, "unreserved-not-a-candidate"):
-                P.retire_unreserved(state, evidence())
+                retire(state)
         # the evidence names a different run than the record's attempt
         for ev in (evidence(run=run_with(runId="41933223836")), evidence(run=run_with(attempt=2)), evidence(run=run_with(headSha="c" * 40))):
             with self.assertRaisesRegex(P.Refused, "unreserved-run-differs"):
-                P.retire_unreserved(stuck_state(), ev)
+                retire(stuck_state(), ev)
+
+    def test_a_job_that_is_not_of_this_run_attempt_and_source_refuses(self):
+        # review return: each job must belong to the failed attempt. A job copied from another run, attempt or source is not evidence about this one,
+        # even when its name and conclusion are exactly the expected ones.
+        for field, value in (("runId", "41933223836"), ("attempt", 2), ("headSha", "c" * 40), ("runId", None), ("attempt", None)):
+            for prefix in ("Reserve the run", "Selected live", "Settle the run", "Record the attempt", "Nightly gate"):
+                with self.assertRaisesRegex(P.Refused, "unreserved-job-not-of-the-run"):
+                    retire(stuck_state(), evidence(jobs=jobs_with(prefix, **{field: value})))
+
+    def test_the_failed_run_must_be_completed_and_every_matched_job_too(self):
+        for status in ("in_progress", "queued", "waiting", None, "requested"):
+            with self.assertRaisesRegex(P.Refused, "unreserved-run-not-completed"):
+                retire(stuck_state(), evidence(run=run_with(status=status)))
+        for prefix, code in (("Reserve the run", "unreserved-job-reserveJob"), ("Selected live", "unreserved-job-liveJob"),
+                             ("Settle the run", "unreserved-job-settleJob")):
+            for status in ("in_progress", "queued", None):
+                with self.assertRaisesRegex(P.Refused, code):
+                    retire(stuck_state(), evidence(jobs=jobs_with(prefix, status=status)))
+
+    def test_the_journal_must_have_been_freshly_read_at_genesis(self):
+        # review return: the head must equal the pinned genesis, not merely lack an event naming the run
+        moved = "e" * 40
+        for journal, code in (({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": []}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": ["999"]}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": ["999"]}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": moved, "headSha": moved, "runIds": []}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": [RUN]}, "unreserved-journal-names-the-run"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": [RUN]}, "unreserved-journal-names-the-run"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": "none"}, "unreserved-journal-names-the-run"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": "short", "runIds": []}, "unreserved-journal-not-genesis"),
+                              ({"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT}, "unreserved-evidence")):
+            with self.assertRaisesRegex(P.Refused, code):
+                retire(stuck_state(), evidence(journal=journal))
+        # and evidence collected before the run finished is not a fresh read of anything that matters
+        for stamp in ("2026-11-04T23:23:12Z", "2026-11-04T10:00:00Z", "not-a-time", None):
+            with self.assertRaisesRegex(P.Refused, "unreserved-time"):
+                retire(stuck_state(), evidence(collectedAt=stamp))
 
     def test_an_actual_reservation_refuses(self):
-        # negative control: the run reserved (its journal names it, its reserve job did not fail, or it got as far as a live or settle job)
-        for ev, code in ((evidence(journal={"rootSha": W.REVIEWED_ROOT, "headSha": "e" * 40, "runIds": [RUN]}), "unreserved-journal-names-the-run"),
-                         (evidence(jobs=jobs_with("Reserve the run", "success")), "unreserved-job-reserveJob"),
-                         (evidence(jobs=jobs_with("Selected live", "success")), "unreserved-job-liveJob"),
-                         (evidence(jobs=jobs_with("Selected live", "failure")), "unreserved-job-liveJob"),
-                         (evidence(jobs=jobs_with("Settle the run", "success")), "unreserved-job-settleJob"),
-                         (evidence(jobs=jobs_with("Settle the run", "failure")), "unreserved-job-settleJob")):
+        # negative control: the run reserved (its reserve job did not fail, or it got as far as a live or settle job)
+        for ev, code in ((evidence(jobs=jobs_with("Reserve the run", conclusion="success")), "unreserved-job-reserveJob"),
+                         (evidence(jobs=jobs_with("Selected live", conclusion="success")), "unreserved-job-liveJob"),
+                         (evidence(jobs=jobs_with("Selected live", conclusion="failure")), "unreserved-job-liveJob"),
+                         (evidence(jobs=jobs_with("Settle the run", conclusion="success")), "unreserved-job-settleJob"),
+                         (evidence(jobs=jobs_with("Settle the run", conclusion="failure")), "unreserved-job-settleJob")):
             with self.assertRaisesRegex(P.Refused, code):
-                P.retire_unreserved(stuck_state(), ev)
+                retire(stuck_state(), ev)
 
     def test_uncertain_evidence_refuses(self):
         # negative control: anything missing, ambiguous, still running or unverifiable is not evidence of absence
         without = lambda prefix: [j for j in evidence()["jobs"] if not j["name"].startswith(prefix)]
-        duplicate = evidence()["jobs"] + [{"name": "Selected live journeys (copy)", "conclusion": "skipped"}]
+        duplicate = evidence()["jobs"] + [job("Selected live journeys (copy)", "skipped")]
         cases = [
             (evidence(jobs=without("Reserve the run")), "unreserved-job-reserveJob"),
             (evidence(jobs=without("Selected live")), "unreserved-job-liveJob"),
             (evidence(jobs=without("Settle the run")), "unreserved-job-settleJob"),
             (evidence(jobs=duplicate), "unreserved-job-liveJob"),
-            (evidence(jobs=jobs_with("Reserve the run", None)), "unreserved-job-reserveJob"),
-            (evidence(jobs=jobs_with("Reserve the run", "cancelled")), "unreserved-job-reserveJob"),
-            (evidence(jobs=jobs_with("Selected live", None)), "unreserved-job-liveJob"),
-            (evidence(jobs=jobs_with("Selected live", "cancelled")), "unreserved-job-liveJob"),
+            (evidence(jobs=jobs_with("Reserve the run", conclusion=None)), "unreserved-job-reserveJob"),
+            (evidence(jobs=jobs_with("Reserve the run", conclusion="cancelled")), "unreserved-job-reserveJob"),
+            (evidence(jobs=jobs_with("Selected live", conclusion=None)), "unreserved-job-liveJob"),
+            (evidence(jobs=jobs_with("Selected live", conclusion="cancelled")), "unreserved-job-liveJob"),
             (evidence(jobs=[]), "unreserved-job-reserveJob"),
             (evidence(run=run_with(conclusion=None)), "unreserved-run-not-failed"),
             (evidence(run=run_with(conclusion="cancelled")), "unreserved-run-not-failed"),
             (evidence(run=run_with(conclusion="success")), "unreserved-run-not-failed"),
             (evidence(run=run_with(updatedAt="not-a-time")), "unreserved-time"),
             (evidence(run=run_with(updatedAt="2026-11-04T23:00:00Z")), "unreserved-time"),
-            (evidence(journal={"rootSha": "d" * 40, "headSha": "d" * 40, "runIds": []}), "unreserved-journal-root"),
-            (evidence(journal={"rootSha": W.REVIEWED_ROOT, "headSha": "short", "runIds": []}), "unreserved-journal-root"),
-            (evidence(journal={"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": "none"}), "unreserved-journal-names-the-run"),
-            (evidence(journal={"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT}), "unreserved-evidence"),
             (dict(evidence(), extra=1), "unreserved-evidence"),
             ({k: v for k, v in evidence().items() if k != "journal"}, "unreserved-evidence"),
+            ({k: v for k, v in evidence().items() if k != "collectedAt"}, "unreserved-evidence"),
             ({}, "unreserved-evidence"),
-            (evidence(jobs=[{"name": "Reserve the run", "conclusion": "failure", "extra": 1}]), "unreserved-evidence"),
+            (evidence(jobs=[dict(job("Reserve the run", "failure"), extra=1)]), "unreserved-evidence"),
+            (evidence(jobs=[{"name": "Reserve the run", "conclusion": "failure"}]), "unreserved-evidence"),
+            (evidence(run={k: v for k, v in run_with().items() if k != "status"}), "unreserved-evidence"),
         ]
         for ev, code in cases:
             with self.assertRaisesRegex(P.Refused, code):
-                P.retire_unreserved(stuck_state(), ev)
+                retire(stuck_state(), ev)
+
+    def test_the_retirement_requires_a_bound_predecessor_digest(self):
+        for bad in (None, "", "short", "G" * 64, 5):
+            with self.assertRaisesRegex(P.Refused, "unreserved-predecessor"):
+                retire(stuck_state(), pred=bad)
 
     def test_a_retired_attempt_is_not_retired_twice_and_the_bound_holds(self):
-        after = P.retire_unreserved(stuck_state(), evidence())
+        after = retire(stuck_state())
         with self.assertRaisesRegex(P.Refused, "unreserved-not-a-candidate"):
-            P.retire_unreserved(after, evidence())
-        full = dict(P.retire_unreserved(stuck_state(), evidence()))
-        full["retiredAttempts"] = [dict(full["retiredAttempts"][0], runId=str(41900000000 + i)) for i in range(P.RETIRED_MAX)]
+            retire(after)
+        full = retire(stuck_state())["retiredAttempts"]
+        full = [dict(full[0], runId=str(41900000000 + i)) for i in range(P.RETIRED_MAX)]
         with self.assertRaisesRegex(P.Refused, "retired-attempts-bound"):
-            P.retire_unreserved(dict(stuck_state(), retiredAttempts=full["retiredAttempts"]), evidence())
+            retire(dict(stuck_state(), retiredAttempts=full))
 
     def test_a_stored_retired_entry_must_be_exactly_the_closed_shape(self):
-        good = P.retire_unreserved(stuck_state(), evidence())
+        good = retire(stuck_state())
         entry = good["retiredAttempts"][0]
+        ev = entry["evidence"]
         mutations = [dict(entry, extra="x"), dict(entry, retiredReason="completed"), {k: v for k, v in entry.items() if k != "startedUtc"},
-                     dict(entry, evidence=dict(entry["evidence"], journalEventsNamingRun=1)), dict(entry, evidence=dict(entry["evidence"], reserveJob="success")),
-                     dict(entry, evidence=dict(entry["evidence"], note="free text")), dict(entry, runId="not-a-run")]
+                     {k: v for k, v in entry.items() if k != "predecessorSha256"}, dict(entry, predecessorSha256="short"),
+                     dict(entry, evidence=dict(ev, journalEventsNamingRun=1)), dict(entry, evidence=dict(ev, reserveJob="success")),
+                     dict(entry, evidence=dict(ev, runStatus="in_progress")), dict(entry, evidence=dict(ev, journalHeadSha="e" * 40)),
+                     dict(entry, evidence=dict(ev, collectedUtc="2026-11-04T00:00:00Z")),
+                     dict(entry, evidence=dict(ev, note="free text")), dict(entry, runId="not-a-run")]
         for bad in mutations:
-            body = P.render(dict(good, retiredAttempts=[entry])).replace(json.dumps(entry, sort_keys=True, separators=(",", ":")),
-                                                                         json.dumps(bad, sort_keys=True, separators=(",", ":")))
+            body = P.render(good).replace(json.dumps(entry, sort_keys=True, separators=(",", ":")), json.dumps(bad, sort_keys=True, separators=(",", ":")))
+            self.assertNotEqual(body, P.render(good), "the mutation is applied")
             with self.assertRaises(P.Refused):
                 P.parse_body(body)
         for bad_list in ([], "x"):
@@ -604,28 +676,54 @@ class RetireUnreserved(unittest.TestCase):
                 P.parse_body(P.render(good).replace('"retiredAttempts":[' + json.dumps(entry, sort_keys=True, separators=(",", ":")) + "]",
                                                     '"retiredAttempts":' + json.dumps(bad_list)))
 
-    def test_the_cli_reports_a_candidate_retires_and_refuses_with_exit_78(self):
+    def test_the_record_must_be_unchanged_between_selection_and_publication(self):
+        # review return: re-read the stored comment immediately before publishing and bind it to the record that was selected
+        selected = {"commentId": 6644906621, "body": REAL_FAILED_ATTEMPT_BODY, "updatedAt": "2026-11-04T23:23:08Z"}
+        current = {"id": 6644906621, "body": REAL_FAILED_ATTEMPT_BODY, "updated_at": "2026-11-04T23:23:08Z", "user": {"login": "ignored"}}
+        P.verify_predecessor(selected, current)                                              # unchanged: accepted
+        for name, bad in {"body edited": dict(current, body=REAL_FAILED_ATTEMPT_BODY + " "),
+                          "body replaced": dict(current, body=P.render(P.parse_body(""))),
+                          "updated since": dict(current, updated_at="2026-11-05T01:12:00Z"),
+                          "another comment": dict(current, id=6644906622),
+                          "no id": {k: v for k, v in current.items() if k != "id"},
+                          "no body": {k: v for k, v in current.items() if k != "body"},
+                          "not a comment": []}.items():
+            with self.assertRaisesRegex(P.Refused, "record-predecessor-moved", msg=name):
+                P.verify_predecessor(selected, bad)
+        for bad_selected in ({}, {"commentId": None, "body": "x", "updatedAt": "t"}, []):
+            with self.assertRaisesRegex(P.Refused, "record-predecessor-moved"):
+                P.verify_predecessor(bad_selected, current)
+
+    def test_the_cli_reports_a_candidate_retires_binds_the_predecessor_and_refuses_with_exit_78(self):
         d = tempfile.mkdtemp(prefix="ct-unreserved-")
         self.addCleanup(shutil.rmtree, d, True)
         script = os.path.join(ROOT, "scripts", "publish_latest_record.py")
-        prev, ev, out = (os.path.join(d, n) for n in ("prev.md", "ev.json", "out.md"))
+        prev, ev, out, sel, cur = (os.path.join(d, n) for n in ("prev.md", "ev.json", "out.md", "sel.json", "cur.json"))
         with open(prev, "w", encoding="utf-8") as f:
             f.write(REAL_FAILED_ATTEMPT_BODY)
         with open(ev, "w", encoding="utf-8") as f:
             json.dump(evidence(), f)
-        found = subprocess.run(["python3", "-I", script, "unreserved-candidate", "--previous", prev], capture_output=True, text=True, timeout=60)
+        run = lambda *a: subprocess.run(["python3", "-I", script, *a], capture_output=True, text=True, timeout=60)
+        found = run("unreserved-candidate", "--previous", prev)
         self.assertEqual((found.returncode, found.stdout.strip()), (0, RUN))
-        done = subprocess.run(["python3", "-I", script, "retire-unreserved", "--previous", prev, "--evidence", ev, "--out", out],
-                              capture_output=True, text=True, timeout=60)
+        done = run("retire-unreserved", "--previous", prev, "--evidence", ev, "--out", out)
         self.assertEqual(done.returncode, 0, done.stderr)
         with open(out, encoding="utf-8") as f:
-            self.assertIsNone(P.parse_body(f.read())["inProgress"])
-        none = subprocess.run(["python3", "-I", script, "unreserved-candidate", "--previous", out], capture_output=True, text=True, timeout=60)
-        self.assertEqual(none.returncode, 1)
+            state = P.parse_body(f.read())
+        self.assertIsNone(state["inProgress"])
+        self.assertEqual(state["retiredAttempts"][0]["predecessorSha256"], PRED, "the CLI binds the digest of the exact body it read")
+        self.assertEqual(run("unreserved-candidate", "--previous", out).returncode, 1)
+        with open(sel, "w", encoding="utf-8") as f:
+            json.dump({"commentId": 7, "body": "same", "updatedAt": "t1"}, f)
+        for body, code in (("same", 0), ("different", 78)):
+            with open(cur, "w", encoding="utf-8") as f:
+                json.dump({"id": 7, "body": body, "updated_at": "t1"}, f)
+            r = run("verify-predecessor", "--selected", sel, "--current", cur)
+            self.assertEqual(r.returncode, code, r.stderr)
+        self.assertIn("record-predecessor-moved", r.stderr)
         with open(ev, "w", encoding="utf-8") as f:
             json.dump(evidence(jobs=[]), f)
-        refused = subprocess.run(["python3", "-I", script, "retire-unreserved", "--previous", prev, "--evidence", ev, "--out", out + ".2"],
-                                 capture_output=True, text=True, timeout=60)
+        refused = run("retire-unreserved", "--previous", prev, "--evidence", ev, "--out", out + ".2")
         self.assertEqual(refused.returncode, 78)
         self.assertIn("unreserved-job-", refused.stderr)
         self.assertFalse(os.path.exists(out + ".2"), "a refusal writes no body")

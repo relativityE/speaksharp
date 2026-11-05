@@ -4,8 +4,9 @@
 It reads three things and writes one closed JSON file; it never writes to GitHub, the state ref or the record:
   * the failed run as GitHub reports it (`gh api repos/R/actions/runs/ID`),
   * that run's jobs (`gh api repos/R/actions/runs/ID/jobs`, one page or the `--paginate --slurp` list of pages),
-  * the state-ref journal, fetched anonymously from the approved remote into a fresh transport repository and validated from the pinned
-    reviewed root to its head (state_ref_writer.validate_chain), so a rewritten or replaced journal fails here.
+  * the state-ref journal, fetched anonymously from the approved remote at collection time into a fresh transport repository and validated from
+    the pinned reviewed root to its head (state_ref_writer.validate_chain), so a rewritten or replaced journal fails here. The retirement
+    requires that freshly read head to be the root itself (genesis).
 The retirement itself decides whether the evidence is enough; this file only collects and shapes it. It carries no release identity.
 
 Usage: unreserved_attempt_evidence.py --run RUN.json --jobs JOBS.json --out EVIDENCE.json
@@ -17,6 +18,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (this module opens no socket itself; the one journal fetch is state_ref_writer's `git` subprocess, as in the writer)
@@ -39,17 +41,20 @@ def journal_from_chain(chain):
     return {"rootSha": chain[0][0], "headSha": chain[-1][0], "runIds": run_ids}
 
 
-def build_evidence(run, jobs_doc, chain):
-    """The closed evidence document. `jobs_doc` is one jobs response or a list of pages of them."""
+def build_evidence(run, jobs_doc, chain, now=None):
+    """The closed evidence document. `jobs_doc` is one jobs response or a list of pages of them. Every job carries the run, attempt and source
+    GitHub says it belongs to, so the retirement can refuse a job that is not of the failed attempt. `now` is injectable for tests."""
     _need(isinstance(run, dict), "unreserved-run")
     pages = jobs_doc if isinstance(jobs_doc, list) else [jobs_doc]
     jobs = []
     for page in pages:
         _need(isinstance(page, dict) and isinstance(page.get("jobs"), list), "unreserved-jobs")
-        jobs.extend({"name": j.get("name"), "conclusion": j.get("conclusion")} for j in page["jobs"])
-    return {"run": {"runId": str(run.get("id")), "attempt": run.get("run_attempt"), "headSha": run.get("head_sha"),
+        jobs.extend({"name": j.get("name"), "status": j.get("status"), "conclusion": j.get("conclusion"), "runId": str(j.get("run_id")),
+                     "attempt": j.get("run_attempt"), "headSha": j.get("head_sha")} for j in page["jobs"])
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"run": {"runId": str(run.get("id")), "attempt": run.get("run_attempt"), "headSha": run.get("head_sha"), "status": run.get("status"),
                     "conclusion": run.get("conclusion"), "updatedAt": run.get("updated_at")},
-            "jobs": jobs, "journal": journal_from_chain(chain)}
+            "jobs": jobs, "journal": journal_from_chain(chain), "collectedAt": stamp}
 
 
 def fetch_chain():

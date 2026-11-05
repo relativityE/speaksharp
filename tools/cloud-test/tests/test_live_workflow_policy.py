@@ -141,6 +141,15 @@ class LiveWorkflowPolicy(unittest.TestCase):
         # after the pending-completion reconcile and strictly before `begin`, so any other stuck attempt still refuses there
         self.assertLess(run.index("pendingCompletion"), run.index(guard))
         self.assertLess(run.index("retire-unreserved"), run.index('"$P" begin --previous'))
+        # review return: when a retirement happened, the stored comment is re-read and bound to the selected record immediately before the one
+        # publication, and a record that moved since is never overwritten
+        publish = run.index('--method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id"')
+        reread = run.index('verify-predecessor --selected "$RUNNER_TEMP/selected.json" --current "$RUNNER_TEMP/predecessor-current.json"')
+        self.assertIn('retired_unreserved=1', run[run.index(guard):run.index('"$P" begin --previous')])
+        self.assertIn('if [ "${retired_unreserved:-}" = 1 ]; then', run)
+        self.assertLess(run.index('"$P" begin --previous'), run.index('if [ "${retired_unreserved:-}" = 1 ]; then'))
+        self.assertLess(reread, publish)
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" > "$RUNNER_TEMP/predecessor-current.json"', run)
         # the step gained no credential and the job no permission beyond the PR-comment write
         self.assertIsNone(SECRET_REF.search(str(begin)))
         self.assertNotIn("contents", self.jobs["record-begin"]["permissions"])

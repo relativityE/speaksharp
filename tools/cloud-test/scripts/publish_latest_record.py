@@ -28,6 +28,8 @@ Usage:
                                       with no pending completion; exits 1 otherwise
   publish_latest_record.py retire-unreserved --previous BODY --evidence EVIDENCE.json --out BODY
                                       retires that one attempt as `never-reserved` history, only on the closed evidence (see retire_unreserved)
+  publish_latest_record.py verify-predecessor --selected SELECTED.json --current COMMENT.json
+                                      refuses unless the stored comment is still exactly the one `select` returned (body, id and updated_at)
 Exit 78 (BLOCKED_SETUP) on every refusal.
 """
 import argparse
@@ -454,27 +456,29 @@ def interrupt(state, run_id, attempt, status):
 # for change or written, and the attempt is kept in the record as `retiredAttempts` history with the evidence that it never reserved.
 RETIRABLE_ATTEMPT = {"runId": "41933223835", "attempt": 1, "sourceSha": "af1781ba6e07524c82dea3a66a1b7cb772c14e51"}
 RETIRED_MAX = 8
-RETIRED_KEYS = {"runId", "attempt", "sourceSha", "startedUtc", "retiredReason", "evidence"}
-RETIRED_EVIDENCE_KEYS = {"runConclusion", "runUpdatedUtc", "reserveJob", "liveJob", "settleJob", "journalRootSha", "journalHeadSha",
-                         "journalEventsNamingRun"}
+RETIRED_KEYS = {"runId", "attempt", "sourceSha", "startedUtc", "retiredReason", "predecessorSha256", "evidence"}
+RETIRED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "collectedUtc", "reserveJob", "liveJob", "settleJob", "journalRootSha",
+                         "journalHeadSha", "journalEventsNamingRun"}
 UNRESERVED_JOBS = (("reserveJob", "Reserve the run on the state-ref journal", "failure"),
                    ("liveJob", "Selected live journeys", "skipped"),
                    ("settleJob", "Settle the run's reservation", "skipped"))
-UNRESERVED_EVIDENCE_KEYS = {"run", "jobs", "journal"}
+UNRESERVED_EVIDENCE_KEYS = {"run", "jobs", "journal", "collectedAt"}
 
 
 def sanitize_retired(r):
     """A retired-attempt entry exactly as stored; anything outside the closed shape refuses."""
     _keys(r, RETIRED_KEYS, "retired-attempt")
     _need(set(r) == RETIRED_KEYS and r["retiredReason"] == "never-reserved", "retired-attempt")
+    _need(isinstance(r["predecessorSha256"], str) and SHA64.match(r["predecessorSha256"]), "retired-attempt")
     _attempt(r["runId"], r["attempt"])
     _need(isinstance(r["sourceSha"], str) and SHA40.match(r["sourceSha"]) and isinstance(r["startedUtc"], str) and UTC.match(r["startedUtc"]), "retired-attempt")
     ev = r["evidence"]
     _keys(ev, RETIRED_EVIDENCE_KEYS, "retired-evidence")
-    _need(set(ev) == RETIRED_EVIDENCE_KEYS and ev["runConclusion"] == "failure" and ev["reserveJob"] == "failure"
+    _need(set(ev) == RETIRED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure" and ev["reserveJob"] == "failure"
           and ev["liveJob"] == "skipped" and ev["settleJob"] == "skipped" and ev["journalEventsNamingRun"] == 0
-          and isinstance(ev["runUpdatedUtc"], str) and UTC.match(ev["runUpdatedUtc"])
-          and all(isinstance(ev[k], str) and SHA40.match(ev[k]) for k in ("journalRootSha", "journalHeadSha")), "retired-evidence")
+          and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("runUpdatedUtc", "collectedUtc")) and ev["runUpdatedUtc"] <= ev["collectedUtc"]
+          and all(isinstance(ev[k], str) and SHA40.match(ev[k]) for k in ("journalRootSha", "journalHeadSha"))
+          and ev["journalHeadSha"] == ev["journalRootSha"], "retired-evidence")   # the journal was still at genesis when it was read
     return {k: (dict(sorted(v.items())) if k == "evidence" else v) for k, v in sorted(r.items())}
 
 
@@ -489,41 +493,73 @@ def unreserved_candidate(state):
     return live["runId"]
 
 
-def retire_unreserved(state, evidence):
+def _with_retired(state, entry):
+    """The one place the retired state is built: in-progress cleared, the entry appended, nothing else touched."""
+    return dict(state, inProgress=None, retiredAttempts=list(state.get("retiredAttempts") or []) + [entry])
+
+
+def retire_unreserved(state, evidence, predecessor_sha256):
     """The state after retiring the one incomplete attempt, or a refusal. Closed evidence, every piece required and unambiguous:
-    run {runId, attempt, headSha, conclusion, updatedAt}: GitHub's report of the failed run, equal to the attempt in the record;
-    jobs [{name, conclusion}]: exactly one job per UNRESERVED_JOBS prefix, the reserve job `failure`, the live and settle jobs `skipped`
-      (a missing, duplicated, running, cancelled or successful job is uncertain or contradicting, and refuses);
-    journal {rootSha, headSha, runIds}: the validated state-ref chain from the pinned reviewed root; no journal event names the run.
-    Only inProgress and retiredAttempts change; latestCompleted, history and every other field are returned exactly as read."""
+    run {runId, attempt, headSha, status, conclusion, updatedAt}: GitHub's report of the failed run, `completed`, equal to the attempt in the record;
+    jobs [{name, status, conclusion, runId, attempt, headSha}]: every job belongs to that run, attempt and source; exactly one job per
+      UNRESERVED_JOBS prefix, `completed`, the reserve job `failure`, the live and settle jobs `skipped` (a missing, duplicated, running,
+      cancelled or successful job is uncertain or contradicting, and refuses);
+    journal {rootSha, headSha, runIds}: the state-ref head freshly read and validated from the pinned reviewed root: it IS the root (genesis,
+      no event of any run), so nothing was ever reserved or settled;
+    collectedAt: when that was read, not before the run finished.
+    `predecessor_sha256` binds the exact record body this retirement consumed. Only inProgress and retiredAttempts change; latestCompleted and
+    history come back exactly as read, which is checked here, not assumed."""
     _need(unreserved_candidate(state) is not None, "unreserved-not-a-candidate")
     live = state["inProgress"]
+    _need(isinstance(predecessor_sha256, str) and SHA64.match(predecessor_sha256), "unreserved-predecessor")
     _need(isinstance(evidence, dict) and set(evidence) == UNRESERVED_EVIDENCE_KEYS, "unreserved-evidence")
     run, jobs, journal = evidence["run"], evidence["jobs"], evidence["journal"]
-    _need(isinstance(run, dict) and set(run) == {"runId", "attempt", "headSha", "conclusion", "updatedAt"}, "unreserved-evidence")
+    _need(isinstance(run, dict) and set(run) == {"runId", "attempt", "headSha", "status", "conclusion", "updatedAt"}, "unreserved-evidence")
     _need((run["runId"], run["attempt"], run["headSha"]) == (live["runId"], live["attempt"], live["sourceSha"]), "unreserved-run-differs")
+    _need(run["status"] == "completed", "unreserved-run-not-completed")
     _need(run["conclusion"] == "failure", "unreserved-run-not-failed")
     _need(isinstance(run["updatedAt"], str) and UTC.match(run["updatedAt"]) and live["startedUtc"] <= run["updatedAt"], "unreserved-time")
-    _need(isinstance(jobs, list) and all(isinstance(j, dict) and set(j) == {"name", "conclusion"} for j in jobs), "unreserved-evidence")
+    collected = evidence["collectedAt"]
+    _need(isinstance(collected, str) and UTC.match(collected) and run["updatedAt"] <= collected, "unreserved-time")
+    job_keys = {"name", "status", "conclusion", "runId", "attempt", "headSha"}
+    _need(isinstance(jobs, list) and all(isinstance(j, dict) and set(j) == job_keys for j in jobs), "unreserved-evidence")
+    # every job in the evidence is of THIS run, attempt and source: a job borrowed from another run or attempt is not evidence about this one
+    _need(all((j["runId"], j["attempt"], j["headSha"]) == (live["runId"], live["attempt"], live["sourceSha"]) for j in jobs), "unreserved-job-not-of-the-run")
     seen = {}
     for key, prefix, wanted in UNRESERVED_JOBS:
         found = [j for j in jobs if isinstance(j["name"], str) and j["name"].startswith(prefix)]
-        _need(len(found) == 1 and found[0]["conclusion"] == wanted, "unreserved-job-" + key)
+        _need(len(found) == 1 and found[0]["status"] == "completed" and found[0]["conclusion"] == wanted, "unreserved-job-" + key)
         seen[key] = found[0]["conclusion"]
     import state_ref_writer
     _need(isinstance(journal, dict) and set(journal) == {"rootSha", "headSha", "runIds"}, "unreserved-evidence")
-    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT and isinstance(journal["headSha"], str) and SHA40.match(journal["headSha"]), "unreserved-journal-root")
     _need(isinstance(journal["runIds"], list) and all(isinstance(r, str) for r in journal["runIds"]) and run["runId"] not in journal["runIds"],
           "unreserved-journal-names-the-run")
+    # genesis: the freshly read head equals the pinned reviewed root, so the journal holds no event at all
+    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT and journal["headSha"] == journal["rootSha"] and journal["runIds"] == [],
+          "unreserved-journal-not-genesis")
     entry = sanitize_retired({"runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "startedUtc": live["startedUtc"],
-                              "retiredReason": "never-reserved",
-                              "evidence": {"runConclusion": "failure", "runUpdatedUtc": run["updatedAt"], "reserveJob": seen["reserveJob"],
-                                           "liveJob": seen["liveJob"], "settleJob": seen["settleJob"], "journalRootSha": journal["rootSha"],
-                                           "journalHeadSha": journal["headSha"], "journalEventsNamingRun": 0}})
+                              "retiredReason": "never-reserved", "predecessorSha256": predecessor_sha256,
+                              "evidence": {"runStatus": "completed", "runConclusion": "failure", "runUpdatedUtc": run["updatedAt"], "collectedUtc": collected,
+                                           "reserveJob": seen["reserveJob"], "liveJob": seen["liveJob"], "settleJob": seen["settleJob"],
+                                           "journalRootSha": journal["rootSha"], "journalHeadSha": journal["headSha"], "journalEventsNamingRun": 0}})
     prior = list(state.get("retiredAttempts") or [])
     _need(all(r["runId"] != entry["runId"] for r in prior) and len(prior) < RETIRED_MAX, "retired-attempts-bound")
-    out = dict(state, inProgress=None, retiredAttempts=prior + [entry])
+    out = _with_retired(state, entry)
+    # the prior run's record and history must come back exactly as read
+    for key in ("latestCompleted", "history", "pendingCompletion"):
+        _need(canon(out.get(key)) == canon(state.get(key)), "unreserved-history-changed")
     return out
+
+
+def verify_predecessor(selected, current):
+    """Refuses unless the stored comment is still exactly the record `select` returned: same comment id, same body bytes, same updated_at.
+    Run immediately before publishing a retirement, so a record changed since it was read is never overwritten (the PATCH itself is not a
+    compare-and-swap; the workflow's one serialized publisher is what excludes a second writer, and this closes the read-to-write gap)."""
+    _need(isinstance(selected, dict) and set(selected) >= {"commentId", "body", "updatedAt"}, "record-predecessor-moved")
+    _need(isinstance(current, dict) and {"id", "body", "updated_at"} <= set(current), "record-predecessor-moved")
+    _need(selected["commentId"] is not None and current["id"] == selected["commentId"], "record-predecessor-moved")
+    _need(isinstance(current["body"], str) and current["body"] == selected["body"], "record-predecessor-moved")
+    _need(isinstance(current["updated_at"], str) and current["updated_at"] == selected["updatedAt"], "record-predecessor-moved")
 
 
 def pending_completion(state, record, completion_deadline_utc, settle_receipt_sha256, occurrence_sha256):
@@ -648,11 +684,11 @@ def _read(path):
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "pending", "reconcile", "verify", "attest",
-                                       "unreserved-candidate", "retire-unreserved"))
+                                       "unreserved-candidate", "retire-unreserved", "verify-predecessor"))
     for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url",
                  "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256",
                  "--completion-deadline-utc", "--published-at", "--artifact-created-at", "--attestation",
-                 "--settle-receipt", "--occurrence", "--evidence"):
+                 "--settle-receipt", "--occurrence", "--evidence", "--selected", "--current"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--comment-id", type=int)
@@ -669,6 +705,9 @@ def main(argv):
             stored = select(json.loads(_read(x.comments)), x.issue_url, x.bot_login, x.comment_id)["body"]
             _need(stored.rstrip("\r\n") == expected.rstrip("\r\n") and parse_body(stored) == parse_body(expected), "record-readback-differs")
             return 0
+        if x.command == "verify-predecessor":
+            verify_predecessor(json.loads(_read(x.selected)), json.loads(_read(x.current)))
+            return 0
         if x.command == "attest":
             attestation = completion_attestation(_read(x.candidate), _read(x.public_body), json.loads(_read(x.published)),
                                                  x.settle_receipt_sha256, x.occurrence_sha256)
@@ -684,7 +723,7 @@ def main(argv):
             print(run_id)
             return 0
         if x.command == "retire-unreserved":
-            state = retire_unreserved(state, json.loads(_read(x.evidence)))
+            state = retire_unreserved(state, json.loads(_read(x.evidence)), hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())
         elif x.command == "reconcile":
             state = reconcile_pending(state, x.published_at, json.loads(_read(x.attestation)),
                                       open(x.settle_receipt, "rb").read(), open(x.occurrence, "rb").read(),
