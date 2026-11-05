@@ -11,7 +11,8 @@ import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,s
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
   PROOF_CASES_TEST,REAL_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
-import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {testEnvironment,executionContext,sourceIdentity,executionRoute,changedEvidencePaths} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {execFileSync} from 'node:child_process';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -749,4 +750,25 @@ test('proof-generation timeout with an undrained descendant retains its owned in
     });
     assert.ok(retained&&fs.existsSync(retained),'unverified descendant ownership must retain the generated-input directory');
   } finally {if(retained)fs.rmSync(retained,{recursive:true,force:true});}
+});
+
+test('a script-only change to a registered native helper outside tests/ selects its consumer through the real changed-evidence filter',()=>{
+  // #1787: the route was registered, but changedEvidencePaths dropped tools/cloud-test/scripts/*.cjs before routing, so CI never saw it.
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'native-helper-diff-'));
+  try {
+    const git=(...args)=>execFileSync('git',['-C',dir,'-c','user.name=t','-c','user.email=t@example.invalid',...args],{encoding:'utf8'}).trim();
+    const helper='tools/cloud-test/scripts/prerequisite_preflight.cjs',plain='tools/cloud-test/scripts/other_script.cjs';
+    git('init','-q');
+    for(const file of [helper,plain]){fs.mkdirSync(path.join(dir,path.dirname(file)),{recursive:true});fs.writeFileSync(path.join(dir,file),'one\n');}
+    git('add','-A');git('commit','-q','-m','base');const base=git('rev-parse','HEAD');
+    for(const file of [helper,plain])fs.writeFileSync(path.join(dir,file),'two\n');
+    git('commit','-q','-am','script-only change');
+    const files=changedEvidencePaths(dir,base);
+    assert.deepEqual(files,[helper],'only the registered helper becomes evidence input');
+    const [contract,...rest]=selectNativeContracts(root,files);
+    assert.equal(rest.length,0);
+    assert.equal(contract.testFile,'tools/cloud-test/tests/prerequisite-preflight.test.cjs');
+    assert.deepEqual(contract.helpers,[helper]);
+    assert.equal(executionRoute(helper,root).runner,'node-test-helper');
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
