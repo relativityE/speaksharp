@@ -285,7 +285,11 @@ class Evidence(unittest.TestCase):
         from unittest import mock
         disp = dict(U.OWNER_DISPOSITIONS["42142985744"])
         self.assertEqual((disp["accounting"], disp["approvalRef"], disp["failedStep"]), ("preflight-bound", "slack:1793965143.063589", U.STAGE_SETUP_STEP))
-        self.assertEqual(sorted(U.OWNER_DISPOSITIONS), ["42142985744"])             # exactly one named run, never a pattern
+        self.assertEqual(sorted(U.OWNER_DISPOSITIONS), ["42142985744", "42226498611"])   # exactly the named runs, never a pattern
+        later = U.OWNER_DISPOSITIONS["42226498611"]                                       # PO disposition slack:1793990811.380919
+        self.assertEqual((later["attempt"], later["headSha"], later["accounting"], later["approvalRef"], later["failedStep"], later["ran"]),
+                         (1, "cbfd39ff5295674356edacfd330a937a837a1e54", "preflight-bound", "slack:1793990811.380919", U.STAGE_SETUP_STEP,
+                          (U.PREFLIGHT_STEP, U.INIT_STEP, U.STAGE_SETUP_STEP)))
         self.assertEqual((disp["attempt"], disp["headSha"]), (1, "79ce7d6cf68428c2007d3bd27f8dea47432a0958"))
         # the fixture run's own attempt and head stand in for the decided ones
         with mock.patch.dict(U.OWNER_DISPOSITIONS, {RUN_ID: dict(disp, attempt=1, headSha=PIN["headSha"])}):
