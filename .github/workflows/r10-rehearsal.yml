@@ -92,7 +92,7 @@ jobs:
           curl -sS --max-time 5 https://speaksharp-public.vercel.app/ | grep -c __APP_RELEASE__
           echo "every production host resolves to the local stub"
       - name: Rehearse steps 11-18 with the exact R10 request and synthetic accounts
-        run: python3 -I tools/cloud-test/rehearsal/r10_rehearsal.py
+        run: python3 -I rehearsal-scratch/r10_rehearsal.py
       - name: Upload the content-free rehearsal summary
         if: always()
         uses: actions/upload-artifact@v4

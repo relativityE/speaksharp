@@ -65,7 +65,7 @@ receipt = {"schema": "speaksharp.cloud-test.prerequisite-preflight.v1", "runId":
 Path(pre, "receipt.json").write_text(json.dumps(receipt)); dg = hashlib.sha256(json.dumps(receipt, sort_keys=True).encode()).hexdigest()
 facts["receipts"].update(pre="r10-preflight:" + dg, rls="r10-rls:" + dg, analytics="r10-analytics:" + dg)
 Path(pre, "facts.json").write_text(json.dumps(facts))
-prior = RT + "/prior-state.json"; Path(prior).write_text((CTL / "rehearsal-prior-state.json").read_text())
+prior = RT + "/prior-state.json"; Path(prior).write_text((Path(WS) / "rehearsal-scratch/rehearsal-prior-state.json").read_text())
 occ = Path(RT) / "manual-occurrence.json"; occ.write_bytes(raw)
 x = SimpleNamespace(repo=WS, config="tools/cloud-test/config/test-config.v1.json", request="tools/cloud-test/config/runs/R10-3b040043-all15.json",
     manual_occurrence_file=str(occ), manual_occurrence_sha256=rsha, workflow_start_utc=start, nightly_request_file=None, nightly_request_sha256=None,
