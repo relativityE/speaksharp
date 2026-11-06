@@ -603,7 +603,15 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const mock = mockSupabase({
       profileError: { code: '42501', message: 'permission denied for table user_profiles', details: null, hint: null },
     });
-    const response = await handler(request(), mock.create);
+    // Pin the response-owned diagnostic IDs so the leak assertion measures the
+    // database error only. A random UUID can legitimately contain the hex
+    // substring "42501" and make this test fail even though the error was not
+    // returned (main CI observed bd842501-... on 2026-11-03).
+    const response = await handler(request({
+      sessionId: 'session-a',
+      diagnostic_request_id: '11111111-1111-4111-8111-111111111111',
+      diagnostic_attempt_id: '22222222-2222-4222-8222-222222222222',
+    }), mock.create);
     const body = await response.json() as Record<string, unknown>;
     assertEquals(response.status, 503);
     assertEquals(body.code, 'service_configuration');

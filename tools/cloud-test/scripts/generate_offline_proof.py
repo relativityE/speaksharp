@@ -118,7 +118,8 @@ def main():
     r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "stimulus_preflight_retry.py"), "--harness", HARNESS, "--plan", os.path.join(plan0, "cfg", "campaign-plan.json"),
                         "--chrome", chrome, "--browser-receipt", browser_receipt, "--cwd", pw, "--out", receipt], capture_output=True, text=True, cwd=ROOT, env=base)
     if r.returncode:
-        raise SystemExit("BLOCKED_SETUP: stimulus preflight on the pinned Chrome failed (%d)" % r.returncode)
+        detail = (r.stderr or r.stdout or "no diagnostic output").strip().replace("\n", " | ")
+        raise SystemExit("BLOCKED_SETUP: stimulus preflight on the pinned Chrome failed (%d): %s" % (r.returncode, detail[:500]))
     plan = os.path.join(work, "plan")
     prep.build(plan, HARNESS, phases=("phase1", "phase2"), stimulus_receipt=receipt, browser_identity=browser_receipt)
 
@@ -168,6 +169,9 @@ def main():
     print("mutation controls: %d caught of %d; %d refused" % (sum(isinstance(v, dict) and v.get("fail", 0) > 0 for v in mutations.values()), len(mutations), len(refusals)))
     if isinstance(proof, dict):
         print("plan controls: %s" % {k: v for k, v in proof.get("planControls", {}).items() if k != "mismatched"})
+        mismatched = proof.get("planControls", {}).get("mismatched") or []
+        if mismatched:
+            print("plan-control mismatches: %s" % ", ".join(str(v)[:120] for v in mismatched))
         print("corrections: %s" % ", ".join("%s %s" % (c["id"], c["result"]) for c in proof.get("corrections", [])))
         print("proof %s; refusals: %s" % (proof.get("result"), "; ".join(proof.get("refusals", [])) or "none"))
     for problem in problems:

@@ -4,16 +4,12 @@ Only AHT-12 is selected, so the PDF/browser integration prerequisites are not
 needed. The emitted private files are unit-test fixtures, never launch inputs.
 """
 import json
-import os
 from pathlib import Path
-import subprocess
-import sys
 import tempfile
 import unittest
 
-from _fixtures import REPO, ROOT
-
-SOURCE = "66328703bf47e865b730e229005411e78481d34c"
+from _fixtures import ROOT
+from test_case_start_caps import SOURCE, SyntheticBuilder
 
 
 class ActualPhaseOne(unittest.TestCase):
@@ -21,24 +17,14 @@ class ActualPhaseOne(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="ct-phase1-synthetic-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
-        self.account = self.root / "synthetic-account.txt"
-        self.account.write_text("00000000-0000-4000-8000-000000000001\n")
 
-    def build(self, mode="full", remove=()):
-        private = self.root / "private"
-        env = {"PATH": os.environ["PATH"], "HOME": str(self.root),
-               "BP_MODE": mode, "BP_PACKET": str(Path(ROOT) / "harness"),
-               "BP_CHECKOUT": REPO, "BP_PRIVATE": str(private),
-               "BP_SOURCE_SHA": SOURCE, "BP_CAMPAIGN": "SYNTHETIC-NOT-A-RUN",
-               "BP_T0": "2099-01-01T00:00:00Z", "BP_T1": "2099-01-01T01:00:00Z",
-               "BP_FACTS": str(Path(ROOT) / "tests/fixtures/plan-facts.PLACEHOLDER.json"),
-               "BP_ACCOUNT_ID_FILE": str(self.account), "BP_SELECT": "12", "BP_TOTAL": "5200",
-               "VITE_SUPABASE_ANON_KEY": "placeholder-publishable-key"}
+    def build(self, mode="selected-full", remove=()):
+        builder = SyntheticBuilder(self.root, cases=(12,), minimal=mode == "minimal")
+        env = builder.env
         for key in remove:
             env.pop(key)
-        result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "harness-adapter/build_plan.py"), "phase1"],
-                                env=env, capture_output=True, text=True)
-        return result, private
+        result = builder.run()
+        return result, Path(env["BP_PRIVATE"])
 
     def test_generated_full_aht12_config_funds_the_actual_received_contract(self):
         result, private = self.build()

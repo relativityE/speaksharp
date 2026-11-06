@@ -8,6 +8,7 @@ import unittest
 
 from _fixtures import NOW, REPO, ROOT, git_repo, needs_history, prerequisite, request_path, sample, wjson
 import verify_release as VR
+import workflow_report as WR
 from _common import load
 
 
@@ -42,14 +43,23 @@ class Fixture:
         cfg["history"]["comparisonBaselines"] = ["R5", "R5"]
         self.cfg = cfg
 
-    def verify(self, ledger, backend=None, tested=None, last=None):
+    def verify(self, ledger, backend=None, tested=None, last=None, current_identity=None, features=None):
         req = {"release": {"testedSha": tested or self.tested, "lastRunTestedSha": last or self.base,
                            "backend": backend or {"sha": tested or self.tested, "source": "owner-stated", "verifiedAtUtc": None, "evidenceRef": None}}}
         d = tempfile.mkdtemp()
         rp, lp, cp, op = (os.path.join(d, n) for n in ("req.json", "led.json", "cfg.json", "out.json"))
         wjson(rp, req); wjson(lp, ledger); wjson(cp, self.cfg)
         from _fixtures import run_py
-        r = run_py("scripts/verify_release.py", "--request", rp, "--ledger", lp, "--config", cp, "--repo", self.repo, "--receipts-root", self.root, "--now", NOW, "--out", op)
+        args = ["--request", rp, "--ledger", lp, "--config", cp, "--repo", self.repo, "--receipts-root", self.root, "--now", NOW, "--out", op]
+        if current_identity is not None:
+            identity = os.path.join(d, "current-identity.json")
+            wjson(identity, current_identity); os.chmod(identity, 0o600)
+            args += ["--current-identity-ledger", identity]
+        if features is not None:
+            feature_path = os.path.join(d, "features.json")
+            wjson(feature_path, {"schema": "speaksharp.cloud-test.feature-ledger.v1", "features": features})
+            args += ["--features", feature_path]
+        r = run_py("scripts/verify_release.py", *args)
         assert r.returncode == 0, r.stderr
         return load(op)
 
@@ -59,6 +69,56 @@ def verdict(out, subject_sha):
 
 
 class ReleaseGate(unittest.TestCase):
+    @staticmethod
+    def current_identity(f, **receipt_overrides):
+        receipt = {"reservation": 1, "phase": "admission", "startedAt": "2026-10-28T21:59:00Z",
+                   "endedAt": "2026-10-28T21:59:01Z", "result": "MATCH", "reason": None, "http": 200,
+                   "redirects": 0, "markerCount": 1, "servedSha": f.tested, "expectedSha": f.tested,
+                   "evidenceScope": "inert-text-marker-only"}
+        receipt.update(receipt_overrides)
+        target = f.cfg["target"]["url"].rstrip("/") + "/"
+        return {"version": 1, "url": target, "expectedSha": f.tested, "cap": 32, "identityGets": 1, "receipts": [receipt]}
+
+    def test_current_occurrence_identity_admits_a_new_release_without_historical_identity(self):
+        f = Fixture([("fix(a): retain guidance (#101)", ["frontend/src/a.ts"])], identity_for_tested=False)
+        out = f.verify(ledger_with(["101"]), current_identity=self.current_identity(f))
+        self.assertEqual((out["frontend"]["source"], out["frontend"]["servedSha"], out["frontend"]["reads"]),
+                         ("current-runtime-identity", f.tested, 1))
+        self.assertEqual(out["needs"], [])
+        self.assertEqual(out["commitVerdicts"][0]["decision"], "allowed")
+
+    def test_current_identity_refuses_wrong_release_phase_staleness_or_replay(self):
+        f = Fixture([("fix(a): retain guidance (#101)", ["frontend/src/a.ts"])], identity_for_tested=False)
+        cases = {
+            "wrong served": self.current_identity(f, servedSha="0" * 40),
+            "wrong expected": self.current_identity(f, expectedSha="0" * 40),
+            "wrong phase": self.current_identity(f, phase="before-AHT-01"),
+            "stale": self.current_identity(f, startedAt="2026-10-26T00:00:00Z", endedAt="2026-10-26T00:00:01Z"),
+            "future": self.current_identity(f, startedAt="2026-10-29T00:00:00Z", endedAt="2026-10-29T00:00:01Z"),
+        }
+        replay = self.current_identity(f); replay["identityGets"] = 2; replay["receipts"].append(dict(replay["receipts"][0], reservation=2))
+        cases["replay"] = replay
+        for label, identity in cases.items():
+            with self.subTest(label):
+                out = f.verify(ledger_with(["101"]), current_identity=identity)
+                self.assertTrue(any("frontend" in need for need in out["needs"]), out)
+                self.assertEqual(out["commitVerdicts"][0]["decision"], "rejected")
+
+    def test_current_r5_objective_witness_feature_allows_only_its_reviewed_product_commit(self):
+        f = Fixture([("feat(r5): bind objective publication witness (#1772)", ["frontend/src/services/SpeechRuntimeController.ts"]),
+                     ("fix(other): unrelated product change (#9999)", ["frontend/src/other.ts"])
+                    ], identity_for_tested=False)
+        feature = {"id": "FEAT-R5-OBJECTIVE-PUBLICATION", "title": "Content-free Focus objective publication witness", "area": "PG01", "pr": "#1772", "commit": None,
+                   "review": {"outcome": "approved", "reviewedBy": "independent-reviewer", "reviewRef": "review-ref", "reviewedAtUtc": "2026-10-28T20:00:00Z"},
+                   "expectedBehaviour": {"summary": "bind owned terminal Focus status", "criteria": "only ordered content-free status evidence is exposed when enabled", "definedAtUtc": "2026-10-28T19:00:00Z"},
+                   "coverage": {"requirements": [{"case": "AHT-02", "assertions": ["owner-bound", "focus-final", "focus-coverage-count"]}, {"case": "AHT-03", "assertions": ["owner-bound", "focus-final", "focus-coverage-count"]}], "newRows": []}}
+        out = f.verify(ledger_with([]), current_identity=self.current_identity(f), features=[feature])
+        decisions = {v["pr"]: v["decision"] for v in out["commitVerdicts"]}
+        self.assertEqual(decisions["1772"], "allowed")
+        self.assertEqual(decisions["9999"], "rejected")
+        self.assertNotEqual(f.base, f.tested)
+        self.assertIn("unreviewed", next(v["reason"] for v in out["commitVerdicts"] if v["pr"] == "9999"))
+
     def test_verified_deployed_fix_is_permitted(self):
         f = Fixture([("fix(a): retain guidance (#101)", ["frontend/src/a.ts", "frontend/src/__tests__/a.test.ts"])])
         out = f.verify(ledger_with(["101"]))
@@ -110,6 +170,70 @@ class ReleaseGate(unittest.TestCase):
         f = Fixture([("fix(be): edge fn (#104)", ["backend/supabase/migrations/1_x.sql"])])
         out = f.verify(ledger_with(["104"]), backend={"sha": "0" * 40, "source": "cloud-verified", "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "r"})
         self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "unverified-deployment")
+
+    def test_source_equivalent_edge_deployment_is_proven_from_git_trees(self):
+        f = Fixture([("fix(be): edge fn (#104)", ["backend/supabase/functions/x/index.ts"]),
+                     ("docs: later evidence", ["docs/evidence.md"])])
+        deployed = f.shas["fix(be): edge fn (#104)"]
+        self.assertNotEqual(deployed, f.tested)
+        tree = f.g("rev-parse", f.tested + ":backend/supabase/functions")
+        backend = {"sha": deployed, "source": "cloud-verified-source-equivalent",
+                   "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "run-url",
+                   "sourceEquivalentToSha": f.tested, "functionsTreeSha": tree}
+        out = f.verify(ledger_with(["104"]), backend=backend)
+        self.assertTrue(out["backend"]["verified"])
+        self.assertEqual(out["backend"]["mode"], "source-equivalent")
+        self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "cloud-verified")
+        rendered = WR.backend_deployment_text(out["backend"])
+        self.assertIn("source-equivalent deployment", rendered)
+        self.assertNotIn("cloud-verified exact deployment", rendered)
+        for value in (deployed, f.tested, tree, backend["verifiedAtUtc"], backend["evidenceRef"]):
+            self.assertIn(value, rendered)
+
+    def test_source_equivalent_backend_refuses_wrong_target_tree_or_missing_evidence(self):
+        f = Fixture([("fix(be): edge fn (#104)", ["backend/supabase/functions/x/index.ts"])])
+        tree = f.g("rev-parse", f.tested + ":backend/supabase/functions")
+        valid = {"sha": f.tested, "source": "cloud-verified-source-equivalent",
+                 "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "run-url",
+                 "sourceEquivalentToSha": f.tested, "functionsTreeSha": tree}
+        invalid = {
+            "wrong target": dict(valid, sourceEquivalentToSha=f.base),
+            "wrong tree": dict(valid, functionsTreeSha="0" * 40),
+            "missing evidence": dict(valid, evidenceRef=None),
+            "missing time": dict(valid, verifiedAtUtc=None),
+        }
+        for label, backend in invalid.items():
+            with self.subTest(label):
+                out = f.verify(ledger_with(["104"]), backend=backend)
+                self.assertFalse(out["backend"]["verified"])
+                self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "unverified-deployment")
+
+    def test_source_equivalent_functions_proof_never_covers_migrations(self):
+        f = Fixture([("fix(be): function baseline (#103)", ["backend/supabase/functions/x/index.ts"]),
+                     ("fix(be): migration (#104)", ["backend/supabase/migrations/1_x.sql"])])
+        tree = f.g("rev-parse", f.tested + ":backend/supabase/functions")
+        backend = {"sha": f.tested, "source": "cloud-verified-source-equivalent",
+                   "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "run-url",
+                   "sourceEquivalentToSha": f.tested, "functionsTreeSha": tree}
+        out = f.verify(ledger_with(["104"]), backend=backend)
+        self.assertTrue(out["backend"]["verified"])
+        self.assertEqual(out["fixes"]["GAP-01"]["inclusion"], "unverified-deployment")
+
+    def test_source_equivalent_backend_refuses_actual_function_tree_drift(self):
+        f = Fixture([("fix(be): first (#103)", ["backend/supabase/functions/x/index.ts"])])
+        deployed = f.tested
+        commit = f.g
+        with open(os.path.join(f.repo, "backend/supabase/functions/x/index.ts"), "a", encoding="utf-8") as h:
+            h.write("drift\n")
+        commit("add", ".")
+        commit("commit", "-q", "-m", "fix(be): changed after deploy (#104)")
+        f.tested = commit("rev-parse", "HEAD")
+        deployed_tree = commit("rev-parse", deployed + ":backend/supabase/functions")
+        backend = {"sha": deployed, "source": "cloud-verified-source-equivalent",
+                   "verifiedAtUtc": "2026-10-28T21:00:00Z", "evidenceRef": "run-url",
+                   "sourceEquivalentToSha": f.tested, "functionsTreeSha": deployed_tree}
+        out = f.verify(ledger_with(["104"]), backend=backend)
+        self.assertFalse(out["backend"]["verified"])
 
     def test_gap_without_expected_pass_rejects_its_fix(self):
         f = Fixture([("fix(a): x (#101)", ["frontend/src/a.ts"])])

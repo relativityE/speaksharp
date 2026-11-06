@@ -11,6 +11,8 @@ const sessionRef=id=>typeof id==='string'&&id?crypto.createHash('sha256').update
 // No message text, header values, body text, URLs or free identifiers are retained: an identifier-shaped string that is not on the allowlist becomes `code-unlisted` (it could embed an id or a token fragment).
 const ERROR_CODE_ALLOWLIST=Object.freeze(new Set(['bad_gateway','gateway_timeout','upstream_timeout','upstream_error','service_unavailable','rate_limited','quota_exceeded','unauthorized','forbidden','not_found','invalid_request','invalid_input','internal_error','provider_error','provider_timeout','model_unavailable','overloaded','timeout','unknown_error','provider_http_4xx','provider_http_5xx','provider_transport','missing_text','invalid_shape','over_character_ceiling','missing_model_version','request_cancelled','provider_malformed_response']));
 const SHAPE=/^[A-Za-z][A-Za-z0-9_.-]{0,39}$/;
+const UUID_V4=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RELEASE=/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const normalizeCode=s=>s.toLowerCase().replace(/[-.]/g,'_');
 // startedAt/respondedAt are Date.now() values taken at the browser's request and response EVENTS (the label says so); browserTimingMs is the browser's own responseEnd when it reports one.
 // There is no fallback clock: a missing measurement is null, never a number measured from some later moment.
@@ -27,13 +29,26 @@ function classifyFailureResponse({contentType,body,startedAt,respondedAt,browser
     browserTimingMs:Number.isFinite(browserTimingMs)&&browserTimingMs>0?Math.round(browserTimingMs):null,
     errorCode:code,upstreamStatus:num('upstream_status','upstreamStatus','status','statusCode'),retryAfterPresent:!!retryAfter};
 }
-function newAttempt(ordinal,body){const b=body&&typeof body==='object'&&!Array.isArray(body)?body:{};return {ordinal,ref:sessionRef(typeof b.sessionId==='string'?b.sessionId:''),clientAttempt:Number.isInteger(b.client_attempt)&&b.client_attempt>=0&&b.client_attempt<1000?b.client_attempt:null,status:null,outcome:'pending'};}
+function newAttempt(ordinal,body){const b=body&&typeof body==='object'&&!Array.isArray(body)?body:{};const clientAttempt=Number.isInteger(b.client_attempt)&&b.client_attempt>=0&&b.client_attempt<1000?b.client_attempt:null,releaseValid=typeof b.client_release_id==='string'&&RELEASE.test(b.client_release_id);return {ordinal,ref:sessionRef(typeof b.sessionId==='string'?b.sessionId:''),clientAttempt,status:null,outcome:'pending',wire:{requestId:typeof b.diagnostic_request_id==='string'&&UUID_V4.test(b.diagnostic_request_id)?b.diagnostic_request_id.toLowerCase():null,attemptId:typeof b.diagnostic_attempt_id==='string'&&UUID_V4.test(b.diagnostic_attempt_id)?b.diagnostic_attempt_id.toLowerCase():null,clientAttempt:Number.isInteger(clientAttempt)&&clientAttempt>=1&&clientAttempt<=2?clientAttempt:null,releaseId:releaseValid?b.client_release_id:null,releaseValid}};}
 function finish(attempt,status){attempt.status=Number.isInteger(status)?status:null;attempt.outcome=isFailureStatus(status)?'failed':isSuccessStatus(status)?'succeeded':'completed-other';}
 // A request the harness guard refused (per-case allowance) never reached the product: it is neither a failure nor a success.
 function deny(attempt){attempt.status=null;attempt.outcome='denied';}
 function abort(attempt){if(attempt.outcome==='pending'){attempt.outcome='aborted';}}
 const role=(ref,ids)=>ref&&ref===sessionRef(ids?.first)?'first':ref&&ref===sessionRef(ids?.second)?'second':'other';
-const closed=(a,ids)=>({ordinal:a.ordinal,role:a.ref?role(a.ref,ids):'uncorrelated',clientAttempt:a.clientAttempt,status:a.status,outcome:a.outcome,...(a.diag?{diag:a.diag}:{})});
+// This is deliberately browser correlation, not independent server/provider authority. Raw IDs and response text never survive.
+function classifyResponseCorrelation(attempt,{contentType,body,status}={}){
+  const base={basis:'browser-request-response',authority:'browser-correlation-only',available:false,matched:null,schemaMatched:false,requestIdMatched:null,attemptIdMatched:null,clientAttemptMatched:null,releaseMatched:null,statusMatched:null,outcomeMatched:null};
+  const wire=attempt?.wire,text=typeof body==='string'?body:'';
+  if(!wire||!wire.requestId||!wire.attemptId||wire.clientAttempt===null||wire.releaseValid!==true||!wire.releaseId||!Number.isInteger(status)||text.length===0||text.length>262144||!/json/i.test(typeof contentType==='string'?contentType:''))return base;
+  let parsed;try{parsed=JSON.parse(text);}catch{return base;}
+  const d=parsed&&typeof parsed==='object'&&!Array.isArray(parsed)&&parsed.diagnostics&&typeof parsed.diagnostics==='object'&&!Array.isArray(parsed.diagnostics)?parsed.diagnostics:null;
+  if(!d)return base;
+  if(typeof d.schema_version!=='string'||typeof d.request_id!=='string'||!UUID_V4.test(d.request_id)||typeof d.attempt_id!=='string'||!UUID_V4.test(d.attempt_id)||!Number.isInteger(d.client_attempt)||d.client_attempt<1||d.client_attempt>2||!(d.client_release_id===null||(typeof d.client_release_id==='string'&&RELEASE.test(d.client_release_id)))||!Number.isInteger(d.status)||!['retrying','success','failure'].includes(d.outcome))return base;
+  const expectedOutcome=status===425?'retrying':isSuccessStatus(status)?'success':isFailureStatus(status)?'failure':null;
+  const checks={schemaMatched:d.schema_version==='coaching_diagnostic_v1',requestIdMatched:typeof d.request_id==='string'&&UUID_V4.test(d.request_id)&&d.request_id.toLowerCase()===wire.requestId,attemptIdMatched:typeof d.attempt_id==='string'&&UUID_V4.test(d.attempt_id)&&d.attempt_id.toLowerCase()===wire.attemptId,clientAttemptMatched:Number.isInteger(d.client_attempt)&&d.client_attempt===wire.clientAttempt,releaseMatched:typeof d.client_release_id==='string'&&d.client_release_id===wire.releaseId,statusMatched:Number.isInteger(d.status)&&d.status===status,outcomeMatched:expectedOutcome!==null&&d.outcome===expectedOutcome};
+  return {...base,...checks,available:true,matched:Object.values(checks).every(Boolean)};
+}
+const closed=(a,ids)=>({ordinal:a.ordinal,role:a.ref?role(a.ref,ids):'uncorrelated',clientAttempt:a.clientAttempt,status:a.status,outcome:a.outcome,...(a.correlation?{correlation:a.correlation}:{}),...(a.diag?{diag:a.diag}:{})});
 function failedFor(attempts,sessionId){const ref=sessionRef(sessionId);return !!ref&&(attempts||[]).some(a=>a.ref===ref&&a.outcome==='failed');}
 function anyFailure(attempts){return (attempts||[]).some(a=>a.outcome==='failed');}
 // Source-control rows that are NOT RUN only because coaching never rendered may let the case continue (any FAIL still stops it).
@@ -53,4 +68,4 @@ function decideGrounded({attempts,ids,oracleResult}){
     facts:{basis:'failed-coaching-attempt-preserved',failedRoles,attempts:mine.slice(0,12).map(a=>closed(a,ids)),uncorrelatedFailures:list.filter(a=>a.outcome==='failed'&&!mine.includes(a)).length,verifiedLaterRecovery:verified},
     recovery:{verified,failedRoles,recoveredRoles,oracleResult:['PASS','FAIL','NOT RUN'].includes(oracleResult?.result)?oracleResult.result:'none',successAfterFailureOrdinals:mine.filter(a=>a.outcome==='succeeded').map(a=>a.ordinal).slice(0,12)}};
 }
-module.exports={ERROR_CODE_ALLOWLIST,classifyFailureResponse,deny,isFailureStatus,isSuccessStatus,sessionRef,newAttempt,finish,abort,failedFor,anyFailure,continueAfterSourceRows,decideGrounded,closed};
+module.exports={ERROR_CODE_ALLOWLIST,classifyFailureResponse,classifyResponseCorrelation,deny,isFailureStatus,isSuccessStatus,sessionRef,newAttempt,finish,abort,failedFor,anyFailure,continueAfterSourceRows,decideGrounded,closed};

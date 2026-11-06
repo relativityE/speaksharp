@@ -8,7 +8,7 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
-import {nativeTestRoute,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness,
+import {nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
 import {pythonTestRoute,validatePythonReceipt} from './pythonTestExecutionEvidence.mjs';
 
@@ -262,8 +262,10 @@ export function changedEvidencePaths(root, base) {
   // Deletions still affect raw change/pilot applicability, but cannot be executed.
   // lstat retains malformed existing entries (including dangling links) for refusal.
   // Python unittest modules are named test_*.py; outside tests/ they were silently omitted, not reported UNCOVERED.
-  return changedPaths(root,base).filter(file=>/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
-    && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
+  // A registered native helper is evidence input by registration, wherever it lives: without this a change to
+  // tools/cloud-test/scripts/prerequisite_preflight.cjs alone never reached its node:test consumer (#1787).
+  return changedPaths(root,base).filter(file=>(/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
+    || nativeHelper(file)!==undefined) && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
 }
 
 export function executionRequiredFiles(root,base,kind='changed-evidence') {
@@ -279,6 +281,15 @@ export function unavailableExecutionInputs(root,files) {
     return route?.applicable===false?[{file,reason:route.unavailableReason}]:[];
   });
 }
+
+// The default remains a hard 60 s fail-closed ceiling. This one registered contract contains
+// 87 end-to-end child-process controls and took 82,685 ms on hosted run 41725470948; give only
+// that exact file a measured, bounded ceiling instead of weakening the lane globally.
+const VITEST_EXECUTION_TIMEOUT_OVERRIDES = Object.freeze({
+  'tests/unit/telemetryReadbackQualifierHarness1539.test.ts': 100_000,
+});
+export const vitestExecutionTimeoutMs = testFile => VITEST_EXECUTION_TIMEOUT_OVERRIDES[testFile] ?? 60_000;
+
 export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}={}) {
   const selected=(helpersOnly?[]:evidenceFiles
     .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
@@ -403,6 +414,7 @@ export function validateVitestExecution(receipt, expected, root) {
       || binding.testFile!==path.join(binding.cwd,testFile)
       || binding.inputSha256!==inputSha256 || phase.inputSha256!==inputSha256
       || binding.repoLockSha256!==hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))
+      || binding.timeoutMs!==vitestExecutionTimeoutMs(testFile)
       || result.testSha256!==hash(fs.readFileSync(path.join(root,testFile)))
       || JSON.stringify(binding.runtime)!==JSON.stringify(runtime)) throw new Error('Wrong execution phase/source/runtime identity');
     assertProvenance(binding.provenance,expected);

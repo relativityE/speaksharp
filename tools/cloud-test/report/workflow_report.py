@@ -21,6 +21,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 import _netguard  # noqa: E402,F401
 import rr_render as R  # noqa: E402
+from _common import comparison_errors  # noqa: E402
 
 esc = R.esc
 SECRET_PATTERNS = [re.compile(p) for p in (r"eyJ[A-Za-z0-9_-]{20,}", r"sk_(live|test)_[A-Za-z0-9]{10,}", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", r"https?://[^\s\"']*[?&](token|key|code)=", r"-----BEGIN [A-Z ]*PRIVATE KEY-----")]
@@ -48,6 +49,17 @@ def wc(t):
 
 def short_sha(h):
     return (h or "")[:8]
+
+
+def backend_deployment_text(backend):
+    if not backend.get("verified"):
+        return "%s; not verified by the package" % (backend.get("source") or "undeclared")
+    if backend.get("source") == "cloud-verified-source-equivalent":
+        return ("source-equivalent deployment: deployed %s; equivalent to tested %s; functions tree %s; "
+                "verified %s (%s)" % (backend.get("sha"), backend.get("sourceEquivalentToSha"),
+                                       backend.get("functionsTreeSha"), backend.get("verifiedAtUtc"),
+                                       backend.get("evidenceRef")))
+    return "cloud-verified exact deployment %s (%s)" % (backend["verifiedAtUtc"], backend["evidenceRef"])
 
 
 def ev_text(evs, n=3):
@@ -98,6 +110,13 @@ def build(a):
     wf, req, ld, rv, rc, gates, spend, proof = (load(getattr(a, k)) for k in ("workflow", "request", "ledger_derived", "release_verification", "reconciliation", "gates", "spend", "offline_proof"))
     cmp_prior = load(a.comparison)
     cmp_latest = load(a.latest_comparison) if a.latest_comparison else None
+    prior_errors = comparison_errors(cmp_prior, a.labels)
+    if prior_errors:
+        raise ValueError("comparison evidence is incomplete: " + "; ".join(prior_errors))
+    if cmp_latest:
+        latest_errors = comparison_errors(cmp_latest, [cmp_latest.get("previous", {}).get("label"), cmp_latest.get("current", {}).get("label")])
+        if latest_errors:
+            raise ValueError("latest comparison evidence is incomplete: " + "; ".join(latest_errors))
     cov = load(a.coverage) if a.coverage else None
     bud = load(a.budget) if a.budget else None
     alerts = load(a.alerts) if a.alerts else None
@@ -146,6 +165,8 @@ def build(a):
               "deviations": req.get("deviations", []), "denominators": cmp_prior["denominators"], "comparisonValidity": cmp_prior["validity"], "priorPairHeadline": cmp_prior["headline"],
               "latestPending": cmp_latest is None, "coverage": cov, "fullCoverageBudget": bud, "alerts": alerts, "isolation": iso, "features": feats, "concerns": concerns, "coverageMode": req.get("coverageMode"), "runRecord": (rr and {"gateDecisionAtLaunch": rr.get("gateDecisionAtLaunch"), "result": rr.get("result"), "cases": rr.get("cases")}) or None,
               "ownerInputs": req.get("ownerInputs"), "approvals": {"limits": req.get("approvedLimits"), "window": req.get("window"), "harnessApproval": req["harness"].get("ownerApprovalRef"), "selection": req.get("selectionApprovalRef")}}
+    if ld.get("evidenceBasis"):  # the receipt-free ledger (accepted route): its provenance reaches the rendering; receipt mode adds nothing
+        report["evidenceMode"] = {"mode": "receipt-free", "basis": ld["evidenceBasis"]}
     return report, wf
 
 
@@ -230,6 +251,22 @@ def fmt_unknown(c, usd_label="USD"):
     if c["status"] == "unknown":
         return "<b>unknown</b> <span class='small muted'>%s</span>" % esc(c["note"])
     return "<b>%s %s</b> <span class='small muted'>source: %s, as of %s</span>" % (esc(c["usd"]), usd_label, esc(c["source"]), esc(c["asOfUtc"]))
+
+
+def render_nightly_history(rep):
+    nh = rep.get("nightlyHistory")
+    if not nh:
+        return ""
+    chip = "regressed" if nh["carriedFailRows"] else "improved"
+    o = ["<section id='nightly-history'><h2>Nightly carried-forward history</h2><p><span class='pill %s'>%d comparable row(s) still FAIL</span> "
+         "&nbsp;%d of %d rows comparable across %d retained nightly occurrence(s) (sequence %s)</p>" % (
+             chip, nh["carriedFailRows"], nh["comparableRows"], nh["rowsTotal"], nh["occurrences"], esc(str(nh["sequence"])))]
+    if nh["carriedFailCases"]:
+        o.append("<p>Cases carrying a comparable FAIL: %s</p>" % esc(", ".join(nh["carriedFailCases"])))
+    if nh["journeysWithoutLastKnownGood"]:
+        o.append("<p>Journeys with no last-known-good: %s</p>" % esc(", ".join(nh["journeysWithoutLastKnownGood"])))
+    o.append("</section>")
+    return "".join(o)
 
 
 def render_coverage(rep):
@@ -352,13 +389,17 @@ def render(rep, wf):
     A = h.append
     A("<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Cloud test report</title><style>%s%s</style></head><body><div class='wrap'>" % (R.CSS, EXTRA_CSS))
     A("<h1>SpeakSharp cloud test report</h1>")
-    A("<p class='sub'>Run <code>%s</code>%s · workflow version <code>%s</code> · config <code>%s</code> · generated %s · every value below is derived from sealed receipts, git and the run record</p>" % (esc(rep["runId"]), " · <b>PROPOSAL: not approved, no run has happened</b>" if rep["proposal"] else "", esc(rep["workflowVersion"]), esc(rep["configVersion"]), esc(rep["generatedUtc"])))
+    receipt_free = (rep.get("evidenceMode") or {}).get("mode") == "receipt-free"
+    source = ("historical verdicts from the verified accepted comparison (the raw receipts are not carried, so receipt evidence is unobservable), git and the run record"
+              if receipt_free else "sealed receipts, git and the run record")
+    A("<p class='sub'>Run <code>%s</code>%s · workflow version <code>%s</code> · config <code>%s</code> · generated %s · every value below is derived from %s</p>" % (esc(rep["runId"]), " · <b>PROPOSAL: not approved, no run has happened</b>" if rep["proposal"] else "", esc(rep["workflowVersion"]), esc(rep["configVersion"]), esc(rep["generatedUtc"]), source))
     A("<nav class='toc'>" + "".join("<a href='#%s'>%s</a>" % (i, esc(t)) for i, t in (("summary", "Summary"), ("purpose", "Purpose and cost"), ("areas", "Product areas"), ("journeys", "Journeys"), ("gaps", "Gap closure"), ("release", "Release verification"), ("gates", "Gates and blockers"), ("plan", "Plan and identities"), ("proof", "Offline proof"), ("dev", "Deviations"), ("appendix", "Appendix"), ("evidence", "Evidence"))) + "</nav>")
     A("<section class='lead' id='summary'><p class='kicker'>Executive summary (%d of %d words)</p><p class='headline'><span class='pill %s'>%s</span> &nbsp;Recommendation: %s</p>" % (ex["words"], wf["report"]["executiveSummaryMaxWords"], chip, esc(rep["status"]), esc(f["recommendation"])))
     for k, v in ex["parts"][1:]:
         A("<p><b>%s.</b> %s</p>" % (esc(k), esc(v if v.endswith((".", "!", "?")) else v + ".")))
     A("</section>")
     h.append(render_coverage(rep))
+    h.append(render_nightly_history(rep))
     h.append(render_alerts(rep))
     h.append(render_safety(rep))
     h.append(render_concerns(rep))
@@ -415,11 +456,13 @@ def render(rep, wf):
     for j in rep["journeys"]:
         cls = j["latestClass"] or j["priorPairClass"]
         rows.append(["<b>%s</b> %s" % (esc(j["id"]), esc(j["title"] or "")), verdict_cell(j["r2"]), verdict_cell(j["r1"]), verdict_cell(j["latest"]) if j["latest"] else "<span class='muted'>PENDING</span>",
-                     "%s <span class='small'>%s</span>" % (R.pill(cls), esc(R.plain(j["why"] or "", 260))), "<span class='small'>sealed receipts: %s, %s</span>" % (esc(L2), esc(L1))])
+                     "%s <span class='small'>%s</span>" % (R.pill(cls), esc(R.plain(j["why"] or "", 260))), "<span class='small'>%s: %s, %s</span>" % ("accepted comparison (receipts unobservable)" if receipt_free else "sealed receipts", esc(L2), esc(L1))])
     A(table(["Journey", L2, L1, lat, "Change classification", "Evidence"], rows, "journeys"))
     A("</section>")
     # gaps (all derived)
-    A("<section id='gaps'><h2>Gap-closure ledger</h2><p class='small muted'>Every cell is derived: prior verdicts and evidence from the sealed receipts (file and sha256), deployed inclusion from git and the identity ledgers, latest from the latest run, status from the rules. A gap stays OPEN until deployed inclusion and its expected-PASS test both have proof; FAIL to NOT RUN, or a changed observer, never counts as a fix.</p>")
+    A("<section id='gaps'><h2>Gap-closure ledger</h2><p class='small muted'>Every cell is derived: prior verdicts and evidence from %s, deployed inclusion from git and the identity ledgers, latest from the latest run, status from the rules. A gap stays OPEN until deployed inclusion and its expected-PASS test both have proof; FAIL to NOT RUN, or a changed observer, never counts as a fix.</p>" % (
+        "the verified accepted comparison (verdicts only: no receipt is carried, so evidence and guard-log signals are UNOBSERVABLE and nothing can close)"
+        if receipt_free else "the sealed receipts (file and sha256)"))
     rows = []
     for g in rep["gapLedger"]:
         pf, fx, ep, lt = g["priorFail"], g["fix"], g["expectedPass"], g["latest"]
@@ -449,7 +492,7 @@ def render(rep, wf):
     A("<dl class='kv'><dt>Tested SHA</dt><dd><code>%s</code> (last run tested <code>%s</code>)</dd><dt>Frontend deployment</dt><dd>%s</dd><dt>Backend deployment</dt><dd>%s</dd></dl>" % (
         esc(rv["testedSha"]), esc(rv["lastRunTestedSha"][:8]),
         esc(("verified from sealed receipts: " + fe["evidence"] + (", %.1f hours old, %s" % (fe["ageHours"], "fresh" if fe["fresh"] else "STALE"))) if fe.get("servedSha") else "not verified"),
-        esc("cloud-verified %s (%s)" % (be["verifiedAtUtc"], be["evidenceRef"]) if be["verified"] else "%s; not verified by the package" % (be.get("source") or "undeclared"))))
+        esc(backend_deployment_text(be))))
     sl = rv.get("sinceLastRun")
     A("<h3>Changes since the last run: %s</h3>" % ("cannot be verified (git history missing)" if sl is None else ("none" if not sl else "%d commit(s)" % len(sl))))
     if sl:
@@ -506,6 +549,9 @@ def main():
     if os.path.exists(a.out):
         sys.exit("output directory must not exist")
     rep, wf = build(a)
+    nh = (load(a.summary).get("fields") or {}).get("nightlyHistory")
+    if nh:
+        rep["nightlyHistory"] = nh  # the derived carried-forward history (summary input), rendered as its own section
     errs = validate(rep, wf)
     os.makedirs(os.path.join(a.out, "inputs"))
     for k in ("request", "ledger_derived", "release_verification", "reconciliation", "gates", "spend", "offline_proof", "workflow", "comparison", "latest_comparison", "summary", "run_record", "coverage", "budget", "alerts", "isolation", "features", "concerns"):

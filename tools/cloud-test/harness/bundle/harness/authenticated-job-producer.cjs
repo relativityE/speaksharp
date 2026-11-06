@@ -6,8 +6,14 @@ const {spawn}=require('node:child_process');
 const p=require('./existing-runner-projection.cjs');
 const SHA=/^[a-f0-9]{40}$/,UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const ROLES=Object.freeze({'AHT-01':['coaching-authority'],'AHT-02':['coaching-authority'],'AHT-03':['coaching-authority'],'AHT-07':['coaching-authority','feedback-association','feedback-received'],'AHT-08':['feedback-association','feedback-received']});
+const POSTHOG_API_ORIGINS=new Set(['https://us.posthog.com','https://eu.posthog.com']);
 const fail=code=>{throw Object.assign(new Error('NOT_RUN: '+code),{code});};
 const producerSha=()=>p.sha(fs.readFileSync(__filename));
+function capabilityBinding(scope,job){
+ const receiverSourceSha256=p.sha(fs.readFileSync(path.resolve(__dirname,'../../draft-adapters/receivers/github-job-evidence-reader.cjs')));
+ if(typeof scope.producerReviewReference!=='string'||!scope.producerReviewReference.trim())fail('INDEPENDENT_PRODUCER_REVIEW_REQUIRED');
+ return {campaignId:scope.campaignId,ownerAccountId:scope.ownerAccountId,sourceSha:scope.sourceSha,servedSha:scope.servedSha,notBefore:scope.notBefore,deadlineAt:scope.deadlineAt,maxDeliveries:scope.maxDeliveries,maxSupabaseRequests:scope.maxSupabaseRequests,maxTelemetryReads:scope.maxTelemetryReads,caseRoles:[...scope.caseIds].sort().map(caseId=>({caseId,roles:ROLES[caseId]})),producerIdentity:job.identity,producerCodeSha256:producerSha(),receiverSourceSha256,reviewReference:scope.producerReviewReference};
+}
 function descriptor(reviewReference,env=process.env){
  const job=jobIdentity(env),relative='draft-adapters/receivers/github-job-evidence-reader.cjs';
  if(typeof reviewReference!=='string'||!reviewReference.trim())fail('INDEPENDENT_PRODUCER_REVIEW_REQUIRED');
@@ -26,13 +32,31 @@ function validateScope(s,now){
  if(!Number.isFinite(start)||!Number.isFinite(end)||start>now||now>=end||end-start>21600000||!Number.isSafeInteger(s.maxDeliveries)||s.maxDeliveries<1||s.maxDeliveries>128||!Number.isSafeInteger(s.maxSupabaseRequests)||s.maxSupabaseRequests<1||s.maxSupabaseRequests>256||!Number.isSafeInteger(s.maxTelemetryReads)||s.maxTelemetryReads<0||s.maxTelemetryReads>16)fail('PRODUCER_WINDOW_OR_BUDGET_INVALID');
  return structuredClone(s);
 }
-function readTelemetry(request,{env,checkout,signal}){
- // Reuse the governed reader. Do not reinterpret a missing/failed receipt as QUALIFIED.
+function posthogApiOrigin(raw){
+ let u;try{u=new URL(raw||'https://us.posthog.com');}catch{fail('TELEMETRY_API_ORIGIN_REFUSED');}
+ if(!POSTHOG_API_ORIGINS.has(u.origin)||u.href!==u.origin+'/'||u.username||u.password)fail('TELEMETRY_API_ORIGIN_REFUSED');
+ return u.origin;
+}
+function controlTelemetryReader(){
+ // This producer is privileged control-plane code. It must never execute the reader from the tested-release checkout: that release can be
+ // older than the reviewed control tree (and, specifically, can predate redirect refusal). The packet is vendored at this exact repo path.
+ const repo=fs.realpathSync(path.resolve(__dirname,'../../../../..')),file=path.join(repo,'scripts/telemetry-readback-qualification.mts');
+ const runner=fs.realpathSync(path.join(repo,'tools/cloud-test/runner'));
+ let loader;try{loader=require.resolve('tsx',{paths:[runner]});}catch{fail('CONTROL_TELEMETRY_LOADER_UNAVAILABLE');}
+ const st=fs.lstatSync(file),lst=fs.lstatSync(loader),realLoader=fs.realpathSync(loader),tsxRoot=fs.realpathSync(path.join(runner,'node_modules/tsx'))+path.sep;
+ if(!st.isFile()||st.isSymbolicLink()||fs.realpathSync(file)!==file)fail('CONTROL_TELEMETRY_READER_UNAVAILABLE');
+ if(!lst.isFile()||lst.isSymbolicLink()||realLoader!==loader||!realLoader.startsWith(tsxRoot))fail('CONTROL_TELEMETRY_LOADER_UNAVAILABLE');
+ return {repo,file,loader};
+}
+function readTelemetry(request,{env,signal}){
+ // Reuse the governed CONTROL-TREE reader. Do not reinterpret a missing/failed receipt as QUALIFIED.
  if(!env.POSTHOG_PROJECT_ID||!env.POSTHOG_PERSONAL_API_KEY)fail('TELEMETRY_CAPABILITY_UNAVAILABLE');
- const childEnv={};for(const k of ['PATH','HOME','POSTHOG_PROJECT_ID','POSTHOG_PERSONAL_API_KEY','POSTHOG_API_HOST'])if(env[k]!==undefined)childEnv[k]=env[k];
+ const control=controlTelemetryReader();
+ const childEnv={};for(const k of ['PATH','HOME','POSTHOG_PROJECT_ID','POSTHOG_PERSONAL_API_KEY'])if(env[k]!==undefined)childEnv[k]=env[k];
+ childEnv.POSTHOG_API_HOST=posthogApiOrigin(env.POSTHOG_API_HOST);
  childEnv.QUALIFICATION_STAGES='share_feedback';
  return new Promise((resolve,reject)=>{
-  const child=spawn(process.execPath,['--import','tsx',path.join(checkout,'scripts/telemetry-readback-qualification.mts'),'--release-sha',request.sourceSha,'--journey-id',request.journeyId,'--traffic-type',request.trafficType,'--query-timeout-ms','30000'],{cwd:checkout,env:childEnv,stdio:['ignore','pipe','pipe'],signal});
+  const child=spawn(process.execPath,['--import',control.loader,control.file,'--release-sha',request.sourceSha,'--journey-id',request.journeyId,'--traffic-type',request.trafficType,'--query-timeout-ms','30000'],{cwd:control.repo,env:childEnv,stdio:['ignore','pipe','pipe'],signal});
   let output='',size=0,overflow=false;
   const timer=setTimeout(()=>child.kill('SIGKILL'),40000);timer.unref();
   child.stdout.on('data',b=>{size+=b.length;if(size>1048576){overflow=true;child.kill('SIGKILL');}else output+=b.toString('utf8');});
@@ -47,8 +71,8 @@ function readTelemetry(request,{env,checkout,signal}){
   });
  });
 }
-function createProducer({scope,env=process.env,fetchImpl=globalThis.fetch,telemetryReader=readTelemetry,checkout=process.cwd(),now=Date.now}={}){
- const job=jobIdentity(env),s=validateScope(scope,now()),codeSha=producerSha(),seen=new Set();let deliveries=0,supabaseRequests=0,telemetryReads=0;
+function createProducer({scope,env=process.env,fetchImpl=globalThis.fetch,telemetryReader=readTelemetry,now=Date.now}={}){
+ const job=jobIdentity(env),s=validateScope(scope,now()),codeSha=producerSha(),seen=new Set(),probeNonces=new Set();let deliveries=0,supabaseRequests=0,telemetryReads=0,capabilityProbes=0;
  let base;try{base=new URL(env.SUPABASE_URL);}catch{fail('AUTHENTICATED_READ_CAPABILITY_UNAVAILABLE');}
  if(base.href!=='https://yxlapjuovrsvjswkwnrk.supabase.co/'||!env.SUPABASE_SERVICE_ROLE_KEY)fail('AUTHENTICATED_READ_CAPABILITY_UNAVAILABLE');
  async function json(route,{method='GET',body,signal}={}){
@@ -59,7 +83,18 @@ function createProducer({scope,env=process.env,fetchImpl=globalThis.fetch,teleme
   for await(const part of response.body){bytes+=part.length;if(bytes>2097152)fail('AUTHENTICATED_READ_TOO_LARGE');parts.push(part);}
   try{return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{fail('AUTHENTICATED_READ_INVALID');}
  }
- return {job,codeSha,stats:()=>({deliveries,supabaseRequests,telemetryReads}),async receive({request,requestSha256,signal}){
+ return {job,codeSha,stats:()=>({deliveries,supabaseRequests,telemetryReads,capabilityProbes}),probe(request){
+  const t=now();
+  if(t<Date.parse(s.notBefore)||t>=Date.parse(s.deadlineAt))fail('PRODUCER_WINDOW_EXPIRED');
+  if(!request||Object.keys(request).sort().join(',')!=='bindingSha256,kind,nonce,requestedAt'||request.kind!=='same-job-capability-probe'||!/^[a-f0-9]{32}$/.test(request.nonce||''))fail('PRODUCER_PROBE_INVALID');
+  if(!Number.isFinite(Date.parse(request.requestedAt))||Date.parse(request.requestedAt)>t||t-Date.parse(request.requestedAt)>5000)fail('PRODUCER_PROBE_STALE');
+  const bindingSha256=p.sha(JSON.stringify(capabilityBinding(s,job)));
+  if(request.bindingSha256!==bindingSha256)fail('PRODUCER_PROBE_BINDING_DIFFERS');
+  if(probeNonces.has(request.nonce)||capabilityProbes>=8)fail('PRODUCER_PROBE_REPLAY_OR_LIMIT');
+  probeNonces.add(request.nonce);capabilityProbes++;
+  if(s.caseIds.some(id=>ROLES[id].includes('feedback-received'))){if(!env.POSTHOG_PROJECT_ID||!env.POSTHOG_PERSONAL_API_KEY)fail('TELEMETRY_CAPABILITY_UNAVAILABLE');posthogApiOrigin(env.POSTHOG_API_HOST);}
+  return {kind:'same-job-capability-receipt',nonce:request.nonce,bindingSha256,configured:true,remoteReadProven:false,producedAt:new Date(t).toISOString()};
+ },async receive({request,requestSha256,signal}){
   const t=now();if(signal?.aborted)fail('PRODUCER_CANCELLED');
   if(t<Date.parse(s.notBefore)||t>=Date.parse(s.deadlineAt))fail('PRODUCER_WINDOW_EXPIRED');
   if(p.requestDigest(request)!==requestSha256||request.campaignId!==s.campaignId||request.ownerAccountId!==s.ownerAccountId||request.sourceSha!==s.sourceSha||request.servedSha!==s.servedSha||!s.caseIds.includes(request.caseId)||!ROLES[request.caseId]?.includes(request.artifactRole)||request.producerIdentity!==job.identity||request.producerCodeSha256!==codeSha)fail('PRODUCER_REQUEST_SCOPE_DIFFERS');
@@ -82,7 +117,7 @@ function createProducer({scope,env=process.env,fetchImpl=globalThis.fetch,teleme
     // A reader invocation is not one HTTP request. It performs the existing identity + family
     // SELECTs (two queries in this mode); report that distinction, never an invented HTTP count.
     if(++telemetryReads>s.maxTelemetryReads)fail('PRODUCER_TELEMETRY_BUDGET_EXHAUSTED');
-    content=p.projectFeedbackReceived(await telemetryReader(request,{env,checkout,signal:controller.signal}),request);
+    content=p.projectFeedbackReceived(await telemetryReader(request,{env,signal:controller.signal}),request);
    }
    if(controller.signal.aborted||now()>=Date.parse(s.deadlineAt))fail('PRODUCER_CANCELLED');
    const artifactBytes=Buffer.from(JSON.stringify(content)),finished=new Date(now()).toISOString();
@@ -101,9 +136,9 @@ async function startBroker({directory,producer}){
   socket.setTimeout(50000,()=>socket.destroy());socket.on('error',()=>{});
   socket.on('data',b=>{bytes+=b.length;if(bytes>16384)socket.destroy();else chunks.push(b);});
   socket.on('close',()=>{clients.delete(socket);controllers.delete(controller);controller.abort();});
-  socket.on('end',async()=>{try{const input=JSON.parse(Buffer.concat(chunks).toString('utf8'));const result=await producer.receive({...input,signal:controller.signal});socket.end(JSON.stringify({ok:true,artifactBase64:result.artifactBytes.toString('base64'),provenance:result.provenance}));}catch{socket.end(JSON.stringify({ok:false,code:'EVIDENCE_READ_UNAVAILABLE'}));}});
+  socket.on('end',async()=>{try{const input=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(input.kind==='same-job-capability-probe'){const probe=producer.probe(input);socket.end(JSON.stringify({ok:true,probe}));}else{const result=await producer.receive({...input,signal:controller.signal});socket.end(JSON.stringify({ok:true,artifactBase64:result.artifactBytes.toString('base64'),provenance:result.provenance}));}}catch{socket.end(JSON.stringify({ok:false,code:'EVIDENCE_READ_UNAVAILABLE'}));}});
  });
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(socketPath,()=>{fs.chmodSync(socketPath,0o600);resolve();});});
  return {socketPath,async close(){for(const c of controllers)c.abort();for(const c of clients)c.destroy();await new Promise((resolve,reject)=>server.close(e=>e?reject(e):resolve()));}};
 }
-module.exports={createProducer,startBroker,jobIdentity,assertJobReceipt,validateScope,producerSha,descriptor};
+module.exports={createProducer,startBroker,jobIdentity,assertJobReceipt,validateScope,posthogApiOrigin,controlTelemetryReader,producerSha,descriptor,capabilityBinding};

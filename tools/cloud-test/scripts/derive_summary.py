@@ -17,7 +17,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _common import load, dump, words  # noqa: E402
+from _common import load, dump, words, comparison_errors  # noqa: E402
 
 REASON_TEXT = {"stimulus-not-established": "stimulus not established", "media-binding-differs": "capture-device binding differed", "coverage-lost": "coverage lost",
                "omitted-by-design": "omitted by design", "allowance-interrupted": "stopped by the request allowance", "observer-changed": "observer changed",
@@ -150,9 +150,13 @@ def derive(cmp_prior, cmp_latest, ld, rv, gates, spend, wf, req, limit=None, cov
     if latest:
         readiness += "; safety: " + safety["text"]
     if pre:
-        status = "BLOCKED" if gates["decision"] != "GO" else "LIMITED"
+        held = gates["decision"] != "GO" or safety["blocks"]  # a known safety failure holds even when every gate is GO
+        status = "BLOCKED" if held else "LIMITED"
         impact = "No run result exists since %s; customers have the release %s tested, and no change since then is customer-facing." % (labels[1], labels[1]) if not (sl or []) else "No run result exists yet for the %d change(s) since the last run." % len(sl)
-        rec = "HOLD" if gates["decision"] != "GO" else "PROCEED"
+        rec = "HOLD" if held else "PROCEED"
+        if safety["blocks"]:
+            impact = "A safety check failed: %s." % safety["text"]
+            readiness += "; safety: " + safety["text"]
     else:
         status = "BLOCKED" if (failed or regressed or gates_open or safety["blocks"]) else ("READY" if ready else "LIMITED")
         impact = ("%d journey(s) FAIL or regressed in %s: %s." % (len(failed) + len(regressed), labels[1], ", ".join(cap(regressed + failed, 4))) if (failed or regressed)
@@ -185,7 +189,14 @@ def safety_state(latest, spend, alerts, isolation, req):
     """The safety verdict of the latest run. blocks: a failed safety check (isolation failed, usage over a cap, a critical alert, a blocking high alert, stale evidence).
     blocksReady: anything that stops READY, including isolation that is merely not proven and evidence whose freshness is unknown for a nightly run."""
     if not latest:
-        return {"isolation": None, "overCap": None, "alertsBlocking": [], "evidenceStale": None, "evidenceAgeHours": None, "blocks": False, "blocksReady": False, "text": "no latest run"}
+        # Sam 1793618201.181979: a KNOWN failure stays authoritative while latest is PENDING (failed isolation, usage over a cap); freshness
+        # and alerts belong to a latest run and stay unassessed. Without a known failure the result is exactly as before.
+        iso_failed = (isolation or {}).get("status") == "failed"
+        over = (spend or {}).get("withinCap") is False
+        known = (["isolation FAILED"] if iso_failed else []) + (["usage OVER A CAP"] if over else [])
+        return {"isolation": "failed" if iso_failed else None, "overCap": True if over else None, "alertsBlocking": [], "evidenceStale": None,
+                "evidenceAgeHours": None, "blocks": bool(known), "blocksReady": bool(known),
+                "text": "no latest run" + ("; known failure: " + ", ".join(known) if known else "")}
     iso = (isolation or {}).get("status") or ("proven" if (isolation or {}).get("proven") else ("not-proven" if isolation is not None else "not-proven"))
     over = (spend or {}).get("withinCap") is False
     al = (alerts or {}).get("alerts") or []
@@ -209,6 +220,60 @@ def total_words(f):
     return sum(words(j(f[k])) + 2 for k in ("status", "customerImpact", "deployedSinceLastRun", "good", "bad", "unknown", "readiness", "spend", "blockers", "recommendation")) + len(f["provenGapsClosed"]) + 8
 
 
+def nightly_history(baselines):
+    """The carried-forward nightly history as the summary reports it (G7, Sam 1793576632.959179): how many retained occurrences, how many
+    rows are comparable with this run, which rows still carry a comparable FAIL from an earlier night, and which journeys have no
+    last-known-good. Derived only from select_baselines.py --history-state output."""
+    if not baselines or baselines.get("source") != "carried-forward-history":
+        return None
+    rows = baselines.get("rows") or {}
+    carried = sorted(k for k, r in rows.items() if r.get("comparable") and r.get("baselineVerdict") == "FAIL")
+    return {"occurrences": len(baselines.get("occurrences") or []), "sequence": baselines.get("sequence"),
+            "comparableRows": sum(1 for r in rows.values() if r.get("comparable")), "rowsTotal": len(rows),
+            "carriedFailRows": len(carried), "carriedFailCases": sorted({k.split("/")[0] for k in carried}),
+            "journeysWithoutLastKnownGood": sorted(c for c, j in (baselines.get("journeys") or {}).items()
+                                                   if j.get("previousVerdict") is not None and j.get("lastKnownGood") is None)}
+
+
+def nightly_headline(f, nh, gates, limit=None):
+    """With qualified retained nightly evidence (RETURN 1793577431.476549), the headline is derived from it, never from the fixed R4C/R5
+    bootstrap comparison, which is kept only as a labelled historical field. A comparable row still FAILing in the latest retained evidence
+    makes the headline BLOCKED / FIX AND RETEST (a retest stays possible); otherwise the gate decision decides."""
+    if not nh or not nh.get("occurrences"):
+        return f
+    f = dict(f)
+    f["bootstrapHistorical"] = {k: f[k] for k in ("customerImpact", "deployedSinceLastRun", "good", "bad", "readiness")}
+    f["comparisonBasis"] = "nightly carried-forward history (%d qualified occurrence(s), sequence %s); the R4C/R5 bootstrap comparison is historical only" % (
+        nh["occurrences"], nh["sequence"])
+    f["deployedSinceLastRun"] = "the latest retained nightly evidence is the comparison basis; the bootstrap releases are historical"
+    if nh["carriedFailRows"]:
+        cases = ", ".join(cap(nh["carriedFailCases"], 4))
+        f["customerImpact"] = "%d comparable row(s) still FAIL in the latest retained nightly evidence: %s." % (nh["carriedFailRows"], cases)
+        f["bad"] = ["carried nightly FAIL: %s" % cases]
+        f["good"] = ["%d of %d rows comparable" % (nh["comparableRows"], nh["rowsTotal"])]
+        f["readiness"] = "Not ready: the retained nightly evidence carries a FAIL in %s." % cases
+        f["status"], f["recommendation"] = "BLOCKED", "FIX AND RETEST"
+    else:
+        # RETURN 1793578066.007679: carried history can only LOWER the headline. Without a carried FAIL, the status, readiness and
+        # recommendation derived from the fresh-full-run and safety conditions stand (never promoted to READY/PROCEED by history, never a
+        # safety HOLD overridden); only a FIX AND RETEST that rested on the historical bootstrap failures becomes HOLD.
+        f["customerImpact"] = "No comparable row carries a FAIL in the latest retained nightly evidence (%d of %d rows comparable)." % (
+            nh["comparableRows"], nh["rowsTotal"])
+        f["bad"] = ["none in the retained nightly evidence"]
+        f["good"] = ["%d of %d rows comparable, none carrying a FAIL" % (nh["comparableRows"], nh["rowsTotal"])]
+        if f["recommendation"] == "FIX AND RETEST":
+            f["recommendation"] = "HOLD"
+    if limit:
+        for n in (3, 2, 1):
+            f2 = dict(f)
+            for k in ("good", "bad", "unknown", "blockers"):
+                f2[k] = cap(f[k], n)
+            if total_words(f2) <= limit:
+                return f2
+        return f2
+    return f
+
+
 def main():
     a = argparse.ArgumentParser()
     for k in ("comparison", "ledger-derived", "release-verification", "gates", "spend", "workflow", "request", "out"):
@@ -217,10 +282,26 @@ def main():
     a.add_argument("--coverage")
     a.add_argument("--alerts")
     a.add_argument("--isolation")
+    a.add_argument("--nightly-baselines")
     x = a.parse_args()
     wf = load(x.workflow)
-    f = derive(load(x.comparison), load(x.latest_comparison) if x.latest_comparison else None, load(x.ledger_derived), load(x.release_verification), load(x.gates), load(x.spend), wf, load(x.request), wf["report"]["executiveSummaryMaxWords"] - 70, load(x.coverage) if x.coverage else None,
+    req = load(x.request)
+    comparison = load(x.comparison)
+    labels = [p.get("label") for p in req.get("priorRuns") or []]
+    errors = comparison_errors(comparison, labels)
+    if errors:
+        raise SystemExit("comparison evidence is incomplete: " + "; ".join(errors))
+    latest = load(x.latest_comparison) if x.latest_comparison else None
+    if latest:
+        latest_errors = comparison_errors(latest, [latest.get("previous", {}).get("label"), latest.get("current", {}).get("label")])
+        if latest_errors:
+            raise SystemExit("latest comparison evidence is incomplete: " + "; ".join(latest_errors))
+    f = derive(comparison, latest, load(x.ledger_derived), load(x.release_verification), load(x.gates), load(x.spend), wf, req, wf["report"]["executiveSummaryMaxWords"] - 70, load(x.coverage) if x.coverage else None,
                 load(x.alerts) if x.alerts else None, load(x.isolation) if x.isolation else None)
+    nh = nightly_history(load(x.nightly_baselines)) if x.nightly_baselines else None
+    if nh is not None:
+        f = nightly_headline(f, nh, load(x.gates), wf["report"]["executiveSummaryMaxWords"] - 70)
+        f["nightlyHistory"] = nh
     dump({"schema": "speaksharp.cloud-test.summary.v2", "derived": True, "fields": f}, x.out)
     print("summary derived:", f["status"], f["recommendation"])
 

@@ -1,0 +1,85 @@
+{
+  "schema": "speaksharp.cloud-test.accounting-bootstrap.v1",
+  "asOfUtc": "2026-11-02T20:12:15Z",
+  "sourceRecords": [
+    "sha256:0ab9bad6340683dacc5dc79aee21a713d0acf0b2c2a1025d14dca3222beda3eb",
+    "sha256:31b915e4f9044bbfa5b657a11de513aac6ba3dc02d066c5c406c67054b31c55e",
+    "sha256:7319c26777cba765a09958d4775a75538e7a4ccbf804fbcebed227469f4afab6",
+    "sha256:7d774f741d05cea10c60cdac9144bebbf7713a142b936edb321a0fb2c039bc3f",
+    "sha256:9be7a3a36bd484d3a89d448c8b2784923e018f647c7a148bbdd19d51ae973361",
+    "sha256:bfc7edad7971e6c56d0ba75fc75c68dc0bf325a440656055ece2c1052328a8b2",
+    "sha256:c881b514a73cd3ae4ed298ff8a7bf166f572164e3ae3495a1b3d8fdb7bad37ca",
+    "git:187e0ccbdf96def6eeaba2708ad2d28f2fe552ef",
+    "git:d6e0f12f151773dd772cfc77e082bab3d771f7ab",
+    "git:598439511c1d2cdd97147d3dbd6d7f723b13eb05"
+  ],
+  "usage": {
+    "requests": 5529,
+    "identityReads": 94,
+    "starts": 46,
+    "takes": 24,
+    "coachingRequests": null,
+    "runnerMinutes": null
+  },
+  "authority": {
+    "approvalRef": "sha256:0ab9bad6340683dacc5dc79aee21a713d0acf0b2c2a1025d14dca3222beda3eb",
+    "expired": true
+  },
+  "unresolved": [
+    {
+      "kind": "diagnostic",
+      "ref": "sha256:9be7a3a36bd484d3a89d448c8b2784923e018f647c7a148bbdd19d51ae973361",
+      "disposition": "MEASURED",
+      "usage": {
+        "requests": 2422,
+        "identityReads": 26,
+        "starts": 18,
+        "takes": 14,
+        "coachingRequests": 8,
+        "runnerMinutes": null
+      }
+    },
+    {
+      "kind": "diagnostic",
+      "ref": "gha-run:41071743003",
+      "disposition": "UNRESOLVED",
+      "usage": null
+    },
+    {
+      "kind": "diagnostic",
+      "ref": "gha-run:41115876890",
+      "disposition": "UNRESOLVED",
+      "usage": null
+    },
+    {
+      "kind": "diagnostic",
+      "ref": "gha-run:41134025368",
+      "disposition": "UNRESOLVED",
+      "usage": null
+    },
+    {
+      "kind": "diagnostic",
+      "ref": "gha-run:41231659142",
+      "disposition": "UNRESOLVED",
+      "usage": null
+    },
+    {
+      "kind": "diagnostic",
+      "ref": "gha-run:41322870182",
+      "disposition": "UNRESOLVED",
+      "usage": null
+    },
+    {
+      "kind": "diagnostic",
+      "ref": "gha-run:41325698722",
+      "disposition": "UNRESOLVED",
+      "usage": null
+    },
+    {
+      "kind": "evaluator-start",
+      "ref": "git:187e0ccbdf96def6eeaba2708ad2d28f2fe552ef",
+      "disposition": "UNRESOLVED",
+      "usage": null
+    }
+  ]
+}

@@ -6,6 +6,8 @@ results from the sealed latest run, rows from the assertion catalog. Per feature
   COVERAGE-PENDING      its test coverage is not in the assertion catalog yet (new rows for a later catalog version): the release check refuses it until they exist
   DEPLOYED-AWAITING-TEST  reviewed, covered and deployed, no latest run yet
   VERIFIED              every covered row PASSed in the latest run (executed, with evidence)
+  REGRESSION-VERIFIED_DIAGNOSTIC-UNVERIFIED
+                        normal-journey regression rows PASSed, but the declared diagnostic itself was not independently observed
   FAILING               a covered row FAILed (a regression of the feature's expected behaviour)
   UNCOVERED             a covered row was NOT RUN or is absent from the latest run, so the feature was not shown to work
 Usage: derive_features.py --features F.json --catalog CAT.json --release-verification RV.json --config C.json [--receipts-root DIR] [--latest-label L] --out features-derived.json"""
@@ -29,10 +31,12 @@ def derive(feats, catalog, rv, receipts_root, latest):
     for f in feats.get("features", []):
         r = (rv.get("features") or {}).get(f["id"]) or {}
         rows = [(q["case"], a) for q in (f.get("coverage") or {}).get("requirements", []) for a in q.get("assertions", [])]
+        coverage = f.get("coverage") or {}
         d = {"id": f["id"], "title": f.get("title"), "area": f.get("area"), "pr": r.get("pr") or f.get("pr"), "commit": r.get("commit"), "inclusion": r.get("inclusion", "unknown"),
              "expectedBehaviour": (f.get("expectedBehaviour") or {}).get("summary"), "criteria": (f.get("expectedBehaviour") or {}).get("criteria"),
              "confirmedByOwner": bool((f.get("expectedBehaviour") or {}).get("confirmedByOwner")), "review": {"by": (f.get("review") or {}).get("reviewedBy"), "ref": (f.get("review") or {}).get("reviewRef")},
-             "coverageRows": ["%s/%s" % r_ for r_ in rows], "problems": r.get("problems", []), "evidence": [], "rowResults": {}}
+             "coverageRows": ["%s/%s" % r_ for r_ in rows], "verificationScope": coverage.get("verificationScope", "journey-behaviour"),
+             "diagnosticLimit": coverage.get("diagnosticLimit"), "problems": r.get("problems", []), "evidence": [], "rowResults": {}}
         pend = [x for x in ((f.get("coverage") or {}).get("newRows") or []) if (x.get("case"), x.get("assertion")) not in known]
         if r.get("inclusion") != "cloud-verified":
             st, why = "NOT-IN-RELEASE", "deployment is %s" % r.get("inclusion", "unknown")
@@ -54,6 +58,8 @@ def derive(feats, catalog, rv, receipts_root, latest):
             d["rowResults"] = verdicts
             if any(v == "FAIL" for v in verdicts.values()):
                 st, why = "FAILING", "failed: %s" % ", ".join(k for k, v in verdicts.items() if v == "FAIL")
+            elif all(v == "PASS" for v in verdicts.values()) and d["verificationScope"] == "source-controls-plus-normal-journey-regression":
+                st, why = "REGRESSION-VERIFIED_DIAGNOSTIC-UNVERIFIED", "normal-journey rows PASSed in %s; %s" % (latest, d["diagnosticLimit"])
             elif all(v == "PASS" for v in verdicts.values()):
                 st, why = "VERIFIED", "every covered row PASSed in %s" % latest
             else:

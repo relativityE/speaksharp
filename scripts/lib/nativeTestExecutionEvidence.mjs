@@ -32,6 +32,9 @@ export const NATIVE_HELPERS=Object.freeze([
   {file:'tests/live/helpers/fixtureAudioStream.ts',consumer:'tests/live/helpers/fixtureAudioStream.node.test.mjs',
     callables:['injectAlignedFixtureAudio','resetFixtureAudioToStart','getFixtureGetUserMediaCalls'],
     claim:'actual harness state-machine callables with fake browser objects in node:vm; browser/audio/model NOT RUN'},
+  // A change to the R10 preflight script alone must still run its test, including the spawned CLI entry (run 42059286564).
+  {file:'tools/cloud-test/scripts/prerequisite_preflight.cjs',consumer:'tools/cloud-test/tests/prerequisite-preflight.test.cjs',
+    callables:['prepare','charge'],claim:'actual preflight callables and script entry with a synthetic fetch; hosted step, credentials and Supabase NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {
@@ -170,7 +173,7 @@ const coachingProfiles=Object.freeze([
   {id:'coaching-provider-adapter-1773',files:{...coachingClosure,
     'backend/supabase/functions/get-ai-suggestions/index.ts':'6216addf51bbf99e4c961f79b2ebbe9eba4d24bd4527a311c71c3fff747be877',
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
-    [coachingTest]:'b27cc9bf1b50d4d584528ec31a13270c90c3f9a12c97eec431e7ef1abc392150',
+    [coachingTest]:'3adb7f8da23d2a00ace89da534fe93c146e647e3c383dde374a0a565b1495882',
     'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2',
     'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
     'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
@@ -254,7 +257,12 @@ function proofGenerationSources(root) {
     const target=path.join(root,relative),stat=fs.lstatSync(target);
     if(stat.isSymbolicLink())fail('Aliased proof-generation source');
     if(stat.isDirectory())for(const name of fs.readdirSync(target).sort())add(`${relative}/${name}`);
-    else if(stat.isFile())entries.push({file:relative,sha256:hash(fs.readFileSync(target))});
+    // Python bytecode in its conventional cache directory is an execution by-product,
+    // not reviewed source. Every other file in that directory remains source-bound.
+    else if(stat.isFile()) {
+      if(/(?:^|\/)__pycache__\/[^/]+\.pyc$/.test(relative))return;
+      entries.push({file:relative,sha256:hash(fs.readFileSync(target))});
+    }
     else fail('Unsupported proof-generation source');
     if(entries.length>4096)fail('Proof-generation source inventory is unbounded');
   };
@@ -300,7 +308,7 @@ export function generatedProofCases(root,environment,{children=nativeChildTracke
   if(typeof pdf!=='string'||!path.isAbsolute(pdf)||fs.realpathSync(pdf)!==pdf)fail('NOT RUN: bound CT_EXISTING_PDFJS_DIR is required for proof generation');
   const parent=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'speaksharp-r15-expected-'))),out=path.join(parent,'generated');
   try {
-    const launcher=binary('python3'),{result:identity}=children.run([launcher,'-I','-c',
+    const launcher=binary('python3'),{result:identity}=children.run([launcher,'-I','-B','-c',
       'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.executable).resolve(); print(json.dumps({"path":str(p),"version":".".join(map(str,sys.version_info[:3])),"sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'],
     {encoding:'utf8',timeout:identityTimeoutMs,killSignal:'SIGKILL',detached:true,
       env:{PATH:path.dirname(launcher),LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
@@ -309,13 +317,13 @@ export function generatedProofCases(root,environment,{children=nativeChildTracke
       ||fs.realpathSync(runtime.path)!==runtime.path||hash(fs.readFileSync(runtime.path))!==runtime.sha256)
       fail('NOT RUN: bound Python 3.12 proof-generation runtime unavailable');
     const python=runtime.path,generator=regular(root,'tools/cloud-test/scripts/proof_prep_cases.py');
-    const command=[python,'-I',generator,'--out',out,'--packet',path.join(root,'tools/cloud-test/harness')];
+    const command=[python,'-I','-B',generator,'--out',out,'--packet',path.join(root,'tools/cloud-test/harness')];
     const {result}=children.run(command,{cwd:path.join(root,'tools/cloud-test'),encoding:'utf8',timeout:generatorTimeoutMs,
       killSignal:'SIGKILL',detached:true,
       env:{PATH:[path.dirname(python),'/usr/bin','/bin'].join(path.delimiter),HOME:parent,CT_EXISTING_PDFJS_DIR:pdf,
         LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true'}});
     if(result.status!==0||result.signal||result.error)fail('NOT RUN: independent r15 proof generation failed');
-    return {runtime,command:['<BOUND_PYTHON>','-I','tools/cloud-test/scripts/proof_prep_cases.py','--out','<OWNED_OUTPUT>',
+    return {runtime,command:['<BOUND_PYTHON>','-I','-B','tools/cloud-test/scripts/proof_prep_cases.py','--out','<OWNED_OUTPUT>',
       '--packet','tools/cloud-test/harness'],sources:proofGenerationSources(root),
       files:proofCasesInventory(out,'independently generated proof-cases').files};
   } finally {
