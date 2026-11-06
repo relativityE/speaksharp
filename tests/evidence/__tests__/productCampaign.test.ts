@@ -39,3 +39,18 @@ describe('configuration-only product campaign',()=>{
     }finally{rmSync(root,{recursive:true,force:true});vi.unstubAllGlobals();}
   });
 });
+
+describe('committed campaigns read through the real reader from this checkout', () => {
+  const repo = join(__dirname, '..', '..', '..');
+  it('the full three-model campaign is 18 takes', () => {
+    const r = readProductCampaign(repo, 'tests/evidence/fixtures/model-evaluator/product-campaign.json');
+    expect([r.takes, r.candidates.map(c => c.id)]).toEqual([18, ['v2:base.en', 'parakeet:tdt-v3:int8', 'granite:turboctc-q4f16']]);
+  });
+  it('the first paired milestone is incumbent then Parakeet on fixture-001 only: 4 takes, no Granite before the pair', () => {
+    const r = readProductCampaign(repo, 'tests/evidence/fixtures/model-evaluator/product-campaign.parakeet-fixture-001.json');
+    expect(r.takes).toBe(4);
+    expect(r.candidates.map(c => c.id)).toEqual(['v2:base.en', 'parakeet:tdt-v3:int8']);
+    expect(r.corpus.clips.map(c => c.id)).toEqual(['fixture-001']);
+    expect(r.corpus.trials).toBe(2);
+  });
+});

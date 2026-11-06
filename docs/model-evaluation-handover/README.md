@@ -179,12 +179,22 @@ pnpm exec tsx scripts/model-evaluator/run.mts --mode product-lifecycle
 pnpm exec tsx scripts/model-evaluator/model-package.mts stage-adoption /operator/package/package.json /private/product-report.json /private/staged-config.json
 ```
 
-Product mode delegates to the guarded runner and requires the following secure bindings;
-the command alone cannot run. Configure `EVAL_CAMPAIGN_FILE` from
-`tests/evidence/fixtures/model-evaluator/product-campaign.json`; derive IDs/identity from
-packages. Bind `EVAL_EXECUTION_APPROVAL_FILE`, `EVAL_BACKEND_CONTRACT_RECEIPT`,
-`EVAL_SOURCE_ROOT`, `EVAL_APP_URL`, `EVAL_API_ORIGIN`, `EVAL_PRIVATE_OUTPUT`,
-`EVAL_TEST_EMAIL` and `EVAL_TEST_PASSWORD` through the existing runner contract. Cached asset
+Product mode delegates to the guarded runner; the command alone cannot run. The authoritative
+launch command and binding list are in [EXECUTION.md](../../tests/model-dropin/EXECUTION.md)
+("Minimum secure binding"); the runner refuses each missing item by name. In short: Node exactly
+v22.12.0 (`.nvmrc`; any other version refuses), launched from the fixed coordinator directory named by
+`EVAL_COORDINATOR_ROOT` (it must equal the working directory), under
+`scripts/host-interlock.mjs hold benchmark`, with `EVAL_TEST_EMAIL`, `EVAL_TEST_PASSWORD`,
+`EVAL_SOURCE_ROOT`, `EVAL_RELEASE_SHA`, `EVAL_SOURCE_DELTA_SHA256`, `EVAL_SOURCE_UNTRACKED_SHA256`,
+`EVAL_PRIVATE_OUTPUT` (absolute, outside the source, not yet existing), `EVAL_ASSET_CACHE_RECEIPT`,
+`EVAL_APP_URL` (string-equal to the approval's app origin), `EVAL_API_ORIGIN`,
+`VITE_SUPABASE_ANON_KEY`, `EVAL_BACKEND_CONTRACT_RECEIPT` and `EVAL_EXECUTION_APPROVAL_FILE`;
+optional `EVAL_CAMPAIGN_FILE` and, for a resumed account, `EVAL_RESUME_RECEIPT`. Campaigns:
+`product-campaign.json` (three models, 18 takes) or the first paired milestone
+`product-campaign.parakeet-fixture-001.json` (incumbent then Parakeet on fixture-001, 4 takes, no
+Granite before the pair). The approval and backend-contract receipt are bound to the exact source
+head and the approval may expire at most 128 minutes after it is minted, so mint both for the final
+head immediately before the run. Cached asset
 inventory/receipt and any resume receipt need exact hashes and private paths per EXECUTION.md
 and launcher. Do not reuse an expired approval or invent compatible backend receipts.
 
