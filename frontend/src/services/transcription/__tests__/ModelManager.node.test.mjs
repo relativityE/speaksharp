@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 import { CANDIDATES } from '../candidateRegistry.ts';
+import { VERIFIED_MODEL_CACHE } from '../verifiedAssetFetch.ts';
 import { importIsolated } from '../../../../../scripts/lib/importIsolated.mjs';
 
 test('cache readiness uses the selected local model rather than the baseline', async () => {
@@ -15,6 +16,8 @@ test('cache readiness uses the selected local model rather than the baseline', a
   };
   const dependencies = {
     './candidateRegistry': { CANDIDATES },
+    // Readiness reads the union of the transformers cache and the cache the verified loaders write (12a67b79).
+    './verifiedAssetFetch': { VERIFIED_MODEL_CACHE },
     '@/lib/logger': { default: { info() {}, warn() {}, error() {}, debug() {} } },
     './sttConstants': { PRIV_STT_V4: {}, PRIV_STT_MODELS: {
       CANDIDATES: { 'whisper-base.en': { localId: 'whisper-base.en' } },
