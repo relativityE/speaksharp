@@ -129,7 +129,18 @@ else:
         run_env = dict(env, THROWAWAY_TEST_PASSWORD="rehearsal-synthetic-password-1", FREE_TEST_PASSWORD="rehearsal-synthetic-password-2",
                        SUPABASE_URL=origin, SUPABASE_SERVICE_ROLE_KEY="rehearsal-synthetic-service-role", POSTHOG_PERSONAL_API_KEY="phx_rehearsalsynthetic",
                        POSTHOG_PROJECT_ID="1", POSTHOG_API_HOST="https://us.posthog.com")
-        sh("17-run", ["bash", "tools/cloud-test/scripts/execute_run.sh", "run"], run_env, timeout=int(p["liveMinutes"]) * 60)
+        # Candidate fix under test: the guarded browser lane (root-owned browser copy, setpriv to uid 65534) needs root, as the harness was
+        # designed; on the ephemeral GitHub runner the job user has passwordless sudo. Ownership of the outputs returns to the job user after.
+        sh("17-run", ["sudo", "-E", "env", "PATH=" + os.environ["PATH"], "bash", "tools/cloud-test/scripts/execute_run.sh", "run"], run_env,
+           timeout=int(p["liveMinutes"]) * 60)
+        sh("17-chown-back", ["sudo", "chown", "-R", "%d:%d" % (os.getuid(), os.getgid()), OUT], dict(os.environ))
+        admdir = Path(OUT, "plan/run/admission")
+        for ev in sorted(admdir.glob("*.command.private.json")) if admdir.exists() else []:
+            try:
+                e = json.loads(ev.read_text())
+                record("17-evidence-" + ev.name.split(".command")[0], e.get("exitCode"), str(e.get("stdout", ""))[-1500:], str(e.get("stderr", ""))[-3000:])
+            except Exception as ex:  # noqa: BLE001
+                record("17-evidence-" + ev.name, "unreadable", err=str(ex))
         adm = Path(OUT, "plan/run/admission/admission-receipt.json")
         if adm.exists():
             a = json.loads(adm.read_text())
