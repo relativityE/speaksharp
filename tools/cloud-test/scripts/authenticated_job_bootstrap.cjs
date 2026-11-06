@@ -63,7 +63,10 @@ function main(argv){
   console.log(JSON.stringify(result));return 0;
  }catch(error){
   // A bounded code only (token characters, no path, value or identifier), so a refusal is diagnosable from the log (run 42142985744).
-  const code=typeof error?.message==='string'&&/^[A-Za-z0-9_-]{1,64}$/.test(error.message)?error.message:'UNCLASSIFIED';
+  // Known shapes: a bare code (resolver/bootstrap) or the producer's prefixed 'NOT_RUN: <CODE>' (Sam 1793930500.828849).
+  const message=typeof error?.message==='string'?error.message:'';
+  const prefixed=/^NOT_RUN: ([A-Za-z0-9_-]{1,64})$/.exec(message);
+  const code=prefixed?prefixed[1]:/^[A-Za-z0-9_-]{1,64}$/.test(message)?message:'UNCLASSIFIED';
   console.error('NOT_RUN: AUTHENTICATED_JOB_PREPARATION_REFUSED '+code);return 78;
  }
 }

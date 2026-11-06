@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -644,6 +645,53 @@ class ProducerScope(unittest.TestCase):
         with open(env_file, encoding="utf-8") as f:
             self.assertIn("BP_HOST_DB=abcdefghijklmnopqrst.supabase.co\n", f.read())
         self.assertEqual(self.bind(s)[0], "BOUND")
+
+    def through_execute_run(self, origin):
+        """Sam 1793930461.440399: the PRODUCTION path, not a direct call. The real execute_run.sh functions build(), ensure_account_bindings(),
+        plan_env_file() and run_stage() (env -i, then `. plan-env.txt`) run the real binding resolver, the real run_env.py and the real
+        bootstrap CLI, which invokes the real plan builder. Returns (returncode, stderr, plan-env text)."""
+        script = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
+        fns = "".join(re.search(r"(?ms)^%s\(\) \{.*?^\}\n" % n, script).group(0) for n in ("run_stage", "ensure_account_bindings", "plan_env_file", "build"))
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        out, inputs = os.path.join(d, "out"), os.path.join(d, "inputs")
+        os.mkdir(out, 0o700); os.mkdir(inputs, 0o700)
+        files = {}
+        for name, doc in (("request.json", self.req), ("facts.json", self.facts), ("scope.json", self.scope())):
+            files[name] = os.path.join(inputs, name); put(files[name], doc); os.chmod(files[name], 0o600)
+        bundle = os.path.join(inputs, "live-accounts.json")
+        with open(bundle, "wb") as f:                       # the workflow writes the bundle's canonical bytes (init_run_inputs prepare)
+            f.write(I.canonical_bundle_bytes(I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))))
+        os.chmod(bundle, 0o600)
+        put(os.path.join(out, "reconciliation.json"), reconciliation()); os.chmod(os.path.join(out, "reconciliation.json"), 0o600)
+        env = {"PATH": os.environ["PATH"], "HOME": d, "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
+               "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40, "VITE_SUPABASE_URL": origin,
+               "VITE_SUPABASE_ANON_KEY": "anon-synthetic", "CT_OUT": out, "CT_PRIVATE_INPUT_DIR": inputs, "CT_CHECKOUT": os.path.dirname(os.path.dirname(ROOT)),
+               "CT_FACTS_FILE": files["facts.json"], "CT_REQUEST": files["request.json"], "CT_REQUEST_SHA256": I._sha(files["request.json"]),
+               "CT_EVIDENCE_SCOPE_FILE": files["scope.json"], "CT_EVIDENCE_SCOPE_SHA256": I._sha(files["scope.json"]),
+               "CT_LIVE_ACCOUNTS_FILE": bundle, "CT_LIVE_ACCOUNTS_SHA256": I._sha(bundle)}
+        harness = ("set -euo pipefail\nROOT=%r\nREPO=%r\nCFG=%r\nREQ=%r\nROUTE=github-producer\nHP=%r\nOUT=%r\nSTAGE=build-plan\n"
+                   "ss_broker_service_role=''\nss_broker_telemetry_key=''\nPYENV=(\"PATH=$PATH\" \"HOME=$HOME\")\n"
+                   "blocked() { echo \"BLOCKED_SETUP: $*\" >&2; exit 78; }\n%s\nbuild \"$OUT/plan\"\n") % (
+            ROOT, os.path.dirname(os.path.dirname(ROOT)), os.path.join(ROOT, "config", "test-config.v1.json"), files["request.json"],
+            os.path.join(ROOT, "harness"), out, fns)
+        r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, env=env, timeout=120)
+        plan_env = os.path.join(out, "plan-env.txt")
+        return r.returncode, r.stderr, open(plan_env, encoding="utf-8").read() if os.path.exists(plan_env) else None
+
+    def test_the_production_path_carries_the_host_through_env_i_into_the_bootstrap_cli_and_reaches_the_builder(self):
+        rc, err, plan_env = self.through_execute_run("https://abcdefghijklmnopqrst.supabase.co")
+        self.assertIn("BP_HOST_DB=abcdefghijklmnopqrst.supabase.co\n", plan_env)
+        # Past every binding check, the bootstrap reached the real plan builder (which refuses these synthetic inputs): never the host refusal.
+        self.assertNotIn("PROJECT_HOST_REQUIRED", err)
+        self.assertNotIn("bundle-project-mismatch", err)
+        self.assertIn("NOT_RUN: AUTHENTICATED_JOB_PREPARATION_REFUSED PLAN_BUILD_REFUSED", err)
+
+    def test_the_production_path_refuses_an_empty_malformed_or_other_project_host_before_the_bootstrap(self):
+        for origin in ("", "not-a-url", "https://zzzzzzzzzzzzzzzzzzzz.supabase.co"):
+            rc, err, _ = self.through_execute_run(origin)
+            self.assertNotEqual(rc, 0, origin)
+            self.assertNotIn("AUTHENTICATED_JOB_PREPARATION_REFUSED", err, origin)   # stopped before the bootstrap ever ran
 
     def test_the_real_bootstrap_refuses_another_account_or_review_reference(self):
         self.assertNotEqual(self.bind(self.scope(), account=ACCOUNT_ID.replace("1", "2"))[0], "BOUND")
