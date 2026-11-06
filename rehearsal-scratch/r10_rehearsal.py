@@ -50,7 +50,8 @@ init.manual_reservation.execute("reserve", {"request": raw, "admittedSha256": rs
     "facts": b"{}", "atUtc": start}, writer, remote, root, RT + "/reh-reserve/j.json", RT + "/reh-reserve/r.json", init.continuity_pins(), remote, source_repo=WS)
 chain = state_ref_writer.validate_chain(writer, state_ref_writer.fetch_head(writer, remote, remote), root)
 
-bundle = json.loads(bundle_with(ACCOUNT_ID)); origin = "https://%s.supabase.co" % bundle["projectRef"]
+bundle = json.loads(bundle_with(ACCOUNT_ID)); bundle["projectRef"] = "yxlapjuovrsvjswkwnrk"  # the live project id (host stubbed locally)
+origin = "https://%s.supabase.co" % bundle["projectRef"]
 facts = {"accounts": {"existing-disposable": {"historyRef": "first-observation:existing-disposable@R10-3b040043-smoke15", "idSha256": "FIRST-DISCOVERY"},
     "maintained-read-only": {"historyRef": "first-observation:maintained-read-only@R10-3b040043-smoke15", "idSha256": "FIRST-DISCOVERY"}},
     "approvedBy": "Akin", "ownerApprovalReference": "slack:1793971360.559069", "producerReviewReference": "slack:1793822205.697629",
