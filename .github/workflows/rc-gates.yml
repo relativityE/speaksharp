@@ -341,8 +341,6 @@ jobs:
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
           PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-          # R10 role truth for the read-only account-classification diagnostic (a repository VARIABLE, not a secret).
-          THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}
           # #1492 — this step can run ANY live spec, including stripe-checkout-readiness, which now accepts
           # only the dedicated checkout pair. FREE/PRO stay for the other specs this path can select.
           CHECKOUT_TEST_EMAIL: ${{ vars.CHECKOUT_TEST_EMAIL }}
