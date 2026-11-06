@@ -53,6 +53,16 @@ PRODUCT_KEYS = ("requests", "identityReads", "starts", "takes", "coachingRequest
 PREFLIGHT_STEP = "Prove the selected accounts' bounded first-use prerequisites"
 PREFLIGHT_REQUESTS = 10
 ACCOUNTING = ("none", "preflight-bound", "capped")
+# Owner dispositions (PO, recorded slack:1793965143.063589): a named run whose accounting the owner decided, admitted ONLY when the run's actual
+# steps match the decided facts exactly; anything else stays at the rule's own classification. Never a pattern, never another run.
+STAGE_SETUP_STEP = "Stage runner (install-tools, plans, stimulus preflight, gates)"
+INIT_STEP = "Select the committed request and bind this run's inputs"
+OWNER_DISPOSITIONS = {
+    # R10 run 42142985744: the preflight passed (its fixed 10 requests), input binding ran, and the stage-runner setup refused in the
+    # bootstrap at 01:24:53Z before any network call (BP_HOST_DB unset; fixed in 0237db34). The case-runner step never ran.
+    "42142985744": {"accounting": "preflight-bound", "approvalRef": "slack:1793965143.063589", "failedStep": STAGE_SETUP_STEP,
+                    "ran": (PREFLIGHT_STEP, INIT_STEP, STAGE_SETUP_STEP)},
+}
 LIVE_JOB_PREFIX = "Selected live journeys"
 JOB_PREFIXES = (("record", "Record the attempt", "success"), ("gate", "Nightly gate", "skipped"),
                 ("reserve", "Reserve the run on the state-ref journal", "success"), ("live", LIVE_JOB_PREFIX, "failure"),
@@ -218,7 +228,13 @@ def _rules(doc):
         _need(step["number"] <= failed[0]["number"] and step["conclusion"] in ("success", "failure"), "unexecuted-credential-step-ran")
         ran.append(step_name)
     accounting = "none" if not ran else "preflight-bound" if ran == [PREFLIGHT_STEP] else "capped"
-    _need(doc["accounting"] == accounting, "unexecuted-accounting")
+    disposition = None
+    owner = OWNER_DISPOSITIONS.get(ident["runId"])
+    run_step = [s for s in steps if s["name"].startswith("Stage runner (run)")]
+    if (accounting == "capped" and owner is not None and doc["failedStep"] == owner["failedStep"] and sorted(ran) == sorted(owner["ran"])
+            and len(run_step) == 1 and run_step[0]["conclusion"] == "skipped"):
+        accounting, disposition = owner["accounting"], owner["approvalRef"]
+    _need(doc["accounting"] == accounting and doc["dispositionRef"] == disposition, "unexecuted-accounting")
     # the journal: freshly validated; its LAST event is this run's reserve (nothing after it settles or releases it)
     reserve = journal.get("reserve")
     _need(SHA40.match(str(journal.get("rootSha"))) and SHA40.match(str(journal.get("headSha"))) and isinstance(reserve, dict)
@@ -239,7 +255,7 @@ def _rules(doc):
 
 def _check_shape(doc):
     keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "consequentialSteps", "workflowSha256", "accounting",
-            "journal", "usage", "atUtc"}
+            "dispositionRef", "journal", "usage", "atUtc"}
     _need(isinstance(doc, dict) and set(doc) == keys and doc["schema"] == SCHEMA, "unexecuted-shape")
     ident = doc["identity"]
     _need(isinstance(ident, dict) and set(ident) == {"runId", "attempt", "headSha"} and isinstance(ident["runId"], str)
@@ -247,6 +263,8 @@ def _check_shape(doc):
           and SHA40.match(str(ident["headSha"])), "unexecuted-identity")
     _need(isinstance(doc["workflowSha256"], str) and SHA64.match(doc["workflowSha256"]), "unexecuted-shape")
     _need(doc["accounting"] in ACCOUNTING, "unexecuted-shape")
+    _need(doc["dispositionRef"] is None or (isinstance(doc["dispositionRef"], str) and re.fullmatch(r"slack:\d+\.\d+", doc["dispositionRef"])),
+          "unexecuted-shape")
     _need(isinstance(doc["failedStep"], str), "unexecuted-shape")
     run = doc["run"]
     _need(isinstance(run, dict) and set(run) == {"runId", "attempt", "headSha", "status", "conclusion", "startedAt", "updatedAt"}, "unexecuted-shape")
@@ -283,12 +301,17 @@ def open_reserve(chain):
     return last if isinstance(last, dict) and last.get("type") == "reserve" else None
 
 
-def _derive_accounting(jobs, cred):
-    """The accounting mode the steps imply (re-verified by _rules); "capped" whenever it is not clearly none or preflight-bound."""
-    live = _live(jobs)
-    names = {step: [s for s in live.get("steps") or [] if s.get("name") == step] for _job, step in cred}
-    ran = [step for step, found in names.items() if len(found) == 1 and found[0].get("conclusion") != "skipped"]
-    return "none" if not ran else "preflight-bound" if ran == [PREFLIGHT_STEP] else "capped"
+def _derive_accounting(doc):
+    """(accounting, dispositionRef) the steps imply, by the same rule _rules re-verifies; refusals surface from _rules."""
+    for accounting in ACCOUNTING:
+        for ref in [None] + sorted({o["approvalRef"] for o in OWNER_DISPOSITIONS.values()}):
+            try:
+                _rules(dict(doc, accounting=accounting, dispositionRef=ref))
+                return accounting, ref
+            except Refused as err:
+                if str(err) != "unexecuted-accounting":
+                    raise
+    return "capped", None
 
 
 def build_evidence(run, jobs_doc, chain, workflow_text):
@@ -310,8 +333,9 @@ def build_evidence(run, jobs_doc, chain, workflow_text):
            "jobs": jobs, "failedStep": failed[0]["name"], "credentialSteps": [list(p) for p in credential_steps(workflow_text)],
            "consequentialSteps": [list(p) for p in consequential_steps(workflow_text)],
            "workflowSha256": hashlib.sha256(workflow_text.encode("utf-8")).hexdigest(),
-           "accounting": _derive_accounting(jobs, credential_steps(workflow_text)),
+           "accounting": "capped", "dispositionRef": None,
            "journal": {"rootSha": chain[0][0], "headSha": chain[-1][0], "reserve": reserve}, "usage": {}, "atUtc": "1970-01-01T00:00:00Z"}
+    doc["accounting"], doc["dispositionRef"] = _derive_accounting(doc)
     doc["usage"], doc["atUtc"] = _rules(doc)
     check_evidence(doc)
     return doc

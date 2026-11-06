@@ -17,7 +17,7 @@ RUN_ID = "41960376782"
 HEAD = "8f9f9451bb6bf37ba2bca524acd92d933e2b826c"
 ROOT_SHA = "92d6ebf902351750c368d7d513116c6b1f19f80c"
 LIVE = "Selected live journeys (existing stage runner; preinstalled browser)"
-DIGEST = "668d15bca515f80a983a40cb873e0de0dfbe9f4609e6b192ca1fd2ca7106800a"
+DIGEST = "b3579e3be26d2251b59bea30e9a70b342d979777601db3da477ff14d78017550"
 # The known facts of run 41960376782 (no longer a pin in the module, Sam 1793881491.714239): the journal head and reserve event as appended, the
 # step it failed at, and the credential-bearing steps of its workflow at its head.
 PIN = {"attempt": 1, "headSha": HEAD, "failedStep": "Generate the exact-head browser-bound proof and offline checks",
@@ -278,6 +278,29 @@ class Evidence(unittest.TestCase):
         self.assertEqual({k: v for k, v in U.check_evidence(doc)[1].items() if k != "runnerMinutes"}, {k: held[k] for k in U.PRODUCT_KEYS})
         for name in self.COLLECT:
             self.assertIn([LIVE, name], doc["consequentialSteps"])
+
+    def test_an_owner_disposition_applies_only_to_its_run_and_only_when_the_steps_match_exactly(self):
+        # PO 11-06 (slack:1793965143.063589): settle R10 run 42142985744 at preflight-bound 10/0. Proven here on the fixture run by keying
+        # the same disposition to it; the real run's own data is replayed separately.
+        from unittest import mock
+        disp = dict(U.OWNER_DISPOSITIONS["42142985744"])
+        self.assertEqual((disp["accounting"], disp["approvalRef"], disp["failedStep"]), ("preflight-bound", "slack:1793965143.063589", U.STAGE_SETUP_STEP))
+        self.assertEqual(sorted(U.OWNER_DISPOSITIONS), ["42142985744"])             # exactly one named run, never a pattern
+        with mock.patch.dict(U.OWNER_DISPOSITIONS, {RUN_ID: disp}):
+            doc = build(jobs=self.stage_setup_failure())
+            self.assertEqual((doc["accounting"], doc["dispositionRef"]), ("preflight-bound", "slack:1793965143.063589"))
+            self.assertEqual(U.check_evidence(doc)[1], {"requests": 10, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6})
+            self.refused("unexecuted-accounting", U.check_evidence, dict(doc, dispositionRef=None))          # the reference is bound
+            self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting="capped"))
+            self.refused("unexecuted-usage-differs", U.check_evidence, dict(doc, usage=dict(doc["usage"], requests=0)))
+            # a different failure point is not the decided run's facts: the rule's own classification stands
+            jobs = self.failed_at("Select the committed request and bind this run's inputs", (U.PREFLIGHT_STEP,))
+            self.assertEqual((build(jobs=jobs)["accounting"], build(jobs=jobs)["dispositionRef"]), ("capped", None))
+        # the same steps under any other run id stay capped
+        doc = build(jobs=self.stage_setup_failure())
+        self.assertEqual((doc["accounting"], doc["dispositionRef"]), ("capped", None))
+        self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting="preflight-bound", dispositionRef="slack:1793965143.063589",
+                                                                     usage=dict(doc["usage"], requests=10, identityReads=0, starts=0, takes=0, coachingRequests=0)))
 
     def test_only_a_later_secret_free_always_step_may_fail_besides_the_first(self):
         jobs = self.stage_setup_failure()
