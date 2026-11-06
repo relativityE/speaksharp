@@ -48,7 +48,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   // #1760 model comparison harness and evaluator helpers, each through its own unit consumer.
   helperFile:'tests/model-dropin/comparisonBounds.ts',testFile:'tests/model-dropin/comparisonBounds.test.ts',
-  callables:['validateApproval','requireCompatibleBackend','elapsedMs','privateTimingMetrics','canonicalCaseReceipts','caseMs',
+  callables:['validateApproval','requireCompatibleBackend','elapsedMs','privateTimingMetrics','canonicalCaseReceipts','canonicalPopulation','caseMs',
     'ComparisonBudget#beginTake','ComparisonBudget#bindSession','ComparisonBudget#finishTake','ComparisonBudget#sessionSha256',
     'ComparisonBudget#assertExistingSessions','ComparisonBudget#finishRun'],
 }, {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ComparisonBudget, LIMITS, MODELS, caseMs, validateApproval, requireCompatibleBackend, elapsedMs, privateTimingMetrics, canonicalCaseReceipts, type ExecutionApproval } from './comparisonBounds';
+import { ComparisonBudget, LIMITS, MODELS, caseMs, validateApproval, requireCompatibleBackend, elapsedMs, privateTimingMetrics, canonicalCaseReceipts, canonicalPopulation, type ExecutionApproval } from './comparisonBounds';
 const user = '11111111-1111-4111-8111-111111111111';
 const session = '22222222-2222-4222-8222-222222222222';
 const recording = '33333333-3333-4333-8333-333333333333';
@@ -43,6 +43,21 @@ describe('bounded one-time product transport', () => {
     const eighteen=MODELS.flatMap(candidate=>[1,2].flatMap(trial=>[1,2,3].map(n=>({path:`/${candidate}-${trial}-${n}/attachments/independent-app-comparison.json`,row:{candidate,trial,clip:`fixture-00${n}`}}))));
     expect(canonicalCaseReceipts(eighteen)).toHaveLength(18);
     expect(()=>canonicalCaseReceipts([canonical,{path:'/conflict/attachments/independent-app-comparison.json',row:{...one,measured:false}}])).toThrow('bounded_duplicate_canonical_case_receipt');
+  });
+  it('a successful setup retry supersedes its failed receipt: six takes stay six, the failed attempt stays auditable',()=>{
+    // Codex 7819b055: a retried no-session selection failure kept both receipts, so a complete six-take run counted seven.
+    const keys=[1,2,3].flatMap(trial=>['v2:base.en','parakeet:tdt-v3:int8'].map(candidate=>({candidate,trial,clip:'fixture-001'})));
+    const failedSetup={candidate:'parakeet:tdt-v3:int8',trial:1,clip:'fixture-001',measured:false,failurePhase:'candidate-selection',sessionSha256:null};
+    const fresh=keys.map(key=>({...key,measured:true}));
+    const {rows,superseded}=canonicalPopulation([failedSetup],fresh,['parakeet:tdt-v3:int8:1:fixture-001']);
+    expect(rows).toHaveLength(6);expect(rows).toEqual(fresh);expect(superseded).toEqual([failedSetup]);
+    // Without a fresh receipt the failed row remains the member, so the population stays visibly incomplete.
+    const unretried=canonicalPopulation([failedSetup],fresh.filter(row=>row.candidate!==failedSetup.candidate||row.trial!==1),['parakeet:tdt-v3:int8:1:fixture-001']);
+    expect(unretried.superseded).toEqual([]);expect(unretried.rows).toContain(failedSetup);expect(unretried.rows).toHaveLength(6);
+    // A prior row that was NOT approved for retry is never silently replaced: the duplicate stays for the population check.
+    const resumedRecording={candidate:'v2:base.en',trial:1,clip:'fixture-001',measured:false,failurePhase:'recording',sessionSha256:'a'.repeat(64)};
+    const notRetried=canonicalPopulation([resumedRecording],fresh,[]);
+    expect(notRetried.rows).toHaveLength(7);expect(notRetried.superseded).toEqual([]);
   });
   it('counts a failed pre-recording case without fabricating a session or restoring the consumed case key',()=>{
     const resume={priorSessionIds:[session],priorCaseKeys:['v2:base.en:1:fixture-001','parakeet:tdt-v3:int8:1:fixture-001'],receiptSha256:'a'.repeat(64)};

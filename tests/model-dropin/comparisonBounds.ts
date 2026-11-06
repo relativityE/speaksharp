@@ -24,6 +24,18 @@ export function canonicalCaseReceipts<T extends {candidate:string;trial:number;c
   }
   return rows;
 }
+/**
+ * The comparison population after a resume. A prior no-session setup failure named in retryCaseKeys is SUPERSEDED
+ * by its fresh receipt: it stays in the audit record (and its budget was already reserved before the run), but it
+ * is not a second member of the population. A retried key with no fresh receipt keeps its failed row, and any other
+ * duplicate key is left in place so the population check refuses it.
+ */
+export function canonicalPopulation<T extends {candidate:string;trial:number;clip:string}>(prior:readonly T[],fresh:readonly T[],retryCaseKeys:readonly string[]=[]):{rows:T[];superseded:T[]}{
+  const key=(row:T)=>`${row.candidate}:${row.trial}:${row.clip}`;
+  const freshKeys=new Set(fresh.map(key));
+  const superseded=prior.filter(row=>retryCaseKeys.includes(key(row))&&freshKeys.has(key(row)));
+  return {rows:[...prior.filter(row=>!superseded.includes(row)),...fresh],superseded};
+}
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 type Rule = { maximum: number; mutation: boolean; subject?: string };
 // Absolute maxima, including retries; a blocked request is never forwarded. No generic RPC permission.

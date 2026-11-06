@@ -248,6 +248,7 @@ const MODEL_WIRING=Object.freeze({
   'tests/model-dropin/run-bounded-comparison.mjs':[
     "if (process.version !== 'v22.12.0') throw Error('bounded_requires_frozen_node_22_12_0');",
     'validateApproval(approval, Date.now());',
+    'const resumed=canonicalPopulation(priorRows,canonicalCaseReceipts(canonical),approval.resume?.retryCaseKeys??[]);',
     'browserServer=await launchOwned(ownership,()=>chromium.launchServer(',
     'await awaitOwnedCleanup(workloads,cleanupBarrier,{ownershipComplete:()=>ownership.complete});',
   ],

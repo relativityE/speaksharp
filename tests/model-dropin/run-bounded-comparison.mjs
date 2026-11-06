@@ -9,7 +9,7 @@ import { createServer } from 'node:net';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createHash } from 'node:crypto';
-import { LIMITS, validateApproval, requireCompatibleBackend, canonicalCaseReceipts } from './comparisonBounds.ts';
+import { LIMITS, validateApproval, requireCompatibleBackend, canonicalCaseReceipts, canonicalPopulation } from './comparisonBounds.ts';
 import { readProductCampaign, verifyCampaignPackages } from '../../scripts/model-evaluator/product-campaign.ts';
 import { verifyProjectRuntimeBindings } from '../../scripts/model-evaluator/runtime-bindings.mjs';
 import { createCleanupBarrier, awaitOwnedCleanup, signalOwnedGroups, groupState, launchOwned } from './ownedCleanup.mjs';
@@ -141,7 +141,8 @@ for(const path of await files(childOutput)) if(/\/attachments\/independent-app-c
   const row=JSON.parse(await readFile(path,'utf8'));
   if(row.scope?.startsWith('SpeakSharp Open Mic'))canonical.push({path,row});
 }
-const rows=[...priorRows,...canonicalCaseReceipts(canonical)];
+const resumed=canonicalPopulation(priorRows,canonicalCaseReceipts(canonical),approval.resume?.retryCaseKeys??[]);
+const rows=resumed.rows;
 const expected = new Set(); for(let trial=1;trial<=campaign.corpus.trials;trial++)for(const clip of campaign.corpus.clips)for(const model of campaign.campaign.candidates)expected.add(`${model}:${trial}:${clip.id}`);
 let complete = rows.length === campaign.takes;
 for(const row of rows) {
@@ -152,6 +153,8 @@ for(const row of rows) {
 const summary={mode:'product-lifecycle',campaignSha256:campaign.sha256,runId:approval.runId,sourceHead:approval.sourceHead,terminal,timedOut,startupFailure,cleanupVerified:true,identityExclusion,
   status:complete&&!expected.size&&!timedOut&&terminal.code===0?'MEASURED_PRODUCT_COMPARISON':'INCOMPLETE_OR_FAILED',
   attemptedRows:rows.length,expectedRows:campaign.takes,models:{},
+  // Retained for audit and budget accounting; excluded from the comparison population by their fresh retry.
+  supersededSetupAttempts:resumed.superseded.map(row=>({key:`${row.candidate}:${row.trial}:${row.clip}`,failurePhase:row.failurePhase??null,sessionSha256:row.sessionSha256??null})),
   limits:['single_synthetic_speaker','acoustic_labels_unverified',...(promotionPolicy?[]:['no_promotion_policy']),'Focus_NOT_RUN',
     'coaching_NOT_RUN','memory_NOT_RUN','isolated_cold_warm_NOT_RUN','weights_not_introspected',
     'init_includes_cache_probe_pinning_warmup','read_and_reopen_are_harness_observed_wall_time']};
