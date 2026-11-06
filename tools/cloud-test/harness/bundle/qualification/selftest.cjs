@@ -167,7 +167,7 @@ async function stopQualification(reason,code,error) {
   stopPromise=(async()=>{
     stoppingRequested=true;clearTimeout(qualificationTimer);clearInterval(parentWatch);
     const cleanup=await closeOwned(reason);
-    try{fs.writeFileSync(path.join(OUT,'qualification-diagnostic.json'),JSON.stringify(QD.buildDiagnostic(diag,{reason,error,results}))+'\n',{mode:0o600});}catch{}
+    try{fs.writeFileSync(path.join(OUT,'qualification-diagnostic.json'),JSON.stringify(QD.buildDiagnostic(diag,{reason,error,results,shutdownErrorCount:Array.isArray(cleanup&&cleanup.cleanupErrors)?cleanup.cleanupErrors.length:0}))+'\n',{mode:0o600});}catch{}
     fs.writeFileSync(path.join(OUT,'qualification-error.json'),JSON.stringify({result:'FAIL',reason,error:error?String(error.message||error):null,results,startedAt:QUAL_STARTED_AT,endedAt:new Date().toISOString(),...cleanup},null,2)+'\n',{mode:0o600});
     console.error('QUALIFICATION STOPPED '+reason);process.exit(code);
   })();return stopPromise;
@@ -709,7 +709,7 @@ for(const [signal,number] of [['SIGTERM',15],['SIGINT',2],['SIGHUP',1]])process.
   const receipt={...verdict,capabilities,lighthouseCliSha256:lighthouseSelection==='required'?a['lighthouse-cli-sha256']:null,runtime:selectedRuntime,node:process.version.slice(1),playwright:installedPlaywright,chromiumRevision:installedChromiumRevision,codeManifestSha256:sha256(fs.readFileSync(path.join(H,'..','CODE.sha256'))),checks,scope:'approved-loopback-fixtures-only',productTraffic:false,summarySha256:sha256(fs.readFileSync(summaryFile)),startedAt:QUAL_STARTED_AT,endedAt:new Date().toISOString()};
   fs.writeFileSync(path.join(OUT,'qualification-receipt.json'),JSON.stringify(receipt,null,2)+'\n',{mode:0o600});
   console.log(`SELFTEST ${verdict.result}: ${verdict.passed} PASS / ${verdict.failed} FAIL / ${verdict.notRun} NOT_RUN; scope=${verdict.qualifiedScope}`);
-  if(verdict.result!=='PASS')fs.writeFileSync(path.join(OUT,'qualification-diagnostic.json'),JSON.stringify(QD.buildDiagnostic(diag,{reason:'verdict-fail',error:null,results}))+'\n',{mode:0o600});
+  if(verdict.result!=='PASS')fs.writeFileSync(path.join(OUT,'qualification-diagnostic.json'),JSON.stringify(QD.buildDiagnostic(diag,{reason:'verdict-fail',error:null,results,shutdownErrorCount:shutdown.cleanupErrors.length}))+'\n',{mode:0o600});
   clearTimeout(qualificationTimer); clearInterval(parentWatch);
   process.exit(verdict.result==='PASS'?0:1);
 })().catch(e => stopQualification('qualification-error',2,e));

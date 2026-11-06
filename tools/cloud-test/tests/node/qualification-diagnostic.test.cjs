@@ -84,8 +84,8 @@ test('negative control: secret-, URL- and path-bearing exceptions never reach th
   assert.equal(d.phase, 'browser-launch');
   assert.equal(d.errorCategory, 'other'); assert.equal(d.errorCode, 'other');
   assert.deepEqual(d.errorSignatures, ['playwright-timeout', 'launch-failed']);
-  assert.deepEqual(d.completedCheckIds, ['S0.precondition', 'S1.sandbox-page']);
-  assert.deepEqual(d.failedCheckIds, ['S1.sandbox-page']);
+  assert.deepEqual(d.completedCheckGroups, [{ group: 'S0', count: 1 }, { group: 'S1', count: 1 }]);
+  assert.deepEqual(d.failedCheckGroups, [{ group: 'S1', count: 1 }]);
   assert.equal(d.cleanupErrorCount, 2);
 });
 
@@ -101,7 +101,10 @@ test('the receiving side refuses anything outside the closed schema', () => {
   QD.validateDiagnostic(good);
   const bad = [
     { ...good, message: 'x' }, { ...good, phase: 'somewhere' }, { ...good, stopReason: 'x' }, { ...good, guardRun: URL_TEXT },
-    { ...good, completedCheckIds: [URL_TEXT] }, { ...good, failedCheckIds: ['a b'] }, { ...good, errorSignatures: ['free text'] },
+    { ...good, guardRun: SECRET }, { ...good, guardRun: 'abcdef0123456789abcdef0123456789' },
+    { ...good, completedCheckGroups: [{ group: SECRET, count: 1 }] }, { ...good, completedCheckGroups: [SECRET] },
+    { ...good, failedCheckGroups: [{ group: 'S1', count: 1, id: SECRET }] }, { ...good, failedCheckGroups: [{ group: 'S1', count: 0 }] },
+    { ...good, errorSignatures: ['free text'] },
     { ...good, errorSignatures: ['sandbox', 'sandbox'] }, { ...good, errorCode: SECRET }, { ...good, errorCategory: 'Custom' },
     { ...good, contentFree: false }, { ...good, guardRuns: -1 }, { ...good, cleanupErrorCount: 1000 }, null, [],
   ];
@@ -116,4 +119,39 @@ test('admission records RECORDED, REFUSED or ABSENT and never the raw file', () 
   const refused = readQualificationDiagnostic(io({ ...good, error: SECRET }), 'x');
   assert.deepEqual(refused, { result: 'REFUSED' });
   assert.deepEqual(readQualificationDiagnostic(io(new Error('ENOENT ' + SECRET)), 'x'), { result: 'ABSENT' });
+});
+
+test('Sam 1793998673 negative controls: a token-shaped check ID or guard run never survives build + validate', () => {
+  const tokenLower = 'abcdef0123456789abcdef0123456789-token';
+  for (const guardRun of [SECRET, tokenLower, 'sandbox-' + SECRET, 'feedback-' + SECRET]) {
+    const d = QD.validateDiagnostic(QD.buildDiagnostic({ phase: 'browser-launch', guardRun, guardRuns: 1 }, { reason: 'qualification-error', error: null, results: [] }));
+    assert.ok(d.guardRun === null || d.guardRun === 'feedback-*', String(d.guardRun));
+    assert.ok(!JSON.stringify(d).includes(SECRET.slice(0, 12)));
+  }
+  const results = [SECRET, tokenLower, SECRET + '.x', 'sandbox', 'S1.' + SECRET, 'caps-1.reconcile.a.test', 'feedback-prefer-41.reconcile.a.test'].map(id => ({ id, ok: false }));
+  const d = QD.validateDiagnostic(QD.buildDiagnostic(QD.createState(), { reason: 'qualification-error', error: null, results }));
+  assert.deepEqual(d.completedCheckGroups, [{ group: 'sandbox', count: 1 }, { group: 'S1', count: 1 }, { group: 'caps-1', count: 1 }, { group: 'feedback-prefer-*', count: 1 }]);
+  assert.ok(!JSON.stringify(d).includes(SECRET.slice(0, 12)) && !JSON.stringify(d).includes('token'));
+});
+
+test('cleanupErrorCount counts qualification shutdown errors as well as launch cleanup errors, without their text', () => {
+  const e = hostile(); e.cleanupErrors = [SECRET];
+  const d = QD.validateDiagnostic(QD.buildDiagnostic(QD.createState(), { reason: 'qualification-error', error: e, results: [], shutdownErrorCount: 2 }));
+  assert.equal(d.cleanupErrorCount, 3);
+  assert.equal(QD.buildDiagnostic(QD.createState(), { reason: 'verdict-fail', error: null, results: [], shutdownErrorCount: 1 }).cleanupErrorCount, 1);
+  assert.equal(QD.buildDiagnostic(QD.createState(), { reason: 'verdict-fail', error: null, results: [], shutdownErrorCount: -5 }).cleanupErrorCount, 0);
+});
+
+test('the closed guard-run and check-section lists cover every withGuard ID and check section in the self-test source', () => {
+  const fs = require('node:fs');
+  const Q = path.join(__dirname, '..', '..', 'harness', 'bundle', 'qualification');
+  const src = ['selftest.cjs', 'feedback-controls.cjs'].map(f => fs.readFileSync(path.join(Q, f), 'utf8')).join('\n');
+  const literal = [...src.matchAll(/withGuard\('([^']+)'\s*,/g)].map(m => m[1]);
+  const built = [...src.matchAll(/withGuard\('([^']+)'\s*\+/g)].map(m => m[1]);
+  assert.ok(literal.length > 15 && built.length >= 3);
+  for (const id of literal) assert.equal(QD.guardRunKey(id), id, id);
+  for (const prefix of built) assert.ok(QD.GUARD_RUN_KEYS.includes(prefix + '*') || QD.GUARD_RUN_KEYS.includes('feedback-*'), prefix);
+  for (const id of literal) assert.ok(QD.GUARD_RUNS.includes(id), 'unlisted guard run ' + id);
+  const sections = new Set([...src.matchAll(/'(S[0-9]+[a-z]?)\./g)].map(m => m[1]));
+  for (const s of sections) assert.ok(QD.CHECK_SECTIONS.includes(s), 'unlisted section ' + s);
 });
