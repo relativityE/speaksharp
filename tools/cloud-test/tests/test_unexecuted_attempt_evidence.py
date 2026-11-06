@@ -302,6 +302,13 @@ class Evidence(unittest.TestCase):
         self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting="preflight-bound", dispositionRef="slack:1793965143.063589",
                                                                      usage=dict(doc["usage"], requests=10, identityReads=0, starts=0, takes=0, coachingRequests=0)))
 
+    def test_a_cancelled_or_timed_out_live_job_is_refused_by_next_dispatch_recovery(self):
+        # Sam 1793965423.927829: cancellation and job-timeout shapes fail the strict conclusion checks here, by design; such a run is settled
+        # in-run from its INCOMPLETE record (collect runs on always() once the run step started; journal-settle runs always()).
+        jobs = self.stage_setup_failure()
+        self.live(jobs)["conclusion"] = "cancelled"
+        self.refused("unexecuted-job-live", build, None, jobs)
+
     def test_only_a_later_secret_free_always_step_may_fail_besides_the_first(self):
         jobs = self.stage_setup_failure()
         self.step(jobs, "Approved window still fits the live run")["conclusion"] = "failure"      # not an always() step

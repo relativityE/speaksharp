@@ -526,6 +526,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(retain_timings["if"], "always()")
         run_step = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Stage runner (run)"))
         self.assertEqual(run_step["id"], "run")
+        # A cancelled or timed-out run step is not `skipped`: collection still runs and records the run INCOMPLETE, and journal-settle runs
+        # always() after a successful reserve, so the reservation is settled in-run (Bezos N1, Sam 1793965423.927829).
+        self.assertTrue(self.jobs["journal-settle"]["if"].startswith("${{ always() && "))
         for name in ("Collect, verify the binding, qualify every selected row, and project the closed record",
                      "Project the linked content-safe first observations", "Retain the linked first observations for the next run"):
             step = next(s for s in self.jobs["live"]["steps"] if s.get("name") == name)

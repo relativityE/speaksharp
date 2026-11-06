@@ -57,9 +57,82 @@ def main():
     a.add_argument("--started-utc")
     a.add_argument("--ended-utc")
     x = a.parse_args()
-    req, cr, gs, wf = consume_request(x.request, x.request_sha256), load(x.case_results), load(x.gate_status), load(x.workflow)
-    if x.attempt != 1 or not x.execution_run_id.isdecimal() or req.get("runId") != cr.get("campaignId"):
-        sys.exit("BLOCKED_SETUP: collector execution/campaign identity differs")
+    req = consume_request(x.request, x.request_sha256)
+    if x.attempt != 1 or not x.execution_run_id.isdecimal():
+        sys.exit("BLOCKED_SETUP: collector execution identity differs")
+    # Bezos N1 / Sam 1793965423.927829: the run stage started (started.txt precedes admission and every case) but its aggregate case results
+    # are missing or do not verify. That is an INCOMPLETE run, never NOT RUN: every row UNKNOWN, every spend count unmeasured (null, so the
+    # settle holds the reserved caps, never zero), any bound per-case receipts kept as digests only, and it can never qualify as passed.
+    reason = None
+    if not (isinstance(x.case_results, str) and os.path.isfile(x.case_results) and not os.path.islink(x.case_results)):
+        reason = "case-results-missing"
+    else:
+        try:
+            cr = load(x.case_results)
+            if not isinstance(cr, dict) or req.get("runId") != cr.get("campaignId") or not isinstance(cr.get("cases"), list):
+                reason = "case-results-invalid"
+        except (ValueError, OSError):
+            reason = "case-results-invalid"
+    if reason is None:
+        try:
+            out = complete_record(x, req, cr)
+        except IncompleteResults as refused:
+            reason = str(refused)            # a forged or unbound receipt credits nothing: the run is recorded INCOMPLETE, never its results
+    if reason is not None:
+        out = incomplete_record(x, req, reason)
+        print("INCOMPLETE run record: %s (no result is credited; every count settles at the reserved caps)" % reason, file=sys.stderr)
+    dump(out, x.out)
+    print("run record written:", out["runId"], "cases", len(out["cases"]))
+
+
+class IncompleteResults(Exception):
+    pass
+
+
+def bound_case_receipts(cases_dir):
+    """Digests (never contents) of per-case receipt files the harness wrote before the run stopped, by case: preserved, never interpreted."""
+    found = {}
+    if not (isinstance(cases_dir, str) and os.path.isdir(cases_dir) and not os.path.islink(cases_dir)):
+        return found
+    for case in sorted(os.listdir(cases_dir)):
+        if not re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", case):
+            continue
+        entry = {}
+        for name in ("summary.json", "runtime-start-consumption.json"):
+            path = os.path.join(cases_dir, case, name)
+            if os.path.isfile(path) and not os.path.islink(path):
+                entry[name] = sha256_file(path)
+        if entry:
+            found[case] = entry
+    return found
+
+
+def incomplete_record(x, req, reason):
+    gs, wf = load(x.gate_status) if os.path.isfile(x.gate_status) else {}, load(x.workflow)
+    selected = [r.get("case") for r in req.get("selection") or [] if isinstance(r, dict)]
+    cases = [{"case": c, "result": "UNKNOWN", "reason": reason, "requestsUsed": None, "plannedRequests": None, "requestAllowance": None,
+              "assertions": {"PASS": 0, "FAIL": 0, "NOT RUN": 0, "total": 0}, "outcomeClass": "incomplete-run", "receiptDigest": None}
+             for c in selected]
+    consumed_at_utc = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return {
+        "schema": "speaksharp.cloud-test.run-record.v1", "runId": req["runId"], "workflowVersion": wf["version"], "configVersion": req.get("configVersion"),
+        "deviations": req.get("deviations", []), "purpose": req["purpose"], "priority": req["priority"], "targetedGaps": req["targetedGaps"],
+        "startedUtc": x.started_utc, "endedUtc": x.ended_utc, "gateDecisionAtLaunch": gs.get("decision"),
+        "release": {"testedSha": req["release"]["testedSha"], "servedShaAtAdmission": None, "finalIdentity": None},
+        "harness": req["harness"], "runner": load(x.runner_json),
+        "spend": {"requests": None, "byCategory": {}, "identityReads": None, "starts": None, "takes": None,
+                  "source": "INCOMPLETE run (%s): no verified aggregate results, so every count is unmeasured (null) and settles at the reserved caps" % reason},
+        "paidActions": "unknown", "safetyStopped": None, "result": "INCOMPLETE", "incompleteReason": reason, "cases": cases,
+        "boundCaseReceipts": bound_case_receipts(x.cases_dir),
+        "executionProvenance": {"consumer": "collector", "campaignId": req["runId"], "runId": x.execution_run_id, "attempt": 1,
+                                "requestSha256": x.request_sha256, "consumedAtUtc": consumed_at_utc, "caseResultsSha256": None,
+                                "runtimeReceiptDigests": {}, "runtimeReceipts": {}},
+        "artifactDigests": {},
+    }
+
+
+def complete_record(x, req, cr):
+    gs, wf = load(x.gate_status), load(x.workflow)
     camp = load(os.path.join(x.ledger_dir, "campaign-ledger.json"))
     idl = load(os.path.join(x.ledger_dir, "identity-ledger.json"))
     cases, runtime_receipts, runtime_receipt_digests = [], {}, {}
@@ -72,13 +145,13 @@ def main():
                         "requestSha256": x.request_sha256, "sourceSha": cr.get("sourceSha"), "servedSha": cr.get("servedSha")}
             if not isinstance(receipt, dict) or any(receipt.get(key) != value for key, value in expected.items()) \
                     or not all(SHA256.fullmatch(receipt.get(key) or "") for key in ("planSha256", "configSha256", "runtimeStartReceiptSha256")):
-                sys.exit("BLOCKED_SETUP: runtime receipt differs for %s" % c["caseId"])
+                raise IncompleteResults("runtime-receipt-differs")
             runtime_receipts[c["caseId"]] = {key: receipt.get(key) for key in
                 ("campaignId", "runId", "attempt", "caseId", "requestSha256", "planSha256", "configSha256",
                  "sourceSha", "servedSha", "runtimeStartReceiptSha256", "caseResultSha256", "summarySha256")}
             runtime_receipt_digests[c["caseId"]] = canonical_digest(receipt)
         elif c.get("result") != "NOT RUN":
-            sys.exit("BLOCKED_SETUP: executed case lacks original runtime receipt: %s" % c["caseId"])
+            raise IncompleteResults("executed-case-without-receipt")
         cases.append({"case": c["caseId"], "result": c.get("result"), "reason": c.get("reason"), "requestsUsed": c.get("requestsUsed"),
                       "plannedRequests": c.get("plannedRequests"), "requestAllowance": c.get("requestAllowance"),
                       "assertions": {"PASS": sum(1 for s in ass if s.get("result") == "PASS"), "FAIL": sum(1 for s in ass if s.get("result") == "FAIL"),
@@ -108,8 +181,7 @@ def main():
                                 "runtimeReceipts": runtime_receipts},
         "artifactDigests": {"case-results.json": case_results_sha256},
     }
-    dump(out, x.out)
-    print("run record written:", out["runId"], "cases", len(cases))
+    return out
 
 
 if __name__ == "__main__":

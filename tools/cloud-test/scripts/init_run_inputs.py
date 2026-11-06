@@ -1380,6 +1380,8 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
     rel = run_record.get("release") or {}
     _need(isinstance(tested_sha, str) and LR.SHA40.match(tested_sha) and rel.get("testedSha") == tested_sha, "run-record-for-another-release")
     q = qualification if isinstance(qualification, dict) else {}
+    if run_record.get("result") == "INCOMPLETE":
+        q = {}                                   # Bezos N1: an incomplete record can never be qualified, whatever is supplied
     campaign = run_record.get("runId")
     qualified = (q.get("qualified") is True and isinstance(campaign, str) and campaign.strip() and q.get("campaignId") == campaign and
                  q.get("caseResultsSha256") == (run_record.get("artifactDigests") or {}).get("case-results.json") and
@@ -1426,7 +1428,7 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
            "startedUtc": run_record.get("startedUtc"), "endedUtc": run_record.get("endedUtc"),
            "requestSha256": q.get("requestSha256") if qualified else None, "catalogSha256": q.get("catalogSha256") if qualified else None,
            "outcome": "passed" if qualified and q["outcome"] == "passed" and selected and all(c["result"] == "PASS" for c in selected) else "failed",
-           "cases": cases, "codes": [] if qualified else ["not-qualified"]}
+           "cases": cases, "codes": ([] if qualified else ["not-qualified"]) + (["incomplete-run"] if run_record.get("result") == "INCOMPLETE" else [])}
     if qualified:
         rec.update(coverageMode=q["coverageMode"], assertionDepth=q["assertionDepth"])
     if row_verdicts:
