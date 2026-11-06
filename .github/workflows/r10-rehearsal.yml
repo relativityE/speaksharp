@@ -59,6 +59,22 @@ jobs:
           CT_PROOF_FILE="$RUNNER_TEMP/offline-proof.json" python3 -I scripts/run_offline_checks.py --out "$RUNNER_TEMP/offline-checks.json"
           echo "CT_OFFLINE_PROOF=$RUNNER_TEMP/offline-proof.json" >> "$GITHUB_ENV"
           echo "CT_OFFLINE_CHECKS=$RUNNER_TEMP/offline-checks.json" >> "$GITHUB_ENV"
+      - name: Diagnose admission A3 tool probes exactly as admission runs them (before any fix)
+        run: |
+          probe() { env -i PATH="$PATH" HOME="$HOME" COREPACK_ENABLE_NETWORK=0 COREPACK_ENABLE_AUTO_PIN=0 "$@" >/dev/null 2>&1 && echo ok || echo FAIL; }
+          {
+            echo "pnpm=$(cd "$GITHUB_WORKSPACE" && probe pnpm --version) which=$(command -v pnpm || echo none)"
+            echo "openssl=$(probe openssl version) setpriv=$(probe setpriv --version) curl=$(probe curl --version) corepack=$(command -v corepack || echo none)"
+          } | tee "$RUNNER_TEMP/a3-probe-before.txt"
+      - name: Candidate fix (rehearsal) - bind the tested release's pinned pnpm through Node's bundled corepack
+        run: |
+          set -euo pipefail
+          pm="$(python3 -c 'import json;print(json.load(open("package.json"))["packageManager"])')"
+          echo "packageManager=$pm"
+          corepack enable pnpm
+          corepack prepare "$pm" --activate
+          probe() { env -i PATH="$PATH" HOME="$HOME" COREPACK_ENABLE_NETWORK=0 COREPACK_ENABLE_AUTO_PIN=0 "$@" 2>&1; }
+          (cd "$GITHUB_WORKSPACE" && probe pnpm --version) | tee "$RUNNER_TEMP/a3-probe-after.txt"
       - name: Lock production out (every production host resolves to a local TLS stub)
         run: |
           set -euo pipefail
@@ -101,5 +117,7 @@ jobs:
           path: |
             ${{ runner.temp }}/rehearsal-summary.json
             ${{ runner.temp }}/offline-checks.json
+            ${{ runner.temp }}/a3-probe-before.txt
+            ${{ runner.temp }}/a3-probe-after.txt
           retention-days: 1
           if-no-files-found: warn
