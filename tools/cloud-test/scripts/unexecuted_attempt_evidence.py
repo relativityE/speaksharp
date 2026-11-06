@@ -60,7 +60,8 @@ INIT_STEP = "Select the committed request and bind this run's inputs"
 OWNER_DISPOSITIONS = {
     # R10 run 42142985744: the preflight passed (its fixed 10 requests), input binding ran, and the stage-runner setup refused in the
     # bootstrap at 01:24:53Z before any network call (BP_HOST_DB unset; fixed in 0237db34). The case-runner step never ran.
-    "42142985744": {"accounting": "preflight-bound", "approvalRef": "slack:1793965143.063589", "failedStep": STAGE_SETUP_STEP,
+    "42142985744": {"attempt": 1, "headSha": "79ce7d6cf68428c2007d3bd27f8dea47432a0958",   # Sam 1793965900.321239: exact attempt and head
+                    "accounting": "preflight-bound", "approvalRef": "slack:1793965143.063589", "failedStep": STAGE_SETUP_STEP,
                     "ran": (PREFLIGHT_STEP, INIT_STEP, STAGE_SETUP_STEP)},
 }
 LIVE_JOB_PREFIX = "Selected live journeys"
@@ -231,7 +232,8 @@ def _rules(doc):
     disposition = None
     owner = OWNER_DISPOSITIONS.get(ident["runId"])
     run_step = [s for s in steps if s["name"].startswith("Stage runner (run)")]
-    if (accounting == "capped" and owner is not None and doc["failedStep"] == owner["failedStep"] and sorted(ran) == sorted(owner["ran"])
+    if (accounting == "capped" and owner is not None and ident["attempt"] == owner["attempt"] and ident["headSha"] == owner["headSha"]
+            and doc["failedStep"] == owner["failedStep"] and sorted(ran) == sorted(owner["ran"])
             and len(run_step) == 1 and run_step[0]["conclusion"] == "skipped"):
         accounting, disposition = owner["accounting"], owner["approvalRef"]
     _need(doc["accounting"] == accounting and doc["dispositionRef"] == disposition, "unexecuted-accounting")

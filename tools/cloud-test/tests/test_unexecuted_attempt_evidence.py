@@ -286,7 +286,9 @@ class Evidence(unittest.TestCase):
         disp = dict(U.OWNER_DISPOSITIONS["42142985744"])
         self.assertEqual((disp["accounting"], disp["approvalRef"], disp["failedStep"]), ("preflight-bound", "slack:1793965143.063589", U.STAGE_SETUP_STEP))
         self.assertEqual(sorted(U.OWNER_DISPOSITIONS), ["42142985744"])             # exactly one named run, never a pattern
-        with mock.patch.dict(U.OWNER_DISPOSITIONS, {RUN_ID: disp}):
+        self.assertEqual((disp["attempt"], disp["headSha"]), (1, "79ce7d6cf68428c2007d3bd27f8dea47432a0958"))
+        # the fixture run's own attempt and head stand in for the decided ones
+        with mock.patch.dict(U.OWNER_DISPOSITIONS, {RUN_ID: dict(disp, attempt=1, headSha=PIN["headSha"])}):
             doc = build(jobs=self.stage_setup_failure())
             self.assertEqual((doc["accounting"], doc["dispositionRef"]), ("preflight-bound", "slack:1793965143.063589"))
             self.assertEqual(U.check_evidence(doc)[1], {"requests": 10, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6})
@@ -296,6 +298,11 @@ class Evidence(unittest.TestCase):
             # a different failure point is not the decided run's facts: the rule's own classification stands
             jobs = self.failed_at("Select the committed request and bind this run's inputs", (U.PREFLIGHT_STEP,))
             self.assertEqual((build(jobs=jobs)["accounting"], build(jobs=jobs)["dispositionRef"]), ("capped", None))
+        # Sam 1793965900.321239: the exception is exact-attempt and exact-head, not only exact-run
+        for wrong in (dict(disp, attempt=2, headSha=PIN["headSha"]), dict(disp, attempt=1, headSha="f" * 40)):
+            with mock.patch.dict(U.OWNER_DISPOSITIONS, {RUN_ID: wrong}):
+                doc = build(jobs=self.stage_setup_failure())
+                self.assertEqual((doc["accounting"], doc["dispositionRef"]), ("capped", None))
         # the same steps under any other run id stay capped
         doc = build(jobs=self.stage_setup_failure())
         self.assertEqual((doc["accounting"], doc["dispositionRef"]), ("capped", None))
