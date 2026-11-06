@@ -505,6 +505,35 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       }
     } finally {f.clean();}
   });
+  test('INSTALLED variable-annotated block arrows end exactly at the terminal semicolon; other ends and uncalled arrows refuse',()=>{
+    // Shape of the registered offline-control-adapter: `export const createAdapter:AdapterFactory=context=>{...};`.
+    const f=fixture();
+    try {
+      f.write(contract.helperFile,'type Sum=(a?: number,b?: number)=>number;\n'
+        +contract.callables.map(name=>`export const ${name}:Sum=(a=2,b=3)=>{\n  return a + b;\n};`).join('\n')+'\n');
+      const run=()=>{
+        const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+        const receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected});
+        assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[contract.helperFile]);
+        return receipt;
+      };
+      const receipt=run();
+      const executed=receipt.tests[0].phase.helperCoverage.validated.executed;
+      assert.deepEqual(executed.map(item=>item.name),contract.callables);
+      const source=fs.readFileSync(path.join(f.directory,contract.helperFile),'utf8').split('\n');
+      for(const item of executed) assert.equal(source[item.remapped.loc.end.line-1].slice(0,item.remapped.loc.end.column),'};');
+      // The body end (one column earlier) and one past the statement are both refused by the exact raw-range replay.
+      for(const alter of [loc=>{loc.end.column--;},loc=>{loc.end.column++;},loc=>{loc.start.column++;}]) {
+        const raw=structuredClone(receipt.tests[0].phase.helperCoverage.raw);
+        const filename=Object.keys(raw.report)[0];alter(raw.report[filename].fnMap['0'].loc);
+        raw.conversions[0].converted=structuredClone(raw.report);
+        assert.throws(()=>validateHelperCoverage(raw,receipt.tests[0].phase.binding,f.directory),/Invalid remapped callable span/);
+      }
+      f.write(contract.testFile,`import {test,expect} from 'vitest';\nimport {${contract.callables.join(',')}} from '../live/helpers/rwtMarkerObserver';\n`
+        +contract.callables.map((name,index)=>`test('${name}',()=>expect(${index?`${name}(2,3)`:'2+3'}).toBe(5));`).join('\n')+'\n');
+      assert.throws(run,new RegExp(`Uncalled helper: ${contract.callables[0]}|Helper remapped callable not executed: ${contract.callables[0]}`));
+    } finally {f.clean();}
+  });
   test('INSTALLED async declarations require the exact mapped declaration boundary',()=>{
     const f=fixture();
     try {

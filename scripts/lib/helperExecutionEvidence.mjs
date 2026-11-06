@@ -469,7 +469,10 @@ export function validateHelperCoverage(raw, binding, root) {
     const typedArrow=ts.isArrowFunction(declaration) && (declaration.type || declaration.parameters.some(parameter=>parameter.type));
     const parameterStart=typedArrow && declaration.parameters[0]
       ? parsed.getLineAndCharacterOfPosition(declaration.parameters[0].getStart(parsed)):null;
-    const statement=typedArrow && declaration.parent?.parent?.parent;
+    // The pinned converter can end any arrow initializer at its statement's terminal ';' (typed or not, e.g. a
+    // variable-annotated `const f:Factory=a=>{...};`). Only that single exact character is admitted, and the span must
+    // still equal the replayed raw V8 range (expectedLocation) below.
+    const statement=ts.isArrowFunction(declaration) && declaration.parent?.parent?.parent;
     const statementEnd=statement && ts.isVariableStatement(statement)
       && source.slice(declaration.end,statement.end)===';'
       ? parsed.getLineAndCharacterOfPosition(statement.end):null;
