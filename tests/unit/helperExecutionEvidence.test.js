@@ -462,6 +462,34 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       }
     } finally {f.clean();}
   });
+  test('INSTALLED .mjs helper: real calls qualify through the producer, an uncalled callable refuses',()=>{
+    // qualification.mjs is a registered helper; a .js/.ts-only coverage extension list never instruments it.
+    const selected=HELPER_CONTRACTS.find(item=>item.helperFile.endsWith('.mjs'));
+    assert.ok(selected,'a registered .mjs helper exists');
+    const f=fixture();
+    const consumer=calls=>`import {test,expect} from 'vitest';\nimport {${selected.callables.join(',')}} from './${path.basename(selected.helperFile)}';\n`
+      +selected.callables.map(name=>`test('${name} returns the expected sum',()=>expect(${calls.includes(name)?`${name}(2,3)`:'2+3'}).toBe(5));`).join('\n')+'\n';
+    try {
+      f.write(selected.helperFile,selected.callables.map(name=>`export function ${name}(a = 2, b = 3) { return a + b; }`).join('\n')+'\n');
+      f.write(selected.testFile,consumer(selected.callables));
+      const run=()=>{
+        const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+        const receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected});
+        assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)].sort(),[contract.helperFile,selected.helperFile].sort());
+        return receipt;
+      };
+      const receipt=run();
+      const phase=receipt.tests.find(item=>item.helperFile===selected.helperFile).phase;
+      assert.deepEqual(phase.helperCoverage.validated.executed.map(item=>item.name),selected.callables);
+      assert.ok(phase.helperCoverage.validated.executed.every(item=>item.count===1));
+      f.write(selected.testFile,consumer(selected.callables.slice(1)));
+      assert.throws(run,error=>{
+        assert.match(error.message,new RegExp(`Uncalled helper: ${selected.callables[0]}|Helper remapped callable not executed: ${selected.callables[0]}`));
+        assert.equal(error.diagnostics.status,0,'a passing consumer that never calls the helper is insufficient');
+        return true;
+      });
+    } finally {f.clean();}
+  });
   test('INSTALLED typed arrow spans bind only the parameter/declaration and terminal-semicolon boundaries',()=>{
     const f=fixture();
     try {

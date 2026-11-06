@@ -241,7 +241,7 @@ export function helperCoverageOptions(root, binding) {
     || !binding.coverageDirectory.startsWith(`${root}${path.sep}`)) throw new Error('Missing helper phase coverage directory');
   return {enabled: true, provider: 'custom',
     customProviderModule: path.join(root, 'scripts/lib/helperExecutionEvidence.mjs'),
-    include: [binding.helper.helperFile], exclude: [], extension: ['.ts', '.js'],
+    include: [binding.helper.helperFile], exclude: [], extension: ['.ts', '.js', '.mjs'],
     reporter: ['json'], reportsDirectory: binding.coverageDirectory,
     reportOnFailure: true, clean: true, cleanOnRerun: true, all: false,
     allowExternal: false, excludeAfterRemap: true, ignoreEmptyLines: false,
