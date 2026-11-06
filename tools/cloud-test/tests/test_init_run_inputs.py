@@ -250,7 +250,9 @@ class CaseTimingExportTests(unittest.TestCase):
         trace = os.path.join(self.cases, "stage-trace.tsv")
         with open(trace, "w", encoding="utf-8") as f:
             f.write("run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n")
-        out = I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"], started, trace, self.BIND)
+        bind = dict(self.BIND, workflowStartUtc="2026-11-03T15:50:00Z")      # the same day, before the run stage started
+        out = I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"], started, trace, bind)
+        self.assertEqual(out["timings"]["workflowStartToRunStageMs"], 540000)
         projected = {c["caseId"]: c for c in I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])["cases"]}
         for c in out["cases"]:
             if c["caseId"] in projected:
@@ -262,12 +264,23 @@ class CaseTimingExportTests(unittest.TestCase):
             with open(trace, "w", encoding="utf-8") as f:
                 f.write(bad)
             with self.assertRaisesRegex(I.Refused, "stage-trace"):
-                I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, self.BIND)
+                I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, bind)
+        # Sam 1793933116.625009: out-of-order times refuse instead of yielding a negative or misleading duration
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n")
+        with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # run stage before the workflow started
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], started, None, dict(bind, workflowStartUtc="2026-11-03T16:00:00Z"))
+        with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # a traced stage before the workflow started
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, dict(bind, workflowStartUtc="2026-11-03T15:59:30Z"))
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("run\t2026-11-03T16:00:00Z\t2026-11-03T16:01:00Z\t0\nbuild-plan\t2026-11-03T15:58:00Z\t2026-11-03T15:58:30Z\t0\n")
+        with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # trace rows out of time order
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, dict(bind, workflowStartUtc="2026-11-03T15:50:00Z"))
         for wrong in (dict(self.BIND, runId="0"), dict(self.BIND, headSha="x"), dict(self.BIND, workflowStartUtc="yesterday")):
             with self.assertRaisesRegex(I.Refused, "case-timing-binding"):
                 I.run_timing_export(self.cases, self.results, ["AHT-01"], started, None, wrong)
         with self.assertRaisesRegex(I.Refused, "case-timing-selection"):
-            I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-01"], started, None, self.BIND)
+            I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-01"], started, None, bind)
 
     def test_tampered_summary_or_executed_case_without_receipt_refuses(self):
         for tamper, missing, reason in ((True, False, "summary-digest"), (False, True, "missing-receipt")):

@@ -1661,6 +1661,12 @@ def run_timing_export(cases_dir, case_results_file, selected, started_file, trac
                       "endedAtUtc": row.get("endedAtUtc"), "durationMs": row.get("durationMs")})
     stages = stage_trace_rows(trace_file)
     wstart = binding.get("workflowStartUtc") or None
+    # Out-of-order times are refused, never reported as a negative or misleading duration (Sam 1793933116.625009): the run stage cannot
+    # start before the workflow, no traced stage can start before the workflow, and traced stages are appended in time order.
+    if wstart:
+        _need(started_at is None or _utc(started_at) >= _utc(wstart), "case-timing-out-of-order")
+        _need(all(_utc(r["startedAtUtc"]) >= _utc(wstart) for r in stages), "case-timing-out-of-order")
+    _need(all(_utc(a["startedAtUtc"]) <= _utc(b["startedAtUtc"]) for a, b in zip(stages, stages[1:])), "case-timing-out-of-order")
     setup_ms = int((_utc(started_at) - _utc(wstart)).total_seconds() * 1000) if (started_at and wstart) else None
     return {"schema": "speaksharp-case-timings-v2", "contentSafe": True,
             "binding": {"runId": str(binding["runId"]), "runAttempt": int(binding["runAttempt"]), "headSha": binding["headSha"]},
