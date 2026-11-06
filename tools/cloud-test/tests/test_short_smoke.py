@@ -135,13 +135,13 @@ class ShortSmokeContract(unittest.TestCase):
                 init.select_manual_occurrence(
                     str(ROOT.parents[1]), template_rel, str(path), hashlib.sha256(raw).hexdigest(),
                     init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), "2026-11-06T20:30:01Z")
-        # The grant renewed by the PO (slack:1793993133.123929): earliest start 20:00Z, latest start 21:40Z (an 80-minute window ending at
-        # the extended period end, 2026-11-06T23:00Z). Both boundaries are exact.
+        # The grant renewed by the PO (slack:1793992561.239129): earliest start 20:00Z, latest start 20:50Z (an 80-minute window ending at
+        # the extended period end, 2026-11-06T22:10Z). Both boundaries are exact.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-06T20:00:00Z")
         init.materialize_authoritative_smoke_occurrence(
-            str(ROOT.parents[1]), template, "2026-11-06T21:40:00Z")
-        for outside in ("2026-11-06T19:59:59Z", "2026-11-06T21:40:01Z"):
+            str(ROOT.parents[1]), template, "2026-11-06T20:50:00Z")
+        for outside in ("2026-11-06T19:59:59Z", "2026-11-06T20:50:01Z"):
             with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
                 init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
@@ -164,7 +164,7 @@ class ShortSmokeContract(unittest.TestCase):
         init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, checkpoint, repo)
         envelope = init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
         self.assertEqual(envelope["approvalRef"], scope["approvalRef"])
-        self.assertEqual(envelope["selectionApprovalRef"], "slack:1793993133.123929")
+        self.assertEqual(envelope["selectionApprovalRef"], "slack:1793992561.239129")
         wrong_release = copy.deepcopy(occurrence)
         wrong_release["release"]["testedSha"] = "f" * 40
         with self.assertRaisesRegex(init.Refused, "relative-occurrence-request-release"):
@@ -212,14 +212,14 @@ class ShortSmokeContract(unittest.TestCase):
         init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, raw(settled), repo, chain)
         # a preflight-only setup failure (R10 run 42059286564) settles at its bound, 10 campaign requests and nothing else: still admitted
         bounded = chain[:2] + [node(settled_head, [reserve, dict(settle, allocation=dict(settle["allocation"], requests=10))])]
-        self.assertEqual(approve(dict(settled, period=dict(settled["period"], requests=10)), bounded)["selectionApprovalRef"], "slack:1793993133.123929")
-        self.assertEqual(approve(settled, chain)["selectionApprovalRef"], "slack:1793993133.123929")
+        self.assertEqual(approve(dict(settled, period=dict(settled["period"], requests=10)), bounded)["selectionApprovalRef"], "slack:1793992561.239129")
+        self.assertEqual(approve(settled, chain)["selectionApprovalRef"], "slack:1793992561.239129")
         # prepare: the verified head adds this run's own open reserve; the approval chain is computed at its parent, which admits
         own_reserve = dict(reserve, runId="41999999999", provenance="request-sha256:" + request_sha, atUtc="2026-11-05T12:00:05Z")
         full = chain + [node("a" * 40, [reserve, settle, own_reserve])]
         parent = init.manual_approval_chain(full, ("R10-3b040043-smoke15", "41999999999", 1, request_sha))
         self.assertEqual(parent, chain)
-        self.assertEqual(approve(settled, parent)["selectionApprovalRef"], "slack:1793993133.123929")
+        self.assertEqual(approve(settled, parent)["selectionApprovalRef"], "slack:1793992561.239129")
         bad_settle = lambda **over: chain[:2] + [node(settled_head, [reserve, dict(settle, **over)])]
         chain_refusals = [None, [], chain[:2], [node(root, []), node(settled_head, [reserve])],
                           bad_settle(type="release"), bad_settle(runId="41960376783"), bad_settle(attempt=2),
@@ -288,7 +288,7 @@ class ShortSmokeContract(unittest.TestCase):
             bundle = json.loads(bundle_with(ACCOUNT_ID))
             maintained_id = bundle["accounts"]["maintained-read-only"]["accountId"]
             nonsecret_facts = facts(
-                ownerApprovalReference="slack:1793993133.123929",
+                ownerApprovalReference="slack:1793992561.239129",
                 approvedBy="Akin", reviewer="review:unit@1",
                 producerReviewReference="review:producer@1",
                 accounts={
@@ -312,7 +312,7 @@ class ShortSmokeContract(unittest.TestCase):
             self.assertEqual(prepared["requestSha256"], request_sha)
             self.assertEqual(prepared["liveMinutes"], 40)
             self.assertEqual(prepared["facts"]["actionApproval"]["selectionApprovalRef"],
-                             "slack:1793993133.123929")
+                             "slack:1793992561.239129")
             self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
                              "slack:1793814535.013849")
 
