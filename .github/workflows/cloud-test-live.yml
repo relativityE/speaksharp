@@ -673,19 +673,34 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Project content-free per-case timing telemetry
-        if: always() && steps.init.outcome == 'success'
+        # ALWAYS, including a proof, preflight or init failure (Sam 1793931423.224679): every one of the fifteen cases gets a row bound to
+        # this run, attempt and head. NOT RUN needs affirmative evidence (no started.txt); started without case results is UNKNOWN.
+        if: always()
         env:
           CASES: ${{ steps.init.outputs.cases }}
+          MANUAL_REQUEST: ${{ inputs.request }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
         run: |
           set -euo pipefail
-          # Every selected case and the measured stages, always: a run that never started is explicit NOT RUN rows plus where and when
-          # setup stopped (run 42142985744 left no table because collection needed files only the run stage creates).
+          out="${CT_OUT:-$RUNNER_TEMP/out-absent}"
+          # The selection: init's admitted cases, else the admitted request, else (init never ran) the request this run was given.
+          req="${CT_REQUEST:-}"
+          if [ -z "$req" ] || [ ! -f "$req" ]; then
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+              req="$MANUAL_REQUEST"
+            else
+              req="$RUNNER_TEMP/selection-request.json"
+              (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$req")
+            fi
+          fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py case-timings \
-            --cases-dir "$CT_OUT/plan/run/cases" --case-results "$CT_OUT/plan/run/case-results.json" \
-            --cases "$CASES" --started-file "$CT_OUT/started.txt" --stage-trace "$CT_OUT/stage-trace.tsv" \
-            --out "$RUNNER_TEMP/case-timings.json"
+            --cases-dir "$out/plan/run/cases" --case-results "$out/plan/run/case-results.json" \
+            --cases "${CASES:-}" --request "$req" --started-file "$out/started.txt" --stage-trace "$out/stage-trace.tsv" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" \
+            --workflow-start-utc "${WORKFLOW_START_UTC:-}" --out "$RUNNER_TEMP/case-timings.json"
       - name: Retain content-free per-case timing telemetry
-        if: always() && steps.init.outcome == 'success'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cloud-test-case-timings

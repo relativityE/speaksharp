@@ -88,6 +88,8 @@ run_stage() {
       exec "$@"
     ) || rc=$?
     # Content-free stage timing (Bezos M2 / run 42142985744): stage, start and end UTC, exit code; never a value, path or argument.
+    # Scope (Sam 1793931423.224679): the WRAPPED command only. A refusal raised before it (stage-environment checks, BLOCKED_SETUP)
+    # leaves no row, and steps outside this script are not traced; the timing table states this (init_run_inputs.TRACE_SCOPE).
     [ -z "${OUT:-}" ] || [ ! -d "${OUT:-}" ] || printf '%s\t%s\t%s\t%s\n' "$stage" "$t0" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$OUT/stage-trace.tsv"
     return "$rc"
   fi

@@ -1605,23 +1605,68 @@ def stage_trace_rows(trace_file):
     return rows
 
 
-def run_timing_export(cases_dir, case_results_file, selected, started_file, trace_file):
-    """Every selected case and the measured stages, ALWAYS (Bezos / Sam 1793929175.395989; run 42142985744): when the run stage never started
-    (no started.txt), each selected case is an explicit NOT RUN row and the stage trace says where and when setup stopped; otherwise the
-    per-case timings come from case_timing_export exactly as before. Content-free either way."""
-    _need(isinstance(selected, list) and selected and len(selected) == len(set(selected))
-          and all(re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", x or "") for x in selected), "case-timing-selection")
-    started = isinstance(started_file, str) and os.path.isfile(started_file) and not os.path.islink(started_file)
-    if started:
-        doc = case_timing_export(cases_dir, case_results_file, selected)
+ALL_AHT = tuple("AHT-%02d" % n for n in range(1, 16))
+TRACE_SCOPE = ("stage-trace rows cover each run_stage WRAPPED command (start, end, exit code); a refusal raised before the command "
+               "(stage-environment checks, BLOCKED_SETUP) has no row, and steps outside execute_run.sh are not traced")
+
+
+def selection_from_request(request_file):
+    """The selected cases from the committed or admitted request itself (used when init never ran, so its `cases` output is absent)."""
+    doc = _load(request_file)
+    sel = doc.get("selection") if isinstance(doc, dict) else None
+    _need(isinstance(sel, list) and sel and all(isinstance(r, dict) and isinstance(r.get("case"), str) for r in sel), "case-timing-request")
+    return [r["case"] for r in sel]
+
+
+def run_timing_export(cases_dir, case_results_file, selected, started_file, trace_file, binding):
+    """The one-page table's data, ALWAYS (Bezos concept, Sam 1793929175.395989 / 1793931423.224679 / 1793932085.542759 / 1793932174.880109).
+    Every one of the fifteen cases has a row bound to this run, attempt and head:
+      NOT SELECTED   - not in this run's selection;
+      NOT RUN        - selected, with AFFIRMATIVE evidence it never ran: no started.txt, which the run stage writes before admission and
+                       before any case;
+      UNKNOWN        - selected, the run stage started, but no case results exist: a case may have run, so nothing is claimed;
+      PASS/FAIL/...  - from the digest-bound case results, exactly as case_timing_export projects them.
+    Plus the measured stages (content-free trace), the stage where setup stopped, and the workflow-start and run-start times, so queue,
+    setup and run time are preserved. Content-free throughout."""
+    _need(isinstance(binding, dict) and re.fullmatch(r"[1-9][0-9]{0,19}", str(binding.get("runId") or "")) is not None
+          and re.fullmatch(r"[1-9][0-9]{0,3}", str(binding.get("runAttempt") or "")) is not None
+          and LR.SHA40.match(str(binding.get("headSha") or "")) is not None
+          and (binding.get("workflowStartUtc") in (None, "") or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", binding["workflowStartUtc"])),
+          "case-timing-binding")
+    _need(isinstance(selected, list) and selected and len(selected) == len(set(selected)) and all(x in ALL_AHT for x in selected),
+          "case-timing-selection")
+    started_at = None
+    if isinstance(started_file, str) and os.path.lexists(started_file):
+        _need(os.path.isfile(started_file) and not os.path.islink(started_file), "case-timing-started")
+        started_at = _read(started_file).decode("ascii", "replace").strip()
+        _need(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", started_at) is not None, "case-timing-started")
+    has_results = isinstance(case_results_file, str) and os.path.lexists(case_results_file)
+    if started_at is None:
+        _need(not has_results, "case-timing-results-without-run")
+        outcome, rows = "not-started", {c: {"caseId": c, "result": "NOT RUN", "evidence": "run-stage-never-started"} for c in selected}
+    elif not has_results:
+        outcome, rows = "started-without-results", {c: {"caseId": c, "result": "UNKNOWN", "evidence": "started-without-case-results"} for c in selected}
     else:
-        _need(not (isinstance(case_results_file, str) and os.path.lexists(case_results_file)), "case-timing-results-without-run")
-        doc = {"schema": "speaksharp-case-timings-v1", "contentSafe": True, "selectedCases": selected,
-               "cases": [{"caseId": c, "result": "NOT RUN", "timingStatus": "NOT OBSERVED", "startedAtUtc": None, "endedAtUtc": None,
-                          "durationMs": None} for c in selected]}
+        outcome = "results"
+        rows = {r["caseId"]: dict(r, evidence="digest-bound-case-results") for r in case_timing_export(cases_dir, case_results_file, selected)["cases"]}
+    cases = []
+    for c in ALL_AHT:
+        if c not in selected:
+            cases.append({"caseId": c, "result": "NOT SELECTED", "evidence": "not-in-selection", "timingStatus": "NOT APPLICABLE",
+                          "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
+            continue
+        row = rows[c]
+        cases.append({"caseId": c, "result": row["result"], "evidence": row["evidence"],
+                      "timingStatus": row.get("timingStatus", "NOT OBSERVED"), "startedAtUtc": row.get("startedAtUtc"),
+                      "endedAtUtc": row.get("endedAtUtc"), "durationMs": row.get("durationMs")})
     stages = stage_trace_rows(trace_file)
-    failed = next((r["stage"] for r in stages if r["exitCode"] != 0), None)
-    return dict(doc, schema="speaksharp-case-timings-v2", runStarted=started, stages=stages, stoppedAtStage=failed)
+    wstart = binding.get("workflowStartUtc") or None
+    setup_ms = int((_utc(started_at) - _utc(wstart)).total_seconds() * 1000) if (started_at and wstart) else None
+    return {"schema": "speaksharp-case-timings-v2", "contentSafe": True,
+            "binding": {"runId": str(binding["runId"]), "runAttempt": int(binding["runAttempt"]), "headSha": binding["headSha"]},
+            "outcome": outcome, "runStarted": started_at is not None, "selectedCases": selected, "cases": cases,
+            "timings": {"workflowStartUtc": wstart, "runStageStartedAtUtc": started_at, "workflowStartToRunStageMs": setup_ms},
+            "stages": stages, "stoppedAtStage": next((r["stage"] for r in stages if r["exitCode"] != 0), None), "traceScope": TRACE_SCOPE}
 
 
 def main(argv):
@@ -1632,7 +1677,7 @@ def main(argv):
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
                  "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
-                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now", "--started-file", "--stage-trace"):
+                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now", "--started-file", "--stage-trace", "--run-attempt"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -1642,7 +1687,9 @@ def main(argv):
             _write_private(x.out, first_observation_export(x.cases_dir, (x.cases or "").split(",")))
             return 0
         if x.command == "case-timings":
-            _write_private(x.out, run_timing_export(x.cases_dir, x.case_results, (x.cases or "").split(","), x.started_file, x.stage_trace))
+            selected = [c for c in (x.cases or "").split(",") if c] or selection_from_request(x.request)
+            binding = {"runId": x.run_id, "runAttempt": x.run_attempt, "headSha": x.source_sha, "workflowStartUtc": x.workflow_start_utc}
+            _write_private(x.out, run_timing_export(x.cases_dir, x.case_results, selected, x.started_file, x.stage_trace, binding))
             return 0
         if x.command == "completion-deadline":
             now = _utc(x.now) if x.now else datetime.now(timezone.utc)

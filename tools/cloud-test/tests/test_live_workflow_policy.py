@@ -517,11 +517,13 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn("init_run_inputs.py first-observations", project_observations["run"])
         project_timings = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Project content-free per-case timing telemetry")
         self.assertIn("init_run_inputs.py case-timings", project_timings["run"])
-        self.assertIn('--case-results "$CT_OUT/plan/run/case-results.json"', project_timings["run"])
+        self.assertIn('--case-results "$out/plan/run/case-results.json"', project_timings["run"])
         # Run 42142985744: the timing table is ALWAYS produced (every selected case, NOT RUN when the run never started, plus the stage trace),
         # while the collection steps that need the run's own files skip, rather than fail, when the run step never started.
-        self.assertIn('--started-file "$CT_OUT/started.txt" --stage-trace "$CT_OUT/stage-trace.tsv"', project_timings["run"])
-        self.assertEqual(project_timings["if"], "always() && steps.init.outcome == 'success'")
+        self.assertIn('--started-file "$out/started.txt" --stage-trace "$out/stage-trace.tsv"', project_timings["run"])
+        self.assertEqual(project_timings["if"], "always()")
+        retain_timings = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Retain content-free per-case timing telemetry")
+        self.assertEqual(retain_timings["if"], "always()")
         run_step = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Stage runner (run)"))
         self.assertEqual(run_step["id"], "run")
         for name in ("Collect, verify the binding, qualify every selected row, and project the closed record",
@@ -1040,3 +1042,52 @@ class PdfjsComposition(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TimingStepExecution(unittest.TestCase):
+    """Sam 1793931423.224679: execute the ACTUAL `run:` text of the timing step, with the environment the job would give it."""
+
+    def setUp(self):
+        import yaml  # noqa: PLC0415 - the policy tests already require it
+        with open(YML, encoding="utf-8") as f:
+            steps = yaml.safe_load(f)["jobs"]["live"]["steps"]
+        self.step = next(s for s in steps if s.get("name") == "Project content-free per-case timing telemetry")
+        self.d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, self.d)
+
+    def run_step(self, **env):
+        base = {"PATH": os.environ["PATH"], "RUNNER_TEMP": self.d, "GITHUB_RUN_ID": "42142985744", "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_SHA": "7" * 40, "GITHUB_EVENT_NAME": "workflow_dispatch", "WORKFLOW_START_UTC": "2026-11-06T01:18:48Z",
+                "MANUAL_REQUEST": "tools/cloud-test/config/runs/R10-3b040043-all15.json", "CASES": "", "NIGHTLY_REQUEST_B64": ""}
+        base.update(env)
+        r = subprocess.run(["bash", "-c", self.step["run"]], cwd=REPO, env=base, capture_output=True, text=True)
+        out = os.path.join(self.d, "case-timings.json")
+        return r, (json.load(open(out, encoding="utf-8")) if os.path.exists(out) else None)
+
+    def test_a_failure_before_init_still_yields_every_case_from_the_committed_request(self):
+        # proof, preflight or init failed: no CASES, no CT_REQUEST, CT_OUT never created
+        r, doc = self.run_step()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(doc["outcome"], "not-started")
+        self.assertEqual({c["result"] for c in doc["cases"]}, {"NOT RUN"})
+        self.assertEqual(len(doc["cases"]), 15)
+        self.assertEqual(doc["binding"], {"runId": "42142985744", "runAttempt": 1, "headSha": "7" * 40})
+
+    def test_started_without_results_is_unknown_through_the_actual_step(self):
+        out = os.path.join(self.d, "ct-out"); os.makedirs(out)
+        with open(os.path.join(out, "started.txt"), "w", encoding="utf-8") as f:
+            f.write("2026-11-06T01:30:00Z\n")
+        r, doc = self.run_step(CT_OUT=out, CASES="AHT-01,AHT-15")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(doc["outcome"], "started-without-results")
+        by = {c["caseId"]: c["result"] for c in doc["cases"]}
+        self.assertEqual((by["AHT-01"], by["AHT-15"], by["AHT-02"]), ("UNKNOWN", "UNKNOWN", "NOT SELECTED"))
+
+    def test_a_scheduled_run_without_init_takes_the_selection_from_its_admitted_nightly_request(self):
+        import base64  # noqa: PLC0415
+        req = {"selection": [{"case": "AHT-03"}, {"case": "AHT-09"}]}
+        r, doc = self.run_step(GITHUB_EVENT_NAME="schedule", MANUAL_REQUEST="",
+                               NIGHTLY_REQUEST_B64=base64.b64encode(json.dumps(req).encode()).decode(), WORKFLOW_START_UTC="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(doc["selectedCases"], ["AHT-03", "AHT-09"])
+        self.assertEqual(sum(c["result"] == "NOT RUN" for c in doc["cases"]), 2)
