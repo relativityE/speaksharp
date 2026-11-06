@@ -90,7 +90,14 @@ export interface PrivateSttConfig {
      * this line and it appearing in a diff.
      */
     acknowledgeNotProductionReady?: boolean;
-    /** Owner-reviewed admission is separate from the immutable model package. */
+    /**
+     * NOT an activation path. An earlier draft let a row `{packageDigest, evidenceSha256}` here make an
+     * imported package the production default, but any syntactically valid 64-hex string satisfied it:
+     * nothing bound the hash to a completed, authoritative evaluation. Until that binding exists (the
+     * model-decision increment), a package is production-eligible only through the registry's
+     * `activationReady`, like every other candidate. The field stays typed so a stale config row is
+     * visibly ignored rather than a type error; `activeCandidate()` never reads it.
+     */
     approvedPackages?: Array<{ packageDigest: string; evidenceSha256: string }>;
 }
 
@@ -155,9 +162,7 @@ export function activeCandidate(
         );
     }
 
-    const packageApproved = candidate.modelPackage && config.approvedPackages?.some(row =>
-        row.packageDigest === candidate.modelPackage!.digest && /^[a-f0-9]{64}$/.test(row.evidenceSha256));
-    if (!candidate.activationReady && !packageApproved && config.acknowledgeNotProductionReady !== true) {
+    if (!candidate.activationReady && config.acknowledgeNotProductionReady !== true) {
         // NEVER silently substitute. A configured candidate that is not production-approved must stop
         // the boot with its reason, not quietly become a different model whose transcript would then
         // be attributed to the one that was asked for.

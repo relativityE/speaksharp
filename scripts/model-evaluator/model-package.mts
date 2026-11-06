@@ -5,6 +5,21 @@ import { fileURLToPath } from 'node:url';
 import { sealModelPackage, verifyModelPackage, expectedModelIdentity, candidateFromPackage, type ModelPackage } from '../../frontend/src/services/transcription/modelPackage';
 import { verifyProjectRuntimeBindings } from './runtime-bindings.mjs';
 import { CANDIDATES } from '../../frontend/src/services/transcription/candidateRegistry';
+import { moonshineAssetsFor } from '../../frontend/src/services/transcription/moonshineAssetPins';
+
+/**
+ * Moonshine packages are upstream-pinned data (the parser requires https, like the built-in Moonshine models):
+ * the installed adapter fetches each component from its pinned URL after user consent and verifies its bytes.
+ * Import admits only the upstream hosts the reviewed built-in pins already use; it never adds a download source.
+ */
+const UPSTREAM_PIN_HOSTS: ReadonlySet<string> = new Set(Object.values(CANDIDATES)
+    .filter(candidate => candidate.engine === 'moonshine-streaming' && !candidate.modelPackage)
+    .flatMap(candidate => moonshineAssetsFor(candidate).map(asset => new URL(asset.url).host)));
+function upstreamPinned(pkg: ModelPackage, url: string): boolean {
+    if (!url.startsWith('https://')) return false;
+    if (pkg.engine !== 'moonshine-streaming' || !UPSTREAM_PIN_HOSTS.has(new URL(url).host)) throw Error('PACKAGE_IMPORT_UPSTREAM_HOST_NOT_APPROVED');
+    return true;
+}
 
 export async function importModelPackage(root: string, descriptorPath: string) {
     const source = await realpath(resolve(descriptorPath));
@@ -19,6 +34,8 @@ export async function importModelPackage(root: string, descriptorPath: string) {
         if (!path.startsWith(directory+'/') || await realpath(path)!==path || !(await stat(path)).isFile()) throw Error('PACKAGE_IMPORT_PATH_INVALID');
         const bytes = await readFile(path);
         if (bytes.length!==asset.bytes || createHash('sha256').update(bytes).digest('hex')!==asset.sha256) throw Error('PACKAGE_IMPORT_ASSET_MISMATCH');
+        // An upstream-pinned component is proven by its local bytes but not copied: the runtime fetches it from its pin.
+        if (upstreamPinned(pkg,asset.url)) continue;
         if (!asset.url.startsWith('/models/')) throw Error('PACKAGE_IMPORT_REQUIRES_LOCAL_ASSETS');
         const destination = resolve(root,'frontend/public',asset.url.slice(1));
         if (!destination.startsWith(resolve(root,'frontend/public/models')+'/')) throw Error('PACKAGE_IMPORT_DESTINATION_INVALID');
@@ -45,16 +62,21 @@ export async function importModelPackage(root: string, descriptorPath: string) {
     return {candidateId:pkg.id,packageDigest:pkg.packageDigest,descriptor:target,
         identity:expectedModelIdentity(candidateFromPackage(pkg,target))};
 }
-/** Stage adoption of the SAME package. Does not activate, deploy, or alter the current selector. */
+/**
+ * Stage an adoption PROPOSAL for the SAME package. Does not activate, deploy, or alter the current selector,
+ * and its output is not a selector config: `activeCandidate()` admits a package only through the registry's
+ * activationReady, because nothing yet binds a report hash to an authoritative completed evaluation.
+ */
 export async function stagePackageAdoption(root: string, descriptorPath: string, reportPath: string, output: string) {
     const pkg = await verifyModelPackage(JSON.parse(await readFile(descriptorPath,'utf8')));
     await verifyProjectRuntimeBindings(root);
     const bytes=await readFile(reportPath); const report=JSON.parse(bytes.toString());
     if(report.qualification!=='PASS' || report.mode!=='product-lifecycle' || !Array.isArray(report.qualifiedPackages)
         || !report.qualifiedPackages.includes(pkg.packageDigest)) throw Error('PACKAGE_NOT_PRODUCT_QUALIFIED');
-    const config={candidate:pkg.id,approvedPackages:[{packageDigest:pkg.packageDigest,evidenceSha256:createHash('sha256').update(bytes).digest('hex')}]};
-    await writeFile(output,JSON.stringify(config,null,2)+'\n',{flag:'wx'});
-    return {packageDigest:pkg.packageDigest,stagedConfig:output,activation:'REQUIRES_SEPARATE_OWNER_SELECTION'};
+    const proposal={kind:'speaksharp-adoption-proposal',candidate:pkg.id,packageDigest:pkg.packageDigest,
+        productReportSha256:createHash('sha256').update(bytes).digest('hex'),activation:'REQUIRES_REGISTRY_ACTIVATION_REVIEW'};
+    await writeFile(output,JSON.stringify(proposal,null,2)+'\n',{flag:'wx'});
+    return {packageDigest:pkg.packageDigest,stagedProposal:output,activation:proposal.activation};
 }
 if (process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
     const [operation,input,arg,output]=process.argv.slice(2);

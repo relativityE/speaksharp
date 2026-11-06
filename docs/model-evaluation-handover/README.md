@@ -176,7 +176,7 @@ Compatible package workflow (not activation authorization):
 ```bash
 pnpm exec tsx scripts/model-evaluator/model-package.mts import /operator/package/package.json
 pnpm exec tsx scripts/model-evaluator/run.mts --mode product-lifecycle
-pnpm exec tsx scripts/model-evaluator/model-package.mts stage-adoption /operator/package/package.json /private/product-report.json /private/staged-config.json
+pnpm exec tsx scripts/model-evaluator/model-package.mts stage-adoption /operator/package/package.json /private/product-report.json /private/adoption-proposal.json
 ```
 
 Product mode delegates to the guarded runner; the command alone cannot run. The authoritative
