@@ -3,7 +3,8 @@
 function aborted(){const e=new Error('guarded launch cancelled');e.name='AbortError';e.code='ABORT_ERR';return e;}
 function bounded(promise,ms,label){let timer;return Promise.race([Promise.resolve(promise),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label+' cleanup timeout')),ms);})]).finally(()=>clearTimeout(timer));}
 function abortableContext(promise,signal){if(!signal)return promise;return new Promise((resolve,reject)=>{const abort=()=>reject(aborted());if(signal.aborted){Promise.resolve(promise).catch(()=>{});return abort();}signal.addEventListener('abort',abort,{once:true});Promise.resolve(promise).then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));});}
-async function ownedLaunch({signal,prepareMedia,createGuard,createBrowser,createContext,cleanupTimeoutMs=3000}){
+async function ownedLaunch({signal,prepareMedia,createGuard,createBrowser,createContext,cleanupTimeoutMs=3000,onPhase}){
+ const phase=p=>{if(typeof onPhase==='function')try{onPhase(p);}catch{}};
  let media=null,guard=null,browser=null,cancelled=signal?.aborted===true,mediaCleaned=false,guardClose=null;const errors=[];
  const cleanupMedia=()=>{if(media&&!mediaCleaned){mediaCleaned=true;try{media.cleanup();}catch(x){errors.push(x.message);}}};
  const closeGuard=()=>{if(!guard)return Promise.resolve();if(!guardClose)guardClose=bounded(Promise.resolve().then(()=>guard.close(cancelled?'launch-aborted':'launch-failed')),cleanupTimeoutMs,'guard').catch(x=>{errors.push(x.message);});return guardClose;};
@@ -13,10 +14,10 @@ async function ownedLaunch({signal,prepareMedia,createGuard,createBrowser,create
  const checkpoint=()=>{if(cancelled||signal?.aborted)throw aborted();};
  signal?.addEventListener('abort',cancel,{once:true});
  try{
-  checkpoint();media=prepareMedia();checkpoint();
-  guard=await createGuard(media);checkpoint();
-  browser=await createBrowser(guard,media);checkpoint();
-  const context=await abortableContext(createContext(browser,guard),signal);checkpoint();
+  checkpoint();phase('media-prepare');media=prepareMedia();checkpoint();
+  phase('guard-start');guard=await createGuard(media);checkpoint();
+  phase('browser-launch');browser=await createBrowser(guard,media);checkpoint();
+  phase('context-create');const context=await abortableContext(createContext(browser,guard),signal);checkpoint();
   return {media,guard,browser,context};
  }catch(e){
   try{guard?.cancelAll(cancelled?'launch-aborted':'launch-failed');}catch(x){errors.push(x.message);}

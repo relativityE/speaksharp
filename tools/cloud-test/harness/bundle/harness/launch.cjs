@@ -46,7 +46,7 @@ async function launchGuarded(opts) {
   const pwPath = require.resolve('playwright', { paths: [process.cwd()] });
   const { chromium } = require(pwPath);
   const b = readJson(opts.browserJson);
-  const owned=await ownedLaunch({signal:opts.signal,
+  const owned=await ownedLaunch({signal:opts.signal,onPhase:opts.onPhase,
     prepareMedia:()=>opts.media ? mediaFlags(opts.media,opts.runDir,b.runAsUid,opts.privateMediaParent):null,
     createGuard:()=>startGuard(opts.policy,{signal:opts.signal,runDir:opts.runDir,ledgerFile:opts.ledgerFile,logFile:opts.logFile,securityApprovalFile:opts.securityApprovalFile,readbackOracle:opts.readbackOracle,expectedLedgerIdentity:opts.expectedLedgerIdentity,reserveTake:opts.reserveTake,caseRequestAllowance:opts.caseRequestAllowance,onAllowanceExhausted:opts.onAllowanceExhausted,onFatal:opts.onFatal}),
     createBrowser:async(guard,media)=>{
