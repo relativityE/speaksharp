@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ComparisonBudget, LIMITS, MODELS, validateApproval, requireCompatibleBackend, elapsedMs, privateTimingMetrics, canonicalCaseReceipts, type ExecutionApproval } from './comparisonBounds';
+import { ComparisonBudget, LIMITS, MODELS, caseMs, validateApproval, requireCompatibleBackend, elapsedMs, privateTimingMetrics, canonicalCaseReceipts, type ExecutionApproval } from './comparisonBounds';
 const user = '11111111-1111-4111-8111-111111111111';
 const session = '22222222-2222-4222-8222-222222222222';
 const recording = '33333333-3333-4333-8333-333333333333';
@@ -13,7 +13,7 @@ export function approval(): ExecutionApproval {
     expiresAt: new Date(now + LIMITS.wholeRunMs).toISOString(), takes: 18,
     retention: 'EMPTY_EXISTING_TEST_ACCOUNT_NORMAL_NEWEST_ONE', maxApiRequests: 3240, maxMutations: 2160, wholeRunMs: 7680000 };
 }
-function create() { const budget = new ComparisonBudget(approval(), () => now); budget.beginTake(); return budget; }
+function create() { const budget = new ComparisonBudget(approval(), () => now); budget.beginTake('v2:base.en'); return budget; }
 function post(b: ComparisonBudget, endpoint: string, body: unknown = {}) {
   b.admit({ url: api + endpoint, method: 'POST', body });
 }
@@ -25,9 +25,9 @@ describe('bounded one-time product transport', () => {
   it('requires campaign identity and an exact approved smaller population without relaxing absolute caps',()=>{
     expect(()=>validateApproval({...approval(),campaignSha256:''},now)).toThrow();
     expect(()=>validateApproval({...approval(),takes:19},now)).toThrow();
-    const bounded=new ComparisonBudget({...approval(),takes:1},()=>now);bounded.beginTake();
+    const bounded=new ComparisonBudget({...approval(),takes:1},()=>now);bounded.beginTake('v2:base.en');
     bounded.bindSession(session);bounded.finishTake();bounded.finishRun();
-    expect(()=>bounded.beginTake()).toThrow('bounded_take_count_exceeded');
+    expect(()=>bounded.beginTake('v2:base.en')).toThrow('bounded_take_count_exceeded');
   });
   it('binds a promotion policy only by an exact digest in the approval, never by its shape',()=>{
     expect(()=>validateApproval({...approval(),promotionPolicySha256:'f'.repeat(64)},now)).not.toThrow();
@@ -48,30 +48,30 @@ describe('bounded one-time product transport', () => {
     const resume={priorSessionIds:[session],priorCaseKeys:['v2:base.en:1:fixture-001','parakeet:tdt-v3:int8:1:fixture-001'],receiptSha256:'a'.repeat(64)};
     const b=new ComparisonBudget({...approval(),resume},()=>now);
     expect(b.snapshot()).toMatchObject({takesStarted:1,caseAttempts:2,completedSessionCount:0,priorOwnedSessionCount:1});
-    for(let n=1;n<=17;n++){b.beginTake();b.bindSession(`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`);b.finishTake();}
-    b.finishRun();expect(b.snapshot()).toMatchObject({completedSessionCount:17,actualRecordingStarts:18,caseAttempts:19});expect(()=>b.beginTake()).toThrow('bounded_take_count_exceeded');
+    for(let n=1;n<=17;n++){b.beginTake('v2:base.en');b.bindSession(`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`);b.finishTake();}
+    b.finishRun();expect(b.snapshot()).toMatchObject({completedSessionCount:17,actualRecordingStarts:18,caseAttempts:19});expect(()=>b.beginTake('v2:base.en')).toThrow('bounded_take_count_exceeded');
   });
   it('admits only the exact prior run-owned attempt, without calling it completed or permitting a nineteenth take',()=>{
     const resume={priorSessionIds:[session],priorCaseKeys:['v2:base.en:1:fixture-001'],receiptSha256:'a'.repeat(64)};
     const b=new ComparisonBudget({...approval(),resume},()=>now);b.assertExistingSessions([session]);
     expect(b.snapshot()).toMatchObject({takesStarted:1,completedSessionCount:0,priorOwnedAttemptCount:1});
-    b.beginTake();expect(()=>b.bindSession(session)).toThrow('bounded_session_identity_changed');
+    b.beginTake('v2:base.en');expect(()=>b.bindSession(session)).toThrow('bounded_session_identity_changed');
     const clean=new ComparisonBudget({...approval(),resume},()=>now);
-    for(let n=1;n<18;n++){clean.beginTake();clean.bindSession(`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`);clean.finishTake();}
+    for(let n=1;n<18;n++){clean.beginTake('v2:base.en');clean.bindSession(`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`);clean.finishTake();}
     clean.finishRun();expect(clean.snapshot().completedSessionCount).toBe(17);
-    expect(()=>clean.beginTake()).toThrow('bounded_take_count_exceeded');
+    expect(()=>clean.beginTake('v2:base.en')).toThrow('bounded_take_count_exceeded');
     const foreign=new ComparisonBudget({...approval(),resume},()=>now);
     expect(()=>foreign.assertExistingSessions([recording])).toThrow('bounded_account_not_empty_or_run_owned');
     expect(()=>validateApproval({...approval(),resume:{...resume,priorSessionIds:[session,session],priorCaseKeys:['one','two']}},now)).toThrow('bounded_resume_binding_invalid');
   });
   it('reserves prior preflight headroom without increasing any absolute bound',()=>{
     const reservedBeforeRun={apiRequests:LIMITS.apiRequests-1,mutations:0,localRequests:0,assetRequests:0};
-    const b=new ComparisonBudget({...approval(),reservedBeforeRun},()=>now);b.beginTake();
+    const b=new ComparisonBudget({...approval(),reservedBeforeRun},()=>now);b.beginTake('v2:base.en');
     post(b,'/functions/v1/check-usage-limit');
     expect(()=>post(b,'/functions/v1/check-usage-limit')).toThrow('bounded_request_count_exceeded');
     expect(()=>validateApproval({...approval(),reservedBeforeRun:{...reservedBeforeRun,localRequests:-1}},now)).toThrow('bounded_prior_reservation_invalid');
     expect(()=>validateApproval({...approval(),reservedBeforeRun:{...reservedBeforeRun,assetRequests:LIMITS.assetRequests+1}},now)).toThrow('bounded_prior_reservation_invalid');
-    const sockets=new ComparisonBudget({...approval(),reservedBeforeRun:{apiRequests:0,mutations:0,localRequests:0,assetRequests:0,loopbackWebSockets:72}},()=>now);sockets.beginTake();
+    const sockets=new ComparisonBudget({...approval(),reservedBeforeRun:{apiRequests:0,mutations:0,localRequests:0,assetRequests:0,loopbackWebSockets:72}},()=>now);sockets.beginTake('v2:base.en');
     expect(()=>sockets.admitWebSocket('ws://127.0.0.1:5174/')).toThrow('bounded_socket_count_exceeded');
   });
   it('refuses an approved template when the independently reviewed backend contract is blocked or mismatched',()=>{
@@ -173,7 +173,7 @@ describe('bounded one-time product transport', () => {
   });
   it('rejects nonempty preexisting accounts and duplicate/substituted sessions', () => {
     expect(() => create().assertExistingSessions([session])).toThrow('bounded_account_not_empty_or_run_owned');
-    const b = create(); b.bindSession(session); b.finishTake(); b.beginTake();
+    const b = create(); b.bindSession(session); b.finishTake(); b.beginTake('v2:base.en');
     b.assertExistingSessions([session]);
     expect(() => b.bindSession(session)).toThrow('bounded_session_identity_changed');
   });
@@ -193,17 +193,30 @@ describe('bounded one-time product transport', () => {
   });
   it('allows exactly 18 unique completed takes and refuses a nineteenth', () => {
     const b = new ComparisonBudget(approval(), () => now);
-    for (let n=0; n<18; n++) { b.beginTake(); b.bindSession(`${String(n).padStart(8,'0')}-2222-4222-8222-222222222222`); b.finishTake(); }
+    for (let n=0; n<18; n++) { b.beginTake('v2:base.en'); b.bindSession(`${String(n).padStart(8,'0')}-2222-4222-8222-222222222222`); b.finishTake(); }
     b.finishRun(); expect(b.snapshot().completedSessionCount).toBe(18);
-    expect(() => b.beginTake()).toThrow('bounded_take_count_exceeded');
+    expect(() => b.beginTake('v2:base.en')).toThrow('bounded_take_count_exceeded');
   });
   it('enforces both the existing 420-second case cap and absolute whole-run/approval expiry', () => {
-    let clock = now; const b = new ComparisonBudget(approval(), () => clock); b.beginTake();
+    let clock = now; const b = new ComparisonBudget(approval(), () => clock); b.beginTake('v2:base.en');
     clock += LIMITS.caseMs;
     expect(() => b.admit({url: api + '/auth/v1/user', method:'GET'})).toThrow('bounded_deadline_exceeded');
     const a = approval(); a.expiresAt = new Date(now+10).toISOString();
-    clock = now; const c = new ComparisonBudget(a, () => clock); c.beginTake(); clock += 10;
+    clock = now; const c = new ComparisonBudget(a, () => clock); c.beginTake('v2:base.en'); clock += 10;
     expect(() => c.assertHealthy()).toThrow('bounded_deadline_exceeded');
+  });
+  it('binds the PO-approved 1,110-second limit to Parakeet takes only; other arms keep 420 s and unknown ids refuse', () => {
+    expect(MODELS.map(caseMs)).toEqual([420_000, 1_110_000, 420_000]);
+    expect(() => caseMs('v4:base:q4')).toThrow('bounded_unregistered_case_candidate');
+    let clock = now; const p = new ComparisonBudget(approval(), () => clock); p.beginTake('parakeet:tdt-v3:int8');
+    clock += LIMITS.caseMs; expect(() => p.assertHealthy()).not.toThrow();
+    clock = now + 1_110_000 - 1; expect(() => p.assertHealthy()).not.toThrow();
+    clock = now + 1_110_000; expect(() => p.assertHealthy()).toThrow('bounded_deadline_exceeded');
+    clock = now; const v = new ComparisonBudget(approval(), () => clock); v.beginTake('v2:base.en');
+    clock += LIMITS.caseMs; expect(() => v.assertHealthy()).toThrow('bounded_deadline_exceeded');
+    const u = new ComparisonBudget(approval(), () => now);
+    expect(() => u.beginTake('v4:base:q4')).toThrow('bounded_unregistered_case_candidate');
+    expect(u.snapshot().caseAttempts).toBe(0);
   });
   it('does not accept fabricated approval bounds, retention, origin or expiry', () => {
     for (const patch of [{decision:'PENDING'}, {takes:19}, {maxApiRequests:3241}, {maxMutations:2161},
@@ -218,7 +231,7 @@ describe('a case receipt carries the take session hash so a failed take can be r
     it('is null before any session and the sha256 of the bound session after it', async () => {
         const { createHash } = await import('node:crypto');
         const budget = new ComparisonBudget(approval(), () => now);
-        budget.beginTake();
+        budget.beginTake('v2:base.en');
         expect(budget.sessionSha256()).toBeNull();
         const id = '11111111-2222-4333-8444-555555555555';
         budget.bindSession(id);

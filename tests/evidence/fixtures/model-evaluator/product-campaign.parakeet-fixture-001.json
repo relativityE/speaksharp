@@ -6,5 +6,5 @@
     "parakeet:tdt-v3:int8"
   ],
   "corpus": "tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json",
-  "maximumTakes": 4
+  "maximumTakes": 6
 }

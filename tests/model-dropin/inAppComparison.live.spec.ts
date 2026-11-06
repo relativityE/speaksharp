@@ -19,7 +19,7 @@ import { attachProductEvidence } from '../../scripts/model-evaluator/product-evi
 import { effectiveBackend } from '../../frontend/src/services/transcription/modelPackage';
 import { sanitizeSelectionFailure, sanitizeSwitchOutcome } from './switchDiagnostics';
 import { readSourceBinding, assertSameSource, servedSourceFiles, viteRawSource } from '../../scripts/model-evaluator/source-binding';
-import { ComparisonBudget, elapsedMs, privateTimingMetrics, type ExecutionApproval } from './comparisonBounds';
+import { ComparisonBudget, caseMs, elapsedMs, privateTimingMetrics, type ExecutionApproval } from './comparisonBounds';
 import { readProductCampaign, verifyCampaignPackages } from '../../scripts/model-evaluator/product-campaign';
 import { startCachedModelServer, installChunkedCachedModelFetch, comparisonInitPage } from './cachedModelAssets';
 import { observeCompletedSave } from './completionObservation';
@@ -170,8 +170,9 @@ for (let trial = 0; trial < corpus.trials; trial++) for (const clip of corpus.cl
     const candidate = definition.id;
     if(priorCases.has(`${candidate}:${trial+1}:${clip.id}`))continue;
     test(`${candidate} trial ${trial + 1} ${clip.id} through SpeakSharp Start-Stop-save-reopen`, async ({ page }, info) => {
+        test.setTimeout(caseMs(candidate));
         let phase = 'preflight';
-        budget.beginTake();
+        budget.beginTake(candidate);
         let collector: Awaited<ReturnType<typeof attachProductEvidence>> | undefined;
         let collectorFinished = false;
         const receipt: Record<string, unknown> = {

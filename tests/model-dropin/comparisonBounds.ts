@@ -4,6 +4,15 @@ export const LIMITS = Object.freeze({ takes: 18, caseMs: 420_000, wholeRunMs: 7_
   apiRequestsPerTake: 180, mutationsPerTake: 120, apiRequests: 3240, mutations: 2160,
   localRequestsPerTake: 3000, localRequests: 54000, assetRequestsPerTake: 100, assetRequests: 1800 });
 export const MODELS = ['v2:base.en', 'parakeet:tdt-v3:int8', 'granite:turboctc-q4f16'] as const;
+/** Per-take limit. Parakeet (PO-approved 1,110 s) is the sum of every bounded wait in one take: sign-in and source
+ * check 72, its own model-preparation budget 300, recording 520, stop and save 120, attribution 4, reopen 90, so a slow
+ * take fails at its named check, not at the outer limit. The other registered arms keep the existing 420 s. */
+const CASE_MS: Readonly<Record<(typeof MODELS)[number], number>> = Object.freeze({
+  'v2:base.en': LIMITS.caseMs, 'parakeet:tdt-v3:int8': 1_110_000, 'granite:turboctc-q4f16': LIMITS.caseMs });
+export function caseMs(candidate: string): number {
+  if (!Object.hasOwn(CASE_MS, candidate)) throw Error('bounded_unregistered_case_candidate');
+  return CASE_MS[candidate as (typeof MODELS)[number]];
+}
 /** Reporter copies stay retained but never become a second canonical measurement. */
 export function canonicalCaseReceipts<T extends {candidate:string;trial:number;clip:string}>(entries:Array<{path:string;row:T}>):T[]{
   const seen=new Set<string>();const rows:T[]=[];
@@ -159,10 +168,11 @@ export class ComparisonBudget {
     if (this.failures.length) throw Error('bounded_run_previously_failed');
     if (this.now() >= this.deadline || (this.takeDeadline > 0 && this.now() >= this.takeDeadline)) this.refuse('bounded_deadline_exceeded');
   }
-  beginTake(): void {
+  beginTake(candidate: string): void {
     this.assertHealthy();
+    const limit = caseMs(candidate);
     if (++this.take > this.maximumCaseAdmissions) this.refuse('bounded_take_count_exceeded');
-    this.takeDeadline = this.now() + LIMITS.caseMs;
+    this.takeDeadline = this.now() + limit;
     this.counts = {}; this.takeRequests = this.takeMutations = 0;
     this.takeLocalRequests = this.takeAssetRequests = 0;
     this.takeSockets = 0;

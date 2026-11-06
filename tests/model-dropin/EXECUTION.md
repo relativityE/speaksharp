@@ -85,8 +85,13 @@ Focus and coaching remain NOT RUN. Each aggregate includes actual sample count.
 18 Open Mic takes = 3 registered models × 3 existing synthetic fixtures × 2 trials.
 Order: trial, clip, then incumbent / Parakeet / Granite; installed headed Chrome,
 sandbox enabled, fresh context per take, one worker, no retries, stop on first failure.
-The existing case limit is 420 seconds. Whole run is capped at 7,680 seconds (128
-minutes), including source checks and disposal. The approval expires no later than
+The case limit is 420 seconds for the incumbent and Granite and 1,110 seconds for
+Parakeet (PO-approved: the sum of every bounded wait in one take, including its
+300-second model-preparation budget), set from one table for both the budget and
+the Playwright test timeout. Whole run is capped at 7,680 seconds (128
+minutes), including source checks and disposal. The six-take paired campaign's worst
+case (3 × 420 + 3 × 1,110 = 4,590 s) fits; the 18-take campaign's per-take worst cases
+sum above the cap, which still applies and fails the run at its named deadline. The approval expires no later than
 128 minutes after admission. No failed login is automatically retried.
 
 At most 180 API requests / 120 mutation requests per take, and 3,240 / 2,160 for

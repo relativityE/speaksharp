@@ -58,14 +58,14 @@ const DATA_CONTRACTS=Object.freeze({
     [['clips','length'],3],[['clips',0,'id'],'fixture-001-mute'],[['clips',0,'control','kind'],'mute'],
     [['clips',1,'id'],'fixture-002-prefix-250ms'],[['clips',1,'control','kind'],'prefix-250ms'],
     [['clips',2,'id'],'fixture-003-mute'],[['clips',2,'control','kind'],'mute']]}),
-  'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json':Object.freeze({kind:'json',corpus:true,pins:[[['version'],1],[['trials'],2],
+  'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json':Object.freeze({kind:'json',corpus:true,pins:[[['version'],1],[['trials'],3],
     [['clips','length'],1],[['clips',0,'id'],'fixture-001'],[['clips',0,'wavSha256'],WAV['fixture-001']]]}),
   'tests/evidence/fixtures/model-evaluator/product-campaign.json':Object.freeze({kind:'json',pins:[[['schemaVersion'],1],[['mode'],'product-lifecycle'],
     [['candidates'],['v2:base.en','parakeet:tdt-v3:int8','granite:turboctc-q4f16']],
     [['corpus'],'tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json'],[['maximumTakes'],18]]}),
   'tests/evidence/fixtures/model-evaluator/product-campaign.parakeet-fixture-001.json':Object.freeze({kind:'json',pins:[[['schemaVersion'],1],
     [['mode'],'product-lifecycle'],[['candidates'],['v2:base.en','parakeet:tdt-v3:int8']],
-    [['corpus'],'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json'],[['maximumTakes'],4]]}),
+    [['corpus'],'tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json'],[['maximumTakes'],6]]}),
 });
 // Operator documentation: each required statement must appear exactly once (a raw-text wiring contract).
 const TEXT_CONTRACTS=Object.freeze({
@@ -232,7 +232,8 @@ function tokens(root,source) {
 
 const MODEL_WIRING=Object.freeze({
   'tests/model-dropin/inAppComparison.live.spec.ts':[
-    'budget.beginTake();',
+    'test.setTimeout(caseMs(candidate));',
+    'budget.beginTake(candidate);',
     "expect(switched.ok, 'shared product candidate switch succeeds without fallback').toBe(true);",
     "expect(product.productProof.verdict, 'existing collector must PASS with persisted verified identity').toBe('PASS');",
     'receipt.sessionSha256 = budget.sessionSha256();',

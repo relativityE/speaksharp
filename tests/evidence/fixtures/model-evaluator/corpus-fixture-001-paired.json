@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "trials": 2,
-  "note": "First paired product milestone (#1760): incumbent and one candidate on fixture-001 only, two trials each (the campaign reader requires at least two). Same synthetic fixture and conditions as corpus-synthetic-smoke.json; deliberately insufficient for model acceptance.",
+  "trials": 3,
+  "note": "First paired product milestone (#1760): incumbent and one candidate on fixture-001 only, three trials each (the PO chose three so that two paired comparisons remain after one interrupted, unmeasured incumbent take). Same synthetic fixture and conditions as corpus-synthetic-smoke.json; deliberately insufficient for model acceptance.",
   "clips": [
     {
       "id": "fixture-001",
