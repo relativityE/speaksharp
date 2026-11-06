@@ -116,7 +116,7 @@ env = dict(base, GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_JOB="live", TRACK
     CT_PREREQUISITE_FACTS=pre + "/facts.json", CT_PREREQUISITE_RECEIPT=pre + "/receipt.json", CT_ACCOUNT_ID_FILE=af, CT_FACTS_FILE=ff,
     CT_LIVE_ACCOUNTS_FILE=bf, CT_REQUEST=rf, FREE_TEST_EMAIL="free@example.invalid", THROWAWAY_TEST_EMAIL="throwaway@example.invalid",
     CT_CHECKOUT=tested, CT_EXISTING_PDFJS_DIR=tested + "/node_modules/pdfjs-dist", VITE_SUPABASE_URL=origin, CT_PRIOR_STATE=prior,
-    VITE_SUPABASE_ANON_KEY="rehearsal-anon-synthetic", CT_REQUEST_SHA256=sha(rf), CT_LIVE_ACCOUNTS_SHA256=sha(bf))
+    VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InJlaGVhcnNhbC1zeW50aGV0aWMifQ.rehearsal-not-a-signature", CT_REQUEST_SHA256=sha(rf), CT_LIVE_ACCOUNTS_SHA256=sha(bf))
 if sf: env.update(CT_EVIDENCE_SCOPE_FILE=sf, CT_EVIDENCE_SCOPE_SHA256=sha(sf))
 # Step 15: the five stages exactly as the workflow loops them.
 for stage in ("install-tools", "build-plan", "stimulus-preflight", "build-plan-with-receipt", "gate-and-validate"):
