@@ -190,7 +190,8 @@ class CaseTimingExportTests(unittest.TestCase):
                 raw = (json.dumps(summary) + "\n").encode()
                 with open(os.path.join(directory, "summary.json"), "wb") as f:
                     f.write(raw)
-                row.update(result="PASS", executionReceipt={"summarySha256": "f" * 64 if tamper else hashlib.sha256(raw).hexdigest()})
+                row.update(result="PASS", executionReceipt={"summarySha256": "f" * 64 if tamper else hashlib.sha256(raw).hexdigest(),
+                                                            "caseId": case_id, "runId": "42142985744"})
             elif case_id == "AHT-01":
                 row["result"] = "PASS"
             rows.append(row)
@@ -257,7 +258,7 @@ class CaseTimingExportTests(unittest.TestCase):
         for c in out["cases"]:
             if c["caseId"] in projected:
                 self.assertEqual({k: c[k] for k in projected[c["caseId"]]}, projected[c["caseId"]])
-                self.assertEqual(c["evidence"], "digest-bound-case-results")
+                self.assertEqual(c["evidence"], "bound-case-receipt" if c["caseId"] == "AHT-01" else "harness-not-run")
         self.assertEqual((out["outcome"], out["runStarted"], out["stoppedAtStage"], out["stages"][0]["durationMs"]), ("results", True, None, 120000))
         for bad in ("unknown-stage\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n", "run\t2026-11-03T16:01:00Z\t2026-11-03T15:59:00Z\t0\n",
                     "run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\t/private/path\n", "run\tnot-a-time\t2026-11-03T16:01:00Z\t0\n"):
@@ -281,6 +282,81 @@ class CaseTimingExportTests(unittest.TestCase):
                 I.run_timing_export(self.cases, self.results, ["AHT-01"], started, None, wrong)
         with self.assertRaisesRegex(I.Refused, "case-timing-selection"):
             I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-01"], started, None, bind)
+
+    def started(self):
+        path = os.path.join(self.cases, "started.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("2026-11-03T15:59:00Z\n")
+        return path
+
+    def table(self, selected=("AHT-01", "AHT-02")):
+        out = I.run_timing_export(self.cases, self.results, list(selected), self.started(), None,
+                                  dict(self.BIND, workflowStartUtc="2026-11-03T15:50:00Z"))
+        return out, {c["caseId"]: c for c in out["cases"]}
+
+    def test_corrupt_or_ambiguous_top_level_results_credit_nothing_and_still_yield_the_table(self):
+        # Sam 1793967113.871439 / 1793968108.194389: a corrupt results file must not erase the table nor credit any result
+        for content, reason in (("{not json", "case-results-unreadable"), ('{"cases": [null]}', "case-results-shape"),
+                                ('{"cases": [{"result": "NOT RUN"}]}', "case-results-shape"), ('[]', "case-results-shape")):
+            with self.subTest(content):
+                with open(self.results, "w", encoding="utf-8") as f:
+                    f.write(content)
+                out, by = self.table()
+                self.assertEqual(out["outcome"], "results-invalid")
+                self.assertEqual({by[c]["result"] for c in ("AHT-01", "AHT-02")}, {"UNKNOWN"})
+                self.assertEqual({by[c]["evidence"] for c in ("AHT-01", "AHT-02")}, {reason})
+                self.assertTrue(all(by[c]["durationMs"] is None for c in ("AHT-01", "AHT-02")))
+
+    def test_one_bad_case_is_isolated_to_its_own_unknown_row(self):
+        # Bezos B3-B9 / Sam 1793968108.194389: a wrong digest, reversed times, an over-limit duration, an unbound receipt, a malformed
+        # summary or a duplicate row makes ONLY that row UNKNOWN with null measurements; the valid peer keeps its verified timing
+        def mutate(change):
+            self.fixture()
+            doc = json.load(open(self.results))
+            change(doc)
+            with open(self.results, "w", encoding="utf-8") as f:
+                json.dump(doc, f)
+
+        def summary(body):
+            raw = (json.dumps(body) + "\n").encode()
+            with open(os.path.join(self.cases, "AHT-01", "summary.json"), "wb") as f:
+                f.write(raw)
+            return hashlib.sha256(raw).hexdigest()
+
+        cases = {
+            "summary-digest": lambda d: d["cases"][0]["executionReceipt"].update(summarySha256="0" * 64),
+            "receipt-not-bound": lambda d: d["cases"][0]["executionReceipt"].update(runId="1"),
+            "duplicate-case": lambda d: d["cases"].append(dict(d["cases"][0])),
+            "case-result-invalid": lambda d: d["cases"][0].update(result="PASSED"),
+        }
+        for reason, change in cases.items():
+            with self.subTest(reason):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+                self.results = os.path.join(self.cases, "case-results.json")
+                mutate(change)
+                out, by = self.table()
+                self.assertEqual((out["outcome"], by["AHT-01"]["result"], by["AHT-01"]["evidence"], by["AHT-01"]["durationMs"]),
+                                 ("results", "UNKNOWN", reason, None))
+                self.assertEqual((by["AHT-02"]["result"], by["AHT-02"]["evidence"]), ("NOT RUN", "harness-not-run"))
+        for body in ({"startedAt": "2026-11-03T16:00:12.000Z", "endedAt": "2026-11-03T16:00:00.000Z"},       # reversed
+                     {"startedAt": "2026-11-03T16:00:00.000Z", "endedAt": "2026-11-03T16:45:00.000Z"},       # over the 40-minute limit
+                     []):                                                                                    # not an object
+            with self.subTest(body):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+                self.results = os.path.join(self.cases, "case-results.json")
+                self.fixture()
+                digest = summary(body)
+                doc = json.load(open(self.results)); doc["cases"][0]["executionReceipt"]["summarySha256"] = digest
+                with open(self.results, "w", encoding="utf-8") as f:
+                    json.dump(doc, f)
+                out, by = self.table()
+                self.assertEqual((by["AHT-01"]["result"], by["AHT-01"]["evidence"], by["AHT-01"]["durationMs"]), ("UNKNOWN", "case-timing-invalid", None))
+        # and the valid case keeps its verdict and verified timing
+        self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+        self.results = os.path.join(self.cases, "case-results.json")
+        self.fixture()
+        out, by = self.table()
+        self.assertEqual((by["AHT-01"]["result"], by["AHT-01"]["timingStatus"], by["AHT-01"]["durationMs"]), ("PASS", "OBSERVED", 12000))
 
     def test_tampered_summary_or_executed_case_without_receipt_refuses(self):
         for tamper, missing, reason in ((True, False, "summary-digest"), (False, True, "missing-receipt")):

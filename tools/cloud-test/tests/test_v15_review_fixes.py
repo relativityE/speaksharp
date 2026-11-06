@@ -181,6 +181,19 @@ class IncompleteRunRecord(CollectorPreservesOriginalExecutionProvenance):
                 rec, _ = self.collect(paths)
                 self.assert_incomplete(rec, "case-results-invalid")
 
+    def test_malformed_nested_shapes_are_incomplete_never_an_exception(self):
+        # Sam 1793967113.871439: cases=[null], a NOT RUN case without caseId and assertions=[null] each aborted the collector
+        for name, cases in (("null case", [None]), ("no caseId", [{"result": "NOT RUN"}]),
+                            ("null assertion", [{"caseId": "AHT-01", "result": "NOT RUN", "assertions": [None]}]),
+                            ("non-int count", [{"caseId": "AHT-01", "result": "NOT RUN", "requestsUsed": "7"}]),
+                            ("receipt not an object", [{"caseId": "AHT-01", "result": "FAIL", "executionReceipt": "x"}])):
+            with self.subTest(name):
+                paths = self.started_fixture()
+                wjson(paths["caseResults"], {"campaignId": "R9-I4", "cases": cases})
+                rec, err = self.collect(paths)
+                self.assert_incomplete(rec, "case-results-invalid")
+                self.assertIn("INCOMPLETE run record: case-results-invalid", err)
+
     def test_an_incomplete_record_settles_at_the_reserved_caps_and_never_qualifies(self):
         import init_run_inputs as I
         import manual_reservation as M

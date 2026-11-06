@@ -69,7 +69,7 @@ def main():
     else:
         try:
             cr = load(x.case_results)
-            if not isinstance(cr, dict) or req.get("runId") != cr.get("campaignId") or not isinstance(cr.get("cases"), list):
+            if not valid_case_results(cr, req.get("runId")):
                 reason = "case-results-invalid"
         except (ValueError, OSError):
             reason = "case-results-invalid"
@@ -87,6 +87,32 @@ def main():
 
 class IncompleteResults(Exception):
     pass
+
+
+CASE_ID = re.compile(r"AHT-(?:0[1-9]|1[0-5])")
+
+
+def valid_case_results(cr, campaign_id):
+    """Explicit schema check before anything reads the aggregate results (Sam 1793967113.871439): every shape complete_record touches.
+    Anything else is INCOMPLETE (case-results-invalid), never an exception that leaves no record."""
+    if not (isinstance(cr, dict) and cr.get("campaignId") == campaign_id and isinstance(cr.get("cases"), list)):
+        return False
+    seen = set()
+    for c in cr["cases"]:
+        if not (isinstance(c, dict) and isinstance(c.get("caseId"), str) and CASE_ID.fullmatch(c["caseId"]) and c["caseId"] not in seen):
+            return False
+        seen.add(c["caseId"])
+        if c.get("result") not in ("PASS", "FAIL", "NOT RUN"):
+            return False
+        ass = c.get("assertions", [])
+        if ass is not None and not (isinstance(ass, list) and all(isinstance(a, dict) for a in ass)):
+            return False
+        if c.get("executionReceipt") is not None and not isinstance(c["executionReceipt"], dict):
+            return False
+        for key in ("requestsUsed", "plannedRequests", "requestAllowance", "startPresses", "takes"):
+            if c.get(key) is not None and type(c.get(key)) is not int:
+                return False
+    return True
 
 
 def bound_case_receipts(cases_dir):

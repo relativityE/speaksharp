@@ -1620,6 +1620,79 @@ def selection_from_request(request_file):
     return [r["case"] for r in sel]
 
 
+def _unknown_row(case_id, reason):
+    return {"caseId": case_id, "result": "UNKNOWN", "evidence": reason, "timingStatus": "NOT OBSERVED",
+            "startedAtUtc": None, "endedAtUtc": None, "durationMs": None}
+
+
+TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z")
+
+
+def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
+    """Per-case isolated display rows (Sam 1793967113.871439 / 1793968108.194389 / 1793968197.126469; Bezos B3-B9). Never raises on input:
+    corrupt or ambiguous TOP-LEVEL results make every selected row UNKNOWN (nothing credited); a malformed, unbound or unverifiable CASE makes
+    only that row UNKNOWN with null measurements and a closed reason, keeping valid peers. A verdict survives only when its row is
+    well-formed and its receipt is bound to this run and case; a timing only when its summary digest, times and duration all verify.
+    Display only: qualification and accounting never read this."""
+    try:
+        doc = json.loads(_read(case_results_file))
+    except (OSError, ValueError, UnicodeDecodeError, Refused):
+        return {c: _unknown_row(c, "case-results-unreadable") for c in selected}, "results-invalid"
+    rows = doc.get("cases") if isinstance(doc, dict) else None
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        return {c: _unknown_row(c, "case-results-shape") for c in selected}, "results-invalid"
+    by, ambiguous = {}, set()
+    for r in rows:
+        cid = r.get("caseId")
+        if not (isinstance(cid, str) and cid in ALL_AHT):
+            return {c: _unknown_row(c, "case-results-shape") for c in selected}, "results-invalid"
+        if cid in by:
+            ambiguous.add(cid)
+        by[cid] = r
+    out = {}
+    for c in selected:
+        r = by.get(c)
+        if c in ambiguous:
+            out[c] = _unknown_row(c, "duplicate-case"); continue
+        if r is None:
+            out[c] = _unknown_row(c, "case-row-missing"); continue
+        result, receipt = r.get("result"), r.get("executionReceipt")
+        if result not in ("PASS", "FAIL", "NOT RUN"):
+            out[c] = _unknown_row(c, "case-result-invalid"); continue
+        if receipt is None:
+            out[c] = (dict(_unknown_row(c, "harness-not-run"), result="NOT RUN") if result == "NOT RUN"
+                      else _unknown_row(c, "missing-receipt"))
+            continue
+        if not (isinstance(receipt, dict) and receipt.get("caseId") == c and str(receipt.get("runId")) == str(run_id)
+                and "summarySha256" in receipt):
+            out[c] = _unknown_row(c, "receipt-not-bound"); continue
+        digest = receipt.get("summarySha256")
+        base = {"caseId": c, "result": result, "evidence": "bound-case-receipt"}
+        if digest is None:                      # the guard exited before a summary: the verdict stands, the timing was not observed
+            out[c] = dict(base, timingStatus="NOT OBSERVED", startedAtUtc=None, endedAtUtc=None, durationMs=None); continue
+        summary = os.path.join(os.path.realpath(cases_dir), c, "summary.json") if isinstance(cases_dir, str) else ""
+        try:
+            raw = _read(summary) if os.path.isfile(summary) and not os.path.islink(summary) else None
+        except OSError:
+            raw = None
+        if raw is None or not isinstance(digest, str) or hashlib.sha256(raw).hexdigest() != digest:
+            out[c] = _unknown_row(c, "summary-digest"); continue
+        try:
+            sd = json.loads(raw)
+            stamps = (sd.get("startedAt"), sd.get("endedAt")) if isinstance(sd, dict) else (None, None)
+            ok = all(isinstance(v, str) and TS.fullmatch(v) for v in stamps)
+            started, ended = (datetime.fromisoformat(v.replace("Z", "+00:00")) for v in stamps) if ok else (None, None)
+        except (ValueError, TypeError):
+            ok = False
+        if not ok:
+            out[c] = _unknown_row(c, "case-timing-invalid"); continue
+        duration = round((ended - started).total_seconds() * 1000)
+        if not 0 <= duration <= 40 * 60 * 1000:
+            out[c] = _unknown_row(c, "case-timing-invalid"); continue
+        out[c] = dict(base, timingStatus="OBSERVED", startedAtUtc=stamps[0], endedAtUtc=stamps[1], durationMs=duration)
+    return out, "results"
+
+
 def run_timing_export(cases_dir, case_results_file, selected, started_file, trace_file, binding):
     """The one-page table's data, ALWAYS (Bezos concept, Sam 1793929175.395989 / 1793931423.224679 / 1793932085.542759 / 1793932174.880109).
     Every one of the fifteen cases has a row bound to this run, attempt and head:
@@ -1649,8 +1722,7 @@ def run_timing_export(cases_dir, case_results_file, selected, started_file, trac
     elif not has_results:
         outcome, rows = "started-without-results", {c: {"caseId": c, "result": "UNKNOWN", "evidence": "started-without-case-results"} for c in selected}
     else:
-        outcome = "results"
-        rows = {r["caseId"]: dict(r, evidence="digest-bound-case-results") for r in case_timing_export(cases_dir, case_results_file, selected)["cases"]}
+        rows, outcome = isolated_case_rows(cases_dir, case_results_file, selected, binding["runId"])
     cases = []
     for c in ALL_AHT:
         if c not in selected:
