@@ -518,7 +518,7 @@ class ManualReservation(Journal):
                          ("92d6ebf902351750c368d7d513116c6b1f19f80c",
                           "0a3e60271dc703f12cf02684450a9f74bc7f60d5c3f610a86bb9eaddc268f174",
                           "92d6ebf902351750c368d7d513116c6b1f19f80c",
-                          "4ea5f39c32ac4b8ddb651ac02b49906fca760a008ea9800d90a626a4ca9a3031"))
+                          "12f2bf01cc432defe71dcb8559519f00d07adb40a0cfbaa53d9d42b1a50935e1"))
 
 
 if __name__ == "__main__":

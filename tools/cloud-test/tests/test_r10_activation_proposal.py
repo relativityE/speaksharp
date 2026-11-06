@@ -69,7 +69,7 @@ class R10ActivationProposal(unittest.TestCase):
         self.assertEqual(scope["carryover"], "none")
         self.assertEqual(scope["knownMinimumCeilings"], expected)
         self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]),
-                         (expected, "slack:1793814535.013849", "4ea5f39c32ac4b8ddb651ac02b49906fca760a008ea9800d90a626a4ca9a3031"))
+                         (expected, "slack:1793814535.013849", "12f2bf01cc432defe71dcb8559519f00d07adb40a0cfbaa53d9d42b1a50935e1"))
         self.assertTrue(self.proposal["rootRefCreationSelected"])
         self.assertTrue(self.proposal["activationPinsSelected"])
         scope_path = ROOT / "config/aggregate/period-scope.json"

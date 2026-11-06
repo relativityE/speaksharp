@@ -67,7 +67,7 @@ OWNER_DISPOSITIONS = {
     # stage-runner setup refused in the plan builder at 13:40:59Z before any further network call (dispatch facts had no `backend`; fixed by
     # facts-backend-missing). The case-runner step never ran. PO disposition 2026-11-06 (Sam's recommendation, "YES").
     "42226498611": {"attempt": 1, "headSha": "cbfd39ff5295674356edacfd330a937a837a1e54",
-                    "accounting": "preflight-bound", "approvalRef": "slack:1793990811.380919", "failedStep": STAGE_SETUP_STEP,
+                    "accounting": "preflight-bound", "approvalRef": "slack:1793990863.439579", "failedStep": STAGE_SETUP_STEP,
                     "ran": (PREFLIGHT_STEP, INIT_STEP, STAGE_SETUP_STEP)},
 }
 LIVE_JOB_PREFIX = "Selected live journeys"

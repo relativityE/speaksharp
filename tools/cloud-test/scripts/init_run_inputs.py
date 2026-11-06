@@ -45,7 +45,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "f5f0fbff24f5833c8afc943d950e282308c197a6e2047e18030176b3d19cb234"   # PO attempt approval slack:1793971360.559069 (2026-11-06; period extended to 2026-11-06T16:30Z)
+ONE_OFF_GRANT_SHA256 = "682b108182e6ff0775bc2ac63499197b58d16359c487757fdd3bdb630b0b50f4"   # PO attempt approval slack:1793993133.123929 (2026-11-06; window 20:00-23:00Z, latest start 21:40Z)
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
