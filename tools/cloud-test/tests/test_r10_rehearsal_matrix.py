@@ -8,6 +8,13 @@ Production-shaped and OFFLINE: synthetic inputs, no credential, no network. For 
   * the real timing projection (init_run_inputs.run_timing_export) and the next dispatch's evidence recovery (unexecuted_attempt_evidence).
 It proves the OFFLINE contract only. Real sign-in, hosted-runner behaviour and the actual fifteen case outcomes remain live uncertainties
 and are never marked passed here. Run as a script to print the matrix.
+
+Scope, stated plainly (Sam 1793968041.040299): these are COMPONENT controls. The workflow rows show condition ELIGIBILITY (which steps
+and jobs GitHub would schedule), not that collection, upload or settlement actually completed; a real job timeout or runner loss is not
+exercised (a killed runner may upload nothing, leaving the reservation held for recovery or an owner disposition). run_stage is driven with
+a substituted command, not execute_run.sh's full stage dispatch; the launcher path through build() is covered separately by
+test_init_run_inputs.ProducerScope.through_execute_run. Failed-checkout table durability is NOT demonstrated (without a checkout no
+projection script exists).
 """
 import hashlib
 import json
@@ -287,7 +294,7 @@ def matrix():
         o = dict(outcomes)
         rows.append((label, result, o[t.step("Collect, verify")], o[t.step("Project content-free per-case timing")],
                      downstream_jobs(t.doc, result)["journal-settle"], recovery(t.doc, outcomes, result)))
-    print("| Shape | live job | collect | timing table | journal-settle runs | next-dispatch recovery if no in-run settle |")
+    print("| Shape | live job | collect eligible | timing step eligible | journal-settle eligible | next-dispatch recovery if nothing settled in-run |")
     print("|---|---|---|---|---|---|")
     for r in rows:
         print("| %s | %s | %s | %s | %s | %s |" % r)
