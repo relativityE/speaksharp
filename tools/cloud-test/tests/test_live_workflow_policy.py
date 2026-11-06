@@ -267,10 +267,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
         runs = [(job, s) for job, j in self.jobs.items() for s in j["steps"] if "run" in s]
         installer = re.compile(r"(^|[\s;&|(])(npm|npx|pnpm|yarn|pip3?|apt(-get)?|brew)\s")
         installs = [(job, s) for job, s in runs if installer.search(s["run"])]
+        # PO 2026-11-06 (working release first): exactly one more, the tested release's own pinned pnpm through Node's bundled corepack,
+        # after the tested checkout is bound and before any stage; it reads its version only from that checkout and gets no extra env.
+        pnpm = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Bind the tested release's pinned package manager (corepack)")
         self.assertEqual([(job, s["run"].strip()) for job, s in installs], [
             ("live", self.PY_YAML_INSTALL),
             ("live", self.B4_INSTALL),
+            ("live", pnpm["run"].strip()),
         ])
+        self.assertNotIn("env", pnpm)
+        self.assertIn('corepack prepare "$pm" --activate', pnpm["run"])
+        self.assertIn('"$CT_CHECKOUT/package.json"', pnpm["run"])
+        self.assertIn("^pnpm@[0-9]+\\.[0-9]+\\.[0-9]+$", pnpm["run"])
+        names = [s.get("name") for s in self.jobs["live"]["steps"]]
+        self.assertLess(names.index("Bind a clean detached checkout of the admitted tested release"), names.index(pnpm["name"]))
+        self.assertLess(names.index(pnpm["name"]), next(i for i, s in enumerate(self.jobs["live"]["steps"]) if "execute_run.sh" in s.get("run", "")))
         steps = self.jobs["live"]["steps"]
         at = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == self.B4_INSTALL)
         py = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == self.PY_YAML_INSTALL)
@@ -354,7 +365,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "5645ceca54118f32b6055e24fe6f3f5fa672111dab74b1c24b2dbc5497f54439",
+            "manifestSha256": "8e912ccabfdcd6b0253e1c6aadc4718c68284b3fd939b69ee4a45d5b29361493",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })

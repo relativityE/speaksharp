@@ -16,6 +16,17 @@ case "$STAGE" in
   install-tools|build-plan|stimulus-preflight|build-plan-with-receipt|gate-and-validate|reserve|manual-reserve|run|collect|settle|manual-settle) ;;
   *) blocked "unknown stage $STAGE" ;;
 esac
+# PO 2026-11-06 ("relax the rules ... working release first"): on the ephemeral GitHub-hosted runner the guarded browser lane
+# (root-owned browser copy, setpriv to uid 65534 at every launch) needs root, which the job user has through passwordless sudo.
+# Only the run stage is elevated, only when the workflow asks for it. Its environment moves through a 0600 file that is deleted as soon
+# as it is loaded, and ownership of the run outputs returns to the job user on any exit, so collect/timing/settle can read them.
+if [ "$STAGE" = run ] && [ "${CT_RUN_STAGE_AS_ROOT:-}" = 1 ] && [ "$(id -u)" != 0 ]; then
+  [ -n "${CT_OUT:-}" ] && [ -d "$CT_OUT" ] || blocked "CT_OUT is required to elevate the run stage"
+  envfile="$(mktemp "${RUNNER_TEMP:-/tmp}/run-stage-env.XXXXXX")"; chmod 600 "$envfile"
+  export -p > "$envfile"
+  exec sudo -n bash -c 'f="$1"; . "$f"; rm -f "$f"; owner="$2"; trap '"'"'chown -R "$owner" "$CT_OUT"'"'"' EXIT INT TERM; bash "$3" run' \
+    _ "$envfile" "$(id -u):$(id -g)" "$0"
+fi
 [ -z "${SUPABASE_SECRET_KEY:-}" ] || blocked "SUPABASE_SECRET_KEY is present; forbidden"
 [ -z "${STRIPE_SECRET_KEY:-}" ] || blocked "STRIPE_SECRET_KEY is present; forbidden"
 ss_broker_service_role="${SUPABASE_SERVICE_ROLE_KEY:-}"

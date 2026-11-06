@@ -65,7 +65,8 @@ def live_request(cases=None, **over):
 def facts(**over):
     f = {"ownerApprovalReference": "slack:1793538100.358869", "approvedBy": "sam", "reviewer": "jensen",
          "receipts": {k: "receipt:%s@aaaaaaaaaaaa" % k for k in I.RECEIPT_KEYS},
-         "accounts": {"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"}}}
+         "accounts": {"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"}},
+         "backend": {"manifestRef": "synthetic:backend-manifest@1", "generation": 7, "completion": "OFF", "migration129": "absent"}}
     f.update(over)
     return f
 
@@ -668,8 +669,23 @@ class Account(unittest.TestCase):
 class Facts(unittest.TestCase):
     def test_the_builder_schema_is_produced_without_the_account_binding_or_diagnostic(self):
         out = I.translate_facts(facts(olderReleaseDiagnostic={"approvalRef": "x"}), live_request(), "github-direct")
-        self.assertEqual(set(out), {"ownerApprovalReference", "approvedBy", "reviewer", "receipts"})
+        self.assertEqual(set(out), {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "backend"})
         self.assertEqual(set(out["receipts"]), {"pre", "rls", "analytics", "disp", "fence", "review"})
+
+    def test_facts_without_the_backend_identity_refuse_in_prepare_not_in_the_stage_runner(self):
+        # Run 42226498611: these exact dispatch facts (no `backend`) passed prepare, then the plan builder refused them after the reserve
+        # and the preflight (build_plan.py `obj(FACTS.get('backend'), 'facts-backend')`). They now refuse here, with a named code.
+        dispatched = {"accounts": {"existing-disposable": {"historyRef": "first-observation:existing-disposable@R10-3b040043-smoke15",
+                                                           "idSha256": "FIRST-DISCOVERY"},
+                                   "maintained-read-only": {"historyRef": "first-observation:maintained-read-only@R10-3b040043-smoke15",
+                                                            "idSha256": "FIRST-DISCOVERY"}},
+                      "approvedBy": "Akin", "ownerApprovalReference": "slack:1793538100.358869", "producerReviewReference": "slack:1793822205.697629",
+                      "receipts": {"analytics": "pending:preflight", "disp": "slack:1793833165.587389", "fence": "slack:1793822399.432639",
+                                   "pre": "pending:preflight", "review": "slack:1793822205.697629", "rls": "pending:preflight"}, "reviewer": "Sam"}
+        refused(self, "facts-backend-missing", I.translate_facts, dispatched, live_request(), "github-producer")
+        with_backend = dict(dispatched, backend={"manifestRef": "synthetic:backend-manifest@1", "generation": 7, "completion": "OFF",
+                                                 "migration129": "absent"})
+        self.assertEqual(I.translate_facts(with_backend, live_request(), "github-producer")["backend"]["generation"], 7)
 
     def test_the_old_receipt_shape_and_unbound_approvals_are_refused(self):
         old = facts(receipts={k: "receipt:%s@aaaaaaaaaaaa" % k for k in ("analytics", "disp", "fence", "review")})

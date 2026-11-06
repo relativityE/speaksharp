@@ -557,6 +557,17 @@ jobs:
       # Increment I (Sam 1793566031.065709): the continuity checkpoint prepare admitted becomes the stage runner's reconciliation.json, the
       # exact bytes plan construction consumes (run_env --reconciliation). Copied once, never overwritten, and refused unless both the
       # private source and the placed copy hash to init's reconciliation_sha256 step output.
+      # PO 2026-11-06 (working release first): admission A3 requires `pnpm --version` in the tested checkout with corepack's network off;
+      # the hosted image has no pnpm. Bind exactly the tested release's pinned packageManager through Node's bundled corepack.
+      - name: Bind the tested release's pinned package manager (corepack)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          pm="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["packageManager"])' "$CT_CHECKOUT/package.json")"
+          [[ "$pm" =~ ^pnpm@[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'BLOCKED_SETUP: tested release packageManager is not a pinned pnpm'; exit 78; }
+          corepack enable pnpm
+          corepack prepare "$pm" --activate
+          [ "$(cd "$CT_CHECKOUT" && env -i PATH="$PATH" HOME="$HOME" COREPACK_ENABLE_NETWORK=0 COREPACK_ENABLE_AUTO_PIN=0 pnpm --version)" = "${pm#pnpm@}" ]
       - name: Place the admitted continuity checkpoint as the runner's reconciliation
         env:
           RECONCILIATION_SHA256: ${{ steps.init.outputs.reconciliation_sha256 }}
@@ -616,6 +627,8 @@ jobs:
           # the producer still refuses TELEMETRY_CAPABILITY_UNAVAILABLE without it.
           POSTHOG_PROJECT_ID: ${{ steps.init.outputs.route == 'github-producer' && secrets.POSTHOG_PROJECT_ID || '' }}
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          # PO 2026-11-06: the guarded browser lane needs root on this ephemeral runner; execute_run.sh elevates only the run stage.
+          CT_RUN_STAGE_AS_ROOT: '1'
         run: bash tools/cloud-test/scripts/execute_run.sh run
       - name: Collect, verify the binding, qualify every selected row, and project the closed record
         if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'

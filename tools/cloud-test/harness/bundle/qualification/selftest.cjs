@@ -46,7 +46,9 @@ try {
 } catch {}
 // Owner policy: record and qualify this installed compatibility tuple, never enforce obsolete pins
 // or silently select a different browser. Admission binds the same observed tuple to the campaign.
-if (!/^v[0-9]+\.[0-9]+\.[0-9]+/.test(process.version) || !installedPlaywright || installedPlaywright!==browserInfo.playwrightVersion || !installedChromiumRevision || installedChromiumRevision!==browserInfo.revision || !expectedExecutable || !fs.existsSync(expectedExecutable)) {
+if (!/^v[0-9]+\.[0-9]+\.[0-9]+/.test(process.version) || !installedPlaywright || installedPlaywright!==browserInfo.playwrightVersion || !installedChromiumRevision || installedChromiumRevision!==browserInfo.revision || !expectedExecutable
+    // R10: the executable that must exist is the bound copy the wrapper launches (launch-boundary.boundBrowserProblem), not Playwright's download.
+    || require(path.join(H, 'launch-boundary.cjs')).boundBrowserProblem(browserInfo) !== null) {
   console.error('BLOCKED_SETUP: observed Node/Playwright/installed expected Chromium tuple is missing or differs from browser discovery'); process.exit(78);
 }
 assertSecurityApproval({ securityApprovalFile: a['security-approval'] }, { hosts: { 'a.test': {}, 'c.test': {}, 'd.test': {} } });

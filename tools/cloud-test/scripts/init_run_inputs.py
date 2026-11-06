@@ -45,7 +45,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "77043c70bd0dae3baa2ebaffae9bb0d460a0f55df0fe104e1a46237182cf9ba2"   # PO attempt approval slack:1793971360.559069 (2026-11-06; period extended to 2026-11-06T16:30Z)
+ONE_OFF_GRANT_SHA256 = "f5f0fbff24f5833c8afc943d950e282308c197a6e2047e18030176b3d19cb234"   # PO attempt approval slack:1793971360.559069 (2026-11-06; period extended to 2026-11-06T16:30Z)
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
@@ -629,6 +629,9 @@ def account_bindings(cfg, cases, facts_accounts, bundle, first_observation_run=N
 def translate_facts(facts, req, route):
     """The bounded facts input -> exactly the builder's facts schema (build_plan.py 51-60, 143, 242, 374). References only."""
     _need(isinstance(facts, dict) and FACT_REQUIRED <= set(facts) <= FACT_REQUIRED | FACT_OPTIONAL, "facts-shape")
+    # Run 42226498611: the plan builder requires the backend identity (build_plan.py `obj(FACTS.get('backend'), 'facts-backend')`), so facts
+    # without it must refuse here, in prepare, with a named code, never later inside the stage runner after the reserve and preflight.
+    _need("backend" in facts, "facts-backend-missing")
     for k in ("ownerApprovalReference", "approvedBy", "reviewer"):
         _need(_ref(facts[k]), "facts-reference:" + k)
     _need(facts["ownerApprovalReference"] == req["harness"]["ownerApprovalRef"], "facts-approval-not-the-request-approval")
