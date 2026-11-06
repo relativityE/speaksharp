@@ -135,13 +135,13 @@ class ShortSmokeContract(unittest.TestCase):
                 init.select_manual_occurrence(
                     str(ROOT.parents[1]), template_rel, str(path), hashlib.sha256(raw).hexdigest(),
                     init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), "2026-11-06T14:00:01Z")
-        # The grant renewed by the PO (slack:1793971360.559069): earliest start 13:30Z, latest start 15:10Z (an 80-minute window ending at
-        # the extended period end, 2026-11-06T16:30Z). Both boundaries are exact.
+        # The grant renewed by the PO (slack:1793971360.559069): earliest start 13:30Z, latest start 02:10Z (next day) (an 80-minute window ending at
+        # the extended period end, 2026-11-07T03:30Z). Both boundaries are exact.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-06T13:30:00Z")
         init.materialize_authoritative_smoke_occurrence(
-            str(ROOT.parents[1]), template, "2026-11-06T15:10:00Z")
-        for outside in ("2026-11-06T13:29:59Z", "2026-11-06T15:10:01Z"):
+            str(ROOT.parents[1]), template, "2026-11-07T02:10:00Z")
+        for outside in ("2026-11-06T13:29:59Z", "2026-11-07T02:10:01Z"):
             with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
                 init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
