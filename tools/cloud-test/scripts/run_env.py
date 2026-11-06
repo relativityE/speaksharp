@@ -112,6 +112,20 @@ def main():
         "BP_RECONCILIATION_FILE": x.reconciliation, "BP_RECONCILIATION_SHA256": reconciliation_sha256,
     }
     env["BP_BACKEND_VERIFIED"] = "" if env["BP_BACKEND_VERIFIED"] == "-" else env["BP_BACKEND_VERIFIED"]
+    # R10 run 42142985744: the same-job bootstrap validates the account bindings against https://$BP_HOST_DB, but nothing on the real path
+    # set it (only unit fixtures did), so it compared against https://undefined and refused. The host comes from the SAME origin the
+    # binding resolver was given (VITE_SUPABASE_URL, execute_run.sh ensure_account_bindings), never a default.
+    origin = os.environ.get("VITE_SUPABASE_URL", "")
+    if origin:
+        # Normalised like the resolver's projectOrigin(): https, no credentials, default port only, no path beyond "/", lower-case host.
+        # (A regex, not urllib: this control-plane script stays outside the network-import boundary.)
+        m = re.fullmatch(r"https://([A-Za-z0-9]{20}\.[Ss][Uu][Pp][Aa][Bb][Aa][Ss][Ee]\.[Cc][Oo])(?::443)?/?", origin)
+        if not m:
+            sys.exit("BLOCKED_SETUP: project origin must be https://<20-char ref>.supabase.co")
+        host = m.group(1).lower()
+        env["BP_HOST_DB"] = host
+    elif env["BP_PRODUCER_MODE"] == "same-github-job":
+        sys.exit("BLOCKED_SETUP: project origin (VITE_SUPABASE_URL) is required for the same-job producer")
     if builder_mode in ("selected-full", "smoke"):
         # Preserve the runner's fifteen-row denominator; only selection dispatches.
         env["BP_CASES"] = ",".join(str(n) for n in range(1, 16))

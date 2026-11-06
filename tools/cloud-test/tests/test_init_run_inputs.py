@@ -79,6 +79,9 @@ def action_approval(req, request_sha256, reconciliation_bytes, **over):
     return a
 
 
+# The live step always supplies the project origin (vars.SUPABASE_URL as VITE_SUPABASE_URL); the builder used to default to this host.
+LIVE_ORIGIN_ENV = dict(os.environ, VITE_SUPABASE_URL="https://yxlapjuovrsvjswkwnrk.supabase.co")
+
 class FirstObservationExportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -558,15 +561,17 @@ class ProducerScope(unittest.TestCase):
             os.chmod(path, 0o600)
         put(reconciliation_file, reconciliation())
         os.chmod(reconciliation_file, 0o600)
+        # The REAL run_env.py gets the same project origin the binding resolver gets (VITE_SUPABASE_URL); BP_HOST_DB is never injected here,
+        # because the live path never injected it either (run 42142985744 refused against https://undefined).
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
                             "--request-sha256", I._sha(req_file), "--reconciliation", reconciliation_file, "--out", env_file],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, env=dict(os.environ, VITE_SUPABASE_URL="https://%s.supabase.co" % project_ref))
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
         env = dict(bp, PATH=os.environ["PATH"], GITHUB_ACTIONS="true", GITHUB_REPOSITORY="relativityE/speaksharp", GITHUB_RUN_ID="123",
                    GITHUB_RUN_ATTEMPT="1", GITHUB_JOB="live", GITHUB_SHA="b" * 40, BP_FACTS=facts_file,
-                   BP_ACCOUNT_BINDINGS_FILE=bindings_file, BP_HOST_DB=project_ref + ".supabase.co")
+                   BP_ACCOUNT_BINDINGS_FILE=bindings_file)
         script = ("const b=require(process.argv[1]),{privateJson}=require(process.argv[2]),fs=require('node:fs');"
                   "const s=privateJson(process.argv[3],process.argv[4]);b.validateBindings(s,JSON.parse(fs.readFileSync(process.env.BP_FACTS)),process.env);"
                   "console.log('BOUND')")
@@ -583,6 +588,27 @@ class ProducerScope(unittest.TestCase):
         self.assertEqual((s["caseIds"], s["campaignId"], s["sourceSha"]), (["AHT-07"], self.req["runId"], SHA))
         out, err = self.bind(s)
         self.assertEqual(out, "BOUND", err)
+
+    def test_the_real_plan_environment_carries_the_project_host_and_a_missing_one_is_a_named_refusal(self):
+        # Run 42142985744: the plan environment had no BP_HOST_DB, so the bootstrap compared bindings with https://undefined behind a
+        # generic refusal. The real run_env.py now derives it from the resolver's origin, and refuses a producer run without one.
+        s = self.scope()
+        req_file = os.path.join(self.d, "req-host.json"); put(req_file, self.req); os.chmod(req_file, 0o600)
+        rec = os.path.join(self.d, "rec-host.json"); put(rec, reconciliation()); os.chmod(rec, 0o600)
+        env_file = os.path.join(self.d, "env-host.txt")
+        base = {k: v for k, v in os.environ.items() if k != "VITE_SUPABASE_URL"}
+        cmd = [sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--request-sha256", I._sha(req_file),
+               "--reconciliation", rec, "--out", env_file]
+        missing = subprocess.run(cmd, capture_output=True, text=True, env=base)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("project origin (VITE_SUPABASE_URL) is required", missing.stderr)
+        for bad in ("http://abcdefghijklmnopqrst.supabase.co", "https://abcdefghijklmnopqrst.supabase.co:8443", "https://evil.example/"):
+            self.assertNotEqual(subprocess.run(cmd, capture_output=True, text=True, env=dict(base, VITE_SUPABASE_URL=bad)).returncode, 0, bad)
+        ok = subprocess.run(cmd, capture_output=True, text=True, env=dict(base, VITE_SUPABASE_URL="https://abcdefghijklmnopqrst.supabase.co"))
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        with open(env_file, encoding="utf-8") as f:
+            self.assertIn("BP_HOST_DB=abcdefghijklmnopqrst.supabase.co\n", f.read())
+        self.assertEqual(self.bind(s)[0], "BOUND")
 
     def test_the_real_bootstrap_refuses_another_account_or_review_reference(self):
         self.assertNotEqual(self.bind(self.scope(), account=ACCOUNT_ID.replace("1", "2"))[0], "BOUND")
@@ -1771,7 +1797,7 @@ class ContinuityCheckpoint(Journal):
             f.write(rc_bytes)
         put(req_file, self.req)
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
-                            "--request-sha256", I._sha(req_file), "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True)
+                            "--request-sha256", I._sha(req_file), "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
@@ -1980,7 +2006,7 @@ process.exitCode = result.exitCode;
             env_file = os.path.join(ct_out, "plan-env-%d.txt" % len(os.listdir(ct_out)))
             r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
                                 "--request-sha256", published["request_sha256"], "--reconciliation", placed, "--out", env_file],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
             self.assertEqual(r.returncode, 0, r.stderr)
             import shlex
             with open(env_file, encoding="utf-8") as f:  # execute_run.sh sources this file; values are shlex-quoted
@@ -2046,7 +2072,7 @@ process.exitCode = result.exitCode;
         plan_env = ct_out / "plan-env.txt"
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
                             "--request-sha256", published["request_sha256"], "--reconciliation", str(placed), "--out", str(plan_env)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in plan_env.read_text().splitlines() if "=" in line)}
         # Non-caller scaffolding (packet, checkout, private dir, browser identity, account bindings) from the builder's own synthetic fixture,
@@ -2315,7 +2341,7 @@ class StandingEnvelope(Journal):
             with open(path, "wb") as f:
                 f.write(raw)
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--request-sha256", request_sha,
-                            "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True)
+                            "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.rstrip("\n").split("=", 1) for line in f if "=" in line)}
@@ -2406,7 +2432,7 @@ class StandingEnvelope(Journal):
         shutil.copyfile(os.path.join(out, "reconciliation.json"), ct_out / "reconciliation.json")
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
                             "--request-sha256", published["request_sha256"], "--reconciliation", str(ct_out / "reconciliation.json"),
-                            "--out", str(ct_out / "plan-env.txt")], capture_output=True, text=True)
+                            "--out", str(ct_out / "plan-env.txt")], capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in (ct_out / "plan-env.txt").read_text().splitlines() if "=" in line)}
         # 5. Both builder phases (real build_plan, in-process so the explicit reader trust applies), on the synthetic packet scaffold.
