@@ -35,6 +35,12 @@ export const NATIVE_HELPERS=Object.freeze([
   // A change to the R10 preflight script alone must still run its test, including the spawned CLI entry (run 42059286564).
   {file:'tools/cloud-test/scripts/prerequisite_preflight.cjs',consumer:'tools/cloud-test/tests/prerequisite-preflight.test.cjs',
     callables:['prepare','charge'],claim:'actual preflight callables and script entry with a synthetic fetch; hosted step, credentials and Supabase NOT RUN'},
+  // #1760 model comparison runner helpers: the real host-lock barrier, cleanup and launch-ownership code in temporary directories.
+  {file:'tests/model-dropin/ownedCleanup.mjs',consumer:'tests/model-dropin/ownedCleanup.node.test.mjs',
+    callables:['createCleanupBarrier','awaitOwnedCleanup','launchOwned'],
+    claim:'actual cleanup barrier, owned-process cleanup and launch-ownership callables with real child processes; browser and live run NOT RUN'},
+  {file:'tests/model-dropin/identityExclusion.mjs',consumer:'tests/model-dropin/identityExclusion.node.test.mjs',
+    callables:['assertNotMaintainedIdentity'],claim:'actual maintained-identity refusal with synthetic identifiers; credentials and accounts NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {

@@ -24,8 +24,10 @@ test('bounded native routes retain explicit planner/protocol and fixture-only cl
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
-  assert.equal(contracts.length,7);
-  assert.equal(contracts.filter(item=>item.runner==='node-test').length,6);
+  // One node:test consumer per registered helper, plus the one Deno test; the inventory sets the count, not a constant.
+  assert.equal(new Set(NATIVE_HELPERS.map(item=>item.consumer)).size,NATIVE_HELPERS.length);
+  assert.equal(contracts.length,NATIVE_HELPERS.length+1);
+  assert.equal(contracts.filter(item=>item.runner==='node-test').length,NATIVE_HELPERS.length);
   for(const item of NATIVE_HELPERS) {
     assert.equal(nativeTestRoute(item.file,root).consumer,item.consumer);
     assert.match(nativeTestRoute(item.file,root).claim,/NOT RUN/);

@@ -45,6 +45,30 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/rwtDocumentIdentity.ts',testFile:'tests/unit/rwtWatchdog1593.test.ts',
   callables:['trackDocuments','documentTrackerOf'],
+}, {
+  // #1760 model comparison harness and evaluator helpers, each through its own unit consumer.
+  helperFile:'tests/model-dropin/comparisonBounds.ts',testFile:'tests/model-dropin/comparisonBounds.test.ts',
+  callables:['validateApproval','requireCompatibleBackend','elapsedMs','privateTimingMetrics','canonicalCaseReceipts',
+    'ComparisonBudget#beginTake','ComparisonBudget#bindSession','ComparisonBudget#finishTake','ComparisonBudget#sessionSha256',
+    'ComparisonBudget#assertExistingSessions','ComparisonBudget#finishRun'],
+}, {
+  helperFile:'tests/model-dropin/switchDiagnostics.ts',testFile:'tests/model-dropin/switchDiagnostics.test.ts',
+  callables:['sanitizeSwitchOutcome','sanitizeSelectionFailure'],
+}, {
+  helperFile:'tests/model-dropin/completionObservation.ts',testFile:'tests/model-dropin/completionObservation.test.ts',
+  callables:['observeCompletedSave'],
+}, {
+  helperFile:'tests/model-dropin/cachedModelAssets.ts',testFile:'tests/model-dropin/cachedModelAssets.test.ts',
+  callables:['indexCachedAssets','startVerifiedAssetHttpServer','registeredAssetPins','closeVerifiedAssetIndex'],
+}, {
+  helperFile:'tests/model-dropin/qualification.mjs',testFile:'tests/model-dropin/qualification.test.ts',
+  callables:['qualifyComparison','timingMetric','validatePromotionPolicy'],
+}, {
+  helperFile:'tests/evidence/modelEvaluator.ts',testFile:'tests/evidence/__tests__/modelEvaluator.test.ts',
+  callables:['compareModelArms'],
+}, {
+  helperFile:'tests/evidence/fixtures/model-evaluator/offline-control-adapter.ts',testFile:'tests/evidence/__tests__/offlineControlAdapter.test.ts',
+  callables:['createAdapter'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
