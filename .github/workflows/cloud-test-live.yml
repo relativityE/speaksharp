@@ -597,6 +597,7 @@ jobs:
           REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
         run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"
       - name: Stage runner (run), bounded to the selected cases' live minutes
+        id: run
         timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
         env:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -617,7 +618,7 @@ jobs:
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
         run: bash tools/cloud-test/scripts/execute_run.sh run
       - name: Collect, verify the binding, qualify every selected row, and project the closed record
-        if: always() && steps.init.outcome == 'success'
+        if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
         env:
           CASES: ${{ steps.init.outputs.cases }}
           TESTED_SHA: ${{ steps.init.outputs.tested_sha }}
@@ -656,7 +657,7 @@ jobs:
             --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" "${P[@]}" \
             --out "$RUNNER_TEMP/latest-record.json"
       - name: Project the linked content-safe first observations
-        if: always() && steps.init.outcome == 'success'
+        if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
         env:
           CASES: ${{ steps.init.outputs.cases }}
         run: |
@@ -664,7 +665,7 @@ jobs:
           python3 -I tools/cloud-test/scripts/init_run_inputs.py first-observations \
             --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" --out "$RUNNER_TEMP/first-observations.json"
       - name: Retain the linked first observations for the next run
-        if: always() && steps.init.outcome == 'success'
+        if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: cloud-test-first-observations
@@ -677,9 +678,12 @@ jobs:
           CASES: ${{ steps.init.outputs.cases }}
         run: |
           set -euo pipefail
+          # Every selected case and the measured stages, always: a run that never started is explicit NOT RUN rows plus where and when
+          # setup stopped (run 42142985744 left no table because collection needed files only the run stage creates).
           python3 -I tools/cloud-test/scripts/init_run_inputs.py case-timings \
             --cases-dir "$CT_OUT/plan/run/cases" --case-results "$CT_OUT/plan/run/case-results.json" \
-            --cases "$CASES" --out "$RUNNER_TEMP/case-timings.json"
+            --cases "$CASES" --started-file "$CT_OUT/started.txt" --stage-trace "$CT_OUT/stage-trace.tsv" \
+            --out "$RUNNER_TEMP/case-timings.json"
       - name: Retain content-free per-case timing telemetry
         if: always() && steps.init.outcome == 'success'
         uses: actions/upload-artifact@v4

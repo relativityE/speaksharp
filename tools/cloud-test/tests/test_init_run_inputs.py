@@ -204,6 +204,41 @@ class CaseTimingExportTests(unittest.TestCase):
         self.assertEqual(out["cases"][1]["timingStatus"], "NOT OBSERVED")
         self.assertNotIn("privateError", json.dumps(out))
 
+    def test_a_run_that_never_started_still_leaves_every_selected_case_and_where_setup_stopped(self):
+        # Run 42142985744 (Bezos; Sam 1793929175.395989): setup stopped before the run stage, and no per-case table or timing survived.
+        trace = os.path.join(self.cases, "stage-trace.tsv")
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("install-tools\t2026-11-06T01:24:52Z\t2026-11-06T01:24:53Z\t0\nbuild-plan\t2026-11-06T01:24:53Z\t2026-11-06T01:24:53Z\t78\n")
+        out = I.run_timing_export(os.path.join(self.cases, "absent-cases"), os.path.join(self.cases, "absent-results.json"),
+                                  ["AHT-01", "AHT-15"], os.path.join(self.cases, "started.txt"), trace)
+        self.assertEqual((out["schema"], out["runStarted"], out["stoppedAtStage"]), ("speaksharp-case-timings-v2", False, "build-plan"))
+        self.assertEqual([(c["caseId"], c["result"], c["timingStatus"]) for c in out["cases"]],
+                         [("AHT-01", "NOT RUN", "NOT OBSERVED"), ("AHT-15", "NOT RUN", "NOT OBSERVED")])
+        self.assertEqual([(r["stage"], r["durationMs"], r["exitCode"]) for r in out["stages"]], [("install-tools", 1000, 0), ("build-plan", 0, 78)])
+        # with no trace at all it is still a complete table; case results without a started run are a contradiction and refuse
+        self.assertEqual(I.run_timing_export(self.cases, None, ["AHT-01"], None, None)["stages"], [])
+        self.fixture()
+        with self.assertRaisesRegex(I.Refused, "case-timing-results-without-run"):
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], os.path.join(self.cases, "started.txt"), trace)
+
+    def test_a_started_run_keeps_its_case_timings_and_adds_the_measured_stages(self):
+        self.fixture()
+        started = os.path.join(self.cases, "started.txt")
+        with open(started, "w", encoding="utf-8") as f:
+            f.write("2026-11-03T15:59:00Z\n")
+        trace = os.path.join(self.cases, "stage-trace.tsv")
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n")
+        out = I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"], started, trace)
+        self.assertEqual(out["cases"], I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])["cases"])
+        self.assertEqual((out["runStarted"], out["stoppedAtStage"], out["stages"][0]["durationMs"]), (True, None, 120000))
+        for bad in ("unknown-stage\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n", "run\t2026-11-03T16:01:00Z\t2026-11-03T15:59:00Z\t0\n",
+                    "run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\t/private/path\n", "run\tnot-a-time\t2026-11-03T16:01:00Z\t0\n"):
+            with open(trace, "w", encoding="utf-8") as f:
+                f.write(bad)
+            with self.assertRaisesRegex(I.Refused, "stage-trace"):
+                I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace)
+
     def test_tampered_summary_or_executed_case_without_receipt_refuses(self):
         for tamper, missing, reason in ((True, False, "summary-digest"), (False, True, "missing-receipt")):
             with self.subTest(reason=reason):

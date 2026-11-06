@@ -518,6 +518,16 @@ class LiveWorkflowPolicy(unittest.TestCase):
         project_timings = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Project content-free per-case timing telemetry")
         self.assertIn("init_run_inputs.py case-timings", project_timings["run"])
         self.assertIn('--case-results "$CT_OUT/plan/run/case-results.json"', project_timings["run"])
+        # Run 42142985744: the timing table is ALWAYS produced (every selected case, NOT RUN when the run never started, plus the stage trace),
+        # while the collection steps that need the run's own files skip, rather than fail, when the run step never started.
+        self.assertIn('--started-file "$CT_OUT/started.txt" --stage-trace "$CT_OUT/stage-trace.tsv"', project_timings["run"])
+        self.assertEqual(project_timings["if"], "always() && steps.init.outcome == 'success'")
+        run_step = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Stage runner (run)"))
+        self.assertEqual(run_step["id"], "run")
+        for name in ("Collect, verify the binding, qualify every selected row, and project the closed record",
+                     "Project the linked content-safe first observations", "Retain the linked first observations for the next run"):
+            step = next(s for s in self.jobs["live"]["steps"] if s.get("name") == name)
+            self.assertEqual(step["if"], "always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'", name)
         settle = next(u for u in up if u["with"]["path"].endswith("settle-input.json"))
         self.assertEqual(settle["if"], "always()")
         # Sam 1793580806.654369: the public artifact is the closed projection, never the collector's run record; journal-settle validates it

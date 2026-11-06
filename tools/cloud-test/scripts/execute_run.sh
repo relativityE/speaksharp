@@ -81,15 +81,22 @@ run_stage() {
     [ -z "$ss_broker_service_role" ] || e+=("SUPABASE_SERVICE_ROLE_KEY=$ss_broker_service_role")
     [ -z "$ss_broker_telemetry_key" ] || e+=("POSTHOG_PERSONAL_API_KEY=$ss_broker_telemetry_key")
     # Shell builtins keep privileged values out of an external env command's argv.
+    local t0 rc=0; t0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     (
       for n in $(compgen -e); do export -n "$n"; done
       export "${e[@]}"
       exec "$@"
-    )
-    return
+    ) || rc=$?
+    # Content-free stage timing (Bezos M2 / run 42142985744): stage, start and end UTC, exit code; never a value, path or argument.
+    [ -z "${OUT:-}" ] || [ ! -d "${OUT:-}" ] || printf '%s\t%s\t%s\t%s\n' "$stage" "$t0" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$OUT/stage-trace.tsv"
+    return "$rc"
   fi
-  env -i "${e[@]}" "$@"
+  local t0 rc=0; t0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  env -i "${e[@]}" "$@" || rc=$?
+  [ -z "${OUT:-}" ] || [ ! -d "${OUT:-}" ] || printf '%s\t%s\t%s\t%s\n' "$stage" "$t0" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$OUT/stage-trace.tsv"
+  return "$rc"
 }
+
 
 playwright_identity() {
   local selected="${CT_EXISTING_DEPENDENCY_ROOT:-${CT_CHECKOUT:-}}"

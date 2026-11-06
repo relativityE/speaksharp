@@ -1583,6 +1583,47 @@ def case_timing_export(cases_dir, case_results_file, selected):
     return {"schema": "speaksharp-case-timings-v1", "contentSafe": True, "selectedCases": selected, "cases": out}
 
 
+STAGE_NAMES = ("install-tools", "build-plan", "stimulus-preflight", "build-plan-with-receipt", "gate-and-validate", "reserve",
+               "manual-reserve", "run", "collect", "settle", "manual-settle")
+
+
+def stage_trace_rows(trace_file):
+    """The content-free stage trace execute_run.sh's run_stage appends (stage, start, end, exit code), validated row by row; [] when absent."""
+    if not (isinstance(trace_file, str) and os.path.lexists(trace_file)):
+        return []
+    _need(os.path.isfile(trace_file) and not os.path.islink(trace_file), "stage-trace")
+    rows = []
+    for line in _read(trace_file).decode("utf-8").splitlines():
+        parts = line.split("\t")
+        _need(len(parts) == 4 and parts[0] in STAGE_NAMES and re.fullmatch(r"\d{1,3}", parts[3])
+              and all(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", v) for v in parts[1:3]), "stage-trace")
+        start, end = _utc(parts[1]), _utc(parts[2])
+        _need(end >= start, "stage-trace")
+        rows.append({"stage": parts[0], "startedAtUtc": parts[1], "endedAtUtc": parts[2],
+                     "durationMs": int((end - start).total_seconds() * 1000), "exitCode": int(parts[3])})
+    _need(len(rows) <= 64, "stage-trace")
+    return rows
+
+
+def run_timing_export(cases_dir, case_results_file, selected, started_file, trace_file):
+    """Every selected case and the measured stages, ALWAYS (Bezos / Sam 1793929175.395989; run 42142985744): when the run stage never started
+    (no started.txt), each selected case is an explicit NOT RUN row and the stage trace says where and when setup stopped; otherwise the
+    per-case timings come from case_timing_export exactly as before. Content-free either way."""
+    _need(isinstance(selected, list) and selected and len(selected) == len(set(selected))
+          and all(re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", x or "") for x in selected), "case-timing-selection")
+    started = isinstance(started_file, str) and os.path.isfile(started_file) and not os.path.islink(started_file)
+    if started:
+        doc = case_timing_export(cases_dir, case_results_file, selected)
+    else:
+        _need(not (isinstance(case_results_file, str) and os.path.lexists(case_results_file)), "case-timing-results-without-run")
+        doc = {"schema": "speaksharp-case-timings-v1", "contentSafe": True, "selectedCases": selected,
+               "cases": [{"caseId": c, "result": "NOT RUN", "timingStatus": "NOT OBSERVED", "startedAtUtc": None, "endedAtUtc": None,
+                          "durationMs": None} for c in selected]}
+    stages = stage_trace_rows(trace_file)
+    failed = next((r["stage"] for r in stages if r["exitCode"] != 0), None)
+    return dict(doc, schema="speaksharp-case-timings-v2", runStarted=started, stages=stages, stoppedAtStage=failed)
+
+
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "first-observations", "case-timings", "window-check", "occurrence-check",
@@ -1591,7 +1632,7 @@ def main(argv):
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
                  "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
-                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now"):
+                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now", "--started-file", "--stage-trace"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -1601,7 +1642,7 @@ def main(argv):
             _write_private(x.out, first_observation_export(x.cases_dir, (x.cases or "").split(",")))
             return 0
         if x.command == "case-timings":
-            _write_private(x.out, case_timing_export(x.cases_dir, x.case_results, (x.cases or "").split(",")))
+            _write_private(x.out, run_timing_export(x.cases_dir, x.case_results, (x.cases or "").split(","), x.started_file, x.stage_trace))
             return 0
         if x.command == "completion-deadline":
             now = _utc(x.now) if x.now else datetime.now(timezone.utc)
