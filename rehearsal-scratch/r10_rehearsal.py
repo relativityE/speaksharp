@@ -77,7 +77,7 @@ try:
         p = init.prepare(x, datetime.now(timezone.utc))
     record("12-prepare", 0, "route=%s cases=%d liveMinutes=%s" % (p["route"], len(p["cases"]), p["liveMinutes"]))
 except Exception as e:  # noqa: BLE001
-    record("12-prepare", 78, err="%s: %s" % (type(e).__name__, e)); sys.exit(0)
+    record("12-prepare", 78, err="%s: %s" % (type(e).__name__, e)); SUMMARY["verdict"] = "STOPPED-AT 12-prepare"; Path(RT, "rehearsal-summary.json").write_text(json.dumps(SUMMARY, indent=1)); sys.exit(1)
 inputs = RT + "/run-inputs"; os.makedirs(inputs, mode=0o700)
 def wp(name, data):
     path = os.path.join(inputs, name); fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -96,7 +96,7 @@ for name, cmd in (("13-worktree", ["git", "-C", WS, "worktree", "add", "--detach
                                        "--checkout", WS, "--runner-dir", str(CTL / "runner"), "--bind-playwright"]),
                   ("13-bind-tested", ["python3", "-I", str(CTL / "scripts/install_pdfjs.py"), "--config", str(CTL / "config/test-config.v1.json"),
                                       "--checkout", tested, "--runner-dir", str(CTL / "runner"), "--bind-playwright"])):
-    if sh(name, cmd, dict(os.environ)): sys.exit(0)
+    if sh(name, cmd, dict(os.environ)): SUMMARY["verdict"] = "STOPPED-AT " + name; Path(RT, "rehearsal-summary.json").write_text(json.dumps(SUMMARY, indent=1)); sys.exit(1)
 r = subprocess.run(["git", "-C", tested, "status", "--porcelain"], capture_output=True, text=True)
 record("13-tested-status-porcelain", 0 if not r.stdout.strip() else 1, r.stdout[:1500])
 # Step 14: reconciliation placement.
@@ -143,4 +143,9 @@ else:
 # Collect (always, like the workflow when init succeeded and the run stage was not skipped).
 if Path(OUT, "started.txt").exists():
     sh("18-collect", ["bash", "tools/cloud-test/scripts/execute_run.sh", "collect"], env)
+failed = [st["step"] for st in SUMMARY["steps"] if st["rc"] not in (0, "0") and st["step"] not in ("13-tested-status-porcelain",)]
+SUMMARY["verdict"] = "CHAIN-COMPLETE" if not failed else "STOPPED-AT " + failed[0]
+Path(RT, "rehearsal-summary.json").write_text(json.dumps(SUMMARY, indent=1))
 print(json.dumps(SUMMARY, indent=1)[-6000:])
+print("REHEARSAL VERDICT:", SUMMARY["verdict"])
+sys.exit(0 if not failed else 1)
