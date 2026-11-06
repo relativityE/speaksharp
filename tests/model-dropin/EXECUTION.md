@@ -218,12 +218,14 @@ the complete verified engine/version/model/device tuple cannot pass. Declared
 identity is not loaded-weight introspection. Tiny clips may lack required live
 partials; retain HOLD/failure rather than relaxing collector assertions.
 
-Evaluator binding is INCOMPLETE. The collector binds take, capture and candidate
-identity from the product's __PRIVATE_CAPTURE_RECEIPT__, which PrivateWhisper does
-not publish yet. Until a reviewed successor wires a gated, lifetime-safe receipt,
-no live take can pass product evidence; the missing-binding refusals stay in place.
-A non-PASS grade from a take without the receipt records that missing binding; it
-is not evidence of a product failure.
+Evaluator binding: the collector binds take, capture and candidate identity from the
+product's __PRIVATE_CAPTURE_RECEIPT__. PrivateWhisper publishes it only in an internal
+build (VITE_INTERNAL_BUILD=true, which the bounded launcher sets) or under the
+CDP-installed comparison authorization; a public Production page never defines it.
+Each capture gets its own receipt (counts and times only, never audio or text); a
+retired listener cannot count into a successor, and the receipt stays readable,
+inactive, after Stop. A take without the receipt still grades HOLD; that records the
+missing binding, not a product failure.
 
 Run the existing repository Vitest configuration over comparisonBounds.test.ts and
 productCollectorIntegration.test.ts, plus the existing product collector controls.
