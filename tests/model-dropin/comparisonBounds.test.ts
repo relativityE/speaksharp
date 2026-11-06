@@ -213,3 +213,15 @@ describe('bounded one-time product transport', () => {
     }
   });
 });
+
+describe('a case receipt carries the take session hash so a failed take can be resumed mechanically', () => {
+    it('is null before any session and the sha256 of the bound session after it', async () => {
+        const { createHash } = await import('node:crypto');
+        const budget = new ComparisonBudget(approval(), () => now);
+        budget.beginTake();
+        expect(budget.sessionSha256()).toBeNull();
+        const id = '11111111-2222-4333-8444-555555555555';
+        budget.bindSession(id);
+        expect(budget.sessionSha256()).toBe(createHash('sha256').update(id).digest('hex'));
+    });
+});

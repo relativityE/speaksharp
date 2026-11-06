@@ -13,10 +13,11 @@ import {
     selectBenchmarkMode, preparePrivateModelIfPrompted, startBenchmarkRecording,
     expectBenchmarkRecordingStarted, stopBenchmarkRecording,
 } from '../live/helpers/benchmark-utils';
+import { RECORDER_STOP } from '../helpers/micControls';
 import { wordErrorRate } from '../evidence/werMetric';
 import { attachProductEvidence } from '../../scripts/model-evaluator/product-evidence';
 import { effectiveBackend } from '../../frontend/src/services/transcription/modelPackage';
-import { sanitizeSwitchOutcome } from './switchDiagnostics';
+import { sanitizeSelectionFailure, sanitizeSwitchOutcome } from './switchDiagnostics';
 import { readSourceBinding, assertSameSource, servedSourceFiles, viteRawSource } from '../../scripts/model-evaluator/source-binding';
 import { ComparisonBudget, elapsedMs, privateTimingMetrics, type ExecutionApproval } from './comparisonBounds';
 import { readProductCampaign, verifyCampaignPackages } from '../../scripts/model-evaluator/product-campaign';
@@ -83,6 +84,24 @@ async function identity(page: Page) {
             fallbackOccurred: runtime?.fallbackOccurred ?? null,
         };
     });
+}
+
+// Content-free page state for a failed candidate switch; sanitized again by sanitizeSelectionFailure.
+async function selectionFailureState(page: Page, candidate: string, sinceEpochMs: number) {
+    return page.evaluate(async ({ candidate, sinceEpochMs, release }) => {
+        const modulePath = '/src/services/AnalyticsBuffer.ts';
+        const { analyticsBuffer } = await import(modulePath);
+        const root = document.documentElement;
+        return {
+            runtimeState: root.getAttribute('data-runtime-state'), modelStatus: root.getAttribute('data-model-status'),
+            crossOriginIsolated, webgpuPresent: 'gpu' in navigator,
+            acquisitionFailures: analyticsBuffer.queue.filter((row: { event: string; timestamp: number; properties?: Record<string, unknown> }) =>
+                row.event === 'private_model_acquisition_failure' && row.timestamp >= sinceEpochMs
+                && row.properties?.acquired_candidate_id === candidate && row.properties?.release_id === release)
+                .map((row: { properties: Record<string, unknown> }) => ({ errorCode: row.properties.error_code,
+                    cache: row.properties.cache_result, totalMs: row.properties.total_ms })),
+        };
+    }, { candidate, sinceEpochMs, release: expectedRelease }).catch(() => null);
 }
 
 // Project only fresh content-free acquisition fields inside the page. Never copy
@@ -250,11 +269,14 @@ for (let trial = 0; trial < corpus.trials; trial++) for (const clip of corpus.cl
                 __SS_SWITCH_CANDIDATE__: (id: string, journey: string) => Promise<{ ok: boolean; code?: string }>;
             }).__SS_SWITCH_CANDIDATE__(id, 'open_mic'), candidate);
             receipt.switchOutcome=sanitizeSwitchOutcome(switched, candidate);
-            expect(switched.ok, 'shared product candidate switch succeeds without fallback').toBe(true);
             receipt.selectionWallMs = elapsedMs(selectionStartedMs, performance.now());
-            receipt.acquisitions = await acquisitions(page, candidate, selectionStartedEpochMs);
             receipt.runtimeConditions = await page.evaluate(() => ({ userAgent: navigator.userAgent,
-                hardwareConcurrency: navigator.hardwareConcurrency, crossOriginIsolated, headed: true, freshContext: true }));
+                hardwareConcurrency: navigator.hardwareConcurrency, crossOriginIsolated, webgpuPresent: 'gpu' in navigator,
+                headed: true, freshContext: true }));
+            // Record WHY a switch failed before asserting it (the switch itself reports only identity_mismatch).
+            if (!switched.ok) receipt.selectionFailure = sanitizeSelectionFailure(await selectionFailureState(page, candidate, selectionStartedEpochMs));
+            expect(switched.ok, 'shared product candidate switch succeeds without fallback').toBe(true);
+            receipt.acquisitions = await acquisitions(page, candidate, selectionStartedEpochMs);
             receipt.selection = await identity(page);
             expect((receipt.selection as { matches: boolean }).matches, 'requested and resolved candidate agree').toBe(true);
             collector = await attachProductEvidence(page, { source, candidateId: candidate, candidate: definition,
@@ -365,6 +387,10 @@ for (let trial = 0; trial < corpus.trials; trial++) for (const clip of corpus.cl
             phase = 'complete';
         } catch (error) {
             receipt.measured = false; receipt.failurePhase = phase; receipt.blocked = blocked;
+            // A failed take must not leave its session RECORDING (the last run left one unfinished session charged and
+            // blocking the next preflight). Bounded, best-effort Stop; never a retry and never a second Start.
+            receipt.stopAfterFailure = await page.getByTestId(RECORDER_STOP).click({ timeout: 8_000 })
+                .then(() => 'pressed', () => 'not_available');
             receipt.failureCode = error instanceof Error && /^[a-zA-Z0-9_:]{1,120}$/.test(error.message)
                 ? error.message : 'sanitized_assertion_or_runtime_failure';
             // Never expose credential-bearing request bodies or the account's unrelated history in errors.
@@ -374,6 +400,7 @@ for (let trial = 0; trial < corpus.trials; trial++) for (const clip of corpus.cl
                 receipt.productEvidence = await collector.finish().catch(() => ({ collectorFailure: 'sanitized_collection_failure' }));
             }
             receipt.budget = budget.snapshot();
+            receipt.sessionSha256 = budget.sessionSha256();
             await disposeFixtureAudio(page).catch(() => {});
             const retained = info.outputPath('attachments', 'independent-app-comparison.json');
             await fs.promises.mkdir(path.dirname(retained), { recursive: true, mode: 0o700 });

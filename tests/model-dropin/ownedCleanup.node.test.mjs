@@ -7,7 +7,7 @@ import {fileURLToPath,URL} from 'node:url';
 import process from 'node:process';
 import {spawn} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
-import {createCleanupBarrier,awaitOwnedCleanup,groupState} from './ownedCleanup.mjs';
+import {createCleanupBarrier,awaitOwnedCleanup,groupState,launchOwned} from './ownedCleanup.mjs';
 import {assertClear} from '../../scripts/lib/hostInterlock.mjs';
 const fixtureEnv={...process.env,SPEAKSHARP_INTERLOCK_HELD:'',SPEAKSHARP_INTERLOCK:'',GITHUB_ACTIONS:''};
 const clear=root=>assertClear('local',{root,env:fixtureEnv});
@@ -45,4 +45,22 @@ test('killing the runner lets the old wrapper exit but does not erase durable cl
     // Explicit fixture handoff: the only spawned workload is verified absent before removing this test barrier.
     await unlink(record.path);assert.doesNotThrow(()=>clear(root));
   }finally{try{process.kill(-record.pid,'SIGKILL');}catch{/* terminal */}await terminal;await rm(root,{recursive:true,force:true});}
+});
+
+test('a browser launch that rejects leaves nothing owned: cleanup verifies and releases the host instead of holding forever',{timeout:5000},async()=>{
+  const root=await mkdtemp(join(tmpdir(),'comparison-launch-fail-'));const barrier=await createCleanupBarrier(root,'launch-fail-control');
+  const ownership={complete:true};let holds=0;
+  try{
+    await assert.rejects(launchOwned(ownership,async()=>{throw Error('chrome_launch_failed');}),/chrome_launch_failed/);
+    assert.equal(ownership.complete,true);
+    const result=await awaitOwnedCleanup([],barrier,{graceMs:0,ownershipComplete:()=>ownership.complete,onHold:()=>{holds++;}});
+    assert.deepEqual(result,{verified:true});assert.equal(holds,0);assert.doesNotThrow(()=>clear(root));
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+test('a launch in flight keeps ownership unknown until the caller registers the process',{timeout:5000},async()=>{
+  const ownership={complete:true};let release;const gate=new Promise(resolve=>{release=resolve;});
+  const launching=launchOwned(ownership,async()=>{await gate;return {pid:12345};});
+  assert.equal(ownership.complete,false);
+  release();assert.deepEqual(await launching,{pid:12345});
+  assert.equal(ownership.complete,false,'only the caller, after registering the process, may mark ownership complete');
 });

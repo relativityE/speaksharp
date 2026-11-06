@@ -16,6 +16,14 @@ export async function createCleanupBarrier(root,runId){
   let released=false;
   return {path,release:async()=>{if(!released){await unlink(path);released=true;}}};
 }
+/** Ownership is unknown only while a launch is in flight. A launch that rejects returned no process to own, so
+ * ownership is complete again and cleanup can verify absence and release the host (a failed Chrome launch used to
+ * leave the runner in CLEANUP_HOLD forever with no owned process, blocking every later interlock). */
+export async function launchOwned(ownership,launch){
+  ownership.complete=false;
+  try{return await launch();}
+  catch(error){ownership.complete=true;throw error;}
+}
 export function groupState(pid){
   try{process.kill(-pid,0);return 'live';}catch(error){return error.code==='ESRCH'?'absent':'unknown';}
 }

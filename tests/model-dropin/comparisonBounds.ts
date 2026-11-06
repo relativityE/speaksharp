@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /** Bounded transport admission, not a model evaluator or live-run authorization. */
 export const LIMITS = Object.freeze({ takes: 18, caseMs: 420_000, wholeRunMs: 7_680_000,
   apiRequestsPerTake: 180, mutationsPerTake: 120, apiRequests: 3240, mutations: 2160,
@@ -182,6 +183,9 @@ export class ComparisonBudget {
     if (!this.session) this.refuse('bounded_session_missing');
     this.previousSessions.add(this.session);
   }
+  /** sha256 of this take's bound session id, or null when the take never bound one. Written into every case receipt so a
+   * failed take's session can be reconciled by the resume rule without anyone copying the raw id. */
+  sessionSha256(): string | null { return this.session ? createHash('sha256').update(this.session).digest('hex') : null; }
   assertExistingSessions(ids: unknown[]): void {
     if (ids.some(id => typeof id !== 'string' || (!this.previousSessions.has(id)&&!this.priorOwnedSessions.has(id)))) this.refuse('bounded_account_not_empty_or_run_owned');
   }

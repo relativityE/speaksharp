@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { LIMITS, validateApproval, requireCompatibleBackend, canonicalCaseReceipts } from './comparisonBounds.ts';
 import { readProductCampaign, verifyCampaignPackages } from '../../scripts/model-evaluator/product-campaign.ts';
 import { verifyProjectRuntimeBindings } from '../../scripts/model-evaluator/runtime-bindings.mjs';
-import { createCleanupBarrier, awaitOwnedCleanup, signalOwnedGroups, groupState } from './ownedCleanup.mjs';
+import { createCleanupBarrier, awaitOwnedCleanup, signalOwnedGroups, groupState, launchOwned } from './ownedCleanup.mjs';
 import { qualifyComparison, timingMetric as metric, validatePromotionPolicy } from './qualification.mjs';
 import { assertNotMaintainedIdentity } from './identityExclusion.mjs';
 import { chromium } from 'playwright';
@@ -40,7 +40,8 @@ if(approval.resume){
     const row=retained.rows[i];
     if(row.measured!==false||`${row.candidate}:${row.trial}:${row.clip}`!==approval.resume.priorCaseKeys[i]
       ||(row.sessionSha256!==null&&!allowedSessions.has(row.sessionSha256)))throw Error('bounded_resume_subject_mismatch');
-    if(row.sessionSha256===null&&(row.failurePhase!=='candidate-selection'||row.budget?.mutationRequests!==0))throw Error('bounded_resume_unproven_no_session');
+    // The take's own mutation count proves a no-session setup failure; the run-cumulative count includes earlier takes.
+    if(row.sessionSha256===null&&(row.failurePhase!=='candidate-selection'||(row.budget?.takeMutationRequests??row.budget?.mutationRequests)!==0))throw Error('bounded_resume_unproven_no_session');
     if(approval.resume.retryCaseKeys?.includes(approval.resume.priorCaseKeys[i])&&row.sessionSha256!==null)throw Error('bounded_retry_consumed_recording_refused');
     if(row.sessionSha256!==null){if(observedSessions.has(row.sessionSha256))throw Error('bounded_resume_duplicate_session');observedSessions.add(row.sessionSha256);}
     priorRows.push(row);
@@ -84,7 +85,7 @@ let terminationTimer;
 let stopping=false;
 const workloads=[];
 const terminals=[];
-let ownershipComplete=true;
+const ownership={complete:true};
 const cleanupBarrier=await createCleanupBarrier(process.cwd(),approval.runId);
 const launch=(args,options)=>{
   if(stopping)throw Error('bounded_cancelled_before_launch');
@@ -116,13 +117,12 @@ try {
   }
   if(!ready||stopping||server.processChild.exitCode!==null)throw Error('bounded_source_server_not_ready');
   // Own Chrome explicitly rather than losing its separate process group behind the Playwright fixture.
-  ownershipComplete=false;
-  browserServer=await chromium.launchServer({channel:'chrome',headless:false,chromiumSandbox:true,timeout:30_000,
-    args:['--use-fake-ui-for-media-stream','--autoplay-policy=no-user-gesture-required']});
+  browserServer=await launchOwned(ownership,()=>chromium.launchServer({channel:'chrome',headless:false,chromiumSandbox:true,timeout:30_000,
+    args:['--use-fake-ui-for-media-stream','--autoplay-policy=no-user-gesture-required']}));
   const browserProcess=browserServer.process();if(!browserProcess?.pid)throw Error('bounded_browser_ownership_unknown');
   workloads.push(browserProcess);
   if(groupState(browserProcess.pid)!=='live')throw Error('bounded_browser_group_not_verifiable');
-  ownershipComplete=true;
+  ownership.complete=true;
   if(stopping)throw Error('bounded_cancelled_before_product_child');
   child=launch(['--import',join(root,'node_modules/tsx/dist/loader.mjs'),join(root,'node_modules/@playwright/test/cli.js'),'test','--config='+join(root,'tests/model-dropin/playwright.in-app.config.ts')],
     {cwd:root,env:{...env,EVAL_BROWSER_WS_ENDPOINT:browserServer.wsEndpoint()},stdio:'inherit'});
@@ -130,7 +130,7 @@ try {
 }catch{startupFailure='bounded_source_server_or_child_start_failed';}
 finally{
   terminate();clearTimeout(timer);clearTimeout(terminationTimer);
-  await awaitOwnedCleanup(workloads,cleanupBarrier,{ownershipComplete:()=>ownershipComplete});
+  await awaitOwnedCleanup(workloads,cleanupBarrier,{ownershipComplete:()=>ownership.complete});
   await Promise.all(terminals);await browserServer?.close();
 }
 process.off('SIGINT',terminate);process.off('SIGTERM',terminate);process.off('SIGHUP',terminate);
