@@ -227,13 +227,13 @@
   },
   "proposedLimits": {
     "cumulativeCeilingRequests": 6364,
-    "ceilingIncreaseJustification": "PO slack:1794007262.351879 credits the period ceiling 4342 -> 6364 by run 42284568156's source-bounded over-charge (2032 settled at the cap - 10 preflight-bound). This one attempt still reserves only its 2000 smoke run cap plus 32 identity reads = 2032.",
+    "ceilingIncreaseJustification": "PO slack:1794009248.220099 credits the period ceiling 4342 -> 6364 by run 42284568156's source-bounded over-charge (2032 settled at the cap - 10 preflight-bound). This one attempt still reserves only its 2000 smoke run cap plus 32 identity reads = 2032.",
     "identityCap": 64,
-    "identityIncreaseJustification": "Period identity ceiling 32 -> 64, credited by run 42284568156's 32 never-dispatched identity reads (PO slack:1794007262.351879). This attempt still reserves and needs exactly 32.",
+    "identityIncreaseJustification": "Period identity ceiling 32 -> 64, credited by run 42284568156's 32 never-dispatched identity reads (PO slack:1794009248.220099). This attempt still reserves and needs exactly 32.",
     "startsCap": 58,
-    "startsIncreaseJustification": "Period ceiling 42 -> 58, credited by run 42284568156's 16 never-used Starts (PO slack:1794007262.351879). This one attempt reserves only the 16-Start sum of its per-case caps, with no retry reserve.",
+    "startsIncreaseJustification": "Period ceiling 42 -> 58, credited by run 42284568156's 16 never-used Starts (PO slack:1794009248.220099). This one attempt reserves only the 16-Start sum of its per-case caps, with no retry reserve.",
     "takesCap": 47,
-    "takesIncreaseJustification": "Period ceiling 31 -> 47, credited by run 42284568156's 16 never-used takes (PO slack:1794007262.351879). This one attempt reserves only its 16-take allowance, with no retry reserve.",
+    "takesIncreaseJustification": "Period ceiling 31 -> 47, credited by run 42284568156's 16 never-used takes (PO slack:1794009248.220099). This one attempt reserves only its 16-take allowance, with no retry reserve.",
     "runCapRequests": 2000,
     "paidActionsUsd": 0,
     "guardCaps": {

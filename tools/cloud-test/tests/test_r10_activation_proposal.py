@@ -68,11 +68,11 @@ class R10ActivationProposal(unittest.TestCase):
         expected = {"requests": 4342, "protectedReserveRequests": 0, "identityReads": 32, "starts": 42, "takes": 31}
         self.assertEqual(scope["carryover"], "none")
         self.assertEqual(scope["knownMinimumCeilings"], expected)
-        # PO 2026-11-06 (slack:1794007262.351879): ceilings credited by run 42284568156's source-bounded over-charge
+        # PO 2026-11-06 (slack:1794009248.220099): ceilings credited by run 42284568156's source-bounded over-charge
         # (+2,022 requests, +32 identity reads, +16 starts, +16 takes); the known minimum is unchanged.
         credited = {"requests": 6364, "protectedReserveRequests": 0, "identityReads": 64, "starts": 58, "takes": 47}
         self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]),
-                         (credited, "slack:1794007262.351879", "884bcf686630d18a72ba5e5700c7d7dd52587884760e8e48ad1a410a075a048d"))
+                         (credited, "slack:1794009248.220099", "3ace0dadff81b28fa377b51a8aafa0eb38b849f5b1717cb1f64a7ed052f11259"))
         self.assertTrue(self.proposal["rootRefCreationSelected"])
         self.assertTrue(self.proposal["activationPinsSelected"])
         scope_path = ROOT / "config/aggregate/period-scope.json"
@@ -88,7 +88,7 @@ class R10ActivationProposal(unittest.TestCase):
         self.assertEqual(known_used, {"requests": 7951, "identityReads": 120, "starts": 64, "takes": 38})
         expected = {"requests": 4342, "protectedReserveRequests": 0, "identityReads": 32, "starts": 42, "takes": 31}
         self.assertEqual(self.proposal["periodScope"]["knownMinimumCeilings"], expected)
-        # The known minimum is unchanged; the period ceilings carry only the PO credit for run 42284568156 (slack:1794007262.351879).
+        # The known minimum is unchanged; the period ceilings carry only the PO credit for run 42284568156 (slack:1794009248.220099).
         credit = {"requests": 2022, "protectedReserveRequests": 0, "identityReads": 32, "starts": 16, "takes": 16}
         self.assertEqual(self.proposal["periodScope"]["ceilings"], {k: expected[k] + credit[k] for k in expected})
         self.assertFalse(self.proposal["knownLaterRunsResolved"])

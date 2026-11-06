@@ -32,8 +32,8 @@
       "starts": 58,
       "takes": 47
     },
-    "approvalRef": "slack:1794007262.351879",
-    "sha256": "884bcf686630d18a72ba5e5700c7d7dd52587884760e8e48ad1a410a075a048d"
+    "approvalRef": "slack:1794009248.220099",
+    "sha256": "3ace0dadff81b28fa377b51a8aafa0eb38b849f5b1717cb1f64a7ed052f11259"
   },
   "rootRefCreationSelected": true,
   "activationPinsSelected": true,
