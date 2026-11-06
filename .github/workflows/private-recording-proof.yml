@@ -27,6 +27,7 @@ concurrency:
 
 jobs:
   private-recording-proof:
+    environment: trusted-main-credentials
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

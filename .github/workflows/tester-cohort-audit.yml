@@ -37,6 +37,7 @@ concurrency:
 
 jobs:
   audit:
+    environment: trusted-main-credentials
     name: Read-only per-account cohort audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
