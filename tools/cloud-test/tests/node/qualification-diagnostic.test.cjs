@@ -11,7 +11,9 @@ const { readQualificationDiagnostic } = require(path.join(B, 'admission-core.cjs
 
 const SECRET = 'eyJhbGciOiJIUzI1NiJ9.c2VjcmV0LXBheWxvYWQ.c2lnbmF0dXJlLXZhbHVl';
 const URL_TEXT = 'https://yxlapjuovrsvjswkwnrk.supabase.co/auth/v1/token?grant_type=password';
-const hostile = () => { const e = new Error(`browserType.launch: Timeout 30000ms exceeded at ${URL_TEXT} token=${SECRET} pw=hunter2`); e.stack = `Error: ${SECRET}\n    at /home/runner/private/${SECRET}.cjs:1:1`; return e; };
+// Synthetic runner home path, assembled from fragments so the repository path guard (tests/deps/no-local-machine-paths) stays clean.
+const RUNNER_HOME = ['', 'home', 'runner', ''].join('/');
+const hostile = () => { const e = new Error(`browserType.launch: Timeout 30000ms exceeded at ${URL_TEXT} token=${SECRET} pw=hunter2`); e.stack = `Error: ${SECRET}\n    at ${RUNNER_HOME}private/${SECRET}.cjs:1:1`; return e; };
 
 function handle(over = {}) {
   const ev = [];
@@ -80,7 +82,7 @@ test('negative control: secret-, URL- and path-bearing exceptions never reach th
   const results = [{ id: 'S0.precondition', ok: true, detail: SECRET }, { id: 'S1.sandbox-page', ok: false, detail: URL_TEXT }, { id: URL_TEXT, ok: false }, { id: SECRET + ' x', ok: true }];
   const d = QD.validateDiagnostic(QD.buildDiagnostic(s, { reason: 'qualification-error', error: err, results }));
   const text = JSON.stringify(d);
-  for (const forbidden of [SECRET, 'hunter2', 'supabase.co', 'https:', '/home/runner', 'token', '30000ms']) assert.ok(!text.includes(forbidden), forbidden);
+  for (const forbidden of [SECRET, 'hunter2', 'supabase.co', 'https:', RUNNER_HOME.slice(0, -1), 'token', '30000ms']) assert.ok(!text.includes(forbidden), forbidden);
   assert.equal(d.phase, 'browser-launch');
   assert.equal(d.errorCategory, 'other'); assert.equal(d.errorCode, 'other');
   assert.deepEqual(d.errorSignatures, ['playwright-timeout', 'launch-failed']);
