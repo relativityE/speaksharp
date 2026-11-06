@@ -98,6 +98,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: r10-rehearsal-summary
-          path: ${{ runner.temp }}/rehearsal-summary.json
+          path: |
+            ${{ runner.temp }}/rehearsal-summary.json
+            ${{ runner.temp }}/offline-checks.json
           retention-days: 1
           if-no-files-found: warn
