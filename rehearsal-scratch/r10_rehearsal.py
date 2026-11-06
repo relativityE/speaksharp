@@ -131,8 +131,14 @@ else:
                        POSTHOG_PROJECT_ID="1", POSTHOG_API_HOST="https://us.posthog.com")
         # Candidate fix under test: the guarded browser lane (root-owned browser copy, setpriv to uid 65534) needs root, as the harness was
         # designed; on the ephemeral GitHub runner the job user has passwordless sudo. Ownership of the outputs returns to the job user after.
-        sh("17-run", ["sudo", "-E", "env", "PATH=" + os.environ["PATH"], "bash", "tools/cloud-test/scripts/execute_run.sh", "run"], run_env,
-           timeout=int(p["liveMinutes"]) * 60)
+        import shlex
+        envfile = RT + "/run-stage.env"
+        fd = os.open(envfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            for k, v in sorted(run_env.items()):
+                f.write("%s=%s\n" % (k, shlex.quote(v)))
+        sh("17-run", ["sudo", "bash", "-c", 'set -a; . "$1"; set +a; cd "$2"; exec bash tools/cloud-test/scripts/execute_run.sh run', "_", envfile, WS],
+           run_env, timeout=int(p["liveMinutes"]) * 60)
         sh("17-chown-back", ["sudo", "chown", "-R", "%d:%d" % (os.getuid(), os.getgid()), OUT], dict(os.environ))
         admdir = Path(OUT, "plan/run/admission")
         for ev in sorted(admdir.glob("*.command.private.json")) if admdir.exists() else []:
