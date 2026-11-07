@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ComparisonBudget, LIMITS, MODELS, caseMs, validateApproval, requireCompatibleBackend, elapsedMs, privateTimingMetrics, canonicalCaseReceipts, canonicalPopulation, type ExecutionApproval } from './comparisonBounds';
+import { ComparisonBudget, LIMITS, MODELS, caseMs, registerPackageCaseLimits, validateApproval, requireCompatibleBackend, elapsedMs, privateTimingMetrics, canonicalCaseReceipts, canonicalPopulation, type ExecutionApproval } from './comparisonBounds';
 const user = '11111111-1111-4111-8111-111111111111';
 const session = '22222222-2222-4222-8222-222222222222';
 const recording = '33333333-3333-4333-8333-333333333333';
@@ -219,6 +219,26 @@ describe('bounded one-time product transport', () => {
     const a = approval(); a.expiresAt = new Date(now+10).toISOString();
     clock = now; const c = new ComparisonBudget(a, () => clock); c.beginTake('v2:base.en'); clock += 10;
     expect(() => c.assertHealthy()).toThrow('bounded_deadline_exceeded');
+  });
+  it('Codex P2 on 73cf517b: an admitted package arm inherits its engine\'s approved limit; no engine gets a new one', () => {
+    const pkg = (id: string, engine: string) => ({ id, engine, modelPackage: { digest: 'fixture' } });
+    // Before registration an imported arm is unknown, exactly as before; the built-in arms are untouched.
+    expect(() => caseMs('fixture:whisper-pkg')).toThrow('bounded_unregistered_case_candidate');
+    registerPackageCaseLimits([{ id: 'v2:base.en', engine: 'transformers-js' }, pkg('fixture:whisper-pkg', 'transformers-js'),
+      pkg('fixture:parakeet-pkg', 'parakeet-tdt'), pkg('fixture:granite-pkg', 'granite-ctc')]);
+    expect(['fixture:whisper-pkg', 'fixture:parakeet-pkg', 'fixture:granite-pkg'].map(caseMs)).toEqual([420_000, 1_110_000, 420_000]);
+    expect(MODELS.map(caseMs)).toEqual([420_000, 1_110_000, 420_000]);
+    // The budget's per-take deadline uses the same inherited limit.
+    let clock = now; const b = new ComparisonBudget(approval(), () => clock); b.beginTake('fixture:parakeet-pkg');
+    clock = now + 1_110_000 - 1; expect(() => b.assertHealthy()).not.toThrow();
+    clock = now + 1_110_000; expect(() => b.assertHealthy()).toThrow('bounded_deadline_exceeded');
+    // An engine with no approved arm, or a non-package id, is refused; nothing is registered for it.
+    for (const bad of [pkg('fixture:moonshine-pkg', 'moonshine-streaming'), pkg('fixture:v4-pkg', 'transformers-js-v4'),
+      { id: 'fixture:not-a-package', engine: 'transformers-js' }]) {
+      expect(() => registerPackageCaseLimits([bad])).toThrow('bounded_package_case_limit_unapproved');
+      expect(() => caseMs(bad.id)).toThrow('bounded_unregistered_case_candidate');
+    }
+    expect(() => registerPackageCaseLimits([pkg('fixture:whisper-pkg', 'parakeet-tdt')])).toThrow('bounded_package_case_limit_conflict');
   });
   it('binds the PO-approved 1,110-second limit to Parakeet takes only; other arms keep 420 s and unknown ids refuse', () => {
     expect(MODELS.map(caseMs)).toEqual([420_000, 1_110_000, 420_000]);

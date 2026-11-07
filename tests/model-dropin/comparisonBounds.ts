@@ -9,9 +9,28 @@ export const MODELS = ['v2:base.en', 'parakeet:tdt-v3:int8', 'granite:turboctc-q
  * take fails at its named check, not at the outer limit. The other registered arms keep the existing 420 s. */
 const CASE_MS: Readonly<Record<(typeof MODELS)[number], number>> = Object.freeze({
   'v2:base.en': LIMITS.caseMs, 'parakeet:tdt-v3:int8': 1_110_000, 'granite:turboctc-q4f16': LIMITS.caseMs });
+/** The built-in arm whose PO-approved per-case limit an admitted package of the same engine inherits. No new limits:
+ * an engine without an approved arm (e.g. Moonshine, v4) has no bounded case and is refused. */
+const ENGINE_ARM: Readonly<Record<string, (typeof MODELS)[number]>> = Object.freeze({
+  'transformers-js': 'v2:base.en', 'parakeet-tdt': 'parakeet:tdt-v3:int8', 'granite-ctc': 'granite:turboctc-q4f16' });
+const packageCaseMs = new Map<string, number>();
+/** Codex P2 on 73cf517b: an approved campaign may include admitted packages, but only the three built-in arms had a case
+ * limit, so a package arm failed before it recorded a receipt. The driver registers the verified campaign's package arms
+ * once, before any take; each inherits its engine's approved limit. */
+export function registerPackageCaseLimits(candidates: ReadonlyArray<{ id: string; engine: string; modelPackage?: unknown }>): void {
+  for (const candidate of candidates) {
+    if (Object.hasOwn(CASE_MS, candidate.id)) continue;
+    if (!candidate.modelPackage || !Object.hasOwn(ENGINE_ARM, candidate.engine)) throw Error('bounded_package_case_limit_unapproved');
+    const limit = CASE_MS[ENGINE_ARM[candidate.engine]];
+    if (packageCaseMs.has(candidate.id) && packageCaseMs.get(candidate.id) !== limit) throw Error('bounded_package_case_limit_conflict');
+    packageCaseMs.set(candidate.id, limit);
+  }
+}
 export function caseMs(candidate: string): number {
-  if (!Object.hasOwn(CASE_MS, candidate)) throw Error('bounded_unregistered_case_candidate');
-  return CASE_MS[candidate as (typeof MODELS)[number]];
+  if (Object.hasOwn(CASE_MS, candidate)) return CASE_MS[candidate as (typeof MODELS)[number]];
+  const limit = packageCaseMs.get(candidate);
+  if (limit === undefined) throw Error('bounded_unregistered_case_candidate');
+  return limit;
 }
 /** Reporter copies stay retained but never become a second canonical measurement. */
 export function canonicalCaseReceipts<T extends {candidate:string;trial:number;clip:string}>(entries:Array<{path:string;row:T}>):T[]{

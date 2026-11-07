@@ -6,6 +6,7 @@ import { createHash, webcrypto } from 'node:crypto';
 import { CANDIDATES } from '../../../frontend/src/services/transcription/candidateRegistry';
 import { sealModelPackage } from '../../../frontend/src/services/transcription/modelPackage';
 import { readProductCampaign, verifyCampaignPackages, readCandidateCatalog } from '../../../scripts/model-evaluator/product-campaign';
+import { caseMs, registerPackageCaseLimits } from '../../model-dropin/comparisonBounds';
 describe('configuration-only product campaign',()=>{
   it('loads a fourth compatible JSON package, derives all four arms and refuses changed inputs/bounds',async()=>{
     vi.stubGlobal('crypto',webcrypto);
@@ -27,6 +28,9 @@ describe('configuration-only product campaign',()=>{
       const result=readProductCampaign(root,'campaign.json');await verifyCampaignPackages(result.candidates);
       expect(result.takes).toBe(8);expect(result.candidates[3].modelPackage?.digest).toBe(pkg.packageDigest);
       expect(result.expectedIdentities[3]).toMatchObject({assetDigest:pkg.assetDigest,backend:'wasm'});
+      // Codex P2 on 73cf517b: every admitted arm, the imported package included, gets a bounded case limit before any take.
+      registerPackageCaseLimits(result.candidates);
+      expect(result.candidates.map(c=>caseMs(c.id))).toEqual([420_000,1_110_000,420_000,420_000]);
       const rejected:Array<{file:string;code:string}>=[];
       expect(readCandidateCatalog(root,rejected)['v2:base.en'].id).toBe('v2:base.en');expect(rejected).toEqual([{file:'invalid.json',code:'PACKAGE_INVALID'}]);
       writeFileSync(join(root,'campaign.json'),JSON.stringify({...campaign,maximumTakes:19}));

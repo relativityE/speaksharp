@@ -19,7 +19,7 @@ import { attachProductEvidence } from '../../scripts/model-evaluator/product-evi
 import { effectiveBackend } from '../../frontend/src/services/transcription/modelPackage';
 import { sanitizeSelectionFailure, sanitizeSwitchOutcome } from './switchDiagnostics';
 import { readSourceBinding, assertSameSource, servedSourceFiles, viteRawSource } from '../../scripts/model-evaluator/source-binding';
-import { ComparisonBudget, caseMs, elapsedMs, privateTimingMetrics, type ExecutionApproval } from './comparisonBounds';
+import { ComparisonBudget, caseMs, elapsedMs, privateTimingMetrics, registerPackageCaseLimits, type ExecutionApproval } from './comparisonBounds';
 import { readProductCampaign, verifyCampaignPackages } from '../../scripts/model-evaluator/product-campaign';
 import { startCachedModelServer, installChunkedCachedModelFetch, comparisonInitPage } from './cachedModelAssets';
 import { observeCompletedSave } from './completionObservation';
@@ -158,6 +158,8 @@ test.beforeAll(async () => {
     }
     if (campaign.sha256 !== approval.campaignSha256 || campaign.takes !== approval.takes) throw Error('bounded_campaign_binding_mismatch');
     await verifyCampaignPackages(campaign.candidates);
+    // Admitted package arms inherit their engine's approved case limit; an unapproved engine stops the run here.
+    registerPackageCaseLimits(campaign.candidates);
     for (const clip of corpus.clips) {
         if (sha(fs.readFileSync(path.resolve(path.dirname(corpusPath), clip.path))) !== clip.wavSha256) {
             throw new Error('Frozen corpus WAV hash mismatch');
