@@ -1,6 +1,6 @@
 {
   "schema": "speaksharp.cloud-test.period-scope.v1",
-  "approvalRef": "slack:1794063978.986369",
+  "approvalRef": "slack:1794072158.779099",
   "periodStartUtc": "2026-11-02T20:15:00Z",
   "periodEndUtc": "2026-12-31T00:00:00Z",
   "carryover": "none",

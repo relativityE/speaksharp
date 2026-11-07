@@ -43,15 +43,15 @@ import state_ref_writer  # noqa: E402
 
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
-SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
+SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "e4054df89f95392845ec323d06ecc6ebb68191129af8b82c7a5bacf2714c1295"   # AWAITING_OWNER_DECISION (Sam 1794070407): sized proposal run cap 3350 + 32 identity; ceilings 9518/128/74/64; pre-reserve head e7450f70; not dispatchable until the PO decision is pinned
+ONE_OFF_GRANT_SHA256 = "2e2898453487c044a73293c01d06af16f62d6466c0697a07639dce1d63314734"   # PO approval pinned (Sam verified relays slack:1794072158.779099 capacity/next run, slack:1794073342.879639 60-min signal run): run cap 3350 + 32 identity; ceilings 9518/128/74/64; 60 live / 100 end-to-end; pre-reserve head e7450f70
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
                       "limits", "olderReleaseDiagnostic"}
-ONE_OFF_LIMITS = {"endToEndMinutes": 80, "liveMinutes": 40, "requestsIncludingIdentity": 3382,
+ONE_OFF_LIMITS = {"endToEndMinutes": 100, "liveMinutes": 60, "requestsIncludingIdentity": 3382,
                   "identityReads": 32, "starts": 16, "takes": 16, "coachingCalls": 20, "retries": 0}
 CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
 
@@ -174,11 +174,11 @@ def materialize_authoritative_smoke_occurrence(repo, template, initiation):
 def materialize_smoke_occurrence(template, initiation, approval_ref, scope_approval_ref, approved_by, tested_sha, backend_sha):
     """Create the exact one-run bytes for an owner-selected R10 initiation.
 
-    The 80-minute occurrence is the bounded end-to-end workflow envelope:
-    5 minutes to record, 3 to reserve, the existing 65-minute live-job bound
-    (15 setup + 40 live + 10 collect), and 5 for the parallel settle/record
-    completion jobs, with two minutes of structural slack.  It is not a
-    measured runtime and it does not raise the 40-minute live ceiling.  The
+    The 100-minute occurrence is the bounded end-to-end workflow envelope:
+    5 minutes to record, 3 to reserve, the 85-minute live-job bound
+    (15 setup + 60 live + 10 collect; PO 60-minute signal run, Sam
+    1794073342.879639), and 5 for the parallel settle/record completion jobs,
+    with two minutes of structural slack.  It is not a measured runtime.  The
     caller must subsequently authorize these exact occurrence/release bytes
     and bind the ordinary action-approval envelope.
     """
@@ -198,7 +198,7 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, scope_appro
                      "endToEndMinutes": ONE_OFF_LIMITS["endToEndMinutes"],
                      "liveMinutes": ONE_OFF_LIMITS["liveMinutes"],
                      "approvalRef": approval_ref,
-                     "basis": "actual initiation + 5m record + 3m reserve + 65m live-job ceiling + 5m parallel settlement/record completion + 2m structural slack; live ceiling remains 40m; not measured runtime"}
+                     "basis": "actual initiation + 5m record + 3m reserve + 85m live-job ceiling (15 setup + 60 live + 10 collect) + 5m parallel settlement/record completion + 2m structural slack; live ceiling 60m; not measured runtime"}
     out["selectionApprovalRef"] = approval_ref
     # The one-off grant selects this occurrence. The accepted period scope,
     # independently, owns cumulative accounting.
@@ -484,7 +484,7 @@ def check_execution_deadline(req, now, live_minutes, deadline):
 
 
 def completion_within_occurrence(raw, now):
-    """Return whether R10 completed inside its reviewed 80-minute envelope.
+    """Return whether R10 completed inside its reviewed 100-minute envelope.
 
     Accounting may settle later inside the approved period so held usage is
     reconciled safely, but a late workflow is incomplete rather than an

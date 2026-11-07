@@ -72,7 +72,7 @@ class R10ActivationProposal(unittest.TestCase):
         # (+2,022 requests, +32 identity reads, +16 starts, +16 takes); the known minimum is unchanged.
         credited = {"requests": 9518, "protectedReserveRequests": 0, "identityReads": 128, "starts": 74, "takes": 64}
         self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]),
-                         (credited, "slack:1794063978.986369", "3f8859c074b6c6b459eb7f43f983875e9f0d2a60050e6a952cce22037092d885"))
+                         (credited, "slack:1794072158.779099", "4c2f8a7ffbdd96bef84f2fcce0f434b2d8123303bab94405b5fc9f045efa4932"))
         self.assertTrue(self.proposal["rootRefCreationSelected"])
         self.assertTrue(self.proposal["activationPinsSelected"])
         scope_path = ROOT / "config/aggregate/period-scope.json"

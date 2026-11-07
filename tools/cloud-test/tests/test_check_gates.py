@@ -202,23 +202,23 @@ class CheckGates(unittest.TestCase):
         # live ceiling. Both values must be exact; neither omission nor an oversized live allowance passes.
         smoke = copy.deepcopy(r)
         smoke["coverageMode"] = smoke["sampleMode"] = "smoke"
-        smoke["estimate"]["githubRunnerMinutesMax"] = 40
-        old_limit, old_errors = C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80)
+        smoke["estimate"]["githubRunnerMinutesMax"] = 60
+        old_limit, old_errors = C.occurrence_window_limit(smoke, {"maxWindowMinutes": 60}, False, 100)
         self.assertEqual(old_errors, [])
-        self.assertGreater(80, old_limit, "without both declarations the old 40-minute occurrence ceiling still blocks")
-        smoke["window"].update({"endToEndMinutes": 80, "liveMinutes": 40})
-        self.assertTrue(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80)[1],
+        self.assertGreater(100, old_limit, "without both declarations the 60-minute live ceiling still blocks the occurrence")
+        smoke["window"].update({"endToEndMinutes": 100, "liveMinutes": 60})
+        self.assertTrue(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 60}, False, 100)[1],
                         "an ordinary smoke request cannot self-authorize the R10 envelope")
         smoke.update({"runId": C.R10_SMOKE_RUN_ID, "priority": "journey-smoke", "createdUtc": smoke["window"]["startUtc"],
                       "selectionApprovalRef": smoke["window"]["approvalRef"]})
-        self.assertEqual(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 40}, False, 80), (80, []))
-        for patch in ({"endToEndMinutes": 81}, {"endToEndMinutes": 10000}, {"liveMinutes": 1}, {"liveMinutes": 41},
+        self.assertEqual(C.occurrence_window_limit(smoke, {"maxWindowMinutes": 60}, False, 100), (100, []))
+        for patch in ({"endToEndMinutes": 101}, {"endToEndMinutes": 10000}, {"liveMinutes": 1}, {"liveMinutes": 61},
                       {"liveMinutes": None}, {"endToEndMinutes": None}):
             bad = copy.deepcopy(smoke)
             bad["window"].update(patch)
             if isinstance(patch.get("liveMinutes"), int):
                 bad["estimate"]["githubRunnerMinutesMax"] = patch["liveMinutes"]
-            self.assertTrue(C.occurrence_window_limit(bad, {"maxWindowMinutes": 40}, False, 80)[1], patch)
+            self.assertTrue(C.occurrence_window_limit(bad, {"maxWindowMinutes": 60}, False, 100)[1], patch)
 
     def test_expected_pass_unconfirmed_is_owner_input(self):
         r, l = approved(self.req, self.ledger)

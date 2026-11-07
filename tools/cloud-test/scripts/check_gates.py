@@ -23,8 +23,8 @@ READY, NOTREADY, OWNER, DEFERRED = "READY", "NOT-READY", "OWNER-INPUT-OPEN", "DE
 # delay. Manual/full requests retain the package's 330-minute ceiling.
 NIGHTLY_MAX_WINDOW_MINUTES = 360
 R10_SMOKE_RUN_ID = "R10-3b040043-smoke15"
-R10_END_TO_END_MINUTES = 80
-R10_LIVE_MINUTES = 40
+R10_END_TO_END_MINUTES = 100
+R10_LIVE_MINUTES = 60
 
 
 def canonical_sha(value):

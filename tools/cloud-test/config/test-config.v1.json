@@ -252,7 +252,7 @@
         "maxSelectedCases": 15,
         "maxRunCapRequests": 3350,
         "maxIdentityReadsPerRun": 32,
-        "maxWindowMinutes": 40,
+        "maxWindowMinutes": 60,
         "note": "All 15 journeys, reduced recording windows and a smoke-only assertion denominator. These are structural maxima, not execution approval."
       },
     "assertionCatalog": {
@@ -264,8 +264,8 @@
     },
     "window": {
       "admissionExpectedMinutes": 1,
-      "admissionMaxMinutes": 2,
-      "interCaseAndReportMinutes": 3,
+      "admissionMaxMinutes": 5,
+      "interCaseAndReportMinutes": 20,
       "cleanupReserveMinutes": 2
     },
       "recordingWindowMs": {
@@ -282,7 +282,7 @@
         "AHT-10": 166000, "AHT-11": 92000, "AHT-12": 73000,
         "AHT-13": 45000, "AHT-14": 45000, "AHT-15": 17000
       },
-      "timingBasis": "Completed-case maxima retain the prior R5/R9 wall-time basis. AHT-01 reserves 35 seconds for the unchanged 30-second/75-word eligibility gate. AHT-13/14 use provisional 30-second diagnostic transition ceilings plus bounded Retry observation; these are not measured product runtimes. Whole smoke is capped at 40 minutes."
+      "timingBasis": "Completed-case maxima retain the prior R5/R9 wall-time basis. AHT-01 reserves 35 seconds for the unchanged 30-second/75-word eligibility gate. AHT-13/14 use provisional 30-second diagnostic transition ceilings plus bounded Retry observation; these are not measured product runtimes. Whole smoke is capped at 60 minutes (PO 60-minute signal run, Sam 1794073342.879639): case maxima 33 + admission A0-A5/A7 5 + 31 identity reads at their supervised 35 s worst case and per-case reporting 20 + cleanup 2. A6's 20-minute qualification ceiling is not covered: a practical signal run, not a worst-case guarantee."
     },
     "full": {
       "label": "FULL COVERAGE",

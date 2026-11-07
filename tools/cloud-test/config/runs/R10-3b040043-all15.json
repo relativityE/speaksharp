@@ -223,7 +223,7 @@
       "coachingCap": 20,
       "basis": "16 smoke takes x 125% retry allowance; the guard denies a coaching request beyond the cap"
     },
-    "githubRunnerMinutesMax": 40
+    "githubRunnerMinutesMax": 60
   },
   "proposedLimits": {
     "cumulativeCeilingRequests": 9518,
