@@ -109,6 +109,11 @@ export function parseModelPackage(input: unknown): ModelPackage {
         || p.assets.files.some(f => f.url !== p.assets.servedFrom + '/' + f.path))) refuse('UNSUPPORTED_WHISPER_LAYOUT');
     const requiredWhisper = ['config.json','generation_config.json','preprocessor_config.json','tokenizer.json','tokenizer_config.json',
         'onnx/encoder_model_quantized.onnx','onnx/decoder_model_merged_quantized.onnx'];
+    // Optional cache requirements, when declared, must name distinct files the package actually ships; an absent
+    // list is derived at admission (WHISPER_PACKAGE_CACHE_FILES), never left for readiness to read as undefined.
+    const cacheFiles = (p.execution as { cacheFiles?: unknown }).cacheFiles;
+    if (p.engine === 'transformers-js' && cacheFiles !== undefined && (!Array.isArray(cacheFiles) || !cacheFiles.length
+        || cacheFiles.some(file => typeof file !== 'string' || !paths.has(file)) || new Set(cacheFiles).size !== cacheFiles.length)) refuse('UNSUPPORTED_WHISPER_CACHE_FILES');
     if (p.engine === 'transformers-js' && (requiredWhisper.some(file=>!paths.has(file))
         || p.assets.files.some(f=>/\.(?:[cm]?js|wasm)$/i.test(f.path)))) refuse('UNSUPPORTED_WHISPER_ASSETS');
     // The Moonshine runtime keys verified buffers by filename: each component has a distinct filename and is fetched from https.
@@ -145,10 +150,18 @@ export async function sealModelPackage(input: Omit<ModelPackage, 'packageDigest'
     const body = { ...input, assetDigest: await assetInventoryDigest(input.assets.files) };
     return verifyModelPackage({ ...body, packageDigest: await digestPackageData(body) });
 }
+/**
+ * The files the installed Whisper (v2) loader caches for the supported package layout; the same set the built-in
+ * incumbent requires. Readiness reads `execution.cacheFiles`, so an admitted Whisper package always carries it.
+ */
+export const WHISPER_PACKAGE_CACHE_FILES: readonly string[] = Object.freeze(['config.json', 'tokenizer.json', 'preprocessor_config.json',
+    'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx']);
 export function candidateFromPackage(input: unknown, sourcePath: string): Candidate {
     const p = parseModelPackage(input);
+    const execution = p.engine === 'transformers-js' && !p.execution.cacheFiles
+        ? { ...p.execution, cacheFiles: WHISPER_PACKAGE_CACHE_FILES } : p.execution;
     return {
-        id: p.id, engine: p.engine, execution: p.execution, runtime: p.runtime, model: p.model,
+        id: p.id, engine: p.engine, execution, runtime: p.runtime, model: p.model,
         modelPackage: { descriptor: p, sourcePath, digest: p.packageDigest },
         // Imported data cannot self-authorize production activation.
         activationReady: false, comparisonReady: false,
