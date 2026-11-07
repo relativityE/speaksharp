@@ -406,15 +406,19 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected override async onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+        // #1635: captured synchronously at entry, i.e. the generation of the init() that called us. Every engine
+        // this init acquires is adopted only while that generation still owns the facade. Captured BEFORE the package
+        // verification await (Codex P2 on 66f048d0): reading it afterwards let an attempt cancelled during verification
+        // adopt the NEXT init's generation and pass every ownership check.
+        const generation = this.lifecycleGeneration;
         try {
             const descriptor = this.resolvedSelection(false).candidate.modelPackage?.descriptor;
             if (descriptor) await verifyModelPackage(descriptor);
         } catch (error) {
             return { isOk: false, error: error instanceof Error ? error : new Error('Model package refused') };
         }
-        // #1635: captured synchronously at entry, i.e. the generation of the init() that called us. Every engine
-        // this init acquires is adopted only while that generation still owns the facade.
-        const generation = this.lifecycleGeneration;
+        // Superseded while verifying: acquire nothing; the teardown that cancelled this attempt owns its outcome.
+        if (this.acquisitionCancelled(generation)) return Result.err(this.cancelledInitError(false));
         const options = this.options as PrivateSTTInitOptions;
 
         this.serviceId = options.serviceId || 'unknown';

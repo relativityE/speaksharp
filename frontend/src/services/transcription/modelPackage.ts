@@ -73,6 +73,8 @@ export function parseModelPackage(input: unknown): ModelPackage {
         || p.execution.preprocessing.features !== 'runtime' || !p.execution.implemented
         || !['incremental','snapshot'].includes(p.execution.liveResultKind)) refuse('UNSUPPORTED_PACKAGE_PREPROCESSING');
     const decode = p.execution.decode;
+    // Whisper stride: the same half-window rule buildShippingDecodeOptions enforces (Codex P2 on 66f048d0), so a profile the
+    // decoder cannot execute is refused at admission instead of failing every transcription after import.
     // A package's preparation budget is bounded data; adapters that acquire and build large pinned assets must declare it, so an
     // imported Granite/Parakeet package cannot silently fall back to the 5 s service default.
     const budget = p.execution.preparationBudgetMs;
@@ -82,7 +84,7 @@ export function parseModelPackage(input: unknown): ModelPackage {
         || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(p.execution.localModelId ?? '') || p.model.device !== 'wasm' || p.runtime.distribution === 'pinned-assets'
         || p.model.dtype !== null
         || !Number.isFinite(decode.windowSeconds) || decode.windowSeconds <= 0 || !Number.isFinite(decode.strideSeconds)
-        || decode.strideSeconds < 0 || decode.strideSeconds >= decode.windowSeconds || typeof decode.returnTimestamps !== 'boolean')) refuse('UNSUPPORTED_WHISPER_PROFILE');
+        || decode.strideSeconds < 0 || decode.strideSeconds * 2 >= decode.windowSeconds || typeof decode.returnTimestamps !== 'boolean')) refuse('UNSUPPORTED_WHISPER_PROFILE');
     if (p.engine === 'granite-ctc' && (p.execution.family !== 'granite-ctc' || decode?.kind !== 'granite-ctc'
         || typeof decode.modelFile !== 'string' || !decode.modelFile || typeof decode.applyAgc !== 'boolean'
         || p.runtime.distribution !== 'pinned-assets')) refuse('UNSUPPORTED_GRANITE_PROFILE');
