@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import unittest
+from unittest import mock
 
 from _fixtures import ROOT, approved as base_approved, fake_rv, receipt, reconciliation, sample
 from _gate_fixtures import GateInputs
@@ -224,6 +225,23 @@ class CheckGates(unittest.TestCase):
         r, l = approved(self.req, self.ledger)
         l["gaps"][2]["expectedPass"]["confirmedByOwner"] = False
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G6"], "OWNER-INPUT-OPEN")
+
+    def test_g6_owner_confirmation_is_deferred_only_for_the_r10_smoke_occurrence(self):
+        """PO option B (Sam 1794089713/1794089833): deferred only when the sole need is owner confirmation and the request is the R10 smoke
+        occurrence (r10_smoke_g6_deferral, checked on the real occurrence in test_r10_post_admission_chain)."""
+        r, l = approved(self.req, self.ledger)
+        l["gaps"][2]["expectedPass"]["confirmedByOwner"] = False
+        with mock.patch.object(C, "r10_smoke_g6_deferral", lambda req: True):
+            out = self.ev(r, l, receipt(r))
+            g6 = next(g for g in out["gates"] if g["id"] == "G6")
+            self.assertEqual(g6["status"], "DEFERRED-TO-RUNNER")
+            self.assertIn("no gap closes", json.dumps(g6))
+            self.assertIn("not yet confirmed by the owner", json.dumps(g6))
+            self.assertNotIn("G6", out["blockingOpen"])
+            l2 = json.loads(json.dumps(l)); l2["gaps"][2]["expectedPass"].pop("criteria", None)
+            self.assertEqual(self.status(self.ev(r, l2, receipt(r)))["G6"], "NOT-READY")      # an incomplete definition still blocks
+        with mock.patch.object(C, "r10_smoke_g6_deferral", lambda req: False):
+            self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G6"], "OWNER-INPUT-OPEN")
 
     def test_an_expected_pass_without_executable_requirements_blocks_g6(self):
         r, l = approved(self.req, self.ledger)

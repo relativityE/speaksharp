@@ -101,6 +101,11 @@ def manual_occurrence(req):
         and req.get("coverageMode") == req.get("sampleMode") == "smoke"))
 
 
+def r10_smoke_g6_deferral(req):
+    """PO option B (Sam 1794089713/1794089833): G6's owner confirmation is deferred for exactly the R10 smoke occurrence."""
+    return isinstance(req, dict) and req.get("priority") == "journey-smoke" and manual_occurrence(req)
+
+
 def authenticated_chain():
     """(head, events) of the approved state ref, read through the producer's own boundary (reservations.py journal-snapshot): a fresh
     fetch of the approved URL into a private repository and whole-chain validation from the reviewed root. Refuses while unpinned."""
@@ -376,7 +381,14 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         if not ep.get("confirmedByOwner"):
             need.append("%s expected PASS not yet confirmed by the owner" % gid)
     only_owner = need and all("confirmed by the owner" in n for n in need)
-    G.append(gate("G6", READY if not need else (OWNER if only_owner else NOTREADY), "expected PASS defined before testing for every targeted gap" if not need else "expected PASS not final", need))
+    if only_owner and r10_smoke_g6_deferral(req):
+        # PO (Sam 1794089713/1794089833), option B: for exactly the R10 smoke occurrence, the owner's confirmation of the targeted gaps'
+        # already-defined expected PASS is DEFERRED, not blocking. Every gap stays open and the run is never full acceptance; incomplete or
+        # late definitions still block, and the unconfirmed gaps stay listed.
+        G.append(gate("G6", DEFERRED, "R10 smoke: owner confirmation of expected PASS deferred; no gap closes and the run is not full acceptance",
+                      need))
+    else:
+        G.append(gate("G6", READY if not need else (OWNER if only_owner else NOTREADY), "expected PASS defined before testing for every targeted gap" if not need else "expected PASS not final", need))
     # G7: sealed, hash-pinned receipts of the compared runs and their binding verification
     need = []
     if prior_verification is not None:

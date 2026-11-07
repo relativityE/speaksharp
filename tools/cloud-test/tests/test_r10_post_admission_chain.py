@@ -54,6 +54,13 @@ class ManualOccurrence(unittest.TestCase):
             self.assertFalse(C.manual_occurrence(dict(occ, **over)), over)
         self.assertFalse(C.manual_occurrence(None))
 
+    def test_g6_deferral_applies_to_exactly_the_r10_smoke_occurrence(self):
+        occ, _ = occurrence()
+        self.assertTrue(C.r10_smoke_g6_deferral(occ))
+        self.assertFalse(C.r10_smoke_g6_deferral({"priority": "full-coverage"}))       # full coverage keeps G6 blocking
+        for over in ({"runId": "R11-other-smoke"}, {"coverageMode": "full"}, {"priority": "nightly-regression"}):
+            self.assertFalse(C.r10_smoke_g6_deferral(dict(occ, **over)), over)
+
     def test_g7_binds_a_v2_receipt_through_the_same_predicate(self):
         src = open(os.path.join(ROOT, "scripts", "check_gates.py"), encoding="utf-8").read()
         self.assertIn('(req.get("priority") == "nightly-regression" or manual_occurrence(req))', src)
