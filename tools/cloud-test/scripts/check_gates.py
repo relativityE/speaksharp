@@ -92,6 +92,15 @@ def authenticated_state_chain():
     return W.validate_chain(repo, W.fetch_head(repo, url, url), root)
 
 
+def manual_occurrence(req):
+    """The manual requests admitted on the v2-occurrence (retained manifest) route: an approved full-coverage request, or exactly the reviewed
+    R10 all-15 smoke occurrence (journey-smoke, its own run id, smoke coverage and sample mode). R10 run 42406851270 follow-up trace: the
+    receiver and G7 admitted only nightly/full-coverage, so the R10 run stage would have refused after A7 (aggregate-occurrence-priority)."""
+    return isinstance(req, dict) and (req.get("priority") == "full-coverage" or (
+        req.get("priority") == "journey-smoke" and req.get("runId") == R10_SMOKE_RUN_ID
+        and req.get("coverageMode") == req.get("sampleMode") == "smoke"))
+
+
 def authenticated_chain():
     """(head, events) of the approved state ref, read through the producer's own boundary (reservations.py journal-snapshot): a fresh
     fetch of the approved URL into a private repository and whole-chain validation from the reviewed root. Refuses while unpinned."""
@@ -380,7 +389,7 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
         if rr.get("schema") == "speaksharp.cloud-test.aggregate-receiver-receipt.v1":
             bound = "occurrence" not in rr and rr.get("requestSha256") == request_sha256
         elif rr.get("schema") == "speaksharp.cloud-test.aggregate-receiver-receipt.v2":
-            bound = ("requestSha256" not in rr and req.get("priority") in ("nightly-regression", "full-coverage")
+            bound = ("requestSha256" not in rr and (req.get("priority") == "nightly-regression" or manual_occurrence(req))
                      and occurrence.get("schema") == "speaksharp.cloud-test.aggregate-receiver.v2-occurrence"
                      and occurrence.get("requestSha256") == request_sha256 and occurrence.get("campaignId") == req.get("runId")
                      and occurrence.get("testedSha") == (req.get("release") or {}).get("testedSha"))
