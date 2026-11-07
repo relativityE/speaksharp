@@ -6,7 +6,7 @@ import { assetRequestsFor, resolveCandidateAssetUrl } from '../candidateAssetReq
 import { COMPARISON_CANDIDATE_IDS } from '../runtimeCandidateSwitch';
 import { getDefaultProviderForMode, getProviderEntry } from '../providers/sttProviderConfig';
 import { resolvePrivateAssignment, buildEngineVersion } from '../privateTelemetry';
-import { requiredParakeetFiles } from '../engines/parakeet/contracts';
+import { assertParakeetProfile, requiredParakeetFiles } from '../engines/parakeet/contracts';
 import pins from '../engines/parakeet/assetPins.json';
 import { PARAKEET_EXECUTABLE_ROLES, candidateFromPackage, sealModelPackage } from '../modelPackage';
 
@@ -127,6 +127,19 @@ describe('an imported Parakeet package cannot choose which file the adapter exec
         ['the WASM binary swapped with the configuration file', (d: Decode) => swap(d, 'wasmBinaryFile', 'configurationFile')],
     ])('REFUSED: %s', async (_label, change) => {
         await expect(parakeetPackage(change)).rejects.toThrow('UNSUPPORTED_PARAKEET_RUNTIME_ROLES');
+    });
+    it('Codex P2 on 1786e230: a role in a subdirectory is refused at admission, as the adapter\'s own profile check refuses it', async () => {
+        const moved = (decode: Decode, files: Array<Record<string, unknown>>) => {
+            const encoder = files.find(f => f.path === decode.encoderFile)!;
+            encoder.path = 'weights/' + String(encoder.path);
+            encoder.url = String(encoder.url).replace(/[^/]+$/, 'weights/' + String(decode.encoderFile));
+            decode.encoderFile = encoder.path;
+        };
+        await expect(parakeetPackage(moved)).rejects.toThrow('UNSUPPORTED_PARAKEET_ASSET_LAYOUT');
+        // The adapter refuses the same profile, so admitting it would leave a package that can never initialize.
+        const decode = { ...(candidate.execution.decode as unknown as Decode), encoderFile: 'weights/encoder-model.int8.onnx' };
+        expect(() => assertParakeetProfile(decode as never, { package: 'parakeet.js', version: '1.4.4', ortVersion: '1.24.1' } as never))
+            .toThrow('Parakeet filenames must be distinct asset basenames');
     });
     it('REFUSED: the runtime role pointing at a renamed copy of a weight file, with the reviewed runtime still shipped beside it', async () => {
         await expect(parakeetPackage((decode, files) => {

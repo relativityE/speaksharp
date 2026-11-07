@@ -145,6 +145,9 @@ export function parseModelPackage(input: unknown): ModelPackage {
         const roles = [decode.encoderFile,decode.decoderFile,decode.vocabularyFile,decode.configurationFile,
             decode.runtimeBundleFile,decode.wasmGlueFile,decode.wasmBinaryFile];
         if (roles.some(file=>typeof file!=='string'||!paths.has(file)) || new Set(roles).size!==roles.length) refuse('UNSUPPORTED_PARAKEET_ASSETS');
+        // Codex P2 on 1786e230: the adapter (assertParakeetProfile) accepts only distinct asset BASENAMES, so a role in a
+        // subdirectory passed admission and then could never initialize. Admission applies the adapter's own rule.
+        if (roles.some(file=>/[\\/]/.test(file))) refuse('UNSUPPORTED_PARAKEET_ASSET_LAYOUT');
         // Codex P1 on c72108a1: the engine executes whatever file these roles name, so each executable role must be the
         // reviewed runtime pin itself, not merely a file present beside it. (The pin loop below binds that path's bytes.)
         if (Object.entries(PARAKEET_EXECUTABLE_ROLES).some(([role, pinned]) => decode[role as keyof typeof PARAKEET_EXECUTABLE_ROLES] !== pinned)) {
