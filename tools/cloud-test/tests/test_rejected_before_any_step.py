@@ -1,5 +1,5 @@
 """R10 run 42406851270 (PO: a run rejected before it ran anything must never block the next one). Its live job was rejected by the credential
-environment's protection rules and completed `failure` with NO steps. Two barriers made that block the next dispatch:
+environment's protection rules and completed `failure` with NO steps. Two barriers made that block the next dispatch (Sam 1794082329: a pre-run failure, no claimed reason, no extra fetch):
   1. unexecuted_attempt_evidence required at least one live step and a failed one, so the next record-begin refused (unexecuted-failed-step);
   2. the one-off grant tolerated zero-usage setup-failure settles only when pinned at the journal ROOT, and this grant is pinned at a later
      head (e7450f70) already carrying earlier runs' usage, so it refused (one-off-grant-checkpoint).
@@ -41,12 +41,14 @@ def chain(events=None):
     return [("1" * 40, []), ("2" * 40, [dict(RESERVE)] if events is None else events)]
 
 
-def build(run=None, jobs=None, annotations=False):
-    return U.build_evidence(run or load("run-42406851270.json"), jobs or load("jobs-42406851270.json"), chain(), workflow(),
-                            load("annotations-128506390478.json") if annotations is False else annotations)
+def build(run=None, jobs=None):
+    return U.build_evidence(run or load("run-42406851270.json"), jobs or load("jobs-42406851270.json"), chain(), workflow())
 
 
-class RejectedBeforeAnyStep(unittest.TestCase):
+class PreRunFailure(unittest.TestCase):
+    """Sam 1794082329: a pre-run failure is an explicitly empty step list plus the no-runner fields of exactly this run's own job; no
+    rejection reason is claimed and nothing beyond GitHub's run and jobs JSON is fetched."""
+
     def refused(self, code, fn, *a):
         with self.assertRaises(U.Refused) as e:
             fn(*a)
@@ -55,81 +57,69 @@ class RejectedBeforeAnyStep(unittest.TestCase):
     def live(self, jobs):
         return next(j for j in jobs["jobs"] if j["name"].startswith(U.LIVE_JOB_PREFIX))
 
-    def test_the_real_rejected_run_is_not_executed_with_zero_product_usage(self):
+    def test_the_real_run_is_a_pre_run_failure_with_zero_product_usage(self):
         live = self.live(load("jobs-42406851270.json"))
-        self.assertEqual((live["conclusion"], live["steps"], live["runner_id"], live["runner_name"]), ("failure", [], 0, ""))
+        self.assertEqual((live["conclusion"], live["steps"], live["runner_id"], live["runner_name"], live["runner_group_id"]),
+                         ("failure", [], 0, "", 0))
         doc = build()
         digest, usage, at_utc = U.check_evidence(doc)
         self.assertEqual((doc["accounting"], doc["dispositionRef"], doc["failedStep"]), ("none", None, None))
-        self.assertEqual(doc["rejection"]["environment"], "trusted-main-credentials")
-        self.assertEqual((doc["rejection"]["headBranch"], doc["rejection"]["checkRunId"]), ("elon/r10-preflight-traffic-class", 128506390478))
+        self.assertNotIn("rejection", doc)
         self.assertEqual(usage, dict(ZERO, runnerMinutes=1))
         self.assertEqual(at_utc, "2026-11-07T19:35:02Z")
         self.assertEqual(digest, hashlib.sha256(U.canon(doc)).hexdigest())
-        self.assertEqual(U.rejected_check_run(load("jobs-42406851270.json")), 128506390478)
+        pre = next(j for j in doc["jobs"] if j["name"].startswith(U.LIVE_JOB_PREFIX))
+        self.assertEqual((pre["jobId"], pre["runnerId"], pre["runnerName"], pre["runnerGroupId"], pre["checkRunUrl"]),
+                         (128506390478, 0, "", 0, "https://api.github.com/repos/relativityE/speaksharp/check-runs/128506390478"))
 
     def test_missing_or_non_list_steps_are_never_an_empty_list(self):
         for value in (None, False, 0, "", {}, "[]"):
-            jobs = load("jobs-42406851270.json")
-            self.live(jobs)["steps"] = value
-            self.refused("unexecuted-steps", build, None, jobs)
-            self.refused("unexecuted-steps", U.rejected_check_run, jobs)
+            with self.subTest(value=value):
+                jobs = load("jobs-42406851270.json")
+                self.live(jobs)["steps"] = value
+                self.refused("unexecuted-steps", build, None, jobs)
         jobs = load("jobs-42406851270.json")
         del self.live(jobs)["steps"]
         self.refused("unexecuted-steps", build, None, jobs)
 
-    def test_an_assigned_runner_or_another_check_run_refuses(self):
-        for key, value in (("runner_id", 7), ("runner_name", "GitHub Actions 7"), ("runner_group_id", 2),
-                           ("check_run_url", "https://api.github.com/repos/relativityE/speaksharp/check-runs/1"),
-                           ("check_run_url", "https://api.github.com/repos/other/repo/check-runs/128506390478"), ("check_run_url", None)):
+    def test_an_assigned_runner_another_job_or_missing_identity_stays_unknown(self):
+        for key, value in (("runner_id", 7), ("runner_id", None), ("runner_name", "GitHub Actions 7"), ("runner_group_id", 2),
+                           ("runner_group_id", None), ("check_run_url", "https://api.github.com/repos/relativityE/speaksharp/check-runs/1"),
+                           ("check_run_url", "https://api.github.com/repos/other/repo/check-runs/128506390478"), ("check_run_url", None),
+                           ("id", None), ("id", 0)):
             with self.subTest(key=key, value=value):
                 jobs = load("jobs-42406851270.json")
                 self.live(jobs)[key] = value
-                self.refused("unexecuted-rejection-job", build, None, jobs)
-        jobs = load("jobs-42406851270.json")
-        self.live(jobs)["runner_id"] = 7
-        self.assertIsNone(U.rejected_check_run(jobs))           # record-begin fetches no annotations for an allocated runner
+                self.refused("unexecuted-pre-run-job", build, None, jobs)
+        for key in ("runner_id", "runner_name", "runner_group_id", "check_run_url"):
+            with self.subTest(missing=key):
+                jobs = load("jobs-42406851270.json")
+                del self.live(jobs)[key]
+                self.refused("unexecuted-pre-run-job", build, None, jobs)
 
-    def test_the_annotations_must_be_githubs_exact_rejection_of_this_branch_and_environment(self):
-        real = load("annotations-128506390478.json")
-        self.refused("unexecuted-annotations", build, None, None, None)
-        cases = {"one missing": real[:1], "none": [], "other branch": [dict(real[0], message=real[0]["message"].replace("elon/", "main-"))] + real[1:],
-                 "other environment": [dict(real[0], message=real[0]["message"].replace("trusted-main-credentials", "x"))] + real[1:],
-                 "warning level": [dict(real[0], annotation_level="warning")] + real[1:],
-                 "an unrelated failure": [dict(real[0], message="Process completed with exit code 1.")] + real[1:]}
-        for name, annotations in cases.items():
-            with self.subTest(name):
-                with self.assertRaises(U.Refused) as e:
-                    U.build_evidence(load("run-42406851270.json"), load("jobs-42406851270.json"), chain(), workflow(), annotations)
-                self.assertIn(str(e.exception), ("unexecuted-rejection", "unexecuted-shape"))
-        with self.assertRaises(U.Refused) as e:                  # the run's own workflow names the live environment
-            U.build_evidence(load("run-42406851270.json"), load("jobs-42406851270.json"), chain(),
-                             workflow().replace("environment: trusted-main-credentials", "environment: other-env"), real)
-        self.assertEqual(str(e.exception), "unexecuted-rejection")
-        with self.assertRaises(U.Refused) as e:
-            U.build_evidence(dict(load("run-42406851270.json"), head_branch="main"), load("jobs-42406851270.json"), chain(), workflow(), real)
-        self.assertEqual(str(e.exception), "unexecuted-rejection")
-
-    def test_only_a_completed_failed_live_job_takes_this_path_and_no_step_is_synthesized(self):
+    def test_only_a_completed_failed_live_job_takes_this_path_and_no_step_or_reason_is_synthesized(self):
         for conclusion in ("cancelled", "success", "timed_out"):
             jobs = load("jobs-42406851270.json")
             self.live(jobs)["conclusion"] = conclusion
             self.refused("unexecuted-job-live", build, None, jobs)
-        jobs = load("jobs-42406851270.json")                     # a step that ran is the ordinary path: annotations are refused there
-        self.live(jobs)["steps"] = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success"}]
-        self.refused("unexecuted-annotations", build, None, jobs)
         doc = build()
-        self.refused("unexecuted-rejection", U.check_evidence, dict(doc, failedStep="Set up job"))
-        self.refused("unexecuted-shape", U.check_evidence, {k: v for k, v in doc.items() if k != "rejection"})
-        self.refused("unexecuted-rejection", U.check_evidence, dict(doc, rejection=dict(doc["rejection"], checkRunId=1)))
+        self.refused("unexecuted-pre-run", U.check_evidence, dict(doc, failedStep="Set up job"))
+        self.refused("unexecuted-shape", U.check_evidence, dict(doc, rejection={"reason": "environment"}))
         self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting="preflight-bound"))
         self.refused("unexecuted-credential-steps", U.check_evidence, dict(doc, credentialSteps=[]))
+        tampered = copy.deepcopy(doc)                                       # the no-runner fields are re-verified, not trusted
+        next(j for j in tampered["jobs"] if j["name"].startswith(U.LIVE_JOB_PREFIX))["runnerId"] = 3
+        self.refused("unexecuted-pre-run-job", U.check_evidence, tampered)
 
     def test_documents_with_steps_are_unchanged(self):
         import test_unexecuted_attempt_evidence as T
         doc = T.build()
-        self.assertNotIn("rejection", doc)
+        self.assertNotIn("jobId", next(j for j in doc["jobs"] if j["name"].startswith(U.LIVE_JOB_PREFIX)))
         self.assertEqual(hashlib.sha256(U.canon(doc)).hexdigest(), T.DIGEST)
+        tampered = copy.deepcopy(doc)                                       # a document with steps may not carry the pre-run fields
+        next(j for j in tampered["jobs"] if j["name"].startswith(U.LIVE_JOB_PREFIX)).update(jobId=1, runnerId=0, runnerName="", runnerGroupId=0,
+                                                                                         checkRunUrl=U.CHECK_RUN_URL % 1)
+        self.refused("unexecuted-pre-run-job", U.check_evidence, tampered)
 
     def test_the_record_retires_it_and_the_next_begin_opens(self):
         import publish_latest_record as P
@@ -141,51 +131,11 @@ class RejectedBeforeAnyStep(unittest.TestCase):
         self.assertIsNone(retired["inProgress"])
         self.assertEqual(P.begin(retired, "42499999999", 1, "3" * 40, "2026-11-07T21:00:00Z")["inProgress"]["status"], "running")
 
-    def test_record_begin_fetches_the_rejection_annotations_with_no_credential(self):
-        """The REAL record-begin snippet (this head's workflow), offline: the real rejected-check-run decides the fetch; a stub curl stands in
-        for GitHub's public API and records its arguments; the collector invocation is recorded (its rules are exercised above)."""
+    def test_record_begin_fetches_nothing_beyond_the_run_and_jobs_json(self):
         wf = open(os.path.join(ROOT, "..", "..", ".github", "workflows", "cloud-test-live.yml"), encoding="utf-8").read()
-        start = wf.index("              annotation_args=()")
-        end = wf.index('--out "$RUNNER_TEMP/unexecuted-evidence.json"', start) + len('--out "$RUNNER_TEMP/unexecuted-evidence.json"')
-        snippet = "\n".join(line[14:] for line in wf[start:end].split("\n"))
-        self.assertIn("curl --fail --silent --show-error --proto '=https'", snippet)
-        self.assertNotIn("Authorization", snippet)
-        self.assertNotIn("GH_TOKEN", snippet)
-        with tempfile.TemporaryDirectory() as d:
-            d = os.path.realpath(d)
-            stub = os.path.join(d, "bin"); os.mkdir(stub)
-            real_python = __import__("sys").executable
-            with open(os.path.join(stub, "curl"), "w") as f:
-                f.write('#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/curl.args"\nenv > "%s/curl.env"\ncat "%s"\n'
-                        % (d, d, os.path.join(FX, "annotations-128506390478.json")))
-            with open(os.path.join(stub, "python3"), "w") as f:     # the real interpreter, except the journal-reading collect is recorded
-                f.write('#!/bin/sh\nfor a in "$@"; do [ "$a" = collect ] && { printf "%%s\\n" "$@" > "%s/collect.args"; exit 0; }; done\n'
-                        'exec "%s" "$@"\n' % (d, real_python))
-            for n in ("curl", "python3"):
-                os.chmod(os.path.join(stub, n), 0o755)
-            import shutil
-            shutil.copy(os.path.join(FX, "jobs-42406851270.json"), os.path.join(d, "unexecuted-jobs.json"))
-            env = {"PATH": stub + ":/usr/bin:/bin", "RUNNER_TEMP": d, "GITHUB_REPOSITORY": "relativityE/speaksharp", "HOME": d}
-            r = __import__("subprocess").run(["bash", "-c", "set -euo pipefail\n" + snippet], cwd=os.path.join(ROOT, "..", ".."),
-                                             capture_output=True, text=True, env=env)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            curl = open(os.path.join(d, "curl.args")).read().split("\n")
-            self.assertIn("https://api.github.com/repos/relativityE/speaksharp/check-runs/128506390478/annotations", curl)
-            self.assertFalse([a for a in curl if "uthorization" in a or "token" in a.lower()])
-            self.assertNotIn("GH_TOKEN", open(os.path.join(d, "curl.env")).read())
-            collect = open(os.path.join(d, "collect.args")).read().split("\n")
-            self.assertEqual(collect[collect.index("--annotations") + 1], os.path.join(d, "unexecuted-annotations.json"))
-            self.assertEqual(json.load(open(os.path.join(d, "unexecuted-annotations.json"))), load("annotations-128506390478.json"))
-            # a job that ran steps: no fetch, no --annotations
-            os.remove(os.path.join(d, "curl.args"))
-            jobs = load("jobs-42406851270.json")
-            self.live(jobs)["steps"] = [{"number": 1, "name": "Set up job", "status": "completed", "conclusion": "failure"}]
-            json.dump(jobs, open(os.path.join(d, "unexecuted-jobs.json"), "w"))
-            r = __import__("subprocess").run(["bash", "-c", "set -euo pipefail\n" + snippet], cwd=os.path.join(ROOT, "..", ".."),
-                                             capture_output=True, text=True, env=env)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertFalse(os.path.exists(os.path.join(d, "curl.args")))
-            self.assertNotIn("--annotations", open(os.path.join(d, "collect.args")).read())
+        self.assertNotIn("curl ", wf)
+        self.assertNotIn("annotations", wf)
+        self.assertIn('unexecuted_attempt_evidence.py collect --run "$RUNNER_TEMP/unexecuted-run.json"', wf)
 
 
 class GrantPinnedPastRoot(Journal):

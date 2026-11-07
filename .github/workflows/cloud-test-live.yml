@@ -225,19 +225,8 @@ jobs:
               open_head="$(python3 -I -c 'import json,re,sys; h=json.load(open(sys.argv[1])).get("head_sha"); assert re.fullmatch(r"[0-9a-f]{40}", str(h)); print(h)' "$RUNNER_TEMP/unexecuted-run.json")"
               git fetch --quiet --no-tags --depth=1 origin "$open_head"
               git show "$open_head:.github/workflows/cloud-test-live.yml" > "$RUNNER_TEMP/unexecuted-workflow.yml"
-              # R10 run 42406851270: a live job the credential environment rejected before any step (explicitly empty steps, no runner) is
-              # proved by GitHub's own rejection annotations on that job's check run, read from the public API with NO credential (this job
-              # holds no `checks` permission). A missing, unreadable or different annotation refuses in collect.
-              annotation_args=()
-              rejected_job="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py rejected-check-run --jobs "$RUNNER_TEMP/unexecuted-jobs.json")"
-              if [ -n "$rejected_job" ]; then
-                curl --fail --silent --show-error --proto '=https' --max-time 30 -H 'Accept: application/vnd.github+json' \
-                  "https://api.github.com/repos/$GITHUB_REPOSITORY/check-runs/$rejected_job/annotations" > "$RUNNER_TEMP/unexecuted-annotations.json"
-                annotation_args=(--annotations "$RUNNER_TEMP/unexecuted-annotations.json")
-              fi
               python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py collect --run "$RUNNER_TEMP/unexecuted-run.json" \
-                --jobs "$RUNNER_TEMP/unexecuted-jobs.json" --workflow "$RUNNER_TEMP/unexecuted-workflow.yml" ${annotation_args[@]+"${annotation_args[@]}"} \
-                --out "$RUNNER_TEMP/unexecuted-evidence.json"
+                --jobs "$RUNNER_TEMP/unexecuted-jobs.json" --workflow "$RUNNER_TEMP/unexecuted-workflow.yml" --out "$RUNNER_TEMP/unexecuted-evidence.json"
               unexecuted_sha256="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py check --evidence "$RUNNER_TEMP/unexecuted-evidence.json" | cut -d' ' -f1)"
               unexecuted_b64="$(base64 < "$RUNNER_TEMP/unexecuted-evidence.json" | tr -d '\n')"
             fi

@@ -259,10 +259,6 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     B4_INSTALL = "npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund"
     PY_YAML_INSTALL = "python3 -m pip install --quiet pyyaml==6.0.2"
-    # R10 run 42406851270 (Sam 1794080789): record-begin's ONE network read outside gh: GitHub's public check-run annotations of a live job
-    # rejected before any step, with no credential (the job holds no `checks` permission). Not a download of code or a package.
-    ANNOTATION_READ = "curl --fail --silent --show-error --proto '=https' --max-time 30 -H 'Accept: application/vnd.github+json' \\"
-    ANNOTATION_URL = '"https://api.github.com/repos/$GITHUB_REPOSITORY/check-runs/$rejected_job/annotations" > "$RUNNER_TEMP/unexecuted-annotations.json"'
 
     def test_the_only_installs_are_the_pinned_python_evidence_dependency_and_reviewed_lockfile(self):
         # The existing reviewed setup contract: pinned PyYAML plus the runner
@@ -339,24 +335,12 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_no_browser_or_unreviewed_package_is_installed_or_downloaded(self):
         self.assertEqual(self.jobs["live"]["runs-on"], "ubuntu-26.04")
-        low = self.text.lower().replace(self.B4_INSTALL, "").replace(self.PY_YAML_INSTALL, "").replace(self.ANNOTATION_READ.lower(), "")
+        low = self.text.lower().replace(self.B4_INSTALL, "").replace(self.PY_YAML_INSTALL, "")
         for banned in ("playwright install", "install-deps", "apt-get", "setup-chrome", "browser-actions/", "--archive", "curl ", "wget ",
                        "npm ci", "npm install", "pnpm install", "pip install", "npx "):
             self.assertNotIn(banned, low)
         self.assertIn("--installed --environment github-hosted", self.text)
         self.assertIn("--baselines config/browser-baselines.v1.json", self.text)
-
-    def test_the_one_annotation_read_is_credential_free_https_to_the_github_api_in_record_begin_only(self):
-        self.assertEqual(self.text.count("curl "), 1)
-        self.assertEqual(self.text.count(self.ANNOTATION_READ), 1)
-        self.assertEqual(self.text.count(self.ANNOTATION_URL), 1)
-        begin = next(s for s in self.jobs["record-begin"]["steps"] if s.get("id") == "begin")
-        self.assertIn(self.ANNOTATION_READ, begin["run"])
-        self.assertLess(begin["run"].index("rejected-check-run"), begin["run"].index(self.ANNOTATION_READ))
-        line = begin["run"][begin["run"].index(self.ANNOTATION_READ):].split("\n")[1]
-        for banned in ("Authorization", "token", "GH_TOKEN", "-u ", "--user", "-K", "--config", "-o ", "--output"):
-            self.assertNotIn(banned, self.ANNOTATION_READ + line)
-        self.assertNotIn("checks", json.dumps(self.jobs["record-begin"].get("permissions", {})))
 
     def test_the_discovered_browser_generates_the_exact_head_proof_consumed_by_both_g3_and_g10(self):
         steps = self.jobs["live"]["steps"]
