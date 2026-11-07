@@ -130,19 +130,30 @@ export class ModelManager {
         return true;
     }
 
-    private static isTransformersModelAsset(url: string, requiredFile: string, modelPath: string): boolean {
+    /**
+     * EXACT path identity, never a suffix or substring test. A suffix test let a cached preprocessor_config.json
+     * satisfy a required config.json, and a substring test let another model directory whose name contains this
+     * one (or a nested path) satisfy it. The loaders write exactly two key shapes: the self-hosted
+     * `/models/<model>/<file>` and the Hub `/<model>/resolve/<revision>/<file>`. An unparsable URL never counts.
+     */
+    private static isExactModelAsset(url: string, requiredFile: string, modelPath: string): boolean {
+        if (!modelPath || !requiredFile || [modelPath, requiredFile].some(part => part.split('/').some(seg => seg === '..' || seg === '.' || seg === ''))) return false;
+        let pathname: string;
         try {
-            const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-            const pathname = decodeURIComponent(parsed.pathname);
-            return pathname.includes(modelPath) && pathname.endsWith(requiredFile);
+            pathname = decodeURIComponent(new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost').pathname);
         } catch (error) {
-            logger.debug({
-                error,
-                url,
-                requiredFile,
-            }, '[ModelManager] Cache URL parse failed; falling back to string asset matching');
-            return url.includes(modelPath) && url.split('?')[0]?.endsWith(requiredFile);
+            logger.debug({ error, url, requiredFile }, '[ModelManager] Cache URL parse failed; not counted as a model asset');
+            return false;
         }
+        if (pathname === `/models/${modelPath}/${requiredFile}`) return true;
+        const hub = `/${modelPath}/resolve/`;
+        if (!pathname.startsWith(hub) || !pathname.endsWith(`/${requiredFile}`)) return false;
+        const revision = pathname.slice(hub.length, pathname.length - requiredFile.length - 1);
+        return revision.length > 0 && !revision.includes('/');
+    }
+
+    private static isTransformersModelAsset(url: string, requiredFile: string, modelPath: string): boolean {
+        return this.isExactModelAsset(url, requiredFile, modelPath);
     }
 
     private static async isTransformersV4ModelDownloaded(modelPath: string, requiredFiles: readonly string[]): Promise<boolean> {
@@ -177,21 +188,7 @@ export class ModelManager {
     }
 
     private static isTransformersV4ModelAsset(url: string, requiredFile: string, modelPath: string): boolean {
-        try {
-            const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-            const pathname = decodeURIComponent(parsed.pathname);
-            return pathname.includes(modelPath) && pathname.endsWith(requiredFile);
-        } catch (error) {
-            logger.debug({
-                error,
-                url,
-                requiredFile,
-            }, '[ModelManager] V4 cache URL parse failed; falling back to string asset matching');
-            // The FALLBACK must use the same model path as the parsed branch. Leaving the fixed
-            // constant here would have made a URL that failed to parse silently revert to probing
-            // whisper-base.en — the defect surviving in the error path only.
-            return url.includes(modelPath) && url.split('?')[0]?.endsWith(requiredFile);
-        }
+        return this.isExactModelAsset(url, requiredFile, modelPath);
     }
 
 }

@@ -44,16 +44,27 @@ describe('an admitted Whisper package always carries its readiness requirements'
         const candidate = candidateFromPackage(await whisperPackage(), 'fixture.json');
         cached(WHISPER_PACKAGE_CACHE_FILES);
         expect(await ModelManager.isModelDownloaded('transformers-js', localModelId, candidate.execution.cacheFiles)).toBe(true);
-        // Missing the encoder. (Dropping config.json would not be detected: the probe's suffix match lets
-        // preprocessor_config.json satisfy it, a pre-existing ModelManager weakness tracked separately.)
-        cached(WHISPER_PACKAGE_CACHE_FILES.filter(file => file !== 'onnx/encoder_model_quantized.onnx'));
+        for (const missing of WHISPER_PACKAGE_CACHE_FILES) {
+            cached(WHISPER_PACKAGE_CACHE_FILES.filter(file => file !== missing));
+            expect(await ModelManager.isModelDownloaded('transformers-js', localModelId, candidate.execution.cacheFiles), `missing ${missing}`).toBe(false);
+        }
+    });
+    it('FALSE-READY 1: a cached preprocessor_config.json does not stand in for a missing config.json', async () => {
+        // The probe matched by suffix, so this exact cache state reported READY before (PO review, 5462dad7).
+        const candidate = candidateFromPackage(await whisperPackage(), 'fixture.json');
+        cached(WHISPER_PACKAGE_CACHE_FILES.filter(file => file !== 'config.json'));
         expect(await ModelManager.isModelDownloaded('transformers-js', localModelId, candidate.execution.cacheFiles)).toBe(false);
     });
-    it('keeps a valid declared list, and refuses a declared list that is empty, duplicated or names an unshipped file', async () => {
-        const declared = ['config.json', 'onnx/encoder_model_quantized.onnx'];
-        expect(candidateFromPackage(await whisperPackage(declared), 'fixture.json').execution.cacheFiles).toEqual(declared);
+    it('FALSE-READY 2: a declared list that omits required files is refused at admission, so it can never report ready', async () => {
+        // Before: admitted, and with only these two files cached the probe reported READY (PO review, 5462dad7).
+        const partial = ['config.json', 'onnx/encoder_model_quantized.onnx'];
+        await expect(whisperPackage(partial)).rejects.toThrow('UNSUPPORTED_WHISPER_CACHE_FILES');
+    });
+    it('keeps a complete declared list (extras allowed only when shipped); refuses empty, duplicated, unshipped or non-array lists', async () => {
+        const declared = [...WHISPER_PACKAGE_CACHE_FILES, 'generation_config.json'];
         const valid = await whisperPackage(declared);
-        for (const bad of [[], ['config.json', 'config.json'], ['onnx/decoder_model_merged_q4.onnx'], 'config.json']) {
+        expect(candidateFromPackage(valid, 'fixture.json').execution.cacheFiles).toEqual(declared);
+        for (const bad of [[], [...WHISPER_PACKAGE_CACHE_FILES, 'config.json'], [...WHISPER_PACKAGE_CACHE_FILES, 'onnx/decoder_model_merged_q4.onnx'], 'config.json']) {
             const changed = { ...valid, execution: { ...valid.execution, cacheFiles: bad } };
             await expect(verifyModelPackage(changed)).rejects.toThrow('UNSUPPORTED_WHISPER_CACHE_FILES');
         }

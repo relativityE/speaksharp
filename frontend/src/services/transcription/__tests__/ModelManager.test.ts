@@ -222,3 +222,30 @@ describe('ModelManager readiness against the cache the verified loaders actually
         await expect(ModelManager.isModelDownloaded('transformers-js')).resolves.toBe(true);
     });
 });
+
+describe('readiness matches the intended cache paths exactly (PO review of 5462dad7)', () => {
+    beforeEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+    const files = ['config.json', 'tokenizer.json', 'preprocessor_config.json', 'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
+    const at = (prefix: string) => files.map(file => `${prefix}/${file}`);
+
+    it('accepts the two key shapes the loaders write: self-hosted /models/<model>/<file> and Hub /<model>/resolve/<revision>/<file>', async () => {
+        stubTransformersCache(at('http://localhost/models/whisper-base.en'));
+        await expect(ModelManager.isModelDownloaded('transformers-js', 'whisper-base.en', files)).resolves.toBe(true);
+        stubTransformersCache(at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main'));
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4', 'onnx-community/whisper-base.en', files)).resolves.toBe(true);
+    });
+    it('a different file whose name ends with the required one does not count (preprocessor_config.json is not config.json)', async () => {
+        stubTransformersCache(at('http://localhost/models/whisper-base.en').filter(url => !url.endsWith('/config.json') || url.endsWith('preprocessor_config.json')));
+        await expect(ModelManager.isModelDownloaded('transformers-js', 'whisper-base.en', files)).resolves.toBe(false);
+    });
+    it('another model directory containing this name, or a nested path, does not count', async () => {
+        for (const prefix of ['http://localhost/models/distil-whisper-base.en', 'http://localhost/models/whisper-base.en-old',
+            'http://localhost/models/whisper-base.en/stale', 'http://localhost/other/models/whisper-base.en']) {
+            stubTransformersCache(at(prefix));
+            // each prefix above must not count
+            expect(await ModelManager.isModelDownloaded('transformers-js', 'whisper-base.en', files)).toBe(false);
+        }
+        stubTransformersCache(at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main/extra'));
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4', 'onnx-community/whisper-base.en', files)).resolves.toBe(false);
+    });
+});
