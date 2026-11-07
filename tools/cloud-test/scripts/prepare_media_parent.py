@@ -12,7 +12,8 @@ directory, as Sam 1794012265.884079 specified:
   * an existing node (or a creation race) is admitted only after the same lstat/realpath/owner/mode validation, and is never modified;
   * a newly created node is re-opened with O_NOFOLLOW|O_DIRECTORY and its identity, owner and mode verified before admission.
 
-Exit 0 prints a content-free result; any refusal is BLOCKED_SETUP (exit 78) and leaves the filesystem unchanged.
+Exit 0 prints a content-free result; any refusal is BLOCKED_SETUP (exit 78). An existing node is never modified. A refusal after a
+successful create (e.g. the post-create open or verification fails) may leave the new empty 0711 directory in place; it is not removed.
 """
 import argparse
 import os

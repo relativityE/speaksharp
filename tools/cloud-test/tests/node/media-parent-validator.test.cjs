@@ -17,11 +17,18 @@ function validate(parent) {
     getuid: () => 0, getgid: () => 0,
     fs: { ...fs, lstatSync: (p, ...r) => (p === parent ? asRoot(fs.lstatSync(p, ...r)) : fs.lstatSync(p, ...r)) },
   };
+  // Sam 1794013516: past an accepted parent the validator's NEXT step is lstat of the source, which must be exactly this synthetic path's
+  // ENOENT; any other error (or none) is not evidence of acceptance.
+  const source = path.join(path.dirname(parent), 'no-such-source.wav');
   try {
-    createPrivateMedia({ sourceFile: path.join(parent, '..', 'no-such-source.wav'), expectedSha256: 'a'.repeat(64), targetUid: 65534, targetGid: 65534,
+    createPrivateMedia({ sourceFile: source, expectedSha256: 'a'.repeat(64), targetUid: 65534, targetGid: 65534,
       approvedPrivateParent: parent }, adapter);
-  } catch (e) { return PARENT_REFUSAL.test(e.message) ? 'refused' : 'parent-accepted'; }
-  return 'parent-accepted';
+  } catch (e) {
+    if (PARENT_REFUSAL.test(e.message)) return 'refused';
+    if (e.code === 'ENOENT' && e.path === source && e.syscall === 'lstat') return 'parent-accepted';
+    return 'unexpected: ' + (e.code || e.message);
+  }
+  return 'unexpected: no error';
 }
 
 function prepared(mode) {
