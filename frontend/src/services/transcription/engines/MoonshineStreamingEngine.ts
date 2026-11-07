@@ -1,6 +1,7 @@
 import type { MicStream } from '../utils/types';
 import type { Result } from '../modes/types';
 import type { AvailabilityResult, STTStrategy } from '../STTStrategy';
+import type { PrivateRuntimeEvidence } from '../../../contracts/IPrivateSTTEngine';
 import { CANDIDATES, identityOf, isCompleteIdentity, type CandidateId } from '../candidateRegistry';
 import { fetchVerifiedAssets, moonshineAssetsFor } from '../moonshineAssetPins';
 
@@ -567,6 +568,17 @@ export class MoonshineStreamingEngine implements STTStrategy {
 
     async getTranscript(): Promise<string> { return this.committed || this.interim; }
     getInterimTranscript(): string { return this.interim; }
+
+    /**
+     * The shared runtime-evidence contract every Private adapter publishes through the facade
+     * (`PrivateSTT.getExecutionEvidence()`). Derived from the same observed state as `observedExecution`:
+     * null until an attributable runtime is installed, then the only backend this adapter runs. The model is
+     * never introspected, so `modelId` stays null rather than echoing the configured id as if observed.
+     */
+    getRuntimeEvidence(): PrivateRuntimeEvidence | null {
+        if (this.transcriber === null) return null;
+        return { initSucceeded: true, backend: 'wasm', modelId: null, fallbackOccurred: false };
+    }
 
     getMetadata(): MoonshineEngineMetadata {
         // NEVER THROWS. An unregistered candidate is exactly the case where init failed, and this is the
