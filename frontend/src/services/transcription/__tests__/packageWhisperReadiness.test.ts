@@ -27,7 +27,8 @@ async function whisperPackage(cacheFiles?: unknown) {
 }
 
 function cached(files: readonly string[]) {
-    const keys = files.map(file => ({ url: `http://localhost/models/${localModelId}/${file}` }));
+    // The package loader's verified fetch keys each entry by its pinned URL: this origin's served directory.
+    const keys = files.map(file => ({ url: `${window.location.origin}/models/${localModelId}/${file}` }));
     vi.stubGlobal('caches', {
         has: vi.fn(async (name: string) => name === 'speaksharp-verified-model-v1'),
         open: vi.fn(async () => ({ keys: vi.fn(async () => keys) })),
@@ -43,17 +44,17 @@ describe('an admitted Whisper package always carries its readiness requirements'
     it('reports READY through the real probe once every derived file is cached, and not before', async () => {
         const candidate = candidateFromPackage(await whisperPackage(), 'fixture.json');
         cached(WHISPER_PACKAGE_CACHE_FILES);
-        expect(await ModelManager.isModelDownloaded('transformers-js', localModelId, candidate.execution.cacheFiles)).toBe(true);
+        expect(await ModelManager.isModelDownloaded('transformers-js', localModelId, candidate.execution.cacheFiles, candidate)).toBe(true);
         for (const missing of WHISPER_PACKAGE_CACHE_FILES) {
             cached(WHISPER_PACKAGE_CACHE_FILES.filter(file => file !== missing));
-            expect(await ModelManager.isModelDownloaded('transformers-js', localModelId, candidate.execution.cacheFiles), `missing ${missing}`).toBe(false);
+            expect(await ModelManager.isModelDownloaded('transformers-js', localModelId, candidate.execution.cacheFiles, candidate), `missing ${missing}`).toBe(false);
         }
     });
     it('FALSE-READY 1: a cached preprocessor_config.json does not stand in for a missing config.json', async () => {
         // The probe matched by suffix, so this exact cache state reported READY before (PO review, 5462dad7).
         const candidate = candidateFromPackage(await whisperPackage(), 'fixture.json');
         cached(WHISPER_PACKAGE_CACHE_FILES.filter(file => file !== 'config.json'));
-        expect(await ModelManager.isModelDownloaded('transformers-js', localModelId, candidate.execution.cacheFiles)).toBe(false);
+        expect(await ModelManager.isModelDownloaded('transformers-js', localModelId, candidate.execution.cacheFiles, candidate)).toBe(false);
     });
     it('FALSE-READY 2: a declared list that omits required files is refused at admission, so it can never report ready', async () => {
         // Before: admitted, and with only these two files cached the probe reported READY (PO review, 5462dad7).

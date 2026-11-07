@@ -19,37 +19,39 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 const makeRequest = (url: string) => ({ url }) as Request;
+// The incumbent's library loader resolves '/models/<model>/<file>' against THIS page's origin; readiness requires that exact key.
+const ORIGIN = window.location.origin;
 
 const requiredWhisperTinyCacheUrls = [
-    'http://localhost/models/whisper-tiny.en/config.json',
-    'http://localhost/models/whisper-tiny.en/tokenizer.json',
-    'http://localhost/models/whisper-tiny.en/preprocessor_config.json',
-    'http://localhost/models/whisper-tiny.en/onnx/encoder_model_quantized.onnx',
-    'http://localhost/models/whisper-tiny.en/onnx/decoder_model_merged_quantized.onnx',
+    `${ORIGIN}/models/whisper-tiny.en/config.json`,
+    `${ORIGIN}/models/whisper-tiny.en/tokenizer.json`,
+    `${ORIGIN}/models/whisper-tiny.en/preprocessor_config.json`,
+    `${ORIGIN}/models/whisper-tiny.en/onnx/encoder_model_quantized.onnx`,
+    `${ORIGIN}/models/whisper-tiny.en/onnx/decoder_model_merged_quantized.onnx`,
 ];
 
 // PRIVATE-BASE-DEFAULT: the default Private model is now whisper-base.en, so cache-availability
 // for 'transformers-js' is gated on the base assets (same filenames, base path).
 const requiredWhisperBaseCacheUrls = [
-    'http://localhost/models/whisper-base.en/config.json',
-    'http://localhost/models/whisper-base.en/tokenizer.json',
-    'http://localhost/models/whisper-base.en/preprocessor_config.json',
-    'http://localhost/models/whisper-base.en/onnx/encoder_model_quantized.onnx',
-    'http://localhost/models/whisper-base.en/onnx/decoder_model_merged_quantized.onnx',
+    `${ORIGIN}/models/whisper-base.en/config.json`,
+    `${ORIGIN}/models/whisper-base.en/tokenizer.json`,
+    `${ORIGIN}/models/whisper-base.en/preprocessor_config.json`,
+    `${ORIGIN}/models/whisper-base.en/onnx/encoder_model_quantized.onnx`,
+    `${ORIGIN}/models/whisper-base.en/onnx/decoder_model_merged_quantized.onnx`,
 ];
 
 // v4 rollout model is whisper-base.en (base_q4) — v4 has no tiny variant.
 const requiredWhisperBaseV4CacheUrls = [
-    'http://localhost/models/onnx-community/whisper-base.en/config.json',
-    'http://localhost/models/onnx-community/whisper-base.en/tokenizer.json',
-    'http://localhost/models/onnx-community/whisper-base.en/preprocessor_config.json',
-    'http://localhost/models/onnx-community/whisper-base.en/onnx/encoder_model.onnx',
-    'http://localhost/models/onnx-community/whisper-base.en/onnx/decoder_model_merged_q4.onnx',
+    'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/config.json',
+    'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/tokenizer.json',
+    'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/preprocessor_config.json',
+    'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx',
+    'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_q4.onnx',
 ];
 
-function stubTransformersCache(urls: string[], hasCache = true): void {
+function stubTransformersCache(urls: string[], hasCache = true, onlyCache = 'transformers-cache'): void {
     const cacheStorage = {
-        has: vi.fn(async (cacheName: string) => cacheName === 'transformers-cache' && hasCache),
+        has: vi.fn(async (cacheName: string) => cacheName === onlyCache && hasCache),
         open: vi.fn(async () => ({
             keys: vi.fn(async () => urls.map(makeRequest)),
         })),
@@ -117,15 +119,17 @@ describe('ModelManager transformers cache contract', () => {
     });
 
     it('reports transformers-js-v4 unavailable when required split model assets are missing', async () => {
-        stubTransformersCache(requiredWhisperBaseV4CacheUrls.filter((url) => !url.endsWith('decoder_model_merged_q4.onnx')));
+        stubTransformersCache(requiredWhisperBaseV4CacheUrls.filter((url) => !url.endsWith('decoder_model_merged_q4.onnx')), true, VERIFIED_MODEL_CACHE);
 
         await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(false);
     });
 
     it('reports transformers-js-v4 available only when required split model assets are present', async () => {
-        stubTransformersCache(requiredWhisperBaseV4CacheUrls);
-
+        stubTransformersCache(requiredWhisperBaseV4CacheUrls, true, VERIFIED_MODEL_CACHE);
         await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(true);
+        // The same exact keys in the library cache, which the v4 loader never reads, are not ready.
+        stubTransformersCache(requiredWhisperBaseV4CacheUrls);
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(false);
     });
 
     it('returns expected model size estimates for each Private engine family', () => {
@@ -175,7 +179,7 @@ async function loadThroughVerifiedFetch(storage: CacheStorage, urls: readonly st
         .map((n) => n.toString(16).padStart(2, '0')).join('');
     const pins = await Promise.all(urls.map(async (url) => ({ url, sha256: await sha(bodies.get(url)!), bytes: bodies.get(url)!.byteLength })));
     const upstream = (async (input: RequestInfo | URL) => new Response(bodies.get(String(input))!)) as typeof fetch;
-    const verifiedFetch = createVerifiedAssetFetch(pins, ['http://localhost/models/'], upstream, storage);
+    const verifiedFetch = createVerifiedAssetFetch(pins, ['https://huggingface.co/onnx-community/whisper-base.en/'], upstream, storage);
     for (const url of urls) await verifiedFetch(url);
 }
 
@@ -208,44 +212,67 @@ describe('ModelManager readiness against the cache the verified loaders actually
         await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(false);
     });
 
-    it('counts assets split between the library cache and the verified cache, and keeps the incumbent library-cache path', async () => {
+    it('each loader is ready only from the cache it reads: v4 from the verified cache, the incumbent from the library cache', async () => {
+        // PO finding on c821ccf6 (4): readiness accepted the union of both caches, so a file present only in the cache the selected
+        // loader does not read reported READY and the loader then went to the network.
         const storage = memoryCacheStorage();
         vi.stubGlobal('caches', storage);
         const [first, ...rest] = requiredWhisperBaseV4CacheUrls;
         await loadThroughVerifiedFetch(storage, rest);
         await (await storage.open('transformers-cache')).put(first, new Response('x'));
-        await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(true);
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(false);
         const incumbent = memoryCacheStorage();
         vi.stubGlobal('caches', incumbent);
         const library = await incumbent.open('transformers-cache');
         for (const url of requiredWhisperBaseCacheUrls) await library.put(url, new Response('x'));
         await expect(ModelManager.isModelDownloaded('transformers-js')).resolves.toBe(true);
+        const verifiedOnly = memoryCacheStorage();
+        vi.stubGlobal('caches', verifiedOnly);
+        const verified = await verifiedOnly.open(VERIFIED_MODEL_CACHE);
+        for (const url of requiredWhisperBaseCacheUrls) await verified.put(url, new Response('x'));
+        await expect(ModelManager.isModelDownloaded('transformers-js')).resolves.toBe(false);
     });
 });
 
-describe('readiness matches the intended cache paths exactly (PO review of 5462dad7)', () => {
+describe('readiness matches the selected loader\'s exact request identities (PO reviews of 5462dad7 and c821ccf6)', () => {
     beforeEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
     const files = ['config.json', 'tokenizer.json', 'preprocessor_config.json', 'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
-    const at = (prefix: string) => files.map(file => `${prefix}/${file}`);
+    const v4Files = ['config.json', 'tokenizer.json', 'preprocessor_config.json', 'onnx/encoder_model.onnx', 'onnx/decoder_model_merged_q4.onnx'];
+    const at = (prefix: string, list = files) => list.map(file => `${prefix}/${file}`);
+    const v4Ready = () => ModelManager.isModelDownloaded('transformers-js-v4', 'onnx-community/whisper-base.en', v4Files);
 
-    it('accepts the two key shapes the loaders write: self-hosted /models/<model>/<file> and Hub /<model>/resolve/<revision>/<file>', async () => {
-        stubTransformersCache(at('http://localhost/models/whisper-base.en'));
+    it('accepts exactly the keys the loaders read: this origin\'s /models/<model>/<file>, and the pinned Hub revision in the verified cache', async () => {
+        stubTransformersCache(at(`${ORIGIN}/models/whisper-base.en`));
         await expect(ModelManager.isModelDownloaded('transformers-js', 'whisper-base.en', files)).resolves.toBe(true);
-        stubTransformersCache(at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main'));
-        await expect(ModelManager.isModelDownloaded('transformers-js-v4', 'onnx-community/whisper-base.en', files)).resolves.toBe(true);
+        stubTransformersCache(at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main', v4Files), true, VERIFIED_MODEL_CACHE);
+        await expect(v4Ready()).resolves.toBe(true);
     });
     it('a different file whose name ends with the required one does not count (preprocessor_config.json is not config.json)', async () => {
-        stubTransformersCache(at('http://localhost/models/whisper-base.en').filter(url => !url.endsWith('/config.json') || url.endsWith('preprocessor_config.json')));
+        stubTransformersCache(at(`${ORIGIN}/models/whisper-base.en`).filter(url => !url.endsWith('/config.json') || url.endsWith('preprocessor_config.json')));
         await expect(ModelManager.isModelDownloaded('transformers-js', 'whisper-base.en', files)).resolves.toBe(false);
     });
     it('another model directory containing this name, or a nested path, does not count', async () => {
-        for (const prefix of ['http://localhost/models/distil-whisper-base.en', 'http://localhost/models/whisper-base.en-old',
-            'http://localhost/models/whisper-base.en/stale', 'http://localhost/other/models/whisper-base.en']) {
+        for (const prefix of [`${ORIGIN}/models/distil-whisper-base.en`, `${ORIGIN}/models/whisper-base.en-old`,
+            `${ORIGIN}/models/whisper-base.en/stale`, `${ORIGIN}/other/models/whisper-base.en`]) {
             stubTransformersCache(at(prefix));
             // each prefix above must not count
             expect(await ModelManager.isModelDownloaded('transformers-js', 'whisper-base.en', files)).toBe(false);
         }
-        stubTransformersCache(at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main/extra'));
-        await expect(ModelManager.isModelDownloaded('transformers-js-v4', 'onnx-community/whisper-base.en', files)).resolves.toBe(false);
+        stubTransformersCache(at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main/extra', v4Files), true, VERIFIED_MODEL_CACHE);
+        await expect(v4Ready()).resolves.toBe(false);
+    });
+    it('FALSE-READY (c821ccf6): another origin, another Hub revision or a query string does not count', async () => {
+        // The incumbent: the same path under another origin, or with a query, is not the key the loader looks up.
+        for (const urls of [at('https://other.example/models/whisper-base.en'), at(`${ORIGIN}/models/whisper-base.en`).map(url => `${url}?v=2`)]) {
+            stubTransformersCache(urls);
+            expect(await ModelManager.isModelDownloaded('transformers-js', 'whisper-base.en', files)).toBe(false);
+        }
+        // v4: an old revision, another host, or a query is never the pinned request the verified fetch serves.
+        for (const urls of [at('https://huggingface.co/onnx-community/whisper-base.en/resolve/old-revision', v4Files),
+            at('https://other.example/onnx-community/whisper-base.en/resolve/main', v4Files),
+            at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main', v4Files).map(url => `${url}?download=1`)]) {
+            stubTransformersCache(urls, true, VERIFIED_MODEL_CACHE);
+            expect(await v4Ready()).toBe(false);
+        }
     });
 });

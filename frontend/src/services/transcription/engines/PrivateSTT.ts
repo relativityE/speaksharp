@@ -990,6 +990,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             cacheEngine,
             selected?.execution.localModelId ?? selectedVariant?.MODEL_ID ?? PRIV_STT_V4.MODEL_ID,
             selected?.execution.cacheFiles,
+            // The exact loader identity (cache name and request URLs) comes from the selected candidate.
+            selected ?? undefined,
         );
 
         if (!isDownloaded) {

@@ -14,10 +14,19 @@ test('cache readiness uses the selected local model rather than the baseline', a
     caches: { has: async () => true, open: async () => ({ keys: async () =>
       explicitUrls ?? tiny.execution.cacheFiles.map(file => ({ url: `https://fixture.invalid/models/${cachedModel}/${file}` })) }) },
   };
+  // The REAL pin source: readiness for the verified loaders requires exactly the pinned request URLs (PO finding on c821ccf6).
+  const assetRequests = await importIsolated(stripTypeScriptTypes(await readFile(new URL('../candidateAssetRequests.ts', import.meta.url), 'utf8')),
+    { imports: {
+      './moonshineAssetPins.json': { default: JSON.parse(await readFile(new URL('../moonshineAssetPins.json', import.meta.url), 'utf8')) },
+      '../../../../tests/fixtures/hf-asset-pins.json': {
+        default: JSON.parse(await readFile(new URL('../../../../../tests/fixtures/hf-asset-pins.json', import.meta.url), 'utf8')) },
+      './engines/transformersV2WasmAssets': { TRANSFORMERS_V2_WASM_ASSET_URLS: { baseline: '/runtime.wasm' } },
+    }, globals: { window: { location: { origin: 'https://fixture.invalid' } } } });
   const dependencies = {
     './candidateRegistry': { CANDIDATES },
-    // Readiness reads the union of the transformers cache and the cache the verified loaders write (12a67b79).
+    // Readiness reads the one cache the selected loader reads: the library cache or the verified loaders' cache.
     './verifiedAssetFetch': { VERIFIED_MODEL_CACHE },
+    './candidateAssetRequests': { modelResponsePins: assetRequests.modelResponsePins },
     '@/lib/logger': { default: { info() {}, warn() {}, error() {}, debug() {} } },
     './sttConstants': { PRIV_STT_V4: {}, PRIV_STT_MODELS: {
       CANDIDATES: { 'whisper-base.en': { localId: 'whisper-base.en' } },
@@ -35,6 +44,10 @@ test('cache readiness uses the selected local model rather than the baseline', a
   const int8 = CANDIDATES['v4:base:int8'];
   explicitUrls = q4.execution.cacheFiles.map(file => ({ url: `https://huggingface.co/${q4.model.id}/resolve/main/${file}` }));
   assert.equal(await api.isModelDownloaded('transformers-js-v4', q4.model.id, q4.execution.cacheFiles), true);
+  // Another Hub revision is not the pinned request the verified loader serves from cache.
+  explicitUrls = q4.execution.cacheFiles.map(file => ({ url: `https://huggingface.co/${q4.model.id}/resolve/old-revision/${file}` }));
+  assert.equal(await api.isModelDownloaded('transformers-js-v4', q4.model.id, q4.execution.cacheFiles), false);
+  explicitUrls = q4.execution.cacheFiles.map(file => ({ url: `https://huggingface.co/${q4.model.id}/resolve/main/${file}` }));
   assert.equal(await api.isModelDownloaded('transformers-js-v4', int8.model.id, int8.execution.cacheFiles), false);
   assert.equal(await api.isModelDownloaded('transformers-js-v4', 'unregistered/model'), false);
   assert.equal(await api.isModelDownloaded('transformers-js-v4', q4.model.id, []), false);

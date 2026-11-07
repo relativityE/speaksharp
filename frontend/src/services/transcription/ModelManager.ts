@@ -1,8 +1,9 @@
 import logger from '@/lib/logger';
 import { PRIV_STT_V4, PRIV_STT_MODELS } from './sttConstants';
 import { resolvePrivateModel } from './utils/privateModelFlag';
-import { CANDIDATES } from './candidateRegistry';
+import { CANDIDATES, type Candidate } from './candidateRegistry';
 import { VERIFIED_MODEL_CACHE } from './verifiedAssetFetch';
+import { modelResponsePins } from './candidateAssetRequests';
 
 /**
  * ModelManager
@@ -15,21 +16,7 @@ import { VERIFIED_MODEL_CACHE } from './verifiedAssetFetch';
  */
 export class ModelManager {
     private static readonly TRANSFORMERS_CACHE = 'transformers-cache';
-    // Every cache a loader may have written the model to: the library's own cache (the incumbent) and the verified loaders' cache
-    // (v4 and package-v2 candidates load with useBrowserCache=false and store digest-verified responses there). Probing only the first
-    // reported CACHE_MISS after every successful candidate load.
-    private static readonly MODEL_CACHES = [this.TRANSFORMERS_CACHE, VERIFIED_MODEL_CACHE] as const;
 
-    /** The URLs of every entry in every model cache that exists; [] when none does or CacheStorage is unavailable. */
-    private static async cachedModelUrls(): Promise<string[]> {
-        const urls: string[] = [];
-        for (const name of this.MODEL_CACHES) {
-            if (!(await caches.has(name))) continue;
-            const cache = await caches.open(name);
-            urls.push(...(await cache.keys()).map((request) => request.url));
-        }
-        return urls;
-    }
     // Model-aware: track the SELECTED Private model so cache-detection + size gate the download/ready
     // UX on what will actually load. The default is PRIV_STT_MODELS.DEFAULT — v2 whisper-base.en
     // (~80MB, self-hosted under public/models/, no Hugging Face). tiny.en remains an internal/emergency
@@ -39,9 +26,6 @@ export class ModelManager {
     }
 
     /**
-     * Check if the specific model for an engine type is likely present in the cache.
-     */
-    /**
      * Is the model for `engineType` present in cache?
      *
      * `modelPath` is the REPOSITORY the selected candidate actually loads. It used to be fixed to
@@ -50,11 +34,18 @@ export class ModelManager {
      * "missing" when base was absent even though distil was there. Either way the UI described a model
      * the session was not going to run — the same intention-vs-reality gap as reporting a size for the
      * wrong model.
+     *
+     * READY MEANS THE SELECTED LOADER WILL READ EVERY REQUIRED FILE FROM CACHE. Readiness used to compare a
+     * decoded pathname across both caches, so an entry under another origin, another Hub revision, a query
+     * string, or the cache the loader does not read reported READY while the loader would still go to the
+     * network (PO finding on c821ccf6). It now derives the exact cache name and exact request URLs from the
+     * selected loader (see cacheIdentity) and requires each URL as an exact key in that one cache.
      */
     public static async isModelDownloaded(
         engineType: 'transformers-js' | 'transformers-js-v4',
         modelPath?: string,
         requiredFiles?: readonly string[],
+        candidate?: Candidate,
     ): Promise<boolean> {
         // Browser Environment Check
         if (typeof window === 'undefined') {
@@ -64,20 +55,20 @@ export class ModelManager {
         try {
             const selectedPath = modelPath ?? (engineType === 'transformers-js-v4'
                 ? PRIV_STT_V4.MODEL_ID : this.TRANSFORMERS_MODEL_PATH);
-            if (!requiredFiles) {
-                const matches = Object.values(CANDIDATES).filter(candidate =>
-                    candidate.engine === engineType && candidate.execution.implemented &&
-                    (candidate.execution.localModelId ?? candidate.model.id) === selectedPath);
+            let selected = candidate;
+            if (!selected) {
+                const matches = Object.values(CANDIDATES).filter(entry =>
+                    entry.engine === engineType && entry.execution.implemented &&
+                    (entry.execution.localModelId ?? entry.model.id) === selectedPath);
                 // A repository shared by different exports cannot identify its cache requirements.
-                if (matches.length !== 1) return false;
-                requiredFiles = matches[0].execution.cacheFiles;
+                if (matches.length === 1) selected = matches[0];
+                else if (!requiredFiles) return false;
             }
+            requiredFiles ??= selected?.execution.cacheFiles;
             if (!requiredFiles?.length) return false;
-            if (engineType === 'transformers-js-v4') {
-                return await this.isTransformersV4ModelDownloaded(selectedPath, requiredFiles);
-            }
-
-            return await this.isTransformersModelDownloaded(selectedPath, requiredFiles);
+            const identity = this.cacheIdentity(engineType, selectedPath, requiredFiles, selected);
+            if (!identity) return false;
+            return await this.cachedExactly(identity.cacheName, identity.urls, engineType);
         } catch (error) {
             logger.error({ error, engineType }, '[ModelManager] Error probing cache storage');
             // Fail-safe: Assume not downloaded if cache probing fails
@@ -99,96 +90,59 @@ export class ModelManager {
         return PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB;
     }
 
-    private static async isTransformersModelDownloaded(modelPath: string, requiredFiles: readonly string[]): Promise<boolean> {
-        if (typeof caches === 'undefined') {
-            logger.info({ engineType: 'transformers-js' }, '[ModelManager] CacheStorage unavailable');
-            return false;
-        }
-
-        const cachedUrls = await this.cachedModelUrls();
-
-        if (cachedUrls.length === 0) {
-            logger.info({ engineType: 'transformers-js', cacheNames: this.MODEL_CACHES }, '[ModelManager] No model cache entries (First Use)');
-            return false;
-        }
-
-        const missingFiles = requiredFiles.filter(
-            (requiredFile) => !cachedUrls.some((url) => this.isTransformersModelAsset(url, requiredFile, modelPath)),
-        );
-
-        if (missingFiles.length > 0) {
-            logger.warn({
-                engineType: 'transformers-js',
-                cacheNames: this.MODEL_CACHES,
-                keyCount: cachedUrls.length,
-                missingFiles,
-            }, '[ModelManager] Cache exists but required model assets are missing');
-            return false;
-        }
-
-        logger.info({ engineType: 'transformers-js', cacheNames: this.MODEL_CACHES, keyCount: cachedUrls.length }, '[ModelManager] Required model assets detected in cache');
-        return true;
-    }
-
     /**
-     * EXACT path identity, never a suffix or substring test. A suffix test let a cached preprocessor_config.json
-     * satisfy a required config.json, and a substring test let another model directory whose name contains this
-     * one (or a nested path) satisfy it. The loaders write exactly two key shapes: the self-hosted
-     * `/models/<model>/<file>` and the Hub `/<model>/resolve/<revision>/<file>`. An unparsable URL never counts.
+     * The one cache and the exact request URLs the SELECTED loader reads, or null when they cannot be named.
+     *
+     * - Built-in v2 (the incumbent; library loader, useBrowserCache): Xenova 2.17.2 looks up and stores
+     *   `/models/<model>/<file>` in `transformers-cache`, resolved against this origin, with no query.
+     * - v4 and imported v2 packages (verified loaders, useBrowserCache=false): the verified fetch looks up
+     *   exactly the PINNED request URL in VERIFIED_MODEL_CACHE and refuses any other URL in its scope. Each
+     *   required file must therefore map to exactly one pin in the loader's scope (v4: the Hub repository's
+     *   `resolve/<revision>/`; packages: the package's served directory).
      */
-    private static isExactModelAsset(url: string, requiredFile: string, modelPath: string): boolean {
-        if (!modelPath || !requiredFile || [modelPath, requiredFile].some(part => part.split('/').some(seg => seg === '..' || seg === '.' || seg === ''))) return false;
-        let pathname: string;
-        try {
-            pathname = decodeURIComponent(new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost').pathname);
-        } catch (error) {
-            logger.debug({ error, url, requiredFile }, '[ModelManager] Cache URL parse failed; not counted as a model asset');
-            return false;
+    private static cacheIdentity(engineType: 'transformers-js' | 'transformers-js-v4', modelPath: string,
+        requiredFiles: readonly string[], candidate: Candidate | undefined): { cacheName: string; urls: string[] } | null {
+        const safe = (value: string) => !!value && value.split('/').every(seg => seg !== '' && seg !== '.' && seg !== '..');
+        if (!safe(modelPath) || !requiredFiles.every(safe)) return null;
+        if (engineType === 'transformers-js' && !candidate?.modelPackage) {
+            return { cacheName: this.TRANSFORMERS_CACHE,
+                urls: requiredFiles.map(file => new URL(`/models/${modelPath}/${file}`, window.location.origin).href) };
         }
-        if (pathname === `/models/${modelPath}/${requiredFile}`) return true;
-        const hub = `/${modelPath}/resolve/`;
-        if (!pathname.startsWith(hub) || !pathname.endsWith(`/${requiredFile}`)) return false;
-        const revision = pathname.slice(hub.length, pathname.length - requiredFile.length - 1);
-        return revision.length > 0 && !revision.includes('/');
+        if (!candidate) return null;
+        const scope = engineType === 'transformers-js-v4'
+            ? `https://huggingface.co/${modelPath}/resolve/`
+            : new URL(`${candidate.assets.servedFrom}/`, window.location.origin).href;
+        const pins = modelResponsePins(candidate).map(pin => pin.url);
+        const urls: string[] = [];
+        for (const file of requiredFiles) {
+            const matches = pins.filter(url => {
+                if (!url.startsWith(scope) || url.includes('?') || url.includes('#')) return false;
+                const rest = url.slice(scope.length);
+                if (engineType !== 'transformers-js-v4') return rest === file;
+                const slash = rest.indexOf('/');
+                return slash > 0 && rest.slice(slash + 1) === file;
+            });
+            if (matches.length !== 1) return null;
+            urls.push(matches[0]);
+        }
+        return { cacheName: VERIFIED_MODEL_CACHE, urls };
     }
 
-    private static isTransformersModelAsset(url: string, requiredFile: string, modelPath: string): boolean {
-        return this.isExactModelAsset(url, requiredFile, modelPath);
-    }
-
-    private static async isTransformersV4ModelDownloaded(modelPath: string, requiredFiles: readonly string[]): Promise<boolean> {
-        if (typeof caches === 'undefined') {
-            logger.info({ engineType: 'transformers-js-v4' }, '[ModelManager] CacheStorage unavailable');
+    /** Every URL is an exact key (origin, path and query) in the one named cache. */
+    private static async cachedExactly(cacheName: string, urls: readonly string[], engineType: string): Promise<boolean> {
+        if (typeof caches === 'undefined') return false;
+        if (!(await caches.has(cacheName))) {
+            logger.info({ engineType, cacheName }, '[ModelManager] No model cache entries (First Use)');
             return false;
         }
-
-        const cachedUrls = await this.cachedModelUrls();
-
-        if (cachedUrls.length === 0) {
-            logger.info({ engineType: 'transformers-js-v4', cacheNames: this.MODEL_CACHES }, '[ModelManager] No model cache entries (First Use)');
+        const keys = new Set((await (await caches.open(cacheName)).keys()).map(request => request.url));
+        const missing = urls.filter(url => !keys.has(url)).length;
+        if (missing > 0) {
+            logger.warn({ engineType, cacheName, keyCount: keys.size, missingCount: missing },
+                '[ModelManager] Cache exists but required model assets are missing');
             return false;
         }
-
-        const missingFiles = requiredFiles.filter(
-            (requiredFile) => !cachedUrls.some((url) => this.isTransformersV4ModelAsset(url, requiredFile, modelPath)),
-        );
-
-        if (missingFiles.length > 0) {
-            logger.warn({
-                engineType: 'transformers-js-v4',
-                cacheNames: this.MODEL_CACHES,
-                keyCount: cachedUrls.length,
-                missingFiles,
-            }, '[ModelManager] Cache exists but required v4 model assets are missing');
-            return false;
-        }
-
-        logger.info({ engineType: 'transformers-js-v4', cacheNames: this.MODEL_CACHES, keyCount: cachedUrls.length }, '[ModelManager] Required v4 model assets detected in cache');
+        logger.info({ engineType, cacheName, keyCount: keys.size }, '[ModelManager] Required model assets detected in cache');
         return true;
     }
-
-    private static isTransformersV4ModelAsset(url: string, requiredFile: string, modelPath: string): boolean {
-        return this.isExactModelAsset(url, requiredFile, modelPath);
-    }
-
 }
