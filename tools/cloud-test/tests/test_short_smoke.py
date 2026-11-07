@@ -182,7 +182,7 @@ class ShortSmokeContract(unittest.TestCase):
                     str(ROOT.parents[1]), template_rel, str(path), hashlib.sha256(raw).hexdigest(),
                     init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), "2026-11-07T17:00:01Z")
         # The grant pinned by the PO (Sam's verified relays slack:1794073342.879639, slack:1794072158.779099): earliest start 15:30Z Nov 7, latest start 22:20Z Dec 30 (a 100-minute
-        # 80-minute window ending at the extended period end, 2026-12-31T00:00Z). Both boundaries are exact.
+        # occurrence ending at the extended period end, 2026-12-31T00:00Z). Both boundaries are exact.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-07T15:30:00Z")
         init.materialize_authoritative_smoke_occurrence(
@@ -373,10 +373,10 @@ class ShortSmokeContract(unittest.TestCase):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
         value = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-07T17:00:00Z")
         raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-        self.assertTrue(init.completion_within_occurrence(raw, datetime(2026, 11, 7, 18, 20, 0, tzinfo=timezone.utc)))
-        self.assertFalse(init.completion_within_occurrence(raw, datetime(2026, 11, 7, 18, 20, 1, tzinfo=timezone.utc)))
+        self.assertTrue(init.completion_within_occurrence(raw, datetime(2026, 11, 7, 18, 40, 0, tzinfo=timezone.utc)))
+        self.assertFalse(init.completion_within_occurrence(raw, datetime(2026, 11, 7, 18, 40, 1, tzinfo=timezone.utc)))
         scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
-        self.assertLess(datetime(2026, 11, 7, 18, 20, 1, tzinfo=timezone.utc), init._utc(scope["periodEndUtc"]))
+        self.assertLess(datetime(2026, 11, 7, 18, 40, 1, tzinfo=timezone.utc), init._utc(scope["periodEndUtc"]))
         with tempfile.TemporaryDirectory(prefix="completion-deadline-") as tmp:
             occurrence_file = Path(tmp) / "occurrence.json"
             occurrence_file.write_bytes(raw)
