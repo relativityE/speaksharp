@@ -355,6 +355,13 @@ case "$STAGE" in
       admission_dir="$OUT/plan/run/admission"
       admission_file="$admission_dir/admission-receipt.json"
       admission_config="$(python3 -I "$ROOT/scripts/cfg_get.py" "$planfile" admissionConfigFile)" || blocked "campaign admission config cannot be read"
+      # R10 run 42318728005 (A6 S12 ENOENT; Sam 1794012265.884079): in the elevated run stage, create-only prepare the plan's own approved
+      # private-media parent, which media-private.cjs requires to already exist root-owned 0711. Before admission; never modifies a node.
+      if [ "$(id -u)" = 0 ]; then
+        media_parent="$(python3 -I "$ROOT/scripts/cfg_get.py" "$admission_config" privateMediaParent)" || blocked "admission privateMediaParent cannot be read"
+        python3 -I "$ROOT/scripts/prepare_media_parent.py" --parent "$media_parent" --expected "${CT_MEDIA_PARENT:-/var/tmp/ss-media-cloud-test}" \
+          || blocked "approved private media parent could not be prepared"
+      fi
       run_stage run node "$HP/bundle/harness/admission.cjs" --bundle "$HP/bundle" --config "$admission_config" --out "$admission_dir" --execute-r0 true
       [ -f "$admission_file" ] && [ ! -L "$admission_file" ] || blocked "genuine admission receipt unavailable"
       admission_sha="$(sha256sum "$admission_file" | cut -d' ' -f1)"
