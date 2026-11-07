@@ -71,6 +71,10 @@ OWNER_DISPOSITIONS = {
                     "ran": (PREFLIGHT_STEP, INIT_STEP, STAGE_SETUP_STEP)},
 }
 LIVE_JOB_PREFIX = "Selected live journeys"
+# R10 run 42406851270: the live job was rejected by the credential environment's protection rules (the branch exception had been removed),
+# completed `failure` with NO steps: it never got a runner, so no step ran and no secret reached it. That is the strongest not-executed shape
+# and settles exactly like `none` (zero product usage, measured runner minutes); it must never block the next run.
+NO_STEP_STARTED = "(no step started: the live job ended before its runner ran any step)"
 JOB_PREFIXES = (("record", "Record the attempt", "success"), ("gate", "Nightly gate", "skipped"),
                 ("reserve", "Reserve the run on the state-ref journal", "success"), ("live", LIVE_JOB_PREFIX, "failure"),
                 ("settle", "Settle the run's reservation", "success"), ("complete", "Complete or interrupt the attempt", "success"))
@@ -212,8 +216,14 @@ def _rules(doc):
         _need(len(found) == 1 and found[0]["status"] == "completed" and found[0]["conclusion"] == wanted, "unexecuted-job-" + key)
     live = _live(jobs)
     steps = live["steps"]
-    _need(0 < len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"} for s in steps), "unexecuted-steps")
+    _need(len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"} for s in steps), "unexecuted-steps")
     failed = sorted((s for s in steps if s["conclusion"] == "failure"), key=lambda s: s["number"])
+    if not steps:
+        # the completed, failed live job never started a step (environment rejection): nothing ran, so no credential-bearing step ran
+        _need(doc["failedStep"] == NO_STEP_STARTED, "unexecuted-failed-step")
+        _need(doc["credentialSteps"] and any(step.startswith("Stage runner (run)") for _job, step in doc["credentialSteps"])
+              and all(job == live["name"] for job, _step in doc["credentialSteps"]), "unexecuted-credential-steps")
+        failed = [{"number": 0, "name": NO_STEP_STARTED}]
     _need(failed and doc["failedStep"] == failed[0]["name"], "unexecuted-failed-step")
     # Any further failure is a consequence of the first: a later, secret-free always() step of the run's own workflow (run 42142985744).
     allowed = {tuple(p) for p in doc["consequentialSteps"]}
@@ -224,7 +234,7 @@ def _rules(doc):
     # the product-capable step must be among the credential-bearing ones, so a mis-parsed workflow cannot yield an empty or partial list
     _need(doc["credentialSteps"] and any(step.startswith("Stage runner (run)") for _job, step in doc["credentialSteps"]), "unexecuted-credential-steps")
     ran = []
-    for job_name, step_name in doc["credentialSteps"]:
+    for job_name, step_name in (doc["credentialSteps"] if steps else []):    # no step started: no credential-bearing step can have run
         _need(job_name == live["name"], "unexecuted-credential-job")
         found = [s for s in steps if s["name"] == step_name]
         _need(len(found) == 1, "unexecuted-credential-step-missing")       # missing or duplicated is uncertain, never skipped
@@ -334,6 +344,8 @@ def build_evidence(run, jobs_doc, chain, workflow_text):
     _need(len(jobs) == len(JOB_PREFIXES), "unexecuted-jobs")
     live = _live(jobs)
     failed = sorted((s for s in live.get("steps") or [] if s.get("conclusion") == "failure"), key=lambda s: s.get("number") or 0)
+    if live.get("steps") == []:
+        failed = [{"name": NO_STEP_STARTED}]
     _need(failed, "unexecuted-failed-step")
     doc = {"schema": SCHEMA, "identity": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha")},
            "run": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha"), "status": run.get("status"),

@@ -111,7 +111,8 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
         except (TypeError, ValueError):
             raise Refused("one-off-grant-checkpoint")
         _need(isinstance(checkpoint, dict) and checkpoint.get("scopeApprovalRef") == grant.get("scopeApprovalRef")
-              and (checkpoint.get("headSha") == grant.get("preReserveStateHead") or _setup_failures_only(checkpoint, grant, chain)),
+              and (checkpoint.get("headSha") == grant.get("preReserveStateHead") or _setup_failures_only(checkpoint, grant, chain)
+                   or _setup_failures_since_pin(checkpoint, grant, chain, repo, accepted_scope)),
               "one-off-grant-checkpoint")
     return grant
 
@@ -162,6 +163,46 @@ def _setup_failures_only(checkpoint, grant, chain):
             and isinstance(period, dict) and all(type(period.get(k)) is int and period[k] == 0 for k in SETUP_FAILURE_ZERO_KEYS if k != "requests")
             and type(period.get("requests")) is int and 0 <= period["requests"] <= SETUP_FAILURE_MAX_REQUESTS * pairs
             and type(period.get("runnerMinutes")) is int and period["runnerMinutes"] >= 0
+            and isinstance(unknown, dict) and unknown and not any(unknown.values()))
+
+
+def _setup_failures_since_pin(checkpoint, grant, chain, repo, accepted_scope):
+    """R10 run 42406851270 (PO: a run rejected before it ran anything must never block the next one). The same rule as _setup_failures_only,
+    for a grant pinned at a LATER journal head (one already carrying earlier runs' usage): after that pinned head the verified chain adds
+    nothing but complete reserve -> settle pairs whose settles carry zero identity reads, Starts, takes and coaching calls and at most the
+    preflight's bounded requests, and the checkpoint is exactly the accepted rollup recomputed at the pinned head plus those settles. No
+    reservation may be open at either point; any release, executed attempt, open reservation or doubt refuses. So the grant still authorizes
+    exactly one attempt that runs."""
+    anchor = grant.get("preReserveStateHead")
+    if anchor == accounting_rollup.ACCEPTED_ROOT or not isinstance(chain, list) or len(chain) < 2:
+        return False
+    at = [i for i, node in enumerate(chain) if isinstance(node, (list, tuple)) and node and node[0] == anchor]
+    if len(at) != 1 or at[0] == len(chain) - 1:
+        return False
+    base, tail = chain[at[0]][1], chain[-1][1]
+    if not (isinstance(base, list) and isinstance(tail, list) and len(tail) > len(base) and tail[:len(base)] == base):
+        return False
+    added = tail[len(base):]
+    if not _setup_failure_pairs([(anchor, []), (chain[-1][0], added)], anchor, checkpoint.get("headSha")):
+        return False
+    try:
+        bootstrap = _read(os.path.join(repo, CONTINUITY_DIR, CONTINUITY_BOOTSTRAP))
+        before = json.loads(accounting_rollup.checkpoint_bytes(accounting_rollup.receive(bootstrap, accepted_scope, chain[:at[0] + 1])))
+    except (accounting_rollup.Refused, OSError, ValueError, TypeError, KeyError):
+        return False
+    period, prior = checkpoint.get("period"), before.get("period")
+    if not (isinstance(period, dict) and isinstance(prior, dict) and set(period) == set(prior)
+            and all(type(v) is int for v in list(period.values()) + list(prior.values()))):
+        return False
+    settles = [e for e in added if e.get("type") == "settle"]
+    expected = {k: prior[k] + sum(int((e.get("allocation") or {}).get(k, 0)) for e in settles) for k in prior}
+    unknown = checkpoint.get("unknown")
+    return (period == expected
+            and before.get("outstandingReservations") == 0 and before.get("openReservationsByRequest") == {}
+            and checkpoint.get("source") == "accepted-rollup" and checkpoint.get("root") == accounting_rollup.ACCEPTED_ROOT
+            and checkpoint.get("headSha") == chain[-1][0]
+            and type(checkpoint.get("outstandingReservations")) is int and checkpoint["outstandingReservations"] == 0
+            and checkpoint.get("openReservationsByRequest") == {}
             and isinstance(unknown, dict) and unknown and not any(unknown.values()))
 
 
