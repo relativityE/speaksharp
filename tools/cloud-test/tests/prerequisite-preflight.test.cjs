@@ -17,9 +17,9 @@ const START = Date.parse('2026-11-05T12:00:00Z');
 const MINUTE = 60 * 1000;
 function iso(ms) { return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z'); }
 function writeOccurrence(root, over = {}) {
-  // The authorized one-off occurrence: record-begin's selected bytes, created at its window start, an 80-minute window.
+  // The authorized one-off occurrence: record-begin's selected bytes, created at its window start, the reviewed 100-minute window.
   const occurrence = {runId: 'R10-3b040043-smoke15', createdUtc: iso(START),
-    window: {startUtc: iso(START), endUtc: iso(START + 80 * MINUTE), approvalRef: 'slack:renewal'}, ...over};
+    window: {startUtc: iso(START), endUtc: iso(START + 100 * MINUTE), approvalRef: 'slack:renewal'}, ...over};
   const file = path.join(root, 'occurrence.json'), raw = Buffer.from(JSON.stringify(occurrence));
   fs.writeFileSync(file, raw);
   return {file, sha: require('node:crypto').createHash('sha256').update(raw).digest('hex')};
@@ -182,12 +182,12 @@ test('charge consumes exactly ten requests from the admitted campaign ledger', a
 
 test('an expired, not-yet-open or unauthorized occurrence makes zero requests and writes nothing', async t => {
   const cases = [
-    ['expired', [START + 80 * MINUTE + 1], {}],
-    ['inside the last request timeout', [START + 80 * MINUTE - 9999], {}],
+    ['expired', [START + 100 * MINUTE + 1], {}],
+    ['inside the last request timeout', [START + 100 * MINUTE - 9999], {}],
     ['before the window opens', [START - 1], {}],
     ['other bytes than the authorized digest', [START + MINUTE], {sha: 'a'.repeat(64)}],
     ['another run', [START + MINUTE], {occurrence: {runId: 'R11-other'}}],
-    ['a stretched window', [START + MINUTE], {occurrence: {window: {startUtc: iso(START), endUtc: iso(START + 81 * MINUTE), approvalRef: 'x'}}}],
+    ['a stretched window', [START + MINUTE], {occurrence: {window: {startUtc: iso(START), endUtc: iso(START + 101 * MINUTE), approvalRef: 'x'}}}],
   ];
   for (const [label, times, over] of cases) {
     const f = fixture(t);
@@ -208,7 +208,7 @@ test('the deadline is re-checked before every request: once it passes mid-sequen
   const f = fixture(t), counted = countingFetch(successfulFetch()), original = global.fetch; global.fetch = counted.fetch;
   t.after(() => { global.fetch = original; });
   // Three requests fit (sign-in and two reads); the fourth check lands inside the final request timeout.
-  useClock(t, [START + MINUTE, START + 2 * MINUTE, START + 3 * MINUTE, START + 80 * MINUTE - 5000]);
+  useClock(t, [START + MINUTE, START + 2 * MINUTE, START + 3 * MINUTE, START + 100 * MINUTE - 5000]);
   await assert.rejects(() => script.prepare(args(f)), /occurrence-deadline/);
   assert.equal(counted.calls.length, 3);
   assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false);
@@ -219,9 +219,9 @@ test('run as a script (the workflow entry), the deadline check works and an expi
   // "Cannot read properties of undefined (reading 'now')". Imported-function tests could not see it; this spawns the script itself.
   const {spawnSync} = require('node:child_process');
   const entry = path.join(__dirname, '..', 'scripts', 'prerequisite_preflight.cjs');
-  for (const [label, startMs] of [['expired', Date.now() - 2 * 80 * MINUTE], ['not yet open', Date.now() + 60 * MINUTE]]) {
+  for (const [label, startMs] of [['expired', Date.now() - 2 * 100 * MINUTE], ['not yet open', Date.now() + 60 * MINUTE]]) {
     const f = fixture(t);
-    f.occurrence = writeOccurrence(f.root, {createdUtc: iso(startMs), window: {startUtc: iso(startMs), endUtc: iso(startMs + 80 * MINUTE), approvalRef: 'slack:renewal'}});
+    f.occurrence = writeOccurrence(f.root, {createdUtc: iso(startMs), window: {startUtc: iso(startMs), endUtc: iso(startMs + 100 * MINUTE), approvalRef: 'slack:renewal'}});
     // any network attempt from the child is recorded and fails: the refusal must come first
     const marker = path.join(f.root, 'fetch-called'), preload = path.join(f.root, 'no-fetch.cjs');
     fs.writeFileSync(preload, `globalThis.fetch = async () => { require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'x'); throw new Error('network'); };\n`);
@@ -242,7 +242,7 @@ test('run as scripts inside an open window, prepare then charge complete their n
   const {spawnSync} = require('node:child_process');
   const entry = path.join(__dirname, '..', 'scripts', 'prerequisite_preflight.cjs');
   const f = fixture(t), startMs = Date.now() - MINUTE;
-  f.occurrence = writeOccurrence(f.root, {createdUtc: iso(startMs), window: {startUtc: iso(startMs), endUtc: iso(startMs + 80 * MINUTE), approvalRef: 'slack:renewal'}});
+  f.occurrence = writeOccurrence(f.root, {createdUtc: iso(startMs), window: {startUtc: iso(startMs), endUtc: iso(startMs + 100 * MINUTE), approvalRef: 'slack:renewal'}});
   const calls = path.join(f.root, 'fetch-calls'), preload = path.join(f.root, 'synthetic-supabase.cjs');
   fs.writeFileSync(preload, `const fs = require('node:fs'); const IDS = ${JSON.stringify(IDS)}, EMAILS = ${JSON.stringify(EMAILS)};
 const json = (status, body) => ({status, json: async () => body});
@@ -294,4 +294,13 @@ globalThis.fetch = async (url, options) => {
   assert.equal(again.status, 78);
   assert.equal(again.stderr, 'BLOCKED_SETUP: preflight-import-not-first\n');
   assert.equal(JSON.parse(fs.readFileSync(ledgerFile)).reservations, 10);
+});
+
+test('the preflight window is exactly the materialized R10 occurrence window (init_run_inputs.SMOKE_OCCURRENCE_WINDOW_MINUTES)', () => {
+  // R10 run 42421801424 refused at step 11 (occurrence-window): the preflight still held 80 minutes after the occurrence became 100.
+  const py = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'init_run_inputs.py'), 'utf8');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'prerequisite_preflight.cjs'), 'utf8');
+  const minutes = Number(/^SMOKE_OCCURRENCE_WINDOW_MINUTES = (\d+)$/m.exec(py)[1]);
+  const [, a, b, c] = /^const OCCURRENCE_WINDOW_MS = (\d+) \* (\d+) \* (\d+);/m.exec(js);
+  assert.equal(Number(a) * Number(b) * Number(c), minutes * 60 * 1000);
 });

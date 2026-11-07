@@ -16,7 +16,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const SHA40 = /^[0-9a-f]{40}$/;
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:@/#-]{2,159}$/;
 const RUN_ID = 'R10-3b040043-smoke15';
-const OCCURRENCE_WINDOW_MS = 80 * 60 * 1000;  // init_run_inputs.SMOKE_OCCURRENCE_WINDOW_MINUTES
+const OCCURRENCE_WINDOW_MS = 100 * 60 * 1000;  // init_run_inputs.SMOKE_OCCURRENCE_WINDOW_MINUTES (pinned equal by test_window_constants_agree)
 const REQUEST_TIMEOUT_MS = 10000;
 const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 // The one clock every deadline check reads; tests replace clock.now, production never does.
@@ -69,7 +69,7 @@ function originFor(bundle) {
 }
 function authorizedOccurrence(file, expectedSha) {
   // The occurrence the run was authorized for: exactly the bytes record-begin selected (by digest), the one-off R10 run, its creation
-  // equal to its window start, and the reviewed 80-minute window.
+  // equal to its window start, and the reviewed occurrence window (init_run_inputs.SMOKE_OCCURRENCE_WINDOW_MINUTES).
   let raw;
   try {
     const stat = fs.lstatSync(file);
