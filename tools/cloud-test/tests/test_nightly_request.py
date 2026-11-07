@@ -225,8 +225,8 @@ class Derivation(unittest.TestCase):
         refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 358}))
         self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 359})))
         refused(self, "nightly-workflow-timeouts", derive, wf=WF.replace(
-            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}",
-            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '66' || '340') }}"))
+            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '85' || '340') }}",
+            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '86' || '340') }}"))
 
     def test_the_derived_request_passes_the_ordinary_validator_as_one_contract(self):
         import validate_run_request as V

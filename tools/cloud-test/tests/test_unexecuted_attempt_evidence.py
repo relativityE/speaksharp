@@ -17,7 +17,7 @@ RUN_ID = "41960376782"
 HEAD = "8f9f9451bb6bf37ba2bca524acd92d933e2b826c"
 ROOT_SHA = "92d6ebf902351750c368d7d513116c6b1f19f80c"
 LIVE = "Selected live journeys (existing stage runner; preinstalled browser)"
-DIGEST = "81a1dcb7f10903d73f5b812eb20d5f2ff610c08904b1774ea8223389125d078c"
+DIGEST = "b3579e3be26d2251b59bea30e9a70b342d979777601db3da477ff14d78017550"
 # The known facts of run 41960376782 (no longer a pin in the module, Sam 1793881491.714239): the journal head and reserve event as appended, the
 # step it failed at, and the credential-bearing steps of its workflow at its head.
 PIN = {"attempt": 1, "headSha": HEAD, "failedStep": "Generate the exact-head browser-bound proof and offline checks",
@@ -253,6 +253,85 @@ class Evidence(unittest.TestCase):
             held = PIN["reserved"]["allocation"]
             self.assertEqual({k: v for k, v in U.check_evidence(doc)[1].items() if k != "runnerMinutes"},
                              {k: held[k] for k in U.PRODUCT_KEYS}, failing)
+
+    COLLECT = ("Collect, verify the binding, qualify every selected row, and project the closed record",
+               "Project the linked content-safe first observations", "Retain the linked first observations for the next run",
+               "Project content-free per-case timing telemetry", "Retain content-free per-case timing telemetry")
+
+    def stage_setup_failure(self):
+        """Run 42142985744's shape: preflight and input binding succeeded, the stage-runner setup failed, the run step was skipped, and the
+        secret-free always() collection steps then failed because no run had started."""
+        jobs = self.failed_at("Stage runner (install-tools, plans, stimulus preflight, gates)",
+                              (U.PREFLIGHT_STEP, "Select the committed request and bind this run's inputs",
+                               "Bind a clean detached checkout of the admitted tested release",
+                               "Place the admitted continuity checkpoint as the runner's reconciliation"))
+        for name in self.COLLECT:
+            self.step(jobs, name)["conclusion"] = "failure"
+        return jobs
+
+    def test_secret_free_always_steps_that_fail_after_the_first_failure_are_consequences_not_new_failures(self):
+        # Run 42142985744: six failed steps (the setup refusal, then five always() collection steps with no secret) wedged the recovery.
+        doc = build(jobs=self.stage_setup_failure())
+        self.assertEqual(doc["failedStep"], "Stage runner (install-tools, plans, stimulus preflight, gates)")
+        self.assertEqual(doc["accounting"], "capped")                      # credential-bearing steps ran: the conservative caps, unchanged
+        held = PIN["reserved"]["allocation"]
+        self.assertEqual({k: v for k, v in U.check_evidence(doc)[1].items() if k != "runnerMinutes"}, {k: held[k] for k in U.PRODUCT_KEYS})
+        for name in self.COLLECT:
+            self.assertIn([LIVE, name], doc["consequentialSteps"])
+
+    def test_an_owner_disposition_applies_only_to_its_run_and_only_when_the_steps_match_exactly(self):
+        # PO 11-06 (slack:1793965143.063589): settle R10 run 42142985744 at preflight-bound 10/0. Proven here on the fixture run by keying
+        # the same disposition to it; the real run's own data is replayed separately.
+        from unittest import mock
+        disp = dict(U.OWNER_DISPOSITIONS["42142985744"])
+        self.assertEqual((disp["accounting"], disp["approvalRef"], disp["failedStep"]), ("preflight-bound", "slack:1793965143.063589", U.STAGE_SETUP_STEP))
+        self.assertEqual(sorted(U.OWNER_DISPOSITIONS), ["42142985744", "42226498611"])   # exactly the named runs, never a pattern
+        later = U.OWNER_DISPOSITIONS["42226498611"]                                       # PO disposition; Sam receipt slack:1793990863.439579
+        self.assertEqual((later["attempt"], later["headSha"], later["accounting"], later["approvalRef"], later["failedStep"], later["ran"]),
+                         (1, "cbfd39ff5295674356edacfd330a937a837a1e54", "preflight-bound", "slack:1793990863.439579", U.STAGE_SETUP_STEP,
+                          (U.PREFLIGHT_STEP, U.INIT_STEP, U.STAGE_SETUP_STEP)))
+        self.assertEqual((disp["attempt"], disp["headSha"]), (1, "79ce7d6cf68428c2007d3bd27f8dea47432a0958"))
+        # the fixture run's own attempt and head stand in for the decided ones
+        with mock.patch.dict(U.OWNER_DISPOSITIONS, {RUN_ID: dict(disp, attempt=1, headSha=PIN["headSha"])}):
+            doc = build(jobs=self.stage_setup_failure())
+            self.assertEqual((doc["accounting"], doc["dispositionRef"]), ("preflight-bound", "slack:1793965143.063589"))
+            self.assertEqual(U.check_evidence(doc)[1], {"requests": 10, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6})
+            self.refused("unexecuted-accounting", U.check_evidence, dict(doc, dispositionRef=None))          # the reference is bound
+            self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting="capped"))
+            self.refused("unexecuted-usage-differs", U.check_evidence, dict(doc, usage=dict(doc["usage"], requests=0)))
+            # a different failure point is not the decided run's facts: the rule's own classification stands
+            jobs = self.failed_at("Select the committed request and bind this run's inputs", (U.PREFLIGHT_STEP,))
+            self.assertEqual((build(jobs=jobs)["accounting"], build(jobs=jobs)["dispositionRef"]), ("capped", None))
+        # Sam 1793965900.321239: the exception is exact-attempt and exact-head, not only exact-run
+        for wrong in (dict(disp, attempt=2, headSha=PIN["headSha"]), dict(disp, attempt=1, headSha="f" * 40)):
+            with mock.patch.dict(U.OWNER_DISPOSITIONS, {RUN_ID: wrong}):
+                doc = build(jobs=self.stage_setup_failure())
+                self.assertEqual((doc["accounting"], doc["dispositionRef"]), ("capped", None))
+        # the same steps under any other run id stay capped
+        doc = build(jobs=self.stage_setup_failure())
+        self.assertEqual((doc["accounting"], doc["dispositionRef"]), ("capped", None))
+        self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting="preflight-bound", dispositionRef="slack:1793965143.063589",
+                                                                     usage=dict(doc["usage"], requests=10, identityReads=0, starts=0, takes=0, coachingRequests=0)))
+
+    def test_a_cancelled_or_timed_out_live_job_is_refused_by_next_dispatch_recovery(self):
+        # Sam 1793965423.927829: cancellation and job-timeout shapes fail the strict conclusion checks here, by design; such a run is settled
+        # in-run from its INCOMPLETE record (collect runs on always() once the run step started; journal-settle runs always()).
+        jobs = self.stage_setup_failure()
+        self.live(jobs)["conclusion"] = "cancelled"
+        self.refused("unexecuted-job-live", build, None, jobs)
+
+    def test_only_a_later_secret_free_always_step_may_fail_besides_the_first(self):
+        jobs = self.stage_setup_failure()
+        self.step(jobs, "Approved window still fits the live run")["conclusion"] = "failure"      # not an always() step
+        self.refused("unexecuted-failed-step", build, None, jobs)
+        doc = build(jobs=self.stage_setup_failure())
+        tampered = dict(doc, consequentialSteps=doc["consequentialSteps"] + [[LIVE, "Stage runner (run), bounded to the selected cases' live minutes"]])
+        self.refused("unexecuted-consequential-steps", U.check_evidence, tampered)   # a credential step can never be excused
+        self.refused("unexecuted-failed-step", U.check_evidence, dict(doc, consequentialSteps=[]))  # nor without the workflow's list
+        # a step's always() condition alone is not enough: one that holds a secret is never consequential
+        wf = ("jobs:\n  live:\n    name: L\n    steps:\n      - name: A\n        if: always()\n        env:\n          K: ${{ secrets.X }}\n"
+              "        run: x\n      - name: B\n        if: always() && steps.init.outcome == 'success'\n        run: y\n      - name: C\n        run: z\n")
+        self.assertEqual(U.consequential_steps(wf), [("L", "B")])
 
     def test_the_live_job_must_have_failed_at_exactly_one_step_and_no_step_may_be_active(self):
         self.assertEqual(build()["failedStep"], PIN["failedStep"])

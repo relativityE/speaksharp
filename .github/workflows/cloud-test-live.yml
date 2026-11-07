@@ -53,6 +53,10 @@ concurrency:
 env:
   TRACKING_ISSUE: '1763'
 
+# TEMPORARY (PO 2026-11-05, PR for R10 attempt 5): the four protected-main job conditions below also admit a MANUAL dispatch of
+# exactly refs/heads/elon/r10-preflight-traffic-class, so the actual 15-case test can run on the candidate branch before merge.
+# The live job keeps environment trusted-main-credentials (deployment branches: main), so it still runs only if that environment
+# separately admits this branch. This allowance MUST be removed (restoring the main-only conditions) before merge.
 jobs:
   nightly-gate:
     name: Nightly gate (switch, attempt, activated writer, standing approval; no credentials)
@@ -95,7 +99,7 @@ jobs:
     needs: nightly-gate
     # Privileged issue writes and every downstream credential-bearing job are admitted only from the server-reported protected main ref.
     # A dispatch skips the nightly gate; a scheduled run proceeds only when that gate admitted it. Every later job needs this one to succeed.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
+    if: ${{ !cancelled() && ((github.ref == 'refs/heads/main' && github.ref_protected == true) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class')) && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -171,7 +175,7 @@ jobs:
             --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
             --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
             --facts "$MANUAL_FACTS" --workflow-start-utc "$workflow_start_utc" \
-            --source-sha "$GITHUB_SHA" --job-timeout-minutes 65
+            --source-sha "$GITHUB_SHA" --job-timeout-minutes 85
           echo "occurrence_sha256=$MANUAL_OCCURRENCE_SHA256" >> "$GITHUB_OUTPUT"
           echo "occurrence_b64=$(base64 < "$RUNNER_TEMP/manual-occurrence.json" | tr -d '\n')" >> "$GITHUB_OUTPUT"
           echo "workflow_start_utc=$workflow_start_utc" >> "$GITHUB_OUTPUT"
@@ -276,7 +280,7 @@ jobs:
     needs: record-begin
     # J1 (PO approval recorded 1793578273.517019, scope 1793578116.842849): only this reviewed workflow on protected main, never a PR or fork.
     # #1772 review 4446137323: a manual dispatch reserves here too, so the credentialed live job stays contents: read and never sees the token.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.record-begin.result == 'success' }}
+    if: ${{ !cancelled() && ((github.ref == 'refs/heads/main' && github.ref_protected == true) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class')) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.record-begin.result == 'success' }}
     runs-on: ubuntu-latest
     # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
     timeout-minutes: 3
@@ -328,7 +332,7 @@ jobs:
               --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
               --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
               --facts "$MANUAL_FACTS" --workflow-start-utc "$MANUAL_WORKFLOW_START_UTC" \
-              --source-sha "$GITHUB_SHA" --job-timeout-minutes 65
+              --source-sha "$GITHUB_SHA" --job-timeout-minutes 85
             (umask 077; printf '%s' "$MANUAL_FACTS" > "$RUNNER_TEMP/manual-facts.json")
             python3 -I tools/cloud-test/scripts/manual_reservation.py reserve --journal "$RUNNER_TEMP/reserve-journal" \
               --out "$RUNNER_TEMP/reserve-receipt.json" --request "$RUNNER_TEMP/manual-occurrence.json" --admitted-sha256 "$MANUAL_OCCURRENCE_SHA256" \
@@ -349,7 +353,7 @@ jobs:
     name: Selected live journeys (existing stage runner; preinstalled browser)
     needs: [record-begin, journal-reserve]
     # Every run, scheduled or dispatched, starts only after its journal reserve landed (#1772 review 4446137323). Protected main only.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.record-begin.result == 'success' && needs.journal-reserve.result == 'success' }}
+    if: ${{ !cancelled() && ((github.ref == 'refs/heads/main' && github.ref_protected == true) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class')) && needs.record-begin.result == 'success' && needs.journal-reserve.result == 'success' }}
     # This is the only credentialed job that needs the preinstalled browser.
     # Keep it on the supported image family whose rolling releases satisfy the
     # reviewed Chrome >=156 baseline without a download or install.
@@ -360,7 +364,7 @@ jobs:
     # isolated writer jobs are unchanged.
     # Manual R10 smoke watchdog: 15 minutes setup + 40 minutes live ceiling + 10 minutes collection/settlement. These are admission bounds,
     # not measured runtime. The separately owned scheduled lane retains its existing outer watchdog until measured full-depth timings replace it.
-    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}
+    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '85' || '340') }}
     permissions:
       contents: read
     env:
@@ -493,7 +497,7 @@ jobs:
           # observe step hands them, with the bundle's account id and email, to case10_reader's own subprocess and to nothing else.
           CT_CASE10_PASSWORD: ${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}
           CT_CASE10_ANON_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}
-          JOB_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && '65' || '340' }}
+          JOB_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && '85' || '340' }}
         run: |
           set -euo pipefail
           # Sam 1793584373.385389: the Case 10 reader's credentials reach ONLY the observe child. They move into unexported shell variables at
@@ -553,6 +557,17 @@ jobs:
       # Increment I (Sam 1793566031.065709): the continuity checkpoint prepare admitted becomes the stage runner's reconciliation.json, the
       # exact bytes plan construction consumes (run_env --reconciliation). Copied once, never overwritten, and refused unless both the
       # private source and the placed copy hash to init's reconciliation_sha256 step output.
+      # PO 2026-11-06 (working release first): admission A3 requires `pnpm --version` in the tested checkout with corepack's network off;
+      # the hosted image has no pnpm. Bind exactly the tested release's pinned packageManager through Node's bundled corepack.
+      - name: Bind the tested release's pinned package manager (corepack)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          pm="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["packageManager"])' "$CT_CHECKOUT/package.json")"
+          [[ "$pm" =~ ^pnpm@[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'BLOCKED_SETUP: tested release packageManager is not a pinned pnpm'; exit 78; }
+          corepack enable pnpm
+          corepack prepare "$pm" --activate
+          [ "$(cd "$CT_CHECKOUT" && env -i PATH="$PATH" HOME="$HOME" COREPACK_ENABLE_NETWORK=0 COREPACK_ENABLE_AUTO_PIN=0 pnpm --version)" = "${pm#pnpm@}" ]
       - name: Place the admitted continuity checkpoint as the runner's reconciliation
         env:
           RECONCILIATION_SHA256: ${{ steps.init.outputs.reconciliation_sha256 }}
@@ -576,6 +591,8 @@ jobs:
           # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
           CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
+          # The run's one execution deadline (init output; never $GITHUB_ENV): the plan, policy, admission and producer scope bind it.
+          CT_EXECUTION_DEADLINE: ${{ steps.init.outputs.execution_deadline }}
         run: |
           set -euo pipefail
           for stage in install-tools build-plan stimulus-preflight build-plan-with-receipt gate-and-validate; do
@@ -591,8 +608,10 @@ jobs:
         env:
           LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
           REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
-        run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"
+          EXECUTION_DEADLINE: ${{ steps.init.outputs.execution_deadline }}
+        run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256" --execution-deadline "$EXECUTION_DEADLINE"
       - name: Stage runner (run), bounded to the selected cases' live minutes
+        id: run
         timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
         env:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -611,9 +630,11 @@ jobs:
           # the producer still refuses TELEMETRY_CAPABILITY_UNAVAILABLE without it.
           POSTHOG_PROJECT_ID: ${{ steps.init.outputs.route == 'github-producer' && secrets.POSTHOG_PROJECT_ID || '' }}
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          # PO 2026-11-06: the guarded browser lane needs root on this ephemeral runner; execute_run.sh elevates only the run stage.
+          CT_RUN_STAGE_AS_ROOT: '1'
         run: bash tools/cloud-test/scripts/execute_run.sh run
       - name: Collect, verify the binding, qualify every selected row, and project the closed record
-        if: always() && steps.init.outcome == 'success'
+        if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
         env:
           CASES: ${{ steps.init.outputs.cases }}
           TESTED_SHA: ${{ steps.init.outputs.tested_sha }}
@@ -652,7 +673,7 @@ jobs:
             --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" "${P[@]}" \
             --out "$RUNNER_TEMP/latest-record.json"
       - name: Project the linked content-safe first observations
-        if: always() && steps.init.outcome == 'success'
+        if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
         env:
           CASES: ${{ steps.init.outputs.cases }}
         run: |
@@ -660,7 +681,7 @@ jobs:
           python3 -I tools/cloud-test/scripts/init_run_inputs.py first-observations \
             --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" --out "$RUNNER_TEMP/first-observations.json"
       - name: Retain the linked first observations for the next run
-        if: always() && steps.init.outcome == 'success'
+        if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: cloud-test-first-observations
@@ -668,16 +689,34 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Project content-free per-case timing telemetry
-        if: always() && steps.init.outcome == 'success'
+        # ALWAYS, including a proof, preflight or init failure (Sam 1793931423.224679): every one of the fifteen cases gets a row bound to
+        # this run, attempt and head. NOT RUN needs affirmative evidence (no started.txt); started without case results is UNKNOWN.
+        if: always()
         env:
           CASES: ${{ steps.init.outputs.cases }}
+          MANUAL_REQUEST: ${{ inputs.request }}
+          NIGHTLY_REQUEST_B64: ${{ needs.record-begin.outputs.nightly_request_b64 }}
+          WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
         run: |
           set -euo pipefail
+          out="${CT_OUT:-$RUNNER_TEMP/out-absent}"
+          # The selection: init's admitted cases, else the admitted request, else (init never ran) the request this run was given.
+          req="${CT_REQUEST:-}"
+          if [ -z "$req" ] || [ ! -f "$req" ]; then
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+              req="$MANUAL_REQUEST"
+            else
+              req="$RUNNER_TEMP/selection-request.json"
+              (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$req")
+            fi
+          fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py case-timings \
-            --cases-dir "$CT_OUT/plan/run/cases" --case-results "$CT_OUT/plan/run/case-results.json" \
-            --cases "$CASES" --out "$RUNNER_TEMP/case-timings.json"
+            --cases-dir "$out/plan/run/cases" --case-results "$out/plan/run/case-results.json" \
+            --cases "${CASES:-}" --request "$req" --started-file "$out/started.txt" --stage-trace "$out/stage-trace.tsv" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" \
+            --workflow-start-utc "${WORKFLOW_START_UTC:-}" --out "$RUNNER_TEMP/case-timings.json"
       - name: Retain content-free per-case timing telemetry
-        if: always() && steps.init.outcome == 'success'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cloud-test-case-timings
@@ -720,7 +759,7 @@ jobs:
     needs: [record-begin, journal-reserve, live]
     # Runs whenever the run was reserved; with no run record (cancelled or missing collection) it appends nothing and the reservation stays
     # open, so the period keeps counting it at its caps.
-    if: ${{ always() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.journal-reserve.result == 'success' }}
+    if: ${{ always() && ((github.ref == 'refs/heads/main' && github.ref_protected == true) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class')) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.journal-reserve.result == 'success' }}
     runs-on: ubuntu-latest
     # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
     timeout-minutes: 3

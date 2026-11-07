@@ -43,14 +43,15 @@ import state_ref_writer  # noqa: E402
 
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
-SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
+SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "0829b61ad32083ba462f412ab21355b5159c5e24c5e9ed4795a4095c1e84712b"   # PO attempt approval slack:1793903873.185479 (2026-11-05; period extended to 2026-11-06T02:00Z)
+ONE_OFF_GRANT_SHA256 = "2e2898453487c044a73293c01d06af16f62d6466c0697a07639dce1d63314734"   # PO approval pinned (Sam verified relays slack:1794072158.779099 capacity/next run, slack:1794073342.879639 60-min signal run): run cap 3350 + 32 identity; ceilings 9518/128/74/64; 60 live / 100 end-to-end; pre-reserve head e7450f70
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
                       "limits", "olderReleaseDiagnostic"}
-ONE_OFF_LIMITS = {"endToEndMinutes": 80, "liveMinutes": 40, "requestsIncludingIdentity": 2032,
+ONE_OFF_LIMITS = {"endToEndMinutes": 100, "liveMinutes": 60, "requestsIncludingIdentity": 3382,
                   "identityReads": 32, "starts": 16, "takes": 16, "coachingCalls": 20, "retries": 0}
 CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
 
@@ -70,8 +71,11 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
     except ValueError:
         raise Refused("one-off-grant-unreadable")
     _need(isinstance(grant, dict) and set(grant) == ONE_OFF_GRANT_KEYS
-          and grant.get("schema") == "speaksharp.cloud-test.one-off-grant.v1" and grant.get("status") == "APPROVED",
+          and grant.get("schema") == "speaksharp.cloud-test.one-off-grant.v1" and grant.get("status") in ONE_OFF_GRANT_STATUSES,
           "one-off-grant-shape")
+    # Sam 1794070407: a grant whose proposed scope grew past its recorded owner decision is committed AWAITING_OWNER_DECISION and cannot
+    # admit a dispatch; only a reviewed change pinning the owner's new decision sets APPROVED (and re-pins ONE_OFF_GRANT_SHA256).
+    _need(grant.get("status") == "APPROVED", "one-off-grant-not-approved")
     _need(_ref(grant.get("approvalRef")) and grant.get("approvedBy") == "Akin"
           and grant.get("runId") == "R10-3b040043-smoke15" and grant.get("attempt") == 1,
           "one-off-grant-reference")
@@ -170,11 +174,11 @@ def materialize_authoritative_smoke_occurrence(repo, template, initiation):
 def materialize_smoke_occurrence(template, initiation, approval_ref, scope_approval_ref, approved_by, tested_sha, backend_sha):
     """Create the exact one-run bytes for an owner-selected R10 initiation.
 
-    The 80-minute occurrence is the bounded end-to-end workflow envelope:
-    5 minutes to record, 3 to reserve, the existing 65-minute live-job bound
-    (15 setup + 40 live + 10 collect), and 5 for the parallel settle/record
-    completion jobs, with two minutes of structural slack.  It is not a
-    measured runtime and it does not raise the 40-minute live ceiling.  The
+    The 100-minute occurrence is the bounded end-to-end workflow envelope:
+    5 minutes to record, 3 to reserve, the 85-minute live-job bound
+    (15 setup + 60 live + 10 collect; PO 60-minute signal run, Sam
+    1794073342.879639), and 5 for the parallel settle/record completion jobs,
+    with two minutes of structural slack.  It is not a measured runtime.  The
     caller must subsequently authorize these exact occurrence/release bytes
     and bind the ordinary action-approval envelope.
     """
@@ -194,7 +198,7 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, scope_appro
                      "endToEndMinutes": ONE_OFF_LIMITS["endToEndMinutes"],
                      "liveMinutes": ONE_OFF_LIMITS["liveMinutes"],
                      "approvalRef": approval_ref,
-                     "basis": "actual initiation + 5m record + 3m reserve + 65m live-job ceiling + 5m parallel settlement/record completion + 2m structural slack; live ceiling remains 40m; not measured runtime"}
+                     "basis": "actual initiation + 5m record + 3m reserve + 85m live-job ceiling (15 setup + 60 live + 10 collect) + 5m parallel settlement/record completion + 2m structural slack; live ceiling 60m; not measured runtime"}
     out["selectionApprovalRef"] = approval_ref
     # The one-off grant selects this occurrence. The accepted period scope,
     # independently, owns cumulative accounting.
@@ -282,6 +286,11 @@ SCOPE_MAX_WINDOW_SECONDS = 21600
 SETUP_RESERVE_MINUTES = 15
 COLLECT_RESERVE_MINUTES = 10
 HOSTED_JOB_CAP_MINUTES = 360
+# Sam 1794070353/1794071539 (design a): ONE execution deadline, computed once at init and bound unchanged as the plan's deadlineAt (BP_T1),
+# the guard policy's deadline, admission's approvedDeadlineAt and the producer scope's deadlineAt. The workflow kills the run step at
+# step start + live minutes; init runs before that step starts, so init time + live minutes is never later than the kill. The stage's own
+# post-campaign exit (ownership return) keeps this reserve; the campaign's cleanup reserve is subtracted once, by campaign-core, not here.
+RUN_STAGE_EXIT_RESERVE_SECONDS = 60
 
 
 class Refused(ValueError):
@@ -450,8 +459,32 @@ def check_window_remaining(req, now, live_minutes):
     _need((end - now).total_seconds() >= 60 * (live_minutes + COLLECT_RESERVE_MINUTES), "approved-window-too-short-at-admission")
 
 
+def execution_deadline(req, now, live_minutes):
+    """The one runtime safety bound for this run: min(occurrence end, init time + live minutes - the stage exit reserve), whole seconds.
+    Never later than the occurrence end and never later than the run step's kill; it is not a calendar window and never extends one."""
+    w = req["window"]
+    start, end = _utc(w["startUtc"]), _utc(w["endUtc"])
+    _need(_int(live_minutes) and live_minutes > 0, "live-minutes")
+    step_bound = now.replace(microsecond=0) + timedelta(minutes=live_minutes) - timedelta(seconds=RUN_STAGE_EXIT_RESERVE_SECONDS)
+    deadline = min(end, step_bound)
+    _need(start <= now < deadline, "execution-deadline-not-open")
+    return deadline.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def check_execution_deadline(req, now, live_minutes, deadline):
+    """Immediately before the run step: the init-bound deadline is well formed, inside the occurrence, still open, and not later than this
+    step's kill less the exit reserve (the step starts no earlier than now, so its kill is no earlier than now + live minutes)."""
+    _need(isinstance(deadline, str) and LR.UTC.match(deadline) is not None, "execution-deadline-missing")
+    _need(_int(live_minutes) and live_minutes > 0, "live-minutes")
+    w = req["window"]
+    d = _utc(deadline)
+    _need(_utc(w["startUtc"]) < d <= _utc(w["endUtc"]), "execution-deadline-outside-occurrence")
+    _need(now < d, "execution-deadline-passed")
+    _need(d <= now + timedelta(minutes=live_minutes) - timedelta(seconds=RUN_STAGE_EXIT_RESERVE_SECONDS), "execution-deadline-after-step-kill")
+
+
 def completion_within_occurrence(raw, now):
-    """Return whether R10 completed inside its reviewed 80-minute envelope.
+    """Return whether R10 completed inside its reviewed 100-minute envelope.
 
     Accounting may settle later inside the approved period so held usage is
     reconciled safely, but a late workflow is incomplete rather than an
@@ -629,6 +662,9 @@ def account_bindings(cfg, cases, facts_accounts, bundle, first_observation_run=N
 def translate_facts(facts, req, route):
     """The bounded facts input -> exactly the builder's facts schema (build_plan.py 51-60, 143, 242, 374). References only."""
     _need(isinstance(facts, dict) and FACT_REQUIRED <= set(facts) <= FACT_REQUIRED | FACT_OPTIONAL, "facts-shape")
+    # Run 42226498611: the plan builder requires the backend identity (build_plan.py `obj(FACTS.get('backend'), 'facts-backend')`), so facts
+    # without it must refuse here, in prepare, with a named code, never later inside the stage runner after the reserve and preflight.
+    _need("backend" in facts, "facts-backend-missing")
     for k in ("ownerApprovalReference", "approvedBy", "reviewer"):
         _need(_ref(facts[k]), "facts-reference:" + k)
     _need(facts["ownerApprovalReference"] == req["harness"]["ownerApprovalRef"], "facts-approval-not-the-request-approval")
@@ -645,7 +681,7 @@ def translate_facts(facts, req, route):
     return {k: v for k, v in facts.items() if k not in ("accounts", "olderReleaseDiagnostic")}
 
 
-def compose_scope(req, facts, account_id, cases, route):
+def compose_scope(req, facts, account_id, cases, route, deadline):
     """The producer route's private evidence scope, composed from the COMMITTED request (campaign, release, window, case selection and the
     reviewed evidenceScope limits) plus the facts' approval/review references and the bound account. It holds the raw account ID, so it is
     written privately in the job and never committed; authenticated_job_bootstrap.cjs validates it (validateBindings) against the builder
@@ -658,8 +694,11 @@ def compose_scope(req, facts, account_id, cases, route):
           "evidence-scope-limits")
     w = req["window"]
     _need((_utc(w["endUtc"]) - _utc(w["startUtc"])).total_seconds() <= SCOPE_MAX_WINDOW_SECONDS, "producer-scope-window-over-six-hours")
+    # The run's one execution deadline (execution_deadline), never the occurrence end: the plan's deadlineAt is the same value (bootstrap).
+    _need(isinstance(deadline, str) and LR.UTC.match(deadline) is not None and _utc(w["startUtc"]) < _utc(deadline) <= _utc(w["endUtc"]),
+          "execution-deadline-missing")
     tested = req["release"]["testedSha"]
-    return {"campaignId": req["runId"], "sourceSha": tested, "servedSha": tested, "notBefore": w["startUtc"], "deadlineAt": w["endUtc"],
+    return {"campaignId": req["runId"], "sourceSha": tested, "servedSha": tested, "notBefore": w["startUtc"], "deadlineAt": deadline,
             "caseIds": sorted(set(cases) & PRODUCER_CASES), "ownerAccountId": account_id, "ownerApprovalReference": facts["ownerApprovalReference"],
             "producerReviewReference": facts["producerReviewReference"], **{k: lim[k] for k in SCOPE_LIMITS}}
 
@@ -982,6 +1021,7 @@ def prepare(x, now):
     route = "github-producer" if set(cases) & PRODUCER_CASES else "github-direct"
     live_minutes = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
     check_window_fit(req, now, live_minutes)
+    deadline = execution_deadline(req, now, live_minutes)
     _need(not (nightly and x.facts), "nightly-facts-input-refused")
     facts = nightly_facts(repo) if nightly else (manual_facts if manual_occurrence else json.loads(x.facts or "null"))
     _need(isinstance(facts, dict), "facts-shape")
@@ -1020,14 +1060,15 @@ def prepare(x, now):
     builder_facts = translate_facts(facts, req, route)
     if observation is not None:
         builder_facts = dict(builder_facts, case10Observation=observation)  # the builder re-admits it (case10_execution_bound)
-    scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route)
+    scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route,
+                          deadline)
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
             "reconciliationBytes": reconciliation, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
             "accountId": account_id, "emails": {b["credentials"]["email"]: entries[b["role"]]["email"] for b in accounts},
-            "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes,
+            "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes, "executionDeadline": deadline,
             "accounts": accounts, "facts": builder_facts, "scope": scope}
 
 
@@ -1380,6 +1421,8 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
     rel = run_record.get("release") or {}
     _need(isinstance(tested_sha, str) and LR.SHA40.match(tested_sha) and rel.get("testedSha") == tested_sha, "run-record-for-another-release")
     q = qualification if isinstance(qualification, dict) else {}
+    if run_record.get("result") == "INCOMPLETE":
+        q = {}                                   # Bezos N1: an incomplete record can never be qualified, whatever is supplied
     campaign = run_record.get("runId")
     qualified = (q.get("qualified") is True and isinstance(campaign, str) and campaign.strip() and q.get("campaignId") == campaign and
                  q.get("caseResultsSha256") == (run_record.get("artifactDigests") or {}).get("case-results.json") and
@@ -1426,7 +1469,7 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
            "startedUtc": run_record.get("startedUtc"), "endedUtc": run_record.get("endedUtc"),
            "requestSha256": q.get("requestSha256") if qualified else None, "catalogSha256": q.get("catalogSha256") if qualified else None,
            "outcome": "passed" if qualified and q["outcome"] == "passed" and selected and all(c["result"] == "PASS" for c in selected) else "failed",
-           "cases": cases, "codes": [] if qualified else ["not-qualified"]}
+           "cases": cases, "codes": ([] if qualified else ["not-qualified"]) + (["incomplete-run"] if run_record.get("result") == "INCOMPLETE" else [])}
     if qualified:
         rec.update(coverageMode=q["coverageMode"], assertionDepth=q["assertionDepth"])
     if row_verdicts:
@@ -1583,15 +1626,179 @@ def case_timing_export(cases_dir, case_results_file, selected):
     return {"schema": "speaksharp-case-timings-v1", "contentSafe": True, "selectedCases": selected, "cases": out}
 
 
+STAGE_NAMES = ("install-tools", "build-plan", "stimulus-preflight", "build-plan-with-receipt", "gate-and-validate", "reserve",
+               "manual-reserve", "run", "collect", "settle", "manual-settle")
+
+
+def stage_trace_rows(trace_file):
+    """The content-free stage trace execute_run.sh's run_stage appends (stage, start, end, exit code), validated row by row; [] when absent."""
+    if not (isinstance(trace_file, str) and os.path.lexists(trace_file)):
+        return []
+    _need(os.path.isfile(trace_file) and not os.path.islink(trace_file), "stage-trace")
+    rows = []
+    for line in _read(trace_file).decode("utf-8").splitlines():
+        parts = line.split("\t")
+        _need(len(parts) == 4 and parts[0] in STAGE_NAMES and re.fullmatch(r"\d{1,3}", parts[3])
+              and all(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", v) for v in parts[1:3]), "stage-trace")
+        start, end = _utc(parts[1]), _utc(parts[2])
+        _need(end >= start, "stage-trace")
+        rows.append({"stage": parts[0], "startedAtUtc": parts[1], "endedAtUtc": parts[2],
+                     "durationMs": int((end - start).total_seconds() * 1000), "exitCode": int(parts[3])})
+    _need(len(rows) <= 64, "stage-trace")
+    return rows
+
+
+ALL_AHT = tuple("AHT-%02d" % n for n in range(1, 16))
+TRACE_SCOPE = ("stage-trace rows cover each run_stage WRAPPED command (start, end, exit code); a refusal raised before the command "
+               "(stage-environment checks, BLOCKED_SETUP) has no row, and steps outside execute_run.sh are not traced")
+
+
+def selection_from_request(request_file):
+    """The selected cases from the committed or admitted request itself (used when init never ran, so its `cases` output is absent)."""
+    doc = _load(request_file)
+    sel = doc.get("selection") if isinstance(doc, dict) else None
+    _need(isinstance(sel, list) and sel and all(isinstance(r, dict) and isinstance(r.get("case"), str) for r in sel), "case-timing-request")
+    return [r["case"] for r in sel]
+
+
+def _unknown_row(case_id, reason):
+    return {"caseId": case_id, "result": "UNKNOWN", "evidence": reason, "timingStatus": "NOT OBSERVED",
+            "startedAtUtc": None, "endedAtUtc": None, "durationMs": None}
+
+
+TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z")
+
+
+def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
+    """Per-case isolated display rows (Sam 1793967113.871439 / 1793968108.194389 / 1793968197.126469; Bezos B3-B9). Never raises on input:
+    corrupt or ambiguous TOP-LEVEL results make every selected row UNKNOWN (nothing credited); a malformed, unbound or unverifiable CASE makes
+    only that row UNKNOWN with null measurements and a closed reason, keeping valid peers. A verdict survives only when its row is
+    well-formed and its receipt is bound to this run and case; a timing only when its summary digest, times and duration all verify.
+    Display only: qualification and accounting never read this."""
+    try:
+        doc = json.loads(_read(case_results_file))
+    except (OSError, ValueError, UnicodeDecodeError, Refused):
+        return {c: _unknown_row(c, "case-results-unreadable") for c in selected}, "results-invalid"
+    rows = doc.get("cases") if isinstance(doc, dict) else None
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        return {c: _unknown_row(c, "case-results-shape") for c in selected}, "results-invalid"
+    by, ambiguous = {}, set()
+    for r in rows:
+        cid = r.get("caseId")
+        if not (isinstance(cid, str) and cid in ALL_AHT):
+            return {c: _unknown_row(c, "case-results-shape") for c in selected}, "results-invalid"
+        if cid in by:
+            ambiguous.add(cid)
+        by[cid] = r
+    out = {}
+    for c in selected:
+        r = by.get(c)
+        if c in ambiguous:
+            out[c] = _unknown_row(c, "duplicate-case"); continue
+        if r is None:
+            out[c] = _unknown_row(c, "case-row-missing"); continue
+        result, receipt = r.get("result"), r.get("executionReceipt")
+        if result not in ("PASS", "FAIL", "NOT RUN"):
+            out[c] = _unknown_row(c, "case-result-invalid"); continue
+        if receipt is None:
+            out[c] = (dict(_unknown_row(c, "harness-not-run"), result="NOT RUN") if result == "NOT RUN"
+                      else _unknown_row(c, "missing-receipt"))
+            continue
+        if not (isinstance(receipt, dict) and receipt.get("caseId") == c and str(receipt.get("runId")) == str(run_id)
+                and "summarySha256" in receipt):
+            out[c] = _unknown_row(c, "receipt-not-bound"); continue
+        digest = receipt.get("summarySha256")
+        base = {"caseId": c, "result": result, "evidence": "bound-case-receipt"}
+        if digest is None:                      # the guard exited before a summary: the verdict stands, the timing was not observed
+            out[c] = dict(base, timingStatus="NOT OBSERVED", startedAtUtc=None, endedAtUtc=None, durationMs=None); continue
+        summary = os.path.join(os.path.realpath(cases_dir), c, "summary.json") if isinstance(cases_dir, str) else ""
+        try:
+            raw = _read(summary) if os.path.isfile(summary) and not os.path.islink(summary) else None
+        except OSError:
+            raw = None
+        if raw is None or not isinstance(digest, str) or hashlib.sha256(raw).hexdigest() != digest:
+            out[c] = _unknown_row(c, "summary-digest"); continue
+        try:
+            sd = json.loads(raw)
+            stamps = (sd.get("startedAt"), sd.get("endedAt")) if isinstance(sd, dict) else (None, None)
+            ok = all(isinstance(v, str) and TS.fullmatch(v) for v in stamps)
+            started, ended = (datetime.fromisoformat(v.replace("Z", "+00:00")) for v in stamps) if ok else (None, None)
+        except (ValueError, TypeError):
+            ok = False
+        if not ok:
+            out[c] = _unknown_row(c, "case-timing-invalid"); continue
+        duration = round((ended - started).total_seconds() * 1000)
+        if not 0 <= duration <= 40 * 60 * 1000:
+            out[c] = _unknown_row(c, "case-timing-invalid"); continue
+        out[c] = dict(base, timingStatus="OBSERVED", startedAtUtc=stamps[0], endedAtUtc=stamps[1], durationMs=duration)
+    return out, "results"
+
+
+def run_timing_export(cases_dir, case_results_file, selected, started_file, trace_file, binding):
+    """The one-page table's data, ALWAYS (Bezos concept, Sam 1793929175.395989 / 1793931423.224679 / 1793932085.542759 / 1793932174.880109).
+    Every one of the fifteen cases has a row bound to this run, attempt and head:
+      NOT SELECTED   - not in this run's selection;
+      NOT RUN        - selected, with AFFIRMATIVE evidence it never ran: no started.txt, which the run stage writes before admission and
+                       before any case;
+      UNKNOWN        - selected, the run stage started, but no case results exist: a case may have run, so nothing is claimed;
+      PASS/FAIL/...  - from the digest-bound case results, exactly as case_timing_export projects them.
+    Plus the measured stages (content-free trace), the stage where setup stopped, and the workflow-start and run-start times, so queue,
+    setup and run time are preserved. Content-free throughout."""
+    _need(isinstance(binding, dict) and re.fullmatch(r"[1-9][0-9]{0,19}", str(binding.get("runId") or "")) is not None
+          and re.fullmatch(r"[1-9][0-9]{0,3}", str(binding.get("runAttempt") or "")) is not None
+          and LR.SHA40.match(str(binding.get("headSha") or "")) is not None
+          and (binding.get("workflowStartUtc") in (None, "") or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", binding["workflowStartUtc"])),
+          "case-timing-binding")
+    _need(isinstance(selected, list) and selected and len(selected) == len(set(selected)) and all(x in ALL_AHT for x in selected),
+          "case-timing-selection")
+    started_at = None
+    if isinstance(started_file, str) and os.path.lexists(started_file):
+        _need(os.path.isfile(started_file) and not os.path.islink(started_file), "case-timing-started")
+        started_at = _read(started_file).decode("ascii", "replace").strip()
+        _need(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", started_at) is not None, "case-timing-started")
+    has_results = isinstance(case_results_file, str) and os.path.lexists(case_results_file)
+    if started_at is None:
+        _need(not has_results, "case-timing-results-without-run")
+        outcome, rows = "not-started", {c: {"caseId": c, "result": "NOT RUN", "evidence": "run-stage-never-started"} for c in selected}
+    elif not has_results:
+        outcome, rows = "started-without-results", {c: {"caseId": c, "result": "UNKNOWN", "evidence": "started-without-case-results"} for c in selected}
+    else:
+        rows, outcome = isolated_case_rows(cases_dir, case_results_file, selected, binding["runId"])
+    cases = []
+    for c in ALL_AHT:
+        if c not in selected:
+            cases.append({"caseId": c, "result": "NOT SELECTED", "evidence": "not-in-selection", "timingStatus": "NOT APPLICABLE",
+                          "startedAtUtc": None, "endedAtUtc": None, "durationMs": None})
+            continue
+        row = rows[c]
+        cases.append({"caseId": c, "result": row["result"], "evidence": row["evidence"],
+                      "timingStatus": row.get("timingStatus", "NOT OBSERVED"), "startedAtUtc": row.get("startedAtUtc"),
+                      "endedAtUtc": row.get("endedAtUtc"), "durationMs": row.get("durationMs")})
+    stages = stage_trace_rows(trace_file)
+    wstart = binding.get("workflowStartUtc") or None
+    # Out-of-order times are refused, never reported as a negative or misleading duration (Sam 1793933116.625009): the run stage cannot
+    # start before the workflow, no traced stage can start before the workflow, and traced stages are appended in time order.
+    if wstart:
+        _need(started_at is None or _utc(started_at) >= _utc(wstart), "case-timing-out-of-order")
+        _need(all(_utc(r["startedAtUtc"]) >= _utc(wstart) for r in stages), "case-timing-out-of-order")
+    _need(all(_utc(a["startedAtUtc"]) <= _utc(b["startedAtUtc"]) for a, b in zip(stages, stages[1:])), "case-timing-out-of-order")
+    setup_ms = int((_utc(started_at) - _utc(wstart)).total_seconds() * 1000) if (started_at and wstart) else None
+    return {"schema": "speaksharp-case-timings-v2", "contentSafe": True,
+            "binding": {"runId": str(binding["runId"]), "runAttempt": int(binding["runAttempt"]), "headSha": binding["headSha"]},
+            "outcome": outcome, "runStarted": started_at is not None, "selectedCases": selected, "cases": cases,
+            "timings": {"workflowStartUtc": wstart, "runStageStartedAtUtc": started_at, "workflowStartToRunStageMs": setup_ms},
+            "stages": stages, "stoppedAtStage": next((r["stage"] for r in stages if r["exitCode"] != 0), None), "traceScope": TRACE_SCOPE}
+
+
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "first-observations", "case-timings", "window-check", "occurrence-check",
                                        "occurrence-materialize", "completion-deadline"))
-    for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
+    for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out", "--execution-deadline",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
                  "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
-                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now"):
+                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now", "--started-file", "--stage-trace", "--run-attempt"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -1601,7 +1808,9 @@ def main(argv):
             _write_private(x.out, first_observation_export(x.cases_dir, (x.cases or "").split(",")))
             return 0
         if x.command == "case-timings":
-            _write_private(x.out, case_timing_export(x.cases_dir, x.case_results, (x.cases or "").split(",")))
+            selected = [c for c in (x.cases or "").split(",") if c] or selection_from_request(x.request)
+            binding = {"runId": x.run_id, "runAttempt": x.run_attempt, "headSha": x.source_sha, "workflowStartUtc": x.workflow_start_utc}
+            _write_private(x.out, run_timing_export(x.cases_dir, x.case_results, selected, x.started_file, x.stage_trace, binding))
             return 0
         if x.command == "completion-deadline":
             now = _utc(x.now) if x.now else datetime.now(timezone.utc)
@@ -1624,7 +1833,9 @@ def main(argv):
                                           x.snapshot_dir, x.coverage_mode, identities(x.request, x.config, x.request_sha256)))
             return 0
         if x.command == "window-check":
-            check_window_remaining(admitted_request(x.request, x.request_sha256), datetime.now(timezone.utc), int(x.live_minutes or 0))
+            req, now = admitted_request(x.request, x.request_sha256), datetime.now(timezone.utc)
+            check_window_remaining(req, now, int(x.live_minutes or 0))
+            check_execution_deadline(req, now, int(x.live_minutes or 0), x.execution_deadline)
             return 0
         if x.command == "occurrence-check":
             repo = os.path.realpath(x.repo)
@@ -1684,6 +1895,7 @@ def main(argv):
             env.update(CT_EVIDENCE_SCOPE_FILE=scope_file, CT_EVIDENCE_SCOPE_SHA256=_sha(scope_file))
         write_env_file(x.env_file, env)
         with open(x.outputs, "a", encoding="utf-8") as f:
+            f.write("execution_deadline=%s\n" % p["executionDeadline"])
             f.write("route=%s\nroles=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\nlive_accounts_sha256=%s\nreconciliation_sha256=%s\n" % (
                 p["route"], ",".join(b["role"] for b in p["accounts"]), p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"],
                 p["requestSha256"], hashlib.sha256(p["bundleBytes"]).hexdigest(), hashlib.sha256(p["reconciliationBytes"]).hexdigest()))

@@ -175,10 +175,13 @@ def bind_inputs(env, facts):
     require(env.get("BP_MODE") == mode, "mode-binding")
     require(env.get("BP_RUNTIME", RUNTIMES[0]) == r.get("executionRuntime", RUNTIMES[0]), "runtime-binding")
     for key, value in (("BP_CAMPAIGN", r["runId"]), ("BP_SOURCE_SHA", r["release"]["testedSha"]),
-                       ("BP_T0", r["window"]["startUtc"]), ("BP_T1", r["window"]["endUtc"]),
+                       ("BP_T0", r["window"]["startUtc"]),
                        ("BP_SELECT_REF", r["selectionApprovalRef"]),
                        ("BP_SELECT", ",".join(str(int(cid[-2:])) for cid in caps))):
         require(env.get(key) == value, "environment-binding")
+    # BP_T1 is the run's one execution deadline (init_run_inputs.execution_deadline via run_env.py), never later than the occurrence end.
+    require(isinstance(env.get("BP_T1"), str) and utc(r["window"]["startUtc"]) < utc(env["BP_T1"]) <= utc(r["window"]["endUtc"]),
+            "environment-binding")
     require(not env.get("BP_PRESS_EXTRA"), "press-extra-forbidden")
     return {"request": r, "reconciliation": rc, "mode": mode, "caps": caps,
             "requestSha256": request_sha, "reconciliationSha256": rc_sha, "approval": approval}

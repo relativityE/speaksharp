@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -64,7 +65,8 @@ def live_request(cases=None, **over):
 def facts(**over):
     f = {"ownerApprovalReference": "slack:1793538100.358869", "approvedBy": "sam", "reviewer": "jensen",
          "receipts": {k: "receipt:%s@aaaaaaaaaaaa" % k for k in I.RECEIPT_KEYS},
-         "accounts": {"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"}}}
+         "accounts": {"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"}},
+         "backend": {"manifestRef": "synthetic:backend-manifest@1", "generation": 7, "completion": "OFF", "migration129": "absent"}}
     f.update(over)
     return f
 
@@ -78,6 +80,9 @@ def action_approval(req, request_sha256, reconciliation_bytes, **over):
     a.update(over)
     return a
 
+
+# The live step always supplies the project origin (vars.SUPABASE_URL as VITE_SUPABASE_URL); the builder used to default to this host.
+LIVE_ORIGIN_ENV = dict(os.environ, VITE_SUPABASE_URL="https://yxlapjuovrsvjswkwnrk.supabase.co")
 
 class FirstObservationExportTests(unittest.TestCase):
     def setUp(self):
@@ -186,7 +191,8 @@ class CaseTimingExportTests(unittest.TestCase):
                 raw = (json.dumps(summary) + "\n").encode()
                 with open(os.path.join(directory, "summary.json"), "wb") as f:
                     f.write(raw)
-                row.update(result="PASS", executionReceipt={"summarySha256": "f" * 64 if tamper else hashlib.sha256(raw).hexdigest()})
+                row.update(result="PASS", executionReceipt={"summarySha256": "f" * 64 if tamper else hashlib.sha256(raw).hexdigest(),
+                                                            "caseId": case_id, "runId": "42142985744"})
             elif case_id == "AHT-01":
                 row["result"] = "PASS"
             rows.append(row)
@@ -200,6 +206,158 @@ class CaseTimingExportTests(unittest.TestCase):
                                                   "startedAtUtc": "2026-11-03T16:00:00.000Z", "endedAtUtc": "2026-11-03T16:00:12.000Z", "durationMs": 12000})
         self.assertEqual(out["cases"][1]["timingStatus"], "NOT OBSERVED")
         self.assertNotIn("privateError", json.dumps(out))
+
+    BIND = {"runId": "42142985744", "runAttempt": "1", "headSha": "7" * 40, "workflowStartUtc": "2026-11-06T01:18:48Z"}
+
+    def test_a_run_that_never_started_is_affirmatively_not_run_for_every_selected_case_and_says_where_setup_stopped(self):
+        # Run 42142985744 (Bezos; Sam 1793929175.395989): setup stopped before the run stage and no per-case table or timing survived.
+        trace = os.path.join(self.cases, "stage-trace.tsv")
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("install-tools\t2026-11-06T01:24:52Z\t2026-11-06T01:24:53Z\t0\nbuild-plan\t2026-11-06T01:24:53Z\t2026-11-06T01:24:53Z\t78\n")
+        out = I.run_timing_export(os.path.join(self.cases, "absent-cases"), os.path.join(self.cases, "absent-results.json"),
+                                  ["AHT-01", "AHT-15"], os.path.join(self.cases, "started.txt"), trace, self.BIND)
+        self.assertEqual((out["schema"], out["outcome"], out["runStarted"], out["stoppedAtStage"]),
+                         ("speaksharp-case-timings-v2", "not-started", False, "build-plan"))
+        self.assertEqual(out["binding"], {"runId": "42142985744", "runAttempt": 1, "headSha": "7" * 40})
+        self.assertEqual(len(out["cases"]), 15)
+        by = {c["caseId"]: c for c in out["cases"]}
+        self.assertEqual((by["AHT-01"]["result"], by["AHT-01"]["evidence"]), ("NOT RUN", "run-stage-never-started"))
+        self.assertEqual((by["AHT-02"]["result"], by["AHT-02"]["timingStatus"]), ("NOT SELECTED", "NOT APPLICABLE"))
+        self.assertEqual([(r["stage"], r["durationMs"], r["exitCode"]) for r in out["stages"]], [("install-tools", 1000, 0), ("build-plan", 0, 78)])
+        self.assertIn("WRAPPED command", out["traceScope"])
+        self.assertEqual(out["timings"], {"workflowStartUtc": "2026-11-06T01:18:48Z", "runStageStartedAtUtc": None, "workflowStartToRunStageMs": None})
+        # with no trace at all it is still a complete table; case results without a started run are a contradiction and refuse
+        self.assertEqual(I.run_timing_export(self.cases, None, ["AHT-01"], None, None, self.BIND)["stages"], [])
+        self.fixture()
+        with self.assertRaisesRegex(I.Refused, "case-timing-results-without-run"):
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], os.path.join(self.cases, "started.txt"), trace, self.BIND)
+
+    def test_started_without_case_results_is_unknown_never_not_run(self):
+        # Sam 1793931423.224679 / 1793932085.542759: started.txt precedes admission, so a missing result does not prove a case never ran.
+        started = os.path.join(self.cases, "started.txt")
+        with open(started, "w", encoding="utf-8") as f:
+            f.write("2026-11-06T01:30:00Z\n")
+        out = I.run_timing_export(self.cases, os.path.join(self.cases, "absent-results.json"), ["AHT-01", "AHT-07"], started, None, self.BIND)
+        self.assertEqual((out["outcome"], out["runStarted"]), ("started-without-results", True))
+        by = {c["caseId"]: c for c in out["cases"]}
+        self.assertEqual((by["AHT-07"]["result"], by["AHT-07"]["evidence"]), ("UNKNOWN", "started-without-case-results"))
+        self.assertNotIn("NOT RUN", {c["result"] for c in out["cases"]})
+        self.assertEqual(out["timings"]["workflowStartToRunStageMs"], 672000)
+
+    def test_a_started_run_keeps_its_case_timings_and_adds_the_measured_stages(self):
+        self.fixture()
+        started = os.path.join(self.cases, "started.txt")
+        with open(started, "w", encoding="utf-8") as f:
+            f.write("2026-11-03T15:59:00Z\n")
+        trace = os.path.join(self.cases, "stage-trace.tsv")
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n")
+        bind = dict(self.BIND, workflowStartUtc="2026-11-03T15:50:00Z")      # the same day, before the run stage started
+        out = I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"], started, trace, bind)
+        self.assertEqual(out["timings"]["workflowStartToRunStageMs"], 540000)
+        projected = {c["caseId"]: c for c in I.case_timing_export(self.cases, self.results, ["AHT-01", "AHT-02"])["cases"]}
+        for c in out["cases"]:
+            if c["caseId"] in projected:
+                self.assertEqual({k: c[k] for k in projected[c["caseId"]]}, projected[c["caseId"]])
+                self.assertEqual(c["evidence"], "bound-case-receipt" if c["caseId"] == "AHT-01" else "harness-not-run")
+        self.assertEqual((out["outcome"], out["runStarted"], out["stoppedAtStage"], out["stages"][0]["durationMs"]), ("results", True, None, 120000))
+        for bad in ("unknown-stage\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n", "run\t2026-11-03T16:01:00Z\t2026-11-03T15:59:00Z\t0\n",
+                    "run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\t/private/path\n", "run\tnot-a-time\t2026-11-03T16:01:00Z\t0\n"):
+            with open(trace, "w", encoding="utf-8") as f:
+                f.write(bad)
+            with self.assertRaisesRegex(I.Refused, "stage-trace"):
+                I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, bind)
+        # Sam 1793933116.625009: out-of-order times refuse instead of yielding a negative or misleading duration
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n")
+        with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # run stage before the workflow started
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], started, None, dict(bind, workflowStartUtc="2026-11-03T16:00:00Z"))
+        with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # a traced stage before the workflow started
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, dict(bind, workflowStartUtc="2026-11-03T15:59:30Z"))
+        with open(trace, "w", encoding="utf-8") as f:
+            f.write("run\t2026-11-03T16:00:00Z\t2026-11-03T16:01:00Z\t0\nbuild-plan\t2026-11-03T15:58:00Z\t2026-11-03T15:58:30Z\t0\n")
+        with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # trace rows out of time order
+            I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, dict(bind, workflowStartUtc="2026-11-03T15:50:00Z"))
+        for wrong in (dict(self.BIND, runId="0"), dict(self.BIND, headSha="x"), dict(self.BIND, workflowStartUtc="yesterday")):
+            with self.assertRaisesRegex(I.Refused, "case-timing-binding"):
+                I.run_timing_export(self.cases, self.results, ["AHT-01"], started, None, wrong)
+        with self.assertRaisesRegex(I.Refused, "case-timing-selection"):
+            I.run_timing_export(self.cases, self.results, ["AHT-01", "AHT-01"], started, None, bind)
+
+    def started(self):
+        path = os.path.join(self.cases, "started.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("2026-11-03T15:59:00Z\n")
+        return path
+
+    def table(self, selected=("AHT-01", "AHT-02")):
+        out = I.run_timing_export(self.cases, self.results, list(selected), self.started(), None,
+                                  dict(self.BIND, workflowStartUtc="2026-11-03T15:50:00Z"))
+        return out, {c["caseId"]: c for c in out["cases"]}
+
+    def test_corrupt_or_ambiguous_top_level_results_credit_nothing_and_still_yield_the_table(self):
+        # Sam 1793967113.871439 / 1793968108.194389: a corrupt results file must not erase the table nor credit any result
+        for content, reason in (("{not json", "case-results-unreadable"), ('{"cases": [null]}', "case-results-shape"),
+                                ('{"cases": [{"result": "NOT RUN"}]}', "case-results-shape"), ('[]', "case-results-shape")):
+            with self.subTest(content):
+                with open(self.results, "w", encoding="utf-8") as f:
+                    f.write(content)
+                out, by = self.table()
+                self.assertEqual(out["outcome"], "results-invalid")
+                self.assertEqual({by[c]["result"] for c in ("AHT-01", "AHT-02")}, {"UNKNOWN"})
+                self.assertEqual({by[c]["evidence"] for c in ("AHT-01", "AHT-02")}, {reason})
+                self.assertTrue(all(by[c]["durationMs"] is None for c in ("AHT-01", "AHT-02")))
+
+    def test_one_bad_case_is_isolated_to_its_own_unknown_row(self):
+        # Bezos B3-B9 / Sam 1793968108.194389: a wrong digest, reversed times, an over-limit duration, an unbound receipt, a malformed
+        # summary or a duplicate row makes ONLY that row UNKNOWN with null measurements; the valid peer keeps its verified timing
+        def mutate(change):
+            self.fixture()
+            doc = json.load(open(self.results))
+            change(doc)
+            with open(self.results, "w", encoding="utf-8") as f:
+                json.dump(doc, f)
+
+        def summary(body):
+            raw = (json.dumps(body) + "\n").encode()
+            with open(os.path.join(self.cases, "AHT-01", "summary.json"), "wb") as f:
+                f.write(raw)
+            return hashlib.sha256(raw).hexdigest()
+
+        cases = {
+            "summary-digest": lambda d: d["cases"][0]["executionReceipt"].update(summarySha256="0" * 64),
+            "receipt-not-bound": lambda d: d["cases"][0]["executionReceipt"].update(runId="1"),
+            "duplicate-case": lambda d: d["cases"].append(dict(d["cases"][0])),
+            "case-result-invalid": lambda d: d["cases"][0].update(result="PASSED"),
+        }
+        for reason, change in cases.items():
+            with self.subTest(reason):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+                self.results = os.path.join(self.cases, "case-results.json")
+                mutate(change)
+                out, by = self.table()
+                self.assertEqual((out["outcome"], by["AHT-01"]["result"], by["AHT-01"]["evidence"], by["AHT-01"]["durationMs"]),
+                                 ("results", "UNKNOWN", reason, None))
+                self.assertEqual((by["AHT-02"]["result"], by["AHT-02"]["evidence"]), ("NOT RUN", "harness-not-run"))
+        for body in ({"startedAt": "2026-11-03T16:00:12.000Z", "endedAt": "2026-11-03T16:00:00.000Z"},       # reversed
+                     {"startedAt": "2026-11-03T16:00:00.000Z", "endedAt": "2026-11-03T16:45:00.000Z"},       # over the 40-minute limit
+                     []):                                                                                    # not an object
+            with self.subTest(body):
+                self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+                self.results = os.path.join(self.cases, "case-results.json")
+                self.fixture()
+                digest = summary(body)
+                doc = json.load(open(self.results)); doc["cases"][0]["executionReceipt"]["summarySha256"] = digest
+                with open(self.results, "w", encoding="utf-8") as f:
+                    json.dump(doc, f)
+                out, by = self.table()
+                self.assertEqual((by["AHT-01"]["result"], by["AHT-01"]["evidence"], by["AHT-01"]["durationMs"]), ("UNKNOWN", "case-timing-invalid", None))
+        # and the valid case keeps its verdict and verified timing
+        self.tmp.cleanup(); self.tmp = tempfile.TemporaryDirectory(); self.cases = self.tmp.name
+        self.results = os.path.join(self.cases, "case-results.json")
+        self.fixture()
+        out, by = self.table()
+        self.assertEqual((by["AHT-01"]["result"], by["AHT-01"]["timingStatus"], by["AHT-01"]["durationMs"]), ("PASS", "OBSERVED", 12000))
 
     def test_tampered_summary_or_executed_case_without_receipt_refuses(self):
         for tamper, missing, reason in ((True, False, "summary-digest"), (False, True, "missing-receipt")):
@@ -511,8 +669,23 @@ class Account(unittest.TestCase):
 class Facts(unittest.TestCase):
     def test_the_builder_schema_is_produced_without_the_account_binding_or_diagnostic(self):
         out = I.translate_facts(facts(olderReleaseDiagnostic={"approvalRef": "x"}), live_request(), "github-direct")
-        self.assertEqual(set(out), {"ownerApprovalReference", "approvedBy", "reviewer", "receipts"})
+        self.assertEqual(set(out), {"ownerApprovalReference", "approvedBy", "reviewer", "receipts", "backend"})
         self.assertEqual(set(out["receipts"]), {"pre", "rls", "analytics", "disp", "fence", "review"})
+
+    def test_facts_without_the_backend_identity_refuse_in_prepare_not_in_the_stage_runner(self):
+        # Run 42226498611: these exact dispatch facts (no `backend`) passed prepare, then the plan builder refused them after the reserve
+        # and the preflight (build_plan.py `obj(FACTS.get('backend'), 'facts-backend')`). They now refuse here, with a named code.
+        dispatched = {"accounts": {"existing-disposable": {"historyRef": "first-observation:existing-disposable@R10-3b040043-smoke15",
+                                                           "idSha256": "FIRST-DISCOVERY"},
+                                   "maintained-read-only": {"historyRef": "first-observation:maintained-read-only@R10-3b040043-smoke15",
+                                                            "idSha256": "FIRST-DISCOVERY"}},
+                      "approvedBy": "Akin", "ownerApprovalReference": "slack:1793538100.358869", "producerReviewReference": "slack:1793822205.697629",
+                      "receipts": {"analytics": "pending:preflight", "disp": "slack:1793833165.587389", "fence": "slack:1793822399.432639",
+                                   "pre": "pending:preflight", "review": "slack:1793822205.697629", "rls": "pending:preflight"}, "reviewer": "Sam"}
+        refused(self, "facts-backend-missing", I.translate_facts, dispatched, live_request(), "github-producer")
+        with_backend = dict(dispatched, backend={"manifestRef": "synthetic:backend-manifest@1", "generation": 7, "completion": "OFF",
+                                                 "migration129": "absent"})
+        self.assertEqual(I.translate_facts(with_backend, live_request(), "github-producer")["backend"]["generation"], 7)
 
     def test_the_old_receipt_shape_and_unbound_approvals_are_refused(self):
         old = facts(receipts={k: "receipt:%s@aaaaaaaaaaaa" % k for k in ("analytics", "disp", "fence", "review")})
@@ -534,9 +707,10 @@ class ProducerScope(unittest.TestCase):
         now = datetime.now(timezone.utc).replace(microsecond=0)
         self.req = live_request(["AHT-07"], evidenceScope=dict(self.LIMITS))
         self.req["window"].update(startUtc=utc(now - timedelta(hours=1)), endUtc=utc(now + timedelta(hours=3)))
+        self.deadline = I.execution_deadline(self.req, now, 40)   # the run's one execution deadline, as prepare computes it
         self.facts = I.translate_facts(facts(producerReviewReference="review:producer@1"), self.req, "github-producer")
 
-    def bind(self, scope, account=ACCOUNT_ID, facts_over=None):
+    def bind(self, scope, account=ACCOUNT_ID, facts_over=None, plan_deadline=None):
         private = os.path.join(self.d, "private-%d" % len(os.listdir(self.d)))
         os.mkdir(private, 0o700)
         scope_file, facts_file, bindings_file, req_file, reconciliation_file, env_file = (
@@ -558,15 +732,18 @@ class ProducerScope(unittest.TestCase):
             os.chmod(path, 0o600)
         put(reconciliation_file, reconciliation())
         os.chmod(reconciliation_file, 0o600)
+        # The REAL run_env.py gets the same project origin the binding resolver gets (VITE_SUPABASE_URL); BP_HOST_DB is never injected here,
+        # because the live path never injected it either (run 42142985744 refused against https://undefined).
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
-                            "--request-sha256", I._sha(req_file), "--reconciliation", reconciliation_file, "--out", env_file],
-                           capture_output=True, text=True)
+                            "--request-sha256", I._sha(req_file), "--reconciliation", reconciliation_file,
+                            "--execution-deadline", plan_deadline or self.deadline, "--out", env_file],
+                           capture_output=True, text=True, env=dict(os.environ, VITE_SUPABASE_URL="https://%s.supabase.co" % project_ref))
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
         env = dict(bp, PATH=os.environ["PATH"], GITHUB_ACTIONS="true", GITHUB_REPOSITORY="relativityE/speaksharp", GITHUB_RUN_ID="123",
                    GITHUB_RUN_ATTEMPT="1", GITHUB_JOB="live", GITHUB_SHA="b" * 40, BP_FACTS=facts_file,
-                   BP_ACCOUNT_BINDINGS_FILE=bindings_file, BP_HOST_DB=project_ref + ".supabase.co")
+                   BP_ACCOUNT_BINDINGS_FILE=bindings_file)
         script = ("const b=require(process.argv[1]),{privateJson}=require(process.argv[2]),fs=require('node:fs');"
                   "const s=privateJson(process.argv[3],process.argv[4]);b.validateBindings(s,JSON.parse(fs.readFileSync(process.env.BP_FACTS)),process.env);"
                   "console.log('BOUND')")
@@ -576,13 +753,81 @@ class ProducerScope(unittest.TestCase):
         return p.stdout.strip(), p.stderr
 
     def scope(self):
-        return I.compose_scope(self.req, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer")
+        return I.compose_scope(self.req, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer", self.deadline)
 
     def test_the_composed_scope_is_accepted_by_the_real_bootstrap(self):
         s = self.scope()
         self.assertEqual((s["caseIds"], s["campaignId"], s["sourceSha"]), (["AHT-07"], self.req["runId"], SHA))
         out, err = self.bind(s)
         self.assertEqual(out, "BOUND", err)
+
+    def test_the_real_plan_environment_carries_the_project_host_and_a_missing_one_is_a_named_refusal(self):
+        # Run 42142985744: the plan environment had no BP_HOST_DB, so the bootstrap compared bindings with https://undefined behind a
+        # generic refusal. The real run_env.py now derives it from the resolver's origin, and refuses a producer run without one.
+        s = self.scope()
+        req_file = os.path.join(self.d, "req-host.json"); put(req_file, self.req); os.chmod(req_file, 0o600)
+        rec = os.path.join(self.d, "rec-host.json"); put(rec, reconciliation()); os.chmod(rec, 0o600)
+        env_file = os.path.join(self.d, "env-host.txt")
+        base = {k: v for k, v in os.environ.items() if k != "VITE_SUPABASE_URL"}
+        cmd = [sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--request-sha256", I._sha(req_file),
+               "--reconciliation", rec, "--execution-deadline", self.deadline, "--out", env_file]
+        missing = subprocess.run(cmd, capture_output=True, text=True, env=base)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("project origin (VITE_SUPABASE_URL) is required", missing.stderr)
+        for bad in ("http://abcdefghijklmnopqrst.supabase.co", "https://abcdefghijklmnopqrst.supabase.co:8443", "https://evil.example/"):
+            self.assertNotEqual(subprocess.run(cmd, capture_output=True, text=True, env=dict(base, VITE_SUPABASE_URL=bad)).returncode, 0, bad)
+        ok = subprocess.run(cmd, capture_output=True, text=True, env=dict(base, VITE_SUPABASE_URL="https://abcdefghijklmnopqrst.supabase.co"))
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        with open(env_file, encoding="utf-8") as f:
+            self.assertIn("BP_HOST_DB=abcdefghijklmnopqrst.supabase.co\n", f.read())
+        self.assertEqual(self.bind(s)[0], "BOUND")
+
+    def through_execute_run(self, origin):
+        """Sam 1793930461.440399: the PRODUCTION path, not a direct call. The real execute_run.sh functions build(), ensure_account_bindings(),
+        plan_env_file() and run_stage() (env -i, then `. plan-env.txt`) run the real binding resolver, the real run_env.py and the real
+        bootstrap CLI, which invokes the real plan builder. Returns (returncode, stderr, plan-env text)."""
+        script = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
+        fns = "".join(re.search(r"(?ms)^%s\(\) \{.*?^\}\n" % n, script).group(0) for n in ("run_stage", "ensure_account_bindings", "plan_env_file", "build"))
+        d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d)
+        out, inputs = os.path.join(d, "out"), os.path.join(d, "inputs")
+        os.mkdir(out, 0o700); os.mkdir(inputs, 0o700)
+        files = {}
+        for name, doc in (("request.json", self.req), ("facts.json", self.facts), ("scope.json", self.scope())):
+            files[name] = os.path.join(inputs, name); put(files[name], doc); os.chmod(files[name], 0o600)
+        bundle = os.path.join(inputs, "live-accounts.json")
+        with open(bundle, "wb") as f:                       # the workflow writes the bundle's canonical bytes (init_run_inputs prepare)
+            f.write(I.canonical_bundle_bytes(I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))))
+        os.chmod(bundle, 0o600)
+        put(os.path.join(out, "reconciliation.json"), reconciliation()); os.chmod(os.path.join(out, "reconciliation.json"), 0o600)
+        env = {"PATH": os.environ["PATH"], "HOME": d, "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp", "GITHUB_RUN_ID": "123",
+               "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": "b" * 40, "VITE_SUPABASE_URL": origin,
+               "VITE_SUPABASE_ANON_KEY": "anon-synthetic", "CT_OUT": out, "CT_PRIVATE_INPUT_DIR": inputs, "CT_CHECKOUT": os.path.dirname(os.path.dirname(ROOT)),
+               "CT_FACTS_FILE": files["facts.json"], "CT_REQUEST": files["request.json"], "CT_REQUEST_SHA256": I._sha(files["request.json"]),
+               "CT_EVIDENCE_SCOPE_FILE": files["scope.json"], "CT_EVIDENCE_SCOPE_SHA256": I._sha(files["scope.json"]),
+               "CT_LIVE_ACCOUNTS_FILE": bundle, "CT_LIVE_ACCOUNTS_SHA256": I._sha(bundle), "CT_EXECUTION_DEADLINE": self.deadline}
+        harness = ("set -euo pipefail\nROOT=%r\nREPO=%r\nCFG=%r\nREQ=%r\nROUTE=github-producer\nHP=%r\nOUT=%r\nSTAGE=build-plan\n"
+                   "ss_broker_service_role=''\nss_broker_telemetry_key=''\nPYENV=(\"PATH=$PATH\" \"HOME=$HOME\")\n"
+                   "blocked() { echo \"BLOCKED_SETUP: $*\" >&2; exit 78; }\n%s\nbuild \"$OUT/plan\"\n") % (
+            ROOT, os.path.dirname(os.path.dirname(ROOT)), os.path.join(ROOT, "config", "test-config.v1.json"), files["request.json"],
+            os.path.join(ROOT, "harness"), out, fns)
+        r = subprocess.run(["bash", "-c", harness], capture_output=True, text=True, env=env, timeout=120)
+        plan_env = os.path.join(out, "plan-env.txt")
+        return r.returncode, r.stderr, open(plan_env, encoding="utf-8").read() if os.path.exists(plan_env) else None
+
+    def test_the_production_path_carries_the_host_through_env_i_into_the_bootstrap_cli_and_reaches_the_builder(self):
+        rc, err, plan_env = self.through_execute_run("https://abcdefghijklmnopqrst.supabase.co")
+        self.assertIn("BP_HOST_DB=abcdefghijklmnopqrst.supabase.co\n", plan_env)
+        # Past every binding check, the bootstrap reached the real plan builder (which refuses these synthetic inputs): never the host refusal.
+        self.assertNotIn("PROJECT_HOST_REQUIRED", err)
+        self.assertNotIn("bundle-project-mismatch", err)
+        self.assertIn("NOT_RUN: AUTHENTICATED_JOB_PREPARATION_REFUSED PLAN_BUILD_REFUSED", err)
+
+    def test_the_production_path_refuses_an_empty_malformed_or_other_project_host_before_the_bootstrap(self):
+        for origin in ("", "not-a-url", "https://zzzzzzzzzzzzzzzzzzzz.supabase.co"):
+            rc, err, _ = self.through_execute_run(origin)
+            self.assertNotEqual(rc, 0, origin)
+            self.assertNotIn("AUTHENTICATED_JOB_PREPARATION_REFUSED", err, origin)   # stopped before the bootstrap ever ran
 
     def test_the_real_bootstrap_refuses_another_account_or_review_reference(self):
         self.assertNotEqual(self.bind(self.scope(), account=ACCOUNT_ID.replace("1", "2"))[0], "BOUND")
@@ -592,11 +837,25 @@ class ProducerScope(unittest.TestCase):
 
     def test_scope_limits_window_and_route_are_checked_before_composition(self):
         for lim in ({}, dict(self.LIMITS, maxDeliveries=0), dict(self.LIMITS, maxSupabaseRequests=257), dict(self.LIMITS, extra=1)):
-            refused(self, "evidence-scope-limits", I.compose_scope, dict(self.req, evidenceScope=lim), self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer")
+            refused(self, "evidence-scope-limits", I.compose_scope, dict(self.req, evidenceScope=lim), self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer",
+                    self.deadline)
         r = copy.deepcopy(self.req); r["window"]["endUtc"] = utc(datetime.now(timezone.utc) + timedelta(hours=6))
-        refused(self, "producer-scope-window-over-six-hours", I.compose_scope, r, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer")
-        refused(self, "evidence-scope-only-for-producer-route", I.compose_scope, self.req, self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct")
-        self.assertIsNone(I.compose_scope(live_request(["AHT-05"]), self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct"))
+        refused(self, "producer-scope-window-over-six-hours", I.compose_scope, r, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer", self.deadline)
+        refused(self, "evidence-scope-only-for-producer-route", I.compose_scope, self.req, self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct",
+                self.deadline)
+        self.assertIsNone(I.compose_scope(live_request(["AHT-05"]), self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct", None))
+        # The scope's deadline is the run's one execution deadline: missing, malformed or outside the occurrence refuses.
+        w = self.req["window"]
+        for bad in (None, "", "soon", w["startUtc"], utc(datetime.strptime(w["endUtc"], "%Y-%m-%dT%H:%M:%SZ") + timedelta(seconds=1))):
+            refused(self, "execution-deadline-missing", I.compose_scope, self.req, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer", bad)
+        self.assertEqual(self.scope()["deadlineAt"], self.deadline)
+        self.assertNotEqual(self.deadline, w["endUtc"])
+
+    def test_a_plan_deadline_other_than_the_scope_deadline_is_refused_by_the_real_bootstrap(self):
+        """Sam 1794071539: admission, producer and campaign bind ONE value. A plan built with any other deadline (the occurrence end, as
+        before) cannot pair with the scope: the real bootstrap refuses it."""
+        out, err = self.bind(self.scope(), plan_deadline=self.req["window"]["endUtc"])
+        self.assertNotEqual(out, "BOUND")
 
 
 class PrepareFailsClosedOnContinuity(unittest.TestCase):
@@ -684,7 +943,8 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
         self.assertEqual(I.canonical_bundle_bytes(I.parse_live_accounts_bundle(canonical.decode())), canonical, "canonical bytes are a fixed point")
         # The window check accepts exactly those bytes, and refuses them once the workspace-style copy is rewritten.
         check = lambda: subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "init_run_inputs.py"), "window-check", "--request",
-                                        ct_request, "--live-minutes", "47", "--request-sha256", published["request_sha256"]],
+                                        ct_request, "--live-minutes", published["live_minutes"], "--request-sha256", published["request_sha256"],
+                                        "--execution-deadline", published["execution_deadline"]],
                                        capture_output=True, text=True, env={"PATH": os.environ["PATH"]})
         self.assertEqual(check().returncode, 0, check().stderr)
         os.chmod(ct_request, 0o600)
@@ -1771,7 +2031,8 @@ class ContinuityCheckpoint(Journal):
             f.write(rc_bytes)
         put(req_file, self.req)
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
-                            "--request-sha256", I._sha(req_file), "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True)
+                            "--request-sha256", I._sha(req_file), "--reconciliation", rc_file, "--execution-deadline", self.req["window"]["endUtc"],
+                            "--out", env_file], capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
@@ -1979,8 +2240,9 @@ process.exitCode = result.exitCode;
         def bind():
             env_file = os.path.join(ct_out, "plan-env-%d.txt" % len(os.listdir(ct_out)))
             r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
-                                "--request-sha256", published["request_sha256"], "--reconciliation", placed, "--out", env_file],
-                               capture_output=True, text=True)
+                                "--request-sha256", published["request_sha256"], "--reconciliation", placed,
+                                "--execution-deadline", published["execution_deadline"], "--out", env_file],
+                               capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
             self.assertEqual(r.returncode, 0, r.stderr)
             import shlex
             with open(env_file, encoding="utf-8") as f:  # execute_run.sh sources this file; values are shlex-quoted
@@ -2045,8 +2307,9 @@ process.exitCode = result.exitCode;
         # The runner's own reader derives the builder's BP_* environment from the admitted request and the placed bytes.
         plan_env = ct_out / "plan-env.txt"
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
-                            "--request-sha256", published["request_sha256"], "--reconciliation", str(placed), "--out", str(plan_env)],
-                           capture_output=True, text=True)
+                            "--request-sha256", published["request_sha256"], "--reconciliation", str(placed),
+                            "--execution-deadline", published["execution_deadline"], "--out", str(plan_env)],
+                           capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in plan_env.read_text().splitlines() if "=" in line)}
         # Non-caller scaffolding (packet, checkout, private dir, browser identity, account bindings) from the builder's own synthetic fixture,
@@ -2315,7 +2578,8 @@ class StandingEnvelope(Journal):
             with open(path, "wb") as f:
                 f.write(raw)
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--request-sha256", request_sha,
-                            "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True)
+                            "--reconciliation", rc_file, "--execution-deadline", json.loads(self.req_raw)["window"]["endUtc"], "--out", env_file],
+                           capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.rstrip("\n").split("=", 1) for line in f if "=" in line)}
@@ -2406,7 +2670,8 @@ class StandingEnvelope(Journal):
         shutil.copyfile(os.path.join(out, "reconciliation.json"), ct_out / "reconciliation.json")
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
                             "--request-sha256", published["request_sha256"], "--reconciliation", str(ct_out / "reconciliation.json"),
-                            "--out", str(ct_out / "plan-env.txt")], capture_output=True, text=True)
+                            "--execution-deadline", published["execution_deadline"], "--out", str(ct_out / "plan-env.txt")],
+                           capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in (ct_out / "plan-env.txt").read_text().splitlines() if "=" in line)}
         # 5. Both builder phases (real build_plan, in-process so the explicit reader trust applies), on the synthetic packet scaffold.

@@ -34,4 +34,15 @@ function hashExecutable(file,expected){const actual=observeExecutable(file);if(!
 
 // Lighthouse's installed parser uses yargs-parser: quote VALUES, not the whole flag group.
 function lighthouseChromeFlags(flags){return flags.map(flag=>{const i=flag.indexOf('=');if(i<0)return flag;const value=flag.slice(i+1);if(/["\\\r\n\0]/.test(value))throw new Error('unsafe Chrome flag serialization');return flag.slice(0,i+1)+'"'+value+'"';}).join(' ');}
-module.exports={FORBIDDEN_FLAGS,guardFlags,childEnvironment,validateBrowserArguments,strictPairs,observeExecutable,hashExecutable,lighthouseChromeFlags};
+// R10 (owner policy 10-31, no browser download): the guarded lane launches the bound existing browser copy that chrome-wrapper.sh execs, never
+// Playwright's own Chromium. Qualification therefore requires that exact wrapper target to exist with exactly the bytes discovery recorded.
+const WRAPPER_TARGET='/var/tmp/ss-harness/chrome-linux/chrome';
+function boundBrowserProblem(browserInfo,{exists=fs.existsSync,read=fs.readFileSync}={}){
+ if(!browserInfo||typeof browserInfo!=='object')return 'browser identity missing';
+ if(browserInfo.copiedExecutable!==WRAPPER_TARGET)return 'bound browser path is not the wrapper target';
+ if(!/^[a-f0-9]{64}$/.test(browserInfo.chromeSha256||''))return 'bound browser digest missing';
+ if(!exists(WRAPPER_TARGET))return 'bound browser copy missing';
+ if(crypto.createHash('sha256').update(read(WRAPPER_TARGET)).digest('hex')!==browserInfo.chromeSha256)return 'bound browser copy differs from discovery';
+ return null;
+}
+module.exports={FORBIDDEN_FLAGS,guardFlags,childEnvironment,validateBrowserArguments,strictPairs,observeExecutable,hashExecutable,lighthouseChromeFlags,boundBrowserProblem,WRAPPER_TARGET};

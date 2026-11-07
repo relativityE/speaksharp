@@ -4,6 +4,14 @@ const {summarizeAssertions}=require('./case-results.cjs');
 const IDS=Object.freeze(Array.from({length:15},(_,i)=>'AHT-'+String(i+1).padStart(2,'0')));
 const IDENTITY_MAX_MS=25000;
 const requiredIdentityCap=(caseCount=IDS.length)=>1+2*caseCount+1; // A7 + before/after each case + final
+// Sam 1794071417: one timing model for the case-admission gate, matching what the adapter actually grants. Every adapter command is
+// supervised (admission.cjs supervisedCommand): after its timeout it gets SIGTERM, SIGKILL after one grace and is abandoned after two, so
+// its worst case is timeout + 2*grace, grace = min(5 s, cleanupReserveMs/2). The adapter gives a case maxMs + cleanupReserveMs (its own
+// teardown) and keeps cleanupReserveMs before the deadline for every command; post-case and campaign-end identity need 25 s + that reserve.
+// A case is admitted only if before + case + after identity, then campaign-end identity with its reserve, all fit in the worst case.
+// plan.deadlineAt is the run's one execution deadline (init_run_inputs.execution_deadline), already before the run step's kill.
+const supervisorSlackMs=plan=>2*Math.max(1,Math.min(5000,(plan.cleanupReserveMs||10000)/2));
+const caseWorstCaseMs=(plan,c)=>{const s=supervisorSlackMs(plan),C=plan.cleanupReserveMs;return (IDENTITY_MAX_MS+s)+(c.maxMs+C+s)+(IDENTITY_MAX_MS+s)+(IDENTITY_MAX_MS+C);};
 // r15 case selection. A plan may approve a SUBSET of the 15 journeys (explicit owner reference, explicit order). Unselected cases are NOT dispatched: no requests, no identity reads,
 // and they are reported as `notSelected` (distinct from omitted-by-design and from NOT RUN for lack of evidence). Without a selection every behaviour is unchanged.
 function selectedOrder(plan){return plan&&plan.selection?plan.selection.order||plan.selection.ids:IDS;}
@@ -131,7 +139,7 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
    const gate=(plan.gates||[]).find(g=>g.caseId===id);
    if(gate){const unmet=gate.requires.find(r=>{const prior=report.cases.find(x=>x.caseId===r.caseId),a=(prior?.assertions||[]).find(x=>x.id===r.row);return !(a&&a.result===r.result);});if(unmet){row.reason='NOT_RUN: prerequisite stimulus not established ('+unmet.caseId+'/'+unmet.row+'); not dispatched, no requests or identity reads spent';row.gateBlocked=true;row.gateRequirement={caseId:unmet.caseId,row:unmet.row,required:unmet.result};row.plannedRequests=plan.requestBudget?plan.requestBudget.estimates[id]:null;row.requestsUsed=0;continue;}}
    // Reserve before + after + campaign-end identity calls as well as the bounded case and cleanup.
-   if(io.now()+plan.cleanupReserveMs+c.maxMs+3*IDENTITY_MAX_MS>Date.parse(plan.deadlineAt)){row.reason='Insufficient approved time for bounded case, before/after/final identity and cleanup';safetyStopped=true;break;}
+   if(io.now()+caseWorstCaseMs(plan,c)>Date.parse(plan.deadlineAt)){row.reason='Insufficient approved time for bounded case, before/after/final identity and cleanup';safetyStopped=true;break;}
    const budget=plan.requestBudget;let allowance=null,usedBefore=null;
    if(budget){
     if((budget.skip||[]).includes(id)){row.reason='Not selected: the approved partial request budget declares this case skipped before the run';row.requestBudgetSkipped=true;row.plannedRequests=0;continue;}
@@ -170,4 +178,4 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
  report.result=report.cases.some(c=>c.result==='FAIL')?'FAIL':report.cases.every(c=>c.result==='PASS')&&!safetyStopped&&report.finalIdentity==='MATCH'?'PASS':'NOT RUN';report.safetyStopped=safetyStopped;applyRequirementMappings(report,plan);await save();
  return{exitCode:report.result==='PASS'?0:report.result==='FAIL'?1:78,report};
 }
-module.exports={selectedOrder,unselectedIds,validateSelection,validateRunIdentity,safeReason,validateRequestBudget,budgetBindingErrors,IDS,IDENTITY_MAX_MS,requiredIdentityCap,validateCampaignPlan,initialReport,initializeMatrix,applyRequirementMappings,runCampaign};
+module.exports={selectedOrder,unselectedIds,validateSelection,validateRunIdentity,safeReason,validateRequestBudget,budgetBindingErrors,IDS,IDENTITY_MAX_MS,requiredIdentityCap,supervisorSlackMs,caseWorstCaseMs,validateCampaignPlan,initialReport,initializeMatrix,applyRequirementMappings,runCampaign};

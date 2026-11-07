@@ -12,8 +12,9 @@ the document), parsed by credential_steps. The record job holds no `contents` pe
 What is proved, all required (any miss, ambiguity or active job refuses):
   * the run is `completed` and `failure`, and every job carries this run id, attempt and head;
   * the reserve job and the record, settle and complete jobs are `success`; the nightly gate is `skipped`; the live job `failure`, completed;
-  * the live job failed at exactly one step, before every credential-bearing step, and each of those is `skipped` (the product-capable
-    stage-runner run step must be among them): a product-capable step cannot run without a credential;
+  * the live job failed at one step, before every credential-bearing step, and each of those is `skipped` (the product-capable
+    stage-runner run step must be among them): a product-capable step cannot run without a credential. Any OTHER failed step must be a
+    consequence (run 42142985744): after the first failure, an `always()` step of the same workflow, holding no secret at all;
   * the journal, freshly validated from the pinned reviewed root, ends with this run's one `reserve`: no settle or release follows it.
 Usage is DERIVED, never read: requests, identity reads, Starts, takes and coaching are 0 (no credential step ran) and runner minutes are the live
 job's measured seconds (started to completed) rounded up to whole minutes, the job the reserved runner minutes (live minutes) cover. The other jobs
@@ -37,7 +38,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (this module opens no socket itself; the one journal fetch is state_ref_writer's `git` subprocess)
 
-SCHEMA = "speaksharp.cloud-test.unexecuted-attempt-evidence.v3"
+SCHEMA = "speaksharp.cloud-test.unexecuted-attempt-evidence.v4"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
@@ -52,6 +53,23 @@ PRODUCT_KEYS = ("requests", "identityReads", "starts", "takes", "coachingRequest
 PREFLIGHT_STEP = "Prove the selected accounts' bounded first-use prerequisites"
 PREFLIGHT_REQUESTS = 10
 ACCOUNTING = ("none", "preflight-bound", "capped")
+# Owner dispositions (PO, recorded slack:1793965143.063589): a named run whose accounting the owner decided, admitted ONLY when the run's actual
+# steps match the decided facts exactly; anything else stays at the rule's own classification. Never a pattern, never another run.
+STAGE_SETUP_STEP = "Stage runner (install-tools, plans, stimulus preflight, gates)"
+INIT_STEP = "Select the committed request and bind this run's inputs"
+OWNER_DISPOSITIONS = {
+    # R10 run 42142985744: the preflight passed (its fixed 10 requests), input binding ran, and the stage-runner setup refused in the
+    # bootstrap at 01:24:53Z before any network call (BP_HOST_DB unset; fixed in 0237db34). The case-runner step never ran.
+    "42142985744": {"attempt": 1, "headSha": "79ce7d6cf68428c2007d3bd27f8dea47432a0958",   # Sam 1793965900.321239: exact attempt and head
+                    "accounting": "preflight-bound", "approvalRef": "slack:1793965143.063589", "failedStep": STAGE_SETUP_STEP,
+                    "ran": (PREFLIGHT_STEP, INIT_STEP, STAGE_SETUP_STEP)},
+    # R10 run 42226498611: the preflight passed (its fixed 2 auth + 8 signed-in requests, receipt 68b2ba4c...), input binding ran, and the
+    # stage-runner setup refused in the plan builder at 13:40:59Z before any further network call (dispatch facts had no `backend`; fixed by
+    # facts-backend-missing). The case-runner step never ran. PO disposition 2026-11-06 (Sam's recommendation, "YES").
+    "42226498611": {"attempt": 1, "headSha": "cbfd39ff5295674356edacfd330a937a837a1e54",
+                    "accounting": "preflight-bound", "approvalRef": "slack:1793990863.439579", "failedStep": STAGE_SETUP_STEP,
+                    "ran": (PREFLIGHT_STEP, INIT_STEP, STAGE_SETUP_STEP)},
+}
 LIVE_JOB_PREFIX = "Selected live journeys"
 JOB_PREFIXES = (("record", "Record the attempt", "success"), ("gate", "Nightly gate", "skipped"),
                 ("reserve", "Reserve the run on the state-ref journal", "success"), ("live", LIVE_JOB_PREFIX, "failure"),
@@ -82,10 +100,9 @@ def _scalar(raw):
     return raw
 
 
-def credential_steps(workflow_text):
-    """[(job name, step name)] for every credential-bearing step, read from the workflow TEXT (no YAML dependency: the hosted record job has
-    none). A job whose header (everything before `steps:`) mentions a secret makes every one of its steps credential-bearing. An unnamed
-    step that mentions a secret refuses: it could not be matched to GitHub's record of it."""
+def _workflow_steps(workflow_text):
+    """[(job name, step name or None, step text, job header has a secret)] for every step, read from the workflow TEXT (no YAML dependency:
+    the hosted record job has none)."""
     _need(isinstance(workflow_text, str) and workflow_text.strip() != "", "unexecuted-workflow")
     lines = workflow_text.split("\n")
     _need("jobs:" in lines, "unexecuted-workflow")
@@ -111,7 +128,7 @@ def credential_steps(workflow_text):
         elif line.strip() and not re.match(r"^ {6,}", line):
             current["in_steps"] = False
             current["header"].append(line)
-    found = []
+    out = []
     for job in jobs:
         header = "\n".join(job["header"])
         names = [_scalar(m.group(1)) for m in re.finditer(r"^    name:\s*(.+)$", header, re.M)]
@@ -120,10 +137,33 @@ def credential_steps(workflow_text):
         for block in job["steps"]:
             text = "\n".join(block)
             m = re.search(r"^(?:      - |        )name:\s*(.+)$", text, re.M)
-            step_name = _scalar(m.group(1)) if m else None
-            if header_secret or any(s.group(1) != "GITHUB_TOKEN" for s in SECRET.finditer(text)):
-                _need(step_name is not None, "unexecuted-unnamed-credential-step")
-                found.append((job_name, step_name))
+            out.append((job_name, _scalar(m.group(1)) if m else None, text, header_secret))
+    return out
+
+
+def _has_secret(text, header_secret):
+    return header_secret or any(s.group(1) != "GITHUB_TOKEN" for s in SECRET.finditer(text))
+
+
+def credential_steps(workflow_text):
+    """[(job name, step name)] for every credential-bearing step. A job whose header (everything before `steps:`) mentions a secret makes
+    every one of its steps credential-bearing. An unnamed step that mentions a secret refuses: it could not be matched to GitHub's record."""
+    found = []
+    for job_name, step_name, text, header_secret in _workflow_steps(workflow_text):
+        if _has_secret(text, header_secret):
+            _need(step_name is not None, "unexecuted-unnamed-credential-step")
+            found.append((job_name, step_name))
+    return found
+
+
+def consequential_steps(workflow_text):
+    """[(job name, step name)] of every step that may fail only AS A CONSEQUENCE of an earlier failure: its condition starts with `always()`
+    and it holds no secret at all (a credential-free collection/projection step that runs even after the failure it reports on)."""
+    found = []
+    for job_name, step_name, text, header_secret in _workflow_steps(workflow_text):
+        cond = re.search(r"^(?:      - |        )if:\s*(.+)$", text, re.M)
+        if step_name is not None and cond and _scalar(cond.group(1)).startswith("always()") and not _has_secret(text, header_secret):
+            found.append((job_name, step_name))
     return found
 
 
@@ -173,8 +213,13 @@ def _rules(doc):
     live = _live(jobs)
     steps = live["steps"]
     _need(0 < len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"} for s in steps), "unexecuted-steps")
-    failed = [s for s in steps if s["conclusion"] == "failure"]
-    _need(len(failed) == 1 and doc["failedStep"] == failed[0]["name"], "unexecuted-failed-step")
+    failed = sorted((s for s in steps if s["conclusion"] == "failure"), key=lambda s: s["number"])
+    _need(failed and doc["failedStep"] == failed[0]["name"], "unexecuted-failed-step")
+    # Any further failure is a consequence of the first: a later, secret-free always() step of the run's own workflow (run 42142985744).
+    allowed = {tuple(p) for p in doc["consequentialSteps"]}
+    for later in failed[1:]:
+        _need(later["number"] > failed[0]["number"] and (live["name"], later["name"]) in allowed, "unexecuted-failed-step")
+    _need(not ({tuple(p) for p in doc["credentialSteps"]} & allowed), "unexecuted-consequential-steps")
     _need(all(s["status"] == "completed" for s in steps), "unexecuted-step-active")
     # the product-capable step must be among the credential-bearing ones, so a mis-parsed workflow cannot yield an empty or partial list
     _need(doc["credentialSteps"] and any(step.startswith("Stage runner (run)") for _job, step in doc["credentialSteps"]), "unexecuted-credential-steps")
@@ -190,7 +235,14 @@ def _rules(doc):
         _need(step["number"] <= failed[0]["number"] and step["conclusion"] in ("success", "failure"), "unexecuted-credential-step-ran")
         ran.append(step_name)
     accounting = "none" if not ran else "preflight-bound" if ran == [PREFLIGHT_STEP] else "capped"
-    _need(doc["accounting"] == accounting, "unexecuted-accounting")
+    disposition = None
+    owner = OWNER_DISPOSITIONS.get(ident["runId"])
+    run_step = [s for s in steps if s["name"].startswith("Stage runner (run)")]
+    if (accounting == "capped" and owner is not None and ident["attempt"] == owner["attempt"] and ident["headSha"] == owner["headSha"]
+            and doc["failedStep"] == owner["failedStep"] and sorted(ran) == sorted(owner["ran"])
+            and len(run_step) == 1 and run_step[0]["conclusion"] == "skipped"):
+        accounting, disposition = owner["accounting"], owner["approvalRef"]
+    _need(doc["accounting"] == accounting and doc["dispositionRef"] == disposition, "unexecuted-accounting")
     # the journal: freshly validated; its LAST event is this run's reserve (nothing after it settles or releases it)
     reserve = journal.get("reserve")
     _need(SHA40.match(str(journal.get("rootSha"))) and SHA40.match(str(journal.get("headSha"))) and isinstance(reserve, dict)
@@ -210,7 +262,8 @@ def _rules(doc):
 
 
 def _check_shape(doc):
-    keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "workflowSha256", "accounting", "journal", "usage", "atUtc"}
+    keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "consequentialSteps", "workflowSha256", "accounting",
+            "dispositionRef", "journal", "usage", "atUtc"}
     _need(isinstance(doc, dict) and set(doc) == keys and doc["schema"] == SCHEMA, "unexecuted-shape")
     ident = doc["identity"]
     _need(isinstance(ident, dict) and set(ident) == {"runId", "attempt", "headSha"} and isinstance(ident["runId"], str)
@@ -218,6 +271,8 @@ def _check_shape(doc):
           and SHA40.match(str(ident["headSha"])), "unexecuted-identity")
     _need(isinstance(doc["workflowSha256"], str) and SHA64.match(doc["workflowSha256"]), "unexecuted-shape")
     _need(doc["accounting"] in ACCOUNTING, "unexecuted-shape")
+    _need(doc["dispositionRef"] is None or (isinstance(doc["dispositionRef"], str) and re.fullmatch(r"slack:\d+\.\d+", doc["dispositionRef"])),
+          "unexecuted-shape")
     _need(isinstance(doc["failedStep"], str), "unexecuted-shape")
     run = doc["run"]
     _need(isinstance(run, dict) and set(run) == {"runId", "attempt", "headSha", "status", "conclusion", "startedAt", "updatedAt"}, "unexecuted-shape")
@@ -228,6 +283,8 @@ def _check_shape(doc):
         _need(set(j) in (base, base | {"steps"}) and isinstance(j["name"], str), "unexecuted-jobs")
     _need(isinstance(doc["credentialSteps"], list) and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p)
                                                          for p in doc["credentialSteps"]), "unexecuted-shape")
+    _need(isinstance(doc["consequentialSteps"], list) and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p)
+                                                            for p in doc["consequentialSteps"]), "unexecuted-shape")
     journal = doc["journal"]
     _need(isinstance(journal, dict) and set(journal) == {"rootSha", "headSha", "reserve"} and isinstance(journal["reserve"], dict), "unexecuted-shape")
     u = doc["usage"]
@@ -252,12 +309,17 @@ def open_reserve(chain):
     return last if isinstance(last, dict) and last.get("type") == "reserve" else None
 
 
-def _derive_accounting(jobs, cred):
-    """The accounting mode the steps imply (re-verified by _rules); "capped" whenever it is not clearly none or preflight-bound."""
-    live = _live(jobs)
-    names = {step: [s for s in live.get("steps") or [] if s.get("name") == step] for _job, step in cred}
-    ran = [step for step, found in names.items() if len(found) == 1 and found[0].get("conclusion") != "skipped"]
-    return "none" if not ran else "preflight-bound" if ran == [PREFLIGHT_STEP] else "capped"
+def _derive_accounting(doc):
+    """(accounting, dispositionRef) the steps imply, by the same rule _rules re-verifies; refusals surface from _rules."""
+    for accounting in ACCOUNTING:
+        for ref in [None] + sorted({o["approvalRef"] for o in OWNER_DISPOSITIONS.values()}):
+            try:
+                _rules(dict(doc, accounting=accounting, dispositionRef=ref))
+                return accounting, ref
+            except Refused as err:
+                if str(err) != "unexecuted-accounting":
+                    raise
+    return "capped", None
 
 
 def build_evidence(run, jobs_doc, chain, workflow_text):
@@ -271,15 +333,17 @@ def build_evidence(run, jobs_doc, chain, workflow_text):
     jobs = _shape_jobs(jobs_doc)
     _need(len(jobs) == len(JOB_PREFIXES), "unexecuted-jobs")
     live = _live(jobs)
-    failed = [s for s in live.get("steps") or [] if s.get("conclusion") == "failure"]
-    _need(len(failed) == 1, "unexecuted-failed-step")
+    failed = sorted((s for s in live.get("steps") or [] if s.get("conclusion") == "failure"), key=lambda s: s.get("number") or 0)
+    _need(failed, "unexecuted-failed-step")
     doc = {"schema": SCHEMA, "identity": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha")},
            "run": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha"), "status": run.get("status"),
                    "conclusion": run.get("conclusion"), "startedAt": run.get("run_started_at"), "updatedAt": run.get("updated_at")},
            "jobs": jobs, "failedStep": failed[0]["name"], "credentialSteps": [list(p) for p in credential_steps(workflow_text)],
+           "consequentialSteps": [list(p) for p in consequential_steps(workflow_text)],
            "workflowSha256": hashlib.sha256(workflow_text.encode("utf-8")).hexdigest(),
-           "accounting": _derive_accounting(jobs, credential_steps(workflow_text)),
+           "accounting": "capped", "dispositionRef": None,
            "journal": {"rootSha": chain[0][0], "headSha": chain[-1][0], "reserve": reserve}, "usage": {}, "atUtc": "1970-01-01T00:00:00Z"}
+    doc["accounting"], doc["dispositionRef"] = _derive_accounting(doc)
     doc["usage"], doc["atUtc"] = _rules(doc)
     check_evidence(doc)
     return doc

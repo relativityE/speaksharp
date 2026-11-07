@@ -68,8 +68,11 @@ class R10ActivationProposal(unittest.TestCase):
         expected = {"requests": 4342, "protectedReserveRequests": 0, "identityReads": 32, "starts": 42, "takes": 31}
         self.assertEqual(scope["carryover"], "none")
         self.assertEqual(scope["knownMinimumCeilings"], expected)
+        # PO 2026-11-06 (slack:1794063978.986369): ceilings credited by run 42284568156's source-bounded over-charge
+        # (+2,022 requests, +32 identity reads, +16 starts, +16 takes); the known minimum is unchanged.
+        credited = {"requests": 9518, "protectedReserveRequests": 0, "identityReads": 128, "starts": 74, "takes": 64}
         self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]),
-                         (expected, "slack:1793814535.013849", "ee4d3d5ea2c343433ff2b1d7fd36aecdf5ca1438faf0836402d18ac74ddbe397"))
+                         (credited, "slack:1794072158.779099", "4c2f8a7ffbdd96bef84f2fcce0f434b2d8123303bab94405b5fc9f045efa4932"))
         self.assertTrue(self.proposal["rootRefCreationSelected"])
         self.assertTrue(self.proposal["activationPinsSelected"])
         scope_path = ROOT / "config/aggregate/period-scope.json"
@@ -85,7 +88,9 @@ class R10ActivationProposal(unittest.TestCase):
         self.assertEqual(known_used, {"requests": 7951, "identityReads": 120, "starts": 64, "takes": 38})
         expected = {"requests": 4342, "protectedReserveRequests": 0, "identityReads": 32, "starts": 42, "takes": 31}
         self.assertEqual(self.proposal["periodScope"]["knownMinimumCeilings"], expected)
-        self.assertEqual(self.proposal["periodScope"]["ceilings"], expected)
+        # The known minimum is unchanged; the period ceilings carry only the PO credit for run 42284568156 (slack:1794063978.986369).
+        credit = {"requests": 5176, "protectedReserveRequests": 0, "identityReads": 96, "starts": 32, "takes": 33}
+        self.assertEqual(self.proposal["periodScope"]["ceilings"], {k: expected[k] + credit[k] for k in expected})
         self.assertFalse(self.proposal["knownLaterRunsResolved"])
         self.assertIn("remain UNRESOLVED", self.proposal["historicalDisposition"])
 

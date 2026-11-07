@@ -16,6 +16,12 @@ YML = os.path.join(REPO, ".github", "workflows", "cloud-test-live.yml")
 SECRET_REF = re.compile(r"\$\{\{\s*[^}]*secrets\.")
 
 
+
+# TEMPORARY (PO 2026-11-05): protected main, or a MANUAL dispatch of exactly the R10 candidate branch. Restored to the
+# main-only form before merge; the environment gate on the live job is asserted unchanged below.
+PROTECTED_MAIN = ("((github.ref == 'refs/heads/main' && github.ref_protected == true) || "
+                  "(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class'))")
+
 class LiveWorkflowPolicy(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -116,7 +122,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('init_run_inputs.py prepare --repo "$GITHUB_WORKSPACE" --config "$CT_CONFIG" "${SRC[@]}" \\\n  --checkpoint', init["run"])
         self.assertEqual(init["run"].count("--facts"), 1, "a scheduled run never passes a facts input")
         self.assertEqual(begin["needs"], "nightly-gate")
-        self.assertEqual(begin["if"], "${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && "
+        self.assertEqual(begin["if"], "${{ !cancelled() && " + PROTECTED_MAIN + " && "
                                       "(github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && "
                                       "needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}")
         self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || '
@@ -172,7 +178,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_the_record_jobs_hold_no_live_credential(self):
         for name in ("record-begin", "record-complete"):
             self.assertIsNone(SECRET_REF.search(str(self.jobs[name])), name)
-        protected_main = "github.ref == 'refs/heads/main' && github.ref_protected == true"
+        protected_main = PROTECTED_MAIN
         self.assertIn(protected_main, self.jobs["record-begin"]["if"])
         self.assertIn(protected_main, self.jobs["live"]["if"])
         self.assertIn("needs.record-begin.result == 'success'", self.jobs["live"]["if"])
@@ -261,10 +267,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
         runs = [(job, s) for job, j in self.jobs.items() for s in j["steps"] if "run" in s]
         installer = re.compile(r"(^|[\s;&|(])(npm|npx|pnpm|yarn|pip3?|apt(-get)?|brew)\s")
         installs = [(job, s) for job, s in runs if installer.search(s["run"])]
+        # PO 2026-11-06 (working release first): exactly one more, the tested release's own pinned pnpm through Node's bundled corepack,
+        # after the tested checkout is bound and before any stage; it reads its version only from that checkout and gets no extra env.
+        pnpm = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Bind the tested release's pinned package manager (corepack)")
         self.assertEqual([(job, s["run"].strip()) for job, s in installs], [
             ("live", self.PY_YAML_INSTALL),
             ("live", self.B4_INSTALL),
+            ("live", pnpm["run"].strip()),
         ])
+        self.assertNotIn("env", pnpm)
+        self.assertIn('corepack prepare "$pm" --activate', pnpm["run"])
+        self.assertIn('"$CT_CHECKOUT/package.json"', pnpm["run"])
+        self.assertIn("^pnpm@[0-9]+\\.[0-9]+\\.[0-9]+$", pnpm["run"])
+        names = [s.get("name") for s in self.jobs["live"]["steps"]]
+        self.assertLess(names.index("Bind a clean detached checkout of the admitted tested release"), names.index(pnpm["name"]))
+        self.assertLess(names.index(pnpm["name"]), next(i for i, s in enumerate(self.jobs["live"]["steps"]) if "execute_run.sh" in s.get("run", "")))
         steps = self.jobs["live"]["steps"]
         at = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == self.B4_INSTALL)
         py = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == self.PY_YAML_INSTALL)
@@ -348,7 +365,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "5645ceca54118f32b6055e24fe6f3f5fa672111dab74b1c24b2dbc5497f54439",
+            "manifestSha256": "ea7ceb3fabcb71f6c84b98820fd4fad9cc4c578dd4ec7a7b54672f46607e280e",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
@@ -511,7 +528,22 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn("init_run_inputs.py first-observations", project_observations["run"])
         project_timings = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Project content-free per-case timing telemetry")
         self.assertIn("init_run_inputs.py case-timings", project_timings["run"])
-        self.assertIn('--case-results "$CT_OUT/plan/run/case-results.json"', project_timings["run"])
+        self.assertIn('--case-results "$out/plan/run/case-results.json"', project_timings["run"])
+        # Run 42142985744: the timing table is ALWAYS produced (every selected case, NOT RUN when the run never started, plus the stage trace),
+        # while the collection steps that need the run's own files skip, rather than fail, when the run step never started.
+        self.assertIn('--started-file "$out/started.txt" --stage-trace "$out/stage-trace.tsv"', project_timings["run"])
+        self.assertEqual(project_timings["if"], "always()")
+        retain_timings = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Retain content-free per-case timing telemetry")
+        self.assertEqual(retain_timings["if"], "always()")
+        run_step = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Stage runner (run)"))
+        self.assertEqual(run_step["id"], "run")
+        # A cancelled or timed-out run step is not `skipped`: collection still runs and records the run INCOMPLETE, and journal-settle runs
+        # always() after a successful reserve, so the reservation is settled in-run (Bezos N1, Sam 1793965423.927829).
+        self.assertTrue(self.jobs["journal-settle"]["if"].startswith("${{ always() && "))
+        for name in ("Collect, verify the binding, qualify every selected row, and project the closed record",
+                     "Project the linked content-safe first observations", "Retain the linked first observations for the next run"):
+            step = next(s for s in self.jobs["live"]["steps"] if s.get("name") == name)
+            self.assertEqual(step["if"], "always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'", name)
         settle = next(u for u in up if u["with"]["path"].endswith("settle-input.json"))
         self.assertEqual(settle["if"], "always()")
         # Sam 1793580806.654369: the public artifact is the closed projection, never the collector's run record; journal-settle validates it
@@ -561,9 +593,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_job_timeout_is_the_one_prepare_checks_and_the_run_step_is_bounded_to_the_live_minutes(self):
         live = self.jobs["live"]
-        self.assertEqual(live["timeout-minutes"], "${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}")
+        self.assertEqual(live["timeout-minutes"], "${{ fromJSON(github.event_name == 'workflow_dispatch' && '85' || '340') }}")
         init = next(s for s in live["steps"] if s.get("id") == "init")
-        self.assertEqual(init["env"]["JOB_TIMEOUT_MINUTES"], "${{ github.event_name == 'workflow_dispatch' && '65' || '340' }}")
+        self.assertEqual(init["env"]["JOB_TIMEOUT_MINUTES"], "${{ github.event_name == 'workflow_dispatch' && '85' || '340' }}")
         self.assertIn('--job-timeout-minutes "$JOB_TIMEOUT_MINUTES" ', init["run"])
         run = next(s for s in live["steps"] if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         self.assertEqual(run["timeout-minutes"], "${{ fromJSON(steps.init.outputs.live_minutes) }}")
@@ -651,10 +683,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         check = steps[run - 1]  # the run's reserve was appended before this job by journal-reserve (#1772 review 4446137323)
         self.assertEqual(check["run"].strip(), 'python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" '
-                                               '--live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"')
+                                               '--live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256" '
+                                               '--execution-deadline "$EXECUTION_DEADLINE"')
         self.assertEqual(check["env"], {"LIVE_MINUTES": "${{ steps.init.outputs.live_minutes }}",
-                                        "REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}"})
+                                        "REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}",
+                                        "EXECUTION_DEADLINE": "${{ steps.init.outputs.execution_deadline }}"})
         self.assertNotIn("if", check, "a failed window check stops the job before admission")
+
+    def test_one_execution_deadline_reaches_plan_construction_from_init_output_only(self):
+        """Sam 1794071539 (design a): the stage runner builds the plan with the init step's execution_deadline output (never $GITHUB_ENV, never
+        recomputed); the run step carries no second deadline of its own."""
+        steps = self.jobs["live"]["steps"]
+        stage = next(s for s in steps if s.get("name", "").startswith("Stage runner (install-tools"))
+        self.assertEqual(stage["env"]["CT_EXECUTION_DEADLINE"], "${{ steps.init.outputs.execution_deadline }}")
+        run = next(s for s in steps if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
+        self.assertFalse({"CT_EXECUTION_DEADLINE", "CT_LIVE_MINUTES"} & set(run["env"]))
 
     def test_pass_needs_qualify_which_runs_the_real_binding_verifier_then_every_selected_row(self):
         collect = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Collect, verify the binding"))["run"]
@@ -1024,3 +1067,52 @@ class PdfjsComposition(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TimingStepExecution(unittest.TestCase):
+    """Sam 1793931423.224679: execute the ACTUAL `run:` text of the timing step, with the environment the job would give it."""
+
+    def setUp(self):
+        import yaml  # noqa: PLC0415 - the policy tests already require it
+        with open(YML, encoding="utf-8") as f:
+            steps = yaml.safe_load(f)["jobs"]["live"]["steps"]
+        self.step = next(s for s in steps if s.get("name") == "Project content-free per-case timing telemetry")
+        self.d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, self.d)
+
+    def run_step(self, **env):
+        base = {"PATH": os.environ["PATH"], "RUNNER_TEMP": self.d, "GITHUB_RUN_ID": "42142985744", "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_SHA": "7" * 40, "GITHUB_EVENT_NAME": "workflow_dispatch", "WORKFLOW_START_UTC": "2026-11-06T01:18:48Z",
+                "MANUAL_REQUEST": "tools/cloud-test/config/runs/R10-3b040043-all15.json", "CASES": "", "NIGHTLY_REQUEST_B64": ""}
+        base.update(env)
+        r = subprocess.run(["bash", "-c", self.step["run"]], cwd=REPO, env=base, capture_output=True, text=True)
+        out = os.path.join(self.d, "case-timings.json")
+        return r, (json.load(open(out, encoding="utf-8")) if os.path.exists(out) else None)
+
+    def test_a_failure_before_init_still_yields_every_case_from_the_committed_request(self):
+        # proof, preflight or init failed: no CASES, no CT_REQUEST, CT_OUT never created
+        r, doc = self.run_step()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(doc["outcome"], "not-started")
+        self.assertEqual({c["result"] for c in doc["cases"]}, {"NOT RUN"})
+        self.assertEqual(len(doc["cases"]), 15)
+        self.assertEqual(doc["binding"], {"runId": "42142985744", "runAttempt": 1, "headSha": "7" * 40})
+
+    def test_started_without_results_is_unknown_through_the_actual_step(self):
+        out = os.path.join(self.d, "ct-out"); os.makedirs(out)
+        with open(os.path.join(out, "started.txt"), "w", encoding="utf-8") as f:
+            f.write("2026-11-06T01:30:00Z\n")
+        r, doc = self.run_step(CT_OUT=out, CASES="AHT-01,AHT-15")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(doc["outcome"], "started-without-results")
+        by = {c["caseId"]: c["result"] for c in doc["cases"]}
+        self.assertEqual((by["AHT-01"], by["AHT-15"], by["AHT-02"]), ("UNKNOWN", "UNKNOWN", "NOT SELECTED"))
+
+    def test_a_scheduled_run_without_init_takes_the_selection_from_its_admitted_nightly_request(self):
+        import base64  # noqa: PLC0415
+        req = {"selection": [{"case": "AHT-03"}, {"case": "AHT-09"}]}
+        r, doc = self.run_step(GITHUB_EVENT_NAME="schedule", MANUAL_REQUEST="",
+                               NIGHTLY_REQUEST_B64=base64.b64encode(json.dumps(req).encode()).decode(), WORKFLOW_START_UTC="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(doc["selectedCases"], ["AHT-03", "AHT-09"])
+        self.assertEqual(sum(c["result"] == "NOT RUN" for c in doc["cases"]), 2)

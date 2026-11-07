@@ -126,10 +126,13 @@ def sanitize_record(rec, require_source=False):
         _keys(c, {"caseId", "result", "rows", "codes"}, "case")
         _need(isinstance(c.get("caseId"), str) and CASE.match(c["caseId"]) and c["caseId"] not in seen, "case-id")
         seen.add(c["caseId"])
-        _need(c.get("result") in ("PASS", "FAIL", "NOT RUN", "NOT SELECTED"), "case-result")
+        # UNKNOWN (Bezos N1): a selected case of a run that started but left no verified results; like NOT RUN it is never an executed
+        # verdict and never erases history, but it does not claim the case did not run.
+        _need(c.get("result") in ("PASS", "FAIL", "NOT RUN", "NOT SELECTED", "UNKNOWN"), "case-result")
         _keys(c.get("rows"), {"pass", "fail", "notRun"}, "rows")
         _need(set(c["rows"]) == {"pass", "fail", "notRun"} and all(_count(v) for v in c["rows"].values()), "rows")
         _need((c["result"] == "PASS") == (c["rows"]["fail"] == 0 and c["rows"]["notRun"] == 0 and c["rows"]["pass"] > 0), "case-result-rows")
+        _need(c["result"] != "UNKNOWN" or not any(c["rows"].values()), "unknown-rows")
         _need(c["result"] != "NOT SELECTED" or (rec["coverage"] in ("batch", "incomplete") and not any(c["rows"].values()) and not c.get("codes")),
               "not-selected-rows")
         out.append({"caseId": c["caseId"], "result": c["result"], "rows": dict(c["rows"]), "codes": _codes(c.get("codes", []), 8)})
@@ -373,9 +376,10 @@ def render(state):
     done, live = state["latestCompleted"], state["inProgress"]
     lines = [MARKER, "**Cloud test: latest run record** (bot-maintained; replaced only by the next terminal run)", ""]
     if done:
-        tally = {r: sum(1 for c in done["cases"] if c["result"] == r) for r in ("PASS", "FAIL", "NOT RUN")}
-        lines.append("Latest completed: run %s attempt %d at `%s`: **%s** (%d PASS, %d FAIL, %d NOT RUN)" % (
-            done["runId"], done["attempt"], done["sourceSha"][:12], done["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"]))
+        tally = {r: sum(1 for c in done["cases"] if c["result"] == r) for r in ("PASS", "FAIL", "NOT RUN", "UNKNOWN")}
+        lines.append("Latest completed: run %s attempt %d at `%s`: **%s** (%d PASS, %d FAIL, %d NOT RUN%s)" % (
+            done["runId"], done["attempt"], done["sourceSha"][:12], done["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"],
+            ", %d UNKNOWN" % tally["UNKNOWN"] if tally["UNKNOWN"] else ""))
     else:
         lines.append("Latest completed: none yet.")
     lc = (state.get("history") or {}).get("lastComparison")
@@ -400,9 +404,10 @@ def render(state):
     pending = state.get("pendingCompletion")
     if pending:
         rec = pending["record"]
-        tally = {r: sum(1 for c in rec["cases"] if c["result"] == r) for r in ("PASS", "FAIL", "NOT RUN")}
-        lines.append("Pending completion: run %s attempt %d: **%s** (%d PASS, %d FAIL, %d NOT RUN); next admitted run reconciles it from GitHub server time." %
-                     (rec["runId"], rec["attempt"], rec["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"]))
+        tally = {r: sum(1 for c in rec["cases"] if c["result"] == r) for r in ("PASS", "FAIL", "NOT RUN", "UNKNOWN")}
+        lines.append("Pending completion: run %s attempt %d: **%s** (%d PASS, %d FAIL, %d NOT RUN%s); next admitted run reconciles it from GitHub server time." %
+                     (rec["runId"], rec["attempt"], rec["outcome"], tally["PASS"], tally["FAIL"], tally["NOT RUN"],
+                      ", %d UNKNOWN" % tally["UNKNOWN"] if tally["UNKNOWN"] else ""))
     lines += ["", "```json", json.dumps(state, sort_keys=True, separators=(",", ":")), "```"]
     body = "\n".join(lines) + "\n"
     _need(len(body) <= MAX_BODY_CHARS, "record-overflow")  # fail closed: never publish a truncated or rejected record
@@ -715,8 +720,20 @@ def reconcile_pending(state, published_at, attestation, settle_receipt_raw, occu
         occurrence = json.loads(occurrence_raw)
     except ValueError:
         raise Refused("completion-occurrence-bytes")
-    _need(isinstance(occurrence, dict) and occurrence.get("runId") == record.get("campaignId"), "completion-occurrence-identity")
+    _need(isinstance(occurrence, dict) and isinstance(occurrence.get("runId"), str) and occurrence["runId"]
+          and (occurrence["runId"] == record.get("campaignId") or _never_started(record)), "completion-occurrence-identity")
     return expected
+
+
+def _never_started(record):
+    """Run 42284568156: an attempt refused in admission, before its campaign began, records no campaign or request identity (campaignId and
+    requestSha256 null), outcome failed with incomplete-run, and every selected case UNKNOWN with no rows. Its occurrence is still bound by
+    the attestation's and pending record's occurrence digest; only this exact never-started shape may omit the campaign identity, never a
+    record that names a different campaign or carries any case result."""
+    cases = record.get("cases")
+    return (record.get("campaignId") is None and record.get("requestSha256") is None and record.get("outcome") == "failed"
+            and "incomplete-run" in (record.get("codes") or []) and isinstance(cases, list) and bool(cases)
+            and all(isinstance(c, dict) and c.get("result") == "UNKNOWN" and not any((c.get("rows") or {}).values()) for c in cases))
 
 
 def completion_attestation(candidate_body, public_body, published, settle_receipt_sha256, occurrence_sha256):

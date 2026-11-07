@@ -12,10 +12,55 @@
 set -euo pipefail
 STAGE="${1:-}"
 blocked() { echo "BLOCKED_SETUP: $*" >&2; exit 78; }
+# Internal second half of the elevated run stage (see below), entered only through sudo. Sam 1794066566/1794066358 corrections: taking
+# ownership of the run-owned trees must stop the stage when it fails, and returning it must be reported (and fail the stage) when it fails.
+if [ "$STAGE" = run-as-root ]; then
+  [ "$(id -u)" = 0 ] && [ "$#" -eq 4 ] || blocked "run-as-root is internal to the elevated run stage"
+  envfile="$2"; owner="$3"; pin="$4"
+  [ -f "$envfile" ] && [ ! -L "$envfile" ] || blocked "elevated run environment missing"
+  . "$envfile"; rm -f "$envfile"
+  # Sam 1794066886: a privileged recursive ownership change accepts only canonical roots: absolute, no trailing slash, an existing
+  # directory whose realpath is itself (so no component, including the last, is a symlink).
+  canonical_dir() { case "$1" in /*/|/) return 1 ;; /*) ;; *) return 1 ;; esac; [ -d "$1" ] && [ ! -L "$1" ] && [ "$(realpath "$1")" = "$1" ]; }
+  [ -n "${CT_OUT:-}" ] && canonical_dir "$CT_OUT" || blocked "CT_OUT must be a canonical directory with no symlink component"
+  trees=("$CT_OUT")
+  case "$pin" in /*) ;; *) blocked "private run inputs must be a canonical directory with no symlink component" ;; esac
+  if [ -e "$pin" ] || [ -L "$pin" ]; then
+    canonical_dir "$pin" || blocked "private run inputs must be a canonical directory with no symlink component"
+    trees+=("$pin")
+  fi
+  give_back() { chown -R "$owner" "${trees[@]}" || { echo "BLOCKED_SETUP: run outputs could not be returned to the job user" >&2; return 1; }; }
+  trap 'give_back; exit 143' TERM
+  trap 'give_back; exit 130' INT
+  if ! chown -R 0:0 "${trees[@]}"; then
+    echo "BLOCKED_SETUP: run-owned trees could not be taken for the root run stage; the stage did not run" >&2
+    give_back || exit 78
+    exit 78
+  fi
+  rc=0; bash "$0" run || rc=$?
+  if ! give_back; then [ "$rc" -ne 0 ] || rc=78; fi
+  exit "$rc"
+fi
 case "$STAGE" in
   install-tools|build-plan|stimulus-preflight|build-plan-with-receipt|gate-and-validate|reserve|manual-reserve|run|collect|settle|manual-settle) ;;
   *) blocked "unknown stage $STAGE" ;;
 esac
+# PO 2026-11-06 ("relax the rules ... working release first"): on the ephemeral GitHub-hosted runner the guarded browser lane
+# (root-owned browser copy, setpriv to uid 65534 at every launch) needs root, which the job user has through passwordless sudo.
+# Only the run stage is elevated, only when the workflow asks for it. Its environment moves through a 0600 file that is deleted as soon
+# as it is loaded, and ownership of the run outputs returns to the job user on any exit, so collect/timing/settle can read them.
+if [ "$STAGE" = run ] && [ "${CT_RUN_STAGE_AS_ROOT:-}" = 1 ] && [ "$(id -u)" != 0 ]; then
+  [ -n "${CT_OUT:-}" ] && [ -d "$CT_OUT" ] || blocked "CT_OUT is required to elevate the run stage"
+  envfile="$(mktemp "${RUNNER_TEMP:-/tmp}/run-stage-env.XXXXXX")"; chmod 600 "$envfile"
+  export -p > "$envfile"
+  # R10 run 42386714252 (A7 "identity receipt unavailable"): the harness's private-state checks (identity-core assertPrivateDir/File,
+  # campaign-runner privateDir, with-authenticated-evidence privateJson, producer directories) require the run's own private outputs to be
+  # owned by the process that reads them. They were created by the job user in earlier stages, so the root run stage first takes ownership
+  # of exactly those run-owned trees ($CT_OUT and the private run inputs) in run-as-root above, and returns both to the job user after the
+  # stage or on INT/TERM; a failed take stops the stage, a failed return is reported and fails it.
+  private_inputs="${CT_PRIVATE_INPUT_DIR:-${RUNNER_TEMP:-/nonexistent}/run-inputs}"
+  exec sudo -n bash "$0" run-as-root "$envfile" "$(id -u):$(id -g)" "$private_inputs"
+fi
 [ -z "${SUPABASE_SECRET_KEY:-}" ] || blocked "SUPABASE_SECRET_KEY is present; forbidden"
 [ -z "${STRIPE_SECRET_KEY:-}" ] || blocked "STRIPE_SECRET_KEY is present; forbidden"
 ss_broker_service_role="${SUPABASE_SERVICE_ROLE_KEY:-}"
@@ -81,15 +126,24 @@ run_stage() {
     [ -z "$ss_broker_service_role" ] || e+=("SUPABASE_SERVICE_ROLE_KEY=$ss_broker_service_role")
     [ -z "$ss_broker_telemetry_key" ] || e+=("POSTHOG_PERSONAL_API_KEY=$ss_broker_telemetry_key")
     # Shell builtins keep privileged values out of an external env command's argv.
+    local t0 rc=0; t0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     (
       for n in $(compgen -e); do export -n "$n"; done
       export "${e[@]}"
       exec "$@"
-    )
-    return
+    ) || rc=$?
+    # Content-free stage timing (Bezos M2 / run 42142985744): stage, start and end UTC, exit code; never a value, path or argument.
+    # Scope (Sam 1793931423.224679): the WRAPPED command only. A refusal raised before it (stage-environment checks, BLOCKED_SETUP)
+    # leaves no row, and steps outside this script are not traced; the timing table states this (init_run_inputs.TRACE_SCOPE).
+    [ -z "${OUT:-}" ] || [ ! -d "${OUT:-}" ] || printf '%s\t%s\t%s\t%s\n' "$stage" "$t0" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$OUT/stage-trace.tsv"
+    return "$rc"
   fi
-  env -i "${e[@]}" "$@"
+  local t0 rc=0; t0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  env -i "${e[@]}" "$@" || rc=$?
+  [ -z "${OUT:-}" ] || [ ! -d "${OUT:-}" ] || printf '%s\t%s\t%s\t%s\n' "$stage" "$t0" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$OUT/stage-trace.tsv"
+  return "$rc"
 }
+
 
 playwright_identity() {
   local selected="${CT_EXISTING_DEPENDENCY_ROOT:-${CT_CHECKOUT:-}}"
@@ -136,8 +190,10 @@ require_runtime_inputs() {
 
 plan_env_file() {
   [ -f "$OUT/reconciliation.json" ] || blocked "reconciliation.json is required before plan construction"
+  # The run's one execution deadline (init step output; Sam 1794071539): plan, guard policy, admission and producer scope all bind it.
+  [ -n "${CT_EXECUTION_DEADLINE:-}" ] || blocked "CT_EXECUTION_DEADLINE (the run's one execution deadline) is required"
   python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
-    --reconciliation "$OUT/reconciliation.json" --out "$OUT/plan-env.txt" >/dev/null
+    --reconciliation "$OUT/reconciliation.json" --execution-deadline "$CT_EXECUTION_DEADLINE" --out "$OUT/plan-env.txt" >/dev/null
 }
 
 ensure_account_bindings() {
@@ -335,6 +391,13 @@ case "$STAGE" in
       admission_dir="$OUT/plan/run/admission"
       admission_file="$admission_dir/admission-receipt.json"
       admission_config="$(python3 -I "$ROOT/scripts/cfg_get.py" "$planfile" admissionConfigFile)" || blocked "campaign admission config cannot be read"
+      # R10 run 42318728005 (A6 S12 ENOENT; Sam 1794012265.884079): in the elevated run stage, create-only prepare the plan's own approved
+      # private-media parent, which media-private.cjs requires to already exist root-owned 0711. Before admission; never modifies a node.
+      if [ "$(id -u)" = 0 ]; then
+        media_parent="$(python3 -I "$ROOT/scripts/cfg_get.py" "$admission_config" privateMediaParent)" || blocked "admission privateMediaParent cannot be read"
+        python3 -I "$ROOT/scripts/prepare_media_parent.py" --parent "$media_parent" --expected "${CT_MEDIA_PARENT:-/var/tmp/ss-media-cloud-test}" \
+          || blocked "approved private media parent could not be prepared"
+      fi
       run_stage run node "$HP/bundle/harness/admission.cjs" --bundle "$HP/bundle" --config "$admission_config" --out "$admission_dir" --execute-r0 true
       [ -f "$admission_file" ] && [ ! -L "$admission_file" ] || blocked "genuine admission receipt unavailable"
       admission_sha="$(sha256sum "$admission_file" | cut -d' ' -f1)"
