@@ -52,6 +52,18 @@ export async function assetInventoryDigest(files: readonly PackageAsset[]): Prom
 }
 /** Synchronous shape validation is not execution proof; verifyModelPackage is mandatory before use. */
 /**
+ * The Parakeet adapter executes the files its profile names in these three roles (runtime bundle, WASM glue, WASM binary).
+ * Each role is bound to one reviewed runtime pin, so an imported weight package cannot point an executable role at a
+ * different file. Checked against the pin table at load, so the binding cannot drift from the reviewed bytes.
+ */
+export const PARAKEET_EXECUTABLE_ROLES = Object.freeze({
+    runtimeBundleFile: 'parakeet-runtime.mjs', wasmGlueFile: 'ort-wasm-simd-threaded.mjs', wasmBinaryFile: 'ort-wasm-simd-threaded.wasm',
+} as const);
+if (Object.values(PARAKEET_EXECUTABLE_ROLES).some(path => !parakeetRuntimePins.files.some(pin => pin.path === path))) {
+    throw new Error('PARAKEET_EXECUTABLE_ROLE_NOT_PINNED');
+}
+
+/**
  * Every file the installed Whisper (v2, Xenova 2.17.2) loader requests for the supported package layout, the same set the
  * built-in incumbent requires: tokenizer_config.json is fatal in loadTokenizer and generation_config.json is fetched when served. Readiness reads `execution.cacheFiles`, so an admitted Whisper package always carries it.
  */
@@ -133,6 +145,11 @@ export function parseModelPackage(input: unknown): ModelPackage {
         const roles = [decode.encoderFile,decode.decoderFile,decode.vocabularyFile,decode.configurationFile,
             decode.runtimeBundleFile,decode.wasmGlueFile,decode.wasmBinaryFile];
         if (roles.some(file=>typeof file!=='string'||!paths.has(file)) || new Set(roles).size!==roles.length) refuse('UNSUPPORTED_PARAKEET_ASSETS');
+        // Codex P1 on c72108a1: the engine executes whatever file these roles name, so each executable role must be the
+        // reviewed runtime pin itself, not merely a file present beside it. (The pin loop below binds that path's bytes.)
+        if (Object.entries(PARAKEET_EXECUTABLE_ROLES).some(([role, pinned]) => decode[role as keyof typeof PARAKEET_EXECUTABLE_ROLES] !== pinned)) {
+            refuse('UNSUPPORTED_PARAKEET_RUNTIME_ROLES');
+        }
     }
     // Runtime code is installed adapter policy, not arbitrary executable package input.
     // A compatible new weight package reuses exactly the reviewed runtime artifacts.

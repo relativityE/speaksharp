@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createHash, webcrypto } from 'node:crypto';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CANDIDATES, identityOf, assetsVerified, isQualificationGrade } from '../candidateRegistry';
 import { resolveCandidate } from '../candidateSelection';
 import { assetRequestsFor, resolveCandidateAssetUrl } from '../candidateAssetRequests';
@@ -8,6 +8,7 @@ import { getDefaultProviderForMode, getProviderEntry } from '../providers/sttPro
 import { resolvePrivateAssignment, buildEngineVersion } from '../privateTelemetry';
 import { requiredParakeetFiles } from '../engines/parakeet/contracts';
 import pins from '../engines/parakeet/assetPins.json';
+import { PARAKEET_EXECUTABLE_ROLES, candidateFromPackage, sealModelPackage } from '../modelPackage';
 
 const candidate = CANDIDATES['parakeet:tdt-v3:int8'];
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -88,5 +89,50 @@ describe('non-default Parakeet TDT descriptor', () => {
             reason: 'CONSENT_REQUIRED', sizeMB: Math.round(pins.totalBytes / 1_000_000) });
         await facade.terminate();
         vi.unstubAllGlobals();
+    });
+});
+
+/**
+ * Codex P1 on c72108a1 (modelPackage.ts): admission checked only that each reviewed Parakeet runtime pin was PRESENT in an
+ * imported package's inventory, while ParakeetTdtEngine executes whichever file the profile's `runtimeBundleFile` names (and
+ * the worker loads `wasmGlueFile`/`wasmBinaryFile` by role). A package could point an executable role at its `.onnx` weight
+ * (carrying JavaScript under its own hash) and still pass sealing and verification, because the reviewed runtime sat unused
+ * beside it. Each executable role is now bound to its reviewed pin.
+ */
+describe('an imported Parakeet package cannot choose which file the adapter executes', () => {
+    beforeAll(() => { vi.stubGlobal('crypto', webcrypto); });
+    afterAll(() => { vi.unstubAllGlobals(); });
+    type Decode = Record<string, unknown>;
+    const parakeetPackage = (change: (decode: Decode, files: Array<Record<string, unknown>>) => void = () => {}) => {
+        const decode = { ...(candidate.execution.decode as unknown as Decode) };
+        const files = candidate.assets.files!.map(f => ({ ...f })) as Array<Record<string, unknown>>;
+        change(decode, files);
+        return sealModelPackage({ schemaVersion: 1, kind: 'speaksharp-model-package', id: 'fixture:parakeet-roles',
+            engine: candidate.engine, runtime: candidate.runtime, model: candidate.model,
+            execution: { ...candidate.execution, decode } as never,
+            assets: { files } as never, license: 'fixture declaration; no model copied' } as never);
+    };
+    const swap = (decode: Decode, a: string, b: string) => { const t = decode[a]; decode[a] = decode[b]; decode[b] = t; };
+
+    it('the binding is exactly the built-in profile\'s executable roles', () => {
+        const decode = candidate.execution.decode as unknown as Decode;
+        expect(Object.fromEntries(Object.keys(PARAKEET_EXECUTABLE_ROLES).map(role => [role, decode[role]]))).toEqual(PARAKEET_EXECUTABLE_ROLES);
+    });
+    it('CONTROL: a package with the reviewed role mapping is admitted', async () => {
+        expect(candidateFromPackage(await parakeetPackage(), 'fixture.json').engine).toBe('parakeet-tdt');
+    });
+    it.each([
+        ['the runtime bundle swapped with the encoder weight', (d: Decode) => swap(d, 'runtimeBundleFile', 'encoderFile')],
+        ['the WASM glue swapped with the decoder weight', (d: Decode) => swap(d, 'wasmGlueFile', 'decoderFile')],
+        ['the WASM binary swapped with the configuration file', (d: Decode) => swap(d, 'wasmBinaryFile', 'configurationFile')],
+    ])('REFUSED: %s', async (_label, change) => {
+        await expect(parakeetPackage(change)).rejects.toThrow('UNSUPPORTED_PARAKEET_RUNTIME_ROLES');
+    });
+    it('REFUSED: the runtime role pointing at a renamed copy of a weight file, with the reviewed runtime still shipped beside it', async () => {
+        await expect(parakeetPackage((decode, files) => {
+            const encoder = files.find(f => f.path === decode.encoderFile)!;
+            files.push({ ...encoder, path: 'runtime-payload.onnx', url: String(encoder.url).replace(/[^/]+$/, 'runtime-payload.onnx') });
+            decode.runtimeBundleFile = 'runtime-payload.onnx';
+        })).rejects.toThrow('UNSUPPORTED_PARAKEET_RUNTIME_ROLES');
     });
 });
