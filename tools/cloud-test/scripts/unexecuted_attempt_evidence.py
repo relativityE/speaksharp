@@ -21,7 +21,9 @@ job's measured seconds (started to completed) rounded up to whole minutes, the j
 are listed in the document and sit outside the campaign allocation. `atUtc` is the latest job completion, a fixed fact.
 
 Nothing here opens a socket: callers pass GitHub's run JSON and jobs JSON (with steps) and the validated journal chain.
-CLI: unexecuted_attempt_evidence.py collect --run RUN.json --jobs JOBS.json --workflow WORKFLOW.yml --out EVIDENCE.json   (reads the journal)
+CLI: unexecuted_attempt_evidence.py collect --run RUN.json --jobs JOBS.json --workflow WORKFLOW.yml [--annotations ANNOTATIONS.json] --out EVIDENCE.json
+                                                                          (reads the journal; annotations only for a live job rejected before any step)
+     unexecuted_attempt_evidence.py rejected-check-run --jobs JOBS.json  (prints that live job's id when it was rejected before any step)
      unexecuted_attempt_evidence.py check --evidence EVIDENCE.json                                (prints the sha256 and the settle time)
      unexecuted_attempt_evidence.py pending   (prints the run whose reserve is the journal's open last event, or nothing; reads the journal)
 Exit 78 (BLOCKED_SETUP) on every refusal.
@@ -71,10 +73,21 @@ OWNER_DISPOSITIONS = {
                     "ran": (PREFLIGHT_STEP, INIT_STEP, STAGE_SETUP_STEP)},
 }
 LIVE_JOB_PREFIX = "Selected live journeys"
-# R10 run 42406851270: the live job was rejected by the credential environment's protection rules (the branch exception had been removed),
-# completed `failure` with NO steps: it never got a runner, so no step ran and no secret reached it. That is the strongest not-executed shape
-# and settles exactly like `none` (zero product usage, measured runner minutes); it must never block the next run.
-NO_STEP_STARTED = "(no step started: the live job ended before its runner ran any step)"
+# R10 run 42406851270 (PO: a run rejected before it ran anything must never block the next one; Sam 1794080489/1794080963): the credential
+# environment's protection rules rejected the live job, which completed `failure` with an EXPLICITLY EMPTY step list, no runner allocated
+# (runner id 0, no name, group 0) and GitHub's two rejection annotations on its own check run. Nothing ran and no secret reached it, so it
+# settles like `none` (zero product usage, measured runner minutes). No failed step is synthesized: `failedStep` is null, admitted only with
+# that rejection evidence. The annotations are read from GitHub's public API with no credential (record-begin holds no `checks` permission).
+LIVE_ENVIRONMENT = "trusted-main-credentials"
+CHECK_RUN_URL = "https://api.github.com/repos/relativityE/speaksharp/check-runs/%d"
+BRANCH = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
+REJECTED_LIVE_KEYS = {"jobId", "runnerId", "runnerName", "runnerGroupId", "checkRunUrl"}
+
+
+def rejection_messages(branch, environment):
+    """GitHub's exact annotations for an environment's deployment-branch rejection of `branch`, as a sorted list."""
+    return sorted(['Branch "%s" is not allowed to deploy to %s due to environment protection rules.' % (branch, environment),
+                   "The deployment was rejected or didn't satisfy other protection rules."])
 JOB_PREFIXES = (("record", "Record the attempt", "success"), ("gate", "Nightly gate", "skipped"),
                 ("reserve", "Reserve the run on the state-ref journal", "success"), ("live", LIVE_JOB_PREFIX, "failure"),
                 ("settle", "Settle the run's reservation", "success"), ("complete", "Complete or interrupt the attempt", "success"))
@@ -182,8 +195,13 @@ def _shape_jobs(jobs_doc):
             job = {"name": j.get("name"), "status": j.get("status"), "conclusion": j.get("conclusion"), "startedAt": j.get("started_at"),
                    "completedAt": j.get("completed_at"), "runId": str(j.get("run_id")), "attempt": j.get("run_attempt"), "headSha": j.get("head_sha")}
             if isinstance(job["name"], str) and job["name"].startswith(LIVE_JOB_PREFIX):
+                raw = j.get("steps")
+                _need(isinstance(raw, list) and all(isinstance(s, dict) for s in raw), "unexecuted-steps")   # never missing/null/false/0/"" as []
                 job["steps"] = [{"number": s.get("number"), "name": s.get("name"), "status": s.get("status"), "conclusion": s.get("conclusion")}
-                                for s in (j.get("steps") or [])]
+                                for s in raw]
+                if not raw:
+                    job.update(jobId=j.get("id"), runnerId=j.get("runner_id"), runnerName=j.get("runner_name"),
+                               runnerGroupId=j.get("runner_group_id"), checkRunUrl=j.get("check_run_url"))
             out.append(job)
     return out
 
@@ -219,12 +237,22 @@ def _rules(doc):
     _need(len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"} for s in steps), "unexecuted-steps")
     failed = sorted((s for s in steps if s["conclusion"] == "failure"), key=lambda s: s["number"])
     if not steps:
-        # the completed, failed live job never started a step (environment rejection): nothing ran, so no credential-bearing step ran
-        _need(doc["failedStep"] == NO_STEP_STARTED, "unexecuted-failed-step")
+        # rejected before any step: an explicitly empty list, no runner, and GitHub's own rejection of exactly this job's check run
+        rej = doc.get("rejection")
+        _need(doc["failedStep"] is None and isinstance(rej, dict), "unexecuted-rejection")
+        _need(set(live) == {"name", "status", "conclusion", "startedAt", "completedAt", "runId", "attempt", "headSha", "steps"} | REJECTED_LIVE_KEYS
+              and type(live["jobId"]) is int and live["jobId"] > 0 and live["runnerId"] == 0 and live["runnerName"] in ("", None)
+              and live["runnerGroupId"] == 0 and live["checkRunUrl"] == CHECK_RUN_URL % live["jobId"], "unexecuted-rejection-job")
+        _need(rej["environment"] == LIVE_ENVIRONMENT and isinstance(rej["headBranch"], str) and BRANCH.match(rej["headBranch"])
+              and rej["checkRunId"] == live["jobId"]
+              and sorted(a["message"] for a in rej["annotations"]) == rejection_messages(rej["headBranch"], LIVE_ENVIRONMENT)
+              and all(a["level"] == "failure" for a in rej["annotations"]), "unexecuted-rejection")
         _need(doc["credentialSteps"] and any(step.startswith("Stage runner (run)") for _job, step in doc["credentialSteps"])
               and all(job == live["name"] for job, _step in doc["credentialSteps"]), "unexecuted-credential-steps")
-        failed = [{"number": 0, "name": NO_STEP_STARTED}]
-    _need(failed and doc["failedStep"] == failed[0]["name"], "unexecuted-failed-step")
+    else:
+        _need("rejection" not in doc and set(live) == {"name", "status", "conclusion", "startedAt", "completedAt", "runId", "attempt", "headSha",
+                                                       "steps"}, "unexecuted-rejection")
+        _need(failed and doc["failedStep"] == failed[0]["name"], "unexecuted-failed-step")
     # Any further failure is a consequence of the first: a later, secret-free always() step of the run's own workflow (run 42142985744).
     allowed = {tuple(p) for p in doc["consequentialSteps"]}
     for later in failed[1:]:
@@ -274,7 +302,13 @@ def _rules(doc):
 def _check_shape(doc):
     keys = {"schema", "identity", "run", "jobs", "failedStep", "credentialSteps", "consequentialSteps", "workflowSha256", "accounting",
             "dispositionRef", "journal", "usage", "atUtc"}
-    _need(isinstance(doc, dict) and set(doc) == keys and doc["schema"] == SCHEMA, "unexecuted-shape")
+    _need(isinstance(doc, dict) and set(doc) in (keys, keys | {"rejection"}) and doc["schema"] == SCHEMA, "unexecuted-shape")
+    if "rejection" in doc:
+        rej = doc["rejection"]
+        _need(isinstance(rej, dict) and set(rej) == {"environment", "headBranch", "checkRunId", "annotations"}
+              and isinstance(rej["annotations"], list) and len(rej["annotations"]) == 2
+              and all(isinstance(a, dict) and set(a) == {"level", "message"} and all(isinstance(v, str) for v in a.values())
+                      for a in rej["annotations"]), "unexecuted-shape")
     ident = doc["identity"]
     _need(isinstance(ident, dict) and set(ident) == {"runId", "attempt", "headSha"} and isinstance(ident["runId"], str)
           and re.fullmatch(r"[1-9][0-9]{0,19}", ident["runId"]) is not None and type(ident["attempt"]) is int and ident["attempt"] >= 1
@@ -283,14 +317,14 @@ def _check_shape(doc):
     _need(doc["accounting"] in ACCOUNTING, "unexecuted-shape")
     _need(doc["dispositionRef"] is None or (isinstance(doc["dispositionRef"], str) and re.fullmatch(r"slack:\d+\.\d+", doc["dispositionRef"])),
           "unexecuted-shape")
-    _need(isinstance(doc["failedStep"], str), "unexecuted-shape")
+    _need(isinstance(doc["failedStep"], str) or (doc["failedStep"] is None and "rejection" in doc), "unexecuted-shape")
     run = doc["run"]
     _need(isinstance(run, dict) and set(run) == {"runId", "attempt", "headSha", "status", "conclusion", "startedAt", "updatedAt"}, "unexecuted-shape")
     jobs = doc["jobs"]
     _need(isinstance(jobs, list) and 0 < len(jobs) <= 16 and all(isinstance(j, dict) for j in jobs), "unexecuted-jobs")
     for j in jobs:
         base = {"name", "status", "conclusion", "startedAt", "completedAt", "runId", "attempt", "headSha"}
-        _need(set(j) in (base, base | {"steps"}) and isinstance(j["name"], str), "unexecuted-jobs")
+        _need(set(j) in (base, base | {"steps"}, base | {"steps"} | REJECTED_LIVE_KEYS) and isinstance(j["name"], str), "unexecuted-jobs")
     _need(isinstance(doc["credentialSteps"], list) and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p)
                                                          for p in doc["credentialSteps"]), "unexecuted-shape")
     _need(isinstance(doc["consequentialSteps"], list) and all(isinstance(p, list) and len(p) == 2 and all(isinstance(x, str) for x in p)
@@ -332,7 +366,35 @@ def _derive_accounting(doc):
     return "capped", None
 
 
-def build_evidence(run, jobs_doc, chain, workflow_text):
+def live_environment(workflow_text):
+    """The `environment:` of the live job in the run's own workflow text (its header, before `steps:`)."""
+    lines, inside, found = workflow_text.split("\n"), False, []
+    for line in lines:
+        m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if m:
+            inside = m.group(1) == "live"
+            continue
+        if inside and line == "    steps:":
+            inside = False
+        if inside:
+            e = re.match(r"^    environment:\s*(\S+)\s*$", line)
+            if e:
+                found.append(_scalar(e.group(1)))
+    _need(len(found) == 1, "unexecuted-live-environment")
+    return found[0]
+
+
+def rejected_check_run(jobs_doc):
+    """The live job id when that job completed `failure` with an EXPLICITLY empty step list and no runner (the only shape whose annotations
+    record-begin fetches), else None."""
+    live = _live(_shape_jobs(jobs_doc))
+    if live["status"] == "completed" and live["conclusion"] == "failure" and live["steps"] == [] and live.get("runnerId") == 0:
+        _need(type(live.get("jobId")) is int and live["jobId"] > 0, "unexecuted-rejection-job")
+        return live["jobId"]
+    return None
+
+
+def build_evidence(run, jobs_doc, chain, workflow_text, annotations=None):
     """The evidence document for GitHub's run and jobs JSON, the validated journal chain [(sha, events, ...)] and the run's own workflow text at
     its head, or a refusal. The chain's open last event must be this run's reserve, and no other event may name this run."""
     _need(isinstance(run, dict) and isinstance(run.get("id"), int), "unexecuted-run")
@@ -343,18 +405,27 @@ def build_evidence(run, jobs_doc, chain, workflow_text):
     jobs = _shape_jobs(jobs_doc)
     _need(len(jobs) == len(JOB_PREFIXES), "unexecuted-jobs")
     live = _live(jobs)
-    failed = sorted((s for s in live.get("steps") or [] if s.get("conclusion") == "failure"), key=lambda s: s.get("number") or 0)
-    if live.get("steps") == []:
-        failed = [{"name": NO_STEP_STARTED}]
-    _need(failed, "unexecuted-failed-step")
+    failed = sorted((s for s in live["steps"] if s.get("conclusion") == "failure"), key=lambda s: s.get("number") or 0)
+    rejection = None
+    if live["steps"] == []:
+        _need(isinstance(annotations, list) and all(isinstance(a, dict) for a in annotations), "unexecuted-annotations")
+        rejection = {"environment": live_environment(workflow_text), "headBranch": run.get("head_branch"), "checkRunId": live.get("jobId"),
+                     "annotations": sorted(({"level": a.get("annotation_level"), "message": a.get("message")} for a in annotations),
+                                           key=lambda a: (str(a["message"]), str(a["level"])))}
+    else:
+        _need(annotations is None, "unexecuted-annotations")
+        _need(failed, "unexecuted-failed-step")
     doc = {"schema": SCHEMA, "identity": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha")},
            "run": {"runId": run_id, "attempt": run.get("run_attempt"), "headSha": run.get("head_sha"), "status": run.get("status"),
                    "conclusion": run.get("conclusion"), "startedAt": run.get("run_started_at"), "updatedAt": run.get("updated_at")},
-           "jobs": jobs, "failedStep": failed[0]["name"], "credentialSteps": [list(p) for p in credential_steps(workflow_text)],
+           "jobs": jobs, "failedStep": failed[0]["name"] if rejection is None else None,
+           "credentialSteps": [list(p) for p in credential_steps(workflow_text)],
            "consequentialSteps": [list(p) for p in consequential_steps(workflow_text)],
            "workflowSha256": hashlib.sha256(workflow_text.encode("utf-8")).hexdigest(),
            "accounting": "capped", "dispositionRef": None,
            "journal": {"rootSha": chain[0][0], "headSha": chain[-1][0], "reserve": reserve}, "usage": {}, "atUtc": "1970-01-01T00:00:00Z"}
+    if rejection is not None:
+        doc["rejection"] = rejection
     doc["accounting"], doc["dispositionRef"] = _derive_accounting(doc)
     doc["usage"], doc["atUtc"] = _rules(doc)
     check_evidence(doc)
@@ -387,8 +458,8 @@ def pending_run(chain):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("collect", "check", "pending"))
-    for flag in ("--run", "--jobs", "--workflow", "--out", "--evidence"):
+    a.add_argument("command", choices=("collect", "check", "pending", "rejected-check-run"))
+    for flag in ("--run", "--jobs", "--workflow", "--out", "--evidence", "--annotations"):
         a.add_argument(flag)
     x = a.parse_args(argv[1:])
     try:
@@ -403,6 +474,14 @@ def main(argv):
                 digest, usage, at_utc = check_evidence(json.loads(f.read()))
             print(digest, at_utc, usage["runnerMinutes"])
             return 0
+        if x.command == "rejected-check-run":
+            # prints the live job (= check run) id whose public annotations record-begin must fetch, or nothing
+            _need(bool(x.jobs), "unexecuted-input-unreadable")
+            with open(x.jobs, encoding="utf-8") as f:
+                job_id = rejected_check_run(json.load(f))
+            if job_id is not None:
+                print(job_id)
+            return 0
         _need(bool(x.run and x.jobs and x.workflow and x.out), "unexecuted-input-unreadable")
         with open(x.run, encoding="utf-8") as f:
             run = json.load(f)
@@ -410,7 +489,11 @@ def main(argv):
             jobs = json.load(f)
         with open(x.workflow, encoding="utf-8") as f:
             workflow_text = f.read()
-        doc = build_evidence(run, jobs, fetch_chain(), workflow_text)
+        annotations = None
+        if x.annotations:
+            with open(x.annotations, encoding="utf-8") as f:
+                annotations = json.load(f)
+        doc = build_evidence(run, jobs, fetch_chain(), workflow_text, annotations)
         with open(x.out, "wb") as f:
             f.write(canon(doc) + b"\n")
         return 0

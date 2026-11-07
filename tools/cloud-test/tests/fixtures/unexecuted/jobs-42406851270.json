@@ -34,6 +34,7 @@
    "status": "completed"
   },
   {
+   "check_run_url": "https://api.github.com/repos/relativityE/speaksharp/check-runs/128506390478",
    "completed_at": "2026-11-07T19:34:38Z",
    "conclusion": "failure",
    "head_sha": "22918b4467934cb4dd66a279e2bb8cfba17f70ae",
@@ -41,6 +42,9 @@
    "name": "Selected live journeys (existing stage runner; preinstalled browser)",
    "run_attempt": 1,
    "run_id": 42406851270,
+   "runner_group_id": 0,
+   "runner_id": 0,
+   "runner_name": "",
    "started_at": "2026-11-07T19:34:36Z",
    "status": "completed",
    "steps": []

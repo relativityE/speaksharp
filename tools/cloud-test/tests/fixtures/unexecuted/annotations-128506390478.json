@@ -1,0 +1,18 @@
+[
+ {
+  "annotation_level": "failure",
+  "end_line": 1,
+  "message": "Branch \"elon/r10-preflight-traffic-class\" is not allowed to deploy to trusted-main-credentials due to environment protection rules.",
+  "path": ".github",
+  "start_line": 1,
+  "title": ".github#L1"
+ },
+ {
+  "annotation_level": "failure",
+  "end_line": 1,
+  "message": "The deployment was rejected or didn't satisfy other protection rules.",
+  "path": ".github",
+  "start_line": 1,
+  "title": ""
+ }
+]
