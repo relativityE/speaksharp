@@ -55,12 +55,13 @@ def occurrence_bytes(**over):
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
-def completion_evidence(running, deadline="2026-10-31T19:00:00Z"):
-    settle, occurrence = receipt_bytes(), occurrence_bytes()
-    pending = P.pending_completion(running, record(), deadline, hashlib.sha256(settle).hexdigest(),
+def completion_evidence(running, deadline="2026-10-31T19:00:00Z", rec=None, occurrence=None):
+    rec = record() if rec is None else rec
+    settle, occurrence = receipt_bytes(), occurrence_bytes() if occurrence is None else occurrence
+    pending = P.pending_completion(running, rec, deadline, hashlib.sha256(settle).hexdigest(),
                                    hashlib.sha256(occurrence).hexdigest())
     public_body = P.render(pending)
-    candidate_body = P.render(P.complete(running, record()))
+    candidate_body = P.render(P.complete(running, rec))
     published = {"updated_at": "2026-10-31T18:41:00Z", "body": public_body}
     attestation = P.completion_attestation(candidate_body, public_body, published,
                                            hashlib.sha256(settle).hexdigest(), hashlib.sha256(occurrence).hexdigest())
@@ -936,3 +937,48 @@ class Cli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def never_started(**over):
+    """Run 42284568156's real record shape: refused in admission (A6) before its campaign began."""
+    unknown = [{"caseId": "AHT-%02d" % i, "result": "UNKNOWN", "rows": {"pass": 0, "fail": 0, "notRun": 0}, "codes": ["incomplete-run"]}
+               for i in range(1, 16)]
+    fields = dict(outcome="failed", campaignId=None, requestSha256=None, catalogSha256=None, servedSha=None, coverage="unqualified",
+                  codes=["not-qualified", "incomplete-run"], cases=unknown)
+    fields.update(over)
+    return record("101", **fields)
+
+
+class NeverStartedReconciliation(unittest.TestCase):
+    """Run 42316037470 refused completion-occurrence-identity: 42284568156's pending record has campaignId null because it stopped in
+    admission before its campaign. Only that exact never-started shape reconciles without a campaign identity."""
+
+    def reconcile(self, rec, occurrence=None):
+        running = started(P.parse_body(""))
+        stored, public_body, settle, occ, att = completion_evidence(running, rec=rec, occurrence=occurrence)
+        return P.reconcile_pending(P.parse_body(public_body), "2026-10-31T18:41:00Z", att, settle, occ, "2026-10-31T18:42:00Z", public_body)
+
+    def test_the_never_started_record_reconciles_and_the_next_attempt_begins(self):
+        done = self.reconcile(never_started(), occurrence_bytes(runId="R10-3b040043-smoke15"))
+        self.assertEqual((done["latestCompleted"]["runId"], done["latestCompleted"]["campaignId"], done["inProgress"]), ("101", None, None))
+        self.assertEqual(P.begin(done, "102", 1, SHA, "2026-10-31T20:00:00Z")["inProgress"]["runId"], "102")
+
+    def test_a_null_campaign_with_any_result_rows_or_request_identity_still_refuses(self):
+        rows = never_started()
+        rows["cases"][0] = dict(rows["cases"][0], rows={"pass": 1, "fail": 0, "notRun": 0})
+        bad = [
+            never_started(requestSha256="1" * 64),
+            never_started(codes=["not-qualified"]),
+            never_started(cases=[{"caseId": "AHT-05", "result": "FAIL", "rows": {"pass": 4, "fail": 1, "notRun": 1},
+                                  "codes": ["observed-product-contradiction"]}]),
+        ]
+        for rec in bad + [rows]:
+            with self.subTest(rec={k: rec[k] for k in ("requestSha256", "codes")}), self.assertRaises(P.Refused):
+                self.reconcile(rec)
+
+    def test_a_named_campaign_must_still_match_the_occurrence(self):
+        with self.assertRaisesRegex(P.Refused, "completion-occurrence-identity"):
+            self.reconcile(record(), occurrence_bytes(runId="R10-other"))
+        with self.assertRaises(P.Refused):    # a named campaign on a never-started shape refuses (record validation or identity)
+            self.reconcile(never_started(campaignId="R6-other"), occurrence_bytes(runId="R10-3b040043-smoke15"))
+

@@ -720,8 +720,20 @@ def reconcile_pending(state, published_at, attestation, settle_receipt_raw, occu
         occurrence = json.loads(occurrence_raw)
     except ValueError:
         raise Refused("completion-occurrence-bytes")
-    _need(isinstance(occurrence, dict) and occurrence.get("runId") == record.get("campaignId"), "completion-occurrence-identity")
+    _need(isinstance(occurrence, dict) and isinstance(occurrence.get("runId"), str) and occurrence["runId"]
+          and (occurrence["runId"] == record.get("campaignId") or _never_started(record)), "completion-occurrence-identity")
     return expected
+
+
+def _never_started(record):
+    """Run 42284568156: an attempt refused in admission, before its campaign began, records no campaign or request identity (campaignId and
+    requestSha256 null), outcome failed with incomplete-run, and every selected case UNKNOWN with no rows. Its occurrence is still bound by
+    the attestation's and pending record's occurrence digest; only this exact never-started shape may omit the campaign identity, never a
+    record that names a different campaign or carries any case result."""
+    cases = record.get("cases")
+    return (record.get("campaignId") is None and record.get("requestSha256") is None and record.get("outcome") == "failed"
+            and "incomplete-run" in (record.get("codes") or []) and isinstance(cases, list) and bool(cases)
+            and all(isinstance(c, dict) and c.get("result") == "UNKNOWN" and not any((c.get("rows") or {}).values()) for c in cases))
 
 
 def completion_attestation(candidate_body, public_body, published, settle_receipt_sha256, occurrence_sha256):
