@@ -1,11 +1,13 @@
 // Deterministic command-integration seam. No model/browser/provider acquisition.
 import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import type { AdapterFactory } from '../../../../scripts/model-evaluator/adapter';
 export const createAdapter:AdapterFactory=context=>{
   let pcm:Float32Array|null=null;
   return {
     async initialize(){
       if(context.options.initFailure)throw new Error('offline_init_failure');
+      if(typeof context.options.mutateOwnSourceFile==='string')writeFileSync(context.options.mutateOwnSourceFile,'changed source control');
       return {...context.expected,backend:typeof context.options.observedBackend==='string'?context.options.observedBackend:context.expected.backend};
     },
     async decode(input){if(context.options.decodeFailure)throw new Error('offline_decode_failure');pcm=input.slice();},

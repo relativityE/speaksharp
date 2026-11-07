@@ -17,6 +17,8 @@ describe('STT provider config', () => {
 
   it('lists current private providers as equal config-selectable implementations', () => {
     expect(getProviderIdsForMode('private')).toEqual([
+      'parakeet-tdt',
+      'granite-ctc',
       'transformers-js',
       'transformers-js-v4',
       'moonshine-streaming',

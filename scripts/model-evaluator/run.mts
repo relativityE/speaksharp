@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** #1565 model-only corpus lane. This command neither selects a production model nor runs a product journey. */
+/** Product lifecycle is canonical. Raw whole-clip decode is an explicitly selected diagnostic. */
 import { createHash } from 'node:crypto';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
@@ -11,12 +11,17 @@ import { decodeWav16kMono } from './wav';
 import type { AdapterFactory, ModelAdapter } from './adapter';
 import type { AssetTransfer } from './asset-transfer';
 import { countFillerWords } from '../../frontend/src/utils/fillerWordUtils';
+import { scoreCorpusUtterance } from '../../tests/evidence/benchmarkScore';
+import { readSourceBinding, assertSameSource, type SourceBinding } from './source-binding';
+import { prepareControlInput, type AudioControl } from './controls';
+import { readCandidateCatalog } from './product-campaign';
+import { expectedModelIdentity } from '../../frontend/src/services/transcription/modelPackage';
 
 type ArmManifest = {
-  version: 1; identity: ModelIdentity; adapterModule: string;
+  version: 1; candidateId?: string; identity: ModelIdentity; adapterModule: string;
   adapterOptions?: Record<string, unknown>;
 };
-type CorpusManifest = { version: 1; trials: number; clips: Array<CorpusClip & { path: string; wavSha256: string }> };
+type CorpusManifest = { version: 1; trials: number; clips: Array<CorpusClip & { path: string; wavSha256: string; control?: AudioControl }> };
 type DeviceManifest = {
   version: 1; baseUrl: string; label: string; backend?: string;
   baselineBackend?: string; candidateBackend?: string;
@@ -38,7 +43,16 @@ async function readManifest<T>(name: string): Promise<{ value: T; path: string; 
   return { value, path, sha256: sha(bytes) };
 }
 
-async function loadAdapter(manifest: ArmManifest, device: DeviceManifest): Promise<ModelAdapter> {
+async function loadAdapter(manifest: ArmManifest, device: DeviceManifest, source: SourceBinding): Promise<ModelAdapter> {
+  const catalog = readCandidateCatalog(root);
+  const candidateId = manifest.candidateId ?? manifest.adapterOptions?.candidateId;
+  if (typeof candidateId === 'string') {
+    const candidate = Object.hasOwn(catalog,candidateId) ? catalog[candidateId] : null;
+    if (!candidate) throw Error('diagnostic_candidate_unknown');
+    const derived = expectedModelIdentity(candidate);
+    if (manifest.identity && Object.entries(derived).some(([key,value]) => manifest.identity[key as keyof ModelIdentity] !== value)) throw Error('diagnostic_duplicate_identity_mismatch');
+    manifest.identity = derived;
+  }
   if (!manifest.adapterModule.startsWith('./') && !manifest.adapterModule.startsWith('../')) {
     throw new Error('adapterModule must be a local relative path');
   }
@@ -51,23 +65,43 @@ async function loadAdapter(manifest: ArmManifest, device: DeviceManifest): Promi
     options: manifest.adapterOptions ?? {},
     headless: device.headless !== false,
     expectedGpuVendor: device.expectedGpuVendor ?? null,
+    source,
   });
 }
 
 async function main(): Promise<void> {
+  const source = readSourceBinding(root);
   const baselineManifest = await readManifest<ArmManifest>('baseline');
   const candidateManifest = await readManifest<ArmManifest>('candidate');
+  // Candidate-only manifests are accepted; legacy duplicate identities must match,
+  // and are replaced with the catalogue derivation before planning or scoring.
+  const catalog=readCandidateCatalog(root);
+  for(const manifest of [baselineManifest.value,candidateManifest.value]){
+    const id=manifest.candidateId??manifest.adapterOptions?.candidateId;
+    if(typeof id!=='string')continue; // Explicit third-party raw adapters remain diagnostic only.
+    if(!Object.hasOwn(catalog,id))throw Error('diagnostic_candidate_unknown');
+    const derived=expectedModelIdentity(catalog[id]);
+    if(manifest.identity&&Object.entries(derived).some(([key,value])=>manifest.identity[key as keyof ModelIdentity]!==value))throw Error('diagnostic_duplicate_identity_mismatch');
+    manifest.identity=derived;manifest.adapterModule??='./scripts/model-evaluator/adapters/candidate-browser.ts';
+    manifest.adapterOptions={...manifest.adapterOptions,candidateId:id};
+  }
   const corpusManifest = await readManifest<CorpusManifest>('corpus');
   const deviceManifest = await readManifest<DeviceManifest>('device');
   const policyPath = process.argv.includes('--policy') ? resolve(arg('policy')) : null;
   const policyBytes = policyPath ? await readFile(policyPath) : null;
   const policy = policyBytes ? JSON.parse(policyBytes.toString('utf8')) as EvaluatorPolicy : null;
   const out = resolve(arg('out'));
-  if (baselineManifest.value.identity.backend !== (deviceManifest.value.baselineBackend ?? deviceManifest.value.backend) ||
-      candidateManifest.value.identity.backend !== (deviceManifest.value.candidateBackend ?? deviceManifest.value.backend)) {
+  const armBackends = {
+    baseline: deviceManifest.value.backend === 'registered' ? baselineManifest.value.identity.backend
+      : deviceManifest.value.baselineBackend ?? deviceManifest.value.backend,
+    candidate: deviceManifest.value.backend === 'registered' ? candidateManifest.value.identity.backend
+      : deviceManifest.value.candidateBackend ?? deviceManifest.value.backend,
+  };
+  if (baselineManifest.value.identity.backend !== armBackends.baseline ||
+      candidateManifest.value.identity.backend !== armBackends.candidate) {
     throw new Error('device backend differs from an arm manifest');
   }
-  if (candidateManifest.value.identity.backend === 'webgpu' &&
+  if ([baselineManifest.value, candidateManifest.value].some(arm => arm.identity.backend === 'webgpu') &&
       (deviceManifest.value.headless !== false || !deviceManifest.value.expectedGpuVendor)) {
     throw new Error('real WebGPU evaluation needs a headed browser and expected GPU vendor');
   }
@@ -80,17 +114,15 @@ async function main(): Promise<void> {
     if (!filePath.startsWith(`${root}/`)) throw new Error(`clip escapes repository root: ${clip.id}`);
     const bytes = await readFile(filePath);
     if (sha(bytes) !== clip.wavSha256) throw new Error(`WAV digest mismatch: ${clip.id}`);
-    const pcm = decodeWav16kMono(bytes);
-    const pcmHash = sha(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength));
-    if (pcmHash !== clip.sha256) throw new Error(`PCM digest mismatch: ${clip.id}`);
+    const pcm = prepareControlInput(decodeWav16kMono(bytes), clip.sha256, clip.control);
     return { ...clip, pcm };
   }));
 
   const baseline: ModelArm = { manifest: baselineManifest.value.identity, observed: null, results: [] };
   const candidate: ModelArm = { manifest: candidateManifest.value.identity, observed: null, results: [] };
   const adapters: [ModelAdapter, ModelAdapter] = [
-    await loadAdapter(baselineManifest.value, deviceManifest.value),
-    await loadAdapter(candidateManifest.value, deviceManifest.value),
+    await loadAdapter(baselineManifest.value, deviceManifest.value, source),
+    await loadAdapter(candidateManifest.value, deviceManifest.value, source),
   ];
   const arms = [baseline, candidate] as const;
   const failures: string[] = [];
@@ -100,6 +132,7 @@ async function main(): Promise<void> {
   const assetTransfers: [AssetTransfer | null, AssetTransfer | null] = [null, null];
   const workerAcquisitions: [unknown | null, unknown | null] = [null, null];
   const deviceEvidence: [unknown | null, unknown | null] = [null, null];
+  const executionEvidence: [unknown | null, unknown | null] = [null, null];
   try {
     for (let armIndex = 0; armIndex < 2; armIndex += 1) {
       const started = performance.now();
@@ -162,44 +195,71 @@ async function main(): Promise<void> {
       catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_worker_acquisition:${String(error)}`); }
       try { deviceEvidence[index] = await adapters[index].deviceEvidence?.() ?? null; }
       catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_device_evidence:${String(error)}`); }
+      try { executionEvidence[index] = await adapters[index].executionEvidence?.() ?? null; }
+      catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_execution_evidence:${String(error)}`); }
     }
     const disposal=await Promise.allSettled(adapters.map((adapter) => adapter.dispose()));
     for (const [index,result] of disposal.entries()) {
       if (result.status==='rejected') failures.push(`${index?'candidate':'baseline'}_dispose:${String(result.reason)}`);
     }
   }
+  let sourceAfter: SourceBinding | null = null;
+  try { sourceAfter = readSourceBinding(root); assertSameSource(source, sourceAfter); }
+  catch (error) { failures.push(`source_binding:${String(error)}`); }
   const {pairedEvidence,comparison}=evaluatePairedRun(pairedPlan,clips,baseline,candidate,policy);
   const runtimePrerequisiteMissing = failures.some((failure) =>
     failure.includes('PREREQUISITE_RUNTIME_VERSION_MISMATCH'));
+  const executionOrRetirementFailed = failures.some((failure) =>
+    !/^(baseline|candidate)_init:/.test(failure));
   const acceptance = comparison===null
     ? {verdict:'HOLD' as const,reasons:['paired_evidence_invalid','product_path_and_required_metrics_not_run']}
+    : executionOrRetirementFailed
+    ? { verdict: 'FAIL' as const, reasons: ['adapter_execution_or_retirement_failed', ...failures] }
     : runtimePrerequisiteMissing
     ? { verdict: 'HOLD' as const, reasons: ['runtime_prerequisite_unavailable', 'product_path_and_required_metrics_not_run'] }
     : comparison.verdict === 'FAIL'
     ? { verdict: 'FAIL' as const, reasons: comparison.reasons }
     : { verdict: 'HOLD' as const, reasons: [...comparison.reasons, 'product_path_and_required_metrics_not_run'] };
+  const scoredArm = (arm: ModelArm) => ({ ...arm, results: arm.results.map((row) => ({
+    ...row,
+    score: scoreCorpusUtterance(`${row.clipId}:${row.trial}`,
+      clips.find((clip) => clip.id === row.clipId)!.reference, row.transcript),
+  })) });
   const report = {
+    mode: 'raw-decode',
+    timingSemantics: 'finalLatencyMs is whole-clip adapter decode+finalize wall time; NOT product Stop-to-final latency',
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
+    source, sourceAfter,
     lane: 'model_only_corpus',
     productPath: 'NOT_RUN',
-    device: deviceManifest.value,
+    device: { ...deviceManifest.value, resolvedArmBackends: armBackends },
     inputManifestSha256: {
       baseline: baselineManifest.sha256, candidate: candidateManifest.sha256,
       corpus: corpusManifest.sha256, device: deviceManifest.sha256,
       policy: policyBytes ? sha(policyBytes) : null,
     },
     inputFailures: failures,
+    corpus: { trials: pairedPlan.trials, clips },
     adapterInitializeMs,
     modelAssetTransfer: { baseline: assetTransfers[0], candidate: assetTransfers[1] },
     workerAcquisition: { baseline: workerAcquisitions[0], candidate: workerAcquisitions[1] },
     deviceEvidence: { baseline: deviceEvidence[0], candidate: deviceEvidence[1] },
-    baseline, candidate, comparison, pairedEvidence,
+    adapterExecutionEvidence: { baseline: executionEvidence[0], candidate: executionEvidence[1] },
+    baseline: scoredArm(baseline), candidate: scoredArm(candidate), comparison, pairedEvidence,
     declaredPopulation:pairedPlan,
     acceptance,
-    identityLimitations: [baseline, candidate].map((arm, index) => arm.manifest.engine === 'moonshine-streaming'
-      ? `${index ? 'candidate' : 'baseline'}: Moonshine model/revision come from verified configured pins; runtime exposes no introspected model identity. Init, decode and WASM backend are observed.`
-      : null).filter(Boolean),
+    identityLimitations: [
+      'Arm observed fields are resolved compatibility identities. Configured model/revision/runtime/pin values '
+        + 'are not proof of introspected loaded weights. Consult adapterExecutionEvidence for raw observations '
+        + 'and adapter-specific limitations; null means unavailable.',
+    ],
+    scoring: {
+      path: 'corpus', track: 'track_a',
+      normalizer: 'openai/whisper@5f86d1d86363843179951550570367b37c5d6f78 EnglishTextNormalizer',
+      wer: '(substitutions + deletions + insertions) / normalized reference words; pooled by word count',
+      fillerDetection: 'Shipping regex counts on raw final transcript and written reference; acoustic labels unverified',
+    },
     unsupportedMetrics: [
       'first_useful_partial', 'cold_model_load_isolated', 'persistent_cache_size',
       'browser_worker_memory', 'product_start_stop_next_take', 'focus_keyword_coverage',
@@ -210,6 +270,16 @@ async function main(): Promise<void> {
   await writeFile(out, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
   console.log(JSON.stringify({ out, verdict: acceptance.verdict, reasons: acceptance.reasons }));
   process.exitCode = acceptance.verdict === 'FAIL' ? 1 : 2;
+
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+async function entry() {
+  const mode = process.argv.includes('--mode') ? arg('mode') : 'product-lifecycle';
+  if (mode === 'raw-decode') return main();
+  if (mode !== 'product-lifecycle') throw Error('unsupported_evaluator_mode');
+  if (process.argv.includes('--campaign')) process.env.EVAL_CAMPAIGN_FILE = arg('campaign');
+  // Import the existing guarded runner. It enforces admission, exact source, consent,
+  // account, transport and cleanup before starting the shipping product journey.
+  await import('../../tests/model-dropin/run-bounded-comparison.mjs');
+}
+entry().catch((error) => { console.error(error); process.exitCode = 1; });

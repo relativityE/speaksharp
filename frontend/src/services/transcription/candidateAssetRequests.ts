@@ -16,14 +16,33 @@
  */
 import type { Candidate } from './candidateRegistry';
 import type { PinnedAssetRef } from './modelAcquisitionTelemetry';
-import selfHostedPins from './selfHostedAssetPins.json';
 import moonshinePins from './moonshineAssetPins.json';
 import { TRANSFORMERS_V2_WASM_ASSET_URLS } from './engines/transformersV2WasmAssets';
+import historicalHfPins from '../../../../tests/fixtures/hf-asset-pins.json';
+import type { AssetResponsePin } from './verifiedAssetFetch';
+
+/** These are executable response pins, not only a digest over a declaration table. */
+export function modelResponsePins(candidate: Candidate): AssetResponsePin[] {
+    if(candidate.assets.files?.length)return candidate.assets.files.map(f=>({url:resolveCandidateAssetUrl(f.url??`${candidate.assets.servedFrom}/${f.path}`),sha256:f.sha256,bytes:f.bytes}));
+    const assets=historicalHfPins.assets as Record<string,string|{sha256:string}>;
+    const keys=candidate.assets.pinKeys??(candidate.assets.pinKeyPrefix?Object.keys(assets).filter(k=>k.startsWith(candidate.assets.pinKeyPrefix!)):[]);
+    return keys.map(key=>{const pin=assets[key];const sha256=typeof pin==='string'?pin:pin?.sha256;
+        if(!sha256)throw Error('MODEL_RESPONSE_PIN_MISSING');return{url:'https://huggingface.co/'+key,sha256};});
+}
 
 export interface CandidateAssetRequests {
     assets: PinnedAssetRef[];
     /** Why the list is empty, when it is. Never left unexplained, and never a silent zero. */
     unobservableReason: string | null;
+}
+
+/** Explicit remote pins use HTTPS; committed runtime artifacts may use our model asset directory. */
+export function resolveCandidateAssetUrl(url: string): string {
+    if (/^https:\/\//.test(url)) return url;
+    if (!/^\/models\/[A-Za-z0-9_./-]+$/.test(url) || url.split('/').includes('..')) {
+        throw new Error('Pinned asset URL must be HTTPS or a local model asset');
+    }
+    return typeof window === 'undefined' ? url : new URL(url, window.location.origin).href;
 }
 
 /** A separately counted part of an acquisition, so one resource class cannot hide another's shortfall. */
@@ -40,8 +59,14 @@ interface SelfHostedPinFile { servedFrom: string; files: Array<{ path: string; b
 interface MoonshinePinFile { assets: Record<string, { url: string; bytes: number }> }
 
 /** Absolute against the current origin, because that is how the loader requests it and how the cache keys it. */
-function selfHostedAssets(): PinnedAssetRef[] {
-    const pins = selfHostedPins as SelfHostedPinFile;
+function selfHostedManifest(candidate: Candidate): SelfHostedPinFile {
+    const { servedFrom, files } = candidate.assets;
+    if (!servedFrom || !files?.length) throw new Error(`Missing self-hosted pins for ${candidate.id}`);
+    return { servedFrom, files: [...files] };
+}
+
+function selfHostedAssets(candidate: Candidate): PinnedAssetRef[] {
+    const pins = selfHostedManifest(candidate);
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     return pins.files.map((f) => ({
         file: f.path,
@@ -50,8 +75,8 @@ function selfHostedAssets(): PinnedAssetRef[] {
     }));
 }
 
-function selfHostedModelPrefix(): string {
-    const pins = selfHostedPins as SelfHostedPinFile;
+function selfHostedModelPrefix(candidate: Candidate): string {
+    const pins = selfHostedManifest(candidate);
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     return `${origin}${pins.servedFrom}/`;
 }
@@ -69,8 +94,8 @@ const V2_PIPELINE_MODEL_PATHS = [
     'tokenizer_config.json',
 ] as const;
 
-function v2PipelineModelUrls(): string[] {
-    const pins = selfHostedPins as SelfHostedPinFile;
+function v2PipelineModelUrls(candidate: Candidate): string[] {
+    const pins = selfHostedManifest(candidate);
     const available = new Set(pins.files.map((file) => file.path));
     if (V2_PIPELINE_MODEL_PATHS.some((path) => !available.has(path))) return [];
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -84,9 +109,13 @@ function v2RuntimeAssetUrls(): string[] {
     );
 }
 
-function moonshineAssets(): PinnedAssetRef[] {
+function moonshineAssets(candidate: Candidate): PinnedAssetRef[] {
     const pins = moonshinePins as unknown as MoonshinePinFile;
-    return Object.entries(pins.assets).map(([file, a]) => ({ file, url: a.url, bytes: a.bytes }));
+    const prefix = candidate.assets.pinKeyPrefix;
+    if (!prefix) throw new Error(`Missing asset scope for ${candidate.id}`);
+    return Object.entries(pins.assets)
+        .filter(([file]) => file.startsWith(prefix))
+        .map(([file, a]) => ({ file, url: a.url, bytes: a.bytes }));
 }
 
 /**
@@ -117,10 +146,28 @@ function moonshineAssets(): PinnedAssetRef[] {
  */
 export function assetRequestsFor(candidate: Candidate): CandidateAssetRequests {
     if (candidate.assets.provenance === 'self_hosted') {
-        return { assets: selfHostedAssets(), unobservableReason: null };
+        return { assets: selfHostedAssets(candidate), unobservableReason: null };
+    }
+    if (candidate.assets.files?.length) {
+        const files = candidate.assets.files;
+        if (files.length !== candidate.assets.componentCount ||
+            new Set(files.map(file => file.path)).size !== files.length ||
+            new Set(files.map(file => file.url)).size !== files.length) {
+            throw new Error(`Invalid explicit asset inventory for ${candidate.id}`);
+        }
+        return {
+            assets: files.map(file => {
+                if (!file.url ||
+                    !/^[a-f0-9]{64}$/.test(file.sha256) || !Number.isSafeInteger(file.bytes) || file.bytes <= 0) {
+                    throw new Error(`Invalid explicit asset pin for ${candidate.id}: ${file.path}`);
+                }
+                return { file: file.path, url: resolveCandidateAssetUrl(file.url), bytes: file.bytes };
+            }),
+            unobservableReason: null,
+        };
     }
     if (candidate.engine === 'moonshine-streaming') {
-        return { assets: moonshineAssets(), unobservableReason: null };
+        return { assets: moonshineAssets(candidate), unobservableReason: null };
     }
     return {
         assets: [],
@@ -171,17 +218,21 @@ export function acquisitionScopeFor(candidate: Candidate): string[] {
  * scope. The full 12-file pin inventory remains the cache-probe candidate list.
  */
 export function acquisitionComponentGroupsFor(candidate: Candidate): AcquisitionComponentGroup[] {
-    if (candidate.id === 'v2:base.en') {
+    if (candidate.engine === 'transformers-js' && candidate.assets.provenance === 'self_hosted') {
         return [
             {
-                prefixes: [selfHostedModelPrefix()],
+                prefixes: [selfHostedModelPrefix(candidate)],
                 minimumUniqueCount: V2_PIPELINE_MODEL_PATHS.length,
-                expectedResourceUrls: v2PipelineModelUrls(),
+                expectedResourceUrls: v2PipelineModelUrls(candidate),
             },
             { prefixes: [], minimumUniqueCount: 1, allowedResourceUrls: v2RuntimeAssetUrls() },
         ];
     }
     const prefixes = acquisitionScopeFor(candidate);
+    if (candidate.assets.provenance !== 'self_hosted' && candidate.assets.files?.length) {
+        const { assets } = assetRequestsFor(candidate);
+        return [{ prefixes, minimumUniqueCount: assets.length, expectedResourceUrls: assets.map(asset => asset.url) }];
+    }
     return candidate.assets.componentCount !== null && candidate.assets.componentCount !== undefined
         ? [{ prefixes, minimumUniqueCount: candidate.assets.componentCount }]
         : [];

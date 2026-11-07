@@ -176,7 +176,11 @@ describe('#1258 A — background preparation claim boundary, real controller + r
         const svc = await prepared();
         expect(svc.getState(), 'precondition: the preparation failed').toBe('INIT_FAILED');
         let finishTermination: () => void = () => undefined;
-        engine.terminateGate = new Promise<void>((r) => { finishTermination = r; });
+        const retirementGate = new Promise<void>((r) => { finishTermination = r; });
+        // Failed init already released its child. Hold the discarded SERVICE's cleanup instead;
+        // the controller must still await that retirement before constructing the retry.
+        const destroy = svc.destroy.bind(svc);
+        vi.spyOn(svc, 'destroy').mockImplementation(async () => { await retirementGate; await destroy(); });
 
         const first = controller.startRecording(POLICY as never, []);
         const firstOutcome: string[] = [];

@@ -195,11 +195,26 @@ describe('the in-page model switch', () => {
     });
 
     it('CASUALTY: registry membership does not widen the three-model comparison', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', '');
+        expect((await authorizeProduction()).accepted).toBe(true);
         const e = executor(); registerSwitchExecutor(e);
         const out = await switchCandidate('v4:base:q4');
         expect(out).toMatchObject({ ok: false, code: 'not_comparison_candidate' });
         expect(e.teardown).not.toHaveBeenCalled();
         expect(runtimeCandidateOverride()).toBeNull();
+    });
+
+    it('an internal build accepts a descriptor-only compatible model without widening Production', async () => {
+        registerSwitchExecutor(executor());
+        expect(await switchCandidate('moonshine:streaming-small'))
+            .toEqual({ ok: true, candidate: 'moonshine:streaming-small' });
+    });
+
+    it('internal registration alone cannot select an unimplemented runtime variant', async () => {
+        const e = executor(); registerSwitchExecutor(e);
+        expect(await switchCandidate('v4:base:int8'))
+            .toMatchObject({ ok: false, code: 'engine_not_integrated' });
+        expect(e.teardown).not.toHaveBeenCalled();
     });
 
     it('CASUALTY: an ordinary Production page cannot call the switch without the CDP arm', async () => {

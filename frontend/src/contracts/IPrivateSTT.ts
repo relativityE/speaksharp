@@ -7,6 +7,9 @@ import type { MicStream } from '../services/transcription/utils/types';
 export interface PrivateSTTInitOptions extends TranscriptionModeOptions {
     forceEngine?: EngineType;
     useWebGpu?: boolean;
+    /** Internal model-only controls; never accepted as a production selection surface. */
+    evaluatorCandidateId?: CandidateId;
+    evaluatorBackend?: 'wasm' | 'webgpu';
 }
 
 export interface IPrivateSTT {

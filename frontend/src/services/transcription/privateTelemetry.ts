@@ -17,7 +17,7 @@ export type PrivateTelemetryEvent = typeof PRIVATE_TELEMETRY_EVENTS[keyof typeof
  * engine into a two-value union — forces every consumer into a binary that quietly resolves the unknown
  * case to `private_v2`, which is how Moonshine sessions were being saved under Whisper's name.
  */
-export type EngineVariant = 'private_v2' | 'private_v4' | 'private_moonshine';
+export type EngineVariant = 'private_v2' | 'private_v4' | 'private_moonshine' | 'private_granite' | 'private_parakeet';
 export type AssignmentSource = 'default' | 'posthog_flag' | 'allowlist' | 'deterministic_override';
 
 // The projection moved to `privateTelemetrySanitizer` so the governed seam can import it without a
@@ -46,6 +46,8 @@ export function resolvePrivateAssignment(input: {
     // in-memory label was right and the stored one was wrong, which is the worse half to get wrong.
     const engine_variant: EngineVariant =
         input.resolvedEngineType === 'transformers-js-v4' ? 'private_v4'
+            : input.resolvedEngineType === 'parakeet-tdt' ? 'private_parakeet'
+            : input.resolvedEngineType === 'granite-ctc' ? 'private_granite'
             : input.resolvedEngineType === 'moonshine-streaming' ? 'private_moonshine'
                 : 'private_v2';
     const assignment_source: AssignmentSource = input.overrideActive

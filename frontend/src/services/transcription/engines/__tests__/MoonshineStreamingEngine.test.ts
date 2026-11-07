@@ -543,6 +543,26 @@ describe('identity is CONFIGURED provenance, kept separate from observed executi
         expect(e.getMetadata().observedExecution.initSucceeded).toBe(true);
     });
 
+    it('publishes the shared runtime evidence only once an attributable runtime is installed', async () => {
+        // Codex 416770cd: the facade reads getRuntimeEvidence(); without it a loaded Moonshine candidate was
+        // rejected by the evaluator as 'did not publish runtime identity'.
+        const { transcriber } = recordingTranscriber(() => 'x');
+        const e = engineWith(transcriber);
+        expect(e.getRuntimeEvidence()).toBeNull();
+        await e.init();
+        expect(e.getRuntimeEvidence()).toEqual({ initSucceeded: true, backend: 'wasm', modelId: null, fallbackOccurred: false });
+        await e.terminate();
+        expect(e.getRuntimeEvidence()).toBeNull();
+    });
+
+    it('a refused runtime publishes no runtime evidence', async () => {
+        const t = Object.assign({ transcribe: () => ({ lines: [{ text: 'x' }] }), close: vi.fn(() => {}),
+            createStream: () => streamOver(() => 'x') } as MoonshineTranscriber, { version: '9.9.9' });
+        const e = engineWith(t);
+        expect((await e.init()).isOk).toBe(false);
+        expect(e.getRuntimeEvidence()).toBeNull();
+    });
+
     it('configured provenance carries no observed fields, and vice versa', async () => {
         const { transcriber } = recordingTranscriber(() => 'x');
         const e = engineWith(transcriber);

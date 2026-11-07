@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "trials": 3,
+  "note": "First paired product milestone (#1760): incumbent and one candidate on fixture-001 only, three trials each (the PO chose three so that two paired comparisons remain after one interrupted, unmeasured incumbent take). Same synthetic fixture and conditions as corpus-synthetic-smoke.json; deliberately insufficient for model acceptance.",
+  "clips": [
+    {
+      "id": "fixture-001",
+      "clusterId": "samantha-synthetic",
+      "path": "../corpus/fixture-001.wav",
+      "wavSha256": "500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247",
+      "sha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+      "reference": "the quick brown fox jumps over the lazy dog while a calm river flows past the old stone bridge",
+      "slices": [
+        "clear"
+      ]
+    }
+  ]
+}

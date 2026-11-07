@@ -1,4 +1,5 @@
 import { AUDIO_CONFIG, PAUSE_DETECTION, STT_CONFIG } from '@/config';
+import { CANDIDATES } from './candidateRegistry';
 
 function assignBoundedNumber(
   value: number,
@@ -177,18 +178,21 @@ export const PRIV_STT_VAD = {
   RUNTIME: '@ricky0123/vad-web',
 } as const;
 
+// Preserve the compatibility default selection while deriving every model setting from its descriptor.
+const DEFAULT_HF_WHISPER = CANDIDATES['v4:base:q4'];
+if (!DEFAULT_HF_WHISPER.model.dtype || DEFAULT_HF_WHISPER.execution.expectedDownloadMb === undefined) {
+  throw new Error('Default Hugging Face Whisper descriptor lacks load settings');
+}
+
 export const PRIV_STT_V4 = {
   ENGINE_KEY: 'transformers-js-v4',
   // Default v4 model id (base_q4 = rollout floor). v4 has NO tiny variant — PRIV_STT_V4_VARIANTS is the
   // source of truth; this is only a defensive default/fallback for the worker init.
-  MODEL_ID: 'onnx-community/whisper-base.en',
-  DTYPE: {
-    encoder_model: 'fp32',
-    decoder_model_merged: 'q4',
-  },
+  MODEL_ID: DEFAULT_HF_WHISPER.model.id,
+  DTYPE: DEFAULT_HF_WHISPER.model.dtype,
   DEVICE: null,
   // Matches PRIV_STT_V4_VARIANTS.base_q4 (whisper-base.en) — was 120 for the old tiny default.
-  EXPECTED_Q4_SPLIT_DOWNLOAD_MB: 142,
+  EXPECTED_Q4_SPLIT_DOWNLOAD_MB: DEFAULT_HF_WHISPER.execution.expectedDownloadMb,
   WORKER_REQUEST_TIMEOUT_MS: 90_000,
 } as const;
 
@@ -207,27 +211,33 @@ export const PRIV_STT_V4 = {
  * sizes (LibriSpeech test-other, Apple Metal). Selection is via the resolver; the
  * engine reads the chosen variant. base_q4 is the first flagged rollout floor.
  */
-export const PRIV_STT_V4_VARIANTS = {
-  base_q4: {
-    id: 'base_q4',
-    MODEL_ID: 'onnx-community/whisper-base.en',
-    DTYPE: { encoder_model: 'fp32', decoder_model_merged: 'q4' },
-    EXPECTED_SPLIT_DOWNLOAD_MB: 142,
-    requiresWebGPU: false,
-  },
-  distil_q4: {
-    id: 'distil_q4',
-    MODEL_ID: 'onnx-community/distil-small.en',
-    DTYPE: { encoder_model: 'fp32', decoder_model_merged: 'q4' },
-    EXPECTED_SPLIT_DOWNLOAD_MB: 251,
-    requiresWebGPU: true,
-  },
-} as const;
+/** Compatibility view of the registry. Never add model settings here. */
+export const PRIV_STT_V4_VARIANTS: Readonly<Record<string, {
+  id: string;
+  MODEL_ID: string;
+  DTYPE: Readonly<Record<string, string>>;
+  EXPECTED_SPLIT_DOWNLOAD_MB: number;
+  requiresWebGPU: boolean;
+}>> = Object.freeze(Object.fromEntries(Object.values(CANDIDATES)
+  .filter((candidate) => candidate.engine === 'transformers-js-v4' && candidate.execution.implemented)
+  .map((candidate) => {
+    const { variant, expectedDownloadMb } = candidate.execution;
+    if (!variant || !candidate.model.dtype || expectedDownloadMb === undefined) {
+      throw new Error(`Incomplete Whisper execution descriptor: ${candidate.id}`);
+    }
+    return [variant, {
+      id: variant,
+      MODEL_ID: candidate.model.id,
+      DTYPE: candidate.model.dtype,
+      EXPECTED_SPLIT_DOWNLOAD_MB: expectedDownloadMb,
+      requiresWebGPU: candidate.model.device === 'webgpu',
+    }];
+  })));
 
 export type PrivSttV4VariantId = keyof typeof PRIV_STT_V4_VARIANTS;
 
 /** First flagged rollout floor (reviewer: base_q4 before distil_q4). */
-export const PRIV_STT_V4_DEFAULT_VARIANT: PrivSttV4VariantId = 'base_q4';
+export const PRIV_STT_V4_DEFAULT_VARIANT: PrivSttV4VariantId = DEFAULT_HF_WHISPER.execution.variant!;
 
 /**
  * Single source of truth for the explicit private-engine override localStorage key.
@@ -246,26 +256,15 @@ export const PRIV_STT_V4_DEFAULT_VARIANT: PrivSttV4VariantId = 'base_q4';
  * `window.__PRIVATE_MODEL__`; DEFAULT keeps current production behavior byte-identical.
  * Download sizes are approximate (quantized) and confirmed by the browser proof.
  */
+/** Legacy telemetry/cache view, derived from registered local Whisper descriptors. */
 export const PRIV_STT_MODELS = {
-  // PRIVATE-BASE-DEFAULT (product direction): the Private release default is v2 **base.en** — it is
-  // materially more accurate (human proof WER ~0.037 vs tiny ~0.093) and the release optimizes for
-  // transcript trust over fastest first text. base.en is self-hosted under public/models/, so the
-  // default loads local-only (no Hugging Face). tiny.en stays a CANDIDATE for internal/emergency
-  // fallback (selectable via the flag), but is NOT a user-facing release option.
-  DEFAULT: 'whisper-base.en',
-  // Remote ids MUST be the Xenova/* family — these repos are built for transformers.js v2
-  // (@xenova/transformers, the production library). onnx-community/* repos are v3-format and
-  // FAIL to load on v2 with "Unsupported model type: whisper" (test-confirmed). distil-whisper
-  // (distil-small.en) only exists in v3 form, so it is NOT loadable on v2 — replaced here by
-  // whisper-small.en (Xenova/whisper-small.en, v2-native), giving a clean tiny→base→small
-  // accuracy ladder. The DEFAULT (base.en) and tiny.en load from local public/models/;
-  // these remoteIds only matter for the candidate downloads. approxMB are best-effort; the A/B
-  // captures the real downloaded size.
-  CANDIDATES: {
-    'whisper-tiny.en': { localId: 'whisper-tiny.en', remoteId: 'Xenova/whisper-tiny.en', approxMB: 40 },
-    'whisper-base.en': { localId: 'whisper-base.en', remoteId: 'Xenova/whisper-base.en', approxMB: 80 },
-    'whisper-small.en': { localId: 'whisper-small.en', remoteId: 'Xenova/whisper-small.en', approxMB: 244 },
-  },
+  DEFAULT: CANDIDATES['v2:base.en'].execution.localModelId!,
+  CANDIDATES: Object.fromEntries(Object.values(CANDIDATES)
+    .filter(candidate => candidate.engine === 'transformers-js' && candidate.execution.localModelId)
+    .map(candidate => [candidate.execution.localModelId!, {
+      localId: candidate.execution.localModelId!, remoteId: candidate.model.id,
+      approxMB: candidate.execution.expectedDownloadMb ?? 0,
+    }])) as Readonly<Record<string, { localId: string; remoteId: string; approxMB: number }>>,
 } as const;
 
 const ASSEMBLYAI_PACKET_MS_BOUNDS = {

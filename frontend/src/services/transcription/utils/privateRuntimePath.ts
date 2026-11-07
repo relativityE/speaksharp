@@ -20,8 +20,8 @@
  * The resolver returns a flat, fully-populated decision object so selection, UX
  * copy, diagnostics/telemetry, and tests all derive from one source of truth.
  * It does not instantiate engines or download anything — it only describes the
- * chosen path and the signals behind it. Never throws: on any detection error it
- * degrades toward the CPU floor (the always-available local path).
+ * chosen path and the signals behind it. Detection errors retain the CPU floor;
+ * an enabled selection without an explicit variant is a configuration error.
  */
 
 import { detectWebGPUSupport } from './webgpuSupport';
@@ -35,6 +35,7 @@ import type { PrivSttV4VariantId } from '../sttConstants';
 export type PrivateRuntimeKind = 'webgpu' | 'wasm-multithread' | 'wasm-singlethread';
 
 export type PrivateRuntimeReason =
+  | 'descriptor_backend'
   | 'webgpu_available_and_model_cached'
   | 'webgpu_available_v4_flag'
   | 'v4_forced_auto'
@@ -50,7 +51,7 @@ export interface PrivateRuntimeDecision {
   runtime: PrivateRuntimeKind;
   /** Concrete engine the facade will initialize. (The GPU tier is parked; the WebGPU
    *  successor engine is transformers-js-v4 — whisper-turbo was retired.) */
-  provider: 'transformers-js-v4' | 'transformers-js' | 'moonshine-streaming';
+  provider: 'transformers-js-v4' | 'transformers-js' | 'moonshine-streaming' | 'granite-ctc' | 'parakeet-tdt';
   /** When provider is v4, which model TIER was chosen; null on the v2/CPU path. */
   v4Variant: PrivSttV4VariantId | null;
   /** Acceleration class. */
@@ -122,27 +123,20 @@ export interface ResolvePrivateRuntimePathOptions {
   /**
    * v4 flag-gated tiering. When omitted or { enabled:false } the resolver behaves
    * identically to the v2-base default — v4 is NEVER selected, so flag-off is
-   * byte-identical. When enabled, v4 is selected ONLY on confirmed WebGPU
-   * (no-WebGPU stays the v2-base CPU floor). `distilEnabled` selects the WebGPU
-   * ACCURACY tier (distil_q4) on top of WebGPU; otherwise base_q4 is the WebGPU
-   * floor. Exposure stays controlled by the flags; both tiers are implemented.
+   * byte-identical. Enabled selection names an explicit descriptor-derived variant;
+   * this resolver chooses the execution backend, never a model tier.
    */
   v4?: {
     enabled: boolean;
-    distilEnabled: boolean;
     /** DEV/TEST-only: attempt v4 even WITHOUT WebGPU (headless-CI AUTO fallback proof). */
     forceAuto?: boolean;
     /** Honest selection provenance the caller computed (real PostHog flag vs dev/test forceAuto shim). */
     selectionSource?: 'config' | 'runtime_switch' | 'remote_safety_kill' | 'posthog_flag' | 'dev_harness';
     /**
-     * The EXACT variant the selector named.
-     *
-     * `distilEnabled` is a BOOLEAN, and a boolean cannot express three variants: it resolved to
-     * `distil_q4` or `base_q4` and could therefore never select `base_int8` at all. A configuration
-     * naming int8 would have run q4 and been recorded as whatever the resolver chose — a model that was
-     * never asked for. When this is set it decides the variant outright.
+     * The exact descriptor-derived variant the selector named. This resolver never infers a model
+     * from a boolean flag; the caller owns candidate selection and its eligibility checks.
      */
-    variant?: PrivSttV4VariantId;
+    variant: PrivSttV4VariantId;
     /**
      * May v4 run WITHOUT WebGPU?
      *
@@ -181,6 +175,9 @@ export async function resolvePrivateRuntimePath(
   options: ResolvePrivateRuntimePathOptions,
 ): Promise<PrivateRuntimeDecision> {
   const isolated = isCrossOriginIsolated();
+  if (options.v4?.enabled && !options.v4.variant) {
+    throw new Error('Explicit Whisper variant is required');
+  }
 
   // v4 flag-gated path (post-paid-soft-launch). CONSERVATIVE: v4 is selected ONLY
   // on confirmed WebGPU; no-WebGPU stays the v2-base CPU floor. Omitted/disabled
@@ -200,12 +197,7 @@ export async function resolvePrivateRuntimePath(
     // AUTO-path decode fallback (v4 attempt -> decode fail -> v2-base). forceAuto is gated
     // in PrivateSTT (dev/test/E2E only) and is never set in production.
     if (webgpuAvailable || options.v4.forceAuto || options.v4.allowWithoutWebGPU) {
-      // Both v4 tiers load via the worker model-param. distil_q4 is the WebGPU ACCURACY tier
-      // and requires its own explicit flag ON TOP of WebGPU; otherwise base_q4 is the floor.
-      // An EXPLICIT variant wins. The boolean below is the retired flag-era shape, kept only so an
-      // unmigrated caller behaves as it did; it cannot express base_int8.
-      const v4Variant: PrivSttV4VariantId =
-        options.v4.variant ?? (options.v4.distilEnabled ? 'distil_q4' : 'base_q4');
+      const v4Variant = options.v4.variant;
       return {
         runtime: webgpuAvailable ? 'webgpu' : 'wasm-singlethread',
         provider: 'transformers-js-v4',

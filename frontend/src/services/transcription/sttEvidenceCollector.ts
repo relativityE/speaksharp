@@ -150,7 +150,7 @@ export function collectSttEvidence(sources: SttEvidenceSources, overrides: Parti
     if (model?.runtime != null || dbg?.serviceMode != null) input.provider = dbg?.serviceMode ?? model?.runtime ?? undefined;
     if (model?.model != null) input.modelId = model.model;
     if (model?.fallbackPath === 'remote-only') input.modelSource = 'remote';
-    else if (model?.fallbackPath === 'local-then-remote') input.modelSource = 'local';
+    else if (model?.fallbackPath === 'local-only' || model?.fallbackPath === 'local-then-remote') input.modelSource = 'local';
     if (typeof model?.cloudFallbackAttempted === 'boolean') input.fallbackOccurred = model.cloudFallbackAttempted;
 
     // --- v4 runtime overrides (when a v4 run published __PRIVATE_V4_RUNTIME__) ---

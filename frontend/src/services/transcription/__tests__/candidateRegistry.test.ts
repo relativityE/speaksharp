@@ -34,8 +34,16 @@ describe('configured runtime versions match the INSTALLED packages', () => {
         // ran. The registry must name the exact bytes the lockfile resolved.
         for (const id of CANDIDATE_IDS) {
             const { runtime } = CANDIDATES[id];
-            expect(runtime.version, `${id} runtime version`).toBe(installedVersion(runtime.package));
             expect(runtime.version, `${id} must be exact, not a range`).toMatch(/^\d+\.\d+\.\d+/);
+        }
+        for (const id of CANDIDATE_IDS.filter(id => CANDIDATES[id].runtime.distribution !== 'pinned-assets')) {
+            const { runtime } = CANDIDATES[id];
+            expect(runtime.version, `${id} runtime version`).toBe(installedVersion(runtime.package));
+        }
+        // Browser runtimes are checked against their explicit verified inventory.
+        for (const id of CANDIDATE_IDS.filter(id => CANDIDATES[id].runtime.distribution === 'pinned-assets')) {
+            expect(CANDIDATES[id].assets.files?.length).toBeGreaterThan(0);
+            expect(CANDIDATES[id].assets.pinDigest).toMatch(/^[a-f0-9]{64}$/);
         }
     });
 });
@@ -223,6 +231,29 @@ describe('a PROVIDER-ONLY identity check cannot separate the v4 candidates', () 
     it('an unrecognised pair is REFUSED, never defaulted to a provider-level guess', () => {
         expect(() => candidateForRuntime({ engineType: V4, variant: 'base_q9' })).toThrow(UnknownCandidateError);
     });
+
+    it('attributes a resolved precision override only within its registered model/runtime family', () => {
+        expect(candidateForRuntime({ engineType: V4, variant: 'base_q4', decoderDtype: 'int8' }))
+            .toBe('v4:base:int8');
+        expect(candidateForRuntime({ engineType: V4, variant: 'base_int8', decoderDtype: 'q4' }))
+            .toBe('v4:base:q4');
+        expect(() => candidateForRuntime({ engineType: V4, variant: 'distil_q4', decoderDtype: 'int8' }))
+            .toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime({ engineType: V4, variant: 'base_q4', decoderDtype: 'fp32' }))
+            .toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime({ engineType: V4, variant: 'unknown', decoderDtype: 'int8' }))
+            .toThrow(UnknownCandidateError);
+    });
+
+    it('resolves every registered execution descriptor without a separate identity map', () => {
+        for (const candidate of Object.values(CANDIDATES)) {
+            expect(candidateForRuntime({
+                engineType: candidate.engine,
+                variant: candidate.execution.variant,
+                decoderDtype: candidate.model.dtype?.decoder_model_merged,
+            })).toBe(candidate.id);
+        }
+    });
 });
 
 describe('RESOLVED runtime state maps to a candidate — the original defect', () => {
@@ -266,15 +297,18 @@ describe('a Moonshine session is attributed by ARCH, not by provider', () => {
     });
 
     it('CASUALTY: an arch no candidate describes is REFUSED, not mapped to the only one registered', () => {
-        // `moonshine:streaming-medium` is currently the sole registered Moonshine candidate, so mapping
-        // the provider straight to it would pass every test written today and silently record every
-        // SmallStreaming session as medium the day someone runs one. That is the arm the human test is
-        // comparing, so a wrong label there invalidates the comparison rather than merely mislabelling
-        // a row.
-        for (const variant of ['MOONSHINE_STREAMING_SMALL', 'MOONSHINE_STREAMING_TINY', null]) {
+        for (const variant of ['MOONSHINE_STREAMING_TINY', null]) {
             expect(() => candidateForRuntime({ engineType: 'moonshine-streaming', variant }))
                 .toThrow(UnknownCandidateError);
         }
+    });
+
+    it('keeps the descriptor-only SmallStreaming candidate distinct from MediumStreaming', () => {
+        expect(candidateForRuntime({ engineType: 'moonshine-streaming', variant: 'MOONSHINE_STREAMING_SMALL' }))
+            .toBe('moonshine:streaming-small');
+        expect(CANDIDATES['moonshine:streaming-small'].activationReady).toBe(false);
+        expect(CANDIDATES['moonshine:streaming-small'].assets.pinDigest)
+            .not.toBe(CANDIDATES['moonshine:streaming-medium'].assets.pinDigest);
     });
 
     it('CASUALTY: the provider alone never yields an identity', () => {

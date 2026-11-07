@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "mode": "product-lifecycle",
+  "candidates": [
+    "v2:base.en",
+    "parakeet:tdt-v3:int8"
+  ],
+  "corpus": "tests/evidence/fixtures/model-evaluator/corpus-fixture-001-paired.json",
+  "maximumTakes": 6
+}

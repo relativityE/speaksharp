@@ -1,0 +1,69 @@
+{
+  "sourceBefore": {
+    "head": "921376f49454bf9a90c014f246af8bb05f17b152",
+    "tree": "dd96f1f0375064f739ac9c769c22a2ad0f466cd4",
+    "delta": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "sourceAfter": {
+    "head": "921376f49454bf9a90c014f246af8bb05f17b152",
+    "tree": "dd96f1f0375064f739ac9c769c22a2ad0f466cd4",
+    "delta": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "startedAt": "2026-10-31T12:41:21.628Z",
+  "endedAt": "2026-10-31T12:41:40.149Z",
+  "admission": {
+    "kind": "benchmark",
+    "startedAt": "2026-10-31T12:41:21.568Z",
+    "wrapperPid": 60130,
+    "workloadPid": 60136
+  },
+  "commands": [
+    {
+      "name": "unit",
+      "args": [
+        "<SOURCE>/node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "frontend/vitest.config.mjs",
+        "--coverage.enabled=false",
+        "--maxWorkers=1",
+        "--no-file-parallelism",
+        "frontend/src/services/__tests__/SpeechRuntimeController.newTakeIdentity.test.ts",
+        "tests/model-dropin/comparisonBounds.test.ts",
+        "tests/model-dropin/cachedModelAssets.test.ts",
+        "tests/model-dropin/completionObservation.test.ts",
+        "tests/model-dropin/productCollectorIntegration.test.ts",
+        "tests/evidence/__tests__/modelEvaluatorProductEvidence.test.ts"
+      ],
+      "startedAt": "2026-10-31T12:41:21.669Z",
+      "endedAt": "2026-10-31T12:41:31.846Z",
+      "code": 0,
+      "signal": null,
+      "sourceAfter": {
+        "head": "921376f49454bf9a90c014f246af8bb05f17b152",
+        "tree": "dd96f1f0375064f739ac9c769c22a2ad0f466cd4",
+        "delta": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "name": "native-transport",
+      "args": [
+        "--import",
+        "<SOURCE>/node_modules/tsx/dist/loader.mjs",
+        "--test",
+        "--test-concurrency=1",
+        "tests/model-dropin/transportBoundary.node.test.mjs"
+      ],
+      "startedAt": "2026-10-31T12:41:31.913Z",
+      "endedAt": "2026-10-31T12:41:39.912Z",
+      "code": 0,
+      "signal": null,
+      "sourceAfter": {
+        "head": "921376f49454bf9a90c014f246af8bb05f17b152",
+        "tree": "dd96f1f0375064f739ac9c769c22a2ad0f466cd4",
+        "delta": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "limits": "Historical source only; does not qualify integrated candidate."
+}

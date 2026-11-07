@@ -199,7 +199,7 @@ describe('the active candidate is a checked-in build-time decision', () => {
         // Only v2 may ship as the public default today. distil and Moonshine are internally
         // selectable pending qualification; the two base arms are benchmark controls.
         expect(CANDIDATE_IDS.filter((id) => !CANDIDATES[id].activationReady))
-            .toEqual(['v4:base:q4', 'v4:base:int8', 'v4:distil:q4', 'moonshine:streaming-medium']);
+            .toEqual(['parakeet:tdt-v3:int8', 'granite:turboctc-q4f16', 'xenova:whisper-tiny.en', 'v4:base:q4', 'v4:base:int8', 'v4:distil:q4', 'moonshine:streaming-medium', 'moonshine:streaming-small']);
         expect(CANDIDATE_IDS.filter((id) => CANDIDATES[id].activationReady)).toEqual(['v2:base.en']);
     });
 
@@ -220,7 +220,9 @@ describe('the active candidate is a checked-in build-time decision', () => {
         expect(CANDIDATE_IDS).toContain('v4:distil:q4');
         expect(activeCandidate().id).not.toBe('v4:distil:q4');
         expect([...CANDIDATE_IDS].sort()).toEqual([
-            'moonshine:streaming-medium', 'v2:base.en', 'v4:base:int8', 'v4:base:q4', 'v4:distil:q4',
+            'granite:turboctc-q4f16', 'moonshine:streaming-medium', 'moonshine:streaming-small',
+            'parakeet:tdt-v3:int8', 'v2:base.en', 'v4:base:int8', 'v4:base:q4', 'v4:distil:q4',
+            'xenova:whisper-tiny.en',
         ]);
     });
 });

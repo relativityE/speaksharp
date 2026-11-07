@@ -263,6 +263,40 @@ test('fixture contract consumes all annotations against the pinned generator, wi
   assert.throws(()=>inspectSourceContract(dir,SOURCE_CONTRACTS[2],JSON.stringify(unconsumed)),/not consumed/);
 }));
 
+const MODEL='tests/evidence/fixtures/model-evaluator/';
+test('#1760 model comparison inputs: every registered harness, document and data input is consumed from this checkout without live or evaluator credit',()=>{
+  const files=SOURCE_CONTRACTS.filter(file=>file.startsWith('tests/model-dropin/')||file.startsWith(MODEL));
+  assert.equal(files.length,15);
+  for(const file of files) {
+    const route=executionRoute(file,root);
+    assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,true,file);
+    const proof=inspectSourceContract(root,file);
+    assert.equal(proof.liveExecution,'NOT RUN');assert.ok(proof.checks>0 && proof.detectedFaults===proof.checks,file);
+    if(proof.kind==='data-contract') assert.equal(proof.evaluatorExecution,'NOT RUN');
+  }
+  const binding=sourceContractBinding(root,[MODEL+'corpus-fixture-001-paired.json']);
+  assert.ok(binding.some(entry=>entry.file==='tests/evidence/fixtures/corpus/fixture-001.wav'),'the corpus binds the WAV it consumes');
+});
+test('#1760 data contracts refuse a changed pin and a WAV that no longer matches its digest',()=>fixture(({dir,write})=>{
+  const arm=MODEL+'candidate-parakeet-tdt-v3.json',corpus=MODEL+'corpus-fixture-001-paired.json';
+  const armSource=fs.readFileSync(path.join(root,arm),'utf8'),corpusSource=fs.readFileSync(path.join(root,corpus),'utf8');
+  write(arm,armSource);assert.equal(inspectSourceContract(dir,arm).kind,'data-contract');
+  const changed=JSON.parse(armSource);changed.identity.backend='webgpu';
+  assert.throws(()=>inspectSourceContract(dir,arm,JSON.stringify(changed)),/Data contract failed: .*identity\.backend/);
+  write(arm,JSON.stringify(changed));assert.equal(executionRoute(arm,dir).applicable,false);
+  write(corpus,corpusSource);write('tests/evidence/fixtures/corpus/fixture-001.wav',fs.readFileSync(path.join(root,'tests/evidence/fixtures/corpus/fixture-001.wav')));
+  assert.equal(inspectSourceContract(dir,corpus).audioDigestsChecked,1);
+  write('tests/evidence/fixtures/corpus/fixture-001.wav','not the pinned audio');
+  assert.throws(()=>inspectSourceContract(dir,corpus),/wav digest fixture-001/);
+}));
+test('#1760 operator document contract refuses a removed statement',()=>fixture(({dir,write})=>{
+  const file='tests/model-dropin/EXECUTION.md',source=fs.readFileSync(path.join(root,file),'utf8');
+  write(file,source);assert.equal(inspectSourceContract(dir,file).kind,'text-contract');
+  const removed=source.replace('No account/session deletion or cleanup command is implemented.','Cleanup may delete sessions.');
+  assert.throws(()=>inspectSourceContract(dir,file,removed),/Text contract failed/);
+  write(file,removed);assert.equal(executionRoute(file,dir).applicable,false);
+}));
+
 test(SOURCE_ASSERTION,()=>{
   const binding=JSON.parse(process.env.TEST_EFFICACY_BINDING || 'null');
   if(!binding?.sourceContract) {assert.equal(binding?.sourceContract,undefined);return;}

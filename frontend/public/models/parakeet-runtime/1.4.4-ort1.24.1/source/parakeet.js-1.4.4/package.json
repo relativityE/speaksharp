@@ -1,0 +1,81 @@
+{
+  "name": "parakeet.js",
+  "version": "1.4.4",
+  "description": "WebGPU speech recognition for NVIDIA Parakeet in the browser, powered by ONNX Runtime Web.",
+  "type": "module",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./parakeet": {
+      "types": "./types/parakeet.d.ts",
+      "default": "./src/parakeet.js"
+    },
+    "./hub": {
+      "types": "./types/hub.d.ts",
+      "default": "./src/hub.js"
+    },
+    "./models": {
+      "types": "./types/models.d.ts",
+      "default": "./src/models.js"
+    },
+    "./mel": {
+      "types": "./types/mel.d.ts",
+      "default": "./src/mel.js"
+    }
+  },
+  "files": [
+    "src",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "parakeet",
+    "parakeet.js",
+    "nvidia-parakeet",
+    "nvidia-parakeet-js",
+    "speech",
+    "speech-recognition",
+    "web-speech-recognition",
+    "onnx",
+    "onnxruntime-web",
+    "onnxruntime-web-speech",
+    "webgpu",
+    "webgpu-asr",
+    "webgpu-acceleration",
+    "wasm",
+    "transcription",
+    "browser-transcription",
+    "multilingual",
+    "asr"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify:frame-copy": "node tests/verify_copy.mjs",
+    "bench:frame-copy": "node tests/bench_ops.mjs",
+    "docs:clean": "node -e \"require('fs').rmSync('.typedoc-site', { recursive: true, force: true })\"",
+    "docs:api": "typedoc --options typedoc.json",
+    "docs:build": "npm run docs:clean && npm run docs:api"
+  },
+  "dependencies": {
+    "onnxruntime-web": "1.24.1"
+  },
+  "author": "Yunus Seyhan Dede",
+  "license": "MIT",
+  "homepage": "https://github.com/ysdede/parakeet.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ysdede/parakeet.js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ysdede/parakeet.js/issues"
+  },
+  "devDependencies": {
+    "typedoc": "^0.28.17",
+    "vitest": "^4.0.18"
+  }
+}

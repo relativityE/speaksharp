@@ -16,6 +16,10 @@ import type {
 // or browser strategy keys in factories.
 
 const privateProviders = [
+  { id: 'parakeet-tdt', status: 'available', registryKey: 'parakeet-tdt',
+    displayName: 'Parakeet TDT', intent: 'Pinned internal qualification candidate; not a production default.' },
+  { id: 'granite-ctc', status: 'available', registryKey: 'granite-ctc',
+    displayName: 'Granite Speech TurboCTC', intent: 'Pinned internal qualification candidate; not a production default.' },
   {
     id: 'transformers-js',
     status: 'active',

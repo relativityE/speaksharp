@@ -30,7 +30,7 @@ export type PrivateModelSelectionSource = 'default' | 'window' | 'url';
 
 export interface PrivateModelTelemetry {
   /** The resolved model key actually loaded. */
-  model: PrivateModelKey;
+  model: string;
   /** The runtime that loaded it — always the local transformers-js (v2) engine for these candidates. */
   runtime: 'transformers-js';
   /** Approx download size (MB) for the resolved model. */
@@ -42,7 +42,7 @@ export interface PrivateModelTelemetry {
   /** Measured model load time (ms); null until loaded. */
   loadTimeMs: number | null;
   /** The load fallback that applies: default tiny is bundled (local→remote); candidates are remote-only. */
-  fallbackPath: 'local-then-remote' | 'remote-only';
+  fallbackPath: 'local-only' | 'local-then-remote' | 'remote-only';
   /** Privacy invariant: Private STT must NEVER attempt a Cloud fallback. Always false. */
   cloudFallbackAttempted: false;
 }

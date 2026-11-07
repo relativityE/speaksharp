@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "identity": {
+    "engine": "parakeet-tdt",
+    "modelId": "nvidia/parakeet-tdt-0.6b-v3",
+    "revision": null,
+    "assetDigest": "a4646f1dac9191a8b65634526bda1c6619e148d1e1b58e2c60b1522fba7536fe",
+    "runtime": "parakeet.js@1.4.4",
+    "backend": "wasm"
+  },
+  "adapterModule": "./scripts/model-evaluator/adapters/candidate-browser.ts",
+  "adapterOptions": { "candidateId": "parakeet:tdt-v3:int8", "consentToDownload": false }
+}

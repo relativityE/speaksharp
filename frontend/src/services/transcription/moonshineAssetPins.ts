@@ -25,6 +25,17 @@ export interface PinnedAsset {
 interface RawPin { sha256: string; bytes: number; url: string }
 
 /**
+ * The upstream hosts the reviewed built-in Moonshine pins use. An imported Moonshine package may reference
+ * only these (its runtime fetches each pinned component after consent and verifies its bytes). One rule for the
+ * importer and the evaluator, so a package one admits the other cannot refuse, and neither adds a download source.
+ */
+export const MOONSHINE_UPSTREAM_PIN_HOSTS: ReadonlySet<string> = new Set(
+    Object.values((PINS as { assets: Record<string, RawPin> }).assets).map((pin) => new URL(pin.url).host));
+export function isApprovedUpstreamPin(engine: string, url: string): boolean {
+    return engine === 'moonshine-streaming' && url.startsWith('https://') && MOONSHINE_UPSTREAM_PIN_HOSTS.has(new URL(url).host);
+}
+
+/**
  * The components for one model id, keyed by the canonical filename the runtime expects.
  *
  * Selected by MODEL ID rather than by index or order: the table holds several models, and picking the
@@ -38,6 +49,42 @@ export function pinnedAssetsFor(modelId: string): PinnedAsset[] {
         .map(([key, pin]) => ({ file: key.split('/').pop()!, url: pin.url, sha256: pin.sha256, bytes: pin.bytes }));
     if (mine.length === 0) {
         throw new Error(`no committed asset pins for model ${modelId}; refusing to fetch unpinned bytes`);
+    }
+    return mine.sort((a, b) => a.file.localeCompare(b.file));
+}
+
+/** What a Moonshine candidate says about its own bytes: a package's full inventory, or a built-in's exact pin-table prefix. */
+export interface MoonshineAssetSource {
+    id: string;
+    assets: { files?: readonly { path: string; url?: string; sha256: string; bytes: number }[]; pinKeyPrefix?: string };
+}
+
+/**
+ * The components a Moonshine candidate loads, taken from the CANDIDATE'S OWN DATA (PO 11-01: no hardcoded
+ * models). A package carries its whole verified inventory; a built-in names the exact pin-table prefix it
+ * owns, so selection is by that whole prefix, never a substring of the model id that another model could
+ * also contain. Two components the runtime would key to the same filename refuse rather than shadow.
+ */
+export function moonshineAssetsFor(candidate: MoonshineAssetSource): PinnedAsset[] {
+    let mine: PinnedAsset[];
+    if (candidate.assets.files?.length) {
+        mine = candidate.assets.files.map((f) => {
+            if (!f.url) throw new Error(`candidate ${candidate.id} asset ${f.path} has no pinned URL; refusing to fetch unpinned bytes`);
+            return { file: f.path.split('/').pop()!, url: f.url, sha256: f.sha256, bytes: f.bytes };
+        });
+    } else if (candidate.assets.pinKeyPrefix) {
+        const prefix = candidate.assets.pinKeyPrefix;
+        mine = Object.entries((PINS as { assets: Record<string, RawPin> }).assets)
+            .filter(([key]) => key.startsWith(prefix) && !key.slice(prefix.length).includes('/'))
+            .map(([key, pin]) => ({ file: key.slice(prefix.length), url: pin.url, sha256: pin.sha256, bytes: pin.bytes }));
+    } else {
+        mine = [];
+    }
+    if (mine.length === 0) {
+        throw new Error(`no committed asset pins for candidate ${candidate.id}; refusing to fetch unpinned bytes`);
+    }
+    if (new Set(mine.map((a) => a.file)).size !== mine.length) {
+        throw new Error(`candidate ${candidate.id} names two components with the same runtime filename; refusing an ambiguous load`);
     }
     return mine.sort((a, b) => a.file.localeCompare(b.file));
 }

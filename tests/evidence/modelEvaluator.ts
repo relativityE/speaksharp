@@ -20,7 +20,7 @@ export interface CorpusClip {
 
 export interface ModelArm {
   manifest: ModelIdentity;
-  /** The adapter must obtain these values from the running engine, not copy its manifest. */
+  /** Resolved compatibility identity. Raw runtime observations/provenance belong in adapterExecutionEvidence. */
   observed: ModelIdentity | null;
   results: Array<{
     clipId: string;
