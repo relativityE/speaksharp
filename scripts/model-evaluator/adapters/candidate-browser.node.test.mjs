@@ -29,6 +29,8 @@ test('self-hosted descriptor digest verifies exact file content, count and bytes
     '../product-campaign': { readCandidateCatalog: () => ({ fixture: candidate }) },
     '../../../frontend/src/services/transcription/modelPackage': {
       expectedModelIdentity() {}, verifyModelPackage() { throw new Error('Unexpected model package'); } },
+    '../../../frontend/src/services/transcription/moonshineAssetPins': {
+      isApprovedUpstreamPin() { throw new Error('Unexpected upstream package pin'); } },
   };
   const source = stripTypeScriptTypes(await fs.readFile(new URL('./candidate-browser.ts', import.meta.url), 'utf8'));
   const namespace = await importIsolated(source, { imports: dependencies });

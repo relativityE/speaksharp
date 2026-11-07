@@ -10,6 +10,7 @@ import { join, resolve } from 'node:path';
 import { CANDIDATES } from '../../../frontend/src/services/transcription/candidateRegistry';
 import { sealModelPackage, type ModelPackage } from '../../../frontend/src/services/transcription/modelPackage';
 import { importModelPackage, stagePackageAdoption } from '../../../scripts/model-evaluator/model-package.mjs';
+import { configuredAssetDigest } from '../../../scripts/model-evaluator/adapters/candidate-browser';
 
 const repo = resolve(__dirname, '../../..');
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -108,5 +109,43 @@ describe('adoption staging writes an inert proposal, never a selector config', (
         await expect(stagePackageAdoption(projectRoot(), descriptor, join(directory, 'report.json'), join(directory, 'p.json')))
             .rejects.toThrow('PACKAGE_NOT_PRODUCT_QUALIFIED');
         expect((pkg as ModelPackage).packageDigest).not.toBe('f'.repeat(64));
+    });
+});
+
+describe('the evaluator verifies exactly the packages the importer admits (Codex 416770cd)', () => {
+    it('an imported Moonshine package with approved upstream pins binds its asset digest instead of being refused', async () => {
+        const root = projectRoot();
+        const { pkg, descriptor } = await moonshinePackage();
+        await importModelPackage(root, descriptor);
+        expect(await configuredAssetDigest(root, pkg.id as never, pkg.model.id)).toBe(pkg.assetDigest);
+    });
+    it('a Moonshine package naming an unapproved upstream host is refused by the evaluator as well', async () => {
+        const root = projectRoot();
+        const { pkg } = await moonshinePackage('models.example.invalid');
+        mkdirSync(join(root, 'frontend/src/services/transcription/model-packages'), { recursive: true });
+        writeFileSync(join(root, 'frontend/src/services/transcription/model-packages/rogue.json'), JSON.stringify(pkg));
+        await expect(configuredAssetDigest(root, pkg.id as never, pkg.model.id)).rejects.toThrow('diagnostic_package_upstream_host_not_approved');
+    });
+    it('a self-hosted Whisper package is still verified byte-for-byte from the served tree', async () => {
+        const base = CANDIDATES['v2:base.en'];
+        const directory = realpathSync(mkdtempSync(join(tmpdir(), 'whisper-eval-')));
+        roots.push(directory);
+        const localModelId = 'fixture-eval-whisper';
+        const files = base.assets.files!.map((file, index) => {
+            const bytes = Buffer.from(`synthetic eval ${file.path} ${index}`);
+            mkdirSync(join(directory, file.path, '..'), { recursive: true });
+            writeFileSync(join(directory, file.path), bytes);
+            return { path: file.path, url: `/models/${localModelId}/${file.path}`, bytes: bytes.length, sha256: sha(bytes) };
+        });
+        const pkg = await sealModelPackage({ schemaVersion: 1, kind: 'speaksharp-model-package', id: 'fixture:whisper-eval',
+            engine: base.engine, runtime: base.runtime, model: { ...base.model, device: 'wasm' },
+            execution: { ...base.execution, localModelId }, assets: { servedFrom: `/models/${localModelId}`, files },
+            license: 'MIT (fixture declaration; synthetic bytes)' } as never);
+        writeFileSync(join(directory, 'package.json'), JSON.stringify(pkg));
+        const root = projectRoot();
+        await importModelPackage(root, join(directory, 'package.json'));
+        expect(await configuredAssetDigest(root, pkg.id as never, pkg.model.id)).toBe(pkg.assetDigest);
+        writeFileSync(join(root, 'frontend/public', files[0].url.slice(1)), 'tampered served bytes');
+        await expect(configuredAssetDigest(root, pkg.id as never, pkg.model.id)).rejects.toThrow('Package local asset bytes differ');
     });
 });

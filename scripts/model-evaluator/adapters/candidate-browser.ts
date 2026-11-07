@@ -10,6 +10,7 @@ import { AssetTransferRecorder } from '../asset-transfer';
 import { type CandidateId } from '../../../frontend/src/services/transcription/candidateRegistry';
 import { readCandidateCatalog } from '../product-campaign';
 import { expectedModelIdentity, verifyModelPackage } from '../../../frontend/src/services/transcription/modelPackage';
+import { isApprovedUpstreamPin } from '../../../frontend/src/services/transcription/moonshineAssetPins';
 import type { PrivateRuntimeEvidence } from '../../../frontend/src/contracts/IPrivateSTTEngine';
 import { assertServedRelease, servedSourceFiles, sha256, viteRawSource } from '../source-binding';
 
@@ -19,6 +20,12 @@ export async function configuredAssetDigest(root: string, candidateId: Candidate
   if (candidate.modelPackage) {
     const pkg = await verifyModelPackage(candidate.modelPackage.descriptor);
     for (const asset of pkg.assets.files) {
+      // An approved upstream pin (the same rule the importer applies) is verified by the runtime loader on
+      // download, after consent; local /models/ assets are verified here. Anything else is refused.
+      if (asset.url.startsWith('https://')) {
+        if (!isApprovedUpstreamPin(pkg.engine, asset.url)) throw Error('diagnostic_package_upstream_host_not_approved');
+        continue;
+      }
       if (!asset.url.startsWith('/models/')) throw Error('diagnostic_package_requires_verified_local_assets');
       const bytes = await readFile(join(root,'frontend/public',asset.url));
       if (bytes.length!==asset.bytes || sha256(bytes)!==asset.sha256) throw Error('Package local asset bytes differ');

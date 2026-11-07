@@ -25,6 +25,17 @@ export interface PinnedAsset {
 interface RawPin { sha256: string; bytes: number; url: string }
 
 /**
+ * The upstream hosts the reviewed built-in Moonshine pins use. An imported Moonshine package may reference
+ * only these (its runtime fetches each pinned component after consent and verifies its bytes). One rule for the
+ * importer and the evaluator, so a package one admits the other cannot refuse, and neither adds a download source.
+ */
+export const MOONSHINE_UPSTREAM_PIN_HOSTS: ReadonlySet<string> = new Set(
+    Object.values((PINS as { assets: Record<string, RawPin> }).assets).map((pin) => new URL(pin.url).host));
+export function isApprovedUpstreamPin(engine: string, url: string): boolean {
+    return engine === 'moonshine-streaming' && url.startsWith('https://') && MOONSHINE_UPSTREAM_PIN_HOSTS.has(new URL(url).host);
+}
+
+/**
  * The components for one model id, keyed by the canonical filename the runtime expects.
  *
  * Selected by MODEL ID rather than by index or order: the table holds several models, and picking the

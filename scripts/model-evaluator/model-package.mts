@@ -5,19 +5,16 @@ import { fileURLToPath } from 'node:url';
 import { sealModelPackage, verifyModelPackage, expectedModelIdentity, candidateFromPackage, type ModelPackage } from '../../frontend/src/services/transcription/modelPackage';
 import { verifyProjectRuntimeBindings } from './runtime-bindings.mjs';
 import { CANDIDATES } from '../../frontend/src/services/transcription/candidateRegistry';
-import { moonshineAssetsFor } from '../../frontend/src/services/transcription/moonshineAssetPins';
+import { isApprovedUpstreamPin } from '../../frontend/src/services/transcription/moonshineAssetPins';
 
 /**
  * Moonshine packages are upstream-pinned data (the parser requires https, like the built-in Moonshine models):
  * the installed adapter fetches each component from its pinned URL after user consent and verifies its bytes.
  * Import admits only the upstream hosts the reviewed built-in pins already use; it never adds a download source.
  */
-const UPSTREAM_PIN_HOSTS: ReadonlySet<string> = new Set(Object.values(CANDIDATES)
-    .filter(candidate => candidate.engine === 'moonshine-streaming' && !candidate.modelPackage)
-    .flatMap(candidate => moonshineAssetsFor(candidate).map(asset => new URL(asset.url).host)));
 function upstreamPinned(pkg: ModelPackage, url: string): boolean {
     if (!url.startsWith('https://')) return false;
-    if (pkg.engine !== 'moonshine-streaming' || !UPSTREAM_PIN_HOSTS.has(new URL(url).host)) throw Error('PACKAGE_IMPORT_UPSTREAM_HOST_NOT_APPROVED');
+    if (!isApprovedUpstreamPin(pkg.engine, url)) throw Error('PACKAGE_IMPORT_UPSTREAM_HOST_NOT_APPROVED');
     return true;
 }
 
