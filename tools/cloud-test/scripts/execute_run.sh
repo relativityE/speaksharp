@@ -24,8 +24,13 @@ if [ "$STAGE" = run ] && [ "${CT_RUN_STAGE_AS_ROOT:-}" = 1 ] && [ "$(id -u)" != 
   [ -n "${CT_OUT:-}" ] && [ -d "$CT_OUT" ] || blocked "CT_OUT is required to elevate the run stage"
   envfile="$(mktemp "${RUNNER_TEMP:-/tmp}/run-stage-env.XXXXXX")"; chmod 600 "$envfile"
   export -p > "$envfile"
-  exec sudo -n bash -c 'f="$1"; . "$f"; rm -f "$f"; owner="$2"; trap '"'"'chown -R "$owner" "$CT_OUT"'"'"' EXIT INT TERM; bash "$3" run' \
-    _ "$envfile" "$(id -u):$(id -g)" "$0"
+  # R10 run 42386714252 (A7 "identity receipt unavailable"): the harness's private-state checks (identity-core assertPrivateDir/File,
+  # campaign-runner privateDir, with-authenticated-evidence privateJson, producer directories) require the run's own private outputs to be
+  # owned by the process that reads them. They were created by the job user in earlier stages, so the root run stage first takes ownership
+  # of exactly those run-owned trees ($CT_OUT and the private run inputs) and the trap returns both to the job user on any exit.
+  private_inputs="${CT_PRIVATE_INPUT_DIR:-${RUNNER_TEMP:-/nonexistent}/run-inputs}"
+  exec sudo -n bash -c 'f="$1"; . "$f"; rm -f "$f"; owner="$2"; pin="$4"; trees=("$CT_OUT"); [ -d "$pin" ] && [ ! -L "$pin" ] && trees+=("$pin"); trap '"'"'chown -R "$owner" "${trees[@]}"'"'"' EXIT INT TERM; chown -R 0:0 "${trees[@]}"; bash "$3" run' \
+    _ "$envfile" "$(id -u):$(id -g)" "$0" "$private_inputs"
 fi
 [ -z "${SUPABASE_SECRET_KEY:-}" ] || blocked "SUPABASE_SECRET_KEY is present; forbidden"
 [ -z "${STRIPE_SECRET_KEY:-}" ] || blocked "STRIPE_SECRET_KEY is present; forbidden"
