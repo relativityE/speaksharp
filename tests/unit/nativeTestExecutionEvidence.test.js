@@ -313,7 +313,7 @@ test('frozen source refuses global, aliased and imported setters even while all 
     assert.equal(validateSyntheticSource(f.dir,entry).files[entry],hash(fs.readFileSync(path.join(root,entry))));
   }finally{f.clean();}
 });
-test('reviewed coaching error source admits exactly its ten pinned inputs and refuses drift in every input',()=>{
+test('reviewed coaching source admits exactly its pinned inputs (handler, providers, evaluator prompt and set) and refuses drift in every input',()=>{
   const f=fixture(),entry='backend/supabase/functions/get-ai-suggestions/index.test.ts';
   const files=[...new Set([...dependencyPaths(root,entry),'package.json','pnpm-lock.yaml',
     'backend/supabase/functions/deno.json','backend/supabase/functions/deno.lock'])];
@@ -321,8 +321,10 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
   fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
-    assert.equal(admitted.id,'coaching-provider-adapter-1773');
-    assert.equal(Object.keys(admitted.files).length,14);
+    assert.equal(admitted.id,'coaching-llm-evaluator-parity');
+    assert.equal(Object.keys(admitted.files).length,16);
+    for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json'])
+      assert.ok(files.includes(`backend/supabase/functions/get-ai-suggestions/${added}`),added);
     assert.deepEqual(Object.keys(admitted.files).sort(),files.sort());
     for(const file of files) {
       const original=fs.readFileSync(path.join(root,file));
@@ -331,7 +333,7 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
       assert.throws(()=>validateSyntheticSource(f.dir,entry),/Synthetic-key test\/import profile/,file);
       f.write(file,original);
     }
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-provider-adapter-1773');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-llm-evaluator-parity');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
