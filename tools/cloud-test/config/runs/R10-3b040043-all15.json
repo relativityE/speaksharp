@@ -227,9 +227,9 @@
   },
   "proposedLimits": {
     "cumulativeCeilingRequests": 9518,
-    "ceilingIncreaseJustification": "PO credits the period ceiling 4342 -> 6364 (slack:1794009248.220099) and 6364 -> 8386 (Sam's verified ChatGPT receipt slack:1794015289.396409) by runs 42284568156's and 42318728005's source-bounded over-charges (each 2032 settled at the cap - 10 preflight-bound); 8386 -> 9518 is the minimum that admits this run's sized 3350 run cap + 32 identity reads after 42386714252's capped settle (PO: minimum values enough for a 15-journey signal). This one attempt still reserves only its 2000 smoke run cap plus 32 identity reads = 2032.",
+    "ceilingIncreaseJustification": "PO credits the period ceiling 4342 -> 6364 (slack:1794009248.220099) and 6364 -> 8386 (Sam's verified ChatGPT receipt slack:1794015289.396409) by runs 42284568156's and 42318728005's source-bounded over-charges (each 2032 settled at the cap - 10 preflight-bound); 8386 -> 9518 is the minimum that admits this run's sized 3350 run cap + 32 identity reads after 42386714252's capped settle (PO: minimum values enough for a 15-journey signal). This one attempt reserves its sized 3350 run cap plus 32 identity reads = 3382 (the campaign-plus-identity reservation, not all outbound production HTTP: the same-job producer's 10 Supabase reads and 2 telemetry-reader invocations, each with its identity and family queries, are separately budgeted).",
     "identityCap": 128,
-    "identityIncreaseJustification": "Period identity ceiling 32 -> 64 -> 96 -> 128 (42386714252's 32 never-dispatched or unknown identity reads; minimum for this run), credited by runs 42284568156's and 42318728005's 32 never-dispatched identity reads each (slack:1794009248.220099; slack:1794015289.396409). This attempt still reserves and needs exactly 32.",
+    "identityIncreaseJustification": "Period identity ceiling 32 -> 64 -> 96 -> 128 (minimum for this run after 42386714252's capped settle of 32: its A7 identity read is UNKNOWN, the helper returned no receipt and the read may have been sent; the other 31 were never dispatched), credited by runs 42284568156's and 42318728005's 32 never-dispatched identity reads each (slack:1794009248.220099; slack:1794015289.396409). This attempt still reserves and needs exactly 32.",
     "startsCap": 74,
     "startsIncreaseJustification": "Period ceiling 42 -> 58 -> 74, credited by runs 42284568156's and 42318728005's 16 never-used Starts each (slack:1794009248.220099; slack:1794015289.396409). This one attempt reserves only the 16-Start sum of its per-case caps, with no retry reserve.",
     "takesCap": 64,
@@ -301,8 +301,8 @@
     }
   },
   "harness": {
-    "codeManifestSha256": "6f0390ea0b8258f0c329fce32c967a7ff17a5966617c3c05f00d57daa4f14cd1",
-    "packetManifestSha256": "a0113e1cbfba49be623d3dd40d35e8e87ab833d4f6039edef3b1b160e07a0f88",
+    "codeManifestSha256": "4281a079ece5adae08dc577fc5b37dad42b0fe1bad92e1dea16b2938ac164eb6",
+    "packetManifestSha256": "0b69875bc50911527ab85d293338001272bd0c6741d54f93ef2b9fff10121c17",
     "ownerApprovalRef": "slack:1793652215.171339",
     "offlineProofFile": "config/proofs/offline-proof-74d26870.json"
   },

@@ -45,8 +45,9 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 80
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "f7bba0fed85374c0ec6428d17deae3564d856b51dae82ab96bbd871b4355cfd2"   # PO slack:1794063978.986369 single R10 run; per-case request ceilings sized to evidence (Sam 1794069190): run cap 3350 + 32 identity; ceilings 9518/128/74/64; pre-reserve head e7450f70
+ONE_OFF_GRANT_SHA256 = "e4054df89f95392845ec323d06ecc6ebb68191129af8b82c7a5bacf2714c1295"   # AWAITING_OWNER_DECISION (Sam 1794070407): sized proposal run cap 3350 + 32 identity; ceilings 9518/128/74/64; pre-reserve head e7450f70; not dispatchable until the PO decision is pinned
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
                       "limits", "olderReleaseDiagnostic"}
@@ -70,8 +71,11 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
     except ValueError:
         raise Refused("one-off-grant-unreadable")
     _need(isinstance(grant, dict) and set(grant) == ONE_OFF_GRANT_KEYS
-          and grant.get("schema") == "speaksharp.cloud-test.one-off-grant.v1" and grant.get("status") == "APPROVED",
+          and grant.get("schema") == "speaksharp.cloud-test.one-off-grant.v1" and grant.get("status") in ONE_OFF_GRANT_STATUSES,
           "one-off-grant-shape")
+    # Sam 1794070407: a grant whose proposed scope grew past its recorded owner decision is committed AWAITING_OWNER_DECISION and cannot
+    # admit a dispatch; only a reviewed change pinning the owner's new decision sets APPROVED (and re-pins ONE_OFF_GRANT_SHA256).
+    _need(grant.get("status") == "APPROVED", "one-off-grant-not-approved")
     _need(_ref(grant.get("approvalRef")) and grant.get("approvedBy") == "Akin"
           and grant.get("runId") == "R10-3b040043-smoke15" and grant.get("attempt") == 1,
           "one-off-grant-reference")
@@ -282,6 +286,11 @@ SCOPE_MAX_WINDOW_SECONDS = 21600
 SETUP_RESERVE_MINUTES = 15
 COLLECT_RESERVE_MINUTES = 10
 HOSTED_JOB_CAP_MINUTES = 360
+# Sam 1794070353/1794071539 (design a): ONE execution deadline, computed once at init and bound unchanged as the plan's deadlineAt (BP_T1),
+# the guard policy's deadline, admission's approvedDeadlineAt and the producer scope's deadlineAt. The workflow kills the run step at
+# step start + live minutes; init runs before that step starts, so init time + live minutes is never later than the kill. The stage's own
+# post-campaign exit (ownership return) keeps this reserve; the campaign's cleanup reserve is subtracted once, by campaign-core, not here.
+RUN_STAGE_EXIT_RESERVE_SECONDS = 60
 
 
 class Refused(ValueError):
@@ -448,6 +457,30 @@ def check_window_remaining(req, now, live_minutes):
     end = _utc(req["window"]["endUtc"])
     _need(_int(live_minutes) and live_minutes > 0, "live-minutes")
     _need((end - now).total_seconds() >= 60 * (live_minutes + COLLECT_RESERVE_MINUTES), "approved-window-too-short-at-admission")
+
+
+def execution_deadline(req, now, live_minutes):
+    """The one runtime safety bound for this run: min(occurrence end, init time + live minutes - the stage exit reserve), whole seconds.
+    Never later than the occurrence end and never later than the run step's kill; it is not a calendar window and never extends one."""
+    w = req["window"]
+    start, end = _utc(w["startUtc"]), _utc(w["endUtc"])
+    _need(_int(live_minutes) and live_minutes > 0, "live-minutes")
+    step_bound = now.replace(microsecond=0) + timedelta(minutes=live_minutes) - timedelta(seconds=RUN_STAGE_EXIT_RESERVE_SECONDS)
+    deadline = min(end, step_bound)
+    _need(start <= now < deadline, "execution-deadline-not-open")
+    return deadline.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def check_execution_deadline(req, now, live_minutes, deadline):
+    """Immediately before the run step: the init-bound deadline is well formed, inside the occurrence, still open, and not later than this
+    step's kill less the exit reserve (the step starts no earlier than now, so its kill is no earlier than now + live minutes)."""
+    _need(isinstance(deadline, str) and LR.UTC.match(deadline) is not None, "execution-deadline-missing")
+    _need(_int(live_minutes) and live_minutes > 0, "live-minutes")
+    w = req["window"]
+    d = _utc(deadline)
+    _need(_utc(w["startUtc"]) < d <= _utc(w["endUtc"]), "execution-deadline-outside-occurrence")
+    _need(now < d, "execution-deadline-passed")
+    _need(d <= now + timedelta(minutes=live_minutes) - timedelta(seconds=RUN_STAGE_EXIT_RESERVE_SECONDS), "execution-deadline-after-step-kill")
 
 
 def completion_within_occurrence(raw, now):
@@ -648,7 +681,7 @@ def translate_facts(facts, req, route):
     return {k: v for k, v in facts.items() if k not in ("accounts", "olderReleaseDiagnostic")}
 
 
-def compose_scope(req, facts, account_id, cases, route):
+def compose_scope(req, facts, account_id, cases, route, deadline):
     """The producer route's private evidence scope, composed from the COMMITTED request (campaign, release, window, case selection and the
     reviewed evidenceScope limits) plus the facts' approval/review references and the bound account. It holds the raw account ID, so it is
     written privately in the job and never committed; authenticated_job_bootstrap.cjs validates it (validateBindings) against the builder
@@ -661,8 +694,11 @@ def compose_scope(req, facts, account_id, cases, route):
           "evidence-scope-limits")
     w = req["window"]
     _need((_utc(w["endUtc"]) - _utc(w["startUtc"])).total_seconds() <= SCOPE_MAX_WINDOW_SECONDS, "producer-scope-window-over-six-hours")
+    # The run's one execution deadline (execution_deadline), never the occurrence end: the plan's deadlineAt is the same value (bootstrap).
+    _need(isinstance(deadline, str) and LR.UTC.match(deadline) is not None and _utc(w["startUtc"]) < _utc(deadline) <= _utc(w["endUtc"]),
+          "execution-deadline-missing")
     tested = req["release"]["testedSha"]
-    return {"campaignId": req["runId"], "sourceSha": tested, "servedSha": tested, "notBefore": w["startUtc"], "deadlineAt": w["endUtc"],
+    return {"campaignId": req["runId"], "sourceSha": tested, "servedSha": tested, "notBefore": w["startUtc"], "deadlineAt": deadline,
             "caseIds": sorted(set(cases) & PRODUCER_CASES), "ownerAccountId": account_id, "ownerApprovalReference": facts["ownerApprovalReference"],
             "producerReviewReference": facts["producerReviewReference"], **{k: lim[k] for k in SCOPE_LIMITS}}
 
@@ -985,6 +1021,7 @@ def prepare(x, now):
     route = "github-producer" if set(cases) & PRODUCER_CASES else "github-direct"
     live_minutes = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
     check_window_fit(req, now, live_minutes)
+    deadline = execution_deadline(req, now, live_minutes)
     _need(not (nightly and x.facts), "nightly-facts-input-refused")
     facts = nightly_facts(repo) if nightly else (manual_facts if manual_occurrence else json.loads(x.facts or "null"))
     _need(isinstance(facts, dict), "facts-shape")
@@ -1023,14 +1060,15 @@ def prepare(x, now):
     builder_facts = translate_facts(facts, req, route)
     if observation is not None:
         builder_facts = dict(builder_facts, case10Observation=observation)  # the builder re-admits it (case10_execution_bound)
-    scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route)
+    scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route,
+                          deadline)
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
             "reconciliationBytes": reconciliation, "requestSha256": hashlib.sha256(req_raw).hexdigest(),
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
             "accountId": account_id, "emails": {b["credentials"]["email"]: entries[b["role"]]["email"] for b in accounts},
-            "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes,
+            "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes, "executionDeadline": deadline,
             "accounts": accounts, "facts": builder_facts, "scope": scope}
 
 
@@ -1756,7 +1794,7 @@ def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "first-observations", "case-timings", "window-check", "occurrence-check",
                                        "occurrence-materialize", "completion-deadline"))
-    for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out",
+    for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out", "--execution-deadline",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
                  "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
@@ -1795,7 +1833,9 @@ def main(argv):
                                           x.snapshot_dir, x.coverage_mode, identities(x.request, x.config, x.request_sha256)))
             return 0
         if x.command == "window-check":
-            check_window_remaining(admitted_request(x.request, x.request_sha256), datetime.now(timezone.utc), int(x.live_minutes or 0))
+            req, now = admitted_request(x.request, x.request_sha256), datetime.now(timezone.utc)
+            check_window_remaining(req, now, int(x.live_minutes or 0))
+            check_execution_deadline(req, now, int(x.live_minutes or 0), x.execution_deadline)
             return 0
         if x.command == "occurrence-check":
             repo = os.path.realpath(x.repo)
@@ -1855,6 +1895,7 @@ def main(argv):
             env.update(CT_EVIDENCE_SCOPE_FILE=scope_file, CT_EVIDENCE_SCOPE_SHA256=_sha(scope_file))
         write_env_file(x.env_file, env)
         with open(x.outputs, "a", encoding="utf-8") as f:
+            f.write("execution_deadline=%s\n" % p["executionDeadline"])
             f.write("route=%s\nroles=%s\nlive_minutes=%d\ncases=%s\ntested_sha=%s\nlineage=%s\ncoverage_mode=%s\nrequest_sha256=%s\nlive_accounts_sha256=%s\nreconciliation_sha256=%s\n" % (
                 p["route"], ",".join(b["role"] for b in p["accounts"]), p["liveMinutes"], ",".join(p["cases"]), p["testedSha"], p["lineage"], p["coverageMode"],
                 p["requestSha256"], hashlib.sha256(p["bundleBytes"]).hexdigest(), hashlib.sha256(p["reconciliationBytes"]).hexdigest()))

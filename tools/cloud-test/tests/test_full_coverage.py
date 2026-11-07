@@ -377,7 +377,8 @@ class ModePassThrough(unittest.TestCase):
             wjson(p, req)
             wjson(rc, reconciliation())
             r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", p,
-                                "--request-sha256", sha256_file(p), "--reconciliation", rc, "--out", o], capture_output=True, text=True)
+                                "--request-sha256", sha256_file(p), "--reconciliation", rc, "--execution-deadline", json.load(open(p))["window"]["endUtc"], "--out", o],
+                               capture_output=True, text=True)
             return r, (dict(l.split("=", 1) for l in open(o).read().splitlines()) if os.path.exists(o) else {})
 
     def full_request(self):
@@ -428,7 +429,7 @@ class ModePassThrough(unittest.TestCase):
             wjson(request_file, substituted)
             result = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"),
                                      "--request", request_file, "--request-sha256", admitted_sha,
-                                     "--reconciliation", reconciliation_file, "--out", output],
+                                     "--reconciliation", reconciliation_file, "--execution-deadline", json.load(open(request_file))["window"]["endUtc"], "--out", output],
                                     capture_output=True, text=True)
             wjson(request_file, admitted)
             self.assertNotEqual(result.returncode, 0)

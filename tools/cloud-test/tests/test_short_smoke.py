@@ -68,18 +68,50 @@ def live_smoke_request():
 
 ROOT_HEAD = "92d6ebf902351750c368d7d513116c6b1f19f80c"
 COMMITTED_GRANT = json.loads((ROOT / "config/runs/R10-3b040043-one-off-grant.json").read_text())
+# Sam 1794070407: the committed grant awaits the PO's new decision and cannot admit a dispatch. These contract tests exercise an APPROVED
+# variant of exactly those bytes (only the status differs), served as the reviewed bytes; NotDispatchable proves the committed grant refuses.
+APPROVED_GRANT = dict(COMMITTED_GRANT, status="APPROVED")
 
 
-def root_pinned_grant():
-    """The committed grant with its pre-reserve head moved back to the accepted root, served as reviewed bytes. It exercises the
-    root-anchored setup-failure and real-reserve paths, which are independent of where the committed grant is pinned."""
-    variant = json.dumps(dict(COMMITTED_GRANT, preReserveStateHead=ROOT_HEAD), indent=2).encode() + b"\n"
+def served_grant(doc):
+    variant = json.dumps(doc, indent=2).encode() + b"\n"
     original = init._read
     reader = lambda path: variant if str(path).endswith(init.ONE_OFF_GRANT_PATH) else original(path)
     return mock.patch.multiple(init, _read=reader, ONE_OFF_GRANT_SHA256=hashlib.sha256(variant).hexdigest())
 
 
+def root_pinned_grant():
+    """The approved grant with its pre-reserve head moved back to the accepted root, served as reviewed bytes. It exercises the
+    root-anchored setup-failure and real-reserve paths, which are independent of where the committed grant is pinned."""
+    variant = json.dumps(dict(APPROVED_GRANT, preReserveStateHead=ROOT_HEAD), indent=2).encode() + b"\n"
+    original = init._read
+    reader = lambda path: variant if str(path).endswith(init.ONE_OFF_GRANT_PATH) else original(path)
+    return mock.patch.multiple(init, _read=reader, ONE_OFF_GRANT_SHA256=hashlib.sha256(variant).hexdigest())
+
+
+class NotDispatchable(unittest.TestCase):
+    def test_the_committed_grant_awaits_the_owner_decision_and_refuses_every_dispatch_path(self):
+        self.assertEqual(COMMITTED_GRANT["status"], "AWAITING_OWNER_DECISION")
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        with self.assertRaisesRegex(init.Refused, "^one-off-grant-not-approved$"):
+            init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-07T17:00:00Z")
+        with self.assertRaisesRegex(init.Refused, "^one-off-grant-not-approved$"):
+            init.one_off_grant(str(ROOT.parents[1]), template, "2026-11-07T17:00:00Z")
+        # Any status other than the two reviewed values is a shape refusal, never an approval.
+        for status in ("approved", "APPROVED ", "PROPOSED", None):
+            with served_grant(dict(COMMITTED_GRANT, status=status)), self.assertRaisesRegex(init.Refused, "^one-off-grant-shape$"):
+                init.one_off_grant(str(ROOT.parents[1]), template, "2026-11-07T17:00:00Z")
+        # The only change that admits is APPROVED in reviewed bytes pinned by ONE_OFF_GRANT_SHA256.
+        with served_grant(APPROVED_GRANT):
+            init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-07T17:00:00Z")
+
+
 class ShortSmokeContract(unittest.TestCase):
+    def setUp(self):
+        patch = served_grant(APPROVED_GRANT)
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_actual_initiation_derives_one_bounded_occurrence_that_admits(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
         start = "2026-11-07T17:00:00Z"

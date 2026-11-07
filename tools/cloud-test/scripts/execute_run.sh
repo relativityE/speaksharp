@@ -190,8 +190,10 @@ require_runtime_inputs() {
 
 plan_env_file() {
   [ -f "$OUT/reconciliation.json" ] || blocked "reconciliation.json is required before plan construction"
+  # The run's one execution deadline (init step output; Sam 1794071539): plan, guard policy, admission and producer scope all bind it.
+  [ -n "${CT_EXECUTION_DEADLINE:-}" ] || blocked "CT_EXECUTION_DEADLINE (the run's one execution deadline) is required"
   python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
-    --reconciliation "$OUT/reconciliation.json" --out "$OUT/plan-env.txt" >/dev/null
+    --reconciliation "$OUT/reconciliation.json" --execution-deadline "$CT_EXECUTION_DEADLINE" --out "$OUT/plan-env.txt" >/dev/null
 }
 
 ensure_account_bindings() {
@@ -379,11 +381,6 @@ case "$STAGE" in
     actual_psha="$(sha256sum "$planfile" | cut -d' ' -f1)"
     [ "$psha" = "$actual_psha" ] || blocked "campaign plan changed after the build-time identity was retained"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$OUT/started.txt"
-    # Sam 1794070178: the workflow kills this step at its live-minute timeout. Record that kill time (less a 60 s margin for the stage's
-    # own post-campaign work) for campaign-runner, which may only TIGHTEN its deadline with it, so a case that cannot fit is NOT RUN.
-    if [[ "${CT_LIVE_MINUTES:-}" =~ ^[1-9][0-9]{0,2}$ ]]; then
-      date -u -d "@$(( $(date -u +%s) + CT_LIVE_MINUTES * 60 - 60 ))" +%Y-%m-%dT%H:%M:%SZ > "$OUT/plan/run-step-deadline.txt"
-    fi
     reuse_args=()
     if [ -n "${CT_RETAINED_GATE_MANIFEST:-}" ] && \
        [ "$(python3 -I "$ROOT/scripts/cfg_get.py" "$CT_RETAINED_GATE_MANIFEST" schema)" = speaksharp.cloud-test.aggregate-receiver.v2-occurrence ]; then

@@ -707,9 +707,10 @@ class ProducerScope(unittest.TestCase):
         now = datetime.now(timezone.utc).replace(microsecond=0)
         self.req = live_request(["AHT-07"], evidenceScope=dict(self.LIMITS))
         self.req["window"].update(startUtc=utc(now - timedelta(hours=1)), endUtc=utc(now + timedelta(hours=3)))
+        self.deadline = I.execution_deadline(self.req, now, 40)   # the run's one execution deadline, as prepare computes it
         self.facts = I.translate_facts(facts(producerReviewReference="review:producer@1"), self.req, "github-producer")
 
-    def bind(self, scope, account=ACCOUNT_ID, facts_over=None):
+    def bind(self, scope, account=ACCOUNT_ID, facts_over=None, plan_deadline=None):
         private = os.path.join(self.d, "private-%d" % len(os.listdir(self.d)))
         os.mkdir(private, 0o700)
         scope_file, facts_file, bindings_file, req_file, reconciliation_file, env_file = (
@@ -734,7 +735,8 @@ class ProducerScope(unittest.TestCase):
         # The REAL run_env.py gets the same project origin the binding resolver gets (VITE_SUPABASE_URL); BP_HOST_DB is never injected here,
         # because the live path never injected it either (run 42142985744 refused against https://undefined).
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
-                            "--request-sha256", I._sha(req_file), "--reconciliation", reconciliation_file, "--out", env_file],
+                            "--request-sha256", I._sha(req_file), "--reconciliation", reconciliation_file,
+                            "--execution-deadline", plan_deadline or self.deadline, "--out", env_file],
                            capture_output=True, text=True, env=dict(os.environ, VITE_SUPABASE_URL="https://%s.supabase.co" % project_ref))
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
@@ -751,7 +753,7 @@ class ProducerScope(unittest.TestCase):
         return p.stdout.strip(), p.stderr
 
     def scope(self):
-        return I.compose_scope(self.req, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer")
+        return I.compose_scope(self.req, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer", self.deadline)
 
     def test_the_composed_scope_is_accepted_by_the_real_bootstrap(self):
         s = self.scope()
@@ -768,7 +770,7 @@ class ProducerScope(unittest.TestCase):
         env_file = os.path.join(self.d, "env-host.txt")
         base = {k: v for k, v in os.environ.items() if k != "VITE_SUPABASE_URL"}
         cmd = [sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--request-sha256", I._sha(req_file),
-               "--reconciliation", rec, "--out", env_file]
+               "--reconciliation", rec, "--execution-deadline", self.deadline, "--out", env_file]
         missing = subprocess.run(cmd, capture_output=True, text=True, env=base)
         self.assertNotEqual(missing.returncode, 0)
         self.assertIn("project origin (VITE_SUPABASE_URL) is required", missing.stderr)
@@ -803,7 +805,7 @@ class ProducerScope(unittest.TestCase):
                "VITE_SUPABASE_ANON_KEY": "anon-synthetic", "CT_OUT": out, "CT_PRIVATE_INPUT_DIR": inputs, "CT_CHECKOUT": os.path.dirname(os.path.dirname(ROOT)),
                "CT_FACTS_FILE": files["facts.json"], "CT_REQUEST": files["request.json"], "CT_REQUEST_SHA256": I._sha(files["request.json"]),
                "CT_EVIDENCE_SCOPE_FILE": files["scope.json"], "CT_EVIDENCE_SCOPE_SHA256": I._sha(files["scope.json"]),
-               "CT_LIVE_ACCOUNTS_FILE": bundle, "CT_LIVE_ACCOUNTS_SHA256": I._sha(bundle)}
+               "CT_LIVE_ACCOUNTS_FILE": bundle, "CT_LIVE_ACCOUNTS_SHA256": I._sha(bundle), "CT_EXECUTION_DEADLINE": self.deadline}
         harness = ("set -euo pipefail\nROOT=%r\nREPO=%r\nCFG=%r\nREQ=%r\nROUTE=github-producer\nHP=%r\nOUT=%r\nSTAGE=build-plan\n"
                    "ss_broker_service_role=''\nss_broker_telemetry_key=''\nPYENV=(\"PATH=$PATH\" \"HOME=$HOME\")\n"
                    "blocked() { echo \"BLOCKED_SETUP: $*\" >&2; exit 78; }\n%s\nbuild \"$OUT/plan\"\n") % (
@@ -835,11 +837,25 @@ class ProducerScope(unittest.TestCase):
 
     def test_scope_limits_window_and_route_are_checked_before_composition(self):
         for lim in ({}, dict(self.LIMITS, maxDeliveries=0), dict(self.LIMITS, maxSupabaseRequests=257), dict(self.LIMITS, extra=1)):
-            refused(self, "evidence-scope-limits", I.compose_scope, dict(self.req, evidenceScope=lim), self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer")
+            refused(self, "evidence-scope-limits", I.compose_scope, dict(self.req, evidenceScope=lim), self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer",
+                    self.deadline)
         r = copy.deepcopy(self.req); r["window"]["endUtc"] = utc(datetime.now(timezone.utc) + timedelta(hours=6))
-        refused(self, "producer-scope-window-over-six-hours", I.compose_scope, r, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer")
-        refused(self, "evidence-scope-only-for-producer-route", I.compose_scope, self.req, self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct")
-        self.assertIsNone(I.compose_scope(live_request(["AHT-05"]), self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct"))
+        refused(self, "producer-scope-window-over-six-hours", I.compose_scope, r, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer", self.deadline)
+        refused(self, "evidence-scope-only-for-producer-route", I.compose_scope, self.req, self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct",
+                self.deadline)
+        self.assertIsNone(I.compose_scope(live_request(["AHT-05"]), self.facts, ACCOUNT_ID, ["AHT-05"], "github-direct", None))
+        # The scope's deadline is the run's one execution deadline: missing, malformed or outside the occurrence refuses.
+        w = self.req["window"]
+        for bad in (None, "", "soon", w["startUtc"], utc(datetime.strptime(w["endUtc"], "%Y-%m-%dT%H:%M:%SZ") + timedelta(seconds=1))):
+            refused(self, "execution-deadline-missing", I.compose_scope, self.req, self.facts, ACCOUNT_ID, ["AHT-07"], "github-producer", bad)
+        self.assertEqual(self.scope()["deadlineAt"], self.deadline)
+        self.assertNotEqual(self.deadline, w["endUtc"])
+
+    def test_a_plan_deadline_other_than_the_scope_deadline_is_refused_by_the_real_bootstrap(self):
+        """Sam 1794071539: admission, producer and campaign bind ONE value. A plan built with any other deadline (the occurrence end, as
+        before) cannot pair with the scope: the real bootstrap refuses it."""
+        out, err = self.bind(self.scope(), plan_deadline=self.req["window"]["endUtc"])
+        self.assertNotEqual(out, "BOUND")
 
 
 class PrepareFailsClosedOnContinuity(unittest.TestCase):
@@ -927,7 +943,8 @@ class PrepareFailsClosedOnContinuity(unittest.TestCase):
         self.assertEqual(I.canonical_bundle_bytes(I.parse_live_accounts_bundle(canonical.decode())), canonical, "canonical bytes are a fixed point")
         # The window check accepts exactly those bytes, and refuses them once the workspace-style copy is rewritten.
         check = lambda: subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "init_run_inputs.py"), "window-check", "--request",
-                                        ct_request, "--live-minutes", "47", "--request-sha256", published["request_sha256"]],
+                                        ct_request, "--live-minutes", published["live_minutes"], "--request-sha256", published["request_sha256"],
+                                        "--execution-deadline", published["execution_deadline"]],
                                        capture_output=True, text=True, env={"PATH": os.environ["PATH"]})
         self.assertEqual(check().returncode, 0, check().stderr)
         os.chmod(ct_request, 0o600)
@@ -2014,7 +2031,8 @@ class ContinuityCheckpoint(Journal):
             f.write(rc_bytes)
         put(req_file, self.req)
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file,
-                            "--request-sha256", I._sha(req_file), "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
+                            "--request-sha256", I._sha(req_file), "--reconciliation", rc_file, "--execution-deadline", self.req["window"]["endUtc"],
+                            "--out", env_file], capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
@@ -2222,7 +2240,8 @@ process.exitCode = result.exitCode;
         def bind():
             env_file = os.path.join(ct_out, "plan-env-%d.txt" % len(os.listdir(ct_out)))
             r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
-                                "--request-sha256", published["request_sha256"], "--reconciliation", placed, "--out", env_file],
+                                "--request-sha256", published["request_sha256"], "--reconciliation", placed,
+                                "--execution-deadline", published["execution_deadline"], "--out", env_file],
                                capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
             self.assertEqual(r.returncode, 0, r.stderr)
             import shlex
@@ -2288,7 +2307,8 @@ process.exitCode = result.exitCode;
         # The runner's own reader derives the builder's BP_* environment from the admitted request and the placed bytes.
         plan_env = ct_out / "plan-env.txt"
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
-                            "--request-sha256", published["request_sha256"], "--reconciliation", str(placed), "--out", str(plan_env)],
+                            "--request-sha256", published["request_sha256"], "--reconciliation", str(placed),
+                            "--execution-deadline", published["execution_deadline"], "--out", str(plan_env)],
                            capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in plan_env.read_text().splitlines() if "=" in line)}
@@ -2558,7 +2578,8 @@ class StandingEnvelope(Journal):
             with open(path, "wb") as f:
                 f.write(raw)
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", req_file, "--request-sha256", request_sha,
-                            "--reconciliation", rc_file, "--out", env_file], capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
+                            "--reconciliation", rc_file, "--execution-deadline", json.loads(self.req_raw)["window"]["endUtc"], "--out", env_file],
+                           capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(env_file, encoding="utf-8") as f:
             bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.rstrip("\n").split("=", 1) for line in f if "=" in line)}
@@ -2649,7 +2670,8 @@ class StandingEnvelope(Journal):
         shutil.copyfile(os.path.join(out, "reconciliation.json"), ct_out / "reconciliation.json")
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "run_env.py"), "--request", os.path.join(out, "request.json"),
                             "--request-sha256", published["request_sha256"], "--reconciliation", str(ct_out / "reconciliation.json"),
-                            "--out", str(ct_out / "plan-env.txt")], capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
+                            "--execution-deadline", published["execution_deadline"], "--out", str(ct_out / "plan-env.txt")],
+                           capture_output=True, text=True, env=LIVE_ORIGIN_ENV)
         self.assertEqual(r.returncode, 0, r.stderr)
         bp = {k: (shlex.split(v)[0] if v else "") for k, v in (line.split("=", 1) for line in (ct_out / "plan-env.txt").read_text().splitlines() if "=" in line)}
         # 5. Both builder phases (real build_plan, in-process so the explicit reader trust applies), on the synthetic packet scaffold.

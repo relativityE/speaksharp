@@ -591,6 +591,8 @@ jobs:
           # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
           CT_LIVE_ACCOUNTS_SHA256: ${{ steps.init.outputs.live_accounts_sha256 }}
+          # The run's one execution deadline (init output; never $GITHUB_ENV): the plan, policy, admission and producer scope bind it.
+          CT_EXECUTION_DEADLINE: ${{ steps.init.outputs.execution_deadline }}
         run: |
           set -euo pipefail
           for stage in install-tools build-plan stimulus-preflight build-plan-with-receipt gate-and-validate; do
@@ -606,13 +608,12 @@ jobs:
         env:
           LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
           REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
-        run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"
+          EXECUTION_DEADLINE: ${{ steps.init.outputs.execution_deadline }}
+        run: python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" --live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256" --execution-deadline "$EXECUTION_DEADLINE"
       - name: Stage runner (run), bounded to the selected cases' live minutes
         id: run
         timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
         env:
-          # The step's own kill time, so the campaign marks a case it cannot fit NOT RUN instead of being killed mid-case.
-          CT_LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}

@@ -365,7 +365,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "a95d3a54685d4e752b1202000b63499191f2b58c4af84fc4c4a6affb704146fd",
+            "manifestSha256": "ea7ceb3fabcb71f6c84b98820fd4fad9cc4c578dd4ec7a7b54672f46607e280e",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })
@@ -683,10 +683,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
         run = next(i for i, s in enumerate(steps) if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         check = steps[run - 1]  # the run's reserve was appended before this job by journal-reserve (#1772 review 4446137323)
         self.assertEqual(check["run"].strip(), 'python3 -I tools/cloud-test/scripts/init_run_inputs.py window-check --request "$CT_REQUEST" '
-                                               '--live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256"')
+                                               '--live-minutes "$LIVE_MINUTES" --request-sha256 "$REQUEST_SHA256" '
+                                               '--execution-deadline "$EXECUTION_DEADLINE"')
         self.assertEqual(check["env"], {"LIVE_MINUTES": "${{ steps.init.outputs.live_minutes }}",
-                                        "REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}"})
+                                        "REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}",
+                                        "EXECUTION_DEADLINE": "${{ steps.init.outputs.execution_deadline }}"})
         self.assertNotIn("if", check, "a failed window check stops the job before admission")
+
+    def test_one_execution_deadline_reaches_plan_construction_from_init_output_only(self):
+        """Sam 1794071539 (design a): the stage runner builds the plan with the init step's execution_deadline output (never $GITHUB_ENV, never
+        recomputed); the run step carries no second deadline of its own."""
+        steps = self.jobs["live"]["steps"]
+        stage = next(s for s in steps if s.get("name", "").startswith("Stage runner (install-tools"))
+        self.assertEqual(stage["env"]["CT_EXECUTION_DEADLINE"], "${{ steps.init.outputs.execution_deadline }}")
+        run = next(s for s in steps if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
+        self.assertFalse({"CT_EXECUTION_DEADLINE", "CT_LIVE_MINUTES"} & set(run["env"]))
 
     def test_pass_needs_qualify_which_runs_the_real_binding_verifier_then_every_selected_row(self):
         collect = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Collect, verify the binding"))["run"]
