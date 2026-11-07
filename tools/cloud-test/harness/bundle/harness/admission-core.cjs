@@ -90,6 +90,14 @@ function verifyQualification(receipt,{codeManifestSha256,startedAt,endedBy,evide
   return {result:'PASS',checks:QUALIFICATION_CHECKS.length,codeManifestSha256,...capabilities};
 }
 // R10 A6 (Sam 1793996137): only a strictly re-validated, closed-set, content-free stop location may enter the receipt.
+// R10 run 42386714252 (Sam 1794066358): A7's helper stderr was discarded, so a no-receipt stop could not be located. Keep only its exit
+// status and a closed, content-free class of its stderr (never the text: it can carry paths or URLs); unknown text is `other`.
+const IDENTITY_HELPER_CLASSES=[['private-ownership',/private directory required|private file required/],['ledger-lock',/EEXIST/],
+ ['ledger-state',/identity ledger corrupt|campaign binding changed|lock ownership changed|unknown or completed reservation|ledger closed/],
+ ['not-authorized',/NOT AUTHORIZED/],['binding',/identity binding requires|expected SHA must be|ledger and integer cap required|arguments require explicit values|unknown or repeated argument/],
+ ['filesystem',/ENOENT|EACCES|EPERM/]];
+function identityHelperDiagnostic(r){const text=String((r&&r.stderr)||'');const hit=IDENTITY_HELPER_CLASSES.find(([,re])=>re.test(text));
+ return {exitCode:Number.isSafeInteger(r&&r.status)?r.status:null,timedOut:!!(r&&r.reason==='timeout'),stderrClass:text.trim()===''?'none':hit?hit[0]:'other',contentFree:true};}
 function readQualificationDiagnostic(io,file){let raw;try{raw=io.readJson(file);}catch{return {result:'ABSENT'};}try{return {result:'RECORDED',...validateDiagnostic(raw)};}catch{return {result:'REFUSED'};}}
 async function runAdmission(options,io){
   const now=()=>io.now();
@@ -132,11 +140,11 @@ async function runAdmission(options,io){
       if(io.hashFile(path.join(c.checkoutDir,'pnpm-lock.yaml'))!==c.lockSha256)throw new Error('source lock changed during qualification');
       receipt.identityDispatch='ATTEMPTED_OR_AMBIGUOUS';receipt.productionTrafficSent='UNKNOWN_PENDING_IDENTITY_RECEIPT';await save();
       const r=await command(io.nodeExecutable,[path.join(B,'harness/identity-check.cjs'),'--authorize-identity-read','true','--url',c.identityUrl,'--expect-sha',c.expectedServedSha,'--ledger',c.identityLedger,'--cap',String(c.identityCap),'--phase','admission'],{timeout:25000});
-      let id;try{id=JSON.parse(String(r.stdout||'').trim().split('\n').pop());}catch{throw new Error('identity receipt unavailable; outcome ambiguous; no automatic retry');}receipt.identityReceipt=id;
+      let id;try{id=JSON.parse(String(r.stdout||'').trim().split('\n').pop());}catch{receipt.identityHelperDiagnostic=identityHelperDiagnostic(r);await save();throw new Error('identity receipt unavailable; outcome ambiguous; no automatic retry');}receipt.identityReceipt=id;
       if(r.status!==0||id.result!=='MATCH'||id.servedSha!==c.expectedServedSha)throw new Error('served identity mismatch; no product journeys admitted');
       receipt.identityDispatch='MATCH';receipt.productionTrafficSent=1;return id;
     });
     receipt.result='ADMISSION PASS';receipt.endedAt=new Date(now()).toISOString();receipt.productAcceptance='NOT_TESTED; admission is not product GO';await save();return {exitCode:0,receipt};
   }catch(e){receipt.result='BLOCKED_SETUP';if(!receipt.stage){receipt.stage='receipt-write';receipt.reason=String(e.message);}receipt.endedAt=new Date(now()).toISOString();return {exitCode:78,receipt};}
 }
-module.exports={runAdmission,readQualificationDiagnostic,validateConfig,validateRuntimeSelection,checkCredentials,validateBrowserIdentity,validateCampaignPolicy,verifyQualification,usableRuntime,QUALIFICATION_CHECKS,STAGES};
+module.exports={runAdmission,readQualificationDiagnostic,identityHelperDiagnostic,validateConfig,validateRuntimeSelection,checkCredentials,validateBrowserIdentity,validateCampaignPolicy,verifyQualification,usableRuntime,QUALIFICATION_CHECKS,STAGES};
