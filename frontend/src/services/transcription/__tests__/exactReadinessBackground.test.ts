@@ -18,7 +18,8 @@ import type { NavigateFunction } from 'react-router-dom';
 vi.mock('../STTStrategyFactory');
 vi.mock('@/lib/toast', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn(), dismiss: vi.fn() } }));
 
-const files = ['config.json', 'tokenizer.json', 'preprocessor_config.json', 'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
+const files = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'preprocessor_config.json', 'generation_config.json',
+    'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
 const exact = () => files.map(file => `${window.location.origin}/models/whisper-base.en/${file}`);
 function cache(urls: readonly string[], name = 'transformers-cache') {
     vi.stubGlobal('caches', {
@@ -52,10 +53,12 @@ describe('readiness through the real facade decides whether a background warm-up
         expect(init).toHaveBeenCalled();
     });
     it.each([
-        ['another origin', () => files.map(file => `https://other.example/models/whisper-base.en/${file}`), 'transformers-cache'],
-        ['a query string', () => exact().map(url => `${url}?v=2`), 'transformers-cache'],
-        ['the cache the incumbent loader does not read', exact, VERIFIED_MODEL_CACHE],
-    ])('FALSE-READY (c821ccf6): %s reports CACHE_MISS and the background warm-up never initializes (nothing fetched)', async (_label, urls, name) => {
+        ['another origin (c821ccf6)', () => files.map(file => `https://other.example/models/whisper-base.en/${file}`), 'transformers-cache'],
+        ['a query string (c821ccf6)', () => exact().map(url => `${url}?v=2`), 'transformers-cache'],
+        ['the cache the incumbent loader does not read (c821ccf6)', exact, VERIFIED_MODEL_CACHE],
+        ['the old five files, without tokenizer_config.json and generation_config.json (Codex P1 on 92b53931)',
+            () => exact().filter(url => !url.endsWith('/tokenizer_config.json') && !url.endsWith('/generation_config.json')), 'transformers-cache'],
+    ])('FALSE-READY: %s reports CACHE_MISS and the background warm-up never initializes (nothing fetched)', async (_label, urls, name) => {
         cache(urls(), name);
         const { availability, init } = await backgroundWarmUp();
         expect(availability).toMatchObject({ isAvailable: false, reason: 'CACHE_MISS' });

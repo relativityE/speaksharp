@@ -52,11 +52,11 @@ export async function assetInventoryDigest(files: readonly PackageAsset[]): Prom
 }
 /** Synchronous shape validation is not execution proof; verifyModelPackage is mandatory before use. */
 /**
- * The files the installed Whisper (v2) loader caches for the supported package layout; the same set the built-in
- * incumbent requires. Readiness reads `execution.cacheFiles`, so an admitted Whisper package always carries it.
+ * Every file the installed Whisper (v2, Xenova 2.17.2) loader requests for the supported package layout, the same set the
+ * built-in incumbent requires: tokenizer_config.json is fatal in loadTokenizer and generation_config.json is fetched when served. Readiness reads `execution.cacheFiles`, so an admitted Whisper package always carries it.
  */
-export const WHISPER_PACKAGE_CACHE_FILES: readonly string[] = Object.freeze(['config.json', 'tokenizer.json', 'preprocessor_config.json',
-    'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx']);
+export const WHISPER_PACKAGE_CACHE_FILES: readonly string[] = Object.freeze(['config.json', 'tokenizer.json', 'tokenizer_config.json',
+    'preprocessor_config.json', 'generation_config.json', 'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx']);
 export function parseModelPackage(input: unknown): ModelPackage {
     if (!object(input) || input.schemaVersion !== 1 || input.kind !== 'speaksharp-model-package') refuse('UNSUPPORTED_PACKAGE_FORMAT');
     const p = input as unknown as ModelPackage;

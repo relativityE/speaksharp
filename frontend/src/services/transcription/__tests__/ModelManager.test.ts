@@ -25,7 +25,9 @@ const ORIGIN = window.location.origin;
 const requiredWhisperTinyCacheUrls = [
     `${ORIGIN}/models/whisper-tiny.en/config.json`,
     `${ORIGIN}/models/whisper-tiny.en/tokenizer.json`,
+    `${ORIGIN}/models/whisper-tiny.en/tokenizer_config.json`,
     `${ORIGIN}/models/whisper-tiny.en/preprocessor_config.json`,
+    `${ORIGIN}/models/whisper-tiny.en/generation_config.json`,
     `${ORIGIN}/models/whisper-tiny.en/onnx/encoder_model_quantized.onnx`,
     `${ORIGIN}/models/whisper-tiny.en/onnx/decoder_model_merged_quantized.onnx`,
 ];
@@ -35,7 +37,9 @@ const requiredWhisperTinyCacheUrls = [
 const requiredWhisperBaseCacheUrls = [
     `${ORIGIN}/models/whisper-base.en/config.json`,
     `${ORIGIN}/models/whisper-base.en/tokenizer.json`,
+    `${ORIGIN}/models/whisper-base.en/tokenizer_config.json`,
     `${ORIGIN}/models/whisper-base.en/preprocessor_config.json`,
+    `${ORIGIN}/models/whisper-base.en/generation_config.json`,
     `${ORIGIN}/models/whisper-base.en/onnx/encoder_model_quantized.onnx`,
     `${ORIGIN}/models/whisper-base.en/onnx/decoder_model_merged_quantized.onnx`,
 ];
@@ -44,7 +48,9 @@ const requiredWhisperBaseCacheUrls = [
 const requiredWhisperBaseV4CacheUrls = [
     'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/config.json',
     'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/tokenizer.json',
+    'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/tokenizer_config.json',
     'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/preprocessor_config.json',
+    'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/generation_config.json',
     'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx',
     'https://huggingface.co/onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_q4.onnx',
 ];
@@ -236,8 +242,9 @@ describe('ModelManager readiness against the cache the verified loaders actually
 
 describe('readiness matches the selected loader\'s exact request identities (PO reviews of 5462dad7 and c821ccf6)', () => {
     beforeEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-    const files = ['config.json', 'tokenizer.json', 'preprocessor_config.json', 'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
-    const v4Files = ['config.json', 'tokenizer.json', 'preprocessor_config.json', 'onnx/encoder_model.onnx', 'onnx/decoder_model_merged_q4.onnx'];
+    const json = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'preprocessor_config.json', 'generation_config.json'];
+    const files = [...json, 'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
+    const v4Files = [...json, 'onnx/encoder_model.onnx', 'onnx/decoder_model_merged_q4.onnx'];
     const at = (prefix: string, list = files) => list.map(file => `${prefix}/${file}`);
     const v4Ready = () => ModelManager.isModelDownloaded('transformers-js-v4', 'onnx-community/whisper-base.en', v4Files);
 
@@ -260,6 +267,23 @@ describe('readiness matches the selected loader\'s exact request identities (PO 
         }
         stubTransformersCache(at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main/extra', v4Files), true, VERIFIED_MODEL_CACHE);
         await expect(v4Ready()).resolves.toBe(false);
+    });
+    it('FALSE-READY (92b53931 Codex P1): the old five-file cache, without tokenizer_config.json and generation_config.json, is not ready', async () => {
+        // Both loaders request these two files; with only the old five cached, initialization still downloaded them.
+        const oldFive = (list: string[]) => list.filter(file => file !== 'tokenizer_config.json' && file !== 'generation_config.json');
+        stubTransformersCache(at(`${ORIGIN}/models/whisper-base.en`, oldFive(files)));
+        await expect(ModelManager.isModelDownloaded('transformers-js')).resolves.toBe(false);
+        stubTransformersCache(at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main', oldFive(v4Files)), true, VERIFIED_MODEL_CACHE);
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4', 'onnx-community/whisper-base.en')).resolves.toBe(false);
+        for (const missing of ['tokenizer_config.json', 'generation_config.json']) {
+            stubTransformersCache(at(`${ORIGIN}/models/whisper-base.en`, files.filter(file => file !== missing)));
+            expect(await ModelManager.isModelDownloaded('transformers-js'), `missing ${missing}`).toBe(false);
+        }
+        // With all seven cached, the registry-derived requirements report ready for both loaders.
+        stubTransformersCache(at(`${ORIGIN}/models/whisper-base.en`));
+        await expect(ModelManager.isModelDownloaded('transformers-js')).resolves.toBe(true);
+        stubTransformersCache(at('https://huggingface.co/onnx-community/whisper-base.en/resolve/main', v4Files), true, VERIFIED_MODEL_CACHE);
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4', 'onnx-community/whisper-base.en')).resolves.toBe(true);
     });
     it('FALSE-READY (c821ccf6): another origin, another Hub revision or a query string does not count', async () => {
         // The incumbent: the same path under another origin, or with a query, is not the key the loader looks up.

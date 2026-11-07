@@ -165,12 +165,15 @@ export interface Candidate extends CandidateDefinition {
 }
 
 const WHISPER_BASE = 'onnx-community/whisper-base.en';
+// EVERY FILE THE LOADER REQUESTS. Readiness may say "cached" only when initialization will not fetch: both installed loaders
+// (Xenova 2.17.2 and @huggingface/transformers 4.3.0) request tokenizer_config.json (fatal) and generation_config.json (served,
+// so fetched) besides the five files listed before; omitting them reported READY while initialization still downloaded.
 const whisperCacheFiles = (decoder: string): string[] => [
-    'config.json', 'tokenizer.json', 'preprocessor_config.json',
+    'config.json', 'tokenizer.json', 'tokenizer_config.json', 'preprocessor_config.json', 'generation_config.json',
     'onnx/encoder_model.onnx', `onnx/${decoder}`,
 ];
-const LOCAL_WHISPER_CACHE_FILES = ['config.json', 'tokenizer.json', 'preprocessor_config.json',
-    'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
+const LOCAL_WHISPER_CACHE_FILES = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'preprocessor_config.json',
+    'generation_config.json', 'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
 const PCM_16K = { input: 'float32-pcm', channels: 1, sampleRateHz: 16_000, features: 'runtime' } as const;
 const WHISPER_DECODE: WhisperDecodeProfile = {
     kind: 'whisper', windowSeconds: 30, strideSeconds: 5, returnTimestamps: true,

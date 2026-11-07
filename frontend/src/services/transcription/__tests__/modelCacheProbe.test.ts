@@ -19,7 +19,7 @@ const DISTIL = PRIV_STT_V4_VARIANTS.distil_q4.MODEL_ID;
 /** A CacheStorage holding exactly one model's asset set. */
 function cacheWith(modelId: string) {
     const files = [
-        'config.json', 'tokenizer.json', 'preprocessor_config.json',
+        'config.json', 'tokenizer.json', 'tokenizer_config.json', 'preprocessor_config.json', 'generation_config.json',
         'onnx/encoder_model.onnx', 'onnx/decoder_model_merged_q4.onnx',
     ];
     const keys = files.map((f) => ({ url: `https://huggingface.co/${modelId}/resolve/main/${f}` }));

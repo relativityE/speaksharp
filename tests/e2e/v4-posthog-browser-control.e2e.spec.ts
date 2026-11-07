@@ -67,7 +67,9 @@ async function installBrowserControlHarness(page: Page, options: HarnessOptions)
     const cacheFiles = [
       'config.json',
       'tokenizer.json',
+      'tokenizer_config.json',
       'preprocessor_config.json',
+      'generation_config.json',
       'onnx/encoder_model_quantized.onnx',
       'onnx/decoder_model_merged_quantized.onnx',
     ];
