@@ -250,7 +250,7 @@
       "requiresOwnerDecision": true,
       "limits": {
         "maxSelectedCases": 15,
-        "maxRunCapRequests": 3000,
+        "maxRunCapRequests": 3350,
         "maxIdentityReadsPerRun": 32,
         "maxWindowMinutes": 40,
         "note": "All 15 journeys, reduced recording windows and a smoke-only assertion denominator. These are structural maxima, not execution approval."

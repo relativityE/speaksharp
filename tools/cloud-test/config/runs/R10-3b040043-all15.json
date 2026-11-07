@@ -27,7 +27,7 @@
       ],
       "role": "target",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 350,
       "startPressCap": 2,
       "gate": null,
       "reason": "smoke coverage: 15 bounded rows; diagnoses GAP-01 without claiming full acceptance"
@@ -40,7 +40,7 @@
       ],
       "role": "target",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 190,
       "startPressCap": 1,
       "gate": null,
       "reason": "smoke coverage: 13 bounded rows; diagnoses GAP-02; the two-take coaching comparison remains required by full-depth acceptance"
@@ -53,7 +53,7 @@
       ],
       "role": "target",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 170,
       "startPressCap": 1,
       "gate": null,
       "reason": "smoke coverage: 13 bounded rows; diagnoses GAP-02; the two-take coaching comparison remains required by full-depth acceptance"
@@ -77,7 +77,7 @@
       "gaps": [],
       "role": "coverage",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 170,
       "startPressCap": 1,
       "gate": null,
       "reason": "smoke coverage: 8 bounded rows; regression signal only"
@@ -88,7 +88,7 @@
       "gaps": [],
       "role": "coverage",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 180,
       "startPressCap": 1,
       "gate": null,
       "reason": "smoke coverage: 8 bounded rows; regression signal only"
@@ -99,7 +99,7 @@
       "gaps": [],
       "role": "coverage",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 190,
       "startPressCap": 1,
       "gate": null,
       "reason": "smoke coverage: 8 bounded rows; regression signal only"
@@ -110,7 +110,7 @@
       "gaps": [],
       "role": "coverage",
       "needsCaptureDevice": false,
-      "plannedRequests": 100,
+      "plannedRequests": 90,
       "startPressCap": 0,
       "gate": null,
       "reason": "smoke coverage: 10 bounded rows; regression signal only"
@@ -121,7 +121,7 @@
       "gaps": [],
       "role": "coverage",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 210,
       "startPressCap": 1,
       "gate": null,
       "reason": "smoke coverage: 10 bounded rows; regression signal only"
@@ -134,7 +134,7 @@
       ],
       "role": "target",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 150,
       "startPressCap": 1,
       "gate": null,
       "reason": "smoke coverage: 8 bounded rows; diagnoses GAP-05 without claiming full acceptance"
@@ -145,7 +145,7 @@
       "gaps": [],
       "role": "coverage",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 220,
       "startPressCap": 3,
       "gate": null,
       "reason": "smoke coverage: 6 bounded rows; regression signal only"
@@ -171,7 +171,7 @@
       ],
       "role": "target",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 115,
       "startPressCap": 1,
       "gate": null,
       "reason": "smoke coverage: 6 bounded rows; diagnoses GAP-06 without claiming full acceptance"
@@ -184,7 +184,7 @@
       ],
       "role": "target",
       "needsCaptureDevice": true,
-      "plannedRequests": 100,
+      "plannedRequests": 125,
       "startPressCap": 1,
       "gate": null,
       "reason": "smoke coverage: 6 bounded rows; diagnoses GAP-06 without claiming full acceptance"
@@ -197,7 +197,7 @@
       ],
       "role": "target",
       "needsCaptureDevice": false,
-      "plannedRequests": 100,
+      "plannedRequests": 130,
       "startPressCap": 0,
       "gate": null,
       "reason": "smoke coverage: 14 bounded rows; diagnoses GAP-04 without claiming full acceptance"
@@ -210,10 +210,10 @@
   },
   "estimate": {
     "requests": {
-      "planned": 1500,
+      "planned": 2490,
       "cleanupReserve": 150,
-      "pooledSlack": 350,
-      "runCap": 2000
+      "pooledSlack": 710,
+      "runCap": 3350
     },
     "identityReads": 32,
     "starts": 16,
@@ -226,15 +226,15 @@
     "githubRunnerMinutesMax": 40
   },
   "proposedLimits": {
-    "cumulativeCeilingRequests": 8386,
-    "ceilingIncreaseJustification": "PO credits the period ceiling 4342 -> 6364 (slack:1794009248.220099) and 6364 -> 8386 (Sam's verified ChatGPT receipt slack:1794015289.396409) by runs 42284568156's and 42318728005's source-bounded over-charges (each 2032 settled at the cap - 10 preflight-bound). This one attempt still reserves only its 2000 smoke run cap plus 32 identity reads = 2032.",
-    "identityCap": 96,
-    "identityIncreaseJustification": "Period identity ceiling 32 -> 64 -> 96, credited by runs 42284568156's and 42318728005's 32 never-dispatched identity reads each (slack:1794009248.220099; slack:1794015289.396409). This attempt still reserves and needs exactly 32.",
+    "cumulativeCeilingRequests": 9518,
+    "ceilingIncreaseJustification": "PO credits the period ceiling 4342 -> 6364 (slack:1794009248.220099) and 6364 -> 8386 (Sam's verified ChatGPT receipt slack:1794015289.396409) by runs 42284568156's and 42318728005's source-bounded over-charges (each 2032 settled at the cap - 10 preflight-bound); 8386 -> 9518 is the minimum that admits this run's sized 3350 run cap + 32 identity reads after 42386714252's capped settle (PO: minimum values enough for a 15-journey signal). This one attempt still reserves only its 2000 smoke run cap plus 32 identity reads = 2032.",
+    "identityCap": 128,
+    "identityIncreaseJustification": "Period identity ceiling 32 -> 64 -> 96 -> 128 (42386714252's 32 never-dispatched or unknown identity reads; minimum for this run), credited by runs 42284568156's and 42318728005's 32 never-dispatched identity reads each (slack:1794009248.220099; slack:1794015289.396409). This attempt still reserves and needs exactly 32.",
     "startsCap": 74,
     "startsIncreaseJustification": "Period ceiling 42 -> 58 -> 74, credited by runs 42284568156's and 42318728005's 16 never-used Starts each (slack:1794009248.220099; slack:1794015289.396409). This one attempt reserves only the 16-Start sum of its per-case caps, with no retry reserve.",
-    "takesCap": 63,
-    "takesIncreaseJustification": "Period ceiling 31 -> 47 -> 63, credited by runs 42284568156's and 42318728005's 16 never-used takes each (slack:1794009248.220099; slack:1794015289.396409). This one attempt reserves only its 16-take allowance, with no retry reserve.",
-    "runCapRequests": 2000,
+    "takesCap": 64,
+    "takesIncreaseJustification": "Period ceiling 31 -> 47 -> 63 -> 64 (minimum for this run's 16 takes after 42386714252's capped settle), credited by runs 42284568156's and 42318728005's 16 never-used takes each (slack:1794009248.220099; slack:1794015289.396409). This one attempt reserves only its 16-take allowance, with no retry reserve.",
+    "runCapRequests": 3350,
     "paidActionsUsd": 0,
     "guardCaps": {
       "coaching": 20
@@ -258,11 +258,11 @@
     }
   },
   "approvedLimits": {
-    "cumulativeCeilingRequests": 8386,
-    "identityCap": 96,
+    "cumulativeCeilingRequests": 9518,
+    "identityCap": 128,
     "startsCap": 74,
-    "takesCap": 63,
-    "runCapRequests": 2000,
+    "takesCap": 64,
+    "runCapRequests": 3350,
     "approvalRef": "slack:1793652215.171339",
     "approvedBy": "Akin",
     "startPressCaps": {

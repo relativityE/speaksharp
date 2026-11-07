@@ -166,7 +166,7 @@ class ShortSmokeContract(unittest.TestCase):
         request_sha = hashlib.sha256(occurrence_raw).hexdigest()
         scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
         # The committed grant is pinned at the journal head after run 42318728005's capped settle (Sam's verified ChatGPT receipt slack:1794063978.986369).
-        self.assertEqual(COMMITTED_GRANT["preReserveStateHead"], "a9241a12c377dee592c8dac10a9d4cbbae5d4290")
+        self.assertEqual(COMMITTED_GRANT["preReserveStateHead"], "e7450f702602c7e6400beb49fd200502e005b018")
         checkpoint = json.dumps({
             "headSha": COMMITTED_GRANT["preReserveStateHead"],
             "scopeApprovalRef": scope["approvalRef"],

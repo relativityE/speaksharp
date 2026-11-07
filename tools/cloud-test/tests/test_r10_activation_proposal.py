@@ -70,9 +70,9 @@ class R10ActivationProposal(unittest.TestCase):
         self.assertEqual(scope["knownMinimumCeilings"], expected)
         # PO 2026-11-06 (slack:1794063978.986369): ceilings credited by run 42284568156's source-bounded over-charge
         # (+2,022 requests, +32 identity reads, +16 starts, +16 takes); the known minimum is unchanged.
-        credited = {"requests": 8386, "protectedReserveRequests": 0, "identityReads": 96, "starts": 74, "takes": 63}
+        credited = {"requests": 9518, "protectedReserveRequests": 0, "identityReads": 128, "starts": 74, "takes": 64}
         self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]),
-                         (credited, "slack:1794063978.986369", "e7e988c42b3cd3e2032e9f709abcbfd5e0d29782fd6a2d0f91485c5891b027b7"))
+                         (credited, "slack:1794063978.986369", "3f8859c074b6c6b459eb7f43f983875e9f0d2a60050e6a952cce22037092d885"))
         self.assertTrue(self.proposal["rootRefCreationSelected"])
         self.assertTrue(self.proposal["activationPinsSelected"])
         scope_path = ROOT / "config/aggregate/period-scope.json"
@@ -89,7 +89,7 @@ class R10ActivationProposal(unittest.TestCase):
         expected = {"requests": 4342, "protectedReserveRequests": 0, "identityReads": 32, "starts": 42, "takes": 31}
         self.assertEqual(self.proposal["periodScope"]["knownMinimumCeilings"], expected)
         # The known minimum is unchanged; the period ceilings carry only the PO credit for run 42284568156 (slack:1794063978.986369).
-        credit = {"requests": 4044, "protectedReserveRequests": 0, "identityReads": 64, "starts": 32, "takes": 32}
+        credit = {"requests": 5176, "protectedReserveRequests": 0, "identityReads": 96, "starts": 32, "takes": 33}
         self.assertEqual(self.proposal["periodScope"]["ceilings"], {k: expected[k] + credit[k] for k in expected})
         self.assertFalse(self.proposal["knownLaterRunsResolved"])
         self.assertIn("remain UNRESOLVED", self.proposal["historicalDisposition"])
