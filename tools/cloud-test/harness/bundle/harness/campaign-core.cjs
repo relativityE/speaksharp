@@ -110,7 +110,12 @@ function applyRequirementMappings(report,plan) {
  for(const row of report.validationRequirements)report.categoryResults[row.categoryId][row.result]++;
  report.layers.agentServed=report.result;report.fullAcceptance=report.validationRequirements.some(r=>r.result==='FAIL')?'FAIL':'NOT RUN';
 }
-async function runCampaign(plan,io,{executeR0=false}={}) {
+// Sam 1794070178: the hosted run step is killed at its live-minute timeout, which can be earlier than the plan's deadlineAt (the 80-minute
+// occurrence end). An optional run-step deadline may only TIGHTEN the effective deadline, so a case that cannot fit is NOT RUN with its
+// reason instead of being killed mid-case. The plan, its bytes and its digest are unchanged.
+function effectiveDeadlineMs(plan,stepDeadlineAt){const own=Date.parse(plan.deadlineAt);const step=typeof stepDeadlineAt==='string'&&/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(stepDeadlineAt)?Date.parse(stepDeadlineAt):NaN;return Number.isFinite(step)&&step<own?step:own;}
+async function runCampaign(plan,io,{executeR0=false,stepDeadlineAt=null}={}) {
+ const deadlineMs=effectiveDeadlineMs(plan,stepDeadlineAt);
  const report=initialReport(plan),save=()=>io.save(report);
  try{validateCampaignPlan(plan);if(report.matrixReadError)throw new Error(report.matrixReadError);if((plan.requirementMappings||[]).length)await io.verifyCoverageReview(plan);if(plan.requestBudget){if(typeof io.verifyBudgetBinding!=='function')throw new Error('BLOCKED_SETUP: request budget binding to the guard cap unavailable');await io.verifyBudgetBinding(plan);}if(plan.runIdentity){if(typeof io.verifyRunIdentity!=='function')throw new Error('BLOCKED_SETUP: run identity binding unavailable');await io.verifyRunIdentity(plan);}if(plan.stimulusPreflight){if(typeof io.verifyStimulusPreflight!=='function')throw new Error('BLOCKED_SETUP: stimulus preflight verification unavailable');await io.verifyStimulusPreflight(plan);}for(const id of selectedOrder(plan))await io.preflightCase(plan.cases.find(c=>c.id===id),plan);report.driverPreflight=plan.selection?'SELECTED_'+selectedOrder(plan).length+'_BOUND':'ALL_15_BOUND';}
  catch(e){report.reason=safeReason(e);await save();return{exitCode:78,report};}
@@ -131,7 +136,7 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
    const gate=(plan.gates||[]).find(g=>g.caseId===id);
    if(gate){const unmet=gate.requires.find(r=>{const prior=report.cases.find(x=>x.caseId===r.caseId),a=(prior?.assertions||[]).find(x=>x.id===r.row);return !(a&&a.result===r.result);});if(unmet){row.reason='NOT_RUN: prerequisite stimulus not established ('+unmet.caseId+'/'+unmet.row+'); not dispatched, no requests or identity reads spent';row.gateBlocked=true;row.gateRequirement={caseId:unmet.caseId,row:unmet.row,required:unmet.result};row.plannedRequests=plan.requestBudget?plan.requestBudget.estimates[id]:null;row.requestsUsed=0;continue;}}
    // Reserve before + after + campaign-end identity calls as well as the bounded case and cleanup.
-   if(io.now()+plan.cleanupReserveMs+c.maxMs+3*IDENTITY_MAX_MS>Date.parse(plan.deadlineAt)){row.reason='Insufficient approved time for bounded case, before/after/final identity and cleanup';safetyStopped=true;break;}
+   if(io.now()+plan.cleanupReserveMs+c.maxMs+3*IDENTITY_MAX_MS>deadlineMs){row.reason='Insufficient approved time for bounded case, before/after/final identity and cleanup';safetyStopped=true;break;}
    const budget=plan.requestBudget;let allowance=null,usedBefore=null;
    if(budget){
     if((budget.skip||[]).includes(id)){row.reason='Not selected: the approved partial request budget declares this case skipped before the run';row.requestBudgetSkipped=true;row.plannedRequests=0;continue;}
@@ -150,7 +155,7 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
    catch(e){ran={safetyStop:true,reason:'Case execution/receipt unavailable: '+safeReason(e)};invalidate(row,ran.reason);}
    // Even an early driver interruption needs an AFTER receipt, or the case cannot keep PASS.
    let after;
-   if(io.now()+IDENTITY_MAX_MS+plan.cleanupReserveMs<=Date.parse(plan.deadlineAt))after=await observeIdentity('after-'+id);
+   if(io.now()+IDENTITY_MAX_MS+plan.cleanupReserveMs<=deadlineMs)after=await observeIdentity('after-'+id);
    else{after={phase:'after-'+id,result:'NOT RUN',reason:'Approved window unavailable for bounded post-case identity'};report.identityReceipts.push(after);}
    row.identityAfter=after;
    if(!matches(after)){invalidate(row,'Served identity drift/unproved after case; observations cannot be attributed to one release');safetyStopped=true;}
@@ -161,7 +166,7 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
    await save();if(safetyStopped)break;
   }
  }catch(e){report.reason=safeReason(e);safetyStopped=true;}
- if(admitted&&io.now()+IDENTITY_MAX_MS+plan.cleanupReserveMs<=Date.parse(plan.deadlineAt)){
+ if(admitted&&io.now()+IDENTITY_MAX_MS+plan.cleanupReserveMs<=deadlineMs){
   const final=await observeIdentity('campaign-end');report.finalIdentityReceipt=final;
   if(!matches(final)){report.finalIdentity='BLOCKED';safetyStopped=true;}else report.finalIdentity='MATCH';
  }else{report.finalIdentity='NOT RUN: admission/window unavailable';report.finalIdentityReceipt={phase:'campaign-end',result:'NOT RUN',reason:'Admission/window unavailable'};safetyStopped=true;}
@@ -170,4 +175,4 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
  report.result=report.cases.some(c=>c.result==='FAIL')?'FAIL':report.cases.every(c=>c.result==='PASS')&&!safetyStopped&&report.finalIdentity==='MATCH'?'PASS':'NOT RUN';report.safetyStopped=safetyStopped;applyRequirementMappings(report,plan);await save();
  return{exitCode:report.result==='PASS'?0:report.result==='FAIL'?1:78,report};
 }
-module.exports={selectedOrder,unselectedIds,validateSelection,validateRunIdentity,safeReason,validateRequestBudget,budgetBindingErrors,IDS,IDENTITY_MAX_MS,requiredIdentityCap,validateCampaignPlan,initialReport,initializeMatrix,applyRequirementMappings,runCampaign};
+module.exports={effectiveDeadlineMs,selectedOrder,unselectedIds,validateSelection,validateRunIdentity,safeReason,validateRequestBudget,budgetBindingErrors,IDS,IDENTITY_MAX_MS,requiredIdentityCap,validateCampaignPlan,initialReport,initializeMatrix,applyRequirementMappings,runCampaign};

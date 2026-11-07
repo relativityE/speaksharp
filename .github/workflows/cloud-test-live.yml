@@ -611,6 +611,8 @@ jobs:
         id: run
         timeout-minutes: ${{ fromJSON(steps.init.outputs.live_minutes) }}
         env:
+          # The step's own kill time, so the campaign marks a case it cannot fit NOT RUN instead of being killed mid-case.
+          CT_LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Admission digests for the runner's own one-buffer checks: init step outputs only, never $GITHUB_ENV.
           CT_REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
