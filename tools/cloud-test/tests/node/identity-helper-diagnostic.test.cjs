@@ -9,6 +9,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const H = path.join(__dirname, '..', '..', 'harness', 'bundle', 'harness');
 const { identityHelperDiagnostic } = require(path.join(H, 'admission-core.cjs'));
+const { supervisedCommand } = require(path.join(H, 'admission.cjs'));
 
 const SECRET = ['eyJhbGciOiJIUzI1NiJ9', 'c2VjcmV0', 'c2ln'].join('.');
 const RUNNER_HOME = ['', 'home', 'runner', ''].join('/');
@@ -20,7 +21,7 @@ test('the real helper refusal on a non-private ledger directory classifies as pr
     '--expect-sha', 'a'.repeat(40), '--ledger', path.join(ledgers, 'identity-ledger.json'), '--cap', '1', '--phase', 'admission'], { encoding: 'utf8' });
   assert.equal(r.stdout, '');
   const d = identityHelperDiagnostic(r);
-  assert.deepEqual(d, { exitCode: 2, timedOut: false, stderrClass: 'private-ownership', contentFree: true });
+  assert.deepEqual(d, { exitCode: 2, timedOut: false, supervisorStop: null, stderrClass: 'private-ownership', contentFree: true });
   assert.ok(!JSON.stringify(d).includes(base));
 });
 
@@ -43,10 +44,27 @@ test('every closed class, and unknown or empty stderr', () => {
   }
 });
 
-test('missing status, signal kill and timeout are represented without text', () => {
-  assert.deepEqual(identityHelperDiagnostic({ status: null, signal: 'SIGKILL', reason: 'timeout', stderr: SECRET }),
-    { exitCode: null, timedOut: true, stderrClass: 'other', contentFree: true });
-  assert.deepEqual(identityHelperDiagnostic(undefined), { exitCode: null, timedOut: false, stderrClass: 'none', contentFree: true });
+test('the real supervisor deadline (command-deadline, 124) is a timeout; other supervisor stops are closed values; no text', async () => {
+  const r = await supervisedCommand(process.execPath, ['-e', 'process.stderr.write("' + SECRET + '");setTimeout(()=>{},60000)'], { timeout: 300, cleanupReserveMs: 500 });
+  assert.equal(r.reason, 'command-deadline');
+  assert.equal(r.status, 124);
+  const d = identityHelperDiagnostic(r);
+  assert.deepEqual(d, { exitCode: 124, timedOut: true, supervisorStop: 'command-deadline', stderrClass: 'other', contentFree: true });
+  assert.ok(!JSON.stringify(d).includes(SECRET));
+  assert.deepEqual(identityHelperDiagnostic({ status: 143, reason: 'signal:SIGTERM', stderr: '' }),
+    { exitCode: 143, timedOut: false, supervisorStop: 'signal:SIGTERM', stderrClass: 'none', contentFree: true });
+  assert.equal(identityHelperDiagnostic({ status: 1, reason: SECRET, stderr: '' }).supervisorStop, 'other');
+  assert.deepEqual(identityHelperDiagnostic(undefined), { exitCode: null, timedOut: false, supervisorStop: null, stderrClass: 'none', contentFree: true });
+});
+
+test('true owner mismatch: a 0700 ledger directory owned by another uid refuses; the same directory for its owner admits', () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'identity-owner-')));
+  const ledgers = path.join(base, 'ledgers'); fs.mkdirSync(ledgers, { mode: 0o700 }); fs.chmodSync(ledgers, 0o700);
+  const probe = (uidExpr) => spawnSync(process.execPath, ['-e', `const uid=${uidExpr};process.getuid=()=>uid;const {IdentityLedger}=require(${JSON.stringify(path.join(H, 'identity-core.cjs'))});
+    try{const l=new IdentityLedger(${JSON.stringify(path.join(ledgers, 'identity-ledger.json'))},{url:'https://example.invalid/',expectedSha:'${'a'.repeat(40)}',cap:1,phase:'admission'});l.release();console.log('ADMITTED');}
+    catch(e){console.log(/private directory required/.test(e.message)?'REFUSED-OWNER':'OTHER')}`], { encoding: 'utf8' });
+  assert.equal(probe('process.getuid()+1').stdout.trim(), 'REFUSED-OWNER');   // the runner's 0700 directory read by a different uid (root)
+  assert.equal(probe('process.getuid()').stdout.trim(), 'ADMITTED');          // the same directory read by its owner (after the take)
 });
 
 test('admission still refuses with the same message and leaves traffic UNKNOWN (source pin)', () => {

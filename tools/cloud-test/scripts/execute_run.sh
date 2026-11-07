@@ -19,8 +19,16 @@ if [ "$STAGE" = run-as-root ]; then
   envfile="$2"; owner="$3"; pin="$4"
   [ -f "$envfile" ] && [ ! -L "$envfile" ] || blocked "elevated run environment missing"
   . "$envfile"; rm -f "$envfile"
-  [ -n "${CT_OUT:-}" ] && [ -d "$CT_OUT" ] && [ ! -L "$CT_OUT" ] || blocked "CT_OUT is required to elevate the run stage"
-  trees=("$CT_OUT"); if [ -d "$pin" ] && [ ! -L "$pin" ]; then trees+=("$pin"); fi
+  # Sam 1794066886: a privileged recursive ownership change accepts only canonical roots: absolute, no trailing slash, an existing
+  # directory whose realpath is itself (so no component, including the last, is a symlink).
+  canonical_dir() { case "$1" in /*/|/) return 1 ;; /*) ;; *) return 1 ;; esac; [ -d "$1" ] && [ ! -L "$1" ] && [ "$(realpath "$1")" = "$1" ]; }
+  [ -n "${CT_OUT:-}" ] && canonical_dir "$CT_OUT" || blocked "CT_OUT must be a canonical directory with no symlink component"
+  trees=("$CT_OUT")
+  case "$pin" in /*) ;; *) blocked "private run inputs must be a canonical directory with no symlink component" ;; esac
+  if [ -e "$pin" ] || [ -L "$pin" ]; then
+    canonical_dir "$pin" || blocked "private run inputs must be a canonical directory with no symlink component"
+    trees+=("$pin")
+  fi
   give_back() { chown -R "$owner" "${trees[@]}" || { echo "BLOCKED_SETUP: run outputs could not be returned to the job user" >&2; return 1; }; }
   trap 'give_back; exit 143' TERM
   trap 'give_back; exit 130' INT

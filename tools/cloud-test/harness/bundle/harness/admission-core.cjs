@@ -96,8 +96,11 @@ const IDENTITY_HELPER_CLASSES=[['private-ownership',/private directory required|
  ['ledger-state',/identity ledger corrupt|campaign binding changed|lock ownership changed|unknown or completed reservation|ledger closed/],
  ['not-authorized',/NOT AUTHORIZED/],['binding',/identity binding requires|expected SHA must be|ledger and integer cap required|arguments require explicit values|unknown or repeated argument/],
  ['filesystem',/ENOENT|EACCES|EPERM/]];
-function identityHelperDiagnostic(r){const text=String((r&&r.stderr)||'');const hit=IDENTITY_HELPER_CLASSES.find(([,re])=>re.test(text));
- return {exitCode:Number.isSafeInteger(r&&r.status)?r.status:null,timedOut:!!(r&&r.reason==='timeout'),stderrClass:text.trim()===''?'none':hit?hit[0]:'other',contentFree:true};}
+// Sam 1794067689: the supervisor (admission.cjs supervisedCommand) reports its own stops as `reason`; only its closed reasons are kept.
+const SUPERVISOR_STOPS=['command-deadline','signal:SIGTERM','signal:SIGINT','signal:SIGHUP','parent-lost','command-output-limit','owned-descendants-remain','spawn-error','admission-cancelled'];
+function identityHelperDiagnostic(r){const text=String((r&&r.stderr)||'');const hit=IDENTITY_HELPER_CLASSES.find(([,re])=>re.test(text));const reason=r&&r.reason;
+ return {exitCode:Number.isSafeInteger(r&&r.status)?r.status:null,timedOut:reason==='command-deadline',supervisorStop:SUPERVISOR_STOPS.includes(reason)?reason:(reason?'other':null),
+  stderrClass:text.trim()===''?'none':hit?hit[0]:'other',contentFree:true};}
 function readQualificationDiagnostic(io,file){let raw;try{raw=io.readJson(file);}catch{return {result:'ABSENT'};}try{return {result:'RECORDED',...validateDiagnostic(raw)};}catch{return {result:'REFUSED'};}}
 async function runAdmission(options,io){
   const now=()=>io.now();

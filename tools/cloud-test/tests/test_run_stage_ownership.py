@@ -4,7 +4,9 @@ elevated run stage now enters `run-as-root`, which takes ownership of exactly it
 Sam 1794066566/1794066358: a failed take must stop the stage; a failed return must be reported and fail it. Behaviour is exercised
 offline with `id`/`chown` shims (the privileged path itself runs on the runner); the stage it launches stops at its first config check."""
 import os
+import signal
 import stat
+import time
 import subprocess
 import tempfile
 import unittest
@@ -17,23 +19,24 @@ RUN_STARTED = "CT_CONFIG (the reviewed run configuration) is required"     # the
 
 class RunAsRoot(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp(prefix="run-as-root-")
+        self.d = os.path.realpath(tempfile.mkdtemp(prefix="run-as-root-"))
         self.addCleanup(subprocess.run, ["rm", "-rf", self.d])
         self.bin = os.path.join(self.d, "bin"); os.mkdir(self.bin)
         self.log = os.path.join(self.d, "chown.log")
         self.out = os.path.join(self.d, "out"); os.mkdir(self.out, 0o700)
         self.inputs = os.path.join(self.d, "run-inputs"); os.mkdir(self.inputs, 0o700)
         self.shim("id", '#!/bin/sh\n[ "$1" = -u ] && echo 0 && exit 0\n[ "$1" = -g ] && echo 0 && exit 0\nexec /usr/bin/id "$@"\n')
-        self.shim("chown", '#!/bin/sh\necho "$*" >> "%s"\n[ -n "$FAIL_ON" ] && [ "$2" = "$FAIL_ON" ] && exit 1\nexit 0\n' % self.log)
+        self.shim("chown", '#!/bin/sh\necho "$*" >> "%s"\n[ -n "$SLOW_ON" ] && [ "$2" = "$SLOW_ON" ] && sleep 5\n'
+                           '[ -n "$FAIL_ON" ] && [ "$2" = "$FAIL_ON" ] && exit 1\nexit 0\n' % self.log)
 
     def shim(self, name, body):
         p = os.path.join(self.bin, name)
         Path(p).write_text(body)
         os.chmod(p, stat.S_IRWXU)
 
-    def run_as_root(self, fail_on="", pin=None, extra_args=None):
+    def run_as_root(self, fail_on="", pin=None, extra_args=None, out=None):
         env_file = os.path.join(self.d, "env")
-        Path(env_file).write_text("export CT_OUT=%s\n" % self.out)
+        Path(env_file).write_text("export CT_OUT=%s\n" % (self.out if out is None else out))
         args = extra_args if extra_args is not None else [env_file, "1001:118", self.inputs if pin is None else pin]
         env = {"PATH": self.bin + ":/usr/bin:/bin", "FAIL_ON": fail_on, "HOME": self.d}
         p = subprocess.run(["bash", str(SCRIPT), "run-as-root"] + args, capture_output=True, text=True, env=env)
@@ -60,12 +63,38 @@ class RunAsRoot(unittest.TestCase):
         self.assertIn("run outputs could not be returned to the job user", p.stderr)
         self.assertNotEqual(p.returncode, 0)
 
-    def test_only_a_real_private_inputs_directory_is_included(self):
-        link = os.path.join(self.d, "inputs-link"); os.symlink(self.inputs, link)
-        for pin in (link, os.path.join(self.d, "absent")):
-            os.path.exists(self.log) and os.remove(self.log)
-            p, calls, _ = self.run_as_root(pin=pin)
-            self.assertEqual(calls[0], "-R 0:0 %s" % self.out, pin)
+    def test_absent_private_inputs_are_skipped(self):
+        p, calls, _ = self.run_as_root(pin=os.path.join(self.d, "absent"))
+        self.assertEqual(calls[0], "-R 0:0 %s" % self.out)
+
+    def test_non_canonical_roots_refuse_before_any_ownership_change(self):
+        real = os.path.join(self.d, "real"); os.mkdir(real, 0o700)
+        link = os.path.join(self.d, "link"); os.symlink(real, link)
+        parent_link = os.path.join(self.d, "plink"); os.symlink(self.d, parent_link)
+        bad = {"symlink root": link, "trailing-slash link": link + "/", "symlinked ancestor": os.path.join(parent_link, "out"),
+               "relative": "out", "dot-dot": self.d + "/real/../out", "trailing slash": self.out + "/"}
+        for name, path in bad.items():
+            for which in ("out", "pin"):
+                with self.subTest(name=name, which=which):
+                    os.path.exists(self.log) and os.remove(self.log)
+                    p, calls, _ = self.run_as_root(out=path) if which == "out" else self.run_as_root(pin=path)
+                    self.assertEqual((p.returncode, calls), (78, []))
+                    self.assertRegex(p.stderr, r"must be a canonical directory with no symlink component")
+
+    def test_term_during_the_privileged_step_returns_ownership_and_exits_143(self):
+        env_file = os.path.join(self.d, "env"); Path(env_file).write_text("export CT_OUT=%s\n" % self.out)
+        env = {"PATH": self.bin + ":/usr/bin:/bin", "SLOW_ON": "0:0", "HOME": self.d}
+        p = subprocess.Popen(["bash", str(SCRIPT), "run-as-root", env_file, "1001:118", self.inputs], env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        deadline = time.time() + 5
+        while time.time() < deadline and not (os.path.exists(self.log) and Path(self.log).read_text()):
+            time.sleep(0.05)
+        p.send_signal(signal.SIGTERM)
+        out, err = p.communicate(timeout=20)
+        self.assertEqual(p.returncode, 143)
+        calls = Path(self.log).read_text().splitlines()
+        self.assertEqual(calls[-1], "-R 1001:118 %s %s" % (self.out, self.inputs))
+        self.assertNotIn(RUN_STARTED, err)
 
     def test_internal_entry_refuses_without_root_or_with_wrong_arguments(self):
         os.remove(os.path.join(self.bin, "id"))           # the real uid: not root
