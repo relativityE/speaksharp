@@ -225,8 +225,9 @@ def _rules(doc):
         found = [j for j in jobs if isinstance(j["name"], str) and j["name"].startswith(prefix)]
         _need(len(found) == 1 and found[0]["status"] == "completed" and found[0]["conclusion"] == wanted, "unexecuted-job-" + key)
     live = _live(jobs)
-    steps = live["steps"]
-    _need(len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"} for s in steps), "unexecuted-steps")
+    steps = live.get("steps")
+    # Sam 1794084154: the validator re-checks the TYPE too; {} or "" would otherwise read as zero steps
+    _need(isinstance(steps, list) and len(steps) <= 128 and all(isinstance(s, dict) and set(s) == {"number", "name", "status", "conclusion"} for s in steps), "unexecuted-steps")
     failed = sorted((s for s in steps if s["conclusion"] == "failure"), key=lambda s: s["number"])
     base_live = {"name", "status", "conclusion", "startedAt", "completedAt", "runId", "attempt", "headSha", "steps"}
     if not steps:

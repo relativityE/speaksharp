@@ -107,6 +107,14 @@ class PreRunFailure(unittest.TestCase):
         self.refused("unexecuted-shape", U.check_evidence, dict(doc, rejection={"reason": "environment"}))
         self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting="preflight-bound"))
         self.refused("unexecuted-credential-steps", U.check_evidence, dict(doc, credentialSteps=[]))
+        for value in ({}, "", None, False, 0, "[]", ()):                     # the validator itself re-checks the step list's TYPE
+            with self.subTest(steps=value):
+                tampered = copy.deepcopy(doc)
+                next(j for j in tampered["jobs"] if j["name"].startswith(U.LIVE_JOB_PREFIX))["steps"] = value
+                self.refused("unexecuted-steps", U.check_evidence, tampered)
+        tampered = copy.deepcopy(doc)
+        del next(j for j in tampered["jobs"] if j["name"].startswith(U.LIVE_JOB_PREFIX))["steps"]
+        self.assertRaises(U.Refused, U.check_evidence, tampered)
         tampered = copy.deepcopy(doc)                                       # the no-runner fields are re-verified, not trusted
         next(j for j in tampered["jobs"] if j["name"].startswith(U.LIVE_JOB_PREFIX))["runnerId"] = 3
         self.refused("unexecuted-pre-run-job", U.check_evidence, tampered)
