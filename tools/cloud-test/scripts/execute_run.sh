@@ -12,6 +12,27 @@
 set -euo pipefail
 STAGE="${1:-}"
 blocked() { echo "BLOCKED_SETUP: $*" >&2; exit 78; }
+# Internal second half of the elevated run stage (see below), entered only through sudo. Sam 1794066566/1794066358 corrections: taking
+# ownership of the run-owned trees must stop the stage when it fails, and returning it must be reported (and fail the stage) when it fails.
+if [ "$STAGE" = run-as-root ]; then
+  [ "$(id -u)" = 0 ] && [ "$#" -eq 4 ] || blocked "run-as-root is internal to the elevated run stage"
+  envfile="$2"; owner="$3"; pin="$4"
+  [ -f "$envfile" ] && [ ! -L "$envfile" ] || blocked "elevated run environment missing"
+  . "$envfile"; rm -f "$envfile"
+  [ -n "${CT_OUT:-}" ] && [ -d "$CT_OUT" ] && [ ! -L "$CT_OUT" ] || blocked "CT_OUT is required to elevate the run stage"
+  trees=("$CT_OUT"); if [ -d "$pin" ] && [ ! -L "$pin" ]; then trees+=("$pin"); fi
+  give_back() { chown -R "$owner" "${trees[@]}" || { echo "BLOCKED_SETUP: run outputs could not be returned to the job user" >&2; return 1; }; }
+  trap 'give_back; exit 143' TERM
+  trap 'give_back; exit 130' INT
+  if ! chown -R 0:0 "${trees[@]}"; then
+    echo "BLOCKED_SETUP: run-owned trees could not be taken for the root run stage; the stage did not run" >&2
+    give_back || exit 78
+    exit 78
+  fi
+  rc=0; bash "$0" run || rc=$?
+  if ! give_back; then [ "$rc" -ne 0 ] || rc=78; fi
+  exit "$rc"
+fi
 case "$STAGE" in
   install-tools|build-plan|stimulus-preflight|build-plan-with-receipt|gate-and-validate|reserve|manual-reserve|run|collect|settle|manual-settle) ;;
   *) blocked "unknown stage $STAGE" ;;
@@ -27,10 +48,10 @@ if [ "$STAGE" = run ] && [ "${CT_RUN_STAGE_AS_ROOT:-}" = 1 ] && [ "$(id -u)" != 
   # R10 run 42386714252 (A7 "identity receipt unavailable"): the harness's private-state checks (identity-core assertPrivateDir/File,
   # campaign-runner privateDir, with-authenticated-evidence privateJson, producer directories) require the run's own private outputs to be
   # owned by the process that reads them. They were created by the job user in earlier stages, so the root run stage first takes ownership
-  # of exactly those run-owned trees ($CT_OUT and the private run inputs) and the trap returns both to the job user on any exit.
+  # of exactly those run-owned trees ($CT_OUT and the private run inputs) in run-as-root above, and returns both to the job user after the
+  # stage or on INT/TERM; a failed take stops the stage, a failed return is reported and fails it.
   private_inputs="${CT_PRIVATE_INPUT_DIR:-${RUNNER_TEMP:-/nonexistent}/run-inputs}"
-  exec sudo -n bash -c 'f="$1"; . "$f"; rm -f "$f"; owner="$2"; pin="$4"; trees=("$CT_OUT"); [ -d "$pin" ] && [ ! -L "$pin" ] && trees+=("$pin"); trap '"'"'chown -R "$owner" "${trees[@]}"'"'"' EXIT INT TERM; chown -R 0:0 "${trees[@]}"; bash "$3" run' \
-    _ "$envfile" "$(id -u):$(id -g)" "$0" "$private_inputs"
+  exec sudo -n bash "$0" run-as-root "$envfile" "$(id -u):$(id -g)" "$private_inputs"
 fi
 [ -z "${SUPABASE_SECRET_KEY:-}" ] || blocked "SUPABASE_SECRET_KEY is present; forbidden"
 [ -z "${STRIPE_SECRET_KEY:-}" ] || blocked "STRIPE_SECRET_KEY is present; forbidden"
