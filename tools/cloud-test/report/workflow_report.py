@@ -430,7 +430,7 @@ def render(rep, wf):
         A(" <b>After the run:</b> %s requests above the reserve; identity reads %s; Starts %s; takes %s." % (ra["requests"], ra["identityReads"], ra["starts"] if ra["starts"] is not None else "not recorded", ra["takes"] if ra["takes"] is not None else "not recorded"))
     A("</p>")
     A("<h3>Cumulative usage reconciled before any ceiling is approved</h3>")
-    if rc.get("source") == "accepted-rollup":
+    if "runs" not in rc and isinstance(rc.get("period"), dict):     # the accepted-rollup checkpoint's shape; a legacy table keeps its section
         # The occurrence route's checkpoint (accounting_rollup): the verified journal's period totals, never the legacy sealed-ledger table
         # (R10 post-A7 rehearsal: KeyError 'runs' on this route). The same five counters, the journal identity and the open reservations.
         pe = rc["period"]
