@@ -18,7 +18,7 @@ test('the 5a7 feedback product path is byte-identical to the originally inspecte
   'frontend/src/services/telemetry/feedbackTelemetry.ts':'7b9a09ee584a30e87deb0042a11b769fe7c405030349013c438c560078e2ff39'};
  for(const [file,digest] of Object.entries(expected))assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(repo,file))).digest('hex'),digest,file);
 });
-async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false,pcmReceipt=null,objectiveReceipt=null,saveFailure=false,finalWaitFailure=false,successfulCoaching=false,repeatWindowFailure=false}={}){
+async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,unknownCaptureError=false,wrongSavedTake=false,falseFullFocus=false,wrongReopen=false,pcmReceipt=null,objectiveReceipt=null,saveFailure=false,finalWaitFailure=false,successfulCoaching=false,repeatWindowFailure=false,coachingBeginThrows=false,captureStalls=false}={}){
  const fixtureName=caseId==='AHT-01'?'open_mic_tts':caseId==='AHT-02'?'focus_points_tts':'focus_points_partial_tts';
  const fixture=manifest[fixtureName],contract=adapters.CONTRACTS[caseId],seen=[],writes=[],recorded=[];
  const c={caseId,campaignId:'UNIT-ONLY',sourceSha:adapters.SOURCE_SHA,servedSha:adapters.SOURCE_SHA,targetUrl:'https://unit.invalid',requiredAssertions:contract.rows,
@@ -45,7 +45,7 @@ async function execute(caseId,{staleOwner=false,coaching502=false,late502=false,
  patch(presentation,'group',id=>({id,result:'PASS',facts:{synthetic:true}}));patch(focusControls,'backReload',async()=>[]);
  patch(repeatProbes,'beginRapidRepeat',()=>({}));patch(repeatProbes,'rapidRepeat',async()=>[{id:'rapid-repeat-gate',result:'PASS',facts:{}},{id:'rapid-repeat-release',result:'PASS',facts:{}}]);patch(repeatProbes,'nextStart',async()=>[{id:'next-start',result:'PASS',facts:{}},{id:'next-start-release',result:'PASS',facts:{}}]);patch(repeatProbes,'cancelRapidWindow',async()=>{});
  if(repeatWindowFailure)patch(smokeTiming,'repeatRecordingWindowMs',()=>{throw new Error('synthetic repeat window failure');});
- const oracles=Object.fromEntries(contract.oracles.map(name=>[name,async a=>{seen.push(name+':'+a.phase);if(name==='coaching'&&a.phase==='capture'&&!successfulCoaching){const error=Error('synthetic missing saved inputs; private-content');if(!unknownCaptureError)error.code='NOT_RUN';throw error;}return a.phase==='assert'?{observed:true,result:'PASS',contentSafe:true,evidenceRefs:['unit/oracle.json']}:{observed:true};}]));
+ const oracles=Object.fromEntries(contract.oracles.map(name=>[name,async a=>{seen.push(name+':'+a.phase);if(name==='coaching'&&a.phase==='begin'&&coachingBeginThrows)throw new Error('synthetic observer arming failure; private-content');if(name==='coaching'&&a.phase==='capture'&&captureStalls){seen.push('capture-signal:'+(a.signal?'present':'absent'));return new Promise(()=>{});}if(name==='coaching'&&a.phase==='capture'&&!successfulCoaching){const error=Error('synthetic missing saved inputs; private-content');if(!unknownCaptureError)error.code='NOT_RUN';throw error;}return a.phase==='assert'?{observed:true,result:'PASS',contentSafe:true,evidenceRefs:['unit/oracle.json']}:{observed:true};}]));
  try{return {result:await adapters.run(caseId,{context:{newPage:async()=>page,grantPermissions:async()=>{}},guard:{summary:()=>({ledgerUsed:{model:0}})},caseConfig:c,capabilities:{credentials:{email:'synthetic@example.invalid',password:'synthetic-only'},oracles,recordStartPress:async()=>{},writeEvidence:async(name,value)=>{writes.push(value);return name;},recordAssertion:async row=>{recorded.push(row);seen.push('assert:'+row.id);}}}),seen,writes,recorded};}
  finally{for(const [o,k,v]of old.reverse())o[k]=v;}
 }
@@ -80,6 +80,37 @@ test('false full Focus verdict still fails the partial case',async()=>{
 });
 test('wrong reopened transcript stays FAIL after independent coaching failure',async()=>{
  const f=await execute('AHT-01',{coaching502:true,wrongReopen:true});assert.equal(f.recorded.find(r=>r.id==='review-reopen')?.result,'FAIL');assert.equal(f.recorded.find(r=>r.id==='grounded-coaching')?.result,'FAIL');
+});
+// Sam 1794165220: coaching failure isolation. A begin (observer arming) throw and a capture that never settles must each leave the take,
+// save, reopen and PDF checks running with their real verdicts, and record grounded-coaching once, truthfully; no repeat is attempted.
+for(const caseId of ['AHT-01','AHT-02','AHT-03'])test(caseId+' coaching begin throw: one Start, independent rows keep real verdicts, grounded NOT RUN',async()=>{
+ const f=await execute(caseId,{coachingBeginThrows:true});
+ assert.equal(f.seen.filter(x=>x==='start').length,1,'the first take still runs');
+ assert.equal(f.seen.includes('coaching:capture'),false,'no capture without an armed observer');
+ for(const id of ['saved-once','review-reopen',...(caseId==='AHT-01'?['pdf-owner-take']:['focus-final'])])assert.equal(f.recorded.find(r=>r.id===id)?.result,'PASS',id);
+ const grounded=f.recorded.filter(r=>r.id==='grounded-coaching');assert.equal(grounded.length,1);assert.equal(grounded[0].result,'NOT RUN');
+ assert.equal(f.recorded.find(r=>r.id==='same-target-repeat')?.result,'NOT RUN');
+ assert.ok(f.writes.some(x=>x.kind==='coaching-begin-interruption'));
+ assert.ok(!JSON.stringify(f.writes).includes('private-content'));
+ assert.equal(f.result.blocker,'coaching-begin-unavailable');
+});
+test('a stalled first coaching capture is bounded: reopen and PDF still run with real verdicts, grounded FAIL, no repeat',async()=>{
+ const saved=adapters.coachingBounds.firstCaptureMs;adapters.coachingBounds.firstCaptureMs=30;
+ try{
+  const f=await execute('AHT-01',{captureStalls:true});
+  assert.ok(f.seen.includes('capture-signal:present'),'the capture receives an abort signal');
+  for(const id of ['saved-once','review-reopen','pdf-owner-take'])assert.equal(f.recorded.find(r=>r.id===id)?.result,'PASS',id);
+  assert.ok(f.seen.indexOf('coaching:capture')<f.seen.indexOf('reopen'));
+  const grounded=f.recorded.filter(r=>r.id==='grounded-coaching');assert.equal(grounded.length,1);assert.equal(grounded[0].result,'FAIL');
+  const interruption=f.writes.find(x=>x.kind==='coaching-capture-interruption');assert.deepEqual(interruption.capture,{phase:'capture-bound',cause:'capture-deadline-exceeded'});
+  assert.equal(f.seen.filter(x=>x==='start').length,1);
+  const f2=await execute('AHT-01',{captureStalls:true,wrongReopen:true});
+  assert.equal(f2.recorded.find(r=>r.id==='review-reopen')?.result,'FAIL','a real reopen failure is still reported after a stall');
+ }finally{adapters.coachingBounds.firstCaptureMs=saved;}
+});
+test('the production capture bound sits above the capture readiness wait',()=>{
+ assert.equal(adapters.coachingBounds.firstCaptureMs,120000);
+ assert.match(fs.readFileSync(path.join(root,'oracles/index.cjs'),'utf8'),/timeout:45000/);
 });
 test('AHT-01 stale 24-session fixture stops before recording intent',async()=>{
  const f=await execute('AHT-01',{staleOwner:true});

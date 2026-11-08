@@ -119,7 +119,7 @@
     }
   },
   "harness": {
-    "codeManifestSha256": "ca9ae2aae49477f2bca09b5b57221d759d318b1fe52be37b9be8a17faef367cb",
+    "codeManifestSha256": "57989751b5da16dd213f35f4e67e60c5aee40412396edc47b8e486f2c69e4066",
     "packetManifestSha256": "9384b05133f6f1437736aa787a8e3ffd0281b8a7789f775a512f2bc762f70a86",
     "ownerApprovalRef": "slack:1794145532.283429",
     "offlineProofFile": "config/proofs/offline-proof-74d26870.json"
