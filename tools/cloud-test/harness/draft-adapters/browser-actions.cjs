@@ -22,9 +22,20 @@ function trail(page,event,{route='route-other',status=null,error=null}={}){try{i
   t.events.push({event,route:TRAIL_ROUTES.has(route)?route:'route-other',statusClass,netError:error?safeErrorSummary(error).netError:null,ms:Math.min(Math.max(Date.now()-t.t0,0),3600000)});
   if(t.events.length>TRAIL_MAX)t.events.splice(0,t.events.length-TRAIL_MAX);}catch{}}
 function navigationTrail(page){const t=page&&typeof page==='object'?pageTrails.get(page):null;return t?t.events.map(e=>({...e})):[];}
-async function trackedGoto(page,url,route,opts){trail(page,'nav-start',{route});let response;
-  try{response=await page.goto(url,opts);}catch(error){trail(page,'nav-error',{route,error});throw error;}
-  let status=null;try{status=response?response.status():null;}catch{status=null;}trail(page,'nav-response',{route,status});return response;}
+// A navigation the egress guard refused (any response carrying x-ss-harness-deny on the main-frame document) is a harness/setup stop, never a
+// product verdict: fail at once as NOT RUN with a closed blocker, instead of waiting 30 s for an element and reporting stage `idle`. Chromium may
+// either resolve such a navigation with the guard's status or throw net::ERR_HTTP_RESPONSE_CODE_FAILURE; the header is captured in both cases.
+const GUARD_DENY=/^(policy|host|cap:[a-z-]{1,24}|upstream-error|deadline|deadline-passed|closing|concurrency-wait|websocket|plain-http|malformed|host-mismatch)$/;
+function guardRefused(deny){const e=new Error('navigation refused by the egress guard');e.code='NOT_RUN';e.trustedBlocker='guard-refused-navigation:'+(GUARD_DENY.test(deny)?deny:'other');return e;}
+async function trackedGoto(page,url,route,opts){trail(page,'nav-start',{route});let response,deny=null;
+  const onResponse=r=>{try{if(r.request().isNavigationRequest()&&(typeof page.mainFrame!=='function'||r.frame()===page.mainFrame())){const d=r.headers()['x-ss-harness-deny'];if(d)deny=String(d);}}catch{/* closed page */}};
+  const watch=typeof page.on==='function'&&typeof page.off==='function';if(watch)page.on('response',onResponse);
+  try{response=await page.goto(url,opts);}catch(error){trail(page,'nav-error',{route,error});if(deny)throw guardRefused(deny);throw error;}
+  finally{if(watch)page.off('response',onResponse);}
+  let status=null;try{status=response?response.status():null;}catch{status=null;}trail(page,'nav-response',{route,status});
+  if(!deny){try{deny=response?(await response.headerValue('x-ss-harness-deny')):null;}catch{deny=null;}}
+  if(deny)throw guardRefused(deny);
+  return response;}
 const productsFailures=new WeakMap();
 async function productsSnapshot(page){
  try{
