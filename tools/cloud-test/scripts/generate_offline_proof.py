@@ -5,7 +5,9 @@
 3. the eleven original mutation controls plus the additional A- controls (harness_mutation_controls.py);
 4. the 3 positive / 11 negative plan controls on the real runner;
 5. offline_proof.py (fail-closed) over all of it, bound to the pinned code manifest.
-Only statuses and counts are printed; TAP, plans and the proof stay in --work on the runner. No network beyond loopback, no credentials.
+Only statuses, counts and, for each non-passing test, its suite, inventory ordinal, closed category and REVIEWED title from
+config/proof-test-titles.v1.json (proof_title_inventory.py; an unknown or malformed title refuses the proof) are printed; TAP, plans and
+the proof stay in --work on the runner. No network beyond loopback, no credentials.
 Usage: generate_offline_proof.py --work NEW_DIR --proof-out FILE [--chrome PINNED_CHROME] [--playwright-cwd DIR]"""
 import argparse
 import glob
@@ -57,12 +59,31 @@ def node_tap(args, cwd, env, out):
     return r.returncode, r.stdout
 
 
-def run_problems(suites, plan_run, mutations, refusals, expected_controls, proof_run, proof, plan_inventory, service_counts=None):
+def title_report(suites, inventory):
+    """Every run test resolved through the reviewed title inventory (Sam 1794180453): (rows, problems). A suite whose TAP cannot be
+    judged resolves as None, so all of its inventoried tests are NOT RUN; unknown or malformed titles are counted, never printed."""
+    sys.path.insert(0, HERE)
+    import harness_mutation_controls as M
+    import proof_title_inventory as PT
+    results = {}
+    for name, (rc, text) in suites.items():
+        try:
+            results[name] = M.parse_tap(text, rc)
+        except M.TapError:
+            results[name] = None
+    return PT.resolve(inventory, results)
+
+
+def run_problems(suites, plan_run, mutations, refusals, expected_controls, proof_run, proof, plan_inventory, service_counts=None,
+                 title_inventory=None):
     """Every reason this run cannot yield an accepted proof (Sam 1793385574); empty means accept. Pure: inputs are completed results.
-    suites: {name: (returncode, tap_text)}; plan_run: (returncode, stdout); proof_run: returncode of offline_proof.py."""
+    suites: {name: (returncode, tap_text)}; plan_run: (returncode, stdout); proof_run: returncode of offline_proof.py;
+    title_inventory: the reviewed {suite: [title]} every run test must resolve through (None only in legacy unit fixtures)."""
     sys.path.insert(0, HERE)
     import harness_mutation_controls as M
     problems = []
+    if title_inventory is not None:
+        problems += title_report(suites, title_inventory)[1]
     for name, (rc, text) in suites.items():
         try:
             tests = M.parse_tap(text, rc)
@@ -107,6 +128,7 @@ def main():
     import harness_mutation_controls as M
     import offline_proof
     import proof_prep_cases as prep
+    import proof_title_inventory as PT
     a = argparse.ArgumentParser()
     a.add_argument("--work", required=True)
     a.add_argument("--proof-out", required=True)
@@ -118,6 +140,10 @@ def main():
     if os.path.exists(proof_out) or os.path.exists(work):
         raise SystemExit("BLOCKED_SETUP: --proof-out or --work already exists; a previous run's output can never satisfy this run")
     cfg = config()
+    try:
+        titles = PT.load()
+    except PT.InventoryError as e:
+        raise SystemExit("BLOCKED_SETUP: the reviewed proof test-title inventory is invalid (%s)" % e)
     if not x.chrome:
         raise SystemExit("BLOCKED_SETUP: --chrome or CT_CHROME (the discovered preinstalled browser) is required")
     if not x.browser_receipt:
@@ -183,7 +209,7 @@ def main():
     except (OSError, ValueError):
         proof = None
     problems = run_problems(suites, plan_run, mutations, refusals, list(M.PACKET) + list(M.ADDITIONAL), r.returncode, proof,
-                            offline_proof.PLAN_CONTROLS, service_counts=SERVICE_TEST_COUNTS)
+                            offline_proof.PLAN_CONTROLS, service_counts=SERVICE_TEST_COUNTS, title_inventory=titles)
     print("mutation controls: %d caught of %d; %d refused" % (sum(isinstance(v, dict) and v.get("fail", 0) > 0 for v in mutations.values()), len(mutations), len(refusals)))
     if isinstance(proof, dict):
         print("plan controls: %s" % {k: v for k, v in proof.get("planControls", {}).items() if k != "mismatched"})
@@ -192,6 +218,10 @@ def main():
             print("plan-control mismatches: %s" % ", ".join(str(v)[:120] for v in mismatched))
         print("corrections: %s" % ", ".join("%s %s" % (c["id"], c["result"]) for c in proof.get("corrections", [])))
         print("proof %s; refusals: %s" % (proof.get("result"), "; ".join(proof.get("refusals", [])) or "none"))
+    rows, _ = title_report(suites, titles)
+    print("tests by reviewed title: %s" % {st: sum(r["status"] == st for r in rows) for st in PT.STATUSES})
+    for line in PT.report_lines(rows):
+        print(line)
     for problem in problems:
         print("NOT ACCEPTED: " + problem)
     if problems:

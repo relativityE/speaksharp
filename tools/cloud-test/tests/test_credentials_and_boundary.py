@@ -200,7 +200,7 @@ class Credentials(unittest.TestCase):
                 self.assertNotIn("not-printed-", result.stdout + result.stderr)
 
     def test_the_service_role_key_appears_only_where_it_is_forbidden_or_explained(self):
-        allowed = ("config/test-config.v1.json", "scripts/execute_run.sh", "scripts/pipeline.py", "tests/", "README.md", "WORKFLOW.md", "CHANGELOG.md", "CREDENTIALS.md", "harness/", "report/", "templates/", "NEXT-RUN-PROPOSAL.md", "samples/", "config/history/")
+        allowed = ("config/test-config.v1.json", "config/proof-test-titles.v1.json", "scripts/execute_run.sh", "scripts/pipeline.py", "tests/", "README.md", "WORKFLOW.md", "CHANGELOG.md", "CREDENTIALS.md", "harness/", "report/", "templates/", "NEXT-RUN-PROPOSAL.md", "samples/", "config/history/")
         offenders = []
         for r, _, fs in os.walk(ROOT):
             for fn in fs:
