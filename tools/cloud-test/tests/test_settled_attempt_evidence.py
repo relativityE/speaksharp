@@ -1,7 +1,7 @@
-"""Run 42483030590 RESERVED, EXECUTED (its live job failed in the run step) and was SETTLED, but its record was not publishable, so the latest
+"""Run 42483030590 RESERVED, its live job completed with failure, and it was SETTLED, but its record was not publishable, so the latest
 record stayed `incomplete` and every later `begin` refused (Sam 1794144135, 1794145971). Real data: GitHub's run and jobs JSON for that run
-(trimmed to the fields used, tests/fixtures/executed), the journal's real reserve 96605dd and settle 2e68640, and the stored record before.
-It retires as `executed-unpublished` history bound to that exact pair: no re-settlement, no amount change, no case result. Every negative
+(trimmed to the fields used, tests/fixtures/settled), the journal's real reserve 96605dd and settle 2e68640, and the stored record before.
+It retires as `settled-unpublished` history (case execution is not asserted) bound to that exact pair: no re-settlement, no amount change, no case result. Every negative
 control changes one fact and must refuse."""
 import copy
 import hashlib
@@ -14,10 +14,10 @@ import unittest
 import unittest.mock
 
 from _fixtures import ROOT  # noqa: F401  (puts scripts/ on sys.path)
-import executed_attempt_evidence as E
+import settled_attempt_evidence as E
 import publish_latest_record as P
 
-FX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "executed")
+FX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "settled")
 RUN_ID = "42483030590"
 HEAD = "204190f5ad872e4747da56cdbd23dd719104fb8c"
 ROOT_SHA = "92d6ebf902351750c368d7d513116c6b1f19f80c"
@@ -32,7 +32,7 @@ SETTLE = {"allocation": {"coachingRequests": 20, "identityReads": 32, "requests"
           "provenance": "evidence-sha256:3ee665effbebf7ea8f9d407fc27ee2dbfbdf27f65067eb8f00a342558fae17bb", "runId": RUN_ID, "type": "settle"}
 OTHER = {"allocation": dict(SETTLE["allocation"]), "atUtc": "2026-11-08T08:00:00Z", "attempt": 1, "campaignId": "R10-3b040043-smoke15",
          "provenance": "evidence-sha256:" + "1" * 64, "runId": "42472935773", "type": "settle"}
-DIGEST = "cd3199e3b069e028fbb2ba50b08fdd582e84e0f545917c2b52479f1e8244dbf6"   # the document collected from the real journal at 14:11:52Z
+DIGEST = "0ba6d177610a0c7b6b042d7a8d992173dc280c445671175070cf811c15ecadf7"   # the document collected from the real journal at 14:11:52Z
 
 
 def load(name):
@@ -98,13 +98,13 @@ class Evidence(unittest.TestCase):
                 build(ch=chain([OTHER, RESERVE, settle]))
         over = build()
         over["journal"]["settledAllocation"]["requests"] = 3362
-        with self.assertRaisesRegex(E.Refused, "executed-settle-exceeds-reservation"):
+        with self.assertRaisesRegex(E.Refused, "settled-settle-exceeds-reservation"):
             E.check_evidence(over)
 
     def test_the_root_must_be_the_pinned_one(self):
         ch = chain()
         ch[0] = ("f" * 40, [])
-        with self.assertRaisesRegex(E.Refused, "executed-journal-root"):
+        with self.assertRaisesRegex(E.Refused, "settled-journal-root"):
             build(ch=ch)
 
     def test_the_run_must_be_completed_and_failed_attempt_one(self):
@@ -133,7 +133,7 @@ class Evidence(unittest.TestCase):
                 build(jobs=jobs_with(change))
 
     def test_the_collection_time_is_not_before_the_run_finished(self):
-        with self.assertRaisesRegex(E.Refused, "executed-collected-time"):
+        with self.assertRaisesRegex(E.Refused, "settled-collected-time"):
             build(collected="2026-11-08T13:12:55Z")
 
     def test_the_document_shape_is_closed(self):
@@ -148,7 +148,7 @@ class Evidence(unittest.TestCase):
                 E.check_evidence(doc)
 
     def test_the_cli_checks_a_document_and_refuses_with_exit_78(self):
-        script = os.path.join(os.path.dirname(os.path.abspath(E.__file__)), "executed_attempt_evidence.py")
+        script = os.path.join(os.path.dirname(os.path.abspath(E.__file__)), "settled_attempt_evidence.py")
         with tempfile.TemporaryDirectory() as d:
             good, bad = os.path.join(d, "good.json"), os.path.join(d, "bad.json")
             with open(good, "wb") as f:
@@ -161,36 +161,38 @@ class Evidence(unittest.TestCase):
             self.assertEqual((ok.returncode, ok.stdout.strip()), (0, DIGEST))
             no = subprocess.run([sys.executable, "-I", script, "check", "--evidence", bad], capture_output=True, text=True)
             self.assertEqual(no.returncode, 78)
-            self.assertIn("BLOCKED_SETUP: executed-evidence-shape", no.stderr)
+            self.assertIn("BLOCKED_SETUP: settled-evidence-shape", no.stderr)
 
 
-class RetireExecuted(unittest.TestCase):
+class RetireSettled(unittest.TestCase):
     def stuck(self):
         return P.parse_body(record_before())
 
     def pred(self):
         return hashlib.sha256(record_before().encode("utf-8")).hexdigest()
 
-    def test_the_real_record_retires_as_executed_unpublished_and_the_next_run_can_begin(self):
+    def test_the_real_record_retires_as_settled_unpublished_and_the_next_run_can_begin(self):
         stuck = self.stuck()
         self.assertEqual(stuck["inProgress"], {"attempt": 1, "runId": RUN_ID, "sourceSha": HEAD, "startedUtc": "2026-11-08T13:02:28Z",
                                                "status": "incomplete"})
         with self.assertRaisesRegex(P.Refused, "previous-attempt-unreconciled"):
             P.begin(stuck, "42999999999", 1, HEAD, "2026-11-08T15:00:00Z")      # the wedge this removes
-        self.assertEqual(P.executed_candidate(stuck, build()), RUN_ID)
-        after = P.retire_executed(stuck, build(), self.pred())
+        self.assertEqual(P.settled_candidate(stuck, build()), RUN_ID)
+        after = P.retire_settled(stuck, build(), self.pred())
         stored = P.parse_body(P.render(after))
         self.assertEqual(stored, after)
         self.assertIsNone(stored["inProgress"])
         self.assertEqual(stored["latestCompleted"], stuck["latestCompleted"], "no completion is manufactured")
         self.assertEqual(stored["retiredAttempts"][:-1], stuck["retiredAttempts"], "earlier entries byte-identical")
         last = stored["retiredAttempts"][-1]
-        self.assertEqual((last["runId"], last["retiredReason"], last["predecessorSha256"]), (RUN_ID, "executed-unpublished", self.pred()))
+        self.assertEqual((last["runId"], last["retiredReason"], last["predecessorSha256"]), (RUN_ID, "settled-unpublished", self.pred()))
         self.assertEqual(last["evidence"], {"runStatus": "completed", "runConclusion": "failure", "runUpdatedUtc": "2026-11-08T13:12:56Z",
                                             "collectedUtc": COLLECTED, "evidenceSha256": DIGEST, "journalHeadSha": SETTLE_SHA,
                                             "reserveSha": RESERVE_SHA, "settleSha": SETTLE_SHA, "settleAtUtc": "2026-11-08T13:12:38Z",
                                             "runnerMinutes": 60})
-        self.assertIn("Executed, record not publishable (not a completed run; no case results recorded): run 42483030590", P.render(after))
+        self.assertIn("Settled, record unpublished (not a completed run; case execution not asserted; no case results recorded): run 42483030590",
+                      P.render(after))
+        self.assertNotIn("Executed", P.render(after))
         nxt = P.begin(stored, "42999999999", 1, HEAD, "2026-11-08T15:00:00Z")
         self.assertEqual(nxt["inProgress"]["runId"], "42999999999")
 
@@ -203,46 +205,46 @@ class RetireExecuted(unittest.TestCase):
                              ("another head", dict(stuck, inProgress=dict(live, sourceSha="c" * 40))),
                              ("nothing in progress", dict(stuck, inProgress=None)),
                              ("a pending completion", dict(stuck, pendingCompletion={"x": 1}))):
-            self.assertIsNone(P.executed_candidate(state, build()), label)
-            with self.assertRaisesRegex(P.Refused, "executed-not-a-candidate", msg=label):
-                P.retire_executed(state, build(), self.pred())
-        self.assertIsNone(P.executed_candidate(stuck, None))
+            self.assertIsNone(P.settled_candidate(state, build()), label)
+            with self.assertRaisesRegex(P.Refused, "settled-not-a-candidate", msg=label):
+                P.retire_settled(state, build(), self.pred())
+        self.assertIsNone(P.settled_candidate(stuck, None))
 
     def test_the_evidence_is_rechecked_here_never_trusted(self):
         # rendering is offline: the journal pair was bound from the freshly validated chain by `collect` in the same step, and the entry's
         # evidenceSha256 binds that document byte for byte, so any edited document is visibly another digest
         edited = build()
         edited["journal"]["settledAllocation"]["requests"] = 1
-        self.assertNotEqual(P.retire_executed(self.stuck(), edited, self.pred())["retiredAttempts"][-1]["evidence"]["evidenceSha256"], DIGEST)
+        self.assertNotEqual(P.retire_settled(self.stuck(), edited, self.pred())["retiredAttempts"][-1]["evidence"]["evidenceSha256"], DIGEST)
         for label, change in (("live succeeded", lambda d: d["jobs"].update(liveJob="success")),
                               ("another root", lambda d: d["journal"].update(rootSha="f" * 40)),
                               ("settled before the attempt started", lambda d: d["journal"].update(settleAtUtc="2026-11-08T13:00:00Z"))):
             doc = build()
             change(doc)
             with self.assertRaises(P.Refused, msg=label):
-                P.retire_executed(self.stuck(), doc, self.pred())
-        with self.assertRaisesRegex(P.Refused, "executed-predecessor"):
-            P.retire_executed(self.stuck(), build(), "x")
+                P.retire_settled(self.stuck(), doc, self.pred())
+        with self.assertRaisesRegex(P.Refused, "settled-predecessor"):
+            P.retire_settled(self.stuck(), build(), "x")
 
     def test_history_and_the_bound_are_preserved(self):
         stuck = self.stuck()
         real = P._with_retired
         with unittest.mock.patch.object(P, "_with_retired", lambda state, entry: dict(real(state, entry), latestCompleted=None)):
-            with self.assertRaisesRegex(P.Refused, "executed-history-changed"):
-                P.retire_executed(stuck, build(), self.pred())
+            with self.assertRaisesRegex(P.Refused, "settled-history-changed"):
+                P.retire_settled(stuck, build(), self.pred())
         with unittest.mock.patch.object(P, "_with_retired", lambda state, entry: dict(real(state, entry), retiredAttempts=[entry])):
-            with self.assertRaisesRegex(P.Refused, "executed-history-changed"):
-                P.retire_executed(stuck, build(), self.pred())
+            with self.assertRaisesRegex(P.Refused, "settled-history-changed"):
+                P.retire_settled(stuck, build(), self.pred())
         full = dict(stuck, retiredAttempts=[dict(stuck["retiredAttempts"][0], runId=str(41900000000 + i)) for i in range(P.RETIRED_MAX)])
         with self.assertRaisesRegex(P.Refused, "retired-attempts-bound"):
-            P.retire_executed(full, build(), self.pred())
-        twice = P.retire_executed(stuck, build(), self.pred())
+            P.retire_settled(full, build(), self.pred())
+        twice = P.retire_settled(stuck, build(), self.pred())
         again = dict(twice, inProgress=stuck["inProgress"])
         with self.assertRaisesRegex(P.Refused, "retired-attempts-bound"):
-            P.retire_executed(again, build(), self.pred())
+            P.retire_settled(again, build(), self.pred())
 
     def test_a_stored_entry_outside_its_closed_shape_refuses_on_read(self):
-        after = P.retire_executed(self.stuck(), build(), self.pred())
+        after = P.retire_settled(self.stuck(), build(), self.pred())
         for label, change in (("conclusion", lambda e: e["evidence"].update(runConclusion="success")),
                               ("same pair", lambda e: e["evidence"].update(settleSha=RESERVE_SHA)),
                               ("extra key", lambda e: e["evidence"].update(extra=1)),
@@ -260,9 +262,9 @@ class RetireExecuted(unittest.TestCase):
                 f.write(record_before())
             with open(ev, "wb") as f:
                 f.write(E.canon(build()))
-            cand = subprocess.run([sys.executable, "-I", script, "executed-candidate", "--previous", prev, "--evidence", ev], capture_output=True, text=True)
+            cand = subprocess.run([sys.executable, "-I", script, "settled-candidate", "--previous", prev, "--evidence", ev], capture_output=True, text=True)
             self.assertEqual((cand.returncode, cand.stdout.strip()), (0, RUN_ID))
-            ok = subprocess.run([sys.executable, "-I", script, "retire-executed", "--previous", prev, "--evidence", ev, "--out", out],
+            ok = subprocess.run([sys.executable, "-I", script, "retire-settled", "--previous", prev, "--evidence", ev, "--out", out],
                                 capture_output=True, text=True)
             self.assertEqual(ok.returncode, 0, ok.stderr)
             with open(out, encoding="utf-8") as f:
@@ -271,7 +273,7 @@ class RetireExecuted(unittest.TestCase):
             doc["jobs"]["settleJob"] = "failure"
             with open(ev, "wb") as f:
                 f.write(E.canon(doc))
-            no = subprocess.run([sys.executable, "-I", script, "retire-executed", "--previous", prev, "--evidence", ev, "--out", out + ".2"],
+            no = subprocess.run([sys.executable, "-I", script, "retire-settled", "--previous", prev, "--evidence", ev, "--out", out + ".2"],
                                 capture_output=True, text=True)
             self.assertEqual(no.returncode, 78)
             self.assertFalse(os.path.exists(out + ".2"))

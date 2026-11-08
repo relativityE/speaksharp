@@ -234,9 +234,11 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
 
     def test_the_record_jobs_bind_the_exact_issue_and_comment(self):
-        # select at begin, select before the terminal write, and the readback verification after it: all bound to the one tracking issue
-        self.assertEqual(self.text.count('--issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE"'), 3)
+        # select at begin, the begin readback after its write (Sam 1794147839), select before the terminal write, and the readback
+        # verification after it: all bound to the one tracking issue
+        self.assertEqual(self.text.count('--issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE"'), 4)
         self.assertIn('--comment-id "$COMMENT_ID"', self.text)
+        self.assertIn('--comment-id "$id"', self.text)
 
     def test_producer_keys_reach_only_the_producer_route(self):
         protected = {
@@ -978,25 +980,33 @@ class UnexecutedAttemptRecovery(unittest.TestCase):
         # the reserved-attempt retirement runs first, so a reserved attempt never reaches the never-reserved path (which would refuse it)
         self.assertLess(run.index("unexecuted-candidate"), run.index("unreserved-candidate"))
 
-    def test_an_executed_unpublished_attempt_is_retired_after_the_unexecuted_path_and_before_the_never_reserved_path(self):
-        """Run 42483030590 (Sam 1794144135 / 1794145971): reserved, executed, settled, record not publishable. Retired only when the closed
-        executed-attempt evidence is collected AND the record names that attempt; a refusal falls through, so the never-reserved path below
+    def test_a_settled_unpublished_attempt_is_retired_after_the_unexecuted_path_and_before_the_never_reserved_path(self):
+        """Run 42483030590 (Sam 1794144135 / 1794145971): reserved, settled, record not publishable. Retired only when the closed
+        settled-attempt evidence is collected AND the record names that attempt; a refusal falls through, so the never-reserved path below
         (which refuses a run the journal names) still decides and the run stays fail-closed. No re-settlement: journal-reserve is untouched."""
         run = self.begin()
-        start = run.index("scripts/executed_attempt_evidence.py collect")
+        start = run.index("scripts/settled_attempt_evidence.py collect")
         block = run[run.rindex("if [", 0, start - 300):run.index("retired_unreserved=1", start) + 40]
-        order = [run.index(x) for x in ("retire-unexecuted", "scripts/executed_attempt_evidence.py collect", '"$P" executed-candidate', "retire-executed",
+        order = [run.index(x) for x in ("retire-unexecuted", "scripts/settled_attempt_evidence.py collect", '"$P" settled-candidate', "retire-settled",
                                         "unreserved_attempt_evidence.py", " begin --previous", "verify-predecessor", "gh api --method PATCH")]
         self.assertEqual(order, sorted(order))
         self.assertIn('[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]', block, "a manual dispatch only")
-        self.assertIn('if python3 -I tools/cloud-test/scripts/executed_attempt_evidence.py collect', block, "a refusal is a branch, not a step failure")
-        self.assertIn('actions/runs/$executed_run/jobs?per_page=100', block)
-        self.assertIn('mv "$RUNNER_TEMP/retired-executed.md" "$RUNNER_TEMP/previous.md"', block)
+        self.assertIn('if python3 -I tools/cloud-test/scripts/settled_attempt_evidence.py collect', block, "a refusal is a branch, not a step failure")
+        self.assertIn('actions/runs/$settled_run/jobs?per_page=100', block)
+        self.assertIn('mv "$RUNNER_TEMP/retired-settled.md" "$RUNNER_TEMP/previous.md"', block)
         self.assertIn("retired_unreserved=1", block, "bound to its predecessor before the one PATCH")
         self.assertEqual(run.count("gh api --method PATCH"), 1)
+        # Sam 1794147839: the begin PATCH/POST is followed by a persisted readback of exactly the rendered body
+        publish = run.index("gh api --method PATCH")
+        readback = run.index('"$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/begin-readback.json"')
+        self.assertLess(publish, readback)
+        self.assertLess(run.index('id="$(gh api --method POST'), readback)
+        self.assertLess(readback, run.index('echo "comment_id=$id" >> "$GITHUB_OUTPUT"'))
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" --jq \'[.]\' > "$RUNNER_TEMP/begin-readback.json"', run)
+        self.assertIn("NOT compare-and-swap", run)
         for job in ("journal-reserve", "journal-settle", "live", "record-complete"):
-            self.assertNotIn("scripts/executed_attempt_evidence", json.dumps(self.jobs[job]), job)
-            self.assertNotIn("retire-executed", json.dumps(self.jobs[job]), job)
+            self.assertNotIn("scripts/settled_attempt_evidence", json.dumps(self.jobs[job]), job)
+            self.assertNotIn("retire-settled", json.dumps(self.jobs[job]), job)
 
     def test_journal_reserve_settles_before_it_reserves_in_its_one_writer_step_for_a_manual_dispatch_with_retired_evidence_only(self):
         run = writers_of(self.jobs, "journal-reserve")

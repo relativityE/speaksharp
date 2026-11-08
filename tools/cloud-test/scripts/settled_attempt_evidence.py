@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Evidence that a RESERVED attempt EXECUTED and was SETTLED but left no publishable record (run 42483030590; Sam 1794144135, 1794145971).
+"""Evidence that a RESERVED attempt was SETTLED but left no publishable record (run 42483030590; Sam 1794144135, 1794145971, 1794147839).
 
-The run reserved, its live job ran (all 15 cases FAILED in ~1.1 s), its settle job appended the settle, but collection refused the record
+The run reserved, its live job completed with failure, its settle job appended the settle, but collection refused the record
 (`run-record-not-publishable:row-verdicts`), so the latest record stays `incomplete` with no completion candidate and every later `begin`
 refuses `previous-attempt-unreconciled`. Neither existing retirement fits: the run reserved (not `never-reserved`) and is settled (not an
-open reserve). This document binds, from GitHub's report and a freshly validated journal:
+open reserve). This proves a SETTLED attempt only; it does not assert that any case or driver executed. `collect` is the authority: it
+reads GitHub's run and jobs and freshly validates the journal from the pinned root, binding
   identity  the record's in-progress run, attempt and head;
   run       completed, conclusion `failure`;
   jobs      every job of that run/attempt/head completed; the record-begin, reserve, live, settle and record-complete jobs exactly once each,
-            all `success` but the live job, the live job completed (`failure`);
-  journal   the chain validated from the pinned reviewed root holding EXACTLY one reserve and one settle for this run, the settle commit
-            the direct child of the reserve commit, the settle's `evidence-sha256:` provenance and its allocation copied unchanged.
-It retires history only: no re-settlement, no amount change, no fictional completion. Anything else refuses (exit 78)."""
+            all `success` but the live job (`failure`);
+  journal   EXACTLY one reserve and one settle for this run, the settle commit the direct child of the reserve commit, the settle's
+            `evidence-sha256:` provenance and its allocation copied unchanged.
+`check` is structural validation of such a document only, not an independent authentication of supplied JSON. It retires history only:
+no re-settlement, no amount change, no case result, no fictional completion. Anything else refuses (exit 78)."""
 import argparse
 import hashlib
 import json
@@ -23,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (git is the only transport, via state_ref_writer)
 import unexecuted_attempt_evidence as U  # noqa: E402  (shared job shaping and the approved journal read)
 
-SCHEMA = "speaksharp.cloud-test.executed-attempt-evidence.v1"
+SCHEMA = "speaksharp.cloud-test.settled-attempt-evidence.v1"
 JOBS = (("beginJob", "Record the attempt", ("success",)),
         ("reserveJob", "Reserve the run on the state-ref journal", ("success",)),
         ("liveJob", "Selected live journeys", ("failure",)),
@@ -49,43 +51,43 @@ def canon(doc):
 
 
 def _allocation(a):
-    _need(isinstance(a, dict) and set(a) == set(CATS) and all(type(a[k]) is int and a[k] >= 0 for k in CATS), "executed-allocation")
+    _need(isinstance(a, dict) and set(a) == set(CATS) and all(type(a[k]) is int and a[k] >= 0 for k in CATS), "settled-allocation")
     return {k: a[k] for k in CATS}
 
 
 def build_evidence(run, jobs_doc, chain, root_sha, collected_utc):
-    _need(isinstance(run, dict), "executed-run")
+    _need(isinstance(run, dict), "settled-run")
     ident = {"runId": str(run.get("id")), "attempt": run.get("run_attempt"), "headSha": run.get("head_sha")}
     _need(re.fullmatch(r"[1-9][0-9]{0,19}", ident["runId"]) is not None and ident["attempt"] == 1
-          and isinstance(ident["headSha"], str) and SHA40.fullmatch(ident["headSha"]) is not None, "executed-run")
-    _need(run.get("status") == "completed" and run.get("conclusion") == "failure", "executed-run-not-failed")
+          and isinstance(ident["headSha"], str) and SHA40.fullmatch(ident["headSha"]) is not None, "settled-run")
+    _need(run.get("status") == "completed" and run.get("conclusion") == "failure", "settled-run-not-failed")
     updated = run.get("updated_at")
-    _need(isinstance(updated, str) and UTC.fullmatch(updated) is not None, "executed-run-time")
+    _need(isinstance(updated, str) and UTC.fullmatch(updated) is not None, "settled-run-time")
     try:
         jobs = U._shape_jobs(jobs_doc)
     except U.Refused as e:
-        raise Refused("executed-" + str(e))
-    _need(jobs and all((j["runId"], j["attempt"], j["headSha"]) == (ident["runId"], 1, ident["headSha"]) for j in jobs), "executed-job-not-of-the-run")
-    _need(all(j["status"] == "completed" for j in jobs), "executed-job-not-completed")
+        raise Refused("settled-" + str(e))
+    _need(jobs and all((j["runId"], j["attempt"], j["headSha"]) == (ident["runId"], 1, ident["headSha"]) for j in jobs), "settled-job-not-of-the-run")
+    _need(all(j["status"] == "completed" for j in jobs), "settled-job-not-completed")
     seen = {}
     for key, prefix, wanted in JOBS:
         found = [j for j in jobs if isinstance(j["name"], str) and j["name"].startswith(prefix)]
-        _need(len(found) == 1 and found[0]["conclusion"] in wanted, "executed-" + key)
+        _need(len(found) == 1 and found[0]["conclusion"] in wanted, "settled-" + key)
         seen[key] = found[0]["conclusion"]
-    _need(isinstance(chain, list) and len(chain) >= 3 and chain[0][0] == root_sha and chain[0][1] == [], "executed-journal-root")
+    _need(isinstance(chain, list) and len(chain) >= 3 and chain[0][0] == root_sha and chain[0][1] == [], "settled-journal-root")
     events = chain[-1][1]
     mine = [(i, e) for i, e in enumerate(events) if isinstance(e, dict) and e.get("runId") == ident["runId"] and e.get("attempt") == 1]
-    _need([e["type"] for _, e in mine] == ["reserve", "settle"], "executed-journal-not-one-reserve-and-settle")
+    _need([e["type"] for _, e in mine] == ["reserve", "settle"], "settled-journal-not-one-reserve-and-settle")
     (ri, reserve), (si, settle) = mine
-    _need(settle["campaignId"] == reserve["campaignId"] and si == ri + 1, "executed-journal-pair")
+    _need(settle["campaignId"] == reserve["campaignId"] and si == ri + 1, "settled-journal-pair")
     # chain[k] holds events[:k] (one event per commit from the empty root), so commit k added event k-1
     reserve_sha, settle_sha = chain[ri + 1][0], chain[si + 1][0]
-    _need(chain[ri + 1][1][-1] == reserve and chain[si + 1][1][-1] == settle, "executed-journal-commit")
+    _need(chain[ri + 1][1][-1] == reserve and chain[si + 1][1][-1] == settle, "settled-journal-commit")
     prov = settle.get("provenance")
-    _need(isinstance(prov, str) and re.fullmatch(r"evidence-sha256:[0-9a-f]{64}", prov) is not None, "executed-settle-provenance")
-    _need(isinstance(reserve.get("provenance"), str) and reserve["provenance"].startswith("request-sha256:"), "executed-reserve-provenance")
-    _need(isinstance(settle.get("atUtc"), str) and UTC.fullmatch(settle["atUtc"]) is not None, "executed-settle-time")
-    _need(isinstance(collected_utc, str) and UTC.fullmatch(collected_utc) is not None and updated <= collected_utc, "executed-collected-time")
+    _need(isinstance(prov, str) and re.fullmatch(r"evidence-sha256:[0-9a-f]{64}", prov) is not None, "settled-settle-provenance")
+    _need(isinstance(reserve.get("provenance"), str) and reserve["provenance"].startswith("request-sha256:"), "settled-reserve-provenance")
+    _need(isinstance(settle.get("atUtc"), str) and UTC.fullmatch(settle["atUtc"]) is not None, "settled-settle-time")
+    _need(isinstance(collected_utc, str) and UTC.fullmatch(collected_utc) is not None and updated <= collected_utc, "settled-collected-time")
     return {"schema": SCHEMA, "identity": ident,
             "run": {"status": "completed", "conclusion": "failure", "updatedAt": updated},
             "jobs": seen,
@@ -98,22 +100,22 @@ def build_evidence(run, jobs_doc, chain, root_sha, collected_utc):
 def check_evidence(doc):
     """(digest, settledAllocation) of a structurally exact document; recomputes nothing it cannot, refuses anything outside the shape."""
     _need(isinstance(doc, dict) and set(doc) == {"schema", "identity", "run", "jobs", "journal", "collectedUtc"} and doc["schema"] == SCHEMA,
-          "executed-evidence-shape")
+          "settled-evidence-shape")
     i, r, j, jr = doc["identity"], doc["run"], doc["jobs"], doc["journal"]
     _need(isinstance(i, dict) and set(i) == {"runId", "attempt", "headSha"} and re.fullmatch(r"[1-9][0-9]{0,19}", str(i["runId"])) is not None
-          and i["attempt"] == 1 and isinstance(i["headSha"], str) and SHA40.fullmatch(i["headSha"]) is not None, "executed-evidence-shape")
+          and i["attempt"] == 1 and isinstance(i["headSha"], str) and SHA40.fullmatch(i["headSha"]) is not None, "settled-evidence-shape")
     _need(r == {"status": "completed", "conclusion": "failure", "updatedAt": r.get("updatedAt")} and UTC.fullmatch(str(r.get("updatedAt"))) is not None,
-          "executed-evidence-shape")
-    _need(j == {"beginJob": "success", "reserveJob": "success", "liveJob": "failure", "settleJob": "success", "recordJob": "success"}, "executed-evidence-shape")
+          "settled-evidence-shape")
+    _need(j == {"beginJob": "success", "reserveJob": "success", "liveJob": "failure", "settleJob": "success", "recordJob": "success"}, "settled-evidence-shape")
     _need(isinstance(jr, dict) and set(jr) == {"rootSha", "headSha", "reserveSha", "settleSha", "campaignId", "settleAtUtc", "settleEvidenceSha256",
                                                "reservedAllocation", "settledAllocation"}
           and all(isinstance(jr[k], str) and SHA40.fullmatch(jr[k]) for k in ("rootSha", "headSha", "reserveSha", "settleSha"))
           and len({jr["reserveSha"], jr["settleSha"]}) == 2 and isinstance(jr["settleEvidenceSha256"], str) and SHA64.fullmatch(jr["settleEvidenceSha256"])
-          and UTC.fullmatch(str(jr["settleAtUtc"])) is not None and isinstance(jr["campaignId"], str), "executed-evidence-shape")
+          and UTC.fullmatch(str(jr["settleAtUtc"])) is not None and isinstance(jr["campaignId"], str), "settled-evidence-shape")
     _allocation(jr["reservedAllocation"])
     settled = _allocation(jr["settledAllocation"])
-    _need(all(settled[k] <= jr["reservedAllocation"][k] for k in CATS), "executed-settle-exceeds-reservation")
-    _need(r["updatedAt"] <= doc["collectedUtc"] and UTC.fullmatch(str(doc["collectedUtc"])) is not None, "executed-evidence-shape")
+    _need(all(settled[k] <= jr["reservedAllocation"][k] for k in CATS), "settled-settle-exceeds-reservation")
+    _need(r["updatedAt"] <= doc["collectedUtc"] and UTC.fullmatch(str(doc["collectedUtc"])) is not None, "settled-evidence-shape")
     return hashlib.sha256(canon(doc)).hexdigest(), settled
 
 
@@ -129,7 +131,7 @@ def main(argv):
                 digest, _ = check_evidence(json.loads(f.read()))
             print(digest)
             return 0
-        _need(bool(x.run and x.jobs and x.out and x.collected_utc), "executed-input-unreadable")
+        _need(bool(x.run and x.jobs and x.out and x.collected_utc), "settled-input-unreadable")
         with open(x.run, encoding="utf-8") as f:
             run = json.load(f)
         with open(x.jobs, encoding="utf-8") as f:
@@ -143,7 +145,7 @@ def main(argv):
         return 0
     except (Refused, OSError, ValueError, TypeError, KeyError) as e:
         known = isinstance(e, Refused) or e.__class__.__name__ == "Refused"
-        print("BLOCKED_SETUP: " + (str(e) if known else "executed-input-unreadable"), file=sys.stderr)
+        print("BLOCKED_SETUP: " + (str(e) if known else "settled-input-unreadable"), file=sys.stderr)
         return 78
 
 

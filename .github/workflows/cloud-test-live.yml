@@ -239,20 +239,21 @@ jobs:
             mv "$RUNNER_TEMP/retired-unexecuted.md" "$RUNNER_TEMP/previous.md"
             retired_unreserved=1
           fi
-          # Sam 1794144135 / 1794145971 (run 42483030590): an attempt that reserved, EXECUTED and was SETTLED, but whose record was not publishable,
-          # stays `incomplete` with no completion artifact. It is retired as `executed-unpublished` history only on closed evidence: GitHub reports
+          # Sam 1794144135 / 1794145971 / 1794147839 (run 42483030590): an attempt that reserved and was SETTLED, but whose record was not publishable,
+          # stays `incomplete` with no completion artifact. It is retired as `settled-unpublished` history only on closed evidence: GitHub reports
           # the run failed with record-begin, reserve, settle and record-complete succeeded and the live job failed, and the freshly validated
-          # journal holds exactly its one reserve and the directly following settle. Nothing is re-settled; no case result is recorded. When the
-          # evidence refuses (for example a run that never reserved), nothing is retired here and the path below decides.
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && executed_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$executed_run" > "$RUNNER_TEMP/executed-run.json"
-            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$executed_run/jobs?per_page=100" > "$RUNNER_TEMP/executed-jobs.json"
-            if python3 -I tools/cloud-test/scripts/executed_attempt_evidence.py collect --run "$RUNNER_TEMP/executed-run.json" \
-                 --jobs "$RUNNER_TEMP/executed-jobs.json" --collected-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$RUNNER_TEMP/executed-evidence.json" \
-               && python3 -I "$P" executed-candidate --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/executed-evidence.json" > /dev/null; then
-              python3 -I "$P" retire-executed --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/executed-evidence.json" \
-                --out "$RUNNER_TEMP/retired-executed.md"
-              mv "$RUNNER_TEMP/retired-executed.md" "$RUNNER_TEMP/previous.md"
+          # journal holds exactly its one reserve and the directly following settle. It asserts a settlement, not case execution. Nothing is
+          # re-settled; no case result is recorded. When the evidence refuses (for example a run that never reserved), nothing is retired here
+          # and the path below decides.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && settled_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$settled_run" > "$RUNNER_TEMP/settled-run.json"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$settled_run/jobs?per_page=100" > "$RUNNER_TEMP/settled-jobs.json"
+            if python3 -I tools/cloud-test/scripts/settled_attempt_evidence.py collect --run "$RUNNER_TEMP/settled-run.json" \
+                 --jobs "$RUNNER_TEMP/settled-jobs.json" --collected-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$RUNNER_TEMP/settled-evidence.json" \
+               && python3 -I "$P" settled-candidate --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/settled-evidence.json" > /dev/null; then
+              python3 -I "$P" retire-settled --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/settled-evidence.json" \
+                --out "$RUNNER_TEMP/retired-settled.md"
+              mv "$RUNNER_TEMP/retired-settled.md" "$RUNNER_TEMP/previous.md"
               retired_unreserved=1
             fi
           fi
@@ -278,8 +279,9 @@ jobs:
             --source-sha "$GITHUB_SHA" --started-utc "$started_utc" --out "$RUNNER_TEMP/body.md"
           id="$(cat "$RUNNER_TEMP/comment-id")"
           if [ "${retired_unreserved:-}" = 1 ]; then
-            # Re-read the stored comment immediately before publishing and bind it to the exact record the retirement consumed: a record that
-            # changed since it was selected is never overwritten.
+            # Re-read the stored comment immediately before publishing and bind it to the exact record the retirement consumed: a record seen to
+            # have changed since it was selected is not overwritten. This GET-check -> PATCH is NOT compare-and-swap; it relies on the single
+            # serialized publisher (the workflow's concurrency group), and any other writer would still race.
             gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" > "$RUNNER_TEMP/predecessor-current.json"
             python3 -I "$P" verify-predecessor --selected "$RUNNER_TEMP/selected.json" --current "$RUNNER_TEMP/predecessor-current.json"
           fi
@@ -288,6 +290,11 @@ jobs:
           else
             id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" -F "body=@$RUNNER_TEMP/body.md" --jq .id)"
           fi
+          # Persisted readback (Sam 1794147839): the stored record must be exactly the body just rendered and parse to the same state. This
+          # verifies what was persisted; it is not atomic exclusion (see above).
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" --jq '[.]' > "$RUNNER_TEMP/begin-readback.json"
+          python3 -I "$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/begin-readback.json" \
+            --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$id"
           echo "comment_id=$id" >> "$GITHUB_OUTPUT"
           echo "unexecuted_evidence_sha256=$unexecuted_sha256" >> "$GITHUB_OUTPUT"
           echo "unexecuted_evidence_b64=$unexecuted_b64" >> "$GITHUB_OUTPUT"
