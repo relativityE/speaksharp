@@ -435,7 +435,7 @@ jobs:
           name: cloud-test-egress-preflight
           path: ${{ runner.temp }}/egress-preflight.json
           retention-days: 90
-          if-no-files-found: ignore
+          if-no-files-found: error
       - name: Bind private runner paths and initialize the inactive accounting workspace
         timeout-minutes: 2
         run: |

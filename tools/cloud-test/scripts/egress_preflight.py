@@ -18,7 +18,9 @@ import json
 import os
 import re
 import sys
-from urllib.parse import urlsplit
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _netguard  # noqa: F401,E402  (offline: presence and syntax only, no network)
 
 SCHEMA = "speaksharp.cloud-test.egress-preflight.v1"
 POLICY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "harness", "bundle", "config", "policy.production.TEMPLATE.json")
@@ -31,12 +33,12 @@ def no_proxy_matches(no_proxy, host):
     return any(e == host or (e.startswith(".") and host.endswith(e)) or (e.startswith("*.") and host.endswith(e[1:])) for e in entries)
 
 
+# scheme://[userinfo@]host[:port][/...] with an http(s) scheme and a non-empty host (syntax only; never resolved or contacted).
+PROXY_URL = re.compile(r"https?://(?:[^@/\s]*@)?(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::[0-9]{1,5})?(?:/\S*)?", re.IGNORECASE)
+
+
 def valid_proxy(value):
-    try:
-        u = urlsplit(value)
-        return u.scheme in ("http", "https") and bool(u.hostname)
-    except ValueError:
-        return False
+    return isinstance(value, str) and PROXY_URL.fullmatch(value) is not None
 
 
 def evaluate(policy, env):

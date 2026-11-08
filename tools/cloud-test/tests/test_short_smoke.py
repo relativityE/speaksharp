@@ -97,7 +97,7 @@ class ApprovalPin(unittest.TestCase):
         verified relays (historically scope 2158 for the
         capacity and next run, grant 3342 for the 60-minute signal run); an AWAITING_OWNER_DECISION grant, even in reviewed bytes, refuses."""
         self.assertEqual((COMMITTED_GRANT["status"], COMMITTED_GRANT["approvalRef"], COMMITTED_GRANT["scopeApprovalRef"]),
-                         ("APPROVED", "slack:1794145532.283429", "slack:1794152182.153649"))
+                         ("APPROVED", "slack:1794145532.283429", "slack:1794156633.525579"))
         self.assertEqual((COMMITTED_GRANT["limits"]["liveMinutes"], COMMITTED_GRANT["limits"]["endToEndMinutes"]), (60, 100))
         template = json.loads((ROOT / ONE_OFF_TEMPLATE).read_text())
         init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-08T16:00:00Z")
@@ -208,7 +208,7 @@ class ShortSmokeContract(unittest.TestCase):
         scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
         # The committed grant is pinned at the journal head after run 42318728005's capped settle (Sam's verified ChatGPT receipt slack:1794063978.986369).
         # The re-issued AHT-01 grant is pinned at the journal head after run 42494152179's capped settle (Sam 1794151891.299109).
-        self.assertEqual(COMMITTED_GRANT["preReserveStateHead"], "d4c207fb316d0c513dc704d9cdd9c4b34714aa87")
+        self.assertEqual(COMMITTED_GRANT["preReserveStateHead"], "19a9251d0df19e6ffee87a312c2efc49eb793cf5")
         checkpoint = json.dumps({
             "headSha": COMMITTED_GRANT["preReserveStateHead"],
             "scopeApprovalRef": scope["approvalRef"],
@@ -375,7 +375,7 @@ class ShortSmokeContract(unittest.TestCase):
                 self.assertEqual(prepared["facts"]["actionApproval"]["selectionApprovalRef"],
                                  "slack:1794145532.283429")
                 self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
-                                 "slack:1794152182.153649")
+                                 "slack:1794156633.525579")
                 # Sam 1794114759: the manual R10 flow emits the binding from ITS verified own reserve at the real head (never own=None)
                 b = prepared["reservationBinding"]
                 self.assertEqual((b["campaignId"], b["runId"], b["attempt"], b["requestSha256"]), (template["runId"], run_id, 1, request_sha))

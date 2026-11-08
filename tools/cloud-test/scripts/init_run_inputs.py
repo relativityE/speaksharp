@@ -51,7 +51,7 @@ SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 # all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
 # grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
-ONE_OFF_GRANT_SHA256 = "09f0168b4eec45bea6cd9be2cc9f479f1ae7e53efbe5f5d91d15760b82682545"   # Sam 1794151891.299109 / 1794152182.153649: the AHT-01 grant re-issued after run 42494152179 consumed the first (corrected request fd1463f0, pre-reserve head d4c207fb, scope +4 slack:1794152182.153649)
+ONE_OFF_GRANT_SHA256 = "6714689b8c186e7cdfba884a7606b8e4f99fbadee87e11e03784f465411616c6"   # Sam 1794156633.525579: the AHT-01 grant re-issued at 19a9251d after run 42496837188 (scope +4 slack:1794156633.525579; approval slack:1794145532.283429)
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
 ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_BASE_TEMPLATE_SHA256 = "ab0b59d3873df7672fea2d080ae434f7a1f5eaf83f4961b437665c6901a852fe"

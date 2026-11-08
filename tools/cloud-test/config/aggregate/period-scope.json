@@ -1,13 +1,13 @@
 {
   "schema": "speaksharp.cloud-test.period-scope.v1",
-  "approvalRef": "slack:1794152182.153649",
+  "approvalRef": "slack:1794156633.525579",
   "periodStartUtc": "2026-11-02T20:15:00Z",
   "periodEndUtc": "2026-12-31T00:00:00Z",
   "carryover": "none",
   "ceilings": {
     "requests": 9518,
     "protectedReserveRequests": 0,
-    "identityReads": 137,
+    "identityReads": 141,
     "starts": 80,
     "takes": 80
   }
