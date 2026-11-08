@@ -518,12 +518,12 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_handoffs_are_short_lived_and_closed_observation_and_timing_projections_are_retained(self):
         up = [s for s in self.jobs["live"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
-        self.assertEqual(len(up), 5)  # two short-lived job handoffs, the egress receipt and two closed, content-safe projections
+        self.assertEqual(len(up), 6)  # two short-lived job handoffs, the egress preflight and proxy receipts, two closed projections
         # PO's one-day rule for repository artifacts (Sam 1794158685.923749 / 1794160532.932219): EVERY live-job upload is kept ONE day
-        self.assertEqual(sorted(u["with"]["retention-days"] for u in up), [1] * 5)
+        self.assertEqual(sorted(u["with"]["retention-days"] for u in up), [1] * 6)
         short = [u for u in up if u["with"]["retention-days"] == 1]
         self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in short),
-                         ["case-timings.json", "egress-preflight.json", "first-observations.json", "latest-record.json", "settle-input.json"])
+                         ["case-timings.json", "egress-preflight.json", "first-observations.json", "latest-record.json", "receipt.json", "settle-input.json"])
         retained = [u for u in up if u["with"]["path"] in ("${{ runner.temp }}/case-timings.json", "${{ runner.temp }}/first-observations.json")]
         self.assertTrue(all(u["with"]["if-no-files-found"] == "error" for u in retained))
         project_observations = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Project the linked content-safe first observations")
@@ -777,6 +777,27 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(len(runner), 3, "setup stages, run, collect (reserve and settle are the writer jobs')")
         for step in runner:
             self.assertEqual({k: step["env"].get(k) for k in want}, want, step.get("name"))
+
+    def test_the_po_approved_loopback_egress_service_starts_before_the_preflight_and_stops_with_a_receipt(self):
+        """PO 2026-11-08 "approve the local proxy": started right after checkout, before the egress preflight and every credential-bearing step;
+        no secret, sudo or permission; exports only the uppercase HTTPS_PROXY on 127.0.0.1; stopped and its receipt kept one day."""
+        steps = self.jobs["live"]["steps"]
+        names = [s.get("name") or "Run " + s.get("uses", "") for s in steps]
+        i = names.index("Start the restrictive loopback CONNECT egress service (PO-approved; no secret)")
+        self.assertEqual(names[i - 1], "Run actions/checkout@v6")
+        self.assertEqual(names[i + 1], "Egress readiness preflight (no network; closed receipt)")
+        start = steps[i]
+        self.assertNotIn("env", start)
+        for needle in ("secrets.", "sudo", "vars.", "https_proxy", "NO_PROXY", "HTTP_PROXY="):
+            self.assertNotIn(needle, start["run"], needle)
+        self.assertIn('echo "HTTPS_PROXY=http://127.0.0.1:$port" >> "$GITHUB_ENV"', start["run"])
+        self.assertIn("egress_connect_proxy.cjs --bundle tools/cloud-test/harness/bundle", start["run"])
+        stop = names.index("Stop the egress service and keep its content-safe receipt")
+        keep = names.index("Retain the egress service receipt (1 day)")
+        self.assertEqual((steps[stop]["if"], steps[keep]["if"], steps[keep]["with"]["retention-days"]), ("always()", "always()", 1))
+        self.assertLess(names.index("Collect, verify the binding, qualify every selected row, and project the closed record"), stop)
+        self.assertLess(stop, keep)
+        self.assertEqual(names[-1], "Remove the private run inputs")
 
     def test_every_artifact_this_workflow_uploads_is_kept_one_day(self):
         """Owner, Nov 7: "We only want repository artifacts stored for 1 day" (Sam 1794162379: no attestation exception)."""

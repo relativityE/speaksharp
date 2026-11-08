@@ -121,13 +121,15 @@ class WorkflowPlacement(unittest.TestCase):
     def test_the_preflight_runs_right_after_checkout_before_every_credential_bearing_step_with_no_secret(self):
         names = self.names()
         i = names.index("Egress readiness preflight (no network; closed receipt)")
-        self.assertEqual(names[i - 1], "Run actions/checkout@v6")
+        # the PO-approved loopback egress service (2026-11-08) starts right after checkout, so the preflight judges the proxy it exports
+        self.assertEqual(names[i - 2:i], ["Run actions/checkout@v6", "Start the restrictive loopback CONNECT egress service (PO-approved; no secret)"])
         step = self.steps[i]
         self.assertNotIn("secrets.", json.dumps(step))
         self.assertNotIn("env", step)
         self.assertIn("egress_preflight.py", step["run"])
         credential = [n for _job, n in U.credential_steps(self.text)]
         self.assertTrue(credential and all(names.index(n) > i for n in credential))
+        self.assertNotIn(names[i - 1], credential)
         self.assertNotIn(names[i], credential)
         keep = self.steps[i + 1]
         self.assertEqual((keep["if"], keep["uses"], keep["with"]["path"]), ("always()", "actions/upload-artifact@v4", "${{ runner.temp }}/egress-preflight.json"))
