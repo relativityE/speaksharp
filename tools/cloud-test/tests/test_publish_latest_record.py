@@ -951,7 +951,9 @@ def never_started(**over):
 
 class NeverStartedReconciliation(unittest.TestCase):
     """Run 42316037470 refused completion-occurrence-identity: 42284568156's pending record has campaignId null because it stopped in
-    admission before its campaign. Only that exact never-started shape reconciles without a campaign identity."""
+    admission before its campaign. Run 42423408284 (admission PASS, campaign refused before its first case, every case NOT RUN, code
+    not-qualified only) refused the same way at the byte path. The projection emits campaignId null for EVERY unqualified record, so the
+    rule is the projection's exact unqualified shape, not one run's case statuses; a record naming a campaign must name the occurrence's."""
 
     def reconcile(self, rec, occurrence=None):
         running = started(P.parse_body(""))
@@ -963,17 +965,35 @@ class NeverStartedReconciliation(unittest.TestCase):
         self.assertEqual((done["latestCompleted"]["runId"], done["latestCompleted"]["campaignId"], done["inProgress"]), ("101", None, None))
         self.assertEqual(P.begin(done, "102", 1, SHA, "2026-10-31T20:00:00Z")["inProgress"]["runId"], "102")
 
-    def test_a_null_campaign_with_any_result_rows_or_request_identity_still_refuses(self):
+    def test_every_unqualified_shape_reconciles_as_failed_history_never_as_row_evidence(self):
         rows = never_started()
-        rows["cases"][0] = dict(rows["cases"][0], rows={"pass": 1, "fail": 0, "notRun": 0})
-        bad = [
-            never_started(requestSha256="1" * 64),
-            never_started(codes=["not-qualified"]),
-            never_started(cases=[{"caseId": "AHT-05", "result": "FAIL", "rows": {"pass": 4, "fail": 1, "notRun": 1},
-                                  "codes": ["observed-product-contradiction"]}]),
-        ]
-        for rec in bad + [rows]:
-            with self.subTest(rec={k: rec[k] for k in ("requestSha256", "codes")}), self.assertRaises(P.Refused):
+        rows["cases"][0] = dict(rows["cases"][0], result="PASS", rows={"pass": 2, "fail": 0, "notRun": 0}, codes=[])
+        not_run = [{"caseId": "AHT-%02d" % i, "result": "NOT RUN", "rows": {"pass": 0, "fail": 0, "notRun": 0}, "codes": []} for i in range(1, 16)]
+        shapes = {
+            "campaign refused before its first case (42423408284)": never_started(codes=["not-qualified"], cases=not_run),
+            "unqualified with executed rows": rows,
+            "unqualified with a FAIL row": never_started(cases=[{"caseId": "AHT-05", "result": "FAIL", "rows": {"pass": 4, "fail": 1, "notRun": 1},
+                                                                  "codes": ["observed-product-contradiction"]}]),
+        }
+        for name, rec in shapes.items():
+            with self.subTest(name):
+                done = self.reconcile(rec, occurrence_bytes(runId="R10-3b040043-smoke15"))
+                self.assertEqual((done["latestCompleted"]["outcome"], done["latestCompleted"]["coverage"], done["inProgress"]),
+                                 ("failed", "unqualified", None))
+                self.assertFalse(any(o["rowEvidence"] for o in done["history"]["occurrences"]))
+
+    def test_a_null_campaign_outside_the_exact_unqualified_shape_still_refuses(self):
+        bad = {
+            "request identity": never_started(requestSha256="1" * 64),
+            "catalog identity": never_started(catalogSha256="2" * 64),
+            "qualified coverage": never_started(coverage="batch"),
+            "no not-qualified code": never_started(codes=["incomplete-run"]),
+            "not-qualified not first": never_started(codes=["incomplete-run", "not-qualified"]),
+            "passed": never_started(outcome="passed", cases=[{"caseId": "AHT-05", "result": "PASS", "rows": {"pass": 6, "fail": 0, "notRun": 0},
+                                                              "codes": []}], codes=["not-qualified"]),
+        }
+        for name, rec in bad.items():
+            with self.subTest(name), self.assertRaises(P.Refused):
                 self.reconcile(rec)
 
     def test_a_named_campaign_must_still_match_the_occurrence(self):
@@ -981,4 +1001,3 @@ class NeverStartedReconciliation(unittest.TestCase):
             self.reconcile(record(), occurrence_bytes(runId="R10-other"))
         with self.assertRaises(P.Refused):    # a named campaign on a never-started shape refuses (record validation or identity)
             self.reconcile(never_started(campaignId="R6-other"), occurrence_bytes(runId="R10-3b040043-smoke15"))
-

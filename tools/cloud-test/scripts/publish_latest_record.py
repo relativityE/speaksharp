@@ -721,19 +721,21 @@ def reconcile_pending(state, published_at, attestation, settle_receipt_raw, occu
     except ValueError:
         raise Refused("completion-occurrence-bytes")
     _need(isinstance(occurrence, dict) and isinstance(occurrence.get("runId"), str) and occurrence["runId"]
-          and (occurrence["runId"] == record.get("campaignId") or _never_started(record)), "completion-occurrence-identity")
+          and (occurrence["runId"] == record.get("campaignId") or _unqualified(record)), "completion-occurrence-identity")
     return expected
 
 
-def _never_started(record):
-    """Run 42284568156: an attempt refused in admission, before its campaign began, records no campaign or request identity (campaignId and
-    requestSha256 null), outcome failed with incomplete-run, and every selected case UNKNOWN with no rows. Its occurrence is still bound by
-    the attestation's and pending record's occurrence digest; only this exact never-started shape may omit the campaign identity, never a
-    record that names a different campaign or carries any case result."""
-    cases = record.get("cases")
-    return (record.get("campaignId") is None and record.get("requestSha256") is None and record.get("outcome") == "failed"
-            and "incomplete-run" in (record.get("codes") or []) and isinstance(cases, list) and bool(cases)
-            and all(isinstance(c, dict) and c.get("result") == "UNKNOWN" and not any((c.get("rows") or {}).values()) for c in cases))
+def _unqualified(record):
+    """init_run_inputs.project's UNQUALIFIED record, exactly: it names no campaign, request or catalog identity (all three are emitted only
+    when qualified), is `failed`, coverage `unqualified`, and its codes begin with `not-qualified`. Its occurrence is bound by the pinned
+    digests, not a campaign field it never carries. Run 42284568156 (refused in admission, every case UNKNOWN) refused here as
+    completion-occurrence-identity; run 42423408284 (admission PASS, campaign refused before its first case, every case NOT RUN) refused the
+    same way, and so would every incomplete or unqualified run that did execute cases, because the projection drops the campaign identity
+    for all of them. An unqualified record never becomes row evidence (`_occurrence`: coverage `unqualified` is not batch/full/incomplete),
+    so folding it is history, never a pass. A record that names a campaign must still name the occurrence's own."""
+    codes = record.get("codes") or []
+    return (record.get("campaignId") is None and record.get("requestSha256") is None and record.get("catalogSha256") is None
+            and record.get("outcome") == "failed" and record.get("coverage") == "unqualified" and codes[:1] == ["not-qualified"])
 
 
 def completion_attestation(candidate_body, public_body, published, settle_receipt_sha256, occurrence_sha256):
