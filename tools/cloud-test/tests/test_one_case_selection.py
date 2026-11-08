@@ -443,7 +443,7 @@ const page = { mainFrame: () => frame, on: (e, f) => { if (e === 'response') lis
 
 
 class GuardRefusalExportAndPublication(ProjectionCatalog):
-    """Sam 1794178828 RETURN: the closed guard-refused reason must reach the EXPORTED driverInterruption and the PUBLISHED codes, not only
+    """The closed guard-refused reason must reach the EXPORTED driverInterruption and the PUBLISHED codes, not only
     the raw interruption file. Driven end to end from the real JS recorder output for both refusal shapes, through the same digest-bound
     isolated_case_rows -> diagnostic_codes -> project -> publisher-sanitize path the workflow runs, and run_timing_export. Controls: an
     unreviewed cap and a forged error property never produce a reason; an out-of-vocabulary reason rebound with valid digests is dropped;

@@ -1629,8 +1629,8 @@ MAX_CASE_CODES = 8
 
 def diagnostic_codes(diag):
     """Closed per-case codes for the published record from one closed case diagnostic (Sam 1794156291: published-report propagation):
-    a non-normal guard stop, the driver stage at interruption, a guard-refused navigation (guard-refused-<deny>|cap-<cap>|other; Sam
-    1794178828), the exact net error, each guard upstream reason, and an absent egress proxy under env-proxy. Built only from the closed vocabularies above; at most MAX_CASE_CODES."""
+    a non-normal guard stop, the driver stage at interruption, a guard-refused navigation (guard-refused-<deny>|cap-<cap>|other),
+    the exact net error, each guard upstream reason, and an absent egress proxy under env-proxy. Built only from the closed vocabularies above; at most MAX_CASE_CODES."""
     if not isinstance(diag, dict):
         return []
     out = []
@@ -1988,7 +1988,7 @@ DRIVER_NET_ERRORS = frozenset({
 GUARD_UPSTREAM_REASONS = frozenset({"proxy-not-configured", "proxy-invalid", "proxy-connect-status", "test-only-trust", "no-test-override",
                                     "aborted", "dns", "connect-refused", "timeout", "reset", "tls", "other"})
 GUARD_UPSTREAM_MODES = frozenset({"env-proxy", "direct", "override"})
-# A navigation refused by the egress guard (Sam 1794177810 / 1794178828): the driver's code-owned closed stopReason
+# A navigation refused by the egress guard: the driver's code-owned closed stopReason
 # (browser-actions.cjs GUARD_DENY_WORDS / GUARD_CAPS / guardDenyCode), pinned to that source by test. Only an exact member is carried.
 GUARD_DENY_WORDS = frozenset({"policy", "host", "unknown-host", "upstream-error", "deadline", "deadline-passed", "closing", "concurrency-wait",
                               "websocket", "plain-http", "malformed", "host-mismatch"})

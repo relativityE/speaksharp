@@ -17,7 +17,7 @@ const req=(id,o={})=>['Network.requestWillBeSent',{requestId:id,timestamp:o.t??1
 const resp=(id,o={})=>['Network.responseReceived',{requestId:id,response:{url:o.url??ASSET,status:o.status??200,...(o.from?{[o.from]:true}:{})}}];
 const data=(id,o={})=>['Network.dataReceived',{requestId:id,timestamp:o.t??2,dataLength:o.len??65536,encodedDataLength:o.enc??65536}];
 const ESTABLISHED_CDP=[req('r1'),resp('r1'),data('r1')];
-// Sam 1794180453: a deterministic fixture clock. During a run the fixture owns Date.now: it stands still except at the scripted steps
+// A deterministic fixture clock. During a run the fixture owns Date.now: it stands still except at the scripted steps
 // fault -> error (+faultToErrorMs) and error -> Retry visible (+errorToRetryMs), and a browser clock read inside an epoch bridge may
 // tick by bridgeTickMs. Wall-clock ticks can no longer land inside a bridge (the 1 ms [0,1] offset that made the real comparator
 // correctly answer timeline-order-ambiguous). A frozen clock must never spin a polling loop, so reads are capped.

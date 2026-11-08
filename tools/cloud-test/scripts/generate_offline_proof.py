@@ -60,7 +60,7 @@ def node_tap(args, cwd, env, out):
 
 
 def title_report(suites, inventory):
-    """Every run test resolved through the reviewed title inventory (Sam 1794180453): (rows, problems). A suite whose TAP cannot be
+    """Every run test resolved through the reviewed title inventory: (rows, problems). A suite whose TAP cannot be
     judged resolves as None, so all of its inventoried tests are NOT RUN; unknown or malformed titles are counted, never printed."""
     sys.path.insert(0, HERE)
     import harness_mutation_controls as M

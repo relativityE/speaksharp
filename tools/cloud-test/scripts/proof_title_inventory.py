@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Every offline-proof test resolved through a reviewed, source-owned title inventory (Sam 1794180342 / 1794180453; PO: "all tests need
-a test title").
+"""Every offline-proof test resolved through a reviewed, source-owned title inventory: every test needs a
+reviewed title.
 
 config/proof-test-titles.v1.json lists, for every suite generate_offline_proof.py runs (packet:/proof:/service: + its path), the exact
 titles that suite's source declares, in declaration order, in the form the TAP reporter prints them. A runtime result is credited only

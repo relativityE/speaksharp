@@ -1,5 +1,4 @@
-"""Every offline-proof test resolves through the reviewed, source-owned title inventory (Sam 1794180342 / 1794180453; PO: "all tests need
-a test title"): unknown or malformed titles and missing tests refuse the proof, and only reviewed inventory titles are ever reported."""
+"""Every offline-proof test resolves through the reviewed, source-owned title inventory: unknown or malformed titles and missing tests refuse the proof, and only reviewed inventory titles are ever reported."""
 import glob
 import json
 import os

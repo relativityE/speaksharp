@@ -53,7 +53,7 @@ test('the forbidden-address table: loopback, private, link-local, CGNAT, metadat
   for (const a of ['93.184.216.34', '76.76.21.21', '104.18.1.1', '172.64.1.1', '2606:4700::6810:1', '::ffff:93.184.216.34']) assert.equal(P.forbiddenAddress(a), false, a);
 });
 
-test('canonical classification (Sam 1794168880): every textual form of a forbidden address refuses, on bytes, not text prefixes', () => {
+test('canonical classification: every textual form of a forbidden address refuses, on bytes, not text prefixes', () => {
   const forbidden = ['::ffff:7f00:1', '::FFFF:7F00:0001', '0:0:0:0:0:ffff:7f00:1', '::ffff:a00:1', '::ffff:a9fe:a9fe', '::127.0.0.1', '::7f00:1',
     '0:0:0:0:0:0:0:1', '0000:0000:0000:0000:0000:0000:0000:0001', '::0', '64:ff9b::808:808', '64:ff9b:1::1', '2002:7f00:1::', '2002:5db8:d822::1',
     '2001:0:1::', '2001:db8::1', '2001:0DB8::1', '100::1', 'FE80::1', 'febf::1', 'fec0::1', 'FC00::1', 'fdff::1', 'ff02::1', 'FF0E::1',

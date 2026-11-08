@@ -1829,7 +1829,7 @@
   ],
   "service:tests/egress-connect-proxy.test.cjs": [
    "the forbidden-address table: loopback, private, link-local, CGNAT, metadata, multicast, unparsable all refuse; public passes",
-   "canonical classification (Sam 1794168880): every textual form of a forbidden address refuses, on bytes, not text prefixes",
+   "canonical classification: every textual form of a forbidden address refuses, on bytes, not text prefixes",
    "a late DNS answer never connects: past the bound, after the client closed, or after shutdown began",
    "only the CODE-pinned production policy is served, and its hosts are exactly the policy hosts",
    "every refusal is closed, counted and never reaches the upstream connector",
