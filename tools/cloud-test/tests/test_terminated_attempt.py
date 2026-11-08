@@ -187,3 +187,45 @@ class LiveStepBounds(unittest.TestCase):
                 self.assertEqual(bound, "${{ fromJSON(steps.init.outputs.live_minutes) }}", label)
         proof = next(s for s in steps if s.get("name") == "Generate the exact-head browser-bound proof and offline checks")
         self.assertEqual(proof["timeout-minutes"], 12)          # measured 317 s on run 42423408284
+
+
+class ComposedRecovery(unittest.TestCase):
+    """Sam 1794102706: the composed paths, not the parts."""
+
+    def test_begin_then_killed_final_publisher_then_terminal_recovery_then_next_begin(self):
+        state = P.begin(P.parse_body(""), RUN_ID, 1, HEAD, "2026-11-07T19:34:10Z")      # record-begin published `running`
+        self.assertEqual(state["inProgress"]["status"], "running")                     # record-complete was killed: nothing else changed it
+        self.assertIsNone(P.unexecuted_candidate(state, build(load("run-42406851270.json"), load("jobs-42406851270.json"))))
+        # an ACTIVE run is never read as stopped: its evidence cannot even be built
+        run, jobs = shaped("failure", "cancelled", **{"Complete or interrupt": "cancelled"})
+        active = copy.deepcopy(run)
+        active["status"] = "in_progress"
+        with self.assertRaises(U.Refused):
+            build(active, jobs)
+        doc = build(run, jobs)                                                          # terminal: run and every job completed
+        self.assertEqual(doc["accounting"], "terminated-capped")
+        self.assertEqual(P.unexecuted_candidate(state, doc), RUN_ID)
+        out = P.retire_unexecuted(state, doc, "a" * 64)
+        self.assertEqual(out["retiredAttempts"][-1]["retiredReason"], "reserved-terminated-capped")
+        self.assertEqual(P.begin(out, "42500000003", 1, "c" * 40, "2026-11-08T02:00:00Z")["inProgress"]["status"], "running")
+
+    def test_runner_minutes_at_and_beyond_the_held_allocation_through_settle_and_the_writer(self):
+        import manual_reservation as M
+        import state_ref_writer as W
+        held_minutes = RESERVE["allocation"]["runnerMinutes"]                           # 60, the R10 reservation
+        for end, minutes, settles in (("2026-11-07T20:34:40Z", 60, True), ("2026-11-07T20:45:10Z", 71, False)):
+            run, jobs = during_cases()
+            next(j for j in jobs["jobs"] if j["name"].startswith(U.LIVE_JOB_PREFIX))["completed_at"] = end
+            doc = build(run, jobs)
+            digest, usage, at = U.check_evidence(doc)
+            self.assertEqual(usage["runnerMinutes"], minutes)
+            if settles:
+                event = M.settle(dict(RESERVE), usage, digest, at)
+                W.validate_event(event)
+                self.assertEqual(event["allocation"]["runnerMinutes"], held_minutes)
+            else:
+                # the measured overage is NOT clipped or absorbed: the settle refuses at the reservation boundary (an open policy decision)
+                with self.assertRaises(M.Refused) as e:
+                    M.settle(dict(RESERVE), usage, digest, at)
+                self.assertEqual(str(e.exception), "manual-settle-exceeds-reservation")
+                self.assertGreater(minutes, held_minutes)

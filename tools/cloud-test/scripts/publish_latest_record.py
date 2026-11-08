@@ -599,9 +599,13 @@ def unexecuted_candidate(state, evidence):
     pending), never from a pinned list (Sam 1793881491.714239)."""
     live = state.get("inProgress")
     # Sam 1794100293: record-complete marks a cancelled attempt `cancelled`; only a terminated-capped settlement may retire one.
-    if (live is None or live.get("status") not in ("incomplete", "cancelled") or state.get("pendingCompletion") is not None
+    # Sam 1794102706: when cancellation also kills record-complete, the record still says `running`. GitHub's authenticated evidence (run and
+    # EVERY job completed, re-verified in check_evidence) proves it is not active; only terminated-capped evidence may retire such a record, so
+    # an actually active run is never read as stopped.
+    status = live.get("status") if live is not None else None
+    if (live is None or status not in ("incomplete", "cancelled", "running") or state.get("pendingCompletion") is not None
             or not isinstance(evidence, dict)
-            or (live.get("status") == "cancelled" and evidence.get("accounting") != "terminated-capped")):
+            or (status in ("cancelled", "running") and evidence.get("accounting") != "terminated-capped")):
         return None
     ident = evidence.get("identity") or {}
     if (live.get("runId"), live.get("attempt"), live.get("sourceSha")) != (ident.get("runId"), ident.get("attempt"), ident.get("headSha")):
