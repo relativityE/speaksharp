@@ -3086,10 +3086,14 @@ class CaseDiagnosticTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_one(self, summary=None, exit_code=0, assertions=None, result="FAIL"):
+    def run_one(self, summary=None, exit_code=0, assertions=None, result="FAIL", case_result=None, extra_rows=()):
         directory = os.path.join(self.cases, "AHT-01")
         os.makedirs(directory, exist_ok=True)
         receipt = {"caseId": "AHT-01", "runId": "42483030590", "exitCode": exit_code, "summarySha256": None}
+        if case_result is not None:      # the case's own case-result.json, bound by the receipt's caseResultSha256
+            with open(os.path.join(directory, "case-result.json"), "wb") as f:
+                f.write(case_result)
+            receipt["caseResultSha256"] = hashlib.sha256(case_result).hexdigest()
         if summary is not None:
             raw = (json.dumps(dict({"startedAt": "2026-11-08T13:11:56.988Z", "endedAt": "2026-11-08T13:11:58.127Z"}, **summary)) + "\n").encode()
             with open(os.path.join(directory, "summary.json"), "wb") as f:
@@ -3097,8 +3101,8 @@ class CaseDiagnosticTests(unittest.TestCase):
             receipt["summarySha256"] = hashlib.sha256(raw).hexdigest()
         row = {"caseId": "AHT-01", "result": result, "executionReceipt": receipt, "assertions": assertions or []}
         with open(self.results, "w", encoding="utf-8") as f:
-            json.dump({"cases": [row]}, f)
-        out = I.run_timing_export(self.cases, self.results, ["AHT-01"], self.started, None, self.BIND)
+            json.dump({"cases": [row] + list(extra_rows)}, f)
+        out = I.run_timing_export(self.cases, self.results, ["AHT-01"] + [r["caseId"] for r in extra_rows], self.started, None, self.BIND)
         return next(c for c in out["cases"] if c["caseId"] == "AHT-01"), json.dumps(out)
 
     def test_closed_stop_codes_from_the_verified_summary(self):
@@ -3139,47 +3143,160 @@ class CaseDiagnosticTests(unittest.TestCase):
 
 
 class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
-    """Sam 1794145916: a driver that caught an early error records FAIL and returns normally (guard `completed`, exit 0); its content-safe
-    interruption evidence is what names the cause, projected through closed vocabularies only."""
+    """Sam 1794145916 / 1794146991: a driver that caught an early error records FAIL and returns normally (guard `completed`, exit 0); its
+    content-safe interruption evidence names the cause ONLY when bound to this case and its retained receipt, through the reviewed
+    vocabularies. Format-valid injected values are dropped, mismatched or ambiguous refs are `unknown`, malformed shapes never raise."""
+    DOC = {"contentSafe": True, "caseId": "AHT-01", "kind": "interruption-diagnostic", "stage": "start-press", "step": "owner-bound",
+           "error": {"name": "TimeoutError", "code": None, "api": "locator.click", "kind": "timeout", "timeoutMs": 30000,
+                     "testIds": ["sign-in-submit"]}}
+    NAME = "aht-01-interruption.json"
 
-    def interruption(self, doc, ref="aht-01-interruption.json"):
+    def bound(self, doc, name=NAME, refs=None, digest=None, raw=None):
+        """Write the interruption file and a case-result.json listing its digest; return (assertions, case_result bytes)."""
         directory = os.path.join(self.cases, "AHT-01")
         os.makedirs(directory, exist_ok=True)
-        with open(os.path.join(directory, os.path.basename(ref)), "w", encoding="utf-8") as f:
-            json.dump(doc, f)
-        return [{"id": "owner-bound", "result": "FAIL", "evidenceRefs": []},
-                {"id": "owned-pages-closed", "result": "NOT RUN", "evidenceRefs": [ref]}]
+        raw = raw if raw is not None else json.dumps(doc).encode()
+        with open(os.path.join(directory, name), "wb") as f:
+            f.write(raw)
+        refs = [name] if refs is None else refs
+        case_result = json.dumps({"evidenceDigests": {r: digest or hashlib.sha256(raw).hexdigest() for r in refs}}).encode()
+        return ([{"id": "owner-bound", "result": "FAIL", "evidenceRefs": []},
+                 {"id": "owned-pages-closed", "result": "NOT RUN", "evidenceRefs": refs}], case_result)
 
-    def test_a_completed_guard_with_a_caught_login_error_is_named_by_the_driver_interruption(self):
-        assertions = self.interruption({"contentSafe": True, "caseId": "AHT-01", "kind": "interruption-diagnostic", "stage": "login",
-                                        "step": "owner-bound", "error": {"name": "TimeoutError", "code": None, "api": "locator.click",
-                                                                         "kind": "timeout", "timeoutMs": 30000, "testIds": ["sign-in-submit"]}})
-        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions)
+    def project(self, doc=None, **kw):
+        assertions, case_result = self.bound(self.DOC if doc is None else doc, **kw)
+        row, text = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
+        return row["diagnostic"]["driverInterruption"], text
+
+    def test_a_completed_guard_with_a_caught_error_is_named_by_the_bound_driver_interruption(self):
+        assertions, case_result = self.bound(self.DOC)
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
         d = row["diagnostic"]
         self.assertEqual((d["stopCode"], d["exitCode"]), ("completed", 0))
         self.assertEqual(d["firstNonPassingAssertion"], {"id": "owner-bound", "result": "FAIL"})
-        self.assertEqual(d["driverInterruption"], {"stage": "login", "step": "owner-bound",
+        self.assertEqual(d["driverInterruption"], {"stage": "start-press", "step": "owner-bound",
                                                    "error": {"name": "TimeoutError", "code": None, "kind": "timeout", "api": "locator.click",
                                                              "timeoutMs": 30000, "testIds": ["sign-in-submit"]}})
 
-    def test_injected_interruption_values_are_closed_or_dropped(self):
-        assertions = self.interruption({"kind": "interruption-diagnostic", "stage": "Login as bob@example.com", "step": "free text step",
-                                        "error": {"name": "SecretError", "code": "LEAK", "api": "a.b; rm -rf", "kind": "password=x",
-                                                  "timeoutMs": -5, "testIds": ["ok-id", "user-12345678", "Bad Id"], "message": "token=abc"}})
-        row, text = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions)
-        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "other", "step": "unlisted",
-                                                                   "error": {"name": "Error", "code": None, "kind": "other", "api": None,
-                                                                             "timeoutMs": None, "testIds": ["ok-id"]}})
-        for leak in ("bob@example.com", "token=abc", "password=x", "rm -rf", "LEAK", "SecretError", "free text"):
+    def test_sams_format_valid_injected_values_are_dropped(self):
+        doc = dict(self.DOC, stage="password-huntertwo", step="password-huntertwo",
+                   error={"name": "SecretError", "code": "LEAK", "api": "secret.token", "kind": "password=x", "timeoutMs": -5,
+                          "testIds": ["password-huntertwo", "sign-in-submit", "user-12345678", "Bad Id"], "message": "token=abc"})
+        got, text = self.project(doc)
+        self.assertEqual(got, {"stage": "other", "step": "unlisted",
+                               "error": {"name": "Error", "code": None, "kind": "other", "api": None, "timeoutMs": None,
+                                         "testIds": ["sign-in-submit"]}})
+        for leak in ("huntertwo", "secret.token", "token=abc", "password=x", "LEAK", "SecretError", "user-12345678"):
             self.assertNotIn(leak, text)
 
-    def test_an_escaping_or_wrong_kind_reference_is_not_followed(self):
-        outside = os.path.join(self.cases, "aht-01-interruption.json")
-        with open(outside, "w", encoding="utf-8") as f:
-            json.dump({"kind": "interruption-diagnostic", "stage": "login"}, f)
-        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0,
-                              assertions=[{"id": "owned-pages-closed", "result": "NOT RUN", "evidenceRefs": ["../aht-01-interruption.json"]}])
+    def test_the_document_must_be_this_cases_own(self):
+        got, _ = self.project(dict(self.DOC, caseId="AHT-15"))          # Sam's repro: an AHT-15 document under AHT-01
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+        got, _ = self.project(dict(self.DOC, caseId=["AHT-01"]))
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+
+    def test_mismatched_or_ambiguous_refs_are_unknown(self):
+        for label, kw in (("another case's file name", {"name": "aht-15-interruption.json"}),
+                          ("two interruption refs", {"refs": [self.NAME, "aht-02-interruption.json"]}),
+                          ("an escaping ref", {"refs": ["../" + self.NAME]}),
+                          ("a nested ref", {"refs": ["sub/" + self.NAME]})):
+            with self.subTest(label):
+                got, _ = self.project(**kw)
+                self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+
+    def test_the_file_must_be_bound_by_the_receipt_and_case_result_digests(self):
+        got, _ = self.project(digest="0" * 64)                            # case-result names another digest for the file
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+        assertions, case_result = self.bound(self.DOC)
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions)   # no caseResultSha256 in the receipt
         self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None})
-        assertions = self.interruption({"kind": "something-else", "stage": "login"})
-        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions)
+        assertions, case_result = self.bound(self.DOC)
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
+        with open(os.path.join(self.cases, "AHT-01", "case-result.json"), "ab") as f:                # case-result changed after the receipt
+            f.write(b" ")
+        rows, _ = I.isolated_case_rows(self.cases, self.results, ["AHT-01"], "42483030590")
+        self.assertEqual(rows["AHT-01"]["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None})
+
+    def test_a_symlinked_interruption_file_is_refused_by_its_original_identity(self):
+        assertions, case_result = self.bound(self.DOC, name="real.json")
+        directory = os.path.join(self.cases, "AHT-01")
+        os.symlink(os.path.join(directory, "real.json"), os.path.join(directory, self.NAME))
+        with open(os.path.join(directory, "real.json"), "rb") as f:
+            raw = f.read()
+        case_result = json.dumps({"evidenceDigests": {self.NAME: hashlib.sha256(raw).hexdigest()}}).encode()
+        assertions = [{"id": "owner-bound", "result": "FAIL", "evidenceRefs": [self.NAME]}]
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
         self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None})
+
+    def test_malformed_shapes_never_raise_and_never_destroy_peer_rows(self):
+        peer = {"caseId": "AHT-02", "result": "FAIL", "assertions": [],
+                "executionReceipt": {"caseId": "AHT-02", "runId": "42483030590", "exitCode": 2, "summarySha256": None}}
+        shapes = {"reason=[]": dict(summary={"reason": []}),
+                  "reason={}": dict(summary={"reason": {"a": 1}}),
+                  "assertions=dict": dict(summary={"reason": "completed"}, assertions={"id": "x"}),
+                  "assertion id list": dict(summary={"reason": "completed"}, assertions=[{"id": ["owner-bound"], "result": "FAIL"}]),
+                  "result list": dict(summary={"reason": "completed"}, assertions=[{"id": "owner-bound", "result": ["FAIL"]}]),
+                  "evidenceRefs dict": dict(summary={"reason": "completed"},
+                                            assertions=[{"id": "owner-bound", "result": "FAIL", "evidenceRefs": {self.NAME: 1}}])}
+        for label, kw in shapes.items():
+            with self.subTest(label):
+                row, _ = self.run_one(extra_rows=[peer], **kw)
+                self.assertIn(row["diagnostic"]["stopCode"], ("other", "completed", "unknown"))
+        row, _ = self.run_one(summary={"reason": []}, extra_rows=[peer])
+        self.assertEqual(row["diagnostic"]["stopCode"], "other")
+        for label, err in (("name list", {"name": ["Error"]}), ("code dict", {"code": {"a": 1}}), ("kind list", {"kind": ["timeout"]}),
+                           ("api list", {"api": ["locator.click"]}), ("testIds dict", {"testIds": {"sign-in-submit": 1}}),
+                           ("testIds string", {"testIds": "sign-in-submit"}), ("testIds nested", {"testIds": [["sign-in-submit"]]})):
+            with self.subTest(label):
+                got, _ = self.project(dict(self.DOC, error=dict(self.DOC["error"], **err)))
+                self.assertEqual(got["stage"], "start-press")
+                self.assertTrue(isinstance(got["error"], dict))
+        for label, doc in (("stage list", dict(self.DOC, stage=["start-press"])), ("step dict", dict(self.DOC, step={"a": 1}))):
+            with self.subTest(label):
+                got, _ = self.project(doc)
+                self.assertIn(got["stage"], ("other", "start-press"))
+        got, _ = self.project(raw=b"[1, 2")
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+        with mock.patch.object(I, "_case_diagnostic", side_effect=RuntimeError("boom")):
+            row, _ = self.run_one(summary={"reason": "completed"}, extra_rows=[peer])
+        self.assertEqual(row["diagnostic"], I.UNKNOWN_DIAGNOSTIC)
+
+    def test_no_interruption_named_is_none(self):
+        row, _ = self.run_one(summary={"reason": "completed"}, assertions=[{"id": "owner-bound", "result": "FAIL", "evidenceRefs": []}])
+        self.assertIsNone(row["diagnostic"]["driverInterruption"])
+
+
+class DriverVocabularyPins(unittest.TestCase):
+    """The closed vocabularies are the reviewed driver's own sets, not format checks: drift in either direction fails here."""
+    ADAPTERS = os.path.join(ROOT, "harness", "draft-adapters")
+
+    def sources(self):
+        out = {}
+        for d, dirs, files in os.walk(self.ADAPTERS):
+            dirs[:] = sorted(x for x in dirs if x != "tests")
+            for name in sorted(files):
+                if name.endswith(".cjs"):
+                    with open(os.path.join(d, name), encoding="utf-8") as f:
+                        out[os.path.relpath(os.path.join(d, name), self.ADAPTERS)] = f.read()
+        return out
+
+    def test_stages_equal_the_drivers_STAGES_set(self):
+        src = self.sources()["browser-actions.cjs"]
+        stages = set(re.findall(r"'([a-z-]+)'", re.search(r"const STAGES=new Set\(\[(.*?)\]\)", src).group(1)))
+        self.assertEqual(set(I.DRIVER_STAGES), stages)
+
+    def test_test_ids_equal_the_exact_ids_the_adapters_address(self):
+        ids = set()
+        for text in self.sources().values():
+            ids |= set(re.findall(r"getByTestId\('([a-z][a-z0-9-]{1,40})'\)", text))
+            ids |= set(re.findall(r'data-testid="([a-z][a-z0-9-]{1,40})"', text))
+        self.assertEqual(set(I.DRIVER_TEST_IDS), {i for i in ids if not i.endswith("-")}, "dynamic prefixes are never ids")
+
+    def test_apis_are_playwright_page_or_locator_calls_and_the_page_calls_are_used(self):
+        used = set()
+        for text in self.sources().values():
+            used |= {"page." + m for m in re.findall(r"\bpage\.([a-zA-Z]+)\(", text)}
+        for api in I.DRIVER_APIS:
+            self.assertRegex(api, r"^(page|locator)\.[a-zA-Z]+$")
+            if api.startswith("page."):
+                self.assertIn(api, used, api)

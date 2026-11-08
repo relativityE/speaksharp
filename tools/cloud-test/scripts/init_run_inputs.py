@@ -1771,60 +1771,129 @@ def _catalog_assertion_ids():
     return ids
 
 
-STAGE = re.compile(r"[a-z][a-z0-9-]{0,40}")
-ERROR_NAMES = {"TimeoutError", "Error", "TypeError"}
-ERROR_CODES = {"NOT_RUN", "AUTH_REJECTED", "START_PRESS_CAP", "START_CONTROL_NOT_READY", "PRODUCT_FAIL", "EVIDENCE_READER_UNAVAILABLE"}
-ERROR_KINDS = {"timeout", "target-closed", "control-not-ready", "strict-mode", "network-error", "other"}
-API = re.compile(r"[A-Za-z]{2,24}\.[A-Za-z]{2,24}")
-TEST_ID = re.compile(r"[a-z][a-z0-9-]{1,40}")
+# Closed vocabularies only (Sam 1794146991): a value outside these exact reviewed sets is `other` or dropped, never echoed. A format regex
+# is not a vocabulary: `password-huntertwo` and `secret.token` are format-valid. DRIVER_STAGES is the driver's own STAGES set
+# (harness/draft-adapters/browser-actions.cjs); DRIVER_TEST_IDS the exact data-testid values the reviewed adapters address;
+# DRIVER_APIS the Playwright calls they make. tests/test_init_run_inputs.py pins all three to those sources.
+DRIVER_STAGES = frozenset({
+    "idle", "start-select", "start-press", "start-pressed", "retry-setup-wait", "start-recording-wait", "products-trigger-wait",
+    "products-menu-wait", "products-trigger-click", "products-open-wait", "products-item-click", "stop-press", "stop-clicked",
+    "stop-release-wait", "save-wait", "save-readback", "save-complete", "focus-dialog-wait", "focus-dialog-focus-wait", "focus-dialog-close",
+    "focus-dialog-hidden-wait", "focus-intent-clear-wait"})
+DRIVER_TEST_IDS = frozenset({
+    "ai-suggestions-card", "ai-suggestions-pair", "email-input", "feedback-session-select", "feedback-type-broke", "focus-points-edit",
+    "focus-points-legend", "focus-points-new-set", "focus-points-rail", "focus-points-rail-list", "issue-report-description",
+    "issue-report-dialog", "issue-report-submit", "live-transcript", "mic-card", "mic-download", "mic-retry", "mic-start", "mic-status",
+    "nav-account-avatar", "nav-analytics-link", "nav-mobile-products-button", "nav-products-button", "nav-report-issue-button",
+    "nav-sign-out-button", "objective-add-point", "objective-goal-input", "objective-goal-select", "objective-pace-value",
+    "objective-point-label-2", "objective-setup-dialog", "objective-setup-submit", "password-input", "practice-root",
+    "progress-attempt-values", "progress-direction", "progress-loading", "progress-panel", "recorder-bar", "recorder-stop",
+    "repeat-practice-target", "restored-review-retry", "review-evidence", "review-transcript", "review-try-next", "review-what-went-well",
+    "saved-review", "saved-review-practice", "saved-session-return", "session-recovery-actions", "session-recovery-dismiss",
+    "session-recovery-message", "session-retry-save", "session-unresolved-message", "session-unresolved-recovery", "sign-in-submit",
+    "sign-out-button", "stt-mode-private", "stt-mode-select", "transcript-container"})
+DRIVER_APIS = frozenset({
+    "page.goto", "page.goBack", "page.reload", "page.evaluate", "page.waitForFunction", "page.waitForTimeout", "page.waitForURL",
+    "page.addInitScript", "page.close", "locator.click", "locator.fill", "locator.press", "locator.check", "locator.selectOption",
+    "locator.waitFor", "locator.textContent", "locator.innerText", "locator.getAttribute", "locator.inputValue", "locator.isVisible",
+    "locator.isEnabled", "locator.evaluate", "locator.focus", "locator.hover", "locator.scrollIntoViewIfNeeded", "locator.count",
+    "locator.boundingBox", "locator.dispatchEvent", "locator.pressSequentially"})
+ERROR_NAMES = frozenset({"TimeoutError", "Error", "TypeError"})
+ERROR_CODES = frozenset({"NOT_RUN", "AUTH_REJECTED", "START_PRESS_CAP", "START_CONTROL_NOT_READY", "PRODUCT_FAIL", "EVIDENCE_READER_UNAVAILABLE"})
+ERROR_KINDS = frozenset({"timeout", "target-closed", "control-not-ready", "strict-mode", "network-error", "other"})
 INTERRUPTION_MAX_BYTES = 65536
+INTERRUPTION_REF = re.compile(r"aht-(0[1-9]|1[0-5])-interruption\.json")
+_UNREAD = {"stage": "unknown", "step": None, "error": None}
 
 
-def driver_interruption(case_dir, row, allowed_ids):
-    """Sam 1794145916: the driver catches early page/observer/navigation/login errors, records an owner-bound FAIL and returns normally, so
-    the guard's stop code can be `completed`. Its content-safe interruption evidence (source-adapters retainInterruptionEvidence: stage,
-    step, safeErrorSummary) is projected here through closed vocabularies only; anything else is dropped or `other`."""
-    ref = None
-    for a in (row.get("assertions") or []) if isinstance(row, dict) else []:
-        for r in (a.get("evidenceRefs") or []) if isinstance(a, dict) else []:
-            if isinstance(r, str) and re.fullmatch(r"aht-\d\d-interruption\.json", os.path.basename(r)):
-                ref = r
-                break
-        if ref:
-            break
-    if ref is None or not isinstance(case_dir, str):
+def _closed(value, vocabulary, default):
+    return value if isinstance(value, str) and value in vocabulary else default
+
+
+def _bound_file(case_dir, name):
+    """The bytes of `name` directly inside `case_dir`, or None. The ORIGINAL path is checked for a symlink before anything is resolved, and
+    the resolved file must sit directly in the resolved directory (no escape, no nested path)."""
+    if not (isinstance(case_dir, str) and isinstance(name, str)) or os.sep in name or name in (".", ".."):
         return None
-    base = os.path.realpath(case_dir)
-    f = os.path.realpath(os.path.join(base, ref))
+    path = os.path.join(case_dir, name)
+    if os.path.islink(case_dir) or os.path.islink(path) or not os.path.isfile(path):
+        return None
+    if os.path.dirname(os.path.realpath(path)) != os.path.realpath(case_dir) or os.path.getsize(path) > INTERRUPTION_MAX_BYTES * 16:
+        return None
     try:
-        if not f.startswith(base + os.sep) or os.path.islink(f) or not os.path.isfile(f) or os.path.getsize(f) > INTERRUPTION_MAX_BYTES:
-            return {"stage": "unknown", "step": None, "error": None}
-        doc = json.loads(_read(f))
-    except (OSError, ValueError, UnicodeDecodeError, Refused):
-        return {"stage": "unknown", "step": None, "error": None}
-    if not isinstance(doc, dict) or doc.get("kind") != "interruption-diagnostic":
-        return {"stage": "unknown", "step": None, "error": None}
-    stage, step, err = doc.get("stage"), doc.get("step"), doc.get("error")
-    out = {"stage": stage if isinstance(stage, str) and STAGE.fullmatch(stage) else "other",
+        return _read(path)
+    except (OSError, Refused):
+        return None
+
+
+def driver_interruption(case_dir, case_id, row, receipt, allowed_ids):
+    """Sam 1794145916 / 1794146991: the driver catches early page/observer/navigation/login errors, records an owner-bound FAIL and returns
+    normally, so the guard's stop code can be `completed`. Its content-safe interruption evidence (source-adapters retainInterruptionEvidence)
+    is projected only when BOUND to this case and its retained receipt: the row names exactly one interruption ref, `<case>-interruption.json`
+    for this case; the case's `case-result.json` hashes to the receipt's caseResultSha256 and lists that ref in evidenceDigests with the file's
+    exact sha256; the document's own caseId is this case. Every field then passes through the reviewed vocabularies above; anything else is
+    `other` or dropped. None when the row names no interruption; `unknown` when one is named but cannot be bound."""
+    refs = set()
+    for a in row.get("assertions") if isinstance(row.get("assertions"), list) else []:
+        for r in (a.get("evidenceRefs") if isinstance(a, dict) and isinstance(a.get("evidenceRefs"), list) else []):
+            if isinstance(r, str) and "interruption" in r:
+                refs.add(r)
+    if not refs:
+        return None
+    name = case_id.lower() + "-interruption.json"
+    if refs != {name} or not INTERRUPTION_REF.fullmatch(name) or not isinstance(receipt, dict):
+        return dict(_UNREAD)
+    result_raw, raw = _bound_file(case_dir, "case-result.json"), _bound_file(case_dir, name)
+    want = receipt.get("caseResultSha256")
+    if result_raw is None or raw is None or len(raw) > INTERRUPTION_MAX_BYTES or not isinstance(want, str) \
+            or hashlib.sha256(result_raw).hexdigest() != want:
+        return dict(_UNREAD)
+    try:
+        result, doc = json.loads(result_raw), json.loads(raw)
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return dict(_UNREAD)
+    digests = result.get("evidenceDigests") if isinstance(result, dict) else None
+    if not (isinstance(digests, dict) and digests.get(name) == hashlib.sha256(raw).hexdigest()):
+        return dict(_UNREAD)
+    if not (isinstance(doc, dict) and doc.get("kind") == "interruption-diagnostic" and doc.get("caseId") == case_id):
+        return dict(_UNREAD)
+    step, err = doc.get("step"), doc.get("error")
+    out = {"stage": _closed(doc.get("stage"), DRIVER_STAGES, "other"),
            "step": (step if step in allowed_ids else "unlisted") if isinstance(step, str) else None, "error": None}
     if isinstance(err, dict):
-        t = err.get("timeoutMs")
-        out["error"] = {"name": err.get("name") if err.get("name") in ERROR_NAMES else "Error",
-                        "code": err.get("code") if err.get("code") in ERROR_CODES else None,
-                        "kind": err.get("kind") if err.get("kind") in ERROR_KINDS else "other",
-                        "api": err.get("api") if isinstance(err.get("api"), str) and API.fullmatch(err["api"]) else None,
+        t, ids = err.get("timeoutMs"), err.get("testIds")
+        out["error"] = {"name": _closed(err.get("name"), ERROR_NAMES, "Error"), "code": _closed(err.get("code"), ERROR_CODES, None),
+                        "kind": _closed(err.get("kind"), ERROR_KINDS, "other"), "api": _closed(err.get("api"), DRIVER_APIS, None),
                         "timeoutMs": t if type(t) is int and 0 <= t <= 3600000 else None,
-                        "testIds": [x for x in (err.get("testIds") or []) if isinstance(x, str) and TEST_ID.fullmatch(x) and not re.search(r"\d{6,}", x)][:5]}
+                        "testIds": sorted({x for x in ids if isinstance(x, str) and x in DRIVER_TEST_IDS})[:5] if isinstance(ids, list) else []}
     return out
 
 
-def case_diagnostic(row, receipt, summary_doc, allowed_ids, case_dir=None):
-    """{stopCode, exitCode, firstNonPassingAssertion, driverInterruption} from closed sources only."""
+UNKNOWN_DIAGNOSTIC = {"stopCode": "unknown", "exitCode": None, "firstNonPassingAssertion": None, "driverInterruption": None}
+
+
+def case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir=None):
+    """{stopCode, exitCode, firstNonPassingAssertion, driverInterruption} from closed sources only. Never raises: a malformed input yields
+    UNKNOWN for THIS row's diagnostic only, never the loss of the whole artifact (Sam 1794146991)."""
+    try:
+        return _case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir)
+    except Exception:  # noqa: BLE001  (display-only projection; any malformed shape is UNKNOWN, never a crash)
+        return dict(UNKNOWN_DIAGNOSTIC)
+
+
+def _case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir):
+    if not (isinstance(row, dict) and isinstance(case_id, str) and case_id in ALL_AHT):
+        return dict(UNKNOWN_DIAGNOSTIC)
     code = receipt.get("exitCode") if isinstance(receipt, dict) else None
     exit_code = code if type(code) is int and 0 <= code <= 255 else None
     if isinstance(summary_doc, dict):
         reason = summary_doc.get("reason")
-        stop = (reason if isinstance(reason, str) and reason in STOP_CODES else STOP_PREFIXED.get(reason, "other")) if reason is not None else "unknown"
+        if reason is None:
+            stop = "unknown"
+        elif isinstance(reason, str):
+            stop = reason if reason in STOP_CODES else STOP_PREFIXED.get(reason, "other")
+        else:
+            stop = "other"
     elif exit_code == 2:
         stop = "guard-usage-refused"
     elif exit_code == 78:
@@ -1834,13 +1903,13 @@ def case_diagnostic(row, receipt, summary_doc, allowed_ids, case_dir=None):
     else:
         stop = "unknown"
     first = None
-    for a in (row.get("assertions") or []) if isinstance(row, dict) else []:
-        if isinstance(a, dict) and a.get("result") in ("FAIL", "NOT RUN"):
+    for a in row.get("assertions") if isinstance(row.get("assertions"), list) else []:
+        if isinstance(a, dict) and isinstance(a.get("result"), str) and a["result"] in ("FAIL", "NOT RUN"):
             aid = a.get("id")
             first = {"id": aid if isinstance(aid, str) and aid in allowed_ids else "unlisted", "result": a["result"]}
             break
     return {"stopCode": stop, "exitCode": exit_code, "firstNonPassingAssertion": first,
-            "driverInterruption": driver_interruption(case_dir, row, allowed_ids)}
+            "driverInterruption": driver_interruption(case_dir, case_id, row, receipt, allowed_ids)}
 
 
 def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
@@ -1886,7 +1955,7 @@ def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
         base = {"caseId": c, "result": result, "evidence": "bound-case-receipt"}
         if digest is None:                      # the guard exited before a summary: the verdict stands, the timing was not observed
             out[c] = dict(base, timingStatus="NOT OBSERVED", startedAtUtc=None, endedAtUtc=None, durationMs=None,
-                          diagnostic=case_diagnostic(r, receipt, None, allowed_ids,
+                          diagnostic=case_diagnostic(c, r, receipt, None, allowed_ids,
                                                      os.path.join(cases_dir, c) if isinstance(cases_dir, str) else None)); continue
         summary = os.path.join(os.path.realpath(cases_dir), c, "summary.json") if isinstance(cases_dir, str) else ""
         try:
@@ -1908,7 +1977,7 @@ def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
         if not 0 <= duration <= 40 * 60 * 1000:
             out[c] = _unknown_row(c, "case-timing-invalid"); continue
         out[c] = dict(base, timingStatus="OBSERVED", startedAtUtc=stamps[0], endedAtUtc=stamps[1], durationMs=duration,
-                      diagnostic=case_diagnostic(r, receipt, sd, allowed_ids, os.path.join(cases_dir, c)))
+                      diagnostic=case_diagnostic(c, r, receipt, sd, allowed_ids, os.path.join(cases_dir, c)))
     return out, "results"
 
 
