@@ -53,10 +53,14 @@ class Ledger{
  // ledger at the same count has another instance/anchor), refuses while any process still holds the ledger lock (a surviving producer), and
  // verifies the whole journal chain against the state bytes. Two equal snapshots mean no reservation in between. Never throws: {ok:false,reason}.
  static integritySnapshot(file,expected){
+  file=path.resolve(file);const lock=file+'.lock',token=crypto.randomBytes(24).toString('hex');
+  if(!plain(expected)||typeof expected.instanceId!=='string'||!/^[0-9a-f]{64}$/.test(expected.creationAnchorSha256||'')||!/^[0-9a-f]{64}$/.test(expected.capsSha256||''))return {ok:false,reason:'ledger-expected-identity-missing'};
+  // Sam 1794111937: the read holds the ledger lock through the SAME exclusive-create ownership protocol every writer uses, so a writer cannot
+  // acquire it mid-read (it gets EEXIST and fails closed); an existing lock is never stolen (ledger-held), and only this token is released.
+  try{exclusive(lock,JSON.stringify({pid:process.pid,token,reader:'integrity-snapshot'}));}catch(e){return {ok:false,reason:e&&e.code==='EEXIST'?'ledger-held':'ledger-lock-unavailable'};}
+  let lockStamp=null;
   try{
-   file=path.resolve(file);
-   if(!plain(expected)||typeof expected.instanceId!=='string'||!/^[0-9a-f]{64}$/.test(expected.creationAnchorSha256||'')||!/^[0-9a-f]{64}$/.test(expected.capsSha256||''))return {ok:false,reason:'ledger-expected-identity-missing'};
-   if(fs.existsSync(file+'.lock'))return {ok:false,reason:'ledger-held'};
+   lockStamp=stamp(regular(lock,4096));
    regular(file);regular(file+'.journal');
    const identity=readIdentity(file);
    if(identity.instanceId!==expected.instanceId||identity.creationAnchorSha256!==expected.creationAnchorSha256||identity.capsSha256!==expected.capsSha256)return {ok:false,reason:'ledger-instance-differs'};
@@ -66,9 +70,12 @@ class Ledger{
    let previous=identity.creationAnchorSha256,sequence=0,last=null;
    for(const line of journal.toString('utf8').trimEnd().split('\n')){const entry=JSON.parse(line);if(!plain(entry)||entry.version!==1||entry.instanceId!==identity.instanceId||entry.previous!==previous||entry.reservations!==sequence||!/^[0-9a-f]{64}$/.test(entry.ledgerSha256||''))return {ok:false,reason:'ledger-journal-chain'};previous=sha(line);last=entry;sequence++;}
    if(!last||last.reservations!==state.reservations||last.ledgerSha256!==sha(bytes))return {ok:false,reason:'ledger-journal-commit'};
+   // the lock must still be exactly ours at the end of the read
+   const held=JSON.parse(fs.readFileSync(lock,'utf8'));if(!same(lockStamp,stamp(regular(lock,4096)))||held.token!==token)return {ok:false,reason:'ledger-lock-changed'};
    const total=Object.hasOwn(state.used,'total')?state.used.total:0;
    return {ok:true,instanceId:identity.instanceId,creationAnchorSha256:identity.creationAnchorSha256,reservations:state.reservations,total,stateSha256:sha(bytes),journalSha256:sha(journal)};
   }catch{return {ok:false,reason:'ledger-unreadable'};}
+  finally{try{const held=JSON.parse(fs.readFileSync(lock,'utf8'));if(held.token===token&&(!lockStamp||same(lockStamp,stamp(regular(lock,4096))))){fs.unlinkSync(lock);syncDir(lock);}}catch{}}
  }
  static initialize(file,caps){if([file,file+'.identity',file+'.journal',file+'.lock'].some(f=>fs.existsSync(f)))throw new Error('ledger initialization requires fresh path; never reset');const ledger=new Ledger(file,caps,{allowCreate:true});try{return Object.freeze({...ledger.identity});}finally{ledger.release();}}
  static inspectIdentity(file){const identity=readIdentity(file),anchor=JSON.parse(fs.readFileSync(path.resolve(file)+'.identity','utf8'));const ledger=new Ledger(file,anchor.caps,{allowCreate:false,expectedIdentity:identity});try{ledger.assertIntegrity();return Object.freeze({...identity});}finally{ledger.release();}}

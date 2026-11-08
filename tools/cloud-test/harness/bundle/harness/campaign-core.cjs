@@ -165,9 +165,9 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
     const mandatory=(order.length-order.indexOf(id))+1;let reuse=null;
     if(lastAfter){
      const snap=io.ledgerSnapshot(admission?.binding?.campaignLedgerIdentity);
-     if(!snap||snap.ok!==true){row.reason='Request ledger integrity not proven at the shared identity boundary ('+safeReason(snap?.reason||'unavailable')+'); stopped, no fresh read';safetyStopped=true;break;}
-     if(snap.instanceId!==lastAfter.snapshot.instanceId||snap.stateSha256!==lastAfter.snapshot.stateSha256||snap.journalSha256!==lastAfter.snapshot.journalSha256){row.reason='Request ledger changed after the previous identity read (a surviving producer); stopped, no fresh read';safetyStopped=true;break;}
-     const age=io.monotonicMs()-lastAfter.monoAt;if(Number.isFinite(age)&&age>=0&&age<=IDENTITY_REUSE_MAX_AGE_MS)reuse=lastAfter;
+     if(!snap||snap.ok!==true){const why='Request ledger integrity not proven at the shared identity boundary ('+safeReason(snap?.reason||'unavailable')+'); stopped, no fresh read';invalidate(lastAfter.row,why);row.reason=why;safetyStopped=true;break;}
+     if(snap.instanceId!==lastAfter.snapshot.instanceId||snap.stateSha256!==lastAfter.snapshot.stateSha256||snap.journalSha256!==lastAfter.snapshot.journalSha256){const why='Request ledger changed after the previous identity read (a surviving producer); stopped, no fresh read';invalidate(lastAfter.row,why);row.reason=why;safetyStopped=true;break;}
+     const age=Number.isFinite(lastAfter.monoAt)?io.monotonicMs()-lastAfter.monoAt:NaN;if(Number.isFinite(age)&&age>=0&&age<=IDENTITY_REUSE_MAX_AGE_MS)reuse=lastAfter;
     }
     if(reuse){
      if(reads+mandatory>plan.identityCap){row.reason='Identity reads would exceed the configured maximum before the protected terminal reads; not started';safetyStopped=true;break;}
@@ -185,18 +185,19 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
    catch(e){ran={safetyStop:true,reason:'Case execution/receipt unavailable: '+safeReason(e)};invalidate(row,ran.reason);}
    // Even an early driver interruption needs an AFTER receipt, or the case cannot keep PASS.
    let after;
-   if(io.now()+IDENTITY_MAX_MS+plan.cleanupReserveMs<=Date.parse(plan.deadlineAt))after=await observeIdentity('after-'+id);
+   let afterMono=null;
+   if(io.now()+IDENTITY_MAX_MS+plan.cleanupReserveMs<=Date.parse(plan.deadlineAt)){after=await observeIdentity('after-'+id);if(shared)afterMono=io.monotonicMs();}
    else{after={phase:'after-'+id,result:'NOT RUN',reason:'Approved window unavailable for bounded post-case identity'};report.identityReceipts.push(after);}
    row.identityAfter=after;if(after.phase==='after-'+id&&after.result!=='NOT RUN')reads++;
    if(!matches(after)){invalidate(row,'Served identity drift/unproved after case; observations cannot be attributed to one release');safetyStopped=true;}
    if(shared&&!safetyStopped){
     const ce=ran.cleanupEvidence,positive=!!ce&&ce.ownedProcessesRemaining===0&&ce.launchCleanupFailure===false&&ce.mediaCleanupFailure===false&&ce.stopError===false&&ce.browserCloseError===false&&ce.guardClosed===true&&ce.cleanupIncomplete===false;
-    if(!positive){row.reason=row.reason||'Cleanup evidence missing or not positive; shared identity boundary refused';safetyStopped=true;}
+    if(!positive){invalidate(row,'Cleanup evidence missing or not positive; shared identity boundary refused');safetyStopped=true;}
     else{
      const snap=io.ledgerSnapshot(admission?.binding?.campaignLedgerIdentity),ended=Date.parse(after.endedAt);
-     if(!snap||snap.ok!==true){row.reason=row.reason||('Request ledger integrity not proven after the case ('+safeReason(snap?.reason||'unavailable')+')');safetyStopped=true;}
+     if(!snap||snap.ok!==true){invalidate(row,'Request ledger integrity not proven after the case ('+safeReason(snap?.reason||'unavailable')+')');safetyStopped=true;}
      else if(Number.isFinite(ended)&&ended<=Date.now()&&Number.isSafeInteger(after.reservation)&&after.url===plan.targetUrl&&after.expectedSha===plan.servedSha)
-      lastAfter={receipt:after,monoAt:io.monotonicMs(),snapshot:snap,caseId:id};
+      lastAfter={receipt:after,monoAt:afterMono,snapshot:snap,caseId:id,row};
     }
    }
    if(ran.authenticationRejected===true){report.authenticationRejected=true;invalidate(row,'Authentication rejected; remaining cases stopped to avoid repeated credentials');safetyStopped=true;}

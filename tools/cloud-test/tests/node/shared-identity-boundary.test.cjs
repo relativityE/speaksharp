@@ -18,7 +18,7 @@ const body = sha => '<html><script>window.__APP_RELEASE__ = {"sha":"' + sha + '"
 const POSITIVE = { schema: 'speaksharp.cloud-test.case-cleanup-evidence.v1', ownedProcessesRemaining: 0, launchCleanupFailure: false,
   mediaCleanupFailure: false, stopError: false, browserCloseError: false, guardClosed: true, cleanupIncomplete: false };
 
-function rig(t, { cap = 18, shared = true } = {}) {
+function rig(t, { cap = 18, shared = true, skip = null } = {}) {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'shared-identity-')));
   fs.chmodSync(dir, 0o700); fs.chownSync(dir, process.getuid(), process.getgid());
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -27,7 +27,7 @@ function rig(t, { cap = 18, shared = true } = {}) {
   const plan = { version: 1, campaignId: 'UNIT-NOT-A-RUN', runtime: 'Claude SpeakSharp R4', targetUrl: URL_, costCeilingUsd: 0, sourceSha: commit,
     servedSha: commit, admissionConfigFile: 'unit.json', admissionConfigSha256: hash, stepRoot: 'unit', stepManifestFile: 'steps.json',
     stepManifestSha256: hash, campaignLedger, identityLedger, identityCap: cap, runRoot: dir, deadlineAt: '2026-10-27T13:00:00Z',
-    cleanupReserveMs: 1000, sharedIdentityBoundaries: shared, cases: IDS.map(id => ({ id, driverFile: id + '.cjs', driverSha256: hash, configFile: id + '.json', configSha256: hash, maxMs: 100 })) };
+    cleanupReserveMs: 1000, sharedIdentityBoundaries: shared, ...(skip ? { requestBudget: { runCap: 400, cleanupReserve: 0, estimates: Object.fromEntries(IDS.map(id => [id, 2])), ceilings: Object.fromEntries(IDS.map(id => [id, 10])), skip } } : {}), cases: IDS.map(id => ({ id, driverFile: id + '.cjs', driverSha256: hash, configFile: id + '.json', configSha256: hash, maxMs: 100 })) };
   const state = { mono: 0, served: commit, hooks: {}, calls: [] };
   const read = phase => {
     const sha = typeof state.served === 'function' ? state.served(phase) : state.served;
@@ -38,10 +38,11 @@ function rig(t, { cap = 18, shared = true } = {}) {
   const io = {
     now: () => now, save: async () => {}, preflightCase: async () => {},
     admit: async () => { const a7 = read('admission'); state.calls.push('identity:admission'); return { result: 'ADMISSION PASS', binding: { campaignLedgerIdentity: ledgerIdentity }, identityReceipt: a7 }; },
-    identity: async phase => { state.calls.push('identity:' + phase); const r = read(phase); if (state.between && phase === state.between.phase) state.armed = 2; return r; },
+    identity: async phase => { state.calls.push('identity:' + phase); const r = read(phase); if (state.between && phase === state.between.phase) state.armed = state.between.at || 2; return r; },
     caseConfig: async c => ({ caseId: c.id, sourceSha: commit, servedSha: commit, targetUrl: URL_, requiredAssertions: ['actual'] }),
     runCase: async c => {
       state.calls.push('run:' + c.id);
+      if (state.hooks.result) { const x = state.hooks.result(c.id); if (x) { state.mono += 1000; return x; } }
       const l = new Ledger(campaignLedger, { total: 500 }, { allowCreate: false, expectedIdentity: ledgerIdentity });
       try { l.tryReserve(['total']); l.tryReserve(['total']); } finally { l.release(); }       // the case's product requests, then cleanup
       state.mono += 1000;
@@ -50,6 +51,7 @@ function rig(t, { cap = 18, shared = true } = {}) {
     },
     // the boundary's own snapshot (call 1 after the trigger read), then the next case's pre-dispatch revalidation (call 2): `between` runs
     // in exactly that window, where elapsed time, delayed traffic or a replaced ledger would really occur.
+    verifyBudgetBinding: async () => {}, ledgerUsed: () => Ledger.readUsedTotal(campaignLedger),
     ledgerSnapshot: expected => { if (state.armed && --state.armed === 0) state.between.fn(); return Ledger.integritySnapshot(campaignLedger, expected); },
     monotonicMs: () => state.mono,
   };
@@ -156,4 +158,73 @@ test('unshared plans are unchanged: 31 identity calls and the 32 minimum', async
   assert.equal(r.state.calls.filter(c => c.startsWith('identity:') && c !== 'identity:admission').length, 31);
   const bad = rig(t, { cap: 31, shared: false });
   assert.equal((await run(bad)).exitCode, 78);
+});
+
+
+test('Sam 1794111937 #1: elapsed validation/snapshot work counts toward freshness (a 26 s first snapshot is not reused)', async t => {
+  const r = rig(t, { cap: 32 });
+  r.state.between = { phase: 'after-AHT-04', at: 1, fn: () => { r.state.mono += 26000; } };    // during the boundary's own snapshot
+  const out = await run(r);
+  assert.equal(out.report.result, 'PASS');
+  assert.equal(out.report.cases[4].identityBefore.citation, undefined);
+});
+
+test('Sam 1794111937 #2: a writer that tries to acquire the ledger DURING the snapshot read is refused; the snapshot never steals a held lock', t => {
+  const r = rig(t);
+  const realRead = fs.readFileSync;
+  let writerError = null, snap;
+  fs.readFileSync = function (f, ...rest) {
+    if (typeof f === 'string' && f.endsWith('.journal') && writerError === null) {
+      try { new Ledger(r.campaignLedger, { total: 500 }, { allowCreate: false, expectedIdentity: r.ledgerIdentity }).release(); writerError = 'acquired'; }
+      catch (e) { writerError = e.message; }
+    }
+    return realRead.call(this, f, ...rest);
+  };
+  try { snap = Ledger.integritySnapshot(r.campaignLedger, r.ledgerIdentity); } finally { fs.readFileSync = realRead; }
+  assert.equal(snap.ok, true);
+  assert.match(writerError, /ledger locked/);                                   // the writer failed closed; it never wrote mid-read
+  assert.equal(fs.existsSync(r.campaignLedger + '.lock'), false);               // only the snapshot's own lock was released
+  fs.writeFileSync(r.campaignLedger + '.lock', JSON.stringify({ pid: 1, token: 'producer' }));
+  assert.deepEqual(Ledger.integritySnapshot(r.campaignLedger, r.ledgerIdentity), { ok: false, reason: 'ledger-held' });
+  assert.equal(JSON.parse(fs.readFileSync(r.campaignLedger + '.lock', 'utf8')).token, 'producer');   // never stolen
+});
+
+test('Sam 1794111937 #3: the affected rows are invalidated on the new failure paths; an existing FAIL is preserved', async t => {
+  const missing = rig(t);
+  missing.state.hooks.cleanup = id => (id === 'AHT-02' ? null : { ...POSITIVE });
+  const a = await run(missing);
+  assert.deepEqual([a.report.cases[1].result, a.report.cases[1].executionInvalid], ['NOT RUN', true]);
+  const failed = rig(t);
+  failed.state.hooks.result = id => (id === 'AHT-02' ? { assertions: [{ id: 'actual', result: 'FAIL', detail: 'unit product contradiction', evidenceRefs: ['u'] }], cleanupEvidence: null } : null);
+  const b = await run(failed);
+  assert.deepEqual([b.report.cases[1].result, b.report.cases[1].executionInvalid], ['FAIL', true]);
+  const changed = rig(t);
+  changed.state.between = { phase: 'after-AHT-03', fn: () => { const l = new Ledger(changed.campaignLedger, { total: 500 }, { allowCreate: false, expectedIdentity: changed.ledgerIdentity }); try { l.tryReserve(['total']); } finally { l.release(); } } };
+  const c = await run(changed);
+  assert.deepEqual([c.report.cases[2].result, c.report.cases[2].executionInvalid], ['NOT RUN', true]);   // the predecessor whose boundary it was
+});
+
+test('a budget-skipped row between boundaries is not a product action: reuse holds and is attributed to the executed neighbours only', async t => {
+  const r = rig(t, { skip: ['AHT-05'] });
+  const out = await run(r);
+  assert.equal(r.state.calls.includes('run:AHT-05'), false);
+  assert.equal(out.report.cases[4].identityBefore, undefined);                  // the skipped row cites nothing
+  assert.equal(out.report.cases[5].identityBefore.citation, true);
+  assert.equal(out.report.cases[5].identityBefore.citesPhase, 'after-AHT-04');
+  assert.equal(r.physical(), 17);
+});
+
+test('wrong bindings: a receipt for another target is never reused; a ledger that is not the admitted one stops', async t => {
+  const r = rig(t, { cap: 32 });
+  const identity = r.io.identity;
+  r.io.identity = async phase => { const x = await identity(phase); return phase === 'after-AHT-02' ? { ...x, url: 'https://other.example/' } : x; };
+  const out = await run(r);
+  assert.equal(out.report.cases[2].identityBefore.citation, undefined);
+  const w = rig(t);
+  const admit = w.io.admit;
+  w.io.admit = async () => { const a = await admit(); return { ...a, binding: { campaignLedgerIdentity: { ...a.binding.campaignLedgerIdentity, instanceId: '00000000-0000-4000-8000-000000000000' } } }; };
+  const stop = await run(w);
+  assert.equal(stop.report.safetyStopped, true);
+  assert.equal(w.state.calls.includes('run:AHT-02'), false);
+  assert.deepEqual([stop.report.cases[0].result, stop.report.cases[0].executionInvalid], ['NOT RUN', true]);
 });
