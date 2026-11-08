@@ -16,6 +16,7 @@
   "preReserveStateHead": "19a9251d0df19e6ffee87a312c2efc49eb793cf5",
   "notBeforeUtc": "2026-11-08T15:36:22Z",
   "expiresUtc": "2026-11-09T03:00:00Z",
+  "windowSourceRef": "chatgpt:Sentinel_e42f51a0e7c08191aa31e080ac2cd3f6",
   "limits": {
     "endToEndMinutes": 100,
     "liveMinutes": 60,

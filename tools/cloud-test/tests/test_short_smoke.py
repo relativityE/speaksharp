@@ -202,6 +202,40 @@ class ShortSmokeContract(unittest.TestCase):
             with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
                 init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
+    def test_an_extended_window_names_its_source_and_never_relabels_the_approval(self):
+        """Sam 1794175603, PO go-ahead 2026-11-08: the committed grant extends the window to 03:00Z for the owner's 00:00Z Nov 9 start and
+        names the timing's actual source as windowSourceRef (the owner's ChatGPT message), while approvalRef stays the original approval.
+        An extended window without a well-formed source, or a source on the original window, refuses."""
+        self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T03:00:00Z")
+        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "chatgpt:Sentinel_e42f51a0e7c08191aa31e080ac2cd3f6")
+        self.assertEqual(COMMITTED_GRANT["approvalRef"], "slack:1794145532.283429")
+        self.assertEqual(init.ONE_OFF_APPROVED_EXPIRES_UTC, "2026-11-09T00:00:00Z")
+        repo = str(ROOT.parents[1])
+        grant_path = os.path.join(repo, init.ONE_OFF_GRANT_PATH)
+        real_read, real_sha = init._read, init.ONE_OFF_GRANT_SHA256
+
+        def check(grant):
+            raw = (json.dumps(grant, indent=2) + "\n").encode()
+            init.ONE_OFF_GRANT_SHA256 = hashlib.sha256(raw).hexdigest()
+            init._read = lambda path: raw if os.path.realpath(path) == os.path.realpath(grant_path) else real_read(path)
+            try:
+                return init.one_off_grant(repo)
+            finally:
+                init._read, init.ONE_OFF_GRANT_SHA256 = real_read, real_sha
+
+        self.assertEqual(check(dict(COMMITTED_GRANT))["windowSourceRef"], COMMITTED_GRANT["windowSourceRef"])
+        no_source = {k: v for k, v in COMMITTED_GRANT.items() if k != "windowSourceRef"}
+        original_window = dict(no_source, expiresUtc="2026-11-09T00:00:00Z")
+        self.assertNotIn("windowSourceRef", check(original_window))          # the original window needs no source
+        for label, grant in {"extended window without a source": no_source,
+                             "malformed source": dict(COMMITTED_GRANT, windowSourceRef="has a space"),
+                             "empty source": dict(COMMITTED_GRANT, windowSourceRef=""),
+                             "a source on the original window": dict(original_window, windowSourceRef=COMMITTED_GRANT["windowSourceRef"])}.items():
+            with self.subTest(label), self.assertRaisesRegex(init.Refused, "one-off-grant-window-source"):
+                check(grant)
+        with self.assertRaisesRegex(init.Refused, "one-off-grant-shape"):    # any other extra key is still refused
+            check(dict(COMMITTED_GRANT, somethingElse="x"))
+
     def test_one_off_grant_rejects_caller_authority_release_checkpoint_and_scope_tampering(self):
         repo = str(ROOT.parents[1])
         template = json.loads((ROOT / ONE_OFF_TEMPLATE).read_text())

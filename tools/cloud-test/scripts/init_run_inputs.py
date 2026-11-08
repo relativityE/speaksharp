@@ -51,7 +51,7 @@ SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 # all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
 # grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
-ONE_OFF_GRANT_SHA256 = "1ce2bdf4d392a81aaf052dbaf6858f16abd3f24c090f15f9bce1bca0bf87e622"   # Sam 1794156633.525579: the AHT-01 grant re-issued at 19a9251d after run 42496837188 (scope +4 slack:1794156633.525579; approval slack:1794145532.283429)
+ONE_OFF_GRANT_SHA256 = "cf6bcfae3cd085b64dd83ba5a7468b9d9abf48cb5f8e938ea767599f84bc4012"   # Sam 1794156633.525579: the AHT-01 grant re-issued at 19a9251d after run 42496837188 (scope +4 slack:1794156633.525579; approval slack:1794145532.283429)
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
 ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_BASE_TEMPLATE_SHA256 = "4f3056130fd9d49652fb6d1cdf9ea11b0f95b1339bef602484219f27dd683b08"
@@ -60,6 +60,10 @@ ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
                       "limits", "olderReleaseDiagnostic", "selectedCases"}
+# Sam 1794175603 / PO go-ahead 2026-11-08: a window extended past the originally approved expiry must name the actual source of the new
+# timing as `windowSourceRef` (provenance only: it is never read as the approval, which stays `approvalRef`). The original window carries none.
+ONE_OFF_APPROVED_EXPIRES_UTC = "2026-11-09T00:00:00Z"
+ONE_OFF_WINDOW_SOURCE_KEY = "windowSourceRef"
 # The time envelope is NOT resized from estimates (Sam 1794149071): the reviewed 100-minute occurrence and 60-minute live ceiling stay.
 ONE_OFF_WINDOW = {"endToEndMinutes": 100, "liveMinutes": 60}
 CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
@@ -163,9 +167,11 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
         grant = json.loads(raw)
     except ValueError:
         raise Refused("one-off-grant-unreadable")
-    _need(isinstance(grant, dict) and set(grant) == ONE_OFF_GRANT_KEYS
+    _need(isinstance(grant, dict) and set(grant) - {ONE_OFF_WINDOW_SOURCE_KEY} == ONE_OFF_GRANT_KEYS
           and grant.get("schema") == "speaksharp.cloud-test.one-off-grant.v1" and grant.get("status") in ONE_OFF_GRANT_STATUSES,
           "one-off-grant-shape")
+    extended = grant.get("expiresUtc") != ONE_OFF_APPROVED_EXPIRES_UTC
+    _need(_ref(grant.get(ONE_OFF_WINDOW_SOURCE_KEY)) if extended else ONE_OFF_WINDOW_SOURCE_KEY not in grant, "one-off-grant-window-source")
     # Sam 1794070407: a grant whose proposed scope grew past its recorded owner decision is committed AWAITING_OWNER_DECISION and cannot
     # admit a dispatch; only a reviewed change pinning the owner's new decision sets APPROVED (and re-pins ONE_OFF_GRANT_SHA256).
     _need(grant.get("status") == "APPROVED", "one-off-grant-not-approved")
