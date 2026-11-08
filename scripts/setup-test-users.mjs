@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { provisionCanaryCredential } from './lib/canaryAccountAdmin.mjs';
+import { enduranceReadiness } from './lib/enduranceReadiness.mjs';
 
 // Load environment from .env.development (Standard for Soak/Canary tests)
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
@@ -208,73 +209,14 @@ function buildProfilePatchForTier(tier, email) {
     };
 }
 
-// #1294 Option 1: the browser-endurance accounts must be GENUINE active-trial via the immutable 30-day
-// foundation (migration 20260812040000). The foundation stamps trial_started_at / trial_expires_at ONLY at
-// account creation, so a pre-foundation account is recreated — never hand-stamped, never extended.
-
-/**
- * True iff the account's trial is active by the SERVER's definition (public.effective_subscription_tier,
- * migration 20260812040000): BOTH the immutable commercial grant marker `commercial_trial_granted_at` AND an
- * unexpired `trial_expires_at` must exist. Checking only trial_expires_at is too weak — a stale account can
- * have a window but a NULL grant (which the server reports as trial_expired). Logs the fields for diagnosis.
- */
-async function accountHasActiveTrial(userId, email) {
-    const { data, error } = await supabase
-        .from('user_profiles')
-        .select('trial_started_at, trial_expires_at, commercial_trial_granted_at')
-        .eq('id', userId)
-        .maybeSingle();
-    if (error) {
-        console.log(`      ⚠️ trial read for ${email ?? userId} failed: ${error.message}`);
-        return false;
+// #1294 Option 1: the browser-endurance accounts must be GENUINE active-trial accounts. Run 42474354454 proved that recreating an
+// account cannot restore a trial (public.trial_entitlements keeps the e-mail's historical dates), so this script never deletes or
+// recreates them: readiness is READ-ONLY (scripts/lib/enduranceReadiness.mjs) and is checked before any write; when an endurance
+// account is expired, missing, ambiguous or unreadable the soak setup refuses with zero account mutations.
+function reportEnduranceReadiness(readiness) {
+    for (const a of readiness.accounts) {
+        console.log(`  ${a.state === 'active' ? '✅' : '❌'} ${a.email}: ${a.state} (${a.reason})${a.expiresAt ? ` trial_expires_at=${a.expiresAt}` : ''}`);
     }
-    const grant = data?.commercial_trial_granted_at ?? null;
-    const expiry = data?.trial_expires_at ?? null;
-    const active = !!grant && !!expiry && new Date(expiry).getTime() > Date.now();
-    console.log(`      🔎 ${email ?? userId}: grant=${grant ?? 'NULL'} expiry=${expiry ?? 'NULL'} → active_trial=${active}`);
-    return active;
-}
-
-// Tables that reference auth.users(id) WITHOUT ON DELETE CASCADE (RESTRICT) — deleting the auth user is
-// blocked until these child rows are removed. Enumerated from the schema (usage_checkpoints burned a prior
-// partial delete). user_profiles is deleted last (its own children cascade from it).
-const RESTRICT_USER_CHILD_TABLES = ['sessions', 'usage_checkpoints'];
-
-/** Cascade-safe delete of a single test account: clear RESTRICT children, then the profile, then the auth user. */
-async function deleteAccountCascadeSafe(userId) {
-    for (const table of RESTRICT_USER_CHILD_TABLES) {
-        const { error } = await supabase.from(table).delete().eq('user_id', userId);
-        // A missing table/column in the current schema is benign here; a real delete failure is surfaced by
-        // the deleteUser step below (which fails closed if any residual FK still blocks).
-        if (error && !/does not exist|schema cache/i.test(error.message)) {
-            console.log(`      ⚠️ child cleanup ${table}: ${error.message}`);
-        }
-    }
-    await supabase.from('user_profiles').delete().eq('id', userId);
-    return supabase.auth.admin.deleteUser(userId);
-}
-
-/**
- * Ensure a browser-endurance identity is a genuine active-trial account. Reuse if already active-trial;
- * otherwise recreate through the immutable foundation and verify the fresh trial. FAILS CLOSED (returns a
- * reason) — the caller exits non-zero so Private can never silently run without a real trial entitlement.
- */
-async function ensureActiveTrialEnduranceAccount(email) {
-    const existing = (await listExistingSoakUsers(false)).find((u) => u.email === email);
-    if (existing && await accountHasActiveTrial(existing.id, email)) {
-        return { email, action: 'reused', ok: true };
-    }
-    if (existing) {
-        console.log(`  ♻️  ${email}: no active trial — recreating through the immutable foundation...`);
-        const { error: delError } = await deleteAccountCascadeSafe(existing.id);
-        if (delError) return { email, action: 'recreate', ok: false, reason: `delete_failed: ${delError.message}` };
-    }
-    const user = await createUserWithTier(email, 'free'); // creation trigger stamps the immutable 30-day trial
-    if (!user) return { email, action: 'create', ok: false, reason: 'create_failed' };
-    if (!await accountHasActiveTrial(user.id, email)) {
-        return { email, action: 'verify', ok: false, reason: 'foundation_trial_not_active_after_create' };
-    }
-    return { email, action: existing ? 'recreated' : 'created', ok: true };
 }
 
 async function printSoakUsers() {
@@ -491,6 +433,19 @@ async function main() {
 
     console.log(`  Target: ${finalFree} free, ${finalPro} pro (Total: ${totalRequested})`);
 
+    // Server-authoritative endurance readiness BEFORE any write (rename, password sync, provisioning, tier sync). Not ready -> refuse
+    // with zero account mutations: no delete/recreate, no password reset, no fabricated or extended entitlement.
+    if (MODE === 'soak') {
+        console.log('\nStep 1b: 🎟️  Browser-endurance readiness (read-only, before any write)...');
+        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email) });
+        reportEnduranceReadiness(readiness);
+        if (!readiness.ready) {
+            console.error('\n❌ Browser-endurance accounts are not genuine active-trial accounts; refusing BEFORE any account write.');
+            console.error('   Recreation cannot restore a trial (the e-mail keeps its trial dates). Eligible endurance fixtures need an owner decision.');
+            process.exit(1);
+        }
+    }
+
     console.log('\nStep 2: 📊 Registering existing users...');
     let existingUsers = await listExistingSoakUsers();
     await renameOldUser(existingUsers);
@@ -535,21 +490,13 @@ async function main() {
     const updatedUsers = await listExistingSoakUsers(false);
     await syncUserTiers(updatedUsers, finalFree, finalPro);
 
-    // #1294 Option 1: the browser-endurance accounts must run the REAL customer Private engine, which needs a
-    // genuine active-trial entitlement. Reuse if already active-trial; otherwise recreate through the
-    // immutable foundation. Fail closed — never let endurance proceed on a non-trial account.
+    // #1294 Option 1: re-verify (read-only) that the earlier writes left the endurance accounts genuine active-trial.
     if (MODE === 'soak') {
-        console.log('\nStep 6: 🎟️  Ensuring browser-endurance accounts are genuine active-trial (immutable foundation)...');
-        const results = [];
-        for (const account of DEDICATED_BROWSER_ENDURANCE_ACCOUNTS) {
-            const r = await ensureActiveTrialEnduranceAccount(account.email);
-            console.log(`  ${r.ok ? '✅' : '❌'} ${r.email}: ${r.action}${r.ok ? '' : ` — ${r.reason}`}`);
-            results.push(r);
-        }
-        const failed = results.filter((r) => !r.ok);
-        if (failed.length > 0) {
-            console.error(`\n❌ Browser-endurance active-trial provisioning FAILED for ${failed.length} account(s): ${failed.map((f) => `${f.email} (${f.reason})`).join(', ')}`);
-            console.error('   Endurance requires a genuine Private active-trial; refusing to proceed (no fabricated entitlement, no private_sample fallback).');
+        console.log('\nStep 6: 🎟️  Re-verifying browser-endurance readiness (read-only)...');
+        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email) });
+        reportEnduranceReadiness(readiness);
+        if (!readiness.ready) {
+            console.error('\n❌ Browser-endurance accounts are no longer genuine active-trial; refusing (no fabricated entitlement, no private_sample fallback).');
             process.exit(1);
         }
     }
