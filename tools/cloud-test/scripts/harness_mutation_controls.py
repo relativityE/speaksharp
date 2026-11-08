@@ -40,7 +40,7 @@ PACKET = {
     "M08-gates-ignored": ([("bundle/harness/campaign-core.cjs", "const gate=(plan.gates||[]).find(g=>g.caseId===id);", "const gate=null;")], ("S4 ", "S5 ")),
     "M09-run-identity-noop": ([("bundle/harness/campaign-runner.cjs", "if(r.runner.codeManifestSha256!==codeSha)throw", "if(false)throw")], ("I1 ", "I2 ", "I3 ")),
     "M10-receipt-denial-unchecked": ([("bundle/harness/stimulus-receipt.cjs", "if(denialCases.includes(id)&&c.ungrantedOutcome!=='not-allowed')", "if(false)")], ("P1 ", "S4 ")),
-    "M11-identity-cap-not-scaled": ([("bundle/harness/campaign-core.cjs", "p.identityCap<requiredIdentityCap(nSelected)", "p.identityCap<requiredIdentityCap(15)")], ("S2 ", "S3 ")),
+    "M11-identity-cap-not-scaled": ([("bundle/harness/campaign-core.cjs", "p.identityCap<requiredIdentityCap(nSelected,sharedIds)", "p.identityCap<requiredIdentityCap(15,sharedIds)")], ("S2 ", "S3 ")),
 }
 # Additional: single-module controls with the package's focused tests (module, env var, test file) -> anchors and named kills.
 FOCUS = ("draft-adapters/focus-oracle.cjs", "FOCUS_ORACLE", "tests/node/focus-oracle-controls.test.cjs")

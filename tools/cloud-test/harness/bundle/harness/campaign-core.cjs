@@ -3,7 +3,12 @@ const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypt
 const {summarizeAssertions}=require('./case-results.cjs');
 const IDS=Object.freeze(Array.from({length:15},(_,i)=>'AHT-'+String(i+1).padStart(2,'0')));
 const IDENTITY_MAX_MS=25000;
-const requiredIdentityCap=(caseCount=IDS.length)=>1+2*caseCount+1; // A7 + before/after each case + final
+const requiredIdentityCap=(caseCount=IDS.length,shared=false)=>shared?caseCount+3:1+2*caseCount+1; // A7 + before/after each case + final; shared: A7 + first before + one after per case + final
+// Sam 1794109947: shared identity boundaries (opt-in plan.sharedIdentityBoundaries). Case N's after-read may serve as case N+1's before-read only
+// while it is fresh by the MONOTONIC clock, its receipt is bound to this plan's target and served release, case N left POSITIVE cleanup evidence,
+// and an integrity-checked snapshot of the ADMITTED request ledger is unchanged since that read. A stale read is benign (a fresh before-read);
+// an unreadable/replaced/held ledger, a changed ledger or missing/negative cleanup evidence is UNSAFE and stops: a GET does not repair them.
+const IDENTITY_REUSE_MAX_AGE_MS=25000;
 // Sam 1794071417: one timing model for the case-admission gate, matching what the adapter actually grants. Every adapter command is
 // supervised (admission.cjs supervisedCommand): after its timeout it gets SIGTERM, SIGKILL after one grace and is abandoned after two, so
 // its worst case is timeout + 2*grace, grace = min(5 s, cleanupReserveMs/2). The adapter gives a case maxMs + cleanupReserveMs (its own
@@ -83,7 +88,10 @@ function validateCampaignPlan(p) {
  for(const k of ['admissionConfigSha256','stepManifestSha256'])if(!SHA.test(p?.[k]||''))errors.push(k);
  errors.push(...validateSelection(p));errors.push(...validateRunIdentity(p?.runIdentity));
  const nSelected=selectedOrder(p).length;
- if(!Number.isSafeInteger(p?.identityCap)||p.identityCap<requiredIdentityCap(nSelected))errors.push('identityCap must cover admission + before/after each selected case + final (minimum '+requiredIdentityCap(nSelected)+' for '+nSelected+' cases)');
+ if(p?.sharedIdentityBoundaries!==undefined&&typeof p.sharedIdentityBoundaries!=='boolean')errors.push('sharedIdentityBoundaries must be boolean');
+ const sharedIds=p?.sharedIdentityBoundaries===true;
+ if(!Number.isSafeInteger(p?.identityCap)||p.identityCap<requiredIdentityCap(nSelected,sharedIds))errors.push('identityCap must cover admission + before/after each selected case + final (minimum '+requiredIdentityCap(nSelected,sharedIds)+' for '+nSelected+' cases)');
+ if(p?.identityReserved!==undefined&&(!Number.isSafeInteger(p.identityReserved)||!Number.isSafeInteger(p?.identityCap)||p.identityReserved<p.identityCap))errors.push('identityReserved (the durable reservation) must be an integer covering identityCap (the configured maximum)');
  if(!Number.isFinite(Date.parse(p?.deadlineAt))||!Number.isSafeInteger(p?.cleanupReserveMs)||p.cleanupReserveMs<1)errors.push('deadline/cleanup reserve');
  const cases=p?.cases;
  if(!Array.isArray(cases)||cases.length!==15||IDS.some(id=>cases.filter(c=>c.id===id).length!==1))errors.push('exactly one of all15 AHT IDs required');
@@ -125,14 +133,14 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
  if(plan.selection){report.selection={ids:[...plan.selection.ids],order:[...selectedOrder(plan)],unselected:unselectedIds(plan),ownerApprovalReference:plan.selection.ownerApprovalReference,reason:plan.selection.reason,gates:(plan.gates||[]).map(g=>({caseId:g.caseId,requires:g.requires.map(r=>({caseId:r.caseId,row:r.row,result:r.result}))}))};for(const id of unselectedIds(plan)){const row=report.cases.find(x=>x.caseId===id);row.notSelected=true;row.plannedRequests=0;row.requestsUsed=0;row.reason='Not selected by the approved case selection; not dispatched, no requests and no identity reads spent';}}
  if(plan.runIdentity)report.runIdentity={...plan.runIdentity,cases:plan.cases.filter(c=>selectedOrder(plan).includes(c.id)).map(c=>({id:c.id,driverSha256:c.driverSha256,configSha256:c.configSha256,mediaSha256:c.mediaSha256||null}))};
  if(!executeR0){report.reason='Offline plan only; actual R0 admission and journeys NOT_RUN';await save();return{exitCode:78,report};}
- let admitted=false,safetyStopped=false;
- const order=selectedOrder(plan);report.identityPlan={admission:1,beforeCases:order.length,afterCases:order.length,final:1,requiredCap:requiredIdentityCap(order.length),approvedCap:plan.identityCap};
+ let admitted=false,safetyStopped=false;const shared=plan.sharedIdentityBoundaries===true;let reads=0,lastAfter=null;
+ const order=selectedOrder(plan);report.identityPlan={shared,minimum:requiredIdentityCap(order.length,shared),configuredMax:plan.identityCap,reserved:Number.isSafeInteger(plan.identityReserved)?plan.identityReserved:plan.identityCap,admission:1,beforeCases:order.length,afterCases:order.length,final:1,requiredCap:requiredIdentityCap(order.length),approvedCap:plan.identityCap};
  const matches=identity=>identity?.result==='MATCH'&&identity.servedSha===plan.servedSha;
  const observeIdentity=async phase=>{let value;try{value=await io.identity(phase,plan);}catch(e){value={result:'NOT RUN',reason:'Identity unavailable: '+safeReason(e)};}const receipt={...value,phase};report.identityReceipts.push(receipt);return receipt;};
  const invalidate=(row,reason)=>{row.executionInvalid=true;if(row.result!=='FAIL')row.result='NOT RUN';row.reason=reason;};
  try{
   const admission=await io.admit(plan);report.admission=admission;
-  if(admission.result!=='ADMISSION PASS')throw new Error('BLOCKED_SETUP: campaign admission failed');admitted=true;
+  if(admission.result!=='ADMISSION PASS')throw new Error('BLOCKED_SETUP: campaign admission failed');admitted=true;reads=1;/* the A7 admission read is the identity ledger's first reservation, under the same cap */
   for(const id of order){
    const c=plan.cases.find(x=>x.id===id),row=report.cases.find(x=>x.caseId===id);
    // r15 stimulus gate: a case whose trigger depends on an earlier stimulus is not dispatched when that stimulus was not established, so no request, identity read or time is spent on a scenario that cannot reach its trigger.
@@ -151,7 +159,26 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
     if(available<budget.estimates[id]){row.reason='Insufficient request budget after protecting later cases and the cleanup reserve; not started';row.requestBudgetSkipped=true;row.plannedRequests=budget.estimates[id];row.ledgerUsedAtDecision=usedBefore;continue;}
     allowance=Math.min(budget.ceilings[id],available);row.requestAllowance=allowance;row.plannedRequests=budget.estimates[id];
    }
-   const identity=await observeIdentity('before-'+id);row.identityBefore=identity;
+   let identity;
+   if(shared){
+    // the mandatory reads still ahead if this case starts: one after per remaining selected case (every later boundary) + the final read
+    const mandatory=(order.length-order.indexOf(id))+1;let reuse=null;
+    if(lastAfter){
+     const snap=io.ledgerSnapshot(admission?.binding?.campaignLedgerIdentity);
+     if(!snap||snap.ok!==true){row.reason='Request ledger integrity not proven at the shared identity boundary ('+safeReason(snap?.reason||'unavailable')+'); stopped, no fresh read';safetyStopped=true;break;}
+     if(snap.instanceId!==lastAfter.snapshot.instanceId||snap.stateSha256!==lastAfter.snapshot.stateSha256||snap.journalSha256!==lastAfter.snapshot.journalSha256){row.reason='Request ledger changed after the previous identity read (a surviving producer); stopped, no fresh read';safetyStopped=true;break;}
+     const age=io.monotonicMs()-lastAfter.monoAt;if(Number.isFinite(age)&&age>=0&&age<=IDENTITY_REUSE_MAX_AGE_MS)reuse=lastAfter;
+    }
+    if(reuse){
+     if(reads+mandatory>plan.identityCap){row.reason='Identity reads would exceed the configured maximum before the protected terminal reads; not started';safetyStopped=true;break;}
+     identity={citation:true,phase:'before-'+id,citesPhase:reuse.receipt.phase,reservation:reuse.receipt.reservation,result:reuse.receipt.result,servedSha:reuse.receipt.servedSha};
+    }else{
+     if(reads+1+mandatory>plan.identityCap){row.reason='A fresh before-read would consume a protected terminal identity read; not started';safetyStopped=true;break;}
+     identity=await observeIdentity('before-'+id);reads++;
+    }
+    lastAfter=null;
+   }else{identity=await observeIdentity('before-'+id);reads++;}
+   row.identityBefore=identity;
    if(!matches(identity)){invalidate(row,'Served identity drift/unproved before case; no repin or automatic retry');safetyStopped=true;break;}
    let ran;
    try{ran=await io.runCase(c,plan,admission,{requestAllowance:allowance});const cfg=await io.caseConfig(c);const result=summarizeAssertions(cfg,ran.assertions||[]);Object.assign(row,result,{reason:ran.reason||null,executionReceipt:ran.executionReceipt||null,...(ran.outcomeClasses?{outcomeClasses:ran.outcomeClasses}:{}),...(ran.cleanup?{cleanup:ran.cleanup}:{})});if(budget){const usedAfter=io.ledgerUsed();if(Number.isSafeInteger(usedAfter))row.requestsUsed=usedAfter-usedBefore;}if(ran.allowanceExhausted===true){row.allowanceExhausted=true;row.interruption='request-allowance';row.reason='Case request allowance exhausted; the case was stopped before further requests and its affected checks are NOT RUN';if(row.result==='PASS')row.result='NOT RUN';}}
@@ -160,8 +187,18 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
    let after;
    if(io.now()+IDENTITY_MAX_MS+plan.cleanupReserveMs<=Date.parse(plan.deadlineAt))after=await observeIdentity('after-'+id);
    else{after={phase:'after-'+id,result:'NOT RUN',reason:'Approved window unavailable for bounded post-case identity'};report.identityReceipts.push(after);}
-   row.identityAfter=after;
+   row.identityAfter=after;if(after.phase==='after-'+id&&after.result!=='NOT RUN')reads++;
    if(!matches(after)){invalidate(row,'Served identity drift/unproved after case; observations cannot be attributed to one release');safetyStopped=true;}
+   if(shared&&!safetyStopped){
+    const ce=ran.cleanupEvidence,positive=!!ce&&ce.ownedProcessesRemaining===0&&ce.launchCleanupFailure===false&&ce.mediaCleanupFailure===false&&ce.stopError===false&&ce.browserCloseError===false&&ce.guardClosed===true&&ce.cleanupIncomplete===false;
+    if(!positive){row.reason=row.reason||'Cleanup evidence missing or not positive; shared identity boundary refused';safetyStopped=true;}
+    else{
+     const snap=io.ledgerSnapshot(admission?.binding?.campaignLedgerIdentity),ended=Date.parse(after.endedAt);
+     if(!snap||snap.ok!==true){row.reason=row.reason||('Request ledger integrity not proven after the case ('+safeReason(snap?.reason||'unavailable')+')');safetyStopped=true;}
+     else if(Number.isFinite(ended)&&ended<=Date.now()&&Number.isSafeInteger(after.reservation)&&after.url===plan.targetUrl&&after.expectedSha===plan.servedSha)
+      lastAfter={receipt:after,monoAt:io.monotonicMs(),snapshot:snap,caseId:id};
+    }
+   }
    if(ran.authenticationRejected===true){report.authenticationRejected=true;invalidate(row,'Authentication rejected; remaining cases stopped to avoid repeated credentials');safetyStopped=true;}
    if(ran.safetyStop===true){invalidate(row,ran.reason||'Guard/cap/ownership/cleanup safety stop');safetyStopped=true;}
    // Later cases run only after the interrupted case's cleanup is positively verified (owned processes gone, media and launch cleanup clean, no other safety condition).
