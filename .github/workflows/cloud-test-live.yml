@@ -705,7 +705,7 @@ jobs:
             P=(--provenance "$CT_OUT/provenance.json")
           fi
           python3 -I tools/cloud-test/scripts/init_run_inputs.py project --run-record "$CT_OUT/run-record.json" --run-id "$GITHUB_RUN_ID" \
-            --case-results "$CT_OUT/plan/run/case-results.json" --request "$CT_REQUEST" --repo "$GITHUB_WORKSPACE" \
+            --case-results "$CT_OUT/plan/run/case-results.json" --cases-dir "$CT_OUT/plan/run/cases" --request "$CT_REQUEST" --repo "$GITHUB_WORKSPACE" \
             --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" "${P[@]}" \
             --out "$RUNNER_TEMP/latest-record.json"
       - name: Project the linked content-safe first observations

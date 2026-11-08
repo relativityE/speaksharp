@@ -10,7 +10,21 @@ async function pressStart(page,control,options={timeout:15000}){if(!START_CONTRO
   while(!ready&&Date.now()<limit){try{if(await loc.first().isVisible()&&await loc.first().isEnabled()){ready=true;break;}}catch{/* page transitioning */}await page.waitForTimeout(100).catch(()=>{});}
   if(!ready)throw Object.assign(new Error('Start control '+control+' not visible and enabled before press'),{code:'START_CONTROL_NOT_READY'});
   await startRecorders.get(page)(control);await loc.click({timeout:5000});}
-const pageStages=new WeakMap(),failedStages=new WeakMap();
+const pageStages=new WeakMap(),failedStages=new WeakMap(),pageTrails=new WeakMap();
+// Ordered, closed navigation/sign-in breadcrumbs (Sam 1794154809 / 1794156291): event, route, response status class, allowlisted net error and
+// ms since the page's first event. No URL, header, body, credential or free text. At most TRAIL_MAX entries per page (the newest are kept).
+const TRAIL_EVENTS=new Set(['nav-start','nav-response','nav-error','auth-form-visible','sign-in-submit','sign-in-done','sign-in-error']);
+// Compound identifiers so the closed evidence sanitizer keeps them (single words outside its enum list are blocked).
+const TRAIL_ROUTES=new Set(['route-signin','route-practice','route-analytics','route-session','route-other']),TRAIL_MAX=24;
+function trail(page,event,{route='route-other',status=null,error=null}={}){try{if(!page||typeof page!=='object'||!TRAIL_EVENTS.has(event))return;
+  const t=pageTrails.get(page)||{t0:Date.now(),events:[]};pageTrails.set(page,t);
+  const statusClass=Number.isInteger(status)&&status>=100&&status<=599?'status-'+Math.floor(status/100)+'xx':null;
+  t.events.push({event,route:TRAIL_ROUTES.has(route)?route:'route-other',statusClass,netError:error?safeErrorSummary(error).netError:null,ms:Math.min(Math.max(Date.now()-t.t0,0),3600000)});
+  if(t.events.length>TRAIL_MAX)t.events.splice(0,t.events.length-TRAIL_MAX);}catch{}}
+function navigationTrail(page){const t=page&&typeof page==='object'?pageTrails.get(page):null;return t?t.events.map(e=>({...e})):[];}
+async function trackedGoto(page,url,route,opts){trail(page,'nav-start',{route});let response;
+  try{response=await page.goto(url,opts);}catch(error){trail(page,'nav-error',{route,error});throw error;}
+  let status=null;try{status=response?response.status():null;}catch{status=null;}trail(page,'nav-response',{route,status});return response;}
 const productsFailures=new WeakMap();
 async function productsSnapshot(page){
  try{
@@ -42,9 +56,11 @@ async function controlTrace(page){try{const raw=await page.evaluate(()=>(window.
 async function visible(page, id, timeout = TIMEOUT) { await page.getByTestId(id).first().waitFor({ state:'visible', timeout }); }
 async function attr(page, name) { return page.locator('html').getAttribute(name, {timeout:10000}); }
 async function login(page, c, credentials) {
-  await page.goto(c.targetUrl + '/auth/signin', {waitUntil:'domcontentloaded', timeout:45000});
-  await visible(page,'auth-form');
-  return auth.submit(page,c,credentials);
+  await trackedGoto(page, c.targetUrl + '/auth/signin', 'route-signin', {waitUntil:'domcontentloaded', timeout:45000});
+  await visible(page,'auth-form');trail(page,'auth-form-visible',{route:'route-signin'});
+  trail(page,'sign-in-submit',{route:'route-signin'});
+  try{const out=await auth.submit(page,c,credentials);trail(page,'sign-in-done',{route:'route-signin'});return out;}
+  catch(error){trail(page,'sign-in-error',{route:'route-signin',error});throw error;}
 }
 async function products(page,item) {
  return atStage(page,'products-trigger-wait',async()=>{
@@ -72,7 +88,7 @@ async function privateMode(page) {
   await page.waitForFunction(()=>document.documentElement.getAttribute('data-stt-mode')==='private'||document.querySelector('[data-testid="stt-mode-select"]')?.getAttribute('data-state')==='private',undefined,{timeout:30000});
 }
 async function openMic(page,c) {
-  await page.goto(c.targetUrl+'/practice',{waitUntil:'domcontentloaded',timeout:45000});
+  await trackedGoto(page,c.targetUrl+'/practice','route-practice',{waitUntil:'domcontentloaded',timeout:45000});
   await products(page,'open-mic'); await page.waitForURL(/\/session(?:[?#]|$)/,{timeout:45000}); await privateMode(page);
 }
 async function primary(page) {
@@ -153,7 +169,7 @@ async function closeFocus(page,{expected=false}={}) {
  });
 }
 async function reopen(page,c,id) {
-  await page.goto(c.targetUrl+'/analytics',{waitUntil:'domcontentloaded',timeout:45000});
+  await trackedGoto(page,c.targetUrl+'/analytics','route-analytics',{waitUntil:'domcontentloaded',timeout:45000});
   await page.getByTestId('open-session-detail-'+id).or(page.getByTestId('open-session-detail-mobile-'+id)).first().click({timeout:45000});
   await visible(page,'session-detail-transcript',45000);const before=await fingerprint(page,'session-detail-transcript');await page.reload({waitUntil:'domcontentloaded',timeout:45000});await visible(page,'session-detail-transcript',45000);return {before,after:await fingerprint(page,'session-detail-transcript')};
 }
@@ -185,4 +201,4 @@ function safeErrorSummary(error){try{const msg=String(error&&error.message||'');
   const ids=[];for(const m of msg.matchAll(/getByTestId\('([a-z][a-z0-9-]{1,40})'\)/g)){const id=m[1];if(!/\d{6,}/.test(id)&&!ids.includes(id)&&ids.length<5)ids.push(id);}
   const nm=/net::(ERR_[A-Z_]{1,48})/.exec(msg);const netError=nm?(NET_ERRORS.has(nm[1])?nm[1]:'other'):null;
   return {name,code,api:api&&/^[A-Za-z]{2,24}\.[A-Za-z]{2,24}$/.test(api)?api:null,kind,timeoutMs:t?Math.min(Number(t[1]),3600000):null,testIds:ids,netError};}catch{return {name:'Error',code:null,api:null,kind:'other',timeoutMs:null,testIds:[],netError:null};}}
-module.exports={NET_ERRORS,productsSnapshot,productsDiagnostic,KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};
+module.exports={NET_ERRORS,TRAIL_EVENTS,TRAIL_ROUTES,navigationTrail,trackedGoto,productsSnapshot,productsDiagnostic,KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};

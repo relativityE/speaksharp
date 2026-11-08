@@ -368,5 +368,48 @@ class ProjectionCatalog(unittest.TestCase):
         self.assertEqual((rec["coverage"], rec["outcome"], rec["rowVerdicts"]["AHT-01"]), ("incomplete", "failed", "PPF" + "N" * 12))
 
 
+class PublishedDiagnosticCodes(ProjectionCatalog):
+    """Sam 1794156291: the closed diagnostic reaches the PUBLISHED record as per-case codes (stage, exact net error, guard upstream reason,
+    absent egress proxy), from the same digest-verified projection as the case-timings table; never on a NOT SELECTED row; at most 8."""
+    RUN_42496837188 = {"stopCode": "completed", "exitCode": 0, "firstNonPassingAssertion": {"id": "owner-bound", "result": "FAIL"},
+                       "driverInterruption": {"stage": "idle", "step": "owner-bound", "trail": [],
+                                              "error": {"name": "Error", "code": None, "kind": "network-error", "api": "page.goto",
+                                                        "timeoutMs": None, "testIds": [], "netError": "ERR_HTTP_RESPONSE_CODE_FAILURE"}},
+                       "guard": {"upstreamMode": "env-proxy", "proxyConfigured": False, "proxyValid": False, "noProxyMatched": False,
+                                 "upstreamReasons": {"proxy-not-configured": 1}}}
+
+    def test_the_run_42496837188_shape_yields_closed_codes(self):
+        self.assertEqual(I.diagnostic_codes(self.RUN_42496837188),
+                         ["stage-idle", "net-err-http-response-code-failure", "upstream-proxy-not-configured", "egress-proxy-absent"])
+        self.assertEqual(I.diagnostic_codes(None), [])
+        self.assertEqual(I.diagnostic_codes(I.UNKNOWN_DIAGNOSTIC), [])
+        self.assertEqual(I.diagnostic_codes({"stopCode": "deadline"}), ["stop-deadline"])
+        injected = {"stopCode": "completed", "driverInterruption": {"stage": "password-huntertwo", "error": {"netError": "ERR_SECRET token"}},
+                    "guard": {"upstreamMode": "env-proxy", "proxyConfigured": "no", "upstreamReasons": {"secret.host": 1, "dns": 2}}}
+        self.assertEqual(I.diagnostic_codes(injected), ["upstream-dns"])
+        many = {"stopCode": "deadline", "driverInterruption": {"stage": "idle", "error": {"netError": "ERR_FAILED"}},
+                "guard": {"upstreamMode": "env-proxy", "proxyConfigured": False, "upstreamReasons": {r: 1 for r in I.GUARD_UPSTREAM_REASONS}}}
+        self.assertEqual(len(I.diagnostic_codes(many)), I.MAX_CASE_CODES)
+
+    def test_project_publishes_the_codes_on_selected_rows_only_and_the_publisher_accepts_them(self):
+        catalog = I.projection_catalog(self.request_raw, self.request_sha, os.path.join(ROOT, "config", "test-config.v1.json"), self.q)
+        codes = I.diagnostic_codes(self.RUN_42496837188)
+        rec = I.project(self.run_record, "42496837188", 1, "d" * 40, self.T, self.q, self.request_sha, self.prov, self.case_results, catalog,
+                        case_codes={"AHT-01": codes, "AHT-02": ["egress-proxy-absent"], "AHT-03": ["Bad Code!"]})
+        by = {c["caseId"]: c for c in rec["cases"]}
+        self.assertEqual(by["AHT-01"]["codes"], codes)
+        self.assertEqual((by["AHT-02"]["result"], by["AHT-02"]["codes"]), ("NOT SELECTED", []))
+        self.assertEqual(I.LR.sanitize_record(rec, require_source=True)["cases"][0]["codes"], codes)
+        over = I.project(self.run_record, "42496837188", 1, "d" * 40, self.T, self.q, self.request_sha, self.prov, self.case_results, catalog,
+                         case_codes={"AHT-01": ["code-%d" % i for i in range(12)]})
+        self.assertEqual(len(over["cases"][0]["codes"]), I.MAX_CASE_CODES)
+
+    def test_the_workflow_projects_with_the_case_directories(self):
+        with open(os.path.join(REPO, ".github", "workflows", "cloud-test-live.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        block = wf[wf.index("init_run_inputs.py project"):wf.index('--out "$RUNNER_TEMP/latest-record.json"')]
+        self.assertIn('--cases-dir "$CT_OUT/plan/run/cases"', block)
+
+
 if __name__ == "__main__":
     unittest.main()

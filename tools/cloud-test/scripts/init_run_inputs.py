@@ -51,10 +51,10 @@ SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 # all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
 # grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
-ONE_OFF_GRANT_SHA256 = "a04d5d747254d8b2b938532012e4b6acc74675ebd53b140fe6a2a5811b23572d"   # Sam 1794151891.299109 / 1794152182.153649: the AHT-01 grant re-issued after run 42494152179 consumed the first (corrected request fd1463f0, pre-reserve head d4c207fb, scope +4 slack:1794152182.153649)
+ONE_OFF_GRANT_SHA256 = "09f0168b4eec45bea6cd9be2cc9f479f1ae7e53efbe5f5d91d15760b82682545"   # Sam 1794151891.299109 / 1794152182.153649: the AHT-01 grant re-issued after run 42494152179 consumed the first (corrected request fd1463f0, pre-reserve head d4c207fb, scope +4 slack:1794152182.153649)
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
 ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
-ONE_OFF_BASE_TEMPLATE_SHA256 = "dbe72da340943f320abd62c326d8e39469fb2d7fca035c537754ece3c495a550"
+ONE_OFF_BASE_TEMPLATE_SHA256 = "ab0b59d3873df7672fea2d080ae434f7a1f5eaf83f4961b437665c6901a852fe"
 R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
@@ -1616,8 +1616,41 @@ def _unique(items, key, code):
     return out
 
 
+CASE_CODE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+MAX_CASE_CODES = 8
+
+
+def diagnostic_codes(diag):
+    """Closed per-case codes for the published record from one closed case diagnostic (Sam 1794156291: published-report propagation):
+    a non-normal guard stop, the driver stage at interruption, the exact net error, each guard upstream reason, and an absent egress proxy
+    under env-proxy. Built only from the closed vocabularies above; at most MAX_CASE_CODES."""
+    if not isinstance(diag, dict):
+        return []
+    out = []
+    stop = diag.get("stopCode")
+    if isinstance(stop, str) and stop not in ("completed", "unknown"):
+        out.append("stop-" + stop)
+    di = diag.get("driverInterruption") if isinstance(diag.get("driverInterruption"), dict) else {}
+    if isinstance(di.get("stage"), str) and di["stage"] in DRIVER_STAGES:
+        out.append("stage-" + di["stage"])
+    err = di.get("error") if isinstance(di.get("error"), dict) else {}
+    if isinstance(err.get("netError"), str) and err["netError"] in DRIVER_NET_ERRORS:
+        out.append("net-" + err["netError"].lower().replace("_", "-"))
+    guard = diag.get("guard") if isinstance(diag.get("guard"), dict) else {}
+    for reason in sorted(guard.get("upstreamReasons") or {}):
+        if reason in GUARD_UPSTREAM_REASONS:
+            out.append("upstream-" + reason)
+    if guard.get("upstreamMode") == "env-proxy" and guard.get("proxyConfigured") is False:
+        out.append("egress-proxy-absent")
+    seen = []
+    for code in out:
+        if CASE_CODE.fullmatch(code) and code not in seen:
+            seen.append(code)
+    return seen[:MAX_CASE_CODES]
+
+
 def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=None, request_sha256=None, provenance=None, case_results_raw=None,
-            catalog=None, request_raw=None, media_manifest_raw=None):
+            catalog=None, request_raw=None, media_manifest_raw=None, case_codes=None):
     """run-record.json (the real collector keeps all 15 rows) -> the closed latest record. Qualification counts only when it is bound to THIS
     record and THIS admission: the same case-results digest, tested release, observed served release and admitted request digest. Then the selected rows keep their results, the others
     are NOT SELECTED, and coverage says batch or full truthfully. `passed` needs that binding and every selected row PASS; anything else is
@@ -1655,9 +1688,14 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
     for c in run_record.get("cases") or []:
         a = c.get("assertions") or {}
         unselected = qualified and c.get("case") not in q["cases"]
+        codes = [c["outcomeClass"]] if not unselected and isinstance(c.get("outcomeClass"), str) and LR.CODE.match(c["outcomeClass"]) else []
+        if not unselected and isinstance(case_codes, dict):
+            for code in case_codes.get(c.get("case")) or []:
+                if isinstance(code, str) and CASE_CODE.fullmatch(code) and code not in codes:
+                    codes.append(code)
         cases.append({"caseId": c.get("case"), "result": "NOT SELECTED" if unselected else c.get("result"),
                       "rows": {"pass": 0, "fail": 0, "notRun": 0} if unselected else {"pass": a.get("PASS"), "fail": a.get("FAIL"), "notRun": a.get("NOT RUN")},
-                      "codes": [c["outcomeClass"]] if not unselected and isinstance(c.get("outcomeClass"), str) and LR.CODE.match(c["outcomeClass"]) else []})
+                      "codes": codes[:MAX_CASE_CODES]})
     selected = [c for c in cases if c["result"] != "NOT SELECTED"]
     row_verdicts = None
     if qualified and case_results_raw is not None and catalog is not None:
@@ -1941,12 +1979,30 @@ DRIVER_NET_ERRORS = frozenset({
 GUARD_UPSTREAM_REASONS = frozenset({"proxy-not-configured", "proxy-invalid", "proxy-connect-status", "test-only-trust", "no-test-override",
                                     "aborted", "dns", "connect-refused", "timeout", "reset", "tls", "other"})
 GUARD_UPSTREAM_MODES = frozenset({"env-proxy", "direct", "override"})
+# The driver's ordered navigation/sign-in trail (browser-actions.cjs TRAIL_EVENTS / TRAIL_ROUTES), closed and bounded; pinned by test.
+TRAIL_EVENTS = frozenset({"nav-start", "nav-response", "nav-error", "auth-form-visible", "sign-in-submit", "sign-in-done", "sign-in-error"})
+TRAIL_ROUTES = frozenset({"route-signin", "route-practice", "route-analytics", "route-session", "route-other"})
+TRAIL_STATUS = frozenset({"status-1xx", "status-2xx", "status-3xx", "status-4xx", "status-5xx"})
+TRAIL_MAX = 24
+
+
+def _trail(raw):
+    """The driver trail in order, each entry closed or dropped whole; never more than TRAIL_MAX."""
+    out = []
+    for e in raw[-TRAIL_MAX:] if isinstance(raw, list) else []:
+        if not (isinstance(e, dict) and isinstance(e.get("event"), str) and e["event"] in TRAIL_EVENTS):
+            continue
+        ms = e.get("ms")
+        out.append({"event": e["event"], "route": _closed(e.get("route"), TRAIL_ROUTES, "route-other"),
+                    "statusClass": _closed(e.get("statusClass"), TRAIL_STATUS, None), "netError": _closed(e.get("netError"), DRIVER_NET_ERRORS, None),
+                    "ms": ms if type(ms) is int and 0 <= ms <= 3600000 else None})
+    return out
 ERROR_NAMES = frozenset({"TimeoutError", "Error", "TypeError"})
 ERROR_CODES = frozenset({"NOT_RUN", "AUTH_REJECTED", "START_PRESS_CAP", "START_CONTROL_NOT_READY", "PRODUCT_FAIL", "EVIDENCE_READER_UNAVAILABLE"})
 ERROR_KINDS = frozenset({"timeout", "target-closed", "control-not-ready", "strict-mode", "network-error", "other"})
 INTERRUPTION_MAX_BYTES = 65536
 INTERRUPTION_REF = re.compile(r"aht-(0[1-9]|1[0-5])-interruption\.json")
-_UNREAD = {"stage": "unknown", "step": None, "error": None}
+_UNREAD = {"stage": "unknown", "step": None, "error": None, "trail": []}
 
 
 def _closed(value, vocabulary, default):
@@ -2002,7 +2058,8 @@ def driver_interruption(case_dir, case_id, row, receipt, allowed_ids):
         return dict(_UNREAD)
     step, err = doc.get("step"), doc.get("error")
     out = {"stage": _closed(doc.get("stage"), DRIVER_STAGES, "other"),
-           "step": (step if step in allowed_ids else "unlisted") if isinstance(step, str) else None, "error": None}
+           "step": (step if step in allowed_ids else "unlisted") if isinstance(step, str) else None, "error": None,
+           "trail": _trail(doc.get("trail"))}
     if isinstance(err, dict):
         t, ids = err.get("timeoutMs"), err.get("testIds")
         out["error"] = {"name": _closed(err.get("name"), ERROR_NAMES, "Error"), "code": _closed(err.get("code"), ERROR_CODES, None),
@@ -2234,8 +2291,14 @@ def main(argv):
             else:
                 catalog = _load(os.path.join(here, "config", "assertion-catalog.json"))
             media = os.path.join(x.repo or ".", "tests", "fixtures", "rwt", "rwt-fixtures.manifest.json")
+            # Closed diagnostic codes per case from the digest-bound case directories (the same projection as the case-timings table).
+            case_codes = None
+            if x.cases_dir and x.case_results:
+                rows, _ = isolated_case_rows(x.cases_dir, x.case_results, list(ALL_CASES), x.run_id)
+                case_codes = {cid: diagnostic_codes(r.get("diagnostic")) for cid, r in rows.items()}
             _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov, cr, catalog,
-                                          _read(x.request) if x.request else None, _read(media) if x.request and os.path.isfile(media) else None))
+                                          _read(x.request) if x.request else None, _read(media) if x.request and os.path.isfile(media) else None,
+                                          case_codes))
             return 0
         if x.command == "provenance":
             _write_private(x.out, provenance_from_files(x.request, x.request_sha256, x.run_id, x.plan, x.build_receipt, x.reservations,

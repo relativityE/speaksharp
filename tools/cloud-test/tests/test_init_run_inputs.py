@@ -3233,7 +3233,7 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
         self.assertEqual(d["firstNonPassingAssertion"], {"id": "owner-bound", "result": "FAIL"})
         self.assertEqual(d["driverInterruption"], {"stage": "start-press", "step": "owner-bound",
                                                    "error": {"name": "TimeoutError", "code": None, "kind": "timeout", "api": "locator.click",
-                                                             "timeoutMs": 30000, "testIds": ["sign-in-submit"], "netError": None}})
+                                                             "timeoutMs": 30000, "testIds": ["sign-in-submit"], "netError": None}, "trail": []})
 
     def test_sams_format_valid_injected_values_are_dropped(self):
         doc = dict(self.DOC, stage="password-huntertwo", step="password-huntertwo",
@@ -3242,15 +3242,15 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
         got, text = self.project(doc)
         self.assertEqual(got, {"stage": "other", "step": "unlisted",
                                "error": {"name": "Error", "code": None, "kind": "other", "api": None, "timeoutMs": None,
-                                         "testIds": ["sign-in-submit"], "netError": None}})
+                                         "testIds": ["sign-in-submit"], "netError": None}, "trail": []})
         for leak in ("huntertwo", "secret.token", "token=abc", "password=x", "LEAK", "SecretError", "user-12345678"):
             self.assertNotIn(leak, text)
 
     def test_the_document_must_be_this_cases_own(self):
         got, _ = self.project(dict(self.DOC, caseId="AHT-15"))          # Sam's repro: an AHT-15 document under AHT-01
-        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
         got, _ = self.project(dict(self.DOC, caseId=["AHT-01"]))
-        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
 
     def test_mismatched_or_ambiguous_refs_are_unknown(self):
         for label, kw in (("another case's file name", {"name": "aht-15-interruption.json"}),
@@ -3259,20 +3259,20 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
                           ("a nested ref", {"refs": ["sub/" + self.NAME]})):
             with self.subTest(label):
                 got, _ = self.project(**kw)
-                self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+                self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
 
     def test_the_file_must_be_bound_by_the_receipt_and_case_result_digests(self):
         got, _ = self.project(digest="0" * 64)                            # case-result names another digest for the file
-        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
         assertions, case_result = self.bound(self.DOC)
         row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions)   # no caseResultSha256 in the receipt
-        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None})
+        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None, "trail": []})
         assertions, case_result = self.bound(self.DOC)
         row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
         with open(os.path.join(self.cases, "AHT-01", "case-result.json"), "ab") as f:                # case-result changed after the receipt
             f.write(b" ")
         rows, _ = I.isolated_case_rows(self.cases, self.results, ["AHT-01"], "42483030590")
-        self.assertEqual(rows["AHT-01"]["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None})
+        self.assertEqual(rows["AHT-01"]["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None, "trail": []})
 
     def test_a_symlinked_interruption_file_is_refused_by_its_original_identity(self):
         assertions, case_result = self.bound(self.DOC, name="real.json")
@@ -3283,7 +3283,7 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
         case_result = json.dumps({"evidenceDigests": {self.NAME: hashlib.sha256(raw).hexdigest()}}).encode()
         assertions = [{"id": "owner-bound", "result": "FAIL", "evidenceRefs": [self.NAME]}]
         row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions, case_result=case_result)
-        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None})
+        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None, "trail": []})
 
     def test_malformed_shapes_never_raise_and_never_destroy_peer_rows(self):
         peer = {"caseId": "AHT-02", "result": "FAIL", "assertions": [],
@@ -3313,7 +3313,7 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
                 got, _ = self.project(doc)
                 self.assertIn(got["stage"], ("other", "start-press"))
         got, _ = self.project(raw=b"[1, 2")
-        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None})
+        self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
         with mock.patch.object(I, "_case_diagnostic", side_effect=RuntimeError("boom")):
             row, _ = self.run_one(summary={"reason": "completed"}, extra_rows=[peer])
         self.assertEqual(row["diagnostic"], I.UNKNOWN_DIAGNOSTIC)
@@ -3343,6 +3343,25 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
                 self.assertTrue(g is None or (g["upstreamMode"] is None and g["proxyConfigured"] is None and g["upstreamReasons"] == {}))
         row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0)
         self.assertIsNone(row["diagnostic"]["guard"])
+
+    def test_the_ordered_navigation_trail_is_closed_bounded_and_never_carries_text(self):
+        trail = [{"event": "nav-start", "route": "route-signin", "statusClass": None, "netError": None, "ms": 0},
+                 {"event": "nav-error", "route": "route-signin", "statusClass": None, "netError": "ERR_HTTP_RESPONSE_CODE_FAILURE", "ms": 1179},
+                 {"event": "nav-response", "route": "https://secret.example/x?token=abc", "statusClass": "status-200", "netError": "ERR_X", "ms": -3},
+                 {"event": "password=hunter2", "route": "route-signin"}, "nav-start", {"event": ["nav-start"]}]
+        got, text = self.project(dict(self.DOC, trail=trail))
+        self.assertEqual(got["trail"], [
+            {"event": "nav-start", "route": "route-signin", "statusClass": None, "netError": None, "ms": 0},
+            {"event": "nav-error", "route": "route-signin", "statusClass": None, "netError": "ERR_HTTP_RESPONSE_CODE_FAILURE", "ms": 1179},
+            {"event": "nav-response", "route": "route-other", "statusClass": None, "netError": None, "ms": None}])
+        for leak in ("secret.example", "token=abc", "hunter2", "status-200"):
+            self.assertNotIn(leak, text)
+        got, _ = self.project(dict(self.DOC, trail=[{"event": "nav-start", "route": "route-practice", "ms": i} for i in range(40)]))
+        self.assertEqual([e["ms"] for e in got["trail"]], list(range(16, 40)), "the newest TRAIL_MAX entries, in order")
+        for bad in ("trail", {"a": 1}, None):
+            with self.subTest(bad=bad):
+                got, _ = self.project(dict(self.DOC, trail=bad))
+                self.assertEqual(got["trail"], [])
 
     def test_no_interruption_named_is_none(self):
         row, _ = self.run_one(summary={"reason": "completed"}, assertions=[{"id": "owner-bound", "result": "FAIL", "evidenceRefs": []}])
@@ -3385,6 +3404,14 @@ class DriverVocabularyPins(unittest.TestCase):
         self.assertEqual(set(I.GUARD_UPSTREAM_REASONS), reasons)
         modes = set(re.findall(r"'([a-z-]+)'", re.search(r"\['env-proxy','direct','override'\]", guard).group(0)))
         self.assertEqual(set(I.GUARD_UPSTREAM_MODES), modes)
+
+    def test_trail_vocabularies_equal_the_drivers(self):
+        src = self.sources()["browser-actions.cjs"]
+        events = set(re.findall(r"'([a-z-]+)'", re.search(r"const TRAIL_EVENTS=new Set\(\[(.*?)\]\)", src).group(1)))
+        routes = set(re.findall(r"'([a-z-]+)'", re.search(r"const TRAIL_ROUTES=new Set\(\[(.*?)\]\)", src).group(1)))
+        self.assertEqual((set(I.TRAIL_EVENTS), set(I.TRAIL_ROUTES)), (events, routes))
+        self.assertIn("'status-'+Math.floor(status/100)+'xx'", src)
+        self.assertEqual(I.TRAIL_MAX, int(re.search(r"TRAIL_MAX=(\d+)", src).group(1)))
 
     def test_apis_are_playwright_page_or_locator_calls_and_the_page_calls_are_used(self):
         used = set()
