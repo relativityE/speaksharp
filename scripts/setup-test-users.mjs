@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { provisionCanaryCredential } from './lib/canaryAccountAdmin.mjs';
-import { enduranceReadiness } from './lib/enduranceReadiness.mjs';
+import { enduranceReadiness, serverNow } from './lib/enduranceReadiness.mjs';
 
 // Load environment from .env.development (Standard for Soak/Canary tests)
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
@@ -52,6 +52,11 @@ const DEDICATED_BROWSER_ENDURANCE_ACCOUNTS = [
     { index: 45, email: 'soak-test45@test.com', tier: 'free' },
     { index: 46, email: 'soak-test46@test.com', tier: 'free' },
 ];
+// Sam 1794140111: the endurance identities are NEVER touched by the generic soak paths (password sync, provisioning, tier sync,
+// rename). Their readiness is read-only; an inventory that changes between the readiness check and a later step cannot make a
+// generic loop reset one of them or create a missing one.
+const ENDURANCE_EMAILS = new Set(DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email));
+const isEnduranceIdentity = (email) => ENDURANCE_EMAILS.has(String(email ?? '').trim().toLowerCase());
 
 // ============================================
 // Helper Functions
@@ -153,7 +158,7 @@ async function listExistingSoakUsers(log = true) {
 }
 
 async function renameOldUser(users) {
-    const oldUser = users.find(u => u.email === 'soak-test@test.com');
+    const oldUser = users.find(u => u.email === 'soak-test@test.com' && !isEnduranceIdentity(u.email));
     if (oldUser) {
         console.log('🔄 Renaming soak-test@test.com to soak-test0@test.com...');
         const { error } = await supabase.auth.admin.updateUserById(oldUser.id, {
@@ -308,6 +313,7 @@ async function syncUserTiers(users, targetFree, targetPro) {
     const targetAccounts = getExpectedAccounts(targetFree, targetPro);
 
     for (const target of targetAccounts) {
+        if (isEnduranceIdentity(target.email)) continue;
         const user = users.find(u => u.email === target.email);
 
         if (user && user.tier !== target.tier) {
@@ -352,6 +358,7 @@ async function syncUserPasswords(users, expectedAccounts) {
     let synced = 0;
     const usersByEmail = new Map(users.map(user => [user.email, user]));
     for (const target of expectedAccounts) {
+        if (isEnduranceIdentity(target.email)) continue;
         const user = usersByEmail.get(target.email);
         if (!user?.id) continue;
 
@@ -437,7 +444,7 @@ async function main() {
     // with zero account mutations: no delete/recreate, no password reset, no fabricated or extended entitlement.
     if (MODE === 'soak') {
         console.log('\nStep 1b: 🎟️  Browser-endurance readiness (read-only, before any write)...');
-        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email) });
+        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email), now: await serverNow({ url: SUPABASE_URL, apiKey: SUPABASE_SERVICE_ROLE_KEY }) });
         reportEnduranceReadiness(readiness);
         if (!readiness.ready) {
             console.error('\n❌ Browser-endurance accounts are not genuine active-trial accounts; refusing BEFORE any account write.');
@@ -460,6 +467,7 @@ async function main() {
 
     let created = 0;
     for (const target of expectedAccounts) {
+        if (isEnduranceIdentity(target.email)) continue;   // never provisioned here (Sam 1794140111)
         if (!existingEmails.has(target.email)) {
             console.log(`  [+] Provisioning User [${target.index}]: ${target.email} (${target.tier})...`);
 
@@ -493,7 +501,7 @@ async function main() {
     // #1294 Option 1: re-verify (read-only) that the earlier writes left the endurance accounts genuine active-trial.
     if (MODE === 'soak') {
         console.log('\nStep 6: 🎟️  Re-verifying browser-endurance readiness (read-only)...');
-        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email) });
+        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email), now: await serverNow({ url: SUPABASE_URL, apiKey: SUPABASE_SERVICE_ROLE_KEY }) });
         reportEnduranceReadiness(readiness);
         if (!readiness.ready) {
             console.error('\n❌ Browser-endurance accounts are no longer genuine active-trial; refusing (no fabricated entitlement, no private_sample fallback).');

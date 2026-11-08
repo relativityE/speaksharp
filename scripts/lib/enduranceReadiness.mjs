@@ -12,6 +12,7 @@
  *   - the e-mail's `trial_entitlements` row (bound to that owner, the same expiry).
  * Each account is `active`, `expired`, `missing`, `ambiguous` or `unreadable`; `ready` only when every account is `active`.
  * It never creates, deletes, renames, resets a password, stamps or extends a trial. Callers refuse (non-zero exit) when not ready.
+ * Expiry is judged against the caller-supplied SERVER time (`serverNow` reads the Supabase response Date header), not the runner clock.
  */
 
 const PAGE_SIZE = 100;
@@ -78,8 +79,9 @@ async function accountReadiness(adminClient, users, email, now) {
     return { email, state: 'active', reason: 'active-trial', expiresAt };
 }
 
-/** { ready, accounts: [{ email, state, reason, expiresAt? }] } — reads only; never throws for an unavailable read. */
-export async function enduranceReadiness({ adminClient, emails, now = Date.now() }) {
+/** { ready, accounts: [{ email, state, reason, expiresAt? }] } — reads only; never throws for an unavailable read. `now` is the SERVER's time
+ * (the caller reads it from the database response, never the runner clock); a missing or invalid time is unreadable. */
+export async function enduranceReadiness({ adminClient, emails, now }) {
     if (!Array.isArray(emails) || emails.length === 0 || !Number.isFinite(now)) {
         return { ready: false, accounts: [{ email: null, state: 'unreadable', reason: 'invalid-input' }] };
     }
@@ -90,4 +92,16 @@ export async function enduranceReadiness({ adminClient, emails, now = Date.now()
     const accounts = [];
     for (const email of emails) accounts.push(await accountReadiness(adminClient, users, email, now));
     return { ready: accounts.every((a) => a.state === 'active'), accounts };
+}
+
+/** The server's time from the Supabase API response `Date` header (HTTP time, 1 s resolution); null when unavailable. */
+export async function serverNow({ url, apiKey, fetchImpl = fetch }) {
+    try {
+        const res = await fetchImpl(`${String(url).replace(/\/$/, '')}/rest/v1/`, { method: 'HEAD', headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` } });
+        const header = res?.headers?.get?.('date');
+        const ms = header ? Date.parse(header) : NaN;
+        return Number.isFinite(ms) ? ms : null;
+    } catch {
+        return null;
+    }
 }

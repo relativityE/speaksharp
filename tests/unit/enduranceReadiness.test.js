@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { enduranceReadiness } from '../../scripts/lib/enduranceReadiness.mjs';
+import { enduranceReadiness, serverNow } from '../../scripts/lib/enduranceReadiness.mjs';
 
 // Stress and Endurance run 42474354454 (Sam 1794138777 / 1794138818): browser-endurance readiness is READ-ONLY and checked before any
 // account write; expired, missing, ambiguous or unreadable entitlement refuses with ZERO calls to any mutator. In-memory fake only —
@@ -114,6 +114,25 @@ describe('browser-endurance readiness is read-only and fails closed', () => {
         expect(r.ready).toBe(false);
         expect(r.accounts.every((a) => a.state === 'unreadable')).toBe(true);
         expect(f.mutations).toEqual([]);
+    });
+});
+
+describe('the readiness time is the SERVER clock, never the runner clock', () => {
+    it('no server time -> unreadable, not ready, zero mutator calls', async () => {
+        for (const now of [undefined, null, NaN, Infinity]) {
+            const f = fakeAdmin(world());
+            const r = await enduranceReadiness({ adminClient: f.client, emails: EMAILS, now });
+            expect(r.ready).toBe(false);
+            expect(r.accounts[0].state).toBe('unreadable');
+            expect(f.mutations).toEqual([]);
+        }
+    });
+    it('serverNow reads the Supabase response Date header; a missing, malformed or failed response is null', async () => {
+        const res = (date) => async () => ({ headers: { get: (k) => (k === 'date' ? date : null) } });
+        expect(await serverNow({ url: 'https://x.supabase.co/', apiKey: 'k', fetchImpl: res('Sun, 08 Nov 2026 12:00:00 GMT') })).toBe(Date.parse('2026-11-08T12:00:00Z'));
+        expect(await serverNow({ url: 'https://x.supabase.co', apiKey: 'k', fetchImpl: res(null) })).toBeNull();
+        expect(await serverNow({ url: 'https://x.supabase.co', apiKey: 'k', fetchImpl: res('not a date') })).toBeNull();
+        expect(await serverNow({ url: 'https://x.supabase.co', apiKey: 'k', fetchImpl: async () => { throw new Error('offline'); } })).toBeNull();
     });
 });
 
