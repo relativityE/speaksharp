@@ -778,6 +778,33 @@ class LiveWorkflowPolicy(unittest.TestCase):
         for step in runner:
             self.assertEqual({k: step["env"].get(k) for k in want}, want, step.get("name"))
 
+    def test_an_early_refusal_before_init_leaves_every_always_step_safe_without_ct_out(self):
+        """Run 42516864915 (Sam 1794167544): the egress preflight refused before init exported CT_OUT, and the always() settle-input
+        projection died `CT_OUT: unbound variable` under set -u. Executed here exactly as GitHub runs it (bash -e, the step's own set -euo
+        pipefail) with CT_OUT unset: it must exit 0 and project nothing. Every always()-only step must guard its first CT_OUT reference."""
+        steps = self.jobs["live"]["steps"]
+        step = next(s for s in steps if s.get("name", "").startswith("Project the closed settle input"))
+        with tempfile.TemporaryDirectory() as d:
+            script = os.path.join(d, "step.sh")
+            with open(script, "w", encoding="utf-8") as f:
+                f.write(step["run"])
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "RUNNER_TEMP": d, "HOME": d}
+            p = subprocess.run(["bash", "-e", script], capture_output=True, text=True, env=env, cwd=d, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn("no run record: the reservation stays open and counted", p.stdout)
+            self.assertNotIn("unbound variable", p.stderr)
+            self.assertFalse(os.path.exists(os.path.join(d, "settle")))
+            # and with CT_OUT set but no record, the same closed no-op (the pre-existing path is unchanged)
+            out = os.path.join(d, "out"); os.mkdir(out)
+            p = subprocess.run(["bash", "-e", script], capture_output=True, text=True, env=dict(env, CT_OUT=out), cwd=d, timeout=60)
+            self.assertEqual((p.returncode, "no run record" in p.stdout), (0, True), p.stderr)
+        for s in steps:
+            run = "\n".join(l for l in (s.get("run") or "").splitlines() if not l.lstrip().startswith("#"))
+            if s.get("if") == "always()" and "CT_OUT" in run:
+                first = run.index("CT_OUT")
+                self.assertEqual(run[first - 2:first], "${", s.get("name"))
+                self.assertTrue(run[first:].startswith("CT_OUT:-"), s.get("name"))
+
     def test_every_artifact_this_workflow_uploads_is_kept_one_day(self):
         """Owner, Nov 7: "We only want repository artifacts stored for 1 day" (Sam 1794162379: no attestation exception)."""
         uploads = [(job, s) for job, j in self.jobs.items() for s in j["steps"] if "upload-artifact" in str(s.get("uses", ""))]
