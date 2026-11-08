@@ -60,8 +60,9 @@ ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
                       "limits", "olderReleaseDiagnostic", "selectedCases"}
-# Sam 1794175603 / PO go-ahead 2026-11-08: a window extended past the originally approved expiry must name the actual source of the new
-# timing as `windowSourceRef` (provenance only: it is never read as the approval, which stays `approvalRef`). The original window carries none.
+# Sam 1794175603 / 1794175926, PO go-ahead 2026-11-08: two exact closed shapes. A window extended past the originally approved expiry must
+# name the actual source of the new timing as `windowSourceRef` (provenance only, no timezone asserted; it is never read as the approval,
+# which stays `approvalRef`). The original window carries none.
 ONE_OFF_APPROVED_EXPIRES_UTC = "2026-11-09T00:00:00Z"
 ONE_OFF_WINDOW_SOURCE_KEY = "windowSourceRef"
 # The time envelope is NOT resized from estimates (Sam 1794149071): the reviewed 100-minute occurrence and 60-minute live ceiling stay.

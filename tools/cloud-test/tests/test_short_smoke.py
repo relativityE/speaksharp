@@ -193,7 +193,8 @@ class ShortSmokeContract(unittest.TestCase):
         # occurrence ending at the extended period end, 2026-12-31T00:00Z). Both boundaries are exact.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-08T15:36:22Z")
-        # Sam 1794174768: the window refreshed for the owner's 00:00Z Nov 9 start; expiresUtc 03:00Z leaves the latest start at 01:20Z.
+        # Sam 1794174768 / 1794176240: the window extended so an immediate start is admitted (the owner's timing source's timezone is not
+        # asserted); expiresUtc 03:00Z leaves the latest start at 01:20Z. 00:00Z is only a sample point inside the window.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-09T00:00:00Z")
         init.materialize_authoritative_smoke_occurrence(
@@ -203,13 +204,23 @@ class ShortSmokeContract(unittest.TestCase):
                 init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
     def test_an_extended_window_names_its_source_and_never_relabels_the_approval(self):
-        """Sam 1794175603, PO go-ahead 2026-11-08: the committed grant extends the window to 03:00Z for the owner's 00:00Z Nov 9 start and
-        names the timing's actual source as windowSourceRef (the owner's ChatGPT message), while approvalRef stays the original approval.
+        """Sam 1794175603 / 1794175926, PO go-ahead 2026-11-08: the committed grant extends the window to 03:00Z (latest start 01:20Z) and
+        names the timing's actual source as windowSourceRef (the owner's ChatGPT message; no timezone asserted), while approvalRef stays
+        the original approval and the selected case and every limit are unchanged.
         An extended window without a well-formed source, or a source on the original window, refuses."""
         self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T03:00:00Z")
         self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "chatgpt:Sentinel_e42f51a0e7c08191aa31e080ac2cd3f6")
         self.assertEqual(COMMITTED_GRANT["approvalRef"], "slack:1794145532.283429")
         self.assertEqual(init.ONE_OFF_APPROVED_EXPIRES_UTC, "2026-11-09T00:00:00Z")
+        # unchanged: the selected case, every limit, the scope, release and journal bindings
+        self.assertEqual(COMMITTED_GRANT["selectedCases"], ["AHT-01"])
+        self.assertEqual(COMMITTED_GRANT["limits"], {"endToEndMinutes": 100, "liveMinutes": 60, "requestsIncludingIdentity": 454, "identityReads": 4,
+                                                     "starts": 2, "takes": 2, "coachingCalls": 3, "retries": 0})
+        self.assertEqual((COMMITTED_GRANT["notBeforeUtc"], COMMITTED_GRANT["preReserveStateHead"], COMMITTED_GRANT["scopeApprovalRef"],
+                          COMMITTED_GRANT["requestTemplateSha256"], COMMITTED_GRANT["testedSha"], COMMITTED_GRANT["backendSha"]),
+                         ("2026-11-08T15:36:22Z", "19a9251d0df19e6ffee87a312c2efc49eb793cf5", "slack:1794156633.525579",
+                          "18de9117017ee4942abbfa326493675dc94da6a66d34adc128b17beb26c12b3a", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+                          "c32319f9121d4fef64dc48bb40fae5464dc6b65a"))
         repo = str(ROOT.parents[1])
         grant_path = os.path.join(repo, init.ONE_OFF_GRANT_PATH)
         real_read, real_sha = init._read, init.ONE_OFF_GRANT_SHA256
