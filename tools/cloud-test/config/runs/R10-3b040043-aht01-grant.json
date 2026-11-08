@@ -1,0 +1,30 @@
+{
+  "schema": "speaksharp.cloud-test.one-off-grant.v1",
+  "status": "APPROVED",
+  "approvalRef": "slack:1794145532.283429",
+  "scopeApprovalRef": "slack:1794145971.641009",
+  "approvedBy": "Akin",
+  "runId": "R10-3b040043-smoke15",
+  "attempt": 1,
+  "selectedCases": [
+    "AHT-01"
+  ],
+  "requestTemplateSha256": "4b347c76e8d9026212e912de5b1ff28302434f851192e2f485d6f7e772dadc4e",
+  "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+  "backendSha": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
+  "periodScopeSha256": "a2856091993cb7c939e2abad0334a4f4b6dd677d8ce416e2c72327e1597e5127",
+  "preReserveStateHead": "2e68640581beca58453bb9a3bc5b1a13ed4169e9",
+  "notBeforeUtc": "2026-11-08T13:52:51Z",
+  "expiresUtc": "2026-11-09T00:00:00Z",
+  "limits": {
+    "endToEndMinutes": 100,
+    "liveMinutes": 60,
+    "requestsIncludingIdentity": 454,
+    "identityReads": 4,
+    "starts": 2,
+    "takes": 2,
+    "coachingCalls": 3,
+    "retries": 0
+  },
+  "olderReleaseDiagnostic": true
+}

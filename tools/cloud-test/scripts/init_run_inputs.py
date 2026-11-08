@@ -45,26 +45,113 @@ import reservation_binding as RB  # noqa: E402  (the one schema; consumers verif
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
-ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "e501e203ce05e0429e65c4767e6f7096fcd91ece0b53add00dd071f875c86382"   # PO one-run authorization relayed by Sam (slack:1794126096.067599): run cap 3329 + 32 identity; ceilings 9518/129/80/80 (increased; prior charges retained); 60 live / 100 end-to-end; pre-reserve head 3ad9de4f
-ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+# The single active one-off grant (Sam 1794145532 / 1794145971 / 1794148674 / 1794149071): ONE attempt of the R10 smoke campaign over an
+# explicitly selected case subset. The all-15 grant (R10-3b040043-one-off-grant.json, e501e203) was consumed by run 42483030590 and stays
+# in the tree as history only. The grant names `selectedCases`; the request (Sam-owned bytes) must be the SEMANTIC subset of the committed
+# all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
+# grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
+ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
+ONE_OFF_GRANT_SHA256 = "4b778895846a7005e44c991e61f0dc98f5c64131b0dbefa9fc0d100bf601bf9a"   # Sam 1794149353.956719: AHT-01 one-case grant (approval slack:1794145532.283429, scope +4 slack:1794145971.641009), pre-reserve head 2e68640581be
+ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
+ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
+ONE_OFF_BASE_TEMPLATE_SHA256 = "336524a85a97992e4eff07add32478caa2596b6227615038b27186331012bdef"
+R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
-                      "limits", "olderReleaseDiagnostic"}
-ONE_OFF_LIMITS = {"endToEndMinutes": 100, "liveMinutes": 60, "requestsIncludingIdentity": 3361,
-                  "identityReads": 32, "starts": 16, "takes": 16, "coachingCalls": 20, "retries": 0}
+                      "limits", "olderReleaseDiagnostic", "selectedCases"}
+# The time envelope is NOT resized from estimates (Sam 1794149071): the reviewed 100-minute occurrence and 60-minute live ceiling stay.
+ONE_OFF_WINDOW = {"endToEndMinutes": 100, "liveMinutes": 60}
 CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
 
 
-def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=None, chain=None):
-    """The reviewed, content-addressed PO grant for exactly one R10 attempt.
+def _regular_file(path):
+    """A regular, non-symlink file (the one seam the one-off grant reads use, so its tests can serve reviewed-shape bytes)."""
+    return os.path.isfile(path) and not os.path.islink(path)
+
+
+def _canonical_cases(cases):
+    """A non-empty, duplicate-free list of case ids in catalog order, or a refusal. Never defaulted."""
+    order = ["AHT-%02d" % n for n in range(1, 16)]
+    _need(isinstance(cases, list) and cases and all(isinstance(c, str) and c in order for c in cases) and len(set(cases)) == len(cases)
+          and cases == [c for c in order if c in cases], "one-off-selected-cases")
+    return list(cases)
+
+
+def subset_estimate(base, selected, budget_model):
+    """The selected subset's caps, re-derived from the committed all-15 template's own per-case rows and the reviewed budget model
+    (full_coverage_budget.compute): per-case ceiling = harness_ceiling(plannedRequests, allowancePct); cleanup = cleanupReservePerCase per
+    selected case; run cap = ceilings + cleanup; identity reads = 2 per case + 2; Starts = takes = the selected startPressCaps; coaching cap =
+    ceil(takes x (100 + coachingRetryAllowancePct)%); runner minutes kept from the template (never resized from estimates)."""
+    rows = {r.get("case"): r for r in base.get("selection") or [] if isinstance(r, dict)}
+    _need(all(c in rows for c in selected), "one-off-subset-case")
+    planned = [rows[c]["plannedRequests"] for c in selected]
+    _need(all(type(v) is int and v > 0 for v in planned), "one-off-subset-case")
+    pct, per_case, retry = budget_model["allowancePct"], budget_model["cleanupReservePerCase"], budget_model["coachingRetryAllowancePct"]
+    ceilings = sum(((v * pct + 99) // 100 + 9) // 10 * 10 for v in planned)
+    cleanup = per_case * len(selected)
+    run_cap = ceilings + cleanup
+    starts = sum(rows[c]["startPressCap"] for c in selected)
+    return {"requests": {"planned": sum(planned), "cleanupReserve": cleanup, "pooledSlack": run_cap - sum(planned) - cleanup, "runCap": run_cap},
+            "identityReads": 2 * len(selected) + 2, "starts": starts, "takes": starts,
+            "coachingCap": -(-starts * (100 + retry) // 100), "githubRunnerMinutesMax": base["estimate"]["githubRunnerMinutesMax"]}
+
+
+def one_off_limits(derived):
+    return {"endToEndMinutes": ONE_OFF_WINDOW["endToEndMinutes"], "liveMinutes": ONE_OFF_WINDOW["liveMinutes"],
+            "requestsIncludingIdentity": derived["requests"]["runCap"] + derived["identityReads"], "identityReads": derived["identityReads"],
+            "starts": derived["starts"], "takes": derived["takes"], "coachingCalls": derived["coachingCap"], "retries": 0}
+
+
+# Fields of the selected request that must be the committed all-15 template's own (free text, approval references and the window may differ).
+SUBSET_SAME_KEYS = ("schema", "runId", "coverageMode", "sampleMode", "priority", "executionRuntime", "workflowVersion", "configVersion",
+                    "release", "synthetic", "proposal", "evidenceScope", "approvedOmissions", "deviations", "cleanupConditions")
+
+
+def check_subset_template(base, template, selected, derived, scope_ceilings):
+    """The selected request is the SEMANTIC subset of the all-15 template: the same campaign, release, harness pin and modes; exactly the
+    selected rows in catalog order, each the template's own row (only `reason` may differ, `order` renumbered 1..n); the estimate, run cap,
+    Start caps and coaching cap exactly the re-derived values; the cumulative limits exactly the accepted period ceilings. Anything else --
+    another selection, order, estimate, cap or release -- refuses."""
+    _need(isinstance(base, dict) and isinstance(template, dict), "one-off-subset-shape")
+    _need(all(template.get(k) == base.get(k) for k in SUBSET_SAME_KEYS), "one-off-subset-not-the-template")
+    bh, th = dict(base.get("harness") or {}), dict(template.get("harness") or {})
+    bh.pop("ownerApprovalRef", None), th.pop("ownerApprovalRef", None)
+    _need(bh == th, "one-off-subset-harness")
+    rows = {r.get("case"): r for r in base.get("selection") or [] if isinstance(r, dict)}
+    sel = template.get("selection")
+    _need(isinstance(sel, list) and [r.get("case") if isinstance(r, dict) else None for r in sel] == selected, "one-off-subset-selection")
+    strip = lambda r: {k: v for k, v in r.items() if k not in ("reason", "order")}  # noqa: E731
+    _need(all(r.get("order") == i + 1 and isinstance(r.get("reason"), str) and strip(r) == strip(rows[r["case"]]) for i, r in enumerate(sel)),
+          "one-off-subset-selection")
+    est, best = template.get("estimate"), base.get("estimate") or {}
+    _need(isinstance(est, dict) and set(est) == set(best) and est.get("requests") == derived["requests"]
+          and est.get("identityReads") == derived["identityReads"] and est.get("starts") == derived["starts"]
+          and est.get("takes") == derived["takes"] and est.get("paidActionsAuthorizedUsd") == 0
+          and est.get("githubRunnerMinutesMax") == derived["githubRunnerMinutesMax"]
+          and isinstance(est.get("providerBillableRequests"), dict)
+          and set(est["providerBillableRequests"]) == set(best.get("providerBillableRequests") or {})
+          and est["providerBillableRequests"].get("coachingCap") == derived["coachingCap"], "one-off-subset-estimate")
+    caps = {c: rows[c]["startPressCap"] for c in selected}
+    lim, blim = template.get("approvedLimits"), base.get("approvedLimits") or {}
+    _need(isinstance(lim, dict) and set(lim) == set(blim) and lim.get("runCapRequests") == derived["requests"]["runCap"]
+          and lim.get("startPressCaps") == caps and lim.get("cumulativeCeilingRequests") == scope_ceilings["requests"]
+          and lim.get("identityCap") == scope_ceilings["identityReads"] and lim.get("startsCap") == scope_ceilings["starts"]
+          and lim.get("takesCap") == scope_ceilings["takes"], "one-off-subset-approved-limits")
+    prop = template.get("proposedLimits")
+    _need(isinstance(prop, dict) and prop.get("runCapRequests") == derived["requests"]["runCap"] and prop.get("startPressCaps") == caps
+          and (prop.get("guardCaps") or {}).get("coaching", derived["coachingCap"]) == derived["coachingCap"], "one-off-subset-proposed-limits")
+    return True
+
+
+def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=None, chain=None, selection=None):
+    """The reviewed, content-addressed PO grant for exactly one R10 attempt over its explicit `selectedCases`.
 
     Dispatch facts are evidence references, never authority.  The grant binds the committed template, deployed release, accepted accounting
     scope, pre-reserve journal head and every one-run cap.  The only value supplied at execution is GitHub's authenticated run start.
     """
     path = os.path.join(repo, ONE_OFF_GRANT_PATH)
-    _need(os.path.isfile(path) and not os.path.islink(path), "one-off-grant-unreadable")
+    _need(_regular_file(path), "one-off-grant-unreadable")
     raw = _read(path)
     _need(hashlib.sha256(raw).hexdigest() == ONE_OFF_GRANT_SHA256, "one-off-grant-not-the-reviewed-bytes")
     try:
@@ -78,18 +165,29 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
     # admit a dispatch; only a reviewed change pinning the owner's new decision sets APPROVED (and re-pins ONE_OFF_GRANT_SHA256).
     _need(grant.get("status") == "APPROVED", "one-off-grant-not-approved")
     _need(_ref(grant.get("approvalRef")) and grant.get("approvedBy") == "Akin"
-          and grant.get("runId") == "R10-3b040043-smoke15" and grant.get("attempt") == 1,
+          and grant.get("runId") == R10_ONE_OFF_RUN_ID and grant.get("attempt") == 1,
           "one-off-grant-reference")
+    selected = _canonical_cases(grant.get("selectedCases"))
+    if selection is not None:
+        _need(list(selection) == selected, "one-off-grant-selection-differs")
     template_path = os.path.join(repo, ONE_OFF_TEMPLATE_PATH)
-    _need(os.path.isfile(template_path) and not os.path.islink(template_path)
+    _need(_regular_file(template_path)
           and hashlib.sha256(_read(template_path)).hexdigest() == grant.get("requestTemplateSha256"),
           "one-off-grant-not-the-request")
+    committed = json.loads(_read(template_path))
+    base_path = os.path.join(repo, ONE_OFF_BASE_TEMPLATE_PATH)
+    _need(_regular_file(base_path), "one-off-grant-base-template")
+    base_raw = _read(base_path)
+    _need(hashlib.sha256(base_raw).hexdigest() == ONE_OFF_BASE_TEMPLATE_SHA256, "one-off-grant-base-template")
+    base = json.loads(base_raw)
+    cfg = json.loads(_read(os.path.join(repo, "tools/cloud-test/config/test-config.v1.json")))
+    derived = subset_estimate(base, selected, cfg["modes"]["full"]["budgetModel"])
     if template is not None:
         _need(template.get("runId") == grant["runId"]
               and (template.get("release") or {}).get("testedSha") == grant.get("testedSha")
               and ((template.get("release") or {}).get("backend") or {}).get("sha") == grant.get("backendSha"),
               "one-off-grant-release")
-    _need(grant.get("limits") == ONE_OFF_LIMITS and grant.get("olderReleaseDiagnostic") is True,
+    _need(grant.get("limits") == one_off_limits(derived) and grant.get("olderReleaseDiagnostic") is True,
           "one-off-grant-limits")
     scope_path = os.path.join(repo, CONTINUITY_DIR, CONTINUITY_SCOPE)
     _need(os.path.isfile(scope_path) and not os.path.islink(scope_path), "one-off-grant-accounting")
@@ -97,6 +195,7 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
         accepted_scope = manual_reservation.accepted_scope(_read(scope_path), manual_reservation.ACCEPTED_SCOPE_SHA256)
     except manual_reservation.Refused:
         raise Refused("one-off-grant-accounting")
+    check_subset_template(base, committed, selected, derived, accepted_scope["ceilings"])
     _need(grant.get("periodScopeSha256") == manual_reservation.ACCEPTED_SCOPE_SHA256
           and grant.get("scopeApprovalRef") == accepted_scope.get("approvalRef")
           and isinstance(grant.get("preReserveStateHead"), str) and LR.SHA40.match(grant["preReserveStateHead"]),
@@ -208,12 +307,13 @@ def _setup_failures_since_pin(checkpoint, grant, chain, repo, accepted_scope):
 
 
 def materialize_authoritative_smoke_occurrence(repo, template, initiation):
-    approval = one_off_grant(repo, template, initiation)
+    approval = one_off_grant(repo, template, initiation,
+                             selection=[s.get("case") for s in (template or {}).get("selection") or [] if isinstance(s, dict)])
     return materialize_smoke_occurrence(template, initiation, approval["approvalRef"], approval["scopeApprovalRef"], approval["approvedBy"],
-                                        approval["testedSha"], approval["backendSha"])
+                                        approval["testedSha"], approval["backendSha"], approval["selectedCases"])
 
 
-def materialize_smoke_occurrence(template, initiation, approval_ref, scope_approval_ref, approved_by, tested_sha, backend_sha):
+def materialize_smoke_occurrence(template, initiation, approval_ref, scope_approval_ref, approved_by, tested_sha, backend_sha, selected_cases):
     """Create the exact one-run bytes for an owner-selected R10 initiation.
 
     The 100-minute occurrence is the bounded end-to-end workflow envelope:
@@ -225,7 +325,8 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, scope_appro
     and bind the ordinary action-approval envelope.
     """
     _need(template.get("coverageMode") == template.get("sampleMode") == "smoke", "smoke-occurrence-mode")
-    _need(template.get("runId") == "R10-3b040043-smoke15" and len(template.get("selection") or []) == 15,
+    _need(template.get("runId") == R10_ONE_OFF_RUN_ID and isinstance(template.get("selection"), list)
+          and [s.get("case") if isinstance(s, dict) else None for s in template["selection"]] == _canonical_cases(selected_cases),
           "smoke-occurrence-selection")
     _need(isinstance(initiation, str) and LR.UTC.match(initiation), "smoke-occurrence-initiation")
     _need(_ref(approval_ref) and _ref(scope_approval_ref) and isinstance(approved_by, str) and approved_by.strip(), "smoke-occurrence-approval")
@@ -237,8 +338,8 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, scope_appro
     out["createdUtc"] = initiation
     out["window"] = {"startUtc": initiation,
                      "endUtc": (start + timedelta(minutes=SMOKE_OCCURRENCE_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                     "endToEndMinutes": ONE_OFF_LIMITS["endToEndMinutes"],
-                     "liveMinutes": ONE_OFF_LIMITS["liveMinutes"],
+                     "endToEndMinutes": ONE_OFF_WINDOW["endToEndMinutes"],
+                     "liveMinutes": ONE_OFF_WINDOW["liveMinutes"],
                      "approvalRef": approval_ref,
                      "basis": "actual initiation + 5m record + 3m reserve + 85m live-job ceiling (15 setup + 60 live + 10 collect) + 5m parallel settlement/record completion + 2m structural slack; live ceiling 60m; not measured runtime"}
     out["selectionApprovalRef"] = approval_ref
@@ -448,7 +549,9 @@ def check_request(req, now, template_keys, nightly=False):
     if req["coverageMode"] == "full":
         _need(sorted(cases) == ALL_CASES, "full-mode-needs-all-fifteen")
     if req["coverageMode"] == "smoke":
-        _need(sorted(cases) == ALL_CASES, "smoke-mode-needs-all-fifteen")
+        # A smoke SUBSET only for the R10 one-off campaign, whose admission binds the pinned grant's exact selectedCases (one_off_grant).
+        _need(sorted(cases) == ALL_CASES or (req.get("runId") == R10_ONE_OFF_RUN_ID and cases == [c for c in ALL_CASES if c in cases]),
+              "smoke-mode-needs-all-fifteen")
         _need(req.get("sampleMode") == "smoke", "smoke-mode-needs-smoke-sampling")
     else:
         _need(req.get("sampleMode") == "full", "partial-selection-needs-selected-full-sampling")
@@ -990,7 +1093,8 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
     if req.get("runId") == "R10-3b040043-smoke15":
         _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")
         _need(isinstance(repo, str), "one-off-grant-unreadable")
-        approval = one_off_grant(repo, None, req.get("createdUtc"), reconciliation_bytes, chain)
+        approval = one_off_grant(repo, None, req.get("createdUtc"), reconciliation_bytes, chain,
+                                 selection=[s.get("case") for s in req.get("selection") or [] if isinstance(s, dict)])
         window = req.get("window") or {}
         _need(req.get("createdUtc") == window.get("startUtc")
               and (_utc(window.get("endUtc")) - _utc(window.get("startUtc"))).total_seconds()
@@ -1095,7 +1199,8 @@ def prepare(x, now):
     grant = None
     if req.get("runId") == "R10-3b040043-smoke15":
         _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")
-        grant = one_off_grant(repo, None, req.get("createdUtc"))
+        grant = one_off_grant(repo, None, req.get("createdUtc"),
+                              selection=[s.get("case") for s in req.get("selection") or [] if isinstance(s, dict)])
     lineage = check_release_lineage(repo, req, x.request, x.source_sha, req_blob, cases, facts.get("olderReleaseDiagnostic"), template_keys, grant)
     bundle = parse_live_accounts_bundle(os.environ.get("CLOUD_TEST_LIVE_ACCOUNTS"))
     accounts = account_bindings(cfg, cases, facts.get("accounts"), bundle,
@@ -1268,7 +1373,8 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     if coverage_mode == "full":
         _need(selected == ALL_CASES and "coverageMode" not in plan and "assertionDepth" not in plan, "plan-not-a-full-coverage-plan")
     elif coverage_mode == "smoke":
-        _need(selected == ALL_CASES and plan.get("coverageMode") == "smoke" and plan.get("assertionDepth") == "smoke", "plan-not-an-all-fifteen-smoke-plan")
+        _need((selected == ALL_CASES or req.get("runId") == R10_ONE_OFF_RUN_ID) and plan.get("coverageMode") == "smoke"
+              and plan.get("assertionDepth") == "smoke", "plan-not-an-all-fifteen-smoke-plan")
     else:
         _need(plan.get("coverageMode") == "partial" and plan.get("assertionDepth") == "full", "plan-not-a-selected-full-plan")
     counts = {"PASS": 0, "FAIL": 0, "NOT RUN": 0}

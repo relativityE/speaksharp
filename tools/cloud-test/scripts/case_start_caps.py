@@ -24,6 +24,9 @@ FULL_TAKES = dict(zip(CASE_IDS, (4, 7, 4, 1, 2, 2, 2, 0, 2, 2, 2, 1, 1, 1, 0)))
 MINIMAL_MINIMA = dict(zip(CASE_IDS, (2, 1, 1, 1, 1, 1, 1, 0, 1, 1, 3, 1, 1, 1, 0)))
 MODES = {("partial", "minimal"): "minimal", ("partial", "full"): "selected-full", ("smoke", "smoke"): "smoke", ("full", "full"): "full"}
 RUNTIMES = ("Claude SpeakSharp R4", "GitHub Actions SpeakSharp")
+# The one campaign whose smoke run may select a subset: its admission binds the pinned one-off grant's exact selectedCases
+# (init_run_inputs.one_off_grant; Sam 1794148674).
+R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 
 
 def obj(value, code):
@@ -75,8 +78,11 @@ def request_caps(request, *, execution=False):
         require(cap >= minimum[cid], "selection-minimum")
         integer(row.get("plannedRequests"), "selection-requests")
         caps[cid] = cap
-    if mode in ("full", "smoke"):
+    if mode == "full" or (mode == "smoke" and r.get("runId") != R10_ONE_OFF_RUN_ID):
         require(tuple(caps) == CASE_IDS, "full-selection")
+    elif mode == "smoke":
+        # the R10 one-off campaign's selected subset (its admission binds the pinned grant's exact selectedCases); catalog order only
+        require(tuple(caps) == tuple(c for c in CASE_IDS if c in caps), "full-selection")
     for name, group in (("proposed", proposed), ("approved", approved)):
         value = group.get("startPressCaps")
         if name == "approved" and value is None and not execution:

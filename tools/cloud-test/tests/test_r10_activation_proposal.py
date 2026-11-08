@@ -72,9 +72,11 @@ class R10ActivationProposal(unittest.TestCase):
         # (+2,022 requests, +32 identity reads, +16 starts, +16 takes); the known minimum is unchanged.
         # Then one-run INCREASED ceilings, prior charges retained, not a refund (PO via Sam, slack:1794126096.067599): Starts 74 -> 80,
         # takes 64 -> 80, identity 128 -> 129.
-        credited = {"requests": 9518, "protectedReserveRequests": 0, "identityReads": 129, "starts": 80, "takes": 80}
+        # Then the AHT-01 one-case attempt: identity reads 129 -> 133, exactly its source-derived 2 x 1 + 2 (Sam 1794145971 / 1794149071);
+        # nothing else changes and every prior charge is retained.
+        credited = {"requests": 9518, "protectedReserveRequests": 0, "identityReads": 133, "starts": 80, "takes": 80}
         self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]),
-                         (credited, "slack:1794126096.067599", "3cdf90b61287da0da0283b4f23a4311584663619a53704347fddbb18563c501b"))
+                         (credited, "slack:1794145971.641009", "a2856091993cb7c939e2abad0334a4f4b6dd677d8ce416e2c72327e1597e5127"))
         self.assertTrue(self.proposal["rootRefCreationSelected"])
         self.assertTrue(self.proposal["activationPinsSelected"])
         scope_path = ROOT / "config/aggregate/period-scope.json"
@@ -94,7 +96,9 @@ class R10ActivationProposal(unittest.TestCase):
         credit = {"requests": 5176, "protectedReserveRequests": 0, "identityReads": 96, "starts": 32, "takes": 33}
         # slack:1794126096.067599: NEW capacity for one run (not a credit/refund); run 42423408284's capped settle stays as recorded.
         increase = {"requests": 0, "protectedReserveRequests": 0, "identityReads": 1, "starts": 6, "takes": 16}
-        self.assertEqual(self.proposal["periodScope"]["ceilings"], {k: expected[k] + credit[k] + increase[k] for k in expected})
+        # slack:1794145971.641009: NEW capacity for the AHT-01 one-case attempt only, exactly its 4 identity reads (not a credit/refund).
+        one_case = {"requests": 0, "protectedReserveRequests": 0, "identityReads": 4, "starts": 0, "takes": 0}
+        self.assertEqual(self.proposal["periodScope"]["ceilings"], {k: expected[k] + credit[k] + increase[k] + one_case[k] for k in expected})
         self.assertFalse(self.proposal["knownLaterRunsResolved"])
         self.assertIn("remain UNRESOLVED", self.proposal["historicalDisposition"])
 

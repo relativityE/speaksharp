@@ -138,7 +138,11 @@ def sanitize_record(rec, require_source=False):
         _need(set(c["rows"]) == {"pass", "fail", "notRun"} and all(_count(v) for v in c["rows"].values()), "rows")
         _need((c["result"] == "PASS") == (c["rows"]["fail"] == 0 and c["rows"]["notRun"] == 0 and c["rows"]["pass"] > 0), "case-result-rows")
         _need(c["result"] != "UNKNOWN" or not any(c["rows"].values()), "unknown-rows")
-        _need(c["result"] != "NOT SELECTED" or (rec["coverage"] in ("batch", "incomplete") and not any(c["rows"].values()) and not c.get("codes")),
+        # A selected smoke (the R10 one-off campaign's explicit selectedCases, Sam 1794149771.844269) keeps the fifteen-row display: its
+        # unselected rows are NOT SELECTED like a batch's. Any other smoke still has no unselected row.
+        _need(c["result"] != "NOT SELECTED" or ((rec["coverage"] in ("batch", "incomplete")
+                                                 or (rec["coverage"] == "smoke" and rec.get("campaignId") == R10_ONE_OFF_CAMPAIGN))
+                                                and not any(c["rows"].values()) and not c.get("codes")),
               "not-selected-rows")
         out.append({"caseId": c["caseId"], "result": c["result"], "rows": dict(c["rows"]), "codes": _codes(c.get("codes", []), 8)})
     ran = [c for c in out if c["result"] != "NOT SELECTED"]
@@ -195,6 +199,7 @@ COMPARABILITY_KEYS = {"codeManifestSha256", "packetManifestSha256", "mediaManife
 MAX_OCCURRENCES = 62          # two 31-day periods of nightly occurrences, retained in order
 MAX_HISTORY_BYTES = 48000     # serialized-size bound for the history block
 MAX_BODY_CHARS = 60000        # the whole rendered comment, under GitHub's 65536-character body limit
+R10_ONE_OFF_CAMPAIGN = "R10-3b040043-smoke15"   # the one campaign whose smoke may select a subset (init_run_inputs.R10_ONE_OFF_RUN_ID)
 
 
 def canon(doc):

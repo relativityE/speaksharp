@@ -957,6 +957,7 @@ class Qualify(unittest.TestCase):
     and config bytes), the dispatch subset in plan.selection, and case results whose other rows are notSelected (campaign-core.cjs 116)."""
 
     SELECTED = ["AHT-05", "AHT-09"]
+    CAMPAIGN = "C1"
 
     def setUp(self):
         self.d = os.path.realpath(tempfile.mkdtemp())
@@ -974,7 +975,7 @@ class Qualify(unittest.TestCase):
         self.code = os.path.join(self.d, "packet", "CODE.sha256")
         put(self.code, "".join(manifest))
         self.plan = os.path.join(self.d, "campaign-plan.json")
-        put(self.plan, {"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "coverageMode": "partial", "assertionDepth": "full", "cases": rows,
+        put(self.plan, {"campaignId": self.CAMPAIGN, "sourceSha": SHA, "servedSha": SHA, "coverageMode": "partial", "assertionDepth": "full", "cases": rows,
                         "selection": {"ids": list(self.SELECTED), "order": list(self.SELECTED), "ownerApprovalReference": "slack:1", "reason": "unit"}})
         self.approval = os.path.join(self.d, "security-approval.json")
         put(self.approval, {"reviewedCodeManifestSha256": self.sha(self.code)})
@@ -1014,7 +1015,7 @@ class Qualify(unittest.TestCase):
         built = rows or [row(c) for c in I.ALL_CASES]
         for c, change in (patch or {}).items():
             built = [change(dict(r)) if r["caseId"] == c else r for r in built]
-        put(self.results, dict({"campaignId": "C1", "sourceSha": SHA, "servedSha": SHA, "cases": built}, **over))
+        put(self.results, dict({"campaignId": self.CAMPAIGN, "sourceSha": SHA, "servedSha": SHA, "cases": built}, **over))
 
     def qualify(self, run_verifier=I._run_verifier, selected=None, mode="partial"):
         self.runs += 1
@@ -1026,7 +1027,7 @@ class Qualify(unittest.TestCase):
 
     def request(self, selected=None, mode="partial"):
         """The committed request this campaign ran: runId = campaignId, the selection, the tested release and the harness CODE pin."""
-        req = live_request(None if mode == "full" else list(selected or self.SELECTED), runId="C1")
+        req = live_request(None if mode == "full" else list(selected or self.SELECTED), runId=self.CAMPAIGN)
         if mode == "smoke":
             req.update(coverageMode="smoke", sampleMode="smoke", priority="journey-smoke")
         req["release"]["testedSha"] = SHA
@@ -1148,6 +1149,62 @@ class Qualify(unittest.TestCase):
         self.assertEqual(done["history"]["rows"], {})
         self.assertEqual(I.LR.qualified_comparable(done["history"], clean["comparability"]), [])
         self.assertEqual(I.LR.parse_body(I.LR.render(done)), done)
+
+    def make_selected_smoke(self, selected):
+        """The real smoke builder's shape for the R10 one-case attempt (run_env BP_SELECT): smoke markers, the fifteen-row denominator, only the
+        selected cases dispatched; the other rows notSelected."""
+        plan = J(self.plan)
+        plan.update(campaignId=self.CAMPAIGN, coverageMode="smoke", assertionDepth="smoke",
+                    selection={"ids": list(selected), "order": list(selected), "ownerApprovalReference": "slack:1", "reason": "unit one case"})
+        put(self.plan, plan)
+        self.SELECTED = list(selected)
+        for cid in os.listdir(self.cases):      # the setUp fixture's own dispatched cases are not part of this campaign
+            if cid not in selected:
+                shutil.rmtree(os.path.join(self.cases, cid))
+        for cid in selected:
+            self.write_case(cid, [("a", "PASS"), ("b", "PASS")], refresh=False)
+        self.write_results()
+
+    def test_the_r10_selected_aht01_smoke_qualifies_projects_and_publishes_with_fifteen_display_rows(self):
+        """Sam 1794149771.844269: a SUCCESSFUL selected-AHT-01 smoke must not become another unpublishable record. The real verifier, qualifier,
+        collector, projection and latest-record publisher compose: only AHT-01's own smoke assertions qualify; the display keeps fifteen rows
+        with fourteen NOT SELECTED; the record completes as smoke, outside acceptance history."""
+        self.CAMPAIGN = I.R10_ONE_OFF_RUN_ID
+        self.setUp()
+        self.make_selected_smoke(["AHT-01"])
+        request = self.request(["AHT-01"], mode="smoke")
+        record = self.collect(request)
+        q = self.qualify(selected=["AHT-01"], mode="smoke")
+        self.assertEqual((q["coverage"], q["outcome"], q["campaignId"], q["cases"]), ("smoke", "passed", I.R10_ONE_OFF_RUN_ID, ["AHT-01"]))
+        with open(self.results, "rb") as f:
+            case_results_raw = f.read()
+        with open(os.path.join(self.d, "request-%d.json" % self.runs), "rb") as f:
+            request_raw = f.read()
+        catalog = {"cases": {cid: {"requiredAssertions": ["%s-a" % cid.lower(), "%s-b" % cid.lower()]} for cid in I.ALL_CASES}}
+        rec = I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q),
+                        case_results_raw, catalog, request_raw, b"synthetic-smoke-media")
+        self.assertEqual((rec["coverage"], rec["outcome"], rec["campaignId"], len(rec["cases"])), ("smoke", "passed", I.R10_ONE_OFF_RUN_ID, 15))
+        self.assertEqual([c["caseId"] for c in rec["cases"] if c["result"] != "NOT SELECTED"], ["AHT-01"])
+        self.assertEqual(sum(c["result"] == "NOT SELECTED" for c in rec["cases"]), 14)
+        self.assertEqual(next(c for c in rec["cases"] if c["caseId"] == "AHT-01")["result"], "PASS")
+        clean = I.LR.sanitize_record(rec)
+        with self.assertRaisesRegex(I.LR.Refused, "not-selected-rows"):     # NOT SELECTED smoke rows only for the R10 one-off campaign
+            I.LR.sanitize_record(dict(rec, campaignId="C1"))
+        running = I.LR.begin(I.LR.parse_body(""), "123", 1, "c" * 40, record["startedUtc"])
+        pending = I.LR.pending_completion(running, clean, "2026-11-01T14:40:00Z", "8" * 64, "9" * 64)
+        self.assertEqual(I.LR.parse_body(I.LR.render(pending))["pendingCompletion"]["record"]["coverage"], "smoke")
+        done = I.LR.complete(running, clean)
+        self.assertEqual(I.LR.parse_body(I.LR.render(done)), done)
+        self.assertEqual((done["latestCompleted"]["outcome"], done["history"]["occurrences"][0]["coverage"]), ("passed", "smoke"))
+        self.assertEqual(done["history"]["rows"], {}, "smoke never enters acceptance history")
+        # a failing AHT-01 row stays a qualified FAIL, publishable as such
+        self.write_case("AHT-01", [("a", "PASS"), ("b", "FAIL")], "FAIL")
+        q2 = self.qualify(selected=["AHT-01"], mode="smoke")
+        self.assertEqual((q2["coverage"], q2["outcome"]), ("smoke", "failed"))
+
+    def test_a_smoke_subset_of_any_other_campaign_never_qualifies(self):
+        self.make_selected_smoke(["AHT-01"])
+        refused(self, "plan-not-an-all-fifteen-smoke-plan", self.qualify, selected=["AHT-01"], mode="smoke")
 
     def test_incomplete_smoke_keeps_its_source_depth_and_never_becomes_acceptance_history(self):
         """The real frozen verifier/qualifier/project/pending/readback/complete path for Sam's incomplete-smoke RETURN."""

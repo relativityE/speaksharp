@@ -18,7 +18,8 @@ import check_gates as C
 import init_run_inputs as I
 import spend_report as S
 
-with open(os.path.join(ROOT, "config", "runs", "R10-3b040043-all15.json"), encoding="utf-8") as _f:
+# the active one-off: the AHT-01 selected smoke occurrence of the R10 campaign (Sam 1794149353.956719)
+with open(os.path.join(ROOT, "config", "runs", "R10-3b040043-aht01.json"), encoding="utf-8") as _f:
     TEMPLATE = json.load(_f)
 with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as _f:
     CONFIG = json.load(_f)
@@ -28,7 +29,7 @@ PARENT, HEAD = "a" * 40, "b" * 40
 
 def occurrence(template=TEMPLATE):
     occ = I.materialize_smoke_occurrence(template, "2026-11-07T21:00:00Z", "slack:1794073342.879639", "slack:1794072158.779099", "Akin",
-                                         template["release"]["testedSha"], template["release"]["backend"]["sha"])
+                                         template["release"]["testedSha"], template["release"]["backend"]["sha"], ["AHT-01"])
     return occ, json.dumps(occ, sort_keys=True, separators=(",", ":")).encode()
 
 

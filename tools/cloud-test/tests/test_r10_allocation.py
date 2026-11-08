@@ -12,16 +12,17 @@ import init_run_inputs as I
 import manual_reservation as M
 from test_accounting_rollup import Journal, scope
 
-with open(os.path.join(ROOT, "config", "runs", "R10-3b040043-all15.json"), encoding="utf-8") as _f:
+# the active one-off: the AHT-01 selected smoke occurrence of the R10 campaign (Sam 1794149353.956719)
+with open(os.path.join(ROOT, "config", "runs", "R10-3b040043-aht01.json"), encoding="utf-8") as _f:
     TEMPLATE = json.load(_f)
 RUN = "42400000001"
 AT = "2026-11-02T04:00:00Z"
-SIZED = {"requests": 3329 + 32, "identityReads": 32, "starts": 16, "takes": 16}
+SIZED = {"requests": 450 + 4, "identityReads": 4, "starts": 2, "takes": 2}
 
 
 def occurrence(template=TEMPLATE):
     occ = I.materialize_smoke_occurrence(template, "2026-11-07T17:00:00Z", "slack:1794063978.986369", "slack:1794063978.986369", "Akin",
-                                         template["release"]["testedSha"], template["release"]["backend"]["sha"])
+                                         template["release"]["testedSha"], template["release"]["backend"]["sha"], ["AHT-01"])
     raw = json.dumps(occ, sort_keys=True, separators=(",", ":")).encode()
     return raw, hashlib.sha256(raw).hexdigest()
 
@@ -39,7 +40,8 @@ class R10Allocation(Journal):
         raw, sha = occurrence()
         _req, alloc = M.manual_request(raw, sha)
         self.assertEqual({k: alloc[k] for k in M.G5_KEYS}, SIZED)
-        self.assertEqual(I.ONE_OFF_LIMITS["requestsIncludingIdentity"], SIZED["requests"])
+        with open(os.path.join(ROOT, "config", "runs", "R10-3b040043-aht01-grant.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["limits"]["requestsIncludingIdentity"], SIZED["requests"])
 
     def test_allocation_at_all_ceilings_admits(self):
         raw, sha = occurrence()
