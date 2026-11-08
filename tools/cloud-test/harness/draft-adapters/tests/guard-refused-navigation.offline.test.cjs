@@ -56,3 +56,69 @@ test('a product network error without the guard header still throws the original
   const page = fakePage({ status: 502, throwOnGoto: true });
   await assert.rejects(ui.trackedGoto(page, 'https://app.example/x', 'route-other', {}), (e) => e.code === undefined && /ERR_HTTP_RESPONSE_CODE_FAILURE/.test(e.message));
 });
+
+// Sam 1794177810 RETURN: (1) the subtype must persist in the exported case artifact, code-owned; (2) every part of it is a closed enum.
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { retainInterruptionEvidence } = require('../source-adapters.cjs');
+const { createCaseRecorder } = require('../../bundle/harness/case-results.cjs');
+
+test('the cap subtype is a closed enum: reviewed caps kept, anything else (cap:private-secret) becomes other before persistence', async () => {
+  for (const [deny, code] of [['cap:auth', 'cap:auth'], ['cap:signed-in', 'cap:signed-in'], ['cap:case-takes', 'cap:case-takes'],
+    ['cap:navigations', 'cap:navigations'], ['cap:private-secret', 'other'], ['cap:', 'other'], ['cap:AUTH', 'other'], ['upstream-error', 'upstream-error'],
+    ['unknown-host', 'unknown-host'], ['policy', 'policy'], ['policy ', 'other'], ['', 'other']]) {
+    assert.equal(ui.guardDenyCode(deny), code, deny);
+    if (!deny) continue;
+    const page = fakePage({ status: 403, deny });
+    await assert.rejects(ui.trackedGoto(page, 'https://app.example/x', 'route-other', {}), (e) => {
+      assert.equal(e.trustedBlocker, 'guard-refused-navigation:' + code);
+      assert.equal(ui.stopReason(e), 'guard-refused-navigation:' + code);
+      assert.ok(!/private-secret/.test(e.message + e.trustedBlocker + ui.stopReason(e)));
+      return true;
+    });
+  }
+});
+
+test('the reason is code-owned: an arbitrary error carrying a trustedBlocker-like property yields no stopReason', () => {
+  const forged = Object.assign(new Error('x'), { code: 'NOT_RUN', trustedBlocker: 'guard-refused-navigation:cap:private-secret', stopReason: 'anything' });
+  assert.equal(ui.stopReason(forged), null);
+  assert.equal(ui.stopReason(null), null);
+  assert.equal(ui.stopReason('guard-refused-navigation:policy'), null);
+});
+
+for (const [shape, throwOnGoto] of [['resolved', false], ['thrown', true]]) {
+  test(`${shape} refusal: stage signin-navigate and the closed reason persist in the real exported interruption artifact`, async (t) => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'guard-refused-')));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const page = fakePage({ status: 502, deny: 'upstream-error', throwOnGoto });
+    let error;
+    try { await ui.trackedGoto(page, 'https://app.example/auth/signin', 'route-signin', {}); } catch (e) { error = e; }
+    assert.ok(error);
+    assert.equal(ui.failureStage(error, page), 'signin-navigate');
+    const config = { caseId: 'AHT-01', sourceSha: 'a'.repeat(40), servedSha: 'a'.repeat(40), targetUrl: 'https://speaksharp-public.vercel.app',
+      requiredAssertions: ['fresh-first-session', 'owned-pages-closed'] };
+    const recorder = createCaseRecorder(config, dir);
+    // exactly the diagnostic the driver builds (source-adapters.cjs catch block)
+    const diag = { stage: ui.failureStage(error, page), stopReason: ui.stopReason(error), step: 'fresh-first-session', error: ui.safeErrorSummary(error),
+      trail: ui.navigationTrail(page) };
+    const ref = await retainInterruptionEvidence({ caseId: 'AHT-01', diag, assertions: [], writeEvidence: recorder.writeEvidence });
+    const notRun = { id: 'fresh-first-session', result: 'NOT RUN', detail: 'The named assertion was not established.', evidenceRefs: [ref] };
+    const cleanup = { id: 'owned-pages-closed', result: 'PASS', detail: 'The named source assertion was observed.', evidenceRefs: [ref] };
+    const result = recorder.finish({ caseId: 'AHT-01', contentSafe: true, assertions: [notRun, cleanup] });
+    assert.ok(result.evidenceDigests[ref]);
+    const persisted = JSON.parse(fs.readFileSync(path.join(dir, ref), 'utf8'));
+    assert.equal(persisted.stage, 'signin-navigate');
+    assert.equal(persisted.stopReason, 'guard-refused-navigation:upstream-error');
+    assert.equal(persisted.error.code, 'NOT_RUN');
+    assert.ok(!/app\.example|auth\/signin/.test(JSON.stringify(persisted)), 'no URL persists');
+  });
+}
+
+test('a product failure keeps its original shape: no stopReason, stage unchanged', async () => {
+  const page = fakePage({ status: 502, throwOnGoto: true });
+  let error;
+  try { await ui.trackedGoto(page, 'https://app.example/x', 'route-other', {}); } catch (e) { error = e; }
+  assert.equal(ui.stopReason(error), null);
+  assert.equal(ui.failureStage(error, page), 'idle');
+});

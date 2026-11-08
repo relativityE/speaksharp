@@ -51,10 +51,10 @@ SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 # all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
 # grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
-ONE_OFF_GRANT_SHA256 = "1c60c30ab1f757df943dcc835debb15572dff84d4688fbff309566555d8c86e3"   # Sam 1794156633.525579: the AHT-01 grant re-issued at 19a9251d after run 42496837188 (scope +4 slack:1794156633.525579; approval slack:1794145532.283429)
+ONE_OFF_GRANT_SHA256 = "65b3f360ecc021445691b1a0cf4a71346ead40c1e349d70e649ae4835afd2a8e"   # Sam 1794156633.525579: the AHT-01 grant re-issued at 19a9251d after run 42496837188 (scope +4 slack:1794156633.525579; approval slack:1794145532.283429)
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
 ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
-ONE_OFF_BASE_TEMPLATE_SHA256 = "989ca10d5b12973d503ae9cf55fc9d2072ae1555f87023c92c16cb2cd5be2900"
+ONE_OFF_BASE_TEMPLATE_SHA256 = "e0a213c9467dda1ee20281ceb0258f7d6ae75f7ccfc76c476fa176e9b6c8ba42"
 R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
@@ -1953,7 +1953,7 @@ def _catalog_assertion_ids():
 # (harness/draft-adapters/browser-actions.cjs); DRIVER_TEST_IDS the exact data-testid values the reviewed adapters address;
 # DRIVER_APIS the Playwright calls they make. tests/test_init_run_inputs.py pins all three to those sources.
 DRIVER_STAGES = frozenset({
-    "idle", "start-select", "start-press", "start-pressed", "retry-setup-wait", "start-recording-wait", "products-trigger-wait",
+    "idle", "signin-navigate", "start-select", "start-press", "start-pressed", "retry-setup-wait", "start-recording-wait", "products-trigger-wait",
     "products-menu-wait", "products-trigger-click", "products-open-wait", "products-item-click", "stop-press", "stop-clicked",
     "stop-release-wait", "save-wait", "save-readback", "save-complete", "focus-dialog-wait", "focus-dialog-focus-wait", "focus-dialog-close",
     "focus-dialog-hidden-wait", "focus-intent-clear-wait"})

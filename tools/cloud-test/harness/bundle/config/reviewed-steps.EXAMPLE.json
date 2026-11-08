@@ -36,7 +36,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -200,7 +200,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -242,7 +242,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -406,7 +406,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -448,7 +448,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -612,7 +612,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -654,7 +654,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -818,7 +818,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -860,7 +860,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1024,7 +1024,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1066,7 +1066,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1230,7 +1230,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1272,7 +1272,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1436,7 +1436,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1478,7 +1478,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1642,7 +1642,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1684,7 +1684,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1848,7 +1848,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1890,7 +1890,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2054,7 +2054,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2096,7 +2096,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2260,7 +2260,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2302,7 +2302,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2466,7 +2466,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2508,7 +2508,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2672,7 +2672,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2714,7 +2714,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2878,7 +2878,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2920,7 +2920,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "6430cf2ea3ef6bdbce3208fe08ef26dc55a50f47c9f72689555876d61033f762"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -3084,7 +3084,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "b88ae35cb1c3b733321f7ff9678b34c2dcd7847d485b85e3be9b7045c14d5da6"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",

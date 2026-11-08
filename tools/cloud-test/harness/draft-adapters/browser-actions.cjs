@@ -25,16 +25,25 @@ function navigationTrail(page){const t=page&&typeof page==='object'?pageTrails.g
 // A navigation the egress guard refused (any response carrying x-ss-harness-deny on the main-frame document) is a harness/setup stop, never a
 // product verdict: fail at once as NOT RUN with a closed blocker, instead of waiting 30 s for an element and reporting stage `idle`. Chromium may
 // either resolve such a navigation with the guard's status or throw net::ERR_HTTP_RESPONSE_CODE_FAILURE; the header is captured in both cases.
-const GUARD_DENY=/^(policy|host|cap:[a-z-]{1,24}|upstream-error|deadline|deadline-passed|closing|concurrency-wait|websocket|plain-http|malformed|host-mismatch)$/;
-function guardRefused(deny){const e=new Error('navigation refused by the egress guard');e.code='NOT_RUN';e.trustedBlocker='guard-refused-navigation:'+(GUARD_DENY.test(deny)?deny:'other');return e;}
+// Sam 1794177810: both parts of the subtype are CLOSED enums (every other value becomes `other` before anything is kept), and the reason is
+// code-owned: it is registered for the error object this module created, never read from arbitrary error properties.
+const GUARD_DENY_WORDS=new Set(['policy','host','unknown-host','upstream-error','deadline','deadline-passed','closing','concurrency-wait','websocket',
+  'plain-http','malformed','host-mismatch']);
+const GUARD_CAPS=new Set(['total','navigations','case-allowance','case-takes','account-closure','auth','coaching','model','preflight','public','signed-in',
+  'telemetry']);
+function guardDenyCode(deny){const d=String(deny);if(GUARD_DENY_WORDS.has(d))return d;const m=/^cap:([a-z-]{1,24})$/.exec(d);return m&&GUARD_CAPS.has(m[1])?d:'other';}
+const stopReasons=new WeakMap();
+function guardRefused(deny,page){const e=new Error('navigation refused by the egress guard');e.code='NOT_RUN';const reason='guard-refused-navigation:'+guardDenyCode(deny);
+  e.trustedBlocker=reason;stopReasons.set(e,reason);failedStages.set(e,{page,stage:'signin-navigate'});return e;}
+function stopReason(error){return error&&typeof error==='object'?stopReasons.get(error)||null:null;}
 async function trackedGoto(page,url,route,opts){trail(page,'nav-start',{route});let response,deny=null;
   const onResponse=r=>{try{if(r.request().isNavigationRequest()&&(typeof page.mainFrame!=='function'||r.frame()===page.mainFrame())){const d=r.headers()['x-ss-harness-deny'];if(d)deny=String(d);}}catch{/* closed page */}};
   const watch=typeof page.on==='function'&&typeof page.off==='function';if(watch)page.on('response',onResponse);
-  try{response=await page.goto(url,opts);}catch(error){trail(page,'nav-error',{route,error});if(deny)throw guardRefused(deny);throw error;}
+  try{response=await page.goto(url,opts);}catch(error){trail(page,'nav-error',{route,error});if(deny)throw guardRefused(deny,page);throw error;}
   finally{if(watch)page.off('response',onResponse);}
   let status=null;try{status=response?response.status():null;}catch{status=null;}trail(page,'nav-response',{route,status});
   if(!deny){try{deny=response?(await response.headerValue('x-ss-harness-deny')):null;}catch{deny=null;}}
-  if(deny)throw guardRefused(deny);
+  if(deny)throw guardRefused(deny,page);
   return response;}
 const productsFailures=new WeakMap();
 async function productsSnapshot(page){
@@ -52,7 +61,7 @@ async function productsSnapshot(page){
  }catch{return null;}
 }
 function productsDiagnostic(error){return error&&typeof error==='object'?productsFailures.get(error)||null:null;}
-const STAGES=new Set(['idle','start-select','start-press','start-pressed','retry-setup-wait','start-recording-wait','products-trigger-wait','products-menu-wait','products-trigger-click','products-open-wait','products-item-click','stop-press','stop-clicked','stop-release-wait','save-wait','save-readback','save-complete','focus-dialog-wait','focus-dialog-focus-wait','focus-dialog-close','focus-dialog-hidden-wait','focus-intent-clear-wait']);
+const STAGES=new Set(['idle','signin-navigate','start-select','start-press','start-pressed','retry-setup-wait','start-recording-wait','products-trigger-wait','products-menu-wait','products-trigger-click','products-open-wait','products-item-click','stop-press','stop-clicked','stop-release-wait','save-wait','save-readback','save-complete','focus-dialog-wait','focus-dialog-focus-wait','focus-dialog-close','focus-dialog-hidden-wait','focus-intent-clear-wait']);
 const setStage=(page,stage)=>{if(!STAGES.has(stage))throw new Error('Unknown diagnostic phase');pageStages.set(page,stage);};
 function currentStage(page){return page&&pageStages.get(page)||'idle';}
 async function atStage(page,stage,operation){setStage(page,stage);try{return await operation();}catch(error){if(error&&typeof error==='object'&&!failedStages.has(error))failedStages.set(error,{page,stage:currentStage(page)});throw error;}}
@@ -212,4 +221,4 @@ function safeErrorSummary(error){try{const msg=String(error&&error.message||'');
   const ids=[];for(const m of msg.matchAll(/getByTestId\('([a-z][a-z0-9-]{1,40})'\)/g)){const id=m[1];if(!/\d{6,}/.test(id)&&!ids.includes(id)&&ids.length<5)ids.push(id);}
   const nm=/net::(ERR_[A-Z_]{1,48})/.exec(msg);const netError=nm?(NET_ERRORS.has(nm[1])?nm[1]:'other'):null;
   return {name,code,api:api&&/^[A-Za-z]{2,24}\.[A-Za-z]{2,24}$/.test(api)?api:null,kind,timeoutMs:t?Math.min(Number(t[1]),3600000):null,testIds:ids,netError};}catch{return {name:'Error',code:null,api:null,kind:'other',timeoutMs:null,testIds:[],netError:null};}}
-module.exports={NET_ERRORS,TRAIL_EVENTS,TRAIL_ROUTES,navigationTrail,trackedGoto,productsSnapshot,productsDiagnostic,KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};
+module.exports={stopReason,guardDenyCode,NET_ERRORS,TRAIL_EVENTS,TRAIL_ROUTES,navigationTrail,trackedGoto,productsSnapshot,productsDiagnostic,KNOWN_UI_COPY,uiCopyIds,safeErrorSummary,currentStage,failurePage,failureStage,controlTrace,installControlTrace,bindStartPressRecorder,pressStart,submitLogin:auth.submit,visible,attr,login,products,privateMode,openMic,primary,recording,start,stop,saved,speak,take,repeat,setupFocus,closeFocus,reopen,fingerprint,sessionCleared,signout};
