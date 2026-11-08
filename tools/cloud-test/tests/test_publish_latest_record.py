@@ -1,5 +1,6 @@
 """The one latest-run record (Sam 1793471205.454429): selection never takes a foreign comment, the previous completed record survives until a
 terminal replacement of the same attempt, an interrupted attempt blocks the next run, and only the closed record shape is ever rendered."""
+import copy
 import json
 import hashlib
 import os
@@ -1015,22 +1016,39 @@ class NeverStartedReconciliation(unittest.TestCase):
             self.reconcile(never_started(campaignId="R6-other"), occurrence_bytes(runId="R10-3b040043-smoke15"))
 
 
-def artifact_row(run_id="101", expired=False, aid=7, name=P.COMPLETION_ARTIFACT):
-    return {"id": aid, "name": name, "expired": expired, "created_at": "2026-10-31T18:42:00Z", "workflow_run": {"id": int(run_id)}}
+
+def artifact_row(run_id="42483030590", expired=False, aid=7, name=P.COMPLETION_ARTIFACT):
+    return {"id": aid, "name": name, "expired": expired, "created_at": "2026-11-08T13:12:50Z", "workflow_run": {"id": int(run_id)}}
 
 
 class CompletionUnverified(unittest.TestCase):
-    """Sam 1794162379: the attestation is kept one day; a pending completion whose run has no unexpired attestation artifact retires as
-    `completion-unverified` history. The candidate is not folded, no attestation is recreated and no result is upgraded."""
+    """Sam 1794162379 / 1794163062 / 1794163556: the attestation is kept one day; a pending completion whose run has no unexpired attestation
+    retires as `completion-unverified` only on the run's terminal run/jobs and its validated reserve -> settle, AND a complete listing. The
+    candidate is not folded, no attestation is recreated, no result is upgraded and nothing is re-settled. The run/jobs/journal are run
+    42483030590's real ones (tests/fixtures/settled); the pending record over them is synthetic."""
+    LISTED = "2026-11-08T14:12:00Z"
 
-    def pending_state(self, prior=None):
-        base = prior if prior is not None else P.complete(started(P.parse_body(""), "100"), record("100"))
-        running = P.begin(base, "101", 1, SHA, "2026-10-31T19:00:00Z")
-        rec = record("101", outcome="failed", startedUtc="2026-10-31T19:00:00Z", endedUtc="2026-10-31T19:40:00Z")
-        pending = P.pending_completion(running, rec, "2026-10-31T20:40:00Z", "3" * 64, "4" * 64)
+    def setUp(self):
+        import test_settled_attempt_evidence as SE
+        self.SE = SE
+
+    def pending_state(self):
+        SE = self.SE
+        running = P.begin(P.parse_body(""), SE.RUN_ID, 1, SE.HEAD, "2026-11-08T13:00:00Z")
+        rec = record(SE.RUN_ID, outcome="failed", sourceSha=SE.HEAD, startedUtc="2026-11-08T13:00:00Z", endedUtc="2026-11-08T13:12:40Z")
+        pending = P.pending_completion(running, rec, "2026-11-08T14:40:00Z", "3" * 64, "4" * 64)
         return P.parse_body(P.render(pending)), rec
 
-    def test_no_unexpired_attestation_retires_the_candidate_unfolded_and_keeps_everything_else(self):
+    def evidence(self, run=None, jobs=None, ch=None, collected=None):
+        SE = self.SE
+        import settled_attempt_evidence as E
+        return E.build_pending_evidence(run or SE.load("run-42483030590.json"), jobs or SE.load("jobs-42483030590.json"), ch or SE.chain(),
+                                        SE.ROOT_SHA, collected or SE.COLLECTED)
+
+    def retire(self, state, pages, ev=None, listed=None, pred="9" * 64):
+        return P.retire_unattested(state, pages, listed or self.LISTED, pred, self.evidence() if ev is None else ev)
+
+    def test_terminal_settled_run_and_a_complete_empty_or_expired_listing_retire_the_candidate_unfolded(self):
         state, rec = self.pending_state()
         for label, pages in {"expired": [{"total_count": 1, "artifacts": [artifact_row(expired=True)]}],
                              "expired across two pages": [{"total_count": 2, "artifacts": [artifact_row(expired=True)]},
@@ -1039,36 +1057,74 @@ class CompletionUnverified(unittest.TestCase):
                              "empty listing": [{"total_count": 0, "artifacts": []}],
                              "a single (unslurped) page": {"total_count": 0, "artifacts": []}}.items():
             with self.subTest(label):
-                out = P.retire_unattested(state, pages, "2026-11-02T09:00:00Z", "9" * 64)
+                out = self.retire(state, pages)
                 body = P.render(out)
                 again = P.parse_body(body)
                 self.assertEqual(again, out)
                 self.assertIsNone(out["inProgress"])
                 self.assertNotIn("pendingCompletion", out)
                 self.assertEqual((out["latestCompleted"], out.get("history")), (state["latestCompleted"], state.get("history")))
-                self.assertEqual(out["latestCompleted"]["runId"], "100")          # the candidate run is never folded or upgraded
+                self.assertIsNone(out["latestCompleted"])                      # the candidate is never folded or upgraded
                 entry = out["retiredAttempts"][-1]
-                self.assertEqual((entry["runId"], entry["retiredReason"], entry["predecessorSha256"]), ("101", "completion-unverified", "9" * 64))
+                self.assertEqual((entry["runId"], entry["retiredReason"], entry["predecessorSha256"]),
+                                 (self.SE.RUN_ID, "completion-unverified", "9" * 64))
                 ev = entry["evidence"]
                 self.assertEqual((ev["unexpiredArtifacts"], ev["settleReceiptSha256"], ev["occurrenceSha256"], ev["completionDeadlineUtc"]),
-                                 (0, "3" * 64, "4" * 64, "2026-10-31T20:40:00Z"))
+                                 (0, "3" * 64, "4" * 64, "2026-11-08T14:40:00Z"))
+                self.assertEqual((ev["reserveSha"], ev["settleSha"], ev["runConclusion"]), (self.SE.RESERVE_SHA, self.SE.SETTLE_SHA, "failure"))
                 self.assertEqual(ev["candidateSha256"], hashlib.sha256(P.canon(rec)).hexdigest())
                 self.assertIn("Completion unverified (not a completed run; its pending candidate was not folded", body)
                 self.assertNotIn("Pending completion", body)
-                # the next run can begin from this state
-                self.assertEqual(P.begin(again, "102", 1, SHA, "2026-11-02T09:00:01Z")["inProgress"]["runId"], "102")
+                self.assertEqual(P.begin(again, "42999999999", 1, SHA, "2026-11-08T14:12:01Z")["inProgress"]["runId"], "42999999999")
 
-    def test_a_present_artifact_ambiguity_or_a_foreign_listing_refuses(self):
+    def test_a_successful_terminal_run_is_admitted_and_kept_unverified(self):
+        SE = self.SE
+        run = dict(SE.load("run-42483030590.json"), conclusion="success")
+        jobs = copy.deepcopy(SE.load("jobs-42483030590.json"))
+        for j in jobs["jobs"]:
+            if j["name"].startswith("Selected live journeys"):
+                j["conclusion"] = "success"
         state, _ = self.pending_state()
-        status, row, named = P.completion_artifacts([{"total_count": 2, "artifacts": [artifact_row(), artifact_row(expired=True, aid=8)]}], "101")
-        self.assertEqual((status, row, named), ("present", {"id": 7, "created_at": "2026-10-31T18:42:00Z"}, 2))
+        out = self.retire(state, [{"total_count": 0, "artifacts": []}], ev=self.evidence(run=run, jobs=jobs))
+        self.assertEqual(out["retiredAttempts"][-1]["evidence"]["runConclusion"], "success")
+        self.assertIsNone(out["latestCompleted"])
+
+    def test_a_listing_alone_is_not_terminal_or_settlement_evidence(self):
+        SE = self.SE
+        state, _ = self.pending_state()
+        empty = [{"total_count": 0, "artifacts": []}]
+        in_progress = dict(SE.load("run-42483030590.json"), status="in_progress", conclusion=None)
+        cancelled = dict(SE.load("run-42483030590.json"), conclusion="cancelled")
+        bad = {
+            "no evidence": ({}, "pending-evidence-shape"),
+            "the run is still in progress": (lambda: self.evidence(run=in_progress), "pending-run-not-terminal"),
+            "a cancelled run": (lambda: self.evidence(run=cancelled), "pending-run-not-terminal"),
+            "no settle on the journal (reserve only)": (lambda: self.evidence(ch=SE.chain([SE.OTHER, SE.RESERVE], ["a" * 40, SE.RESERVE_SHA])),
+                                                         "pending-journal-not-one-reserve-and-settle"),
+            "another run's evidence": (lambda: dict(self.evidence(), identity=dict(self.evidence()["identity"], runId="42999999999")),
+                                       "unattested-evidence-identity|pending-evidence"),
+            "another head": (lambda: dict(self.evidence(), identity=dict(self.evidence()["identity"], headSha="c" * 40)),
+                             "unattested-evidence-identity|pending-evidence"),
+        }
+        for label, (make, code) in bad.items():
+            with self.subTest(label):
+                with self.assertRaisesRegex(P.Refused if not callable(make) else Exception, code):
+                    ev = make() if callable(make) else make
+                    self.retire(state, empty, ev=ev)
+        with self.assertRaisesRegex(P.Refused, "unattested-time"):
+            self.retire(state, empty, listed="2026-11-08T14:11:00Z")         # listed before the evidence was collected
+
+    def test_a_present_artifact_ambiguity_or_an_incomplete_listing_refuses(self):
+        state, _ = self.pending_state()
+        status, row, named = P.completion_artifacts([{"total_count": 2, "artifacts": [artifact_row(), artifact_row(expired=True, aid=8)]}],
+                                                    self.SE.RUN_ID)
+        self.assertEqual((status, row, named), ("present", {"id": 7, "created_at": "2026-11-08T13:12:50Z"}, 2))
         cases = {"an unexpired attestation exists (reconcile instead)": ([{"total_count": 1, "artifacts": [artifact_row()]}], "unattested-artifact-present"),
                  "two unexpired attestations": ([{"total_count": 2, "artifacts": [artifact_row(), artifact_row(aid=8)]}], "completion-artifact-ambiguous"),
                  "another run's listing": ([{"total_count": 1, "artifacts": [artifact_row(run_id="99", expired=True)]}], "completion-artifact-listing"),
                  "no expiry flag": ([{"total_count": 1, "artifacts": [dict(artifact_row(), expired=None)]}], "completion-artifact-listing"),
                  "not a listing (an error body)": ([{"message": "Server Error", "status": "502"}], "completion-artifact-listing"),
                  "no pages": ([], "completion-artifact-listing"),
-                 # Sam 1794163062: incomplete evidence is never absence
                  "a pagination gap: fewer rows than GitHub's total": ([{"total_count": 3, "artifacts": [artifact_row(name="other", aid=1)]}],
                                                                        "completion-artifact-listing-incomplete"),
                  "a missing second page": ([{"total_count": 101, "artifacts": [artifact_row(name="other", aid=n) for n in range(100)]}],
@@ -1082,46 +1138,48 @@ class CompletionUnverified(unittest.TestCase):
                                                         "completion-artifact-listing-incomplete")}
         for label, (pages, code) in cases.items():
             with self.subTest(label), self.assertRaisesRegex(P.Refused, code):
-                P.retire_unattested(state, pages, "2026-11-02T09:00:00Z", "9" * 64)
+                self.retire(state, pages)
 
-    def test_only_a_pending_incomplete_attempt_can_retire_and_the_inputs_are_closed(self):
+    def test_only_a_pending_incomplete_attempt_can_retire_and_the_stored_entry_is_closed(self):
         state, _ = self.pending_state()
         none = [{"total_count": 0, "artifacts": []}]
-        running = P.begin(P.parse_body(""), "101", 1, SHA, "2026-10-31T19:00:00Z")
+        running = P.begin(P.parse_body(""), self.SE.RUN_ID, 1, self.SE.HEAD, "2026-11-08T13:00:00Z")
         for label, (st, listed, pred, code) in {
-                "no pending completion": (running, "2026-11-02T09:00:00Z", "9" * 64, "unattested-not-a-candidate"),
-                "listed before the attempt started": (state, "2026-10-31T18:59:59Z", "9" * 64, "unattested-listed-at"),
-                "listed time not UTC": (state, "2026-11-02 09:00", "9" * 64, "unattested-listed-at"),
-                "no predecessor": (state, "2026-11-02T09:00:00Z", "x", "unattested-predecessor")}.items():
+                "no pending completion": (running, self.LISTED, "9" * 64, "unattested-not-a-candidate"),
+                "listed before the attempt started": (state, "2026-11-08T12:59:59Z", "9" * 64, "unattested-listed-at"),
+                "listed time not UTC": (state, "2026-11-08 14:12", "9" * 64, "unattested-listed-at"),
+                "no predecessor": (state, self.LISTED, "x", "unattested-predecessor")}.items():
             with self.subTest(label), self.assertRaisesRegex(P.Refused, code):
-                P.retire_unattested(st, none, listed, pred)
-        out = P.retire_unattested(state, none, "2026-11-02T09:00:00Z", "9" * 64)
-        stored = P.parse_body(P.render(out))
-        bad = json.loads(json.dumps(stored))
-        bad["retiredAttempts"][-1]["evidence"]["unexpiredArtifacts"] = 1
-        with self.assertRaisesRegex(P.Refused, "retired-evidence"):
-            P.parse_body(P.render.__globals__["MARKER"] + "\n\n```json\n" + json.dumps(bad, sort_keys=True, separators=(",", ":")) + "\n```\n")
+                self.retire(st, none, listed=listed, pred=pred)
+        out = self.retire(state, none)
+        stored = json.loads(json.dumps(P.parse_body(P.render(out))))
+        for key, value in (("unexpiredArtifacts", 1), ("runConclusion", "cancelled"), ("settleSha", stored["retiredAttempts"][-1]["evidence"]["reserveSha"])):
+            bad = copy.deepcopy(stored)
+            bad["retiredAttempts"][-1]["evidence"][key] = value
+            with self.subTest(key), self.assertRaisesRegex(P.Refused, "retired-evidence"):
+                P.parse_body(P.MARKER + "\n\n```json\n" + json.dumps(bad, sort_keys=True, separators=(",", ":")) + "\n```\n")
 
     def test_the_cli_branches_present_absent_and_refused(self):
         state, _ = self.pending_state()
         d = tempfile.mkdtemp(prefix="ct-unattested-"); self.addCleanup(shutil.rmtree, d, True)
         script = os.path.join(ROOT, "scripts", "publish_latest_record.py")
         prev = os.path.join(d, "prev.md"); open(prev, "w").write(P.render(state))
+        evf = os.path.join(d, "evidence.json"); open(evf, "w").write(json.dumps(self.evidence()))
         def run(cmd, pages, *extra):
             pf = os.path.join(d, "pages.json"); open(pf, "w").write(json.dumps(pages))
             return subprocess.run(["python3", "-I", script, cmd, "--previous", prev, "--artifact-pages", pf, "--out", os.path.join(d, "out")] + list(extra),
                                   capture_output=True, text=True, timeout=60)
         p = run("completion-artifact", [{"total_count": 1, "artifacts": [artifact_row()]}])
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertEqual(json.load(open(os.path.join(d, "out"))), {"created_at": "2026-10-31T18:42:00Z", "id": 7})
+        self.assertEqual(json.load(open(os.path.join(d, "out"))), {"created_at": "2026-11-08T13:12:50Z", "id": 7})
         self.assertEqual(run("completion-artifact", [{"total_count": 1, "artifacts": [artifact_row(expired=True)]}]).returncode, 1)
         p = run("completion-artifact", [{"total_count": 3, "artifacts": [artifact_row(expired=True)]}])
         self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: completion-artifact-listing-incomplete"))
-        p = run("retire-unattested", [{"total_count": 3, "artifacts": []}], "--listed-utc", "2026-11-02T09:00:00Z")
-        self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: completion-artifact-listing-incomplete"))
         p = run("completion-artifact", [{"total_count": 2, "artifacts": [artifact_row(), artifact_row(aid=8)]}])
         self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: completion-artifact-ambiguous"))
-        p = run("retire-unattested", [{"total_count": 0, "artifacts": []}], "--listed-utc", "2026-11-02T09:00:00Z")
+        p = run("retire-unattested", [{"total_count": 0, "artifacts": []}], "--listed-utc", self.LISTED)
+        self.assertEqual(p.returncode, 78, "no evidence: refused")
+        p = run("retire-unattested", [{"total_count": 0, "artifacts": []}], "--listed-utc", self.LISTED, "--evidence", evf)
         self.assertEqual(p.returncode, 0, p.stderr)
         out = P.parse_body(open(os.path.join(d, "out")).read())
         self.assertEqual(out["retiredAttempts"][-1]["predecessorSha256"], hashlib.sha256(P.render(state).encode()).hexdigest())

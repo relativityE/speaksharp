@@ -414,9 +414,10 @@ def render(state):
         if r["retiredReason"] == UNVERIFIED_REASON:
             e = r["evidence"]
             lines.append("Completion unverified (not a completed run; its pending candidate was not folded; no case result asserted): run %s attempt %d "
-                         "at `%s`, started %s; no unexpired completion attestation for the run at %s (listing `%s`), pending candidate `%s`." % (
-                             r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"], e["listedUtc"], e["listingSha256"][:12],
-                             e["candidateSha256"][:12]))
+                         "at `%s`, started %s, run %s; settled on the journal at `%s` over reserve `%s`; no unexpired completion attestation "
+                         "for the run at %s (listing `%s`), pending candidate `%s`, evidence `%s`." % (
+                             r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"], e["runConclusion"], e["settleSha"][:12],
+                             e["reserveSha"][:12], e["listedUtc"], e["listingSha256"][:12], e["candidateSha256"][:12], e["evidenceSha256"][:12]))
             continue
         if r["retiredReason"] in RESERVED_REASONS:
             lines.append("%s (not a completed run): run %s attempt %d at `%s`, started %s; %d runner minute(s), evidence `%s`." % (
@@ -534,7 +535,8 @@ SETTLED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "collect
 # The candidate is NOT folded, no attestation is recreated and no result is upgraded; latestCompleted and history are unchanged.
 UNVERIFIED_REASON = "completion-unverified"
 UNVERIFIED_EVIDENCE_KEYS = {"listedUtc", "listingSha256", "namedArtifacts", "unexpiredArtifacts", "candidateSha256", "settleReceiptSha256",
-                            "occurrenceSha256", "completionDeadlineUtc"}
+                            "occurrenceSha256", "completionDeadlineUtc", "evidenceSha256", "runConclusion", "runUpdatedUtc", "journalHeadSha",
+                            "reserveSha", "settleSha", "settleAtUtc"}
 COMPLETION_ARTIFACT = "cloud-test-completion-attestation"
 
 
@@ -551,9 +553,13 @@ def sanitize_retired(r):
         _keys(ev, UNVERIFIED_EVIDENCE_KEYS, "retired-evidence")
         _need(set(ev) == UNVERIFIED_EVIDENCE_KEYS and ev["unexpiredArtifacts"] == 0
               and type(ev["namedArtifacts"]) is int and 0 <= ev["namedArtifacts"] <= 100 and type(ev["unexpiredArtifacts"]) is int
-              and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("listedUtc", "completionDeadlineUtc"))
+              and ev["runConclusion"] in ("success", "failure")
+              and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("listedUtc", "completionDeadlineUtc", "runUpdatedUtc", "settleAtUtc"))
+              and ev["settleAtUtc"] <= ev["runUpdatedUtc"] <= ev["listedUtc"]
               and all(isinstance(ev[k], str) and SHA64.match(ev[k]) for k in ("listingSha256", "candidateSha256", "settleReceiptSha256",
-                                                                               "occurrenceSha256")), "retired-evidence")
+                                                                               "occurrenceSha256", "evidenceSha256"))
+              and all(isinstance(ev[k], str) and SHA40.match(ev[k]) for k in ("journalHeadSha", "reserveSha", "settleSha"))
+              and ev["reserveSha"] != ev["settleSha"], "retired-evidence")
         return {k: (dict(sorted(v.items())) if k == "evidence" else v) for k, v in sorted(r.items())}
     if r["retiredReason"] == SETTLED_REASON:
         _keys(ev, SETTLED_EVIDENCE_KEYS, "retired-evidence")
@@ -783,9 +789,13 @@ def completion_artifacts(pages, run_id):
     return "present", {"id": live[0]["id"], "created_at": live[0]["created_at"]}, len(named)
 
 
-def retire_unattested(state, pages, listed_utc, predecessor_sha256):
+def retire_unattested(state, pages, listed_utc, predecessor_sha256, evidence):
     """The state after retiring a pending completion whose run has no unexpired completion attestation, or a refusal (Sam 1794162379).
 
+    An empty or expired listing alone is not terminal or settlement evidence (Sam 1794163556): `evidence` is settled_attempt_evidence's
+    pending-attempt document for exactly the pending run/attempt/source (GitHub's terminal run and jobs, the freshly validated journal from
+    the pinned root holding exactly its one reserve and the directly following settle), and only then is a COMPLETE listing judged. The
+    journal's settle is recorded beside the pending settle-receipt digest; nothing is re-settled and no amount changes.
     Only the pending record's own run is judged, from GitHub's artifact listing for that run. The candidate is not folded and nothing is
     recreated: the entry keeps the candidate's digest and the settlement/occurrence digests it was bound to, so it stays identifiable but is
     never a completed run, never row evidence and never a result. `predecessor_sha256` binds the exact record body consumed. inProgress
@@ -797,6 +807,16 @@ def retire_unattested(state, pages, listed_utc, predecessor_sha256):
           "unattested-not-a-candidate")
     _need(isinstance(predecessor_sha256, str) and SHA64.match(predecessor_sha256), "unattested-predecessor")
     _need(isinstance(listed_utc, str) and UTC.match(listed_utc) and live["startedUtc"] <= listed_utc, "unattested-listed-at")
+    import settled_attempt_evidence as E
+    import state_ref_writer
+    try:
+        digest, _settled = E.check_pending_evidence(evidence)
+    except E.Refused as err:
+        raise Refused(str(err))
+    ident, run, journal = evidence["identity"], evidence["run"], evidence["journal"]
+    _need((ident["runId"], ident["attempt"], ident["headSha"]) == (live["runId"], live["attempt"], live["sourceSha"]), "unattested-evidence-identity")
+    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT, "unattested-journal-unverified")
+    _need(live["startedUtc"] <= journal["settleAtUtc"] <= run["updatedAt"] <= evidence["collectedUtc"] <= listed_utc, "unattested-time")
     status, _row, named = completion_artifacts(pages, rec["runId"])
     _need(status == "absent", "unattested-artifact-present")
     entry = sanitize_retired({"runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "startedUtc": live["startedUtc"],
@@ -806,7 +826,10 @@ def retire_unattested(state, pages, listed_utc, predecessor_sha256):
                                            "candidateSha256": hashlib.sha256(canon(rec)).hexdigest(),
                                            "settleReceiptSha256": pending["settleReceiptSha256"],
                                            "occurrenceSha256": pending["occurrenceSha256"],
-                                           "completionDeadlineUtc": pending["completionDeadlineUtc"]}})
+                                           "completionDeadlineUtc": pending["completionDeadlineUtc"],
+                                           "evidenceSha256": digest, "runConclusion": run["conclusion"], "runUpdatedUtc": run["updatedAt"],
+                                           "journalHeadSha": journal["headSha"], "reserveSha": journal["reserveSha"],
+                                           "settleSha": journal["settleSha"], "settleAtUtc": journal["settleAtUtc"]}})
     prior = list(state.get("retiredAttempts") or [])
     _need(all(r["runId"] != entry["runId"] for r in prior) and len(prior) < RETIRED_MAX, "retired-attempts-bound")
     out = _with_retired(state, entry)
@@ -1028,7 +1051,7 @@ def main(argv):
             return 0
         if x.command == "retire-unattested":
             state = retire_unattested(state, json.loads(_read(x.artifact_pages)), x.listed_utc,
-                                      hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())
+                                      hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest(), json.loads(_read(x.evidence)))
         elif x.command == "retire-settled":
             state = retire_settled(state, json.loads(_read(x.evidence)), hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())
         elif x.command == "retire-unexecuted":

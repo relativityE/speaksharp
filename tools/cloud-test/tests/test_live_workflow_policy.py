@@ -647,6 +647,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
         absent = run.index('[ "$?" -eq 1 ] || exit 78', branch)
         self.assertLess(run.index('reconcile --previous "$RUNNER_TEMP/previous.md"'), absent)
         self.assertLess(absent, run.index('retire-unattested --previous "$RUNNER_TEMP/previous.md"'))
+        # Sam 1794163556: terminal run/jobs and the validated reserve -> settle come before the listing can retire anything
+        self.assertLess(absent, run.index('settled_attempt_evidence.py collect-pending --run "$RUNNER_TEMP/pending-run.json"'))
+        self.assertLess(run.index('collect-pending'), run.index('retire-unattested --previous'))
+        self.assertIn('--evidence "$RUNNER_TEMP/pending-evidence.json"', run[run.index('retire-unattested --previous'):])
         self.assertNotIn('"completion-artifact-missing-or-ambiguous"', run)
         # Sam 1794163062: an API failure stops the step (never read as "no artifact"): the listing call is unguarded under set -euo pipefail,
         # it paginates and slurps every page, and its exit status is not consumed by a pipe or an `||`
@@ -1019,9 +1023,10 @@ class UnexecutedAttemptRecovery(unittest.TestCase):
         settled-attempt evidence is collected AND the record names that attempt; a refusal falls through, so the never-reserved path below
         (which refuses a run the journal names) still decides and the run stays fail-closed. No re-settlement: journal-reserve is untouched."""
         run = self.begin()
-        start = run.index("scripts/settled_attempt_evidence.py collect")
+        settled_collect = 'scripts/settled_attempt_evidence.py collect --run "$RUNNER_TEMP/settled-run.json"'
+        start = run.index(settled_collect)
         block = run[run.rindex("if [", 0, start - 300):run.index("retired_unreserved=1", start) + 40]
-        order = [run.index(x) for x in ("retire-unexecuted", "scripts/settled_attempt_evidence.py collect", '"$P" settled-candidate', "retire-settled",
+        order = [run.index(x) for x in ("retire-unexecuted", settled_collect, '"$P" settled-candidate', "retire-settled",
                                         "unreserved_attempt_evidence.py", " begin --previous", "verify-predecessor", "gh api --method PATCH")]
         self.assertEqual(order, sorted(order))
         self.assertIn('[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]', block, "a manual dispatch only")

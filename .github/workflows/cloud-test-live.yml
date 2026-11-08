@@ -215,8 +215,14 @@ jobs:
               mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
             else
               [ "$?" -eq 1 ] || exit 78
+              # Sam 1794163556: a listing alone is not terminal or settlement evidence. The run's terminal run and jobs and the freshly
+              # validated journal's one reserve -> settle are collected first (no credential beyond this job's read token); then the listing.
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$pending_run_id" > "$RUNNER_TEMP/pending-run.json"
+              gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$pending_run_id/jobs?per_page=100" > "$RUNNER_TEMP/pending-jobs.json"
+              python3 -I tools/cloud-test/scripts/settled_attempt_evidence.py collect-pending --run "$RUNNER_TEMP/pending-run.json" \
+                --jobs "$RUNNER_TEMP/pending-jobs.json" --collected-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$RUNNER_TEMP/pending-evidence.json"
               python3 -I "$P" retire-unattested --previous "$RUNNER_TEMP/previous.md" --artifact-pages "$RUNNER_TEMP/prior-artifact-pages.json" \
-                --listed-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$RUNNER_TEMP/retired-unattested.md"
+                --evidence "$RUNNER_TEMP/pending-evidence.json" --listed-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$RUNNER_TEMP/retired-unattested.md"
               mv "$RUNNER_TEMP/retired-unattested.md" "$RUNNER_TEMP/previous.md"
               retired_unreserved=1
             fi
