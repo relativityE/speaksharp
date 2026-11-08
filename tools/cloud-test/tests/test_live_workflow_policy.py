@@ -978,6 +978,26 @@ class UnexecutedAttemptRecovery(unittest.TestCase):
         # the reserved-attempt retirement runs first, so a reserved attempt never reaches the never-reserved path (which would refuse it)
         self.assertLess(run.index("unexecuted-candidate"), run.index("unreserved-candidate"))
 
+    def test_an_executed_unpublished_attempt_is_retired_after_the_unexecuted_path_and_before_the_never_reserved_path(self):
+        """Run 42483030590 (Sam 1794144135 / 1794145971): reserved, executed, settled, record not publishable. Retired only when the closed
+        executed-attempt evidence is collected AND the record names that attempt; a refusal falls through, so the never-reserved path below
+        (which refuses a run the journal names) still decides and the run stays fail-closed. No re-settlement: journal-reserve is untouched."""
+        run = self.begin()
+        start = run.index("scripts/executed_attempt_evidence.py collect")
+        block = run[run.rindex("if [", 0, start - 300):run.index("retired_unreserved=1", start) + 40]
+        order = [run.index(x) for x in ("retire-unexecuted", "scripts/executed_attempt_evidence.py collect", '"$P" executed-candidate', "retire-executed",
+                                        "unreserved_attempt_evidence.py", " begin --previous", "verify-predecessor", "gh api --method PATCH")]
+        self.assertEqual(order, sorted(order))
+        self.assertIn('[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]', block, "a manual dispatch only")
+        self.assertIn('if python3 -I tools/cloud-test/scripts/executed_attempt_evidence.py collect', block, "a refusal is a branch, not a step failure")
+        self.assertIn('actions/runs/$executed_run/jobs?per_page=100', block)
+        self.assertIn('mv "$RUNNER_TEMP/retired-executed.md" "$RUNNER_TEMP/previous.md"', block)
+        self.assertIn("retired_unreserved=1", block, "bound to its predecessor before the one PATCH")
+        self.assertEqual(run.count("gh api --method PATCH"), 1)
+        for job in ("journal-reserve", "journal-settle", "live", "record-complete"):
+            self.assertNotIn("scripts/executed_attempt_evidence", json.dumps(self.jobs[job]), job)
+            self.assertNotIn("retire-executed", json.dumps(self.jobs[job]), job)
+
     def test_journal_reserve_settles_before_it_reserves_in_its_one_writer_step_for_a_manual_dispatch_with_retired_evidence_only(self):
         run = writers_of(self.jobs, "journal-reserve")
         writer = next(s for s in self.jobs["journal-reserve"]["steps"] if "CT_STATE_PUSH_TOKEN" in (s.get("env") or {}))

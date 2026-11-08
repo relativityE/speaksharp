@@ -239,6 +239,23 @@ jobs:
             mv "$RUNNER_TEMP/retired-unexecuted.md" "$RUNNER_TEMP/previous.md"
             retired_unreserved=1
           fi
+          # Sam 1794144135 / 1794145971 (run 42483030590): an attempt that reserved, EXECUTED and was SETTLED, but whose record was not publishable,
+          # stays `incomplete` with no completion artifact. It is retired as `executed-unpublished` history only on closed evidence: GitHub reports
+          # the run failed with record-begin, reserve, settle and record-complete succeeded and the live job failed, and the freshly validated
+          # journal holds exactly its one reserve and the directly following settle. Nothing is re-settled; no case result is recorded. When the
+          # evidence refuses (for example a run that never reserved), nothing is retired here and the path below decides.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && executed_run="$(python3 -I "$P" unreserved-candidate --previous "$RUNNER_TEMP/previous.md")"; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$executed_run" > "$RUNNER_TEMP/executed-run.json"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$executed_run/jobs?per_page=100" > "$RUNNER_TEMP/executed-jobs.json"
+            if python3 -I tools/cloud-test/scripts/executed_attempt_evidence.py collect --run "$RUNNER_TEMP/executed-run.json" \
+                 --jobs "$RUNNER_TEMP/executed-jobs.json" --collected-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$RUNNER_TEMP/executed-evidence.json" \
+               && python3 -I "$P" executed-candidate --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/executed-evidence.json" > /dev/null; then
+              python3 -I "$P" retire-executed --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/executed-evidence.json" \
+                --out "$RUNNER_TEMP/retired-executed.md"
+              mv "$RUNNER_TEMP/retired-executed.md" "$RUNNER_TEMP/previous.md"
+              retired_unreserved=1
+            fi
+          fi
           # Any manual attempt that stopped before reserving (41933223835; or a later run interrupted before its own reserve, after or before the
           # settle above) has an `incomplete` record with no completion artifact, and `begin` would refuse every later run. It is retired only on
           # evidence that it never reserved: GitHub reports the run failed with its reserve job failed or skipped and its live and settle jobs
