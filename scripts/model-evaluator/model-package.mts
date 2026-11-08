@@ -23,6 +23,11 @@ export async function importModelPackage(root: string, descriptorPath: string) {
     const data = JSON.parse(await readFile(source,'utf8')) as ModelPackage;
     const pkg = data.packageDigest ? await verifyModelPackage(data) : await sealModelPackage(data);
     if (Object.hasOwn(CANDIDATES,pkg.id) && !CANDIDATES[pkg.id].modelPackage) throw Error('PACKAGE_SHADOWS_BUILTIN');
+    // The bundle refuses a package that reuses a registered cache directory (PACKAGE_IDENTITY_COLLISION); refuse it here
+    // too, rather than importing files the product will then reject.
+    if (pkg.execution.localModelId != null && Object.values(CANDIDATES).some(c => c.id !== pkg.id && c.execution.localModelId === pkg.execution.localModelId)) {
+        throw Error('PACKAGE_IDENTITY_COLLISION');
+    }
     await verifyProjectRuntimeBindings(root);
     // Only already present files are copied. Import never fetches weights, dependencies or executable code.
     const directory = dirname(source);

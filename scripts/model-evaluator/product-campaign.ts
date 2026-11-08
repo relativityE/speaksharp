@@ -1,8 +1,9 @@
 import { readFileSync, readdirSync, existsSync, realpathSync } from 'node:fs';
-import { join, resolve, relative, dirname } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { CANDIDATES, type Candidate } from '../../frontend/src/services/transcription/candidateRegistry';
-import { candidateFromPackage, effectiveBackend, expectedModelIdentity, verifyModelPackage } from '../../frontend/src/services/transcription/modelPackage';
+import { CANDIDATES, admitPackageDescriptors, type Candidate } from '../../frontend/src/services/transcription/candidateRegistry';
+import * as modelPackage from '../../frontend/src/services/transcription/modelPackage';
+import { effectiveBackend, expectedModelIdentity, verifyModelPackage } from '../../frontend/src/services/transcription/modelPackage';
 
 export const DEFAULT_CAMPAIGN = 'tests/evidence/fixtures/model-evaluator/product-campaign.json';
 export interface ProductCampaign {
@@ -13,17 +14,16 @@ export interface ProductCampaign {
     maximumTakes: number;
 }
 export function readCandidateCatalog(root: string, rejected: Array<{file:string;code:string}> = []): Readonly<Record<string, Candidate>> {
-    const catalog = { ...CANDIDATES };
+    // Same files, same admission (independent re-review of 2cc05908): the bundle's own admitPackageDescriptors, by the same
+    // glob-relative paths and raw text, so the evaluator can never admit (or attribute) a package the product refuses.
     const directory = join(root, 'frontend/src/services/transcription/model-packages');
+    const files: Record<string, string> = {};
     if (existsSync(directory)) for (const file of readdirSync(directory).filter(f => f.endsWith('.json')).sort()) {
-        const path = join(directory,file);
-        try {
-            const candidate = candidateFromPackage(JSON.parse(readFileSync(path,'utf8')), relative(root,path));
-            if (catalog[candidate.id] && catalog[candidate.id].modelPackage?.digest !== candidate.modelPackage!.digest) throw Error('PACKAGE_DUPLICATE_ID');
-            catalog[candidate.id] = candidate;
-        } catch (error) { rejected.push({file,code:error instanceof Error && /^[A-Z_]+$/.test(error.message)?error.message:'PACKAGE_INVALID'}); }
+        files['./model-packages/' + file] = readFileSync(join(directory, file), 'utf8');
     }
-    return Object.freeze(catalog);
+    const { imported, rejections } = admitPackageDescriptors(files, modelPackage);
+    for (const rejection of rejections) rejected.push({ file: rejection.file.slice('./model-packages/'.length), code: rejection.code });
+    return Object.freeze({ ...CANDIDATES, ...imported });
 }
 /** One configuration for the actual product journey; no per-arm identity or adapter restatement. */
 export function readProductCampaign(root: string, file = DEFAULT_CAMPAIGN) {

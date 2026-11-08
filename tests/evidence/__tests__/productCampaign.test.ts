@@ -7,6 +7,25 @@ import { CANDIDATES } from '../../../frontend/src/services/transcription/candida
 import { sealModelPackage } from '../../../frontend/src/services/transcription/modelPackage';
 import { readProductCampaign, verifyCampaignPackages, readCandidateCatalog } from '../../../scripts/model-evaluator/product-campaign';
 import { caseMs, registerPackageCaseLimits } from '../../model-dropin/comparisonBounds';
+describe('independent re-review of 2cc05908 (N1): the evaluator catalogue admits exactly what the product admits',()=>{
+  it('a copy of the incumbent (same cache directory) is refused by the campaign catalogue, as the bundle refuses it',async()=>{
+    vi.stubGlobal('crypto',webcrypto);
+    const root=mkdtempSync(join(tmpdir(),'model-campaign-collision-'));
+    try{
+      const dir=join(root,'frontend/src/services/transcription/model-packages');mkdirSync(dir,{recursive:true});
+      const base=CANDIDATES['v2:base.en'];
+      const copy=await sealModelPackage({schemaVersion:1,kind:'speaksharp-model-package',id:'fixture:copy-incumbent',engine:base.engine,
+        execution:base.execution,runtime:base.runtime,model:{...base.model,device:'wasm'},license:'fixture only',assets:{servedFrom:base.assets.servedFrom,
+          files:base.assets.files!.map(f=>({...f,url:base.assets.servedFrom+'/'+f.path}))}});
+      writeFileSync(join(dir,'copy.json'),JSON.stringify(copy));
+      const rejected:Array<{file:string;code:string}>=[];
+      const catalog=readCandidateCatalog(root,rejected);
+      expect(rejected).toEqual([{file:'copy.json',code:'PACKAGE_IDENTITY_COLLISION'}]);
+      expect(Object.hasOwn(catalog,'fixture:copy-incumbent')).toBe(false);
+    }finally{rmSync(root,{recursive:true,force:true});vi.unstubAllGlobals();}
+  });
+});
+
 describe('configuration-only product campaign',()=>{
   it('loads a fourth compatible JSON package, derives all four arms and refuses changed inputs/bounds',async()=>{
     vi.stubGlobal('crypto',webcrypto);
@@ -14,9 +33,10 @@ describe('configuration-only product campaign',()=>{
     try{
       const dir=join(root,'frontend/src/services/transcription/model-packages');mkdirSync(dir,{recursive:true});
       const base=CANDIDATES['v2:base.en'];
+      // Its own cache directory: a package reusing the incumbent's localModelId is refused by the product (and so here).
       const pkg=await sealModelPackage({schemaVersion:1,kind:'speaksharp-model-package',id:'fourth:whisper',engine:base.engine,
-        execution:base.execution,runtime:base.runtime,model:{...base.model,device:'wasm'},license:'fixture only',assets:{servedFrom:base.assets.servedFrom,
-          files:base.assets.files!.map(f=>({...f,url:base.assets.servedFrom+'/'+f.path}))}});
+        execution:{...base.execution,localModelId:'fourth-whisper'},runtime:base.runtime,model:{...base.model,device:'wasm'},license:'fixture only',assets:{servedFrom:'/models/fourth-whisper',
+          files:base.assets.files!.map(f=>({...f,url:'/models/fourth-whisper/'+f.path}))}});
       writeFileSync(join(dir,'fourth.json'),JSON.stringify(pkg));
       writeFileSync(join(dir,'invalid.json'),'{bad json');
       writeFileSync(join(root,'audio.wav'),'fixture bytes');
