@@ -21,7 +21,7 @@ function trialRow(id, expiry) {
 
 /** inventories: the Auth user list returned by the 1st, 2nd, ... listUsers page-1 call (the last one repeats). */
 /** dbNow: the DATABASE clock the read-only effective_subscription_tier RPC evaluates with (the only readiness authority). */
-function fakeSupabase({ inventories, expiry = NOW + 20 * DAY, serverDate = SERVER_DATE, dbNow = NOW }) {
+function fakeSupabase({ inventories, expiry = NOW + 20 * DAY, serverDate = SERVER_DATE, dbNow = NOW, rpcStatus = 200 }) {
     const mutations = [];
     let listCalls = 0;
     const profiles = { [U0]: trialRow(U0, expiry), [U45]: trialRow(U45, expiry), [U46]: trialRow(U46, expiry) };
@@ -37,6 +37,7 @@ function fakeSupabase({ inventories, expiry = NOW + 20 * DAY, serverDate = SERVE
                 res.end(json === undefined ? '' : JSON.stringify(json));
             };
             if (req.method === 'POST' && url.pathname === '/rest/v1/rpc/effective_subscription_tier') {
+                if (rpcStatus !== 200) return send(rpcStatus, { code: 'PGRST000', message: 'database unavailable' });   // a real failed RPC
                 const args = JSON.parse(body || '{}');
                 const active = !!args.p_commercial_trial_granted_at && Date.parse(args.p_trial_expires_at) > dbNow;
                 return send(200, active ? 'pro' : 'free');     // a read-only function call, not recorded as a mutation
@@ -114,8 +115,8 @@ describe('setup-test-users.mjs (real CLI, fake Supabase): endurance identities a
         expect(fake.mutations).toEqual([]);
     }, 30000);
 
-    it('a failing tier decision (database unavailable) refuses before any write, whatever the HTTP clock says', async () => {
-        const fake = fakeSupabase({ inventories: [[G0, E45, E46]], dbNow: NaN });   // NaN: every comparison false -> not active
+    it('a failed tier RPC (HTTP 503) refuses before any write, whatever the HTTP clock says', async () => {
+        const fake = fakeSupabase({ inventories: [[G0, E45, E46]], rpcStatus: 503 });   // the tier RPC itself fails with HTTP 503
         const { code, out } = await runCli(fake);
         expect(code).toBe(1);
         expect(out).toContain('refusing BEFORE any account write');
