@@ -238,3 +238,4 @@ ab4335d46c10cff6c8b02eb5f41d48353b15bfa63d169e364df2fc0c0cd915fa  draft-adapters
 d48463d0747ac4be4575194c49a422bf6fa13f22137c0d7d29aa9ccfaa48490c  draft-adapters/tests/takeover-binding.offline.test.cjs
 0a28ced44372fc9e1a6530e2f168d98f2eba63c02f1e39889b2f00f907073c3d  draft-adapters/oracles/pure/smokeTiming.cjs
 0daabf52e935023fee52b193c240ed0b5313ed06a24ab27afbed1ed89e5ada23  draft-adapters/tests/smoke-timing.offline.test.cjs
+c55bcea2f381ec8d2c93cea4001266b5aefd5cf145252083092a76044d61e5df  draft-adapters/oracles/smoke-saved-focus.cjs
