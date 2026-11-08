@@ -112,6 +112,8 @@ class WorkflowPlacement(unittest.TestCase):
         self.assertNotIn(names[i], credential)
         keep = self.steps[i + 1]
         self.assertEqual((keep["if"], keep["uses"], keep["with"]["path"]), ("always()", "actions/upload-artifact@v4", "${{ runner.temp }}/egress-preflight.json"))
+        # the PO's one-day artifact rule (Sam 1794158685.923749)
+        self.assertEqual((keep["with"]["retention-days"], keep["with"]["if-no-files-found"]), (1, "error"))
 
 
 class EarlyFailureAccounting(unittest.TestCase):

@@ -518,14 +518,14 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_handoffs_are_short_lived_and_closed_observation_and_timing_projections_are_retained(self):
         up = [s for s in self.jobs["live"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
-        self.assertEqual(len(up), 5)  # two short-lived job handoffs plus three closed, content-safe projections (incl. the egress receipt)
+        self.assertEqual(len(up), 5)  # two short-lived job handoffs, the one-day egress receipt and two closed, content-safe projections
         short = [u for u in up if u["with"]["retention-days"] == 1]
-        self.assertEqual(len(short), 2)
-        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in short), ["latest-record.json", "settle-input.json"])
+        self.assertEqual(len(short), 3)
+        # PO's one-day rule for repository artifacts (Sam 1794158685.923749): the new egress receipt is stored for ONE day
+        self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in short), ["egress-preflight.json", "latest-record.json", "settle-input.json"])
         retained = [u for u in up if u["with"]["retention-days"] == 90]
         self.assertEqual(sorted(u["with"]["path"] for u in retained),
-                         ["${{ runner.temp }}/case-timings.json", "${{ runner.temp }}/egress-preflight.json",
-                          "${{ runner.temp }}/first-observations.json"])
+                         ["${{ runner.temp }}/case-timings.json", "${{ runner.temp }}/first-observations.json"])
         self.assertTrue(all(u["with"]["if-no-files-found"] == "error" for u in retained))
         project_observations = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Project the linked content-safe first observations")
         self.assertIn("init_run_inputs.py first-observations", project_observations["run"])
