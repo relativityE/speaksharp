@@ -181,6 +181,13 @@ if __name__ == "__main__":
 import reservation_runtime_check as RC   # noqa: E402
 
 SNAPSHOT = {"headSha": NODES[1][0], "events": NODES[1][1]}      # the authenticated events the receiver accepted: the real head
+# The fixture tail starts at the parent, so in these tests the "reviewed root" is that first preserved node (production: REVIEWED_ROOT).
+FIXTURE_ROOT = NODES[0][0]
+VIEW = RC.authenticated_view(CHAIN, FIXTURE_ROOT)
+
+
+def view_with(head=NODES[1][0], events=NODES[1][1], parent=NODES[0][0], parent_events=None):
+    return dict(VIEW, head=head, events=events, parentHead=parent, parentEvents=events[:-1] if parent_events is None else parent_events)
 
 
 def plan_for(b, **over):
@@ -191,11 +198,11 @@ def plan_for(b, **over):
 
 
 class RuntimeAuthority(unittest.TestCase):
-    """Sam RETURN 1794116817: the allocation's authority is recomputed from the authenticated journal at runtime, not trusted from the file."""
+    """Sam RETURN 1794116817 / 1794117662: allocation, root and reconciliation parent are recomputed from ONE authenticated chain read."""
     REQUEST = json.loads(OCCURRENCE)
 
-    def check(self, plan, snapshot=SNAPSHOT, source=HARNESS, head=HARNESS):
-        return RC.check_plan(plan, snapshot, self.REQUEST, REQ_SHA, RUN, 1, source, head)
+    def check(self, plan, view=VIEW, source=HARNESS, head=HARNESS, recon=NODES[0][0]):
+        return RC.check_plan(plan, view, self.REQUEST, REQ_SHA, RUN, 1, source, head, recon)
 
     def refused(self, code, fn, *a, **kw):
         with self.assertRaises(RC.Refused) as e:
@@ -204,6 +211,11 @@ class RuntimeAuthority(unittest.TestCase):
 
     def test_the_genuine_binding_matches_the_authenticated_reserve(self):
         self.assertEqual(self.check(plan_for(binding()))["identityReads"], 32)
+
+    def test_the_view_is_validated_from_the_reviewed_root_actually_used(self):
+        self.assertEqual((VIEW["root"], VIEW["parentHead"], VIEW["head"]), (NODES[0][0], NODES[0][0], NODES[1][0]))
+        self.refused("runtime-journal-root", RC.authenticated_view, CHAIN, "0" * 40)          # a chain from another root
+        self.refused("runtime-journal-root", RC.authenticated_view, CHAIN[1:], NODES[1][0])    # no parent: not a manual transition
 
     def test_sams_reproduction_same_real_parent_and_head_with_a_forged_allocation_passes_preparation_but_never_runtime(self):
         canon = lambda o: json.dumps(o, sort_keys=True, separators=(",", ":")).encode()
@@ -218,9 +230,14 @@ class RuntimeAuthority(unittest.TestCase):
         # ... the runtime check recomputes it from the authenticated events and refuses
         self.refused("runtime-binding-allocation", self.check, plan_for(forged))
 
-    def test_forged_event_source_release_execution_or_plan_values_refuse(self):
+    def test_forged_root_reconciliation_event_source_release_execution_or_plan_values_refuse(self):
         b = binding()
         cases = [
+            ("runtime-binding-journal-root", plan_for(dict(b, journalRootSha="0" * 40)), {}),
+            ("runtime-binding-reconciliation", plan_for(dict(b, reconciliationHeadSha="0" * 40)), {"recon": "0" * 40}),  # binding = checkpoint, not parent
+            ("runtime-binding-reconciliation", plan_for(b), {"recon": "0" * 40}),                     # accepted checkpoint differs
+            ("runtime-binding-reconciliation", plan_for(b), {"view": view_with(parent="0" * 40)}),  # authenticated parent differs
+            ("runtime-binding-reconciliation", plan_for(b), {"view": view_with(parent_events=[])}), # head is not parent + one event
             ("runtime-binding-reserve-event", plan_for(dict(b, reserveEventSha256="0" * 64)), {}),
             ("runtime-binding-harness-source", plan_for(dict(b, harnessSourceSha="0" * 40)), {}),
             ("runtime-binding-harness-source", plan_for(b), {"head": "0" * 40}),           # checkout HEAD differs
@@ -231,41 +248,46 @@ class RuntimeAuthority(unittest.TestCase):
             ("runtime-binding-request", plan_for(b, requestSha256="0" * 64), {}),
         ]
         for code, plan, kw in cases:
-            with self.subTest(code=code):
+            with self.subTest(code=code, kw=sorted(kw)):
                 self.refused(code, self.check, plan, **kw)
 
     def test_settle_release_or_a_later_event_between_prepare_and_the_receiver_refuses(self):
         reserve = NODES[1][1][-1]
-        for kind, code in (("settle", "runtime-reserve-closed"), ("release", "runtime-reserve-closed")):
-            snap = {"headSha": "1" * 40, "events": NODES[1][1] + [dict(reserve, type=kind)]}
-            self.refused(code, self.check, plan_for(dict(binding(), journalHeadSha="1" * 40)), snapshot=snap)
-        later = {"headSha": "1" * 40, "events": NODES[1][1] + [dict(reserve, runId="42500000009")]}
-        self.refused("runtime-reserve-not-last", self.check, plan_for(dict(binding(), journalHeadSha="1" * 40)), snapshot=later)
+        moved = dict(binding(), journalHeadSha="1" * 40, reconciliationHeadSha=NODES[1][0])
+        for kind in ("settle", "release"):
+            v = view_with(head="1" * 40, events=NODES[1][1] + [dict(reserve, type=kind)], parent=NODES[1][0])
+            self.refused("runtime-reserve-closed", self.check, plan_for(moved), view=v, recon=NODES[1][0])
+        later = view_with(head="1" * 40, events=NODES[1][1] + [dict(reserve, runId="42500000009")], parent=NODES[1][0])
+        self.refused("runtime-reserve-not-last", self.check, plan_for(moved), view=later, recon=NODES[1][0])
 
-    def test_pre_start_rejects_a_changed_head_or_a_closed_reserve_since_the_receiver(self):
+    def test_pre_start_rejects_a_changed_head_root_parent_or_closed_reserve_since_the_receiver(self):
         b = binding()
-        self.assertEqual(RC.pre_start(plan_for(b), (NODES[1][0], NODES[1][1]), REQ_SHA, RUN, 1), NODES[1][0])
-        self.refused("runtime-journal-changed-before-start", RC.pre_start, plan_for(b), ("1" * 40, NODES[1][1]), REQ_SHA, RUN, 1)
+        self.assertEqual(RC.pre_start(plan_for(b), VIEW, REQ_SHA, RUN, 1), NODES[1][0])
+        self.refused("runtime-journal-changed-before-start", RC.pre_start, plan_for(b), view_with(head="1" * 40), REQ_SHA, RUN, 1)
+        self.refused("runtime-binding-journal-root", RC.pre_start, plan_for(b), dict(VIEW, root="0" * 40), REQ_SHA, RUN, 1)
+        self.refused("runtime-binding-reconciliation", RC.pre_start, plan_for(b), view_with(parent="0" * 40), REQ_SHA, RUN, 1)
         settled = NODES[1][1] + [dict(NODES[1][1][-1], type="settle")]
-        self.refused("runtime-reserve-closed", RC.pre_start, plan_for(dict(b, journalHeadSha="1" * 40)), ("1" * 40, settled), REQ_SHA, RUN, 1)
+        self.refused("runtime-binding-reconciliation", RC.pre_start, plan_for(dict(b, journalHeadSha="1" * 40)),
+                     view_with(head="1" * 40, events=settled, parent=NODES[1][0]), REQ_SHA, RUN, 1)   # the parent moved: refuses first
+        self.refused("runtime-reserve-closed", RC.pre_start, plan_for(dict(b, journalHeadSha="1" * 40, reconciliationHeadSha=NODES[1][0])),
+                     view_with(head="1" * 40, events=settled, parent=NODES[1][0]), REQ_SHA, RUN, 1)
 
     def test_unshared_and_nightly_plans_are_unchanged_and_shared_needs_a_binding(self):
         self.assertIsNone(self.check({"campaignId": CAMPAIGN}))
-        self.assertIsNone(RC.pre_start({"campaignId": CAMPAIGN}, ("x", []), REQ_SHA, RUN, 1))
+        self.assertIsNone(RC.pre_start({"campaignId": CAMPAIGN}, VIEW, REQ_SHA, RUN, 1))
         self.refused("runtime-binding-missing", self.check, {"sharedIdentityBoundaries": True})
 
     def test_pre_start_compares_the_full_reserve_not_only_head_and_open_state(self):
         b = binding()
-        forged_alloc = dict(b, allocationSha256="0" * 64)
-        self.refused("runtime-binding-allocation", RC.pre_start, plan_for(forged_alloc), (NODES[1][0], NODES[1][1]), REQ_SHA, RUN, 1)
-        self.refused("runtime-binding-reserve-event", RC.pre_start, plan_for(dict(b, reserveEventSha256="0" * 64)), (NODES[1][0], NODES[1][1]), REQ_SHA, RUN, 1)
-        self.refused("runtime-binding-identity-reads", RC.pre_start, plan_for(b, identityReserved=31), (NODES[1][0], NODES[1][1]), REQ_SHA, RUN, 1)
+        self.refused("runtime-binding-allocation", RC.pre_start, plan_for(dict(b, allocationSha256="0" * 64)), VIEW, REQ_SHA, RUN, 1)
+        self.refused("runtime-binding-reserve-event", RC.pre_start, plan_for(dict(b, reserveEventSha256="0" * 64)), VIEW, REQ_SHA, RUN, 1)
+        self.refused("runtime-binding-identity-reads", RC.pre_start, plan_for(b, identityReserved=31), VIEW, REQ_SHA, RUN, 1)
 
     def test_a_swapped_snapshot_file_is_refused_against_the_authenticated_read(self):
-        self.assertEqual(RC.authenticated_snapshot(SNAPSHOT, (NODES[1][0], NODES[1][1])), SNAPSHOT)
+        self.assertIs(RC.authenticated_snapshot(SNAPSHOT, VIEW), VIEW)
         swapped = {"headSha": NODES[1][0], "events": NODES[1][1][:-1] + [dict(NODES[1][1][-1], allocation=dict(NODES[1][1][-1]["allocation"], identityReads=40))]}
-        self.refused("runtime-snapshot-not-authenticated", RC.authenticated_snapshot, swapped, (NODES[1][0], NODES[1][1]))
-        self.refused("runtime-snapshot-not-authenticated", RC.authenticated_snapshot, dict(SNAPSHOT, headSha="1" * 40), (NODES[1][0], NODES[1][1]))
+        self.refused("runtime-snapshot-not-authenticated", RC.authenticated_snapshot, swapped, VIEW)
+        self.refused("runtime-snapshot-not-authenticated", RC.authenticated_snapshot, dict(SNAPSHOT, headSha="1" * 40), VIEW)
 
 
 def _execute_run_command(sub):
@@ -279,8 +301,9 @@ def _execute_run_command(sub):
 
 
 class AcceptanceCommand(unittest.TestCase):
-    """Sam 1794117109: the REAL main() with the exact flags execute_run.sh passes, in the run stage's sanitized environment; only the one
-    authenticated journal read is substituted (a test patch, not a production seam). Every refusal is exit 78, before campaign-runner."""
+    """MOCKED TRANSPORT (Sam 1794117648): the REAL main() with the exact flags execute_run.sh passes; the one authenticated chain read is an
+    in-process unittest.mock patch of check_gates.authenticated_state_chain plus check_gates' existing module-level JOURNAL_ROOT (neither is
+    CLI- or environment-selectable; no production seam). This proves the comparisons, NOT the fetch. Every refusal is exit 78."""
 
     def setUp(self):
         self.d = os.path.realpath(tempfile.mkdtemp(prefix="ct-acceptance-")); self.addCleanup(shutil.rmtree, self.d, True)
@@ -297,23 +320,25 @@ class AcceptanceCommand(unittest.TestCase):
 
     def files(self, plan, snap=SNAPSHOT):
         out = {}
-        for name, doc in (("plan.json", plan), ("snap.json", snap)):
+        for name, doc in (("plan.json", plan), ("snap.json", snap), ("reconciliation.json", {"headSha": NODES[0][0]})):
             out[name] = os.path.join(self.d, name)
             with open(out[name], "w") as f:
                 json.dump(doc, f)
         return out
 
-    def argv(self, sub, f, source=None):
-        values = {"$planfile": f["plan.json"], "$RES_IN": f["snap.json"], "$REQ": self.req, "$CT_REQUEST_SHA256": REQ_SHA,
+    def argv(self, sub, f, source=None, psha=None):
+        planned = hashlib.sha256(open(f["plan.json"], "rb").read()).hexdigest()
+        values = {"$planfile": f["plan.json"], "$psha": psha or planned, "$RES_IN": f["snap.json"], "$OUT/reconciliation.json": f["reconciliation.json"],
+                  "$REQ": self.req, "$CT_REQUEST_SHA256": REQ_SHA,
                   "${CT_SOURCE_SHA:-}": source or self.head, "${GITHUB_RUN_ID:-}": RUN, "${GITHUB_RUN_ATTEMPT:-}": "1", "$REPO": self.repo}
         return ["reservation_runtime_check.py"] + [values.get(a, a) for a in _execute_run_command(sub)]
 
-    def run_main(self, sub, plan, snap=SNAPSHOT, authenticated=(NODES[1][0], NODES[1][1]), source=None):
+    def run_main(self, sub, plan, snap=SNAPSHOT, chain=CHAIN, source=None, psha=None):
         import check_gates
         from unittest import mock
         f = self.files(plan, snap)
-        with mock.patch.object(check_gates, "authenticated_chain", lambda: authenticated):
-            return RC.main(self.argv(sub, f, source))
+        with mock.patch.object(check_gates, "authenticated_state_chain", lambda: chain), mock.patch.object(check_gates, "JOURNAL_ROOT", FIXTURE_ROOT):
+            return RC.main(self.argv(sub, f, source, psha))
 
     def test_the_exact_commands_accept_the_genuine_binding_and_refuse_every_forgery(self):
         good = plan_for(dict(binding(), harnessSourceSha=self.head))
@@ -338,7 +363,26 @@ class AcceptanceCommand(unittest.TestCase):
             with self.subTest(name):
                 plan = plan_for(b, identityReserved=b["identityReads"])
                 self.assertEqual(self.run_main("check-plan", plan, snap=snap, source=source), 78)
-        self.assertEqual(self.run_main("pre-start", good, authenticated=("1" * 40, NODES[1][1])), 78)
+        moved = CHAIN + [("1" * 40, NODES[1][1] + [dict(NODES[1][1][-1], type="settle")], b"")]
+        self.assertEqual(self.run_main("pre-start", good, chain=moved), 78)
+        for sub in ("check-plan", "pre-start"):     # another version of the plan file than the digest campaign-runner is given
+            with self.subTest(plan_digest=sub):
+                self.assertEqual(self.run_main(sub, good, psha="0" * 64), 78)
+        self.assertEqual(self.run_main("check-plan", plan_for(dict(binding(), harnessSourceSha=self.head, journalRootSha="0" * 40))), 78)
+
+    def test_the_unmodified_production_command_fails_closed_when_authentication_is_unavailable(self):
+        """No patch at all: the real script in a subprocess with no `git` on PATH, so the approved read cannot run (no network either)."""
+        import sys
+        good = plan_for(dict(binding(), harnessSourceSha=self.head))
+        f = self.files(good)
+        empty = os.path.join(self.d, "empty-bin"); os.mkdir(empty)
+        script = os.path.join(ROOT, "scripts", "reservation_runtime_check.py")
+        for sub in ("check-plan", "pre-start"):
+            with self.subTest(sub):
+                p = subprocess.run([sys.executable, "-I", script] + self.argv(sub, f)[1:], capture_output=True, text=True,
+                                   env={"PATH": empty, "HOME": self.d})
+                self.assertEqual(p.returncode, 78, p.stderr)
+                self.assertIn("BLOCKED_SETUP: runtime-binding-unverifiable", p.stderr)
 
     def test_the_job_values_survive_the_sanitized_stage_environment(self):
         sh = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
@@ -360,3 +404,10 @@ class RunStageWiring(unittest.TestCase):
         runner = sh.index('campaign-runner.cjs" --plan "$planfile"', pre)
         producer = sh.index('with-authenticated-evidence.cjs" --scope', pre)
         self.assertTrue(recv < check < pre < min(runner, producer))
+        # Sam 1794117662: one plan version: both checks and campaign-runner take the retained build-time digest $psha
+        for sub in ("check-plan", "pre-start"):
+            argv = _execute_run_command(sub)
+            self.assertEqual(argv[argv.index("--plan-sha256") + 1], "$psha")
+            self.assertEqual(argv[argv.index("--plan") + 1], "$planfile")
+        self.assertIn('--plan "$planfile" --plan-sha256 "$psha"', sh[runner:runner + 200])
+        self.assertEqual(_execute_run_command("check-plan")[_execute_run_command("check-plan").index("--reconciliation") + 1], "$OUT/reconciliation.json")

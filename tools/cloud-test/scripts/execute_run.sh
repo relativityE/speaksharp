@@ -425,9 +425,9 @@ case "$STAGE" in
         --occurrence-reconciliation "$OUT/reconciliation.json" --occurrence-release-verification "$OUT/release-verification.json"
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
       # Sam RETURN 1794116817: the plan's reservation binding is recomputed from the receiver-authenticated events, never trusted as written.
-      run_stage gate-and-validate python3 -I "$ROOT/scripts/reservation_runtime_check.py" check-plan --plan "$planfile" --journal-snapshot "$RES_IN" \
-        --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --source-sha "${CT_SOURCE_SHA:-}" --run-id "${GITHUB_RUN_ID:-}" \
-        --attempt "${GITHUB_RUN_ATTEMPT:-}" --repo "$REPO"
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/reservation_runtime_check.py" check-plan --plan "$planfile" --plan-sha256 "$psha" \
+        --journal-snapshot "$RES_IN" --reconciliation "$OUT/reconciliation.json" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
+        --source-sha "${CT_SOURCE_SHA:-}" --run-id "${GITHUB_RUN_ID:-}" --attempt "${GITHUB_RUN_ATTEMPT:-}" --repo "$REPO"
       retained_args=()
       [ -n "${CT_PRIOR_STATE:-}" ] && retained_args+=(--prior-state "$CT_PRIOR_STATE")
       [ -n "${CT_APPROVAL:-}" ] && retained_args+=(--approval "$CT_APPROVAL")
@@ -450,7 +450,7 @@ case "$STAGE" in
       reuse_args=(--admission-receipt "$admission_file" --admission-receipt-sha256 "$admission_sha")
     fi
     # One more read through the approved path immediately before the campaign: same head, this run's reserve still the open last event.
-    run_stage gate-and-validate python3 -I "$ROOT/scripts/reservation_runtime_check.py" pre-start --plan "$planfile" \
+    run_stage gate-and-validate python3 -I "$ROOT/scripts/reservation_runtime_check.py" pre-start --plan "$planfile" --plan-sha256 "$psha" \
       --request-sha256 "$CT_REQUEST_SHA256" --run-id "${GITHUB_RUN_ID:-}" --attempt "${GITHUB_RUN_ATTEMPT:-}"
     if [ "$ROUTE" = github-producer ]; then
       scopefile="$OUT/plan/producer-scope.json"
