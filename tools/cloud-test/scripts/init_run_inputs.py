@@ -40,12 +40,13 @@ import accounting_rollup  # noqa: E402
 import manual_reservation  # noqa: E402
 import publish_latest_record as LR  # noqa: E402
 import state_ref_writer  # noqa: E402
+import reservation_binding as RB  # noqa: E402  (the one schema; consumers verify with RB.verify)
 
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "2faf69d898b6d432fab4858368fc37f8a84f5280d650da0fd31705d880d319fa"   # PO approval pinned (Sam verified relays slack:1794072158.779099 capacity/next run, slack:1794073342.879639 60-min signal run): run cap 3350 + 32 identity; ceilings 9518/128/74/64; 60 live / 100 end-to-end; pre-reserve head e7450f70
+ONE_OFF_GRANT_SHA256 = "aa913b0c82848e72093c988cf80f3e45522a200668e0e3031e0332fd0dc2aeed"   # PO approval pinned (Sam verified relays slack:1794072158.779099 capacity/next run, slack:1794073342.879639 60-min signal run): run cap 3350 + 32 identity; ceilings 9518/128/74/64; 60 live / 100 end-to-end; pre-reserve head e7450f70
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
@@ -848,6 +849,31 @@ def manual_approval_chain(chain, own):
     return chain[:-1]
 
 
+
+
+def reservation_binding_doc(chain, own, reconciliation_bytes, harness_source_sha, tested_sha):
+    """Sam 1794113504 / 1794114759: the authoritative reservation a manual run executes under, derived from the SAME validated state-ref chain
+    prepare read (reviewed root -> head) and the EXACT manual own tuple (campaign, run, attempt, admitted request digest) manual_approval_chain
+    admitted: the head must add exactly this run's one open own reserve to its parent, and that parent must be the reconciliation checkpoint's
+    head (an independently produced, byte-checked artifact). Three distinct heads are recorded: the harness/workflow source, the tested served
+    release and the journal. Nothing in it refers to the plan, so binding it into the plan is not self-referential."""
+    manual_approval_chain(chain, own)                      # own reserve exactly at head, unique, open; anything else refuses
+    event = chain[-1][1][-1]
+    _need(_is_own_open(event, chain[-1][1], own), "reservation-binding-not-own-open")
+    alloc = event.get("allocation")
+    _need(isinstance(alloc, dict) and type(alloc.get("identityReads")) is int and alloc["identityReads"] >= 0, "reservation-binding-allocation")
+    try:
+        checkpoint = json.loads(reconciliation_bytes)
+    except (TypeError, ValueError):
+        raise Refused("reservation-binding-reconciliation")
+    _need(isinstance(checkpoint, dict) and checkpoint.get("headSha") == chain[-2][0], "reservation-binding-reconciliation-head")
+    canon = lambda o: json.dumps(o, sort_keys=True, separators=(",", ":")).encode()
+    return {"schema": RB.SCHEMA, "campaignId": own[0], "runId": own[1], "attempt": own[2], "requestSha256": own[3],
+            "journalRootSha": chain[0][0], "reconciliationHeadSha": chain[-2][0], "journalHeadSha": chain[-1][0],
+            "reserveEventSha256": hashlib.sha256(canon(event)).hexdigest(), "allocationSha256": hashlib.sha256(canon(alloc)).hexdigest(),
+            "identityReads": alloc["identityReads"], "harnessSourceSha": harness_source_sha, "testedSha": tested_sha}
+
+
 def own_held_allocation(chain, own):
     """Sam RETURN 1793625480.539669: the allocation THIS execution's verified, still-open reserve holds (None when there is none). The rollup
     already charges an open reserve against period headroom, so an admitted run is checked against what it holds, never charged twice."""
@@ -1103,6 +1129,12 @@ def prepare(x, now):
         builder_facts = dict(builder_facts, case10Observation=observation)  # the builder re-admits it (case10_execution_bound)
     scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route,
                           deadline)
+    # Sam 1794114759: a MANUAL run's binding comes from its exact verified own reserve (never own=None); a nightly run binds none (unshared).
+    reservation_binding = None
+    if manual_occurrence:
+        _need(bool(chains), "reservation-binding-chain-unread")
+        reservation_binding = reservation_binding_doc(chains[-1], (req["runId"], x.run_id, x.attempt, request_sha256), reconciliation,
+                                                      x.source_sha, req["release"]["testedSha"])
     # Cumulative request/identity/Starts/takes caps are G5's (check_gates.py 131-170, run by execute_run gate-and-validate with --enforce-go
     # before reserve or run); the caller supplies G5's verified inputs and never re-derives its formula.
     return {"request": req_path, "requestBlob": req_blob, "requestRaw": req_raw, "bundleBytes": canonical_bundle_bytes(bundle),
@@ -1110,7 +1142,7 @@ def prepare(x, now):
             "testedSha": req["release"]["testedSha"], "lineage": lineage, "cases": cases,
             "accountId": account_id, "emails": {b["credentials"]["email"]: entries[b["role"]]["email"] for b in accounts},
             "coverageMode": req["coverageMode"], "route": route, "liveMinutes": live_minutes, "executionDeadline": deadline,
-            "accounts": accounts, "facts": builder_facts, "scope": scope}
+            "accounts": accounts, "facts": builder_facts, "scope": scope, "reservationBinding": reservation_binding}
 
 
 def _run_verifier(plan, case_results, approval, code_manifest, packet_root, cases_dir, out):
@@ -1934,6 +1966,11 @@ def main(argv):
             scope_file = os.path.join(x.out, "evidence-scope.json")
             _write_private(scope_file, p["scope"])
             env.update(CT_EVIDENCE_SCOPE_FILE=scope_file, CT_EVIDENCE_SCOPE_SHA256=_sha(scope_file))
+        if p["reservationBinding"]:
+            # private, immutable (O_EXCL) and digest-bound; consumers verify the digest AND its fields against independent inputs
+            binding_file = os.path.join(x.out, "reservation-binding.json")
+            _write_private(binding_file, p["reservationBinding"])
+            env.update(CT_RESERVATION_BINDING_FILE=binding_file, CT_RESERVATION_BINDING_SHA256=_sha(binding_file))
         write_env_file(x.env_file, env)
         with open(x.outputs, "a", encoding="utf-8") as f:
             f.write("execution_deadline=%s\n" % p["executionDeadline"])

@@ -110,7 +110,7 @@ run_stage() {
   for n in CT_OUT CT_REQUEST CT_REQUEST_SHA256 CT_CONFIG CT_PRIOR_STATE CT_HISTORY_INDEX CT_COUNTERS CT_APPROVAL CT_GAP_LEDGER CT_RECEIPTS_ROOT CT_RESERVATIONS CT_OFFLINE_CHECKS CT_OFFLINE_PROOF CT_RETAINED_GATE_MANIFEST CT_STATE_REPO CT_STATE_JOURNAL_RESERVE CT_STATE_JOURNAL_SETTLE CT_ACCOUNTING_BOOTSTRAP CT_PERIOD_SCOPE CT_CHECKOUT CT_FACTS_FILE CT_LIVE_ACCOUNTS_FILE CT_LIVE_ACCOUNTS_SHA256 CT_ACCOUNT_BINDINGS_FILE CT_PRIVATE_INPUT_DIR CT_PREREQUISITE_RECEIPT CT_TASK_ID CT_SOURCE_REFERENCE CT_ENV_ID CT_MEDIA_PARENT CT_CHROME CT_BROWSER_RECEIPT CT_SETUP_MODE CT_SOURCE_SHA CT_EXECUTION_RUN_ID CT_EXISTING_PDFJS_DIR CT_EXISTING_DEPENDENCY_ROOT PLAYWRIGHT_BROWSERS_PATH HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
-  for n in CT_EVIDENCE_SCOPE_FILE CT_EVIDENCE_SCOPE_SHA256; do
+  for n in CT_EVIDENCE_SCOPE_FILE CT_EVIDENCE_SCOPE_SHA256 CT_RESERVATION_BINDING_FILE CT_RESERVATION_BINDING_SHA256; do
     [ -z "${!n:-}" ] || e+=("$n=${!n}")
   done
   if [[ "$ROUTE" == github-* ]]; then
@@ -193,7 +193,8 @@ plan_env_file() {
   # The run's one execution deadline (init step output; Sam 1794071539): plan, guard policy, admission and producer scope all bind it.
   [ -n "${CT_EXECUTION_DEADLINE:-}" ] || blocked "CT_EXECUTION_DEADLINE (the run's one execution deadline) is required"
   python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
-    --reconciliation "$OUT/reconciliation.json" --execution-deadline "$CT_EXECUTION_DEADLINE" --out "$OUT/plan-env.txt" >/dev/null
+    --reconciliation "$OUT/reconciliation.json" --execution-deadline "$CT_EXECUTION_DEADLINE" --out "$OUT/plan-env.txt" \
+    ${CT_RESERVATION_BINDING_FILE:+--reservation-binding "$CT_RESERVATION_BINDING_FILE" --reservation-binding-sha256 "${CT_RESERVATION_BINDING_SHA256:-}" --execution-run-id "${CT_EXECUTION_RUN_ID:-}"} >/dev/null
 }
 
 ensure_account_bindings() {

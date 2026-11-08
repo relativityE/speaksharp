@@ -2840,6 +2840,8 @@ class StandingEnvelope(Journal):
 
         # Granted and pinned, nothing supplied: derived for this occurrence; the result equals the envelope an approver would have supplied.
         self.assertEqual(prepare(facts(), self.pin)["facts"]["actionApproval"], supplied)
+        # Sam 1794114759: a nightly (unshared) run binds no reservation; only a manual run's own verified reserve does
+        self.assertIsNone(prepare(facts(), self.pin)["reservationBinding"])
         # D1(a): a supplied nightly envelope always refuses (no fallback); the production pin unset refuses derivation by name.
         refused(self, "nightly-action-approval-must-be-derived", prepare, facts(actionApproval=supplied), self.pin)
         refused(self, "action-approval-standing-not-pinned", prepare, facts(), None)

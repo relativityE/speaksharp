@@ -589,6 +589,21 @@ def read_binding_inputs(env, argv):
                 'stepRoot': PACKET, 'stepManifestFile': f'{PRIVATE}/cfg/reviewed-steps.json', 'stepManifestSha256': idx['stepsSha256'],
                 'campaignLedger': adm['campaignLedger'], 'identityLedger': adm['identityLedger'], 'runRoot': f'{PRIVATE}/run',
                 'identityCap': IDENT_CAP, 'deadlineAt': T1, 'cleanupReserveMs': CLEANUP_MS, 'requirementMappings': [], 'cases': rows}
+        # Sam 1794114759: the reservation this run holds, from its private digest-bound binding, re-verified HERE against independent inputs
+        # (the admitted request digest, this campaign, the attested execution run and attempt, the digest-verified reconciliation head) and
+        # the configured maximum; the plan never takes a reserved number from anywhere else. Absent -> unshared plans only (no default).
+        if env.get('BP_RESERVATION_BINDING_FILE') or env.get('BP_RESERVATION_BINDING_SHA256'):
+            rb_module = importlib.import_module('reservation_binding')
+            require(Path(rb_module.__file__).resolve() == script_dir / 'reservation_binding.py', 'reservation-binding-module')
+            try:
+                rb = rb_module.verify(env.get('BP_RESERVATION_BINDING_FILE'), env.get('BP_RESERVATION_BINDING_SHA256'),
+                                      request_sha256=binding['requestSha256'], campaign_id=CAMPAIGN, run_id=execution_run_id, attempt=1,
+                                      reconciliation_head=binding['reconciliation'].get('headSha'), configured_max=IDENT_CAP)
+            except rb_module.Refused as e:
+                raise InputValidationError(str(e))
+            plan['identityReserved'] = rb['identityReads']
+            plan['reservationBinding'] = rb
+            plan['reservationBindingSha256'] = env['BP_RESERVATION_BINDING_SHA256']
         if MINIMAL or SMOKE:
             plan['requestBudget'] = {'runCap': CAPS['total'], 'cleanupReserve': BP_CLEANUP,
                                      'estimates': {f'AHT-{k:02d}': v for k, v in MIN_EST.items()},

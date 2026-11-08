@@ -18,6 +18,14 @@ const body = sha => '<html><script>window.__APP_RELEASE__ = {"sha":"' + sha + '"
 const POSITIVE = { schema: 'speaksharp.cloud-test.case-cleanup-evidence.v1', ownedProcessesRemaining: 0, launchCleanupFailure: false,
   mediaCleanupFailure: false, stopError: false, browserCloseError: false, guardClosed: true, cleanupIncomplete: false };
 
+// The verified reservation binding build_plan writes (reservation_binding.py shape); shared plans require it (Sam 1794114759).
+function reservation(cap, over = {}) {
+  const requestSha256 = '1'.repeat(64);
+  const rb = { schema: 'speaksharp.cloud-test.reservation-binding.v1', campaignId: 'UNIT-NOT-A-RUN', runId: '42500000001', attempt: 1, requestSha256,
+               journalRootSha: 'c'.repeat(40), reconciliationHeadSha: 'd'.repeat(40), journalHeadSha: 'e'.repeat(40), reserveEventSha256: '2'.repeat(64),
+               allocationSha256: '3'.repeat(64), identityReads: cap, harnessSourceSha: 'f'.repeat(40), testedSha: commit, ...over };
+  return { requestSha256, executionIdentity: { runId: '42500000001', attempt: 1 }, identityReserved: cap, reservationBinding: rb, reservationBindingSha256: '4'.repeat(64) };
+}
 function rig(t, { cap = 18, shared = true, skip = null } = {}) {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'shared-identity-')));
   fs.chmodSync(dir, 0o700); fs.chownSync(dir, process.getuid(), process.getgid());
@@ -27,7 +35,7 @@ function rig(t, { cap = 18, shared = true, skip = null } = {}) {
   const plan = { version: 1, campaignId: 'UNIT-NOT-A-RUN', runtime: 'Claude SpeakSharp R4', targetUrl: URL_, costCeilingUsd: 0, sourceSha: commit,
     servedSha: commit, admissionConfigFile: 'unit.json', admissionConfigSha256: hash, stepRoot: 'unit', stepManifestFile: 'steps.json',
     stepManifestSha256: hash, campaignLedger, identityLedger, identityCap: cap, runRoot: dir, deadlineAt: '2026-10-27T13:00:00Z',
-    cleanupReserveMs: 1000, sharedIdentityBoundaries: shared, ...(skip ? { requestBudget: { runCap: 400, cleanupReserve: 0, estimates: Object.fromEntries(IDS.map(id => [id, 2])), ceilings: Object.fromEntries(IDS.map(id => [id, 10])), skip } } : {}), cases: IDS.map(id => ({ id, driverFile: id + '.cjs', driverSha256: hash, configFile: id + '.json', configSha256: hash, maxMs: 100 })) };
+    cleanupReserveMs: 1000, sharedIdentityBoundaries: shared, ...(shared ? reservation(cap) : {}), ...(skip ? { requestBudget: { runCap: 400, cleanupReserve: 0, estimates: Object.fromEntries(IDS.map(id => [id, 2])), ceilings: Object.fromEntries(IDS.map(id => [id, 10])), skip } } : {}), cases: IDS.map(id => ({ id, driverFile: id + '.cjs', driverSha256: hash, configFile: id + '.json', configSha256: hash, maxMs: 100 })) };
   const state = { mono: 0, served: commit, hooks: {}, calls: [] };
   const read = phase => {
     const sha = typeof state.served === 'function' ? state.served(phase) : state.served;
@@ -227,4 +235,20 @@ test('wrong bindings: a receipt for another target is never reused; a ledger tha
   assert.equal(stop.report.safetyStopped, true);
   assert.equal(w.state.calls.includes('run:AHT-02'), false);
   assert.deepEqual([stop.report.cases[0].result, stop.report.cases[0].executionInvalid], ['NOT RUN', true]);
+});
+
+test('Sam 1794114759: a shared plan without the verified reservation binding, or with a binding for another run/request/amount, never starts', async t => {
+  const missing = rig(t);
+  delete missing.plan.reservationBinding;
+  assert.equal((await run(missing)).exitCode, 78);
+  for (const over of [{ runId: '42500000002' }, { attempt: 2 }, { requestSha256: '9'.repeat(64) }, { campaignId: 'OTHER' }, { identityReads: 17 }]) {
+    const bad = rig(t);
+    bad.plan.reservationBinding = { ...bad.plan.reservationBinding, ...over };
+    const out = await run(bad);
+    assert.equal(out.exitCode, 78, JSON.stringify(over));
+    assert.equal(bad.state.calls.length, 0);                                       // refused before admission, any case or any read
+  }
+  const short = rig(t, { cap: 18 });
+  short.plan.identityReserved = 17; short.plan.reservationBinding = { ...short.plan.reservationBinding, identityReads: 17 };
+  assert.equal((await run(short)).exitCode, 78);                                   // reserved below the configured maximum
 });

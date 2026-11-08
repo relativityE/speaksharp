@@ -65,6 +65,11 @@ def main():
     a.add_argument("--reconciliation", required=True)
     a.add_argument("--execution-deadline", required=True)
     a.add_argument("--out", required=True)
+    # Sam 1794114759: the manual run's reservation binding, by its private file and digest only (never a bare number), with the execution
+    # identity it must name ("<run id>.<attempt>", CT_EXECUTION_RUN_ID).
+    a.add_argument("--reservation-binding")
+    a.add_argument("--reservation-binding-sha256")
+    a.add_argument("--execution-run-id")
     x = a.parse_args()
     r = bound_request(x.request, x.request_sha256)
     if not os.path.isabs(x.reconciliation) or os.path.realpath(x.reconciliation) != x.reconciliation:
@@ -121,6 +126,16 @@ def main():
         "BP_RECONCILIATION_FILE": x.reconciliation, "BP_RECONCILIATION_SHA256": reconciliation_sha256,
     }
     env["BP_BACKEND_VERIFIED"] = "" if env["BP_BACKEND_VERIFIED"] == "-" else env["BP_BACKEND_VERIFIED"]
+    if x.reservation_binding or x.reservation_binding_sha256:
+        import reservation_binding as RB
+        run_id, _, attempt = (x.execution_run_id or "").partition(".")
+        try:
+            RB.verify(x.reservation_binding, x.reservation_binding_sha256, request_sha256=x.request_sha256, campaign_id=r["runId"],
+                      run_id=run_id, attempt=int(attempt) if attempt.isdigit() else None, reconciliation_head=reconciliation.get("headSha"),
+                      configured_max=est["identityReads"])
+        except (RB.Refused, OSError) as e:
+            sys.exit("BLOCKED_SETUP: " + (str(e) if isinstance(e, RB.Refused) else "reservation-binding-unreadable"))
+        env.update(BP_RESERVATION_BINDING_FILE=x.reservation_binding, BP_RESERVATION_BINDING_SHA256=x.reservation_binding_sha256)
     # R10 run 42142985744: the same-job bootstrap validates the account bindings against https://$BP_HOST_DB, but nothing on the real path
     # set it (only unit fixtures did), so it compared against https://undefined and refused. The host comes from the SAME origin the
     # binding resolver was given (VITE_SUPABASE_URL, execute_run.sh ensure_account_bindings), never a default.

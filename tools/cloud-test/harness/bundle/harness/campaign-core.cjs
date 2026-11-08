@@ -92,6 +92,13 @@ function validateCampaignPlan(p) {
  const sharedIds=p?.sharedIdentityBoundaries===true;
  if(!Number.isSafeInteger(p?.identityCap)||p.identityCap<requiredIdentityCap(nSelected,sharedIds))errors.push('identityCap must cover admission + before/after each selected case + final (minimum '+requiredIdentityCap(nSelected,sharedIds)+' for '+nSelected+' cases)');
  if(p?.identityReserved!==undefined&&(!Number.isSafeInteger(p.identityReserved)||!Number.isSafeInteger(p?.identityCap)||p.identityReserved<p.identityCap))errors.push('identityReserved (the durable reservation) must be an integer covering identityCap (the configured maximum)');
+ // Sam 1794114759: shared boundaries need the reservation the plan builder verified against independent inputs (no default); a present
+ // binding must name exactly this plan's campaign, admitted request and execution, and carry exactly identityReserved.
+ const rb=p?.reservationBinding;
+ if(sharedIds&&(rb===undefined||p.identityReserved===undefined))errors.push('shared identity boundaries need the verified reservation binding and identityReserved (no default)');
+ if(rb!==undefined&&!(rb&&typeof rb==='object'&&!Array.isArray(rb)&&rb.schema==='speaksharp.cloud-test.reservation-binding.v1'&&rb.campaignId===p.campaignId&&rb.requestSha256===p.requestSha256
+   &&rb.runId===String(p.executionIdentity?.runId)&&rb.attempt===p.executionIdentity?.attempt&&rb.identityReads===p.identityReserved&&/^[0-9a-f]{64}$/.test(p.reservationBindingSha256||'')))
+  errors.push('reservationBinding does not name this campaign, admitted request and execution with exactly identityReserved');
  if(!Number.isFinite(Date.parse(p?.deadlineAt))||!Number.isSafeInteger(p?.cleanupReserveMs)||p.cleanupReserveMs<1)errors.push('deadline/cleanup reserve');
  const cases=p?.cases;
  if(!Array.isArray(cases)||cases.length!==15||IDS.some(id=>cases.filter(c=>c.id===id).length!==1))errors.push('exactly one of all15 AHT IDs required');

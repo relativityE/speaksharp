@@ -368,6 +368,13 @@ class ShortSmokeContract(unittest.TestCase):
                                  "slack:1794073342.879639")
                 self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
                                  "slack:1794072158.779099")
+                # Sam 1794114759: the manual R10 flow emits the binding from ITS verified own reserve at the real head (never own=None)
+                b = prepared["reservationBinding"]
+                self.assertEqual((b["campaignId"], b["runId"], b["attempt"], b["requestSha256"]), (template["runId"], run_id, 1, request_sha))
+                self.assertEqual((b["journalHeadSha"], b["reconciliationHeadSha"], b["journalRootSha"]), (chain[-1][0], chain[-2][0], root))
+                self.assertEqual(b["identityReads"], chain[-1][1][-1]["allocation"]["identityReads"])
+                self.assertEqual((b["harnessSourceSha"], b["testedSha"]), (source_sha, template["release"]["testedSha"]))
+                self.assertEqual(json.loads(prepared["reconciliationBytes"])["headSha"], b["reconciliationHeadSha"])
 
     def test_completion_deadline_marks_queue_delay_incomplete_without_changing_settlement_period(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
