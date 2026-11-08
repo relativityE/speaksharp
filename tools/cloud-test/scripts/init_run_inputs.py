@@ -78,11 +78,12 @@ def _canonical_cases(cases):
     return list(cases)
 
 
-def subset_estimate(base, selected, budget_model):
+def subset_estimate(base, selected, budget_model, smoke_catalog):
     """The selected subset's caps, re-derived from the committed all-15 template's own per-case rows and the reviewed budget model
     (full_coverage_budget.compute): per-case ceiling = harness_ceiling(plannedRequests, allowancePct); cleanup = cleanupReservePerCase per
     selected case; run cap = ceilings + cleanup; identity reads = 2 per case + 2; Starts = takes = the selected startPressCaps; coaching cap =
-    ceil(takes x (100 + coachingRetryAllowancePct)%); runner minutes kept from the template (never resized from estimates)."""
+    ceil(takes x (100 + coachingRetryAllowancePct)%); runner minutes kept from the template (never resized from estimates). Takes are the
+    smoke catalog's per-case minimumTakes, never assumed equal to Starts (AHT-11 is 3 Starts / 1 take; Sam 1794150370.890329)."""
     rows = {r.get("case"): r for r in base.get("selection") or [] if isinstance(r, dict)}
     _need(all(c in rows for c in selected), "one-off-subset-case")
     planned = [rows[c]["plannedRequests"] for c in selected]
@@ -92,9 +93,13 @@ def subset_estimate(base, selected, budget_model):
     cleanup = per_case * len(selected)
     run_cap = ceilings + cleanup
     starts = sum(rows[c]["startPressCap"] for c in selected)
+    catalog_cases = smoke_catalog.get("cases") if isinstance(smoke_catalog, dict) else None
+    _need(isinstance(catalog_cases, dict) and all(isinstance(catalog_cases.get(c), dict) and type(catalog_cases[c].get("minimumTakes")) is int
+                                                  and catalog_cases[c]["minimumTakes"] >= 0 for c in selected), "one-off-subset-takes")
+    takes = sum(catalog_cases[c]["minimumTakes"] for c in selected)
     return {"requests": {"planned": sum(planned), "cleanupReserve": cleanup, "pooledSlack": run_cap - sum(planned) - cleanup, "runCap": run_cap},
-            "identityReads": 2 * len(selected) + 2, "starts": starts, "takes": starts,
-            "coachingCap": -(-starts * (100 + retry) // 100), "githubRunnerMinutesMax": base["estimate"]["githubRunnerMinutesMax"]}
+            "identityReads": 2 * len(selected) + 2, "starts": starts, "takes": takes,
+            "coachingCap": -(-takes * (100 + retry) // 100), "githubRunnerMinutesMax": base["estimate"]["githubRunnerMinutesMax"]}
 
 
 def one_off_limits(derived):
@@ -181,7 +186,8 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
     _need(hashlib.sha256(base_raw).hexdigest() == ONE_OFF_BASE_TEMPLATE_SHA256, "one-off-grant-base-template")
     base = json.loads(base_raw)
     cfg = json.loads(_read(os.path.join(repo, "tools/cloud-test/config/test-config.v1.json")))
-    derived = subset_estimate(base, selected, cfg["modes"]["full"]["budgetModel"])
+    smoke_catalog = json.loads(_read(os.path.join(repo, "tools/cloud-test/config/smoke-assertion-catalog.json")))
+    derived = subset_estimate(base, selected, cfg["modes"]["full"]["budgetModel"], smoke_catalog)
     if template is not None:
         _need(template.get("runId") == grant["runId"]
               and (template.get("release") or {}).get("testedSha") == grant.get("testedSha")

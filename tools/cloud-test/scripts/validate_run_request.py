@@ -64,6 +64,31 @@ def validate_ledger(ledger):
     return errs
 
 
+R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
+
+
+def r10_selected_subset(req):
+    """The pinned one-off grant's explicit selectedCases when this request is the R10 one-off campaign; None otherwise (Sam
+    1794150385.056519). The grant is read from its reviewed location and admitted only when its bytes hash to the reviewed pin
+    (init_run_inputs.ONE_OFF_GRANT_SHA256); its selection must be explicit, unique and in catalog order. Nothing is defaulted."""
+    if not isinstance(req, dict) or req.get("runId") != R10_ONE_OFF_RUN_ID:
+        return None
+    import hashlib
+    import json
+    import init_run_inputs as I
+    path = os.path.join(ROOT, "config", "runs", os.path.basename(I.ONE_OFF_GRANT_PATH))
+    try:
+        if not os.path.isfile(path) or os.path.islink(path):
+            return None
+        with open(path, "rb") as f:
+            raw = f.read()
+        if I.ONE_OFF_GRANT_SHA256 is None or hashlib.sha256(raw).hexdigest() != I.ONE_OFF_GRANT_SHA256:
+            return None
+        return I._canonical_cases(json.loads(raw).get("selectedCases"))
+    except (OSError, ValueError, AttributeError, I.Refused):
+        return None
+
+
 def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
     errs, warns = [], []
     try:
@@ -152,7 +177,10 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         E("selection is empty")
     if len(sel) > lim["maxSelectedCases"]:
         E("%d selected cases exceeds the configured maximum %d (broad rerun); a larger run is a config change with owner approval" % (len(sel), lim["maxSelectedCases"]))
-    if (full or smoke) and sorted(s.get("case") for s in sel) != ["AHT-%02d" % n for n in range(1, 16)]:
+    # The one exception: the R10 one-off campaign's smoke run selects EXACTLY its pinned grant's selectedCases, in that order.
+    subset = r10_selected_subset(req) if smoke else None
+    if (full or smoke) and sorted(s.get("case") for s in sel) != ["AHT-%02d" % n for n in range(1, 16)] \
+            and not (subset is not None and [s.get("case") for s in sel] == subset):
         E("a full or smoke run selects all 15 journeys, AHT-01..AHT-15, exactly once; a subset is a partial run")
     if [s.get("order") for s in sel] != list(range(1, len(sel) + 1)):
         E("selection order must be 1..n in run order")

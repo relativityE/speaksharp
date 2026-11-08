@@ -29,10 +29,11 @@ GRANT = load("config/runs/R10-3b040043-aht01-grant.json")
 CFG = load("config/test-config.v1.json")
 SCOPE = R.parse_scope(load("config/aggregate/period-scope.json"))
 BM = CFG["modes"]["full"]["budgetModel"]
+SMOKE_CATALOG = load("config/smoke-assertion-catalog.json")
 
 
 def derived(cases=("AHT-01",)):
-    return I.subset_estimate(BASE, list(cases), BM)
+    return I.subset_estimate(BASE, list(cases), BM, SMOKE_CATALOG)
 
 
 class Derivation(unittest.TestCase):
@@ -57,8 +58,12 @@ class Derivation(unittest.TestCase):
         rows = {r["case"]: r for r in BASE["selection"]}
         ceil = lambda v: ((v * 125 + 99) // 100 + 9) // 10 * 10  # noqa: E731
         self.assertEqual(d["requests"]["runCap"], ceil(rows["AHT-01"]["plannedRequests"]) + ceil(rows["AHT-11"]["plannedRequests"]) + 20)
-        self.assertEqual((d["identityReads"], d["starts"], d["takes"]), (6, 2 + 3, 5))
-        self.assertEqual(d["coachingCap"], 7)     # ceil(5 x 1.25)
+        # takes come from the smoke catalog, never from Starts: AHT-11 is 3 Starts / 1 take (Sam 1794150370.890329)
+        self.assertEqual((SMOKE_CATALOG["cases"]["AHT-11"]["minimumTakes"], SMOKE_CATALOG["cases"]["AHT-01"]["minimumTakes"]), (1, 2))
+        self.assertEqual((d["identityReads"], d["starts"], d["takes"]), (6, 2 + 3, 2 + 1))
+        self.assertEqual(d["coachingCap"], 4)     # ceil(3 x 1.25)
+        with self.assertRaisesRegex(I.Refused, "one-off-subset-takes"):
+            I.subset_estimate(BASE, ["AHT-01"], BM, {"cases": {}})
 
     def test_selected_cases_are_explicit_unique_canonical_and_never_defaulted(self):
         for bad in (None, [], "AHT-01", ["AHT-01", "AHT-01"], ["AHT-02", "AHT-01"], ["AHT-16"], ["aht-01"], [1]):
@@ -159,6 +164,59 @@ class SmokeSubsetOnlyForTheR10Campaign(unittest.TestCase):
         occ["selection"] = [dict(BASE["selection"][1], order=1), dict(occ["selection"][0], order=2)]
         with self.assertRaisesRegex(I.Refused, "smoke-mode-needs-all-fifteen"):
             I.check_request(occ, datetime(2026, 11, 8, 15, 10, tzinfo=timezone.utc), I._request_keys())
+
+
+class RealRequestValidator(unittest.TestCase):
+    """Sam 1794150385.056519: the REAL validate_run_request.validate, as pipeline.py runs it, on the committed AHT-01 occurrence, the committed
+    config, gap ledger and workflow. The R10 one-off subset is admitted exactly as the pinned grant selects it; ordinary smoke and full
+    validation still require all fifteen."""
+    SUBSET_ERROR = "a full or smoke run selects all 15 journeys, AHT-01..AHT-15, exactly once; a subset is a partial run"
+    # the validator's own Start-allocation step (case_start_caps) refuses a non-R10 subset even earlier, with this message
+    CAPS_ERROR = "full coverage selects all 15 journeys exactly once in order"
+
+    def refused(self, req):
+        errs = self.errors(req)
+        self.assertTrue({self.SUBSET_ERROR, self.CAPS_ERROR, "invalid per-case Start allocation or input structure"} & set(errs), errs)
+
+    def setUp(self):
+        import validate_run_request as V
+        from _fixtures import fake_rv, reconciliation
+        self.V, self.rv, self.rc = V, fake_rv(), reconciliation()
+        self.ledger, self.wf = load("config/gap-ledger.json"), load("workflow.json")
+        self.occ = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T15:10:00Z")
+
+    def errors(self, req):
+        return self.V.validate(req, CFG, self.ledger, self.wf, self.rv, self.rc)[0]
+
+    def test_the_committed_aht01_occurrence_passes_the_selected_case_rule(self):
+        self.assertEqual(self.V.r10_selected_subset(self.occ), ["AHT-01"])
+        self.assertNotIn(self.SUBSET_ERROR, self.errors(self.occ))
+
+    def test_any_other_smoke_subset_or_a_widened_r10_selection_still_refuses(self):
+        other = dict(self.occ, runId="UNIT-SMOKE-SUBSET")
+        self.assertIsNone(self.V.r10_selected_subset(other))
+        self.refused(other)
+        # Start-cap-consistent variants, so the R10 subset rule itself (not an earlier cap check) is what refuses
+        def with_selection(rows):
+            req = copy.deepcopy(self.occ)
+            req["selection"] = [dict(r, order=i + 1) for i, r in enumerate(rows)]
+            caps = {r["case"]: r["startPressCap"] for r in rows}
+            req["approvedLimits"]["startPressCaps"] = dict(caps)
+            req["proposedLimits"]["startPressCaps"] = dict(caps)
+            req["estimate"]["starts"] = sum(caps.values())
+            return req
+        widened, swapped = with_selection(BASE["selection"][:2]), with_selection([BASE["selection"][1]])
+        self.assertNotIn(self.CAPS_ERROR, self.errors(widened))
+        self.assertIn(self.SUBSET_ERROR, self.errors(widened))     # the R10 subset rule itself: not the grant's selection
+        self.assertIn(self.SUBSET_ERROR, self.errors(swapped))
+        self.assertNotIn(self.SUBSET_ERROR, self.errors(with_selection([BASE["selection"][0]])))
+        full = dict(copy.deepcopy(self.occ), coverageMode="full", sampleMode="full")
+        self.refused(full)
+
+    def test_an_unpinned_grant_admits_no_subset(self):
+        with mock.patch.object(I, "ONE_OFF_GRANT_SHA256", "0" * 64):
+            self.assertIsNone(self.V.r10_selected_subset(self.occ))
+            self.assertIn(self.SUBSET_ERROR, self.errors(self.occ))
 
 
 if __name__ == "__main__":
