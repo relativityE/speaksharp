@@ -68,3 +68,34 @@ describe('one serializable compatible package',()=>{
     expect(expectedModelIdentity(CANDIDATES['v4:base:q4']).backend).toBe('');
   });
 });
+
+describe('independent review of 27607fb3: admission applies the adapters\' own file rules', () => {
+  const granite = CANDIDATES['granite:turboctc-q4f16'];
+  const granitePackage = (change: (decode: Record<string, unknown>, files: Array<Record<string, unknown>>) => void = () => {}) => {
+    const decode = { ...(granite.execution.decode as unknown as Record<string, unknown>) };
+    const files = granite.assets.files!.map(f => ({ ...f })) as Array<Record<string, unknown>>;
+    change(decode, files);
+    return sealModelPackage({ schemaVersion: 1, kind: 'speaksharp-model-package', id: 'fixture:granite-files', engine: granite.engine,
+      runtime: granite.runtime, model: granite.model, execution: { ...granite.execution, decode } as never,
+      assets: { files } as never, license: 'fixture declaration; no model copied' } as never);
+  };
+  it('CONTROL: the built-in Granite file set is admitted', async () => {
+    expect(candidateFromPackage(await granitePackage(), 'fixture.json').engine).toBe('granite-ctc');
+  });
+  it.each([
+    ['a model file the package does not ship', (d: Record<string, unknown>) => { d.modelFile = 'does-not-exist.onnx'; }],
+    ['the model\'s external data missing', (_d: Record<string, unknown>, f: Array<Record<string, unknown>>) => { f.splice(f.findIndex(x => String(x.path).endsWith('.onnx.data')), 1); }],
+    ['the frontend configuration missing', (_d: Record<string, unknown>, f: Array<Record<string, unknown>>) => { f.splice(f.findIndex(x => String(x.path).endsWith('frontend_config.json')), 1); }],
+    ['the vocabulary missing', (_d: Record<string, unknown>, f: Array<Record<string, unknown>>) => { f.splice(f.findIndex(x => String(x.path).endsWith('/vocab.json')), 1); }],
+    ['two files with the same basename', (_d: Record<string, unknown>, f: Array<Record<string, unknown>>) => {
+      const vocab = f.find(x => String(x.path).endsWith('/vocab.json'))!;
+      f.push({ ...vocab, path: 'extra/vocab.json', url: String(vocab.url).replace(/vocab\.json$/, 'extra/vocab.json') });
+    }],
+  ])('Granite: REFUSED at admission instead of failing after the consented download: %s', async (_label, change) => {
+    await expect(granitePackage(change)).rejects.toThrow('UNSUPPORTED_GRANITE_ASSETS');
+  });
+  it.each([['/models/../../index.html'], ['/models/x/%2e%2e/index.html'], ['/models/./x.onnx']])(
+    'a local asset URL with a dot segment is refused (the URL constructor had already removed it): %s', async (bad) => {
+      await expect(granitePackage((_d, f) => { f[0].url = bad; })).rejects.toThrow('PACKAGE_ASSET_LOCATION_INVALID');
+    });
+});

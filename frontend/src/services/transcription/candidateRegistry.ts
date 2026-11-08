@@ -475,6 +475,14 @@ export function admitPackageDescriptors(
             if (String(value).length > 1_048_576) throw new Error('PACKAGE_DESCRIPTOR_TOO_LARGE');
             const candidate = parser.candidateFromPackage(JSON.parse(String(value)), 'frontend/src/services/transcription/' + path.slice(2));
             if (Object.prototype.hasOwnProperty.call(CANDIDATE_DEFINITIONS, candidate.id) || Object.prototype.hasOwnProperty.call(imported, candidate.id)) throw new Error('PACKAGE_DUPLICATE_ID');
+            // Review of 27607fb3: an inert package must not share the cache directory (localModelId) of any registered
+            // candidate: it replaced the built-in incumbent's entry in the legacy telemetry/cache view and saved sessions under
+            // the incumbent's model name. (Runtime attribution without a selection considers built-ins only; see candidateForRuntime.)
+            const registered = [...Object.values(CANDIDATE_DEFINITIONS), ...Object.values(imported)];
+            if (candidate.execution.localModelId != null
+                && registered.some(other => other.execution.localModelId === candidate.execution.localModelId)) {
+                throw new Error('PACKAGE_IDENTITY_COLLISION');
+            }
             imported[candidate.id] = candidate;
         } catch (error) {
             // A refused import never replaces the incumbent or prevents its catalogue from loading.
@@ -526,7 +534,10 @@ export interface ResolvedRuntimeState {
  */
 export function candidateForRuntime(state: ResolvedRuntimeState): CandidateId {
     const { engineType, variant, decoderDtype } = state;
-    const registered = Object.values(CANDIDATES);
+    // Review of 27607fb3: this attributes a session that has NO selection (an injected engine). An imported package is only
+    // ever run through its own selection, so it is never a candidate here; including packages let one that copied a
+    // built-in's engine and variant make the incumbent's attribution ambiguous.
+    const registered = Object.values(CANDIDATE_DEFINITIONS);
     const variantMatches = registered.filter((candidate) =>
         candidate.engine === engineType && candidate.execution.variant === (variant ?? null));
     // A resolved decoder override may select a sibling precision, but cannot change model,

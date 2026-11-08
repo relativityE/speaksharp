@@ -63,6 +63,18 @@ if (Object.values(PARAKEET_EXECUTABLE_ROLES).some(path => !parakeetRuntimePins.f
     throw new Error('PARAKEET_EXECUTABLE_ROLE_NOT_PINNED');
 }
 
+/** Reviewed Whisper generation knobs and their admitted ranges. Window, stride and timestamps are never package-overridable. */
+const WHISPER_GENERATION_RULES: Readonly<Record<string, (value: unknown) => boolean>> = Object.freeze({
+    condition_on_previous_text: (v: unknown) => typeof v === 'boolean',
+    no_repeat_ngram_size: (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= 20,
+    compression_ratio_threshold: (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 10,
+    logprob_threshold: (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= -10 && v <= 0,
+    no_speech_threshold: (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1,
+    temperature: (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1,
+});
+/** Files the Granite core reads by basename besides the model and its external data. */
+const GRANITE_REQUIRED_FILES: readonly string[] = Object.freeze(['frontend_config.json', 'mel_filters.bin', 'stft_window.bin', 'vocab.json']);
+
 /**
  * Every file the installed Whisper (v2, Xenova 2.17.2) loader requests for the supported package layout, the same set the
  * built-in incumbent requires: tokenizer_config.json is fatal in loadTokenizer and generation_config.json is fetched when served. Readiness reads `execution.cacheFiles`, so an admitted Whisper package always carries it.
@@ -97,6 +109,19 @@ export function parseModelPackage(input: unknown): ModelPackage {
         || p.model.dtype !== null
         || !Number.isFinite(decode.windowSeconds) || decode.windowSeconds <= 0 || !Number.isFinite(decode.strideSeconds)
         || decode.strideSeconds < 0 || decode.strideSeconds * 2 >= decode.windowSeconds || typeof decode.returnTimestamps !== 'boolean')) refuse('UNSUPPORTED_WHISPER_PROFILE');
+    // Independent review of 27607fb3 (P1): `generation` is spread into the decode options, so a package could re-introduce
+    // a window/stride/timestamp setting (e.g. stride_length_s 15 against a 30 s window: Xenova's chunk loop never advances).
+    // Only reviewed generation knobs, within reviewed ranges, are admitted; language and task are closed values.
+    if (p.engine === 'transformers-js' && decode?.kind === 'whisper') {
+        const generation = (decode as { generation?: unknown }).generation;
+        if (generation !== undefined && (!object(generation)
+            || Object.entries(generation).some(([key, value]) => !Object.hasOwn(WHISPER_GENERATION_RULES, key) || !WHISPER_GENERATION_RULES[key](value)))) {
+            refuse('UNSUPPORTED_WHISPER_GENERATION');
+        }
+        const { language, task } = decode as { language?: unknown; task?: unknown };
+        if ((language !== undefined && (typeof language !== 'string' || !/^[a-z]{2,16}$/.test(language)))
+            || (task !== undefined && task !== 'transcribe' && task !== 'translate')) refuse('UNSUPPORTED_WHISPER_GENERATION');
+    }
     if (p.engine === 'granite-ctc' && (p.execution.family !== 'granite-ctc' || decode?.kind !== 'granite-ctc'
         || typeof decode.modelFile !== 'string' || !decode.modelFile || typeof decode.applyAgc !== 'boolean'
         || p.runtime.distribution !== 'pinned-assets')) refuse('UNSUPPORTED_GRANITE_PROFILE');
@@ -122,7 +147,9 @@ export function parseModelPackage(input: unknown): ModelPackage {
         const url = new URL(f.url, 'https://package.invalid');
         if (url.username || url.password || url.search || url.hash ||
             !(f.url.startsWith('https://') || /^\/models\/[A-Za-z0-9_./-]+$/.test(f.url))
-            || url.pathname.split('/').some(v => v === '..')) refuse('PACKAGE_ASSET_LOCATION_INVALID');
+            // The URL constructor already removed dot segments from `pathname`, so check the raw text (review of 27607fb3),
+            // including percent-encoded dots.
+            || f.url.split('/').some(v => v === '..' || v === '.') || /%2e/i.test(f.url)) refuse('PACKAGE_ASSET_LOCATION_INVALID');
         paths.add(f.path); urls.add(f.url);
     }
     if (p.engine === 'transformers-js' && (!p.assets.servedFrom || p.assets.servedFrom !== '/models/' + p.execution.localModelId
@@ -148,11 +175,22 @@ export function parseModelPackage(input: unknown): ModelPackage {
         // Codex P2 on 1786e230: the adapter (assertParakeetProfile) accepts only distinct asset BASENAMES, so a role in a
         // subdirectory passed admission and then could never initialize. Admission applies the adapter's own rule.
         if (roles.some(file=>/[\\/]/.test(file))) refuse('UNSUPPORTED_PARAKEET_ASSET_LAYOUT');
+        // Review of 27607fb3: the engine and worker require EXACTLY the seven role files, so any extra file (a README, a
+        // second vocab.txt in a subdirectory) passed admission and then could never initialize.
+        if (p.assets.files.length !== roles.length) refuse('UNSUPPORTED_PARAKEET_ASSET_LAYOUT');
         // Codex P1 on c72108a1: the engine executes whatever file these roles name, so each executable role must be the
         // reviewed runtime pin itself, not merely a file present beside it. (The pin loop below binds that path's bytes.)
         if (Object.entries(PARAKEET_EXECUTABLE_ROLES).some(([role, pinned]) => decode[role as keyof typeof PARAKEET_EXECUTABLE_ROLES] !== pinned)) {
             refuse('UNSUPPORTED_PARAKEET_RUNTIME_ROLES');
         }
+    }
+    // Review of 27607fb3: Granite keys its files by basename and its core needs the model, its external data and the
+    // frontend/vocabulary files; without them it failed only after the consented download. Admission applies the core's rule.
+    if (p.engine === 'granite-ctc' && decode.kind === 'granite-ctc') {
+        const basenames = p.assets.files.map(f => f.path.split('/').pop()!);
+        const required = [decode.modelFile, decode.modelFile + '.data', ...GRANITE_REQUIRED_FILES];
+        if (/[\\/]/.test(decode.modelFile) || new Set(basenames).size !== basenames.length
+            || required.some(file => !basenames.includes(file))) refuse('UNSUPPORTED_GRANITE_ASSETS');
     }
     // Runtime code is installed adapter policy, not arbitrary executable package input.
     // A compatible new weight package reuses exactly the reviewed runtime artifacts.

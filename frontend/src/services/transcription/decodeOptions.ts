@@ -66,9 +66,11 @@ export function buildShippingDecodeOptions(audioLengthSeconds: number, profile?:
 export function buildWhisperDecodeOptions(
     profile: WhisperDecodeProfile, audioLengthSeconds: number, overrides?: Record<string, unknown>,
 ): Record<string, unknown> {
+    // Generation knobs go FIRST, so the shipping window/stride/timestamp options always win (review of 27607fb3: a profile's
+    // generation could otherwise reintroduce a stride the chunk loop cannot advance through). Explicit overrides stay last.
     return {
-        ...buildShippingDecodeOptions(audioLengthSeconds, profile),
         ...profile.generation,
+        ...buildShippingDecodeOptions(audioLengthSeconds, profile),
         ...(profile.language ? { language: profile.language } : {}),
         ...(profile.task ? { task: profile.task } : {}),
         ...overrides,

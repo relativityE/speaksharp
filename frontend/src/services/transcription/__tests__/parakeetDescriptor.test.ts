@@ -141,11 +141,25 @@ describe('an imported Parakeet package cannot choose which file the adapter exec
         expect(() => assertParakeetProfile(decode as never, { package: 'parakeet.js', version: '1.4.4', ortVersion: '1.24.1' } as never))
             .toThrow('Parakeet filenames must be distinct asset basenames');
     });
+    it.each([
+        ['an extra README beside the seven role files', (files: Array<Record<string, unknown>>) => {
+            const vocab = files.find(f => f.path === 'vocab.txt')!;
+            files.push({ ...vocab, path: 'README.txt', url: String(vocab.url).replace(/[^/]+$/, 'README.txt') });
+        }],
+        ['a second vocab.txt in a subdirectory', (files: Array<Record<string, unknown>>) => {
+            const vocab = files.find(f => f.path === 'vocab.txt')!;
+            files.push({ ...vocab, path: 'x/vocab.txt', url: String(vocab.url).replace(/[^/]+$/, 'x/vocab.txt') });
+        }],
+    ])('Review of 27607fb3: REFUSED at admission, since the engine requires exactly the seven role files: %s', async (_label, change) => {
+        await expect(parakeetPackage((_decode, files) => change(files))).rejects.toThrow('UNSUPPORTED_PARAKEET_ASSET_LAYOUT');
+    });
     it('REFUSED: the runtime role pointing at a renamed copy of a weight file, with the reviewed runtime still shipped beside it', async () => {
         await expect(parakeetPackage((decode, files) => {
             const encoder = files.find(f => f.path === decode.encoderFile)!;
             files.push({ ...encoder, path: 'runtime-payload.onnx', url: String(encoder.url).replace(/[^/]+$/, 'runtime-payload.onnx') });
             decode.runtimeBundleFile = 'runtime-payload.onnx';
-        })).rejects.toThrow('UNSUPPORTED_PARAKEET_RUNTIME_ROLES');
+        // Since the review of 27607fb3 the inventory must be exactly the seven role files, so the extra copy is refused even
+        // before the role binding is checked.
+        })).rejects.toThrow(/UNSUPPORTED_PARAKEET_(?:ASSET_LAYOUT|RUNTIME_ROLES)/);
     });
 });

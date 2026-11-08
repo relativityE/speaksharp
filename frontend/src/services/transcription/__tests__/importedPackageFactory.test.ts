@@ -18,7 +18,7 @@ vi.mock('../modelComparisonAuthorization', async (original) => {
     };
 });
 
-import { CANDIDATES, admitPackageDescriptors, type Candidate } from '../candidateRegistry';
+import { CANDIDATES, admitPackageDescriptors, candidateForRuntime, type Candidate } from '../candidateRegistry';
 import * as modelPackage from '../modelPackage';
 import { constructPrivateEngine } from '../engines/PrivateSTT';
 import { TransformersJSEngine } from '../engines/TransformersJSEngine';
@@ -48,6 +48,25 @@ async function fourthDescriptor(id = 'factory:fourth-whisper') {
             files: base.assets.files!.map(f => ({ ...f, url: `/models/${localModelId}/${f.path}` })) },
         license: 'MIT (fixture declaration; no new model copied)' }));
 }
+
+describe('independent review of 27607fb3: an inert package cannot take over the incumbent\'s identity', () => {
+    it('a package reusing the incumbent\'s cache directory is refused, and the incumbent stays the only no-selection attribution', async () => {
+        const base = CANDIDATES['v2:base.en'];
+        const copy = JSON.stringify(await modelPackage.sealModelPackage({ schemaVersion: 1, kind: 'speaksharp-model-package', id: 'factory:copy-of-incumbent',
+            engine: base.engine, runtime: base.runtime, model: { ...base.model, device: 'wasm' }, execution: { ...base.execution },
+            assets: { servedFrom: base.assets.servedFrom, files: base.assets.files!.map(f => ({ ...f, url: `${base.assets.servedFrom}/${f.path}` })) },
+            license: 'MIT (fixture declaration; no new model copied)' }));
+        const { imported, rejections } = admitPackageDescriptors({ './model-packages/copy.json': copy }, modelPackage);
+        expect(rejections).toEqual([{ file: './model-packages/copy.json', code: 'PACKAGE_IDENTITY_COLLISION' }]);
+        expect(imported).toEqual({});
+        // Two packages may not share a cache directory either.
+        const twins = admitPackageDescriptors({ './model-packages/a.json': await fourthDescriptor('factory:twin-a'),
+            './model-packages/b.json': await fourthDescriptor('factory:twin-b') }, modelPackage);
+        expect(Object.keys(twins.imported)).toEqual(['factory:twin-a']);
+        expect(twins.rejections).toEqual([{ file: './model-packages/b.json', code: 'PACKAGE_IDENTITY_COLLISION' }]);
+        expect(candidateForRuntime({ engineType: 'transformers-js', variant: null } as never)).toBe('v2:base.en');
+    });
+});
 
 describe('an imported package reaches the real product adapter', () => {
     it('is admitted by the bundle path and built by the facade factory into the installed Whisper adapter', async () => {
