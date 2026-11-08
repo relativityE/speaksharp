@@ -4,7 +4,7 @@ import { geminiProvider } from '../providers/gemini.ts';
 import type { CoachingProvider, ProviderAttemptInput, ProviderAttemptResult } from '../providers/types.ts';
 import evaluationSet from './transcripts.json' with { type: 'json' };
 import {
-  compareSummaries, estimateCost, evaluateProvider, evaluationPrompt, type EvaluationSet, type EvaluatorRuntime, measureGrounding, parseEvaluationSet,
+  compareSummaries, estimateCost, evaluateProvider, evaluationPrompt, type EvaluationSet, type EvaluatorRuntime, measureGrounding, outcomeOf, parseEvaluationSet,
 } from './evaluator.ts';
 
 /**
@@ -176,7 +176,8 @@ Deno.test('the candidate through any adapter of the same contract: transport, ti
 Deno.test('cost: reported tokens times a reviewed price; UNKNOWN when an answered take reports no usage; a bad price is refused', async () => {
   const { value: priced } = await withControlFetch(() => evaluateProvider(geminiProvider, KEY, SET, 'offline_controls', { runtime: steppedRuntime(50), price: CONTROL_PRICE }));
   // 7 answered x (400 x $1 + 30 x $2 + 20 x $2) per million = $0.0035; over 8 takes = $0.0004375 per take.
-  assertEquals(priced.cost, { status: 'ESTIMATED', usdTotal: 0.0035, usdPerTake: 0.0004375 });
+  // Served-only: the same $0.0035 over the 4 takes that produced coaching.
+  assertEquals(priced.cost, { status: 'ESTIMATED', usdTotal: 0.0035, usdPerTake: 0.0004375, usdPerServedTake: 0.000875 });
   const noUsage = await evaluateProvider(scriptedCandidate(SET.items.map(() => ({ text: pair('a b c d e f g h', 'a b c d e f g h') }))), KEY, SET, 'offline_controls', { price: CONTROL_PRICE });
   assertEquals(noUsage.cost, { status: 'UNKNOWN', reason: 'usage_not_reported' });
   assertThrows(() => estimateCost(priced.records, { ...CONTROL_PRICE, outputUsdPerMillion: -1 }), Error, 'EVAL_PRICE_INVALID');
@@ -210,4 +211,61 @@ Deno.test('PRIVACY: a report carries no transcript, phrase, prompt or key', asyn
     }
   }
   assertEquals(report.includes('expert public speaking coach'), false, 'no prompt text');
+});
+
+/**
+ * Independent review of 1c83108c (2026-11-08): defects in the measures, each reproduced before the fix.
+ */
+Deno.test('REVIEW P2: a short quoted filler does not break quote pairing, and both quotes are grounded', () => {
+  const item = SET.items.find((i) => i.id === 'om-02-filler-heavy')!;
+  // Before: "um" was too short to match, so ' for a pause before ' was taken as one invented quote.
+  assertEquals(measureGrounding(['Swap "um" for a pause before "raised beds" next time.', 'x'], item),
+    { quotes: 2, ungroundedQuotes: 0, unsupportedClaim: false, anchored: true });
+});
+
+Deno.test('REVIEW P3: quotes with an inner apostrophe, and curly single quotes, are counted', () => {
+  const item = SET.items[0];
+  assertEquals(measureGrounding(["Your line 'that's my update' closed it.", 'x'], item).quotes, 1);
+  assertEquals(measureGrounding(['Your line ‘that’s my update’ closed it.', 'x'], item), { quotes: 1, ungroundedQuotes: 0, unsupportedClaim: false, anchored: false });
+  assertEquals(measureGrounding(["Don't rush; it's fine to pause.", 'x'], item).quotes, 0, 'apostrophes alone are still not quotes');
+});
+
+Deno.test('REVIEW P3: a quote is grounded only by whole words of the transcript', () => {
+  const item = SET.items.find((i) => i.id === 'om-02-filler-heavy')!;
+  // Before: "ate" counted as grounded because "watering" contains it.
+  assertEquals(measureGrounding(['You said "ate" twice.', 'x'], item).ungroundedQuotes, 1);
+  assertEquals(measureGrounding(['You said "watering schedule" clearly.', 'x'], item).ungroundedQuotes, 0);
+});
+
+Deno.test('REVIEW P3: speed and cost are also reported over served takes, so failing everything is not "faster"', async () => {
+  const { value: incumbent } = await withControlFetch(() => evaluateProvider(geminiProvider, KEY, SET, 'offline_controls', { runtime: steppedRuntime(100), price: CONTROL_PRICE }));
+  const failing = await evaluateProvider(scriptedCandidate(SET.items.map(() => ({ status: 429 }))), KEY, SET, 'offline_controls', { runtime: steppedRuntime(1), price: CONTROL_PRICE });
+  assertEquals(failing.servedLatencyMs, null, 'no served take, no served latency');
+  const diff = compareSummaries(incumbent, failing);
+  assertEquals([diff.validRate, diff.servedLatencyP50Ratio, diff.costPerServedTakeUsd], [-0.5, null, null]);
+  // 7 answered x $0.0005 = $0.0035 over 4 served takes.
+  assertEquals(incumbent.cost.status === 'ESTIMATED' ? incumbent.cost.usdPerServedTake : 'not estimated', 0.000875);
+});
+
+Deno.test('REVIEW P3: a model id that is not a safe id never reaches the report', async () => {
+  const leaked = 'transcript text pretending to be a model id';
+  const summary = await evaluateProvider(scriptedCandidate(SET.items.map(() => ({ text: pair('a b c d e f g h', 'a b c d e f g h'), modelVersion: leaked }))), KEY, SET, 'offline_controls');
+  assertEquals(JSON.stringify(summary).includes(leaked), false);
+  assertEquals(summary.outcomes, { missing_model_version: 8 }, 'an unsafe id is treated as absent, as the handler does');
+});
+
+Deno.test('REVIEW P3: an unreadable body that still carries a valid answer is classified as the handler does', () => {
+  const result = { status: 200, ok: true, errorCodes: null, bodyUnreadable: true,
+    answer: { text: pair('Naming the checklist result first made the update concrete.', 'Open with one number, then the next step for setup.'), modelVersion: 'm-1', codes: decodeProviderAnswer({}) } };
+  assertEquals(outcomeOf(result, false).outcome, 'none');
+});
+
+Deno.test('REVIEW: Focus point shapes are validated, so a malformed point cannot produce a prompt the handler would not', () => {
+  const mutate = (change: (set: EvaluationSet) => void) => { const copy = structuredClone(evaluationSet) as EvaluationSet; change(copy); return copy; };
+  for (const change of [
+    (s: EvaluationSet) => { (s.items[6].focus!.points[0] as Record<string, unknown>).detectedAtSeconds = '4'; },
+    (s: EvaluationSet) => { (s.items[6].focus!.points[0] as Record<string, unknown>).verdict = 'maybe'; },
+    (s: EvaluationSet) => { (s.items[6].focus!.points[0] as Record<string, unknown>).label = 7; },
+    (s: EvaluationSet) => { s.items[6].focus!.points = []; },
+  ]) assertThrows(() => parseEvaluationSet(mutate(change)), Error, 'EVAL_ITEM_FOCUS_INVALID');
 });

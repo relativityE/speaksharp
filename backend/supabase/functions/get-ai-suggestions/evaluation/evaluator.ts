@@ -27,7 +27,7 @@
  */
 import { type CoachingFailureReason, classifyGeneratedSuggestions, measureCoachingQuality } from '../index.ts';
 import { attemptTimeoutMs } from '../providerRetry.ts';
-import type { CoachingProvider, ProviderAttemptResult } from '../providers/types.ts';
+import { type CoachingProvider, type ProviderAttemptResult, SAFE_MODEL_ID } from '../providers/types.ts';
 import { EVALUATION_MAX_TRANSCRIPT_CHARS, type EvaluationItem, evaluationPrompt } from './prompt.ts';
 
 export { EVALUATION_MAX_TRANSCRIPT_CHARS, type EvaluationItem, evaluationPrompt };
@@ -59,6 +59,17 @@ export function parseEvaluationSet(input: unknown): EvaluationSet {
     if (typeof item.transcript !== 'string' || !item.transcript.trim()) refuse('EVAL_ITEM_TRANSCRIPT_INVALID');
     if ((item.transcript as string).length > EVALUATION_MAX_TRANSCRIPT_CHARS) refuse('EVAL_ITEM_TRANSCRIPT_TOO_LONG');
     if ((item.product === 'focus_points') !== (typeof item.focus === 'object' && item.focus !== null)) refuse('EVAL_ITEM_FOCUS_INVALID');
+    // Review of 1c83108c: a malformed point would build a prompt the handler (which reads validated rows) never sends.
+    if (item.focus !== undefined) {
+      const focus = item.focus as Record<string, unknown>;
+      if ((focus.topic !== null && typeof focus.topic !== 'string') || !Array.isArray(focus.points) || focus.points.length === 0
+        || (focus.points as unknown[]).some((raw) => {
+          const point = raw as Record<string, unknown> | null;
+          return !point || typeof point.label !== 'string' || !point.label.trim()
+            || !['detected', 'not_detected', 'unavailable'].includes(point.verdict as string)
+            || !(point.detectedAtSeconds === null || (typeof point.detectedAtSeconds === 'number' && Number.isFinite(point.detectedAtSeconds) && point.detectedAtSeconds >= 0));
+        })) refuse('EVAL_ITEM_FOCUS_INVALID');
+    }
     const grounding = item.grounding as Record<string, unknown> | undefined;
     if (!Array.isArray(grounding?.anchors) || grounding.anchors.length === 0 || !Array.isArray(grounding?.unsupported)) refuse('EVAL_ITEM_GROUNDING_INVALID');
     for (const anchor of grounding!.anchors as unknown[]) {
@@ -77,8 +88,10 @@ const normalize = (value: string): string => value.toLowerCase().replace(/[‘�
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** A whole-word (or whole-phrase) match, so 'date' does not match 'update'. */
 const wordMatch = (anchor: string): RegExp => new RegExp(`\\b${escapeRegExp(normalize(anchor))}\\b`);
-// Single quotes count only with non-letters outside them, so apostrophes ("don't ... it's") are not a quote.
-const QUOTED = /"([^"]{3,})"|“([^”]{3,})”|(?<![A-Za-z])'([^']{3,})'(?![A-Za-z])/g;
+// Review of 1c83108c: a quote of any length pairs with its own closing mark ("um" no longer swallows the text up to the next
+// quote). Single and curly-single quotes may contain apostrophes between letters ('that's it'), but a bare apostrophe
+// ("don't ... it's") is never a quote.
+const QUOTED = /"([^"]+)"|\u201c([^\u201d]+)\u201d|(?<![A-Za-z])'((?:[^']|(?<=[A-Za-z])'(?=[A-Za-z]))+)'(?![A-Za-z])|\u2018((?:[^\u2019]|\u2019(?=[A-Za-z]))+)\u2019/g;
 
 /** Grounding proxies for one served pair. */
 export function measureGrounding(phrases: string[], item: EvaluationItem): { quotes: number; ungroundedQuotes: number; unsupportedClaim: boolean; anchored: boolean } {
@@ -87,9 +100,11 @@ export function measureGrounding(phrases: string[], item: EvaluationItem): { quo
   let ungroundedQuotes = 0;
   for (const phrase of phrases) {
     for (const match of phrase.matchAll(QUOTED)) {
-      const span = normalize((match[1] ?? match[2] ?? match[3]).replace(/[.,!?;:]+$/, ''));
+      const span = normalize((match[1] ?? match[2] ?? match[3] ?? match[4]).replace(/[.,!?;:]+$/, ''));
+      if (!span) continue;
       quotes += 1;
-      if (!transcript.includes(span)) ungroundedQuotes += 1;
+      // Whole words of the transcript only, the same rule as anchors: "ate" is not grounded by "watering".
+      if (!wordMatch(span).test(transcript)) ungroundedQuotes += 1;
     }
   }
   const joined = phrases.join(' ');
@@ -121,13 +136,19 @@ export interface ItemRecord {
 /** The handler's mapping of one attempt to a closed reason (index.ts, the provider attempt loop), for a single attempt. */
 export function outcomeOf(result: ProviderAttemptResult, timedOut: boolean): { outcome: EvaluationOutcome; phrases: string[] | null; modelVersion: string | null } {
   if (!result.ok) return { outcome: result.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx', phrases: null, modelVersion: null };
-  if (result.bodyUnreadable) return { outcome: timedOut ? 'provider_timeout' : 'provider_malformed_response', phrases: null, modelVersion: null };
-  // A readable answer with nothing to classify: the handler records the attempt as 'invalid_shape'.
-  if (result.answer === null) return { outcome: 'invalid_shape', phrases: null, modelVersion: null };
+  // The handler classifies an answer that arrived even when the body is also marked unreadable, and serves it if valid
+  // (review of 1c83108c); only an unreadable body with no answer is a timeout or malformed response.
+  if (result.answer === null) {
+    if (result.bodyUnreadable) return { outcome: timedOut ? 'provider_timeout' : 'provider_malformed_response', phrases: null, modelVersion: null };
+    // A readable answer with nothing to classify: the handler records the attempt as 'invalid_shape'.
+    return { outcome: 'invalid_shape', phrases: null, modelVersion: null };
+  }
+  // Only a safe model id is kept, whatever the adapter returned, so the report never carries free text (review of 1c83108c).
+  const modelVersion = typeof result.answer.modelVersion === 'string' && SAFE_MODEL_ID.test(result.answer.modelVersion) ? result.answer.modelVersion : null;
   const classified = classifyGeneratedSuggestions(result.answer.text);
-  if (!('suggestions' in classified)) return { outcome: classified.reason, phrases: null, modelVersion: result.answer.modelVersion };
+  if (!('suggestions' in classified)) return { outcome: classified.reason, phrases: null, modelVersion };
   const phrases = [classified.suggestions.what_worked, classified.suggestions.what_to_try_next];
-  return { outcome: result.answer.modelVersion ? 'none' : 'missing_model_version', phrases, modelVersion: result.answer.modelVersion };
+  return { outcome: modelVersion ? 'none' : 'missing_model_version', phrases, modelVersion };
 }
 
 export interface EvaluatorRuntime {
@@ -173,7 +194,8 @@ export interface ReviewedPrice {
 export type CostEstimate =
   | { status: 'UNPRICED'; reason: 'no_reviewed_price' }
   | { status: 'UNKNOWN'; reason: 'usage_not_reported' }
-  | { status: 'ESTIMATED'; usdTotal: number; usdPerTake: number };
+  /** usdPerServedTake: spend per take that actually produced coaching (null when none did), so failing cheaply never looks cheaper. */
+  | { status: 'ESTIMATED'; usdTotal: number; usdPerTake: number; usdPerServedTake: number | null };
 
 /** Cost from reported usage. Unanswered takes carry no tokens; any answered take without reported prompt/output usage is UNKNOWN. */
 export function estimateCost(records: ItemRecord[], price: ReviewedPrice | null): CostEstimate {
@@ -184,7 +206,8 @@ export function estimateCost(records: ItemRecord[], price: ReviewedPrice | null)
   const usd = answered.reduce((total, r) => total
     + (r.tokens!.prompt! * price.inputUsdPerMillion + r.tokens!.output! * price.outputUsdPerMillion + (r.tokens!.thinking ?? 0) * price.thinkingUsdPerMillion) / 1e6, 0);
   const round = (v: number) => Math.round(v * 1e8) / 1e8;
-  return { status: 'ESTIMATED', usdTotal: round(usd), usdPerTake: round(records.length ? usd / records.length : 0) };
+  const served = records.filter((r) => r.outcome === 'none').length;
+  return { status: 'ESTIMATED', usdTotal: round(usd), usdPerTake: round(records.length ? usd / records.length : 0), usdPerServedTake: served ? round(usd / served) : null };
 }
 
 export interface ProviderSummary {
@@ -204,6 +227,8 @@ export interface ProviderSummary {
   unsupportedClaimRate: number | null;
   anchoredRate: number | null;
   latencyMs: { p50: number; p95: number; max: number };
+  /** Latency of served takes only (null when none was served): a provider that fails fast is not "faster". */
+  servedLatencyMs: { p50: number; p95: number; max: number } | null;
   tokens: { prompt: number; output: number; thinking: number; takesWithUsage: number };
   cost: CostEstimate;
   records: ItemRecord[];
@@ -232,6 +257,7 @@ export async function evaluateProvider(
   const outcomes: Record<string, number> = {};
   for (const r of records) outcomes[r.outcome] = (outcomes[r.outcome] ?? 0) + 1;
   const latencies = records.map((r) => r.latencyMs).sort((a, b) => a - b);
+  const servedLatencies = served.map((r) => r.latencyMs).sort((a, b) => a - b);
   return {
     providerId: provider.id,
     setId: set.id,
@@ -249,6 +275,8 @@ export async function evaluateProvider(
     unsupportedClaimRate: rate(served.filter((r) => r.grounding?.unsupportedClaim).length, served.length),
     anchoredRate: rate(served.filter((r) => r.grounding?.anchored).length, served.length),
     latencyMs: { p50: percentile(latencies, 50), p95: percentile(latencies, 95), max: latencies.at(-1) ?? 0 },
+    servedLatencyMs: servedLatencies.length
+      ? { p50: percentile(servedLatencies, 50), p95: percentile(servedLatencies, 95), max: servedLatencies.at(-1)! } : null,
     tokens: {
       prompt: records.reduce((n, r) => n + (r.tokens?.prompt ?? 0), 0),
       output: records.reduce((n, r) => n + (r.tokens?.output ?? 0), 0),
@@ -279,6 +307,13 @@ export function compareSummaries(incumbent: ProviderSummary, candidate: Provider
     latencyP50Ratio: incumbent.latencyMs.p50 > 0 ? Math.round((candidate.latencyMs.p50 / incumbent.latencyMs.p50) * 100) / 100 : null,
     costPerTakeUsd: incumbent.cost.status === 'ESTIMATED' && candidate.cost.status === 'ESTIMATED'
       ? Math.round((candidate.cost.usdPerTake - incumbent.cost.usdPerTake) * 1e8) / 1e8
+      : null,
+    // Served-only figures (review of 1c83108c): what a customer who got coaching waited and cost.
+    servedLatencyP50Ratio: incumbent.servedLatencyMs && candidate.servedLatencyMs && incumbent.servedLatencyMs.p50 > 0
+      ? Math.round((candidate.servedLatencyMs.p50 / incumbent.servedLatencyMs.p50) * 100) / 100 : null,
+    costPerServedTakeUsd: incumbent.cost.status === 'ESTIMATED' && candidate.cost.status === 'ESTIMATED'
+      && incumbent.cost.usdPerServedTake !== null && candidate.cost.usdPerServedTake !== null
+      ? Math.round((candidate.cost.usdPerServedTake - incumbent.cost.usdPerServedTake) * 1e8) / 1e8
       : null,
   };
 }
