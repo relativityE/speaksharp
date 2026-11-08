@@ -9,6 +9,7 @@ import copy
 import os
 import unittest
 
+from _fixtures import ROOT  # noqa: F401  (puts scripts/ on sys.path when this file runs alone, as full-evidence does)
 import publish_latest_record as P
 import unexecuted_attempt_evidence as U
 from test_rejected_before_any_step import RESERVE, HEAD, RUN_ID, chain, load, workflow
