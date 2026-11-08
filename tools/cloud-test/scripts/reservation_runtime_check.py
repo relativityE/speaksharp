@@ -52,6 +52,23 @@ def own_last_open_reserve(events, campaign_id, run_id, attempt, request_sha256):
     return own[0]
 
 
+def authenticated_snapshot(snapshot_file_doc, authenticated):
+    """Sam 1794117109: never trust a reloaded snapshot file. The file the receiver accepted must EQUAL a fresh read through the approved path
+    (check_gates.authenticated_chain, the receiver's own rule), and only the authenticated head and events are used from here on."""
+    head, events = authenticated
+    _need(isinstance(snapshot_file_doc, dict) and snapshot_file_doc.get("headSha") == head and snapshot_file_doc.get("events") == events,
+          "runtime-snapshot-not-authenticated")
+    return {"headSha": head, "events": events}
+
+
+def _same_reserve(b, event, identity_reserved):
+    alloc = event.get("allocation")
+    _need(isinstance(alloc, dict) and type(alloc.get("identityReads")) is int, "runtime-reserve-allocation")
+    _need(b["reserveEventSha256"] == hashlib.sha256(_canon(event)).hexdigest(), "runtime-binding-reserve-event")
+    _need(b["allocationSha256"] == hashlib.sha256(_canon(alloc)).hexdigest(), "runtime-binding-allocation")
+    _need(b["identityReads"] == alloc["identityReads"] == identity_reserved, "runtime-binding-identity-reads")
+
+
 def check_plan(plan, snapshot, request, request_sha256, run_id, attempt, source_sha, checkout_head):
     b = plan.get("reservationBinding")
     if b is None:
@@ -67,12 +84,8 @@ def check_plan(plan, snapshot, request, request_sha256, run_id, attempt, source_
     _need(b["testedSha"] == (request.get("release") or {}).get("testedSha"), "runtime-binding-tested-release")
     _need(isinstance(source_sha, str) and source_sha and b["harnessSourceSha"] == source_sha == checkout_head, "runtime-binding-harness-source")
     event = own_last_open_reserve(snapshot["events"], campaign, run_id, attempt, request_sha256)
-    alloc = event.get("allocation")
-    _need(isinstance(alloc, dict) and type(alloc.get("identityReads")) is int, "runtime-reserve-allocation")
     _need(b["journalHeadSha"] == snapshot["headSha"], "runtime-binding-journal-head")
-    _need(b["reserveEventSha256"] == hashlib.sha256(_canon(event)).hexdigest(), "runtime-binding-reserve-event")
-    _need(b["allocationSha256"] == hashlib.sha256(_canon(alloc)).hexdigest(), "runtime-binding-allocation")
-    _need(b["identityReads"] == alloc["identityReads"] == plan.get("identityReserved"), "runtime-binding-identity-reads")
+    _same_reserve(b, event, plan.get("identityReserved"))
     return b
 
 
@@ -83,7 +96,8 @@ def pre_start(plan, authenticated, request_sha256, run_id, attempt):
         return None
     head, events = authenticated
     _need(head == b.get("journalHeadSha"), "runtime-journal-changed-before-start")
-    own_last_open_reserve(events, b.get("campaignId"), run_id, attempt, request_sha256)
+    event = own_last_open_reserve(events, b.get("campaignId"), run_id, attempt, request_sha256)
+    _same_reserve(b, event, plan.get("identityReserved"))          # Sam 1794117109: the FULL own reserve and allocation, not just head/open
     return head
 
 
@@ -110,7 +124,12 @@ def main(argv):
             _need(bool(x.journal_snapshot and x.request), "runtime-inputs")
             req_raw, request = _load(x.request)
             _need(hashlib.sha256(req_raw).hexdigest() == x.request_sha256, "runtime-binding-request")
-            _, snapshot = _load(x.journal_snapshot)
+            _, snapshot_file = _load(x.journal_snapshot)
+            if plan.get("reservationBinding") is not None:
+                import check_gates
+                snapshot = authenticated_snapshot(snapshot_file, check_gates.authenticated_chain())
+            else:
+                snapshot = snapshot_file
             head = subprocess.run(["git", "-C", x.repo or ".", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
             check_plan(plan, snapshot, request, x.request_sha256, x.run_id, attempt, x.source_sha, head)
         else:

@@ -254,34 +254,101 @@ class RuntimeAuthority(unittest.TestCase):
         self.assertIsNone(RC.pre_start({"campaignId": CAMPAIGN}, ("x", []), REQ_SHA, RUN, 1))
         self.refused("runtime-binding-missing", self.check, {"sharedIdentityBoundaries": True})
 
-    def test_the_cli_on_a_real_checkout(self):
-        d = os.path.realpath(tempfile.mkdtemp(prefix="ct-runtime-cli-")); self.addCleanup(shutil.rmtree, d, True)
-        repo = os.path.join(d, "repo"); os.mkdir(repo)
+    def test_pre_start_compares_the_full_reserve_not_only_head_and_open_state(self):
+        b = binding()
+        forged_alloc = dict(b, allocationSha256="0" * 64)
+        self.refused("runtime-binding-allocation", RC.pre_start, plan_for(forged_alloc), (NODES[1][0], NODES[1][1]), REQ_SHA, RUN, 1)
+        self.refused("runtime-binding-reserve-event", RC.pre_start, plan_for(dict(b, reserveEventSha256="0" * 64)), (NODES[1][0], NODES[1][1]), REQ_SHA, RUN, 1)
+        self.refused("runtime-binding-identity-reads", RC.pre_start, plan_for(b, identityReserved=31), (NODES[1][0], NODES[1][1]), REQ_SHA, RUN, 1)
+
+    def test_a_swapped_snapshot_file_is_refused_against_the_authenticated_read(self):
+        self.assertEqual(RC.authenticated_snapshot(SNAPSHOT, (NODES[1][0], NODES[1][1])), SNAPSHOT)
+        swapped = {"headSha": NODES[1][0], "events": NODES[1][1][:-1] + [dict(NODES[1][1][-1], allocation=dict(NODES[1][1][-1]["allocation"], identityReads=40))]}
+        self.refused("runtime-snapshot-not-authenticated", RC.authenticated_snapshot, swapped, (NODES[1][0], NODES[1][1]))
+        self.refused("runtime-snapshot-not-authenticated", RC.authenticated_snapshot, dict(SNAPSHOT, headSha="1" * 40), (NODES[1][0], NODES[1][1]))
+
+
+def _execute_run_command(sub):
+    """The exact reservation_runtime_check.py invocation execute_run.sh's run stage makes, as an argv template."""
+    sh = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
+    i = sh.index('reservation_runtime_check.py" ' + sub)
+    j = sh.index("\n", sh.index("--attempt", i))
+    line = sh[i:j].replace("\\\n", " ")
+    import shlex
+    return shlex.split(line.split('" ', 1)[1].replace('"', ""))
+
+
+class AcceptanceCommand(unittest.TestCase):
+    """Sam 1794117109: the REAL main() with the exact flags execute_run.sh passes, in the run stage's sanitized environment; only the one
+    authenticated journal read is substituted (a test patch, not a production seam). Every refusal is exit 78, before campaign-runner."""
+
+    def setUp(self):
+        self.d = os.path.realpath(tempfile.mkdtemp(prefix="ct-acceptance-")); self.addCleanup(shutil.rmtree, self.d, True)
+        repo = os.path.join(self.d, "repo"); os.mkdir(repo)
         env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_AUTHOR_NAME="u", GIT_AUTHOR_EMAIL="u@x",
                    GIT_COMMITTER_NAME="u", GIT_COMMITTER_EMAIL="u@x")
         subprocess.run(["git", "init", "-q", repo], check=True, env=env)
-        subprocess.run(["git", "-C", repo, "commit", "-q", "--allow-empty", "-m", "x"], check=True, env=env)
-        head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-        files = {}
-        for name, doc in (("plan.json", plan_for(dict(binding(), harnessSourceSha=head))), ("snap.json", SNAPSHOT)):
-            files[name] = os.path.join(d, name)
-            with open(files[name], "w") as f:
-                json.dump(doc, f)
-        req = os.path.join(d, "req.json")
-        with open(req, "wb") as f:
+        subprocess.run(["git", "-C", repo, "commit", "-q", "--allow-empty", "-m", "harness"], check=True, env=env)
+        self.repo = repo
+        self.head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        self.req = os.path.join(self.d, "req.json")
+        with open(self.req, "wb") as f:
             f.write(OCCURRENCE)
-        cli = lambda *a: subprocess.run(["python3", "-I", os.path.join(ROOT, "scripts", "reservation_runtime_check.py"), *a],
-                                        capture_output=True, text=True, timeout=60)
-        base = ["check-plan", "--plan", files["plan.json"], "--journal-snapshot", files["snap.json"], "--request", req, "--request-sha256", REQ_SHA,
-                "--run-id", RUN, "--attempt", "1", "--repo", repo]
-        r = cli(*base, "--source-sha", head)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        r = cli(*base, "--source-sha", "0" * 40)
-        self.assertEqual((r.returncode, r.stderr.strip()), (78, "BLOCKED_SETUP: runtime-binding-harness-source"))
-        unbound = os.path.join(d, "unbound.json")
-        with open(unbound, "w") as f:
-            json.dump({"campaignId": CAMPAIGN}, f)
-        self.assertEqual(cli("pre-start", "--plan", unbound).returncode, 0)          # no inputs needed for an unbound, unshared plan
+
+    def files(self, plan, snap=SNAPSHOT):
+        out = {}
+        for name, doc in (("plan.json", plan), ("snap.json", snap)):
+            out[name] = os.path.join(self.d, name)
+            with open(out[name], "w") as f:
+                json.dump(doc, f)
+        return out
+
+    def argv(self, sub, f, source=None):
+        values = {"$planfile": f["plan.json"], "$RES_IN": f["snap.json"], "$REQ": self.req, "$CT_REQUEST_SHA256": REQ_SHA,
+                  "${CT_SOURCE_SHA:-}": source or self.head, "${GITHUB_RUN_ID:-}": RUN, "${GITHUB_RUN_ATTEMPT:-}": "1", "$REPO": self.repo}
+        return ["reservation_runtime_check.py"] + [values.get(a, a) for a in _execute_run_command(sub)]
+
+    def run_main(self, sub, plan, snap=SNAPSHOT, authenticated=(NODES[1][0], NODES[1][1]), source=None):
+        import check_gates
+        from unittest import mock
+        f = self.files(plan, snap)
+        with mock.patch.object(check_gates, "authenticated_chain", lambda: authenticated):
+            return RC.main(self.argv(sub, f, source))
+
+    def test_the_exact_commands_accept_the_genuine_binding_and_refuse_every_forgery(self):
+        good = plan_for(dict(binding(), harnessSourceSha=self.head))
+        self.assertEqual(self.run_main("check-plan", good), 0)
+        self.assertEqual(self.run_main("pre-start", good), 0)
+        canon = lambda o: json.dumps(o, sort_keys=True, separators=(",", ":")).encode()
+        forged_alloc = dict(NODES[1][1][-1]["allocation"], identityReads=40)
+        swapped = {"headSha": NODES[1][0], "events": NODES[1][1][:-1] + [dict(NODES[1][1][-1], allocation=forged_alloc)]}
+        cases = {
+            "same head, forged allocation": (dict(binding(), harnessSourceSha=self.head, identityReads=40,
+                                                  allocationSha256=hashlib.sha256(canon(forged_alloc)).hexdigest()), SNAPSHOT, None),
+            "same head, forged event": (dict(binding(), harnessSourceSha=self.head, reserveEventSha256="0" * 64), SNAPSHOT, None),
+            "forged harness source": (dict(binding(), harnessSourceSha="0" * 40), SNAPSHOT, None),
+            "a swapped snapshot file": (dict(binding(), harnessSourceSha=self.head), swapped, None),
+            # self-consistent forgery: binding AND snapshot file both claim 40 with matching digests; only the authenticated read refuses it
+            "forged binding with a matching swapped snapshot": (dict(binding(), harnessSourceSha=self.head, identityReads=40,
+                                                                     allocationSha256=hashlib.sha256(canon(forged_alloc)).hexdigest(),
+                                                                     reserveEventSha256=hashlib.sha256(canon(swapped["events"][-1])).hexdigest()), swapped, None),
+            "source differs from the harness checkout": (dict(binding(), harnessSourceSha=self.head), SNAPSHOT, "0" * 40),
+        }
+        for name, (b, snap, source) in cases.items():
+            with self.subTest(name):
+                plan = plan_for(b, identityReserved=b["identityReads"])
+                self.assertEqual(self.run_main("check-plan", plan, snap=snap, source=source), 78)
+        self.assertEqual(self.run_main("pre-start", good, authenticated=("1" * 40, NODES[1][1])), 78)
+
+    def test_the_job_values_survive_the_sanitized_stage_environment(self):
+        sh = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
+        allow = sh[sh.index("for n in GITHUB_ACTIONS GITHUB_REPOSITORY"):sh.index("; do", sh.index("for n in GITHUB_ACTIONS GITHUB_REPOSITORY"))]
+        for name in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"):
+            self.assertIn(name, allow)
+        self.assertIn(" CT_SOURCE_SHA ", sh[sh.index("for n in CT_OUT CT_REQUEST"):sh.index("; do", sh.index("for n in CT_OUT CT_REQUEST"))] + " ")
+        self.assertIn('[ -n "${!n:-}" ] || blocked "actual GitHub job field $n missing"', sh)    # a missing job field is a refusal
+        self.assertEqual(_execute_run_command("check-plan")[-2:], ["--repo", "$REPO"])          # the HARNESS checkout, not CT_CHECKOUT
+        self.assertIn('REPO="$(cd "$ROOT/../.." && pwd)"', sh)
 
 
 class RunStageWiring(unittest.TestCase):
