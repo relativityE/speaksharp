@@ -194,7 +194,7 @@ plan_env_file() {
   [ -n "${CT_EXECUTION_DEADLINE:-}" ] || blocked "CT_EXECUTION_DEADLINE (the run's one execution deadline) is required"
   python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
     --reconciliation "$OUT/reconciliation.json" --execution-deadline "$CT_EXECUTION_DEADLINE" --out "$OUT/plan-env.txt" \
-    ${CT_RESERVATION_BINDING_FILE:+--reservation-binding "$CT_RESERVATION_BINDING_FILE" --reservation-binding-sha256 "${CT_RESERVATION_BINDING_SHA256:-}" --execution-run-id "${CT_EXECUTION_RUN_ID:-}"} >/dev/null
+    ${CT_RESERVATION_BINDING_FILE:+--reservation-binding "$CT_RESERVATION_BINDING_FILE" --reservation-binding-sha256 "${CT_RESERVATION_BINDING_SHA256:-}" --execution-run-id "${CT_EXECUTION_RUN_ID:-}" --source-sha "${CT_SOURCE_SHA:-}"} >/dev/null
 }
 
 ensure_account_bindings() {
@@ -424,6 +424,10 @@ case "$STAGE" in
         --request "$REQ" --config "$CFG" --out-dir "$accepted" --journal-snapshot "$RES_IN" \
         --occurrence-reconciliation "$OUT/reconciliation.json" --occurrence-release-verification "$OUT/release-verification.json"
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
+      # Sam RETURN 1794116817: the plan's reservation binding is recomputed from the receiver-authenticated events, never trusted as written.
+      run_stage gate-and-validate python3 -I "$ROOT/scripts/reservation_runtime_check.py" check-plan --plan "$planfile" --journal-snapshot "$RES_IN" \
+        --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --source-sha "${CT_SOURCE_SHA:-}" --run-id "${GITHUB_RUN_ID:-}" \
+        --attempt "${GITHUB_RUN_ATTEMPT:-}" --repo "$REPO"
       retained_args=()
       [ -n "${CT_PRIOR_STATE:-}" ] && retained_args+=(--prior-state "$CT_PRIOR_STATE")
       [ -n "${CT_APPROVAL:-}" ] && retained_args+=(--approval "$CT_APPROVAL")
@@ -445,6 +449,9 @@ case "$STAGE" in
       run_stage gate-and-validate node "$ROOT/tests/node/plan-acceptance.cjs" "$HP" "$planfile" ${CAT[@]+"${CAT[@]}"}
       reuse_args=(--admission-receipt "$admission_file" --admission-receipt-sha256 "$admission_sha")
     fi
+    # One more read through the approved path immediately before the campaign: same head, this run's reserve still the open last event.
+    run_stage gate-and-validate python3 -I "$ROOT/scripts/reservation_runtime_check.py" pre-start --plan "$planfile" \
+      --request-sha256 "$CT_REQUEST_SHA256" --run-id "${GITHUB_RUN_ID:-}" --attempt "${GITHUB_RUN_ATTEMPT:-}"
     if [ "$ROUTE" = github-producer ]; then
       scopefile="$OUT/plan/producer-scope.json"
       [ -f "$scopefile" ] || blocked "prepared bound producer scope missing"

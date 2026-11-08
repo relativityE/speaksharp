@@ -598,7 +598,8 @@ def read_binding_inputs(env, argv):
             try:
                 rb = rb_module.verify(env.get('BP_RESERVATION_BINDING_FILE'), env.get('BP_RESERVATION_BINDING_SHA256'),
                                       request_sha256=binding['requestSha256'], campaign_id=CAMPAIGN, run_id=execution_run_id, attempt=1,
-                                      reconciliation_head=binding['reconciliation'].get('headSha'), configured_max=IDENT_CAP)
+                                      reconciliation_head=binding['reconciliation'].get('headSha'), configured_max=IDENT_CAP,
+                                      tested_sha=binding['request']['release']['testedSha'])
             except rb_module.Refused as e:
                 raise InputValidationError(str(e))
             plan['identityReserved'] = rb['identityReads']

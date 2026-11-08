@@ -70,6 +70,7 @@ def main():
     a.add_argument("--reservation-binding")
     a.add_argument("--reservation-binding-sha256")
     a.add_argument("--execution-run-id")
+    a.add_argument("--source-sha")
     x = a.parse_args()
     r = bound_request(x.request, x.request_sha256)
     if not os.path.isabs(x.reconciliation) or os.path.realpath(x.reconciliation) != x.reconciliation:
@@ -132,7 +133,7 @@ def main():
         try:
             RB.verify(x.reservation_binding, x.reservation_binding_sha256, request_sha256=x.request_sha256, campaign_id=r["runId"],
                       run_id=run_id, attempt=int(attempt) if attempt.isdigit() else None, reconciliation_head=reconciliation.get("headSha"),
-                      configured_max=est["identityReads"])
+                      configured_max=est["identityReads"], tested_sha=rel["testedSha"], harness_source_sha=x.source_sha or None)
         except (RB.Refused, OSError) as e:
             sys.exit("BLOCKED_SETUP: " + (str(e) if isinstance(e, RB.Refused) else "reservation-binding-unreadable"))
         env.update(BP_RESERVATION_BINDING_FILE=x.reservation_binding, BP_RESERVATION_BINDING_SHA256=x.reservation_binding_sha256)

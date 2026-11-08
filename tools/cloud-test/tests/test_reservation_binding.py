@@ -168,10 +168,128 @@ class Wiring(unittest.TestCase):
         self.assertIn("env.update(CT_RESERVATION_BINDING_FILE=binding_file, CT_RESERVATION_BINDING_SHA256=_sha(binding_file))", src)
         bp = open(os.path.join(ROOT, "harness-adapter", "build_plan.py"), encoding="utf-8").read()
         self.assertIn("request_sha256=binding['requestSha256'], campaign_id=CAMPAIGN, run_id=execution_run_id, attempt=1,", bp)
-        self.assertIn("reconciliation_head=binding['reconciliation'].get('headSha'), configured_max=IDENT_CAP)", bp)
+        self.assertIn("reconciliation_head=binding['reconciliation'].get('headSha'), configured_max=IDENT_CAP,", bp)
+        self.assertIn("tested_sha=binding['request']['release']['testedSha'])", bp)
         sh = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
         self.assertIn("CT_RESERVATION_BINDING_FILE CT_RESERVATION_BINDING_SHA256", sh)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+import reservation_runtime_check as RC   # noqa: E402
+
+SNAPSHOT = {"headSha": NODES[1][0], "events": NODES[1][1]}      # the authenticated events the receiver accepted: the real head
+
+
+def plan_for(b, **over):
+    p = {"campaignId": CAMPAIGN, "requestSha256": REQ_SHA, "executionIdentity": {"runId": RUN, "attempt": 1}, "identityReserved": b["identityReads"],
+         "reservationBinding": b, "reservationBindingSha256": "4" * 64, "sharedIdentityBoundaries": True}
+    p.update(over)
+    return p
+
+
+class RuntimeAuthority(unittest.TestCase):
+    """Sam RETURN 1794116817: the allocation's authority is recomputed from the authenticated journal at runtime, not trusted from the file."""
+    REQUEST = json.loads(OCCURRENCE)
+
+    def check(self, plan, snapshot=SNAPSHOT, source=HARNESS, head=HARNESS):
+        return RC.check_plan(plan, snapshot, self.REQUEST, REQ_SHA, RUN, 1, source, head)
+
+    def refused(self, code, fn, *a, **kw):
+        with self.assertRaises(RC.Refused) as e:
+            fn(*a, **kw)
+        self.assertEqual(str(e.exception), code)
+
+    def test_the_genuine_binding_matches_the_authenticated_reserve(self):
+        self.assertEqual(self.check(plan_for(binding()))["identityReads"], 32)
+
+    def test_sams_reproduction_same_real_parent_and_head_with_a_forged_allocation_passes_preparation_but_never_runtime(self):
+        canon = lambda o: json.dumps(o, sort_keys=True, separators=(",", ":")).encode()
+        forged_alloc = dict(NODES[1][1][-1]["allocation"], identityReads=40)
+        forged = dict(binding(), identityReads=40, allocationSha256=hashlib.sha256(canon(forged_alloc)).hexdigest())
+        d = os.path.realpath(tempfile.mkdtemp(prefix="ct-forged-")); self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "b.json"); I._write_private(path, forged)
+        sha = hashlib.sha256(open(path, "rb").read()).hexdigest()
+        # preparation-time verification cannot prove allocation authority (stated limit) ...
+        self.assertEqual(RB.verify(path, sha, request_sha256=REQ_SHA, campaign_id=CAMPAIGN, run_id=RUN, attempt=1,
+                                   reconciliation_head=NODES[0][0], configured_max=32, tested_sha=TESTED, harness_source_sha=HARNESS)["identityReads"], 40)
+        # ... the runtime check recomputes it from the authenticated events and refuses
+        self.refused("runtime-binding-allocation", self.check, plan_for(forged))
+
+    def test_forged_event_source_release_execution_or_plan_values_refuse(self):
+        b = binding()
+        cases = [
+            ("runtime-binding-reserve-event", plan_for(dict(b, reserveEventSha256="0" * 64)), {}),
+            ("runtime-binding-harness-source", plan_for(dict(b, harnessSourceSha="0" * 40)), {}),
+            ("runtime-binding-harness-source", plan_for(b), {"head": "0" * 40}),           # checkout HEAD differs
+            ("runtime-binding-tested-release", plan_for(dict(b, testedSha="0" * 40)), {}),
+            ("runtime-binding-execution", plan_for(b, executionIdentity={"runId": "42500000001", "attempt": 1}), {}),
+            ("runtime-binding-identity-reads", plan_for(b, identityReserved=31), {}),
+            ("runtime-binding-journal-head", plan_for(dict(b, journalHeadSha="0" * 40)), {}),
+            ("runtime-binding-request", plan_for(b, requestSha256="0" * 64), {}),
+        ]
+        for code, plan, kw in cases:
+            with self.subTest(code=code):
+                self.refused(code, self.check, plan, **kw)
+
+    def test_settle_release_or_a_later_event_between_prepare_and_the_receiver_refuses(self):
+        reserve = NODES[1][1][-1]
+        for kind, code in (("settle", "runtime-reserve-closed"), ("release", "runtime-reserve-closed")):
+            snap = {"headSha": "1" * 40, "events": NODES[1][1] + [dict(reserve, type=kind)]}
+            self.refused(code, self.check, plan_for(dict(binding(), journalHeadSha="1" * 40)), snapshot=snap)
+        later = {"headSha": "1" * 40, "events": NODES[1][1] + [dict(reserve, runId="42500000009")]}
+        self.refused("runtime-reserve-not-last", self.check, plan_for(dict(binding(), journalHeadSha="1" * 40)), snapshot=later)
+
+    def test_pre_start_rejects_a_changed_head_or_a_closed_reserve_since_the_receiver(self):
+        b = binding()
+        self.assertEqual(RC.pre_start(plan_for(b), (NODES[1][0], NODES[1][1]), REQ_SHA, RUN, 1), NODES[1][0])
+        self.refused("runtime-journal-changed-before-start", RC.pre_start, plan_for(b), ("1" * 40, NODES[1][1]), REQ_SHA, RUN, 1)
+        settled = NODES[1][1] + [dict(NODES[1][1][-1], type="settle")]
+        self.refused("runtime-reserve-closed", RC.pre_start, plan_for(dict(b, journalHeadSha="1" * 40)), ("1" * 40, settled), REQ_SHA, RUN, 1)
+
+    def test_unshared_and_nightly_plans_are_unchanged_and_shared_needs_a_binding(self):
+        self.assertIsNone(self.check({"campaignId": CAMPAIGN}))
+        self.assertIsNone(RC.pre_start({"campaignId": CAMPAIGN}, ("x", []), REQ_SHA, RUN, 1))
+        self.refused("runtime-binding-missing", self.check, {"sharedIdentityBoundaries": True})
+
+    def test_the_cli_on_a_real_checkout(self):
+        d = os.path.realpath(tempfile.mkdtemp(prefix="ct-runtime-cli-")); self.addCleanup(shutil.rmtree, d, True)
+        repo = os.path.join(d, "repo"); os.mkdir(repo)
+        env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_AUTHOR_NAME="u", GIT_AUTHOR_EMAIL="u@x",
+                   GIT_COMMITTER_NAME="u", GIT_COMMITTER_EMAIL="u@x")
+        subprocess.run(["git", "init", "-q", repo], check=True, env=env)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "--allow-empty", "-m", "x"], check=True, env=env)
+        head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        files = {}
+        for name, doc in (("plan.json", plan_for(dict(binding(), harnessSourceSha=head))), ("snap.json", SNAPSHOT)):
+            files[name] = os.path.join(d, name)
+            with open(files[name], "w") as f:
+                json.dump(doc, f)
+        req = os.path.join(d, "req.json")
+        with open(req, "wb") as f:
+            f.write(OCCURRENCE)
+        cli = lambda *a: subprocess.run(["python3", "-I", os.path.join(ROOT, "scripts", "reservation_runtime_check.py"), *a],
+                                        capture_output=True, text=True, timeout=60)
+        base = ["check-plan", "--plan", files["plan.json"], "--journal-snapshot", files["snap.json"], "--request", req, "--request-sha256", REQ_SHA,
+                "--run-id", RUN, "--attempt", "1", "--repo", repo]
+        r = cli(*base, "--source-sha", head)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = cli(*base, "--source-sha", "0" * 40)
+        self.assertEqual((r.returncode, r.stderr.strip()), (78, "BLOCKED_SETUP: runtime-binding-harness-source"))
+        unbound = os.path.join(d, "unbound.json")
+        with open(unbound, "w") as f:
+            json.dump({"campaignId": CAMPAIGN}, f)
+        self.assertEqual(cli("pre-start", "--plan", unbound).returncode, 0)          # no inputs needed for an unbound, unshared plan
+
+
+class RunStageWiring(unittest.TestCase):
+    def test_the_run_stage_checks_after_the_receiver_and_again_immediately_before_the_campaign(self):
+        sh = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
+        recv = sh.index('cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json"', sh.index("  run)"))
+        check = sh.index("reservation_runtime_check.py\" check-plan", recv)
+        pre = sh.index("reservation_runtime_check.py\" pre-start", check)
+        runner = sh.index('campaign-runner.cjs" --plan "$planfile"', pre)
+        producer = sh.index('with-authenticated-evidence.cjs" --scope', pre)
+        self.assertTrue(recv < check < pre < min(runner, producer))
