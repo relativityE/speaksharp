@@ -19,6 +19,10 @@ const RUN_ID = 'R10-3b040043-smoke15';
 const OCCURRENCE_WINDOW_MS = 100 * 60 * 1000;  // init_run_inputs.SMOKE_OCCURRENCE_WINDOW_MINUTES (pinned equal by test_window_constants_agree)
 const REQUEST_TIMEOUT_MS = 10000;
 const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const CASE = /^AHT-(0[1-9]|1[0-5])$/;
+// AHT-01 is the fresh-account first session: the driver marks it NOT RUN when the existing-disposable account already holds a session
+// (source-adapters.cjs `fresh account precondition not met`), so a selection that includes it cannot PASS (every selected required row must).
+const FRESH_ACCOUNT_CASE = 'AHT-01', FRESH_ACCOUNT_ROLE = 'existing-disposable';
 // The one clock every deadline check reads; tests replace clock.now, production never does.
 const clock = {now: () => Date.now()};
 
@@ -84,7 +88,10 @@ function authorizedOccurrence(file, expectedSha) {
       || !UTC.test(window.startUtc || '') || !UTC.test(window.endUtc || '')) refuse('occurrence-shape');
   const start = Date.parse(window.startUtc), end = Date.parse(window.endUtc);
   if (end - start !== OCCURRENCE_WINDOW_MS) refuse('occurrence-window');
-  return {start, end};
+  // The selected cases are part of those same digest-bound bytes (init_run_inputs.materialize_smoke_occurrence copies the request's selection).
+  const selected = Array.isArray(occurrence.selection) ? occurrence.selection.map(row => (plain(row) ? row.case : null)) : [];
+  if (!selected.length || selected.some(id => !CASE.test(id || '')) || new Set(selected).size !== selected.length) refuse('occurrence-selection');
+  return {start, end, selected};
 }
 function requireDeadline(deadline) {
   // Before the first request and before every later one: the authorized window must be open, and the whole bounded request (its
@@ -169,6 +176,10 @@ async function prepare(values) {
     const otherRole = ROLES.find(candidate => candidate !== role);
     observations[role].crossSessionDenial = observations[otherRole].ownSessionCount > 0 ? 'controlled' : 'uncontrolled-other-has-no-sessions';
   }
+  // Sam 1794161531: refuse before any Start, from the own-session read already made and charged above (no extra query, no lease read, no
+  // deletion; the ten-request charge is unchanged). Content-free: a closed code only, never a count, identifier or row. The driver's own
+  // `fresh-first-session` check is unchanged and still decides the case when this passes.
+  if (deadline.selected.includes(FRESH_ACCOUNT_CASE) && observations[FRESH_ACCOUNT_ROLE].ownSessionCount !== 0) refuse('aht01-fresh-account-precondition');
   const receipt = {schema: 'speaksharp.cloud-test.prerequisite-preflight.v1', runId: values['--run-id'], sourceSha: values['--source-sha'],
     observedAt: new Date().toISOString(), mutationCount: 0, charges: {auth: 2, signedIn: 8, total: 10}, observations};
   const digest = sha(bytes(receipt));

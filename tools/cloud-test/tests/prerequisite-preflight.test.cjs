@@ -19,7 +19,7 @@ function iso(ms) { return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z'); 
 function writeOccurrence(root, over = {}) {
   // The authorized one-off occurrence: record-begin's selected bytes, created at its window start, the reviewed 100-minute window.
   const occurrence = {runId: 'R10-3b040043-smoke15', createdUtc: iso(START),
-    window: {startUtc: iso(START), endUtc: iso(START + 100 * MINUTE), approvalRef: 'slack:renewal'}, ...over};
+    window: {startUtc: iso(START), endUtc: iso(START + 100 * MINUTE), approvalRef: 'slack:renewal'}, selection: [{case: 'AHT-01'}], ...over};
   const file = path.join(root, 'occurrence.json'), raw = Buffer.from(JSON.stringify(occurrence));
   fs.writeFileSync(file, raw);
   return {file, sha: require('node:crypto').createHash('sha256').update(raw).digest('hex')};
@@ -166,6 +166,47 @@ test('prepare fails closed when a cross-account row is visible and writes no rec
   assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false);
 });
 
+test('AHT-01 selected and the disposable account already holds a session: refuse before any Start from the charged read, content-free', async t => {
+  // Sam 1794161531: the own-session read (limit 2) is already made and charged; reuse it. No extra query, no lease read, no deletion.
+  for (const [label, selection, sessions, refused] of [
+    ['AHT-01 alone, one prior session', [{case: 'AHT-01'}], [{id: 'prior-row-a', status: 'completed'}], true],
+    ['AHT-01 alone, the read capped at two', [{case: 'AHT-01'}], [{id: 'prior-row-a', status: 'completed'}, {id: 'prior-row-b', status: 'active'}], true],
+    ['AHT-01 within a larger selection', [{case: 'AHT-01'}, {case: 'AHT-02'}], [{id: 'prior-row-a', status: 'completed'}], true],
+    ['AHT-01 not selected: not this precondition', [{case: 'AHT-02'}], [{id: 'prior-row-a', status: 'completed'}], false],
+    ['AHT-01 selected on a fresh account', [{case: 'AHT-01'}], [], false],
+  ]) {
+    const f = fixture(t); f.occurrence = writeOccurrence(f.root, {selection});
+    const normal = successfulFetch();
+    const counted = countingFetch(async (url, options) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith('/sessions') && parsed.searchParams.get('user_id') === `eq.${IDS['existing-disposable']}`
+          && options.headers.authorization === 'Bearer private-token-existing-disposable') return response(200, sessions);
+      return normal(url, options);
+    });
+    const original = global.fetch; global.fetch = counted.fetch;
+    const savedNow = script.clock.now; script.clock.now = () => START + MINUTE;
+    let stderr = '';
+    try {
+      if (refused) {
+        await assert.rejects(() => script.prepare(args(f)), error => {
+          stderr = `${error.message} ${error.code}`;
+          return error.code === 'BLOCKED_SETUP' && error.message === 'aht01-fresh-account-precondition';
+        }, label);
+        assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false, label);
+        assert.equal(fs.existsSync(path.join(f.root, 'facts.json')), false, label);
+        for (const leak of ['prior-row', IDS['existing-disposable'], 'completed', 'active', 'secret']) assert.equal(stderr.includes(leak), false, label);
+      } else {
+        await script.prepare(args(f));
+        assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), true, label);
+      }
+      // The same ten charged requests either way: two sign-ins and eight own-token reads, nothing added.
+      assert.equal(counted.calls.length, 10, label);
+      assert.equal(counted.calls.filter(u => new URL(u).pathname === '/auth/v1/token').length, 2, label);
+      assert.equal(counted.calls.every(u => ['/auth/v1/token', '/rest/v1/user_profiles', '/rest/v1/sessions'].includes(new URL(u).pathname)), true, label);
+    } finally { global.fetch = original; script.clock.now = savedNow; }
+  }
+});
+
 test('charge consumes exactly ten requests from the admitted campaign ledger', async t => {
   const f = fixture(t), original = global.fetch; global.fetch = successfulFetch(); t.after(() => { global.fetch = original; });
   useClock(t, [START + MINUTE]);
@@ -188,6 +229,9 @@ test('an expired, not-yet-open or unauthorized occurrence makes zero requests an
     ['other bytes than the authorized digest', [START + MINUTE], {sha: 'a'.repeat(64)}],
     ['another run', [START + MINUTE], {occurrence: {runId: 'R11-other'}}],
     ['a stretched window', [START + MINUTE], {occurrence: {window: {startUtc: iso(START), endUtc: iso(START + 101 * MINUTE), approvalRef: 'x'}}}],
+    ['no selection', [START + MINUTE], {occurrence: {selection: []}}],
+    ['a selection that is not the case catalog', [START + MINUTE], {occurrence: {selection: [{case: 'AHT-16'}]}}],
+    ['a duplicated selection', [START + MINUTE], {occurrence: {selection: [{case: 'AHT-01'}, {case: 'AHT-01'}]}}],
   ];
   for (const [label, times, over] of cases) {
     const f = fixture(t);
