@@ -98,10 +98,13 @@ class PreRunFailure(unittest.TestCase):
                 self.refused("unexecuted-pre-run-job", build, None, jobs)
 
     def test_only_a_completed_failed_live_job_takes_this_path_and_no_step_or_reason_is_synthesized(self):
-        for conclusion in ("cancelled", "success", "timed_out"):
+        jobs = load("jobs-42406851270.json")
+        self.live(jobs)["conclusion"] = "success"
+        self.refused("unexecuted-job-live", build, None, jobs)
+        for conclusion in ("cancelled", "timed_out"):                    # Sam 1794100293: settled at the reserved caps, never as this zero-usage path
             jobs = load("jobs-42406851270.json")
             self.live(jobs)["conclusion"] = conclusion
-            self.refused("unexecuted-job-live", build, None, jobs)
+            self.assertEqual(build(None, jobs)["accounting"], "terminated-capped")
         doc = build()
         self.refused("unexecuted-pre-run", U.check_evidence, dict(doc, failedStep="Set up job"))
         self.refused("unexecuted-shape", U.check_evidence, dict(doc, rejection={"reason": "environment"}))

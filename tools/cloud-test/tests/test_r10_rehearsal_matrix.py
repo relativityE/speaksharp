@@ -275,10 +275,14 @@ class RehearsalMatrix(unittest.TestCase):
         for fail, want in expected.items():
             outcomes, result = simulate_live(self.steps, fail_at=fail)
             self.assertTrue(recovery(self.doc, outcomes, result).startswith(want), (fail, recovery(self.doc, outcomes, result)))
-        # a cancelled or timed-out run has no failed step: next-dispatch recovery refuses it and the reservation stays held; it is settled
-        # in-run instead (collect and journal-settle run on cancellation, test_workflow_shapes_follow_the_actual_yaml_conditions)
+        # a cancelled or timed-out run is settled in-run when its settle input exists (collect and journal-settle run on cancellation,
+        # test_workflow_shapes_follow_the_actual_yaml_conditions); when it does not, the reservation stayed open and recovery refused it,
+        # blocking every later dispatch (Sam 1794100293). Next-dispatch recovery now settles it at the FULL held caps, never as no-usage; an
+        # in-run settle leaves no open reserve, so the two never both apply.
         outcomes, result = simulate_live(self.steps, cancel_at=run)
-        self.assertTrue(recovery(self.doc, outcomes, result).startswith("refused: unexecuted-failed-step"))
+        got = recovery(self.doc, outcomes, result)
+        self.assertTrue(got.startswith("accepted: terminated-capped"), got)
+        self.assertIn("'starts': 16, 'takes': 16", got)
 
 
 def matrix():

@@ -388,12 +388,14 @@ jobs:
       CT_RECEIPTS_ROOT: ${{ github.workspace }}/tools/cloud-test/config/history/receipts
     steps:
       - uses: actions/checkout@v6
+        timeout-minutes: 3
         with:
           # Trusted runner/control code stays pinned to protected main. Admission later creates a separate checkout at TESTED_SHA.
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Bind private runner paths and initialize the inactive accounting workspace
+        timeout-minutes: 2
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/cloud-test-state"
@@ -411,9 +413,11 @@ jobs:
             echo "CT_STATE_WORKSPACE_RECEIPT=$RUNNER_TEMP/manual-state-workspace.json"
           } >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
+        timeout-minutes: 3
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v6
+        timeout-minutes: 4
         with:
           node-version: '22.23.4'
       - name: Install the pinned Python execution-evidence dependency
@@ -424,6 +428,7 @@ jobs:
         timeout-minutes: 6
         run: npm --prefix tools/cloud-test/runner ci --ignore-scripts --no-audit --no-fund
       - name: Discover the preinstalled browser against the reviewed baseline
+        timeout-minutes: 3
         run: |
           set -euo pipefail
           cd tools/cloud-test
@@ -441,6 +446,7 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           unshare -rn true
       - name: Generate the exact-head browser-bound proof and offline checks
+        timeout-minutes: 12
         env:
           CT_REQUIRE_INTEGRATION: '1'
           CT_EXISTING_PDFJS_DIR: ${{ github.workspace }}/tools/cloud-test/runner/node_modules/pdfjs-dist
@@ -454,6 +460,7 @@ jobs:
           echo "CT_OFFLINE_PROOF=$RUNNER_TEMP/offline-proof.json" >> "$GITHUB_ENV"
           echo "CT_OFFLINE_CHECKS=$RUNNER_TEMP/offline-checks.json" >> "$GITHUB_ENV"
       - name: Prove the selected accounts' bounded first-use prerequisites
+        timeout-minutes: 4
         if: github.event_name == 'workflow_dispatch'
         env:
           FACTS: ${{ inputs.facts }}
@@ -481,6 +488,7 @@ jobs:
             echo "CT_PREREQUISITE_RECEIPT=$preflight/receipt.json"
           } >> "$GITHUB_ENV"
       - name: Select the committed request and bind this run's inputs
+        timeout-minutes: 3
         id: init
         env:
           REQUEST: ${{ inputs.request }}
@@ -569,6 +577,7 @@ jobs:
           corepack prepare "$pm" --activate
           [ "$(cd "$CT_CHECKOUT" && env -i PATH="$PATH" HOME="$HOME" COREPACK_ENABLE_NETWORK=0 COREPACK_ENABLE_AUTO_PIN=0 pnpm --version)" = "${pm#pnpm@}" ]
       - name: Place the admitted continuity checkpoint as the runner's reconciliation
+        timeout-minutes: 2
         env:
           RECONCILIATION_SHA256: ${{ steps.init.outputs.reconciliation_sha256 }}
         run: |
@@ -583,6 +592,7 @@ jobs:
           cp -- "$SRC" "$DST"
           [ "$(sha256sum < "$DST" | cut -d' ' -f1)" = "$RECONCILIATION_SHA256" ] || { echo "BLOCKED_SETUP: reconciliation-copy-differs"; exit 78; }
       - name: Stage runner (install-tools, plans, stimulus preflight, gates)
+        timeout-minutes: 10
         env:
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           # the verified prior latest-record state (record-begin parsed it): G7's carried-forward history from the third night
@@ -605,6 +615,7 @@ jobs:
       # Immediately before admission: the approved window must still hold the live minutes plus the collect reserve (never reset), read from
       # exactly the request bytes prepare admitted (init's request_sha256 output; no later step can rewrite another step's outputs).
       - name: Approved window still fits the live run
+        timeout-minutes: 2
         env:
           LIVE_MINUTES: ${{ steps.init.outputs.live_minutes }}
           REQUEST_SHA256: ${{ steps.init.outputs.request_sha256 }}
@@ -634,6 +645,7 @@ jobs:
           CT_RUN_STAGE_AS_ROOT: '1'
         run: bash tools/cloud-test/scripts/execute_run.sh run
       - name: Collect, verify the binding, qualify every selected row, and project the closed record
+        timeout-minutes: 5
         if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
         env:
           CASES: ${{ steps.init.outputs.cases }}
@@ -673,6 +685,7 @@ jobs:
             --attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" --tested-sha "$TESTED_SHA" --request-sha256 "$REQUEST_SHA256" "${Q[@]}" "${P[@]}" \
             --out "$RUNNER_TEMP/latest-record.json"
       - name: Project the linked content-safe first observations
+        timeout-minutes: 3
         if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
         env:
           CASES: ${{ steps.init.outputs.cases }}
@@ -681,6 +694,7 @@ jobs:
           python3 -I tools/cloud-test/scripts/init_run_inputs.py first-observations \
             --cases-dir "$CT_OUT/plan/run/cases" --cases "$CASES" --out "$RUNNER_TEMP/first-observations.json"
       - name: Retain the linked first observations for the next run
+        timeout-minutes: 3
         if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
@@ -689,6 +703,7 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Project content-free per-case timing telemetry
+        timeout-minutes: 3
         # ALWAYS, including a proof, preflight or init failure (Sam 1793931423.224679): every one of the fifteen cases gets a row bound to
         # this run, attempt and head. NOT RUN needs affirmative evidence (no started.txt); started without case results is UNKNOWN.
         if: always()
@@ -716,6 +731,7 @@ jobs:
             --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" \
             --workflow-start-utc "${WORKFLOW_START_UTC:-}" --out "$RUNNER_TEMP/case-timings.json"
       - name: Retain content-free per-case timing telemetry
+        timeout-minutes: 3
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -724,6 +740,7 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Project the closed settle input (ids, digests and counts only; without a run record, none)
+        timeout-minutes: 3
         if: always()
         run: |
           set -euo pipefail
@@ -733,6 +750,7 @@ jobs:
             --case10-observation "$RUNNER_TEMP/case10-observation.json" --out "$CT_OUT/settle/settle-input.json"
       # The repository is public: this artifact holds only the closed settle input (settle_input.py), never the run record.
       - name: Hand the closed settle input to the journal-settle job (1 day)
+        timeout-minutes: 3
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -741,6 +759,7 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
       - name: Hand the closed record to the record job (short-lived; not the authoritative record)
+        timeout-minutes: 3
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -751,6 +770,7 @@ jobs:
       # Last step: the private run inputs (admitted request copy, account id, the canonical live-accounts bundle) never outlive the job and
       # are never uploaded; no artifact path covers this directory.
       - name: Remove the private run inputs
+        timeout-minutes: 2
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/run-inputs"
 

@@ -490,8 +490,10 @@ UNRESERVED_EVIDENCE_KEYS = {"run", "jobs", "journal", "collectedAt"}
 # The retirement reason follows the evidence's accounting (unexecuted_attempt_evidence.ACCOUNTING); the settle carries the usage itself.
 RESERVED_REASONS = {"reserved-not-executed": "Reserved, not executed: no credential-bearing step ran; 0 product usage",
                     "reserved-preflight-only": "Reserved, setup failed: only the prerequisite preflight ran; settled at its bounded request charge",
-                    "reserved-capped": "Reserved, setup failed after a credential-bearing step ran; usage unknown, settled at the reserved caps"}
-ACCOUNTING_REASON = {"none": "reserved-not-executed", "preflight-bound": "reserved-preflight-only", "capped": "reserved-capped"}
+                    "reserved-capped": "Reserved, setup failed after a credential-bearing step ran; usage unknown, settled at the reserved caps",
+                    "reserved-terminated-capped": "Reserved, the run was cancelled or timed out; usage unknown, settled at the reserved caps"}
+ACCOUNTING_REASON = {"none": "reserved-not-executed", "preflight-bound": "reserved-preflight-only", "capped": "reserved-capped",
+                     "terminated-capped": "reserved-terminated-capped"}
 UNEXECUTED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "evidenceSha256", "journalHeadSha", "runnerMinutes", "settleAtUtc"}
 
 
@@ -505,7 +507,9 @@ def sanitize_retired(r):
     ev = r["evidence"]
     if r["retiredReason"] in RESERVED_REASONS:
         _keys(ev, UNEXECUTED_EVIDENCE_KEYS, "retired-evidence")
-        _need(set(ev) == UNEXECUTED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure"
+        # a cancelled or timed-out run retires only as reserved-terminated-capped; every other reserved reason is a failed run
+        conclusions = ("failure", "cancelled", "timed_out") if r["retiredReason"] == "reserved-terminated-capped" else ("failure",)
+        _need(set(ev) == UNEXECUTED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] in conclusions
               and type(ev["runnerMinutes"]) is int and 0 < ev["runnerMinutes"] <= 1000
               and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("runUpdatedUtc", "settleAtUtc"))
               and isinstance(ev["evidenceSha256"], str) and SHA64.match(ev["evidenceSha256"])
@@ -594,7 +598,10 @@ def unexecuted_candidate(state, evidence):
     unexecuted-attempt evidence is about; else None. Which run that is comes from the journal's open reserve (unexecuted_attempt_evidence
     pending), never from a pinned list (Sam 1793881491.714239)."""
     live = state.get("inProgress")
-    if live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None or not isinstance(evidence, dict):
+    # Sam 1794100293: record-complete marks a cancelled attempt `cancelled`; only a terminated-capped settlement may retire one.
+    if (live is None or live.get("status") not in ("incomplete", "cancelled") or state.get("pendingCompletion") is not None
+            or not isinstance(evidence, dict)
+            or (live.get("status") == "cancelled" and evidence.get("accounting") != "terminated-capped")):
         return None
     ident = evidence.get("identity") or {}
     if (live.get("runId"), live.get("attempt"), live.get("sourceSha")) != (ident.get("runId"), ident.get("attempt"), ident.get("headSha")):

@@ -145,8 +145,11 @@ class Evidence(unittest.TestCase):
 
     def test_the_run_must_be_completed_and_failed(self):
         run = load("run-41960376782.json")
-        for over in ({"status": "in_progress"}, {"status": "queued"}, {"conclusion": "success"}, {"conclusion": "cancelled"}, {"conclusion": None}):
+        for over in ({"status": "in_progress"}, {"status": "queued"}, {"conclusion": "success"}, {"conclusion": None}):
             self.refused("unexecuted-run-not-failed", build, dict(run, **over))
+        for over in ({"conclusion": "cancelled"}, {"conclusion": "timed_out"}):          # Sam 1794100293: terminated, settled at its caps
+            self.assertEqual(build(dict(run, **over))["accounting"], "terminated-capped")
+        self.refused("unexecuted-run-not-completed", build, dict(run, status="in_progress", conclusion="cancelled"))
 
     def test_every_job_must_belong_to_this_run_attempt_and_head(self):
         for key, value in (("run_id", 41933223835), ("run_attempt", 2), ("head_sha", "b" * 40)):
@@ -165,7 +168,10 @@ class Evidence(unittest.TestCase):
             self.refused(code, build, None, jobs)                          # an active job
             jobs = self.jobs()
             jobs["jobs"][index]["conclusion"] = "cancelled"
-            self.refused(code, build, None, jobs)                          # a contradicting conclusion
+            if index == 3:                                                 # a cancelled LIVE job is the terminated path (Sam 1794100293)
+                self.assertEqual(build(None, jobs)["accounting"], "terminated-capped")
+            else:
+                self.refused(code, build, None, jobs)                      # a contradicting conclusion
         jobs = self.jobs()
         jobs["jobs"].append(dict(jobs["jobs"][2]))
         self.refused("unexecuted-jobs", build, None, jobs)                 # a duplicate
@@ -188,10 +194,13 @@ class Evidence(unittest.TestCase):
         self.refused("unexecuted-credential-steps", build, None, None, None, "jobs:\n  live:\n    name: X\n    steps:\n      - name: A\n        run: true\n")
 
     def test_the_live_job_that_succeeded_or_is_still_running_is_not_evidence(self):
-        for status, conclusion in (("completed", "success"), ("in_progress", None), ("completed", "cancelled")):
+        for status, conclusion in (("completed", "success"), ("in_progress", None)):
             jobs = self.jobs()
             self.live(jobs).update(status=status, conclusion=conclusion)
             self.refused("unexecuted-job-live", build, None, jobs)
+        jobs = self.jobs()
+        self.live(jobs).update(status="completed", conclusion="cancelled")      # settles at its caps (Sam 1794100293), never as unexecuted
+        self.assertEqual(build(None, jobs)["accounting"], "terminated-capped")
 
     def test_every_credential_bearing_step_must_be_skipped(self):
         for _, name in PIN["credentialSteps"]:
@@ -313,12 +322,17 @@ class Evidence(unittest.TestCase):
         self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting="preflight-bound", dispositionRef="slack:1793965143.063589",
                                                                      usage=dict(doc["usage"], requests=10, identityReads=0, starts=0, takes=0, coachingRequests=0)))
 
-    def test_a_cancelled_or_timed_out_live_job_is_refused_by_next_dispatch_recovery(self):
-        # Sam 1793965423.927829: cancellation and job-timeout shapes fail the strict conclusion checks here, by design; such a run is settled
-        # in-run from its INCOMPLETE record (collect runs on always() once the run step started; journal-settle runs always()).
-        jobs = self.stage_setup_failure()
-        self.live(jobs)["conclusion"] = "cancelled"
-        self.refused("unexecuted-job-live", build, None, jobs)
+    def test_a_cancelled_or_timed_out_live_job_settles_at_its_reserved_caps(self):
+        # Sam 1794100293 supersedes 1793965423.927829: a cancelled or timed-out run may leave NO settle input, so its reservation stayed open and
+        # this refusal blocked every later dispatch. It now settles as terminated-capped: the held allocation in full, never no-usage.
+        for conclusion in ("cancelled", "timed_out"):
+            jobs = self.stage_setup_failure()
+            self.live(jobs)["conclusion"] = conclusion
+            doc = build(None, jobs)
+            self.assertEqual((doc["accounting"], doc["failedStep"]), ("terminated-capped", None))
+            self.assertEqual({k: doc["usage"][k] for k in U.PRODUCT_KEYS}, {k: doc["journal"]["reserve"]["allocation"][k] for k in U.PRODUCT_KEYS})
+            for zero in ("none", "preflight-bound", "capped"):                  # the zero-usage / failure classifications still refuse it
+                self.refused("unexecuted-accounting", U.check_evidence, dict(doc, accounting=zero))
 
     def test_only_a_later_secret_free_always_step_may_fail_besides_the_first(self):
         jobs = self.stage_setup_failure()
