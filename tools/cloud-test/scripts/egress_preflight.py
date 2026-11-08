@@ -14,6 +14,7 @@ It reads the environment exactly as the guard will see it after that boundary an
 Never a proxy value, host, port or credential. The receipt is written in every case (bound to the run, attempt and source SHA); exit 0 when
 ready, 78 otherwise. No network, no policy, TLS or transport change."""
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -23,8 +24,25 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _netguard  # noqa: F401,E402  (offline: presence and syntax only, no network)
 
 SCHEMA = "speaksharp.cloud-test.egress-preflight.v1"
-POLICY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "harness", "bundle", "config", "policy.production.TEMPLATE.json")
-REASONS = ("ready", "proxy-not-configured", "proxy-lowercase-only", "proxy-invalid", "no-proxy-matches-policy-host")
+BUNDLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "harness", "bundle")
+POLICY = os.path.join(BUNDLE, "config", "policy.production.TEMPLATE.json")
+CODE_MANIFEST = os.path.join(BUNDLE, "CODE.sha256")
+POLICY_ENTRY = "config/policy.production.TEMPLATE.json"
+REASONS = ("ready", "proxy-not-configured", "proxy-lowercase-only", "proxy-invalid", "no-proxy-matches-policy-host", "policy-not-reviewed")
+RUNTIME = "GitHub Actions SpeakSharp"
+
+
+def reviewed_policy_sha256(manifest_path=CODE_MANIFEST):
+    """The policy's digest as the reviewed harness CODE manifest pins it (Sam 1794157364), or None."""
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) == 2 and parts[1] == POLICY_ENTRY and re.fullmatch(r"[0-9a-f]{64}", parts[0]):
+                    return parts[0]
+    except OSError:
+        return None
+    return None
 
 
 def no_proxy_matches(no_proxy, host):
@@ -72,19 +90,33 @@ def main(argv):
     a.add_argument("--attempt", required=True)
     a.add_argument("--source-sha", required=True)
     a.add_argument("--out", required=True)
+    a.add_argument("--job", default=os.environ.get("GITHUB_JOB", ""))
     a.add_argument("--policy", default=POLICY)
+    a.add_argument("--code-manifest", default=CODE_MANIFEST)
     x = a.parse_args(argv[1:])
-    binding = {"runId": x.run_id if re.fullmatch(r"[1-9][0-9]{0,19}", x.run_id or "") else None,
+    from datetime import datetime, timezone
+    # Sam 1794157364: bound to the observation time, runtime, run, attempt, job and source, and to the REVIEWED policy digest.
+    binding = {"observedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+               "runtime": RUNTIME if os.environ.get("GITHUB_ACTIONS") == "true" else "other",
+               "runId": x.run_id if re.fullmatch(r"[1-9][0-9]{0,19}", x.run_id or "") else None,
                "attempt": int(x.attempt) if re.fullmatch(r"[1-9][0-9]{0,2}", x.attempt or "") else None,
+               "job": x.job if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", x.job or "") else None,
                "sourceSha": x.source_sha if re.fullmatch(r"[0-9a-f]{40}", x.source_sha or "") else None}
+    reviewed = reviewed_policy_sha256(x.code_manifest)
+    policy_sha = None
     try:
-        with open(x.policy, encoding="utf-8") as f:
-            policy = json.load(f)
-        verdict = evaluate(policy, os.environ)
+        with open(x.policy, "rb") as f:
+            raw = f.read()
+        policy_sha = hashlib.sha256(raw).hexdigest()
+        verdict = evaluate(json.loads(raw), os.environ)
     except (OSError, ValueError):
         verdict = {"upstreamMode": "other", "proxyConfigured": False, "proxyValid": False, "lowercaseOnly": False, "noProxyMatched": False,
                    "ready": False, "reason": "proxy-not-configured"}
-    doc = dict({"schema": SCHEMA, "reachabilityChecked": False}, **binding, **verdict)
+    if policy_sha is None or policy_sha != reviewed:
+        # only the reviewed policy's requirement counts; a different or unpinned policy is never evidence of readiness
+        verdict = dict(verdict, ready=False, reason="policy-not-reviewed")
+    doc = dict({"schema": SCHEMA, "reachabilityChecked": False, "policySha256": policy_sha, "policyReviewed": policy_sha is not None and policy_sha == reviewed},
+               **binding, **verdict)
     fd = os.open(x.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(doc, f, sort_keys=True)

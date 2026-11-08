@@ -371,15 +371,18 @@ class ProjectionCatalog(unittest.TestCase):
 class PublishedDiagnosticCodes(ProjectionCatalog):
     """Sam 1794156291: the closed diagnostic reaches the PUBLISHED record as per-case codes (stage, exact net error, guard upstream reason,
     absent egress proxy), from the same digest-verified projection as the case-timings table; never on a NOT SELECTED row; at most 8."""
-    RUN_42496837188 = {"stopCode": "completed", "exitCode": 0, "firstNonPassingAssertion": {"id": "owner-bound", "result": "FAIL"},
+    # SYNTHETIC EXTENSION of run 42496837188 (Sam 1794157364): its real retained diagnostic had stage idle, step owner-bound and api
+    # page.goto/kind network-error, but NOT the exact net error or the guard's proxyConfigured=false/upstream reason, which that run's
+    # code did not record. Those fields are synthetic here and prove only the projection, not the historical cause.
+    SYNTHETIC_EXTENSION_OF_42496837188 = {"stopCode": "completed", "exitCode": 0, "firstNonPassingAssertion": {"id": "owner-bound", "result": "FAIL"},
                        "driverInterruption": {"stage": "idle", "step": "owner-bound", "trail": [],
                                               "error": {"name": "Error", "code": None, "kind": "network-error", "api": "page.goto",
                                                         "timeoutMs": None, "testIds": [], "netError": "ERR_HTTP_RESPONSE_CODE_FAILURE"}},
                        "guard": {"upstreamMode": "env-proxy", "proxyConfigured": False, "proxyValid": False, "noProxyMatched": False,
                                  "upstreamReasons": {"proxy-not-configured": 1}}}
 
-    def test_the_run_42496837188_shape_yields_closed_codes(self):
-        self.assertEqual(I.diagnostic_codes(self.RUN_42496837188),
+    def test_a_synthetic_extension_of_the_run_42496837188_shape_yields_closed_codes(self):
+        self.assertEqual(I.diagnostic_codes(self.SYNTHETIC_EXTENSION_OF_42496837188),
                          ["stage-idle", "net-err-http-response-code-failure", "upstream-proxy-not-configured", "egress-proxy-absent"])
         self.assertEqual(I.diagnostic_codes(None), [])
         self.assertEqual(I.diagnostic_codes(I.UNKNOWN_DIAGNOSTIC), [])
@@ -393,7 +396,7 @@ class PublishedDiagnosticCodes(ProjectionCatalog):
 
     def test_project_publishes_the_codes_on_selected_rows_only_and_the_publisher_accepts_them(self):
         catalog = I.projection_catalog(self.request_raw, self.request_sha, os.path.join(ROOT, "config", "test-config.v1.json"), self.q)
-        codes = I.diagnostic_codes(self.RUN_42496837188)
+        codes = I.diagnostic_codes(self.SYNTHETIC_EXTENSION_OF_42496837188)
         rec = I.project(self.run_record, "42496837188", 1, "d" * 40, self.T, self.q, self.request_sha, self.prov, self.case_results, catalog,
                         case_codes={"AHT-01": codes, "AHT-02": ["egress-proxy-absent"], "AHT-03": ["Bad Code!"]})
         by = {c["caseId"]: c for c in rec["cases"]}

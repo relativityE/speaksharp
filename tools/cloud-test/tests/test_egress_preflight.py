@@ -54,7 +54,7 @@ class Verdict(unittest.TestCase):
         script = os.path.join(ROOT, "scripts", "egress_preflight.py")
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "egress.json")
-            env = {"PATH": os.environ.get("PATH", ""), "https_proxy": PROXY}
+            env = {"PATH": os.environ.get("PATH", ""), "https_proxy": PROXY, "GITHUB_ACTIONS": "true", "GITHUB_JOB": "live"}
             r = subprocess.run([sys.executable, "-I", script, "--run-id", "42999999999", "--attempt", "1", "--source-sha", "a" * 40, "--out", out],
                                capture_output=True, text=True, env=env)
             self.assertEqual(r.returncode, 78)
@@ -62,9 +62,12 @@ class Verdict(unittest.TestCase):
             with open(out, encoding="utf-8") as f:
                 raw = f.read()
             doc = json.loads(raw)
-            self.assertEqual({k: doc[k] for k in ("schema", "runId", "attempt", "sourceSha", "ready", "reason", "reachabilityChecked")},
-                             {"schema": E.SCHEMA, "runId": "42999999999", "attempt": 1, "sourceSha": "a" * 40, "ready": False,
-                              "reason": "proxy-lowercase-only", "reachabilityChecked": False})
+            self.assertEqual({k: doc[k] for k in ("schema", "runtime", "runId", "attempt", "job", "sourceSha", "ready", "reason", "reachabilityChecked",
+                                                  "policyReviewed")},
+                             {"schema": E.SCHEMA, "runtime": E.RUNTIME, "runId": "42999999999", "attempt": 1, "job": "live", "sourceSha": "a" * 40,
+                              "ready": False, "reason": "proxy-lowercase-only", "reachabilityChecked": False, "policyReviewed": True})
+            self.assertRegex(doc["observedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+            self.assertEqual(doc["policySha256"], E.reviewed_policy_sha256())
             for leak in ("s3cr3t", "proxy.internal", "3128"):
                 self.assertNotIn(leak, raw + r.stdout + r.stderr)
             env = {"PATH": os.environ.get("PATH", ""), "HTTPS_PROXY": PROXY}
@@ -73,6 +76,16 @@ class Verdict(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             with open(out, encoding="utf-8") as f:
                 self.assertTrue(json.load(f)["ready"])
+            # a policy that is not the reviewed one is never evidence of readiness, even with a valid proxy
+            other = os.path.join(d, "policy.json")
+            with open(other, "w", encoding="utf-8") as f:
+                json.dump({"upstream": {"mode": "env-proxy"}, "hosts": {"a.test": {}}}, f)
+            r = subprocess.run([sys.executable, "-I", script, "--run-id", "42999999999", "--attempt", "1", "--source-sha", "a" * 40, "--out", out,
+                                "--policy", other], capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 78)
+            with open(out, encoding="utf-8") as f:
+                doc = json.load(f)
+            self.assertEqual((doc["reason"], doc["policyReviewed"], doc["runtime"]), ("policy-not-reviewed", False, "other"))
 
 
 class WorkflowPlacement(unittest.TestCase):
