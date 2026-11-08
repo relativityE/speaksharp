@@ -269,3 +269,17 @@ Deno.test('REVIEW: Focus point shapes are validated, so a malformed point cannot
     (s: EvaluationSet) => { s.items[6].focus!.points = []; },
   ]) assertThrows(() => parseEvaluationSet(mutate(change)), Error, 'EVAL_ITEM_FOCUS_INVALID');
 });
+
+Deno.test('RE-REVIEW of e1120368 (R2): a present quote is grounded despite edge punctuation or non-ASCII letters', () => {
+  const om02 = SET.items.find((i) => i.id === 'om-02-filler-heavy')!;
+  assertEquals(measureGrounding(['You open with "...the kids eat lunch" and it lands.', 'x'], om02).ungroundedQuotes, 0);
+  assertEquals(measureGrounding(['Replace "um. " with a breath.', 'x'], om02).ungroundedQuotes, 0);
+  const cafe = { ...om02, transcript: 'Order a café au lait before the talk.', grounding: { anchors: ['café'], unsupported: [] } };
+  assertEquals(measureGrounding(['Saying "café" twice was warm.', 'x'], cafe), { quotes: 1, ungroundedQuotes: 0, unsupportedClaim: false, anchored: true });
+  // Whole words still: an accented word inside a longer one does not ground it.
+  assertEquals(measureGrounding(['You said "caf" quickly.', 'x'], cafe).ungroundedQuotes, 1);
+});
+
+Deno.test("RE-REVIEW of e1120368 (R1): a one-letter single-quoted span such as rock 'n' roll is not a quote", () => {
+  assertEquals(measureGrounding(["Keep the rock 'n' roll energy.", 'x'], SET.items[0]).quotes, 0);
+});

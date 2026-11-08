@@ -86,8 +86,10 @@ export function parseEvaluationSet(input: unknown): EvaluationSet {
 
 const normalize = (value: string): string => value.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim();
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/** A whole-word (or whole-phrase) match, so 'date' does not match 'update'. */
-const wordMatch = (anchor: string): RegExp => new RegExp(`\\b${escapeRegExp(normalize(anchor))}\\b`);
+/** A whole-word (or whole-phrase) match, so 'date' does not match 'update'. Unicode-aware (re-review of e1120368): JS `\\b`
+ * is ASCII-only, so it treated "café" as not ending a word. */
+const wordMatch = (anchor: string): RegExp =>
+  new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(normalize(anchor))}(?![\\p{L}\\p{N}_])`, 'u');
 // Review of 1c83108c: a quote of any length pairs with its own closing mark ("um" no longer swallows the text up to the next
 // quote). Single and curly-single quotes may contain apostrophes between letters ('that's it'), but a bare apostrophe
 // ("don't ... it's") is never a quote.
@@ -100,8 +102,10 @@ export function measureGrounding(phrases: string[], item: EvaluationItem): { quo
   let ungroundedQuotes = 0;
   for (const phrase of phrases) {
     for (const match of phrase.matchAll(QUOTED)) {
-      const span = normalize((match[1] ?? match[2] ?? match[3] ?? match[4]).replace(/[.,!?;:]+$/, ''));
-      if (!span) continue;
+      // Trim first, then strip punctuation at BOTH ends (re-review of e1120368: "...and then" and "um. " were present but
+      // scored ungrounded). A one-letter single-quoted span (rock 'n' roll) is an apostrophe pair, not a quote.
+      const span = normalize(match[1] ?? match[2] ?? match[3] ?? match[4]).replace(/^[\s\p{P}]+|[\s\p{P}]+$/gu, '');
+      if (!span || ((match[3] !== undefined || match[4] !== undefined) && span.length < 2)) continue;
       quotes += 1;
       // Whole words of the transcript only, the same rule as anchors: "ate" is not grounded by "watering".
       if (!wordMatch(span).test(transcript)) ungroundedQuotes += 1;
