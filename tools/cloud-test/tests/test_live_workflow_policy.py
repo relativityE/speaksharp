@@ -365,7 +365,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             receiver = json.load(f)["aggregateReceiver"]
         self.assertEqual(receiver, {
             "activated": True,
-            "manifestSha256": "14a5c21bf3d8cf122891a9cfd25a78a9b5dfba0d2f349040564f7bbe61d7313f",
+            "manifestSha256": "b5bcbe8bc7ee85cb5b0e9d6bc37480123f592f7a5d3de64230171e8ffd979e6d",
             "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
             "note": receiver["note"],
         })

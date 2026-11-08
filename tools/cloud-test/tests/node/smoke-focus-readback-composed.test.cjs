@@ -9,11 +9,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const DA = path.join(__dirname, '..', '..', 'harness', 'draft-adapters');
 const { createOracles } = require(path.join(DA, 'oracles', 'index.cjs'));
+const { execFileSync } = require('node:child_process');
+
+// Sam 1794104563: the reopened page's route is DERIVED from the tested release's own source lines (committed verbatim with their blob ids),
+// never invented: AnalyticsDashboard.tsx's open-session-detail link (the one ui.reopen clicks) and App.tsx's canonical /progress route.
+const ROUTES = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'tested-release-reopen-route-5a7bf6a1.json'), 'utf8'));
+const DASH = ROUTES.files['frontend/src/components/AnalyticsDashboard.tsx'].lines;
+const ROUTE_PREFIX = (/to=\{`([^`$]*)\$\{session\.id\}`\}/.exec(DASH['500']) || [])[1];
+const TARGET = 'https://speaksharp-public.vercel.app';
+const reopened = id => TARGET + ROUTE_PREFIX + id;
 
 const UID = '11111111-1111-4111-8111-111111111111', SESSION = '22222222-2222-4222-8222-222222222222';
 const LABELS = ['Open with the goal', 'Name the risk', 'Ask for the decision', 'Close with next steps'];
 const caseConfig = () => ({
-  caseId: 'AHT-02', campaignId: 'R10-3b040043-smoke15', sampleMode: 'smoke', recordingWindowMs: 22850, oracleBindings: {},
+  caseId: 'AHT-02', campaignId: 'R10-3b040043-smoke15', sampleMode: 'smoke', recordingWindowMs: 22850, oracleBindings: {}, targetUrl: TARGET,
   account: { id: UID },
   readback: { origin: 'https://example-project.supabase.co', projectRef: 'example-project', anonKey: 'anon', schemaSha256: 'a'.repeat(64),
               ownerReadApproved: true, rlsReadQualificationReceipt: 'receipt:rls@1' },
@@ -30,7 +39,7 @@ function tables(over = {}) {
     ...over,
   };
 }
-function mockPage({ db = tables(), url = 'https://app.example/analytics/' + SESSION, review = ['From this session', 'Detected: point 1 at 0:05.', 'Not detected: point 2, point 3, point 4.'], failTable = null } = {}) {
+function mockPage({ db = tables(), url = reopened(SESSION), review = ['From this session', 'Detected: point 1 at 0:05.', 'Not detected: point 2, point 3, point 4.'], failTable = null } = {}) {
   const reads = [];
   return {
     reads,
@@ -92,7 +101,11 @@ test('composed altered window: a longer recording window brings pending points i
 });
 
 test('composed NOT RUN: an unavailable read, or a page that is not the exact reopened session, is never PASS or FAIL', async () => {
-  for (const page of [mockPage({ failTable: 'objective_evidence' }), mockPage({ url: 'https://app.example/analytics/' + 'x'.repeat(8) })]) {
+  const pages = [mockPage({ failTable: 'objective_evidence' }),
+                 mockPage({ url: TARGET + '/analytics/' + SESSION }),                       // the legacy alias is not where reopen lands
+                 mockPage({ url: reopened('33333333-3333-4333-8333-333333333333') }),        // another session
+                 mockPage({ url: 'https://evil.example' + ROUTE_PREFIX + SESSION })];         // another origin
+  for (const page of pages) {
     const { res } = await readback(page);
     assert.ok(res.thrown === 'NOT_RUN' || res.result === 'NOT RUN', JSON.stringify(res));
   }
@@ -109,5 +122,21 @@ test('the smoke driver records smoke-focus-readback through this oracle after sa
     assert.ok(catalog.cases[id].requiredAssertions.includes('smoke-focus-readback'));
     assert.ok(!catalog.cases[id].requiredAssertions.includes('focus-live-durable'));   // never relabelled as full acceptance
     assert.equal(catalog.cases[id].minimumTakes, 1);
+  }
+});
+
+test('the route is the tested release source: the open-session-detail link targets /progress/<id>, the canonical route', () => {
+  assert.equal(ROUTES.sourceSha, '5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2');
+  assert.equal(ROUTE_PREFIX, '/progress/');
+  assert.match(DASH['501'], /data-testid=\{`open-session-detail-\$\{session\.id\}`\}/);      // the exact link ui.reopen clicks
+  const app = ROUTES.files['frontend/src/App.tsx'].lines;
+  assert.match(app['480'], /<Route path="\/progress\/:sessionId"/);
+  assert.match(app['488'], /<Route path="\/analytics\/:sessionId" element=\{<LegacyProgressRedirect \/>\}/);
+  // where the release object is present (local clones, full-depth checkouts), the excerpt must be byte-identical to it
+  for (const [file, { blobSha, lines }] of Object.entries(ROUTES.files)) {
+    let text = null;
+    try { text = execFileSync('git', ['cat-file', 'blob', blobSha], { cwd: __dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { continue; }
+    const all = text.split('\n');
+    for (const [n, line] of Object.entries(lines)) assert.equal(all[Number(n) - 1], line, file + ':' + n);
   }
 });

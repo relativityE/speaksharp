@@ -172,8 +172,11 @@ function createOracles({context,guard,caseConfig:c,writeEvidence,readPrivateEvid
   const s=state.focus;must(s&&typeof s.briefId==='string'&&s.briefId,'Focus brief capture unavailable');
   must(typeof a.sessionId==='string'&&a.sessionId,'saved Focus session unavailable');
   must(Array.isArray(a.railStatuses)&&a.railStatuses.length===c.focus.points.length,'smoke Focus rail statuses unavailable');
-  let path=null;try{path=new URL(a.page.url()).pathname;}catch{}
-  must(path==='/analytics/'+a.sessionId,'reopened page is not the exact saved session');
+  // Sam 1794104563: the tested release (5a7bf6a1 AnalyticsDashboard.tsx L483/L500) links open-session-detail-<id> to the canonical
+  // /progress/<id>; /analytics/:sessionId is only a legacy redirect. ui.reopen clicks that link and reloads, so the page must be exactly
+  // /progress/<this take> on the expected origin; another session, origin or the legacy alias is NOT RUN.
+  let here=null,origin=null;try{here=new URL(a.page.url());origin=new URL(c.targetUrl).origin;}catch{}
+  must(here&&origin&&here.origin===origin&&here.pathname==='/progress/'+a.sessionId,'reopened page is not the exact saved session');
   const objectives=await rows(db(a.page),'objective_session','id,user_id,brief_id',{source_session_id:a.sessionId});
   if(objectives.length!==1)return result('smokeFocusReadback','FAIL',{objectiveSessions:objectives.length,scope:'smoke-saved-focus-readback'});
   const objective=objectives[0];
