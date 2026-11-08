@@ -96,7 +96,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -200,7 +200,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -298,7 +298,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -402,7 +402,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -500,7 +500,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -604,7 +604,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -702,7 +702,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -806,7 +806,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -904,7 +904,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1008,7 +1008,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1106,7 +1106,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1210,7 +1210,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1308,7 +1308,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1412,7 +1412,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1510,7 +1510,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1614,7 +1614,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1712,7 +1712,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1816,7 +1816,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -1914,7 +1914,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2018,7 +2018,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2116,7 +2116,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2220,7 +2220,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2318,7 +2318,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2422,7 +2422,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2520,7 +2520,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2624,7 +2624,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2722,7 +2722,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2826,7 +2826,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -2924,7 +2924,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -3028,7 +3028,7 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "2d547580ab3f5c06547b24012ba70f757f2c8aa1a444a04a324582c9f2dc4936"
+          "sha256": "0dcd28f36db3490a1fa05c13cca92f22d3fcb1f0c35e84a2a2224f6fc15842ab"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
@@ -3038,7 +3038,7 @@
     },
     {
       "path": "draft-adapters/oracles/index.cjs",
-      "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4",
+      "sha256": "fb4b83392f2c5d065f13fa001c27a45575b03f48193d6ad31fadc10727db90d1",
       "dependencies": [
         {
           "path": "draft-adapters/browser-observers.cjs",

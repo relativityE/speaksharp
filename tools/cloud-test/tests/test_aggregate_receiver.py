@@ -286,14 +286,14 @@ class AggregateReceiver(unittest.TestCase):
         coverage = json.loads((output / "coverage.json").read_text())
         self.assertEqual(coverage["kind"], "NO RUN")
         self.assertEqual(coverage["coverageMode"], "smoke")
-        self.assertEqual(coverage["rowsRequired"], 140)    # + AHT-07 older-take-association (Sam 1794100227)
+        self.assertEqual(coverage["rowsRequired"], 142)    # + AHT-07 older-take-association, + AHT-02/03 smoke-focus-readback
         self.assertEqual(coverage["casesRequired"], 15)
         self.assertFalse(coverage["fullLiveRun"])
         summary = json.loads((output / "summary.json").read_text())
         self.assertEqual(summary["fields"]["readinessBasis"]["runKind"], "NO RUN")
         report = json.loads((output / "report" / "report.json").read_text())
         self.assertEqual(report["coverageMode"], "smoke")
-        self.assertEqual(report["coverage"]["rowsRequired"], 140)
+        self.assertEqual(report["coverage"]["rowsRequired"], 142)
 
     def test_verified_buffers_are_consumed_even_if_the_caller_substitutes_after_validation(self):
         config = self.root / "active-config-substitution.json"; config.write_text(json.dumps(self.config))
