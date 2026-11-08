@@ -57,9 +57,12 @@ test('canonical classification (Sam 1794168880): every textual form of a forbidd
   const forbidden = ['::ffff:7f00:1', '::FFFF:7F00:0001', '0:0:0:0:0:ffff:7f00:1', '::ffff:a00:1', '::ffff:a9fe:a9fe', '::127.0.0.1', '::7f00:1',
     '0:0:0:0:0:0:0:1', '0000:0000:0000:0000:0000:0000:0000:0001', '::0', '64:ff9b::808:808', '64:ff9b:1::1', '2002:7f00:1::', '2002:5db8:d822::1',
     '2001:0:1::', '2001:db8::1', '2001:0DB8::1', '100::1', 'FE80::1', 'febf::1', 'fec0::1', 'FC00::1', 'fdff::1', 'ff02::1', 'FF0E::1',
-    '::ffff:192.168.0.1', '::ffff:100.64.0.1', '::ffff:198.18.0.1', '1:2:3', 'gggg::1', '1::2::3', '::ffff:256.1.1.1'];
+    '::ffff:192.168.0.1', '::ffff:100.64.0.1', '::ffff:198.18.0.1', '1:2:3', 'gggg::1', '1::2::3', '::ffff:256.1.1.1',
+    // Sam 1794169935: reserved / non-public inside or outside 2000::/3
+    '2001:2::1', '2001:10::1', '2001:20::1', '3fff::1', '4000::1', '2001:1ff:ffff::1', '3fff:fff::1', '1000::1', '8000::1', 'e000::1'];
   for (const a of forbidden) assert.equal(P.forbiddenAddress(a), true, a);
-  for (const a of ['2606:4700::6810:1', '2600:1f18::1', '::ffff:5db8:d822', '::ffff:93.184.216.34', '2a06:98c1:3120::3']) assert.equal(P.forbiddenAddress(a), false, a);
+  for (const a of ['2606:4700::6810:1', '2600:1f18::1', '::ffff:5db8:d822', '::ffff:93.184.216.34', '2a06:98c1:3120::3', '2001:200::1',
+    '2001:4860:4860::8888', '3fff:1000::1', '3ff0::1']) assert.equal(P.forbiddenAddress(a), false, a);
   assert.deepEqual(P.v6Bytes('::ffff:7f00:1'), P.v6Bytes('::ffff:127.0.0.1'));
   assert.deepEqual(P.v6Bytes('0:0:0:0:0:0:0:1'), P.v6Bytes('::1'));
 });
@@ -206,10 +209,28 @@ test('compatibility: the REAL guard upstreamSocket (env-proxy) reaches a TLS ser
     assert.equal(sock.authorized, true, 'the guard verified the certificate end to end');
     // a host the service refuses surfaces in the guard as its closed proxy-connect-status reason
     await assert.rejects(upstreamSocket(policy, 'other.example.com', new AbortController().signal), (e) => /CONNECT 403/.test(e.message));
+    // Sam 1794169935: verification failures are real failures through the service. (1) wrong host: the service tunnels an ALLOWED host
+    // to a server whose certificate names another host; (2) untrusted: the same server without the test CA. Both reject, no bytes.
+    const wrong = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=elsewhere.example.org',
+      '-addext', 'subjectAltName=DNS:elsewhere.example.org', '-keyout', path.join(d, 'wkey.pem'), '-out', path.join(d, 'wcert.pem')], { encoding: 'utf8' });
+    assert.equal(wrong.status, 0, wrong.stderr);
+    let wrongBytes = 0;
+    const wrongServer = tls.createServer({ key: fs.readFileSync(path.join(d, 'wkey.pem')), cert: fs.readFileSync(path.join(d, 'wcert.pem')) },
+      (s) => { wrongBytes += 1; s.end('must-not-arrive'); });
+    await new Promise((res) => wrongServer.listen(0, '127.0.0.1', res)); t.after(() => wrongServer.close());
+    const p2 = P.createProxy({ hosts: [HOST], lookup: async () => PUBLIC, connect: () => net.connect({ host: '127.0.0.1', port: wrongServer.address().port }) });
+    const port2 = await p2.listen(); t.after(() => p2.close());
+    process.env.HTTPS_PROXY = `http://127.0.0.1:${port2}`;
+    await assert.rejects(upstreamSocket({ testOnly: true, upstream: { mode: 'env-proxy', caFile: path.join(d, 'wcert.pem') } }, HOST, new AbortController().signal),
+      (e) => /altnames|hostname|ERR_TLS_CERT_ALTNAME_INVALID/i.test(`${e.code} ${e.message}`), 'wrong host must fail verification');
+    process.env.HTTPS_PROXY = `http://127.0.0.1:${port}`;
+    await assert.rejects(upstreamSocket({ upstream: { mode: 'env-proxy' } }, HOST, new AbortController().signal),
+      (e) => /self.signed|SELF_SIGNED|unable to verify|DEPTH_ZERO/i.test(`${e.code} ${e.message}`), 'an untrusted certificate must fail verification');
+    assert.equal(wrongBytes, 0, 'no application bytes over a failed verification');
   } finally {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
-  assert.deepEqual(proxy.counters.allowed, { [HOST]: 1 });
+  assert.deepEqual(proxy.counters.allowed, { [HOST]: 2 });   // the verified connection and the untrusted-certificate attempt
   assert.equal(proxy.counters.denied['host-not-in-policy'], 1);
 });
 

@@ -72,15 +72,15 @@ function forbiddenAddress(address) {
   const zero = (from, to) => b.slice(from, to).every((x) => x === 0);
   if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) return v4Forbidden(b.slice(12));           // ::ffff:0:0/96  IPv4-mapped
   if (zero(0, 12)) return true;                                                                     // ::/96 incl. ::, ::1, IPv4-compatible
-  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) return true;               // 64:ff9b::/96 (and /48) NAT64
-  if (b[0] === 0x01 && b[1] === 0x00 && zero(2, 8)) return true;                                    // 100::/64 discard
-  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x00 && b[3] === 0x00) return true;               // 2001::/32 Teredo
+  // Public rule (Sam 1794169935): only global unicast 2000::/3, minus the IETF special-purpose blocks inside it. Everything outside
+  // 2000::/3 (NAT64 64:ff9b::/32, discard 100::/64, ULA, link/site-local, multicast, 4000::/2, ...) refuses by construction.
+  if ((b[0] & 0xe0) !== 0x20) return true;                                                          // not 2000::/3
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] <= 0x01) return true;                                  // 2001::/23 IETF protocol assignments
+                                                                                                    //   (Teredo, benchmarking 2001:2::/48,
+                                                                                                    //   ORCHID 2001:10::/28, ORCHIDv2 2001:20::/28)
   if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x0d && b[3] === 0xb8) return true;               // 2001:db8::/32 documentation
   if (b[0] === 0x20 && b[1] === 0x02) return true;                                                  // 2002::/16 6to4
-  if ((b[0] & 0xfe) === 0xfc) return true;                                                          // fc00::/7 unique local
-  if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true;                                         // fe80::/10 link-local
-  if (b[0] === 0xfe && (b[1] & 0xc0) === 0xc0) return true;                                         // fec0::/10 site-local
-  if (b[0] === 0xff) return true;                                                                   // ff00::/8 multicast
+  if (b[0] === 0x3f && b[1] === 0xff && (b[2] & 0xf0) === 0x00) return true;                       // 3fff::/20 documentation
   return false;
 }
 
