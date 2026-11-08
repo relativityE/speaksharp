@@ -864,11 +864,15 @@ jobs:
         timeout-minutes: 1
         if: always()
         run: |
+          set -euo pipefail
           d="$RUNNER_TEMP/egress-proxy"
           [ -s "$d/pid" ] || { echo "egress service never started: no receipt"; exit 0; }
           pid="$(tr -dc 0-9 < "$d/pid")"
-          # signal only our own service: the recorded pid must still run egress_connect_proxy.cjs (never a reused pid)
-          if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ] && tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q 'egress_connect_proxy\.cjs'; then
+          # signal only our own service: the recorded pid must still run egress_connect_proxy.cjs (never a reused pid). No pipeline: the
+          # command line is read into a variable and matched, so no stage of a pipe can mask a failure.
+          cmdline=""
+          if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline")"; fi
+          if [[ "$cmdline" == *egress_connect_proxy.cjs* ]]; then
             kill -TERM "$pid"
             for _ in $(seq 1 100); do [ -d "/proc/$pid" ] || break; sleep 0.1; done
             [ ! -d "/proc/$pid" ] || { echo "BLOCKED_SETUP: egress-service-did-not-stop"; exit 78; }

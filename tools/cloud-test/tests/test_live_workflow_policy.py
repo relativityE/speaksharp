@@ -843,7 +843,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_egress_stop_signals_only_its_own_service_and_reports_a_missing_receipt(self):
         stop = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Stop the egress service and keep its content-safe receipt")["run"]
-        self.assertIn("egress_connect_proxy\\.cjs", stop)
+        # CI run 42525622410 (Sam 1794174331): an explicit pipefail guard, and no pipeline at all in this step
+        self.assertTrue(stop.lstrip().startswith("set -euo pipefail"))
+        self.assertNotRegex(stop, r"\|\s*grep")
+        self.assertIn('[[ "$cmdline" == *egress_connect_proxy.cjs* ]]', stop)
         self.assertLess(stop.index("/proc/$pid/cmdline"), stop.index('kill -TERM "$pid"'))
         self.assertIn("BLOCKED_SETUP: egress-service-did-not-stop", stop)
         self.assertIn("BLOCKED_SETUP: egress-receipt-missing", stop)
