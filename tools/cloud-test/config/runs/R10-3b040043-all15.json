@@ -212,8 +212,8 @@
     "requests": {
       "planned": 2490,
       "cleanupReserve": 150,
-      "pooledSlack": 700,
-      "runCap": 3340
+      "pooledSlack": 689,
+      "runCap": 3329
     },
     "identityReads": 32,
     "starts": 16,
@@ -227,14 +227,14 @@
   },
   "proposedLimits": {
     "cumulativeCeilingRequests": 9518,
-    "ceilingIncreaseJustification": "PO credits the period ceiling 4342 -> 6364 (slack:1794009248.220099) and 6364 -> 8386 (Sam's verified ChatGPT receipt slack:1794015289.396409) by runs 42284568156's and 42318728005's source-bounded over-charges (each 2032 settled at the cap - 10 preflight-bound); 8386 -> 9518 is the minimum that admits this run's sized 3350 run cap + 32 identity reads after 42386714252's capped settle (PO: minimum values enough for a 15-journey signal). This one attempt reserves its sized 3340 run cap plus 32 identity reads = 3372 (3350 lowered by the 10-request preflight charge of R10 run 42421801424, so the reservation fits the approved period headroom without new capacity) (the campaign-plus-identity reservation, not all outbound production HTTP: the same-job producer's 10 Supabase reads and 2 telemetry-reader invocations, each with its identity and family queries, are separately budgeted).",
-    "identityCap": 128,
+    "ceilingIncreaseJustification": "PO credits the period ceiling 4342 -> 6364 (slack:1794009248.220099) and 6364 -> 8386 (Sam's verified ChatGPT receipt slack:1794015289.396409) by runs 42284568156's and 42318728005's source-bounded over-charges (each 2032 settled at the cap - 10 preflight-bound); 8386 -> 9518 is the minimum that admits this run's sized 3350 run cap + 32 identity reads after 42386714252's capped settle (PO: minimum values enough for a 15-journey signal). This one attempt reserves its sized 3340 run cap plus 32 identity reads = 3372 (3350 lowered by the 10-request preflight charge of R10 run 42421801424, so the reservation fits the approved period headroom without new capacity) (the campaign-plus-identity reservation, not all outbound production HTTP: the same-job producer's 10 Supabase reads and 2 telemetry-reader invocations, each with its identity and family queries, are separately budgeted). One-run sufficient capacity (PO authorization relayed by Sam, slack:1794126096.067599; route Sam 1794126260/1794126304): INCREASED period ceilings with every prior charge retained, NOT a refund and NOT a measured-zero correction; R10 run 42423408284's settle (requests 11, identity 1, runner 60, capped starts 16 / takes 16 / coaching 20) and the ledger are unchanged. Starts 74 -> 80 and takes 64 -> 80 (headroom 10/0 -> 16/16), identity reads 128 -> 129, and run cap 3340 -> 3329 (pooled slack 700 -> 689; planned 2490 and cleanup 150 unchanged) so 3329 + 32 identity reads = 3361 fits the request headroom at journal head 3ad9de4f. Runner 60; shared identity boundaries stay off.",
+    "identityCap": 129,
     "identityIncreaseJustification": "Period identity ceiling 32 -> 64 -> 96 -> 128 (minimum for this run after 42386714252's capped settle of 32: its A7 identity read is UNKNOWN, the helper returned no receipt and the read may have been sent; the other 31 were never dispatched), credited by runs 42284568156's and 42318728005's 32 never-dispatched identity reads each (slack:1794009248.220099; slack:1794015289.396409). This attempt still reserves and needs exactly 32.",
-    "startsCap": 74,
+    "startsCap": 80,
     "startsIncreaseJustification": "Period ceiling 42 -> 58 -> 74, credited by runs 42284568156's and 42318728005's 16 never-used Starts each (slack:1794009248.220099; slack:1794015289.396409). This one attempt reserves only the 16-Start sum of its per-case caps, with no retry reserve.",
-    "takesCap": 64,
+    "takesCap": 80,
     "takesIncreaseJustification": "Period ceiling 31 -> 47 -> 63 -> 64 (minimum for this run's 16 takes after 42386714252's capped settle), credited by runs 42284568156's and 42318728005's 16 never-used takes each (slack:1794009248.220099; slack:1794015289.396409). This one attempt reserves only its 16-take allowance, with no retry reserve.",
-    "runCapRequests": 3340,
+    "runCapRequests": 3329,
     "paidActionsUsd": 0,
     "guardCaps": {
       "coaching": 20
@@ -259,10 +259,10 @@
   },
   "approvedLimits": {
     "cumulativeCeilingRequests": 9518,
-    "identityCap": 128,
-    "startsCap": 74,
-    "takesCap": 64,
-    "runCapRequests": 3340,
+    "identityCap": 129,
+    "startsCap": 80,
+    "takesCap": 80,
+    "runCapRequests": 3329,
     "approvalRef": "slack:1793652215.171339",
     "approvedBy": "Akin",
     "startPressCaps": {

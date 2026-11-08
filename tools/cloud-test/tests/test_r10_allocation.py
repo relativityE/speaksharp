@@ -16,7 +16,7 @@ with open(os.path.join(ROOT, "config", "runs", "R10-3b040043-all15.json"), encod
     TEMPLATE = json.load(_f)
 RUN = "42400000001"
 AT = "2026-11-02T04:00:00Z"
-SIZED = {"requests": 3340 + 32, "identityReads": 32, "starts": 16, "takes": 16}
+SIZED = {"requests": 3329 + 32, "identityReads": 32, "starts": 16, "takes": 16}
 
 
 def occurrence(template=TEMPLATE):
