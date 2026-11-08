@@ -193,9 +193,12 @@ class ShortSmokeContract(unittest.TestCase):
         # occurrence ending at the extended period end, 2026-12-31T00:00Z). Both boundaries are exact.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-08T15:36:22Z")
+        # Sam 1794174768: the window refreshed for the owner's 00:00Z Nov 9 start; expiresUtc 03:00Z leaves the latest start at 01:20Z.
         init.materialize_authoritative_smoke_occurrence(
-            str(ROOT.parents[1]), template, "2026-11-08T22:20:00Z")
-        for outside in ("2026-11-08T15:36:21Z", "2026-11-08T22:20:01Z"):
+            str(ROOT.parents[1]), template, "2026-11-09T00:00:00Z")
+        init.materialize_authoritative_smoke_occurrence(
+            str(ROOT.parents[1]), template, "2026-11-09T01:20:00Z")
+        for outside in ("2026-11-08T15:36:21Z", "2026-11-09T01:20:01Z"):
             with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
                 init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
