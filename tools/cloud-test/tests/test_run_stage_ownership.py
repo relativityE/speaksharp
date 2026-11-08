@@ -111,7 +111,7 @@ QUIESCENCE = ROOT / "scripts/run_stage_quiescence.py"
 
 
 class FakeProc:
-    """A synthetic /proc: status (PPid, Uid), NUL-separated cmdline, and cwd/root/exe/fd symlinks. Readlink returns the target text."""
+    """A synthetic /proc: status (PPid, Uid), NUL-separated cmdline, and the cwd, root, exe and fd symlinks. Readlink returns the target text."""
     def __init__(self, root):
         self.root = root
         os.mkdir(root)
@@ -138,7 +138,7 @@ class Quiescence(unittest.TestCase):
         self.pin = os.path.join(self.d, "run-inputs")
         self.proc = FakeProc(os.path.join(self.d, "proc"))
         # the recovery chain itself: runner step shell -> sudo -> bash execute_run.sh recover-as-root -> python (self)
-        self.proc.add(10, ppid=1, argv=("bash", "-e", "/home/runner/work/_temp/step.sh"))
+        self.proc.add(10, ppid=1, argv=("bash", "-e", "/w/_temp/step.sh"))   # a synthetic runner step-shell path
         self.proc.add(11, ppid=10, euid=0, argv=("sudo", "-n", "bash", "tools/cloud-test/scripts/execute_run.sh", "recover-as-root",
                                                  "1001:118", self.tree, self.pin))
         self.proc.add(12, ppid=11, euid=0, argv=("bash", "tools/cloud-test/scripts/execute_run.sh", "recover-as-root", "1001:118", self.tree,
