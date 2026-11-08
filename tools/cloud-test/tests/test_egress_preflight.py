@@ -125,7 +125,8 @@ class WorkflowPlacement(unittest.TestCase):
         self.assertEqual(names[i - 2:i], ["Run actions/checkout@v6", "Start the restrictive loopback CONNECT egress service (PO-approved; no secret)"])
         step = self.steps[i]
         self.assertNotIn("secrets.", json.dumps(step))
-        self.assertNotIn("env", step)
+        # its only env is the PO-approved loopback service URL, a step output (Sam 1794168880: never $GITHUB_ENV)
+        self.assertEqual(step.get("env"), {"HTTPS_PROXY": "${{ steps.egress-proxy.outputs.url }}"})
         self.assertIn("egress_preflight.py", step["run"])
         credential = [n for _job, n in U.credential_steps(self.text)]
         self.assertTrue(credential and all(names.index(n) > i for n in credential))

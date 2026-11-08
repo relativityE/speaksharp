@@ -788,9 +788,21 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(names[i + 1], "Egress readiness preflight (no network; closed receipt)")
         start = steps[i]
         self.assertNotIn("env", start)
-        for needle in ("secrets.", "sudo", "vars.", "https_proxy", "NO_PROXY", "HTTP_PROXY="):
+        self.assertEqual(start["id"], "egress-proxy")
+        for needle in ("secrets.", "sudo", "vars.", "https_proxy", "NO_PROXY", "HTTP_PROXY=", "GITHUB_ENV"):
             self.assertNotIn(needle, start["run"], needle)
-        self.assertIn('echo "HTTPS_PROXY=http://127.0.0.1:$port" >> "$GITHUB_ENV"', start["run"])
+        self.assertIn('echo "url=http://127.0.0.1:$port" >> "$GITHUB_OUTPUT"', start["run"])
+        # Sam 1794168880: never global. Exactly the egress preflight and the run stage receive it, as step-level env; no other step,
+        # job-level env or $GITHUB_ENV write mentions HTTPS_PROXY, so setup, git, gh and artifact uploads never route through it.
+        url = "${{ steps.egress-proxy.outputs.url }}"
+        users = [s.get("name") for s in steps if url in json.dumps(s)]
+        self.assertEqual(sorted(users), sorted(["Egress readiness preflight (no network; closed receipt)", self._run_step_name()]))
+        for s in steps:
+            self.assertEqual((s.get("env") or {}).get("HTTPS_PROXY", url), url, s.get("name"))
+            self.assertNotRegex(s.get("run") or "", r"HTTPS_PROXY=.*GITHUB_ENV|GITHUB_ENV.*HTTPS_PROXY", s.get("name"))
+        for job in self.jobs.values():
+            self.assertNotIn("HTTPS_PROXY", json.dumps(job.get("env") or {}))
+        self.assertNotIn("HTTPS_PROXY", json.dumps(self.doc.get("env") or {}))
         self.assertIn("egress_connect_proxy.cjs --bundle tools/cloud-test/harness/bundle", start["run"])
         stop = names.index("Stop the egress service and keep its content-safe receipt")
         keep = names.index("Retain the egress service receipt (1 day)")
@@ -825,6 +837,17 @@ class LiveWorkflowPolicy(unittest.TestCase):
                 first = run.index("CT_OUT")
                 self.assertEqual(run[first - 2:first], "${", s.get("name"))
                 self.assertTrue(run[first:].startswith("CT_OUT:-"), s.get("name"))
+
+    def _run_step_name(self):
+        return next(s.get("name") for s in self.jobs["live"]["steps"] if (s.get("run") or "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
+
+    def test_the_egress_stop_signals_only_its_own_service_and_reports_a_missing_receipt(self):
+        stop = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Stop the egress service and keep its content-safe receipt")["run"]
+        self.assertIn("egress_connect_proxy\\.cjs", stop)
+        self.assertLess(stop.index("/proc/$pid/cmdline"), stop.index('kill -TERM "$pid"'))
+        self.assertIn("BLOCKED_SETUP: egress-service-did-not-stop", stop)
+        self.assertIn("BLOCKED_SETUP: egress-receipt-missing", stop)
+        self.assertNotIn("|| true", stop)
 
     def test_every_artifact_this_workflow_uploads_is_kept_one_day(self):
         """Owner, Nov 7: "We only want repository artifacts stored for 1 day" (Sam 1794162379: no attestation exception)."""

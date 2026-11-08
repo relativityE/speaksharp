@@ -23,26 +23,65 @@ const path = require('node:path');
 
 const SCHEMA = 'speaksharp.cloud-test.egress-connect-proxy.v1';
 const DENY_REASONS = Object.freeze(['not-connect', 'malformed-target', 'ip-literal', 'port-not-443', 'host-not-in-policy', 'dns-failed',
-  'dns-forbidden-address', 'upstream-connect-failed', 'over-capacity', 'shutting-down']);
-const LIMITS = Object.freeze({ maxConcurrent: 64, idleMs: 120000, connectTimeoutMs: 15000, lifetimeMs: 100 * 60 * 1000 });
+  'dns-forbidden-address', 'upstream-connect-failed', 'over-capacity', 'shutting-down', 'client-gone']);
+const LIMITS = Object.freeze({ maxConcurrent: 64, idleMs: 120000, connectTimeoutMs: 15000, dnsTimeoutMs: 10000, lifetimeMs: 100 * 60 * 1000 });
 const POLICY_ENTRY = 'config/policy.production.TEMPLATE.json';
 const HOST = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
+function v4Forbidden(b) {
+  // b: 4 octets. Every IPv4 range a policy host must never resolve to (RFC 6890 special-purpose and private space).
+  const [a, x] = b;
+  return a === 0 || a === 10 || a === 127 || (a === 100 && x >= 64 && x <= 127) || (a === 169 && x === 254) || (a === 172 && x >= 16 && x <= 31)
+    || (a === 192 && x === 168) || (a === 192 && x === 0 && b[2] === 0) || (a === 192 && x === 0 && b[2] === 2) || (a === 198 && (x === 18 || x === 19))
+    || (a === 198 && x === 51 && b[2] === 100) || (a === 203 && x === 0 && b[2] === 113) || a >= 224;
+}
+
+function v4Bytes(text) {
+  const parts = text.split('.');
+  if (parts.length !== 4 || parts.some((p) => !/^(0|[1-9][0-9]{0,2})$/.test(p) || Number(p) > 255)) return null;
+  return parts.map(Number);
+}
+
+function v6Bytes(text) {
+  // Canonical parse of any textual IPv6 form (compressed, expanded, embedded dotted IPv4, mixed case) into 16 octets; null if invalid.
+  if (typeof text !== 'string' || net.isIPv6(text) === false) return null;
+  let head = text.toLowerCase(), tail4 = null;
+  const dotted = head.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) { tail4 = v4Bytes(dotted[2]); if (!tail4) return null; head = dotted[1] + '0:0'; }
+  const halves = head.split('::');
+  if (halves.length > 2) return null;
+  const words = (h) => (h === '' ? [] : h.split(':'));
+  const left = words(halves[0]), right = halves.length === 2 ? words(halves[1]) : [];
+  const fill = halves.length === 2 ? 8 - left.length - right.length : 0;
+  if (fill < 0 || (halves.length === 1 && left.length !== 8)) return null;
+  const all = [...left, ...Array(fill).fill('0'), ...right];
+  if (all.length !== 8 || all.some((w) => !/^[0-9a-f]{1,4}$/.test(w))) return null;
+  const out = [];
+  for (const w of all) { const n = parseInt(w, 16); out.push(n >> 8, n & 255); }
+  if (tail4) out.splice(12, 4, ...tail4);
+  return out;
+}
+
 function forbiddenAddress(address) {
-  // Every address the policy hosts must never resolve to (SSRF / DNS-rebinding defence). Fail closed on anything unparsable.
-  const family = net.isIP(address);
-  if (family === 4) {
-    const [a, b] = address.split('.').map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
-      || (a === 192 && b === 168) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
-  }
-  if (family === 6) {
-    const x = address.toLowerCase();
-    const mapped = x.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return forbiddenAddress(mapped[1]);
-    return x === '::' || x === '::1' || /^f[cd]/.test(x) || /^fe[89ab]/.test(x) || /^ff/.test(x) || x.startsWith('64:ff9b:') || x.startsWith('2001:db8');
-  }
-  return true;
+  // Every address a policy host must never resolve to (SSRF / DNS-rebinding defence), on the CANONICAL bytes, never on text prefixes
+  // (Sam 1794168880: ::ffff:7f00:1 is 127.0.0.1). Fail closed on anything unparsable.
+  if (typeof address !== 'string') return true;
+  if (net.isIPv4(address)) { const b = v4Bytes(address); return !b || v4Forbidden(b); }
+  const b = v6Bytes(address);
+  if (!b) return true;
+  const zero = (from, to) => b.slice(from, to).every((x) => x === 0);
+  if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) return v4Forbidden(b.slice(12));           // ::ffff:0:0/96  IPv4-mapped
+  if (zero(0, 12)) return true;                                                                     // ::/96 incl. ::, ::1, IPv4-compatible
+  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) return true;               // 64:ff9b::/96 (and /48) NAT64
+  if (b[0] === 0x01 && b[1] === 0x00 && zero(2, 8)) return true;                                    // 100::/64 discard
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x00 && b[3] === 0x00) return true;               // 2001::/32 Teredo
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x0d && b[3] === 0xb8) return true;               // 2001:db8::/32 documentation
+  if (b[0] === 0x20 && b[1] === 0x02) return true;                                                  // 2002::/16 6to4
+  if ((b[0] & 0xfe) === 0xfc) return true;                                                          // fc00::/7 unique local
+  if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true;                                         // fe80::/10 link-local
+  if (b[0] === 0xfe && (b[1] & 0xc0) === 0xc0) return true;                                         // fec0::/10 site-local
+  if (b[0] === 0xff) return true;                                                                   // ff00::/8 multicast
+  return false;
 }
 
 function reviewedPolicy(bundle) {
@@ -85,8 +124,20 @@ function createProxy({ hosts, lookup = dns.promises.lookup, connect = net.connec
     sockets.add(client);
     client.on('close', () => sockets.delete(client));
     client.on('error', () => client.destroy());
-    let answers;
-    try { answers = await lookup(host, { all: true, verbatim: true }); } catch { sockets.delete(client); return deny(client, 'dns-failed', 502); }
+    // The http server keeps sockets half-open, so a client that closes during DNS is only an unread FIN. Read it during the wait (any early
+    // tunnel bytes are buffered, bounded, and replayed in order after the 200) so `end` marks the client gone before any connect.
+    let gone = false, buffered = [], bufferedBytes = 0;
+    const early = (chunk) => { bufferedBytes += chunk.length; if (bufferedBytes > 65536) { gone = true; client.destroy(); } else buffered.push(chunk); };
+    client.on('data', early);
+    client.once('end', () => { gone = true; });
+    let answers, dnsTimer;
+    try {
+      // Sam 1794168880: the lookup is bounded, and nothing connects after the client went away or shutdown began during it.
+      answers = await Promise.race([lookup(host, { all: true, verbatim: true }),
+        new Promise((_, reject) => { dnsTimer = setTimeout(() => reject(new Error("dns-timeout")), limits.dnsTimeoutMs); })]);
+    } catch { clearTimeout(dnsTimer); sockets.delete(client); return deny(client, "dns-failed", 502); }
+    clearTimeout(dnsTimer);
+    if (closing || gone || client.destroyed || !sockets.has(client)) { sockets.delete(client); counters.denied['client-gone']++; client.destroy(); return; }
     if (!Array.isArray(answers) || !answers.length || answers.some((a) => forbiddenAddress(a?.address))) {
       sockets.delete(client); return deny(client, 'dns-forbidden-address', 403);
     }
@@ -103,8 +154,12 @@ function createProxy({ hosts, lookup = dns.promises.lookup, connect = net.connec
       clearTimeout(timer);
       upstream.connectedOnce = true;
       counters.allowed[host] += 1;
+      if (gone || client.destroyed) { upstream.destroy(); return; }
+      client.off('data', early);
       client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       if (head && head.length) upstream.write(head);
+      for (const chunk of buffered) upstream.write(chunk);
+      buffered = [];
       for (const s of [client, upstream]) s.setTimeout(limits.idleMs, () => { client.destroy(); upstream.destroy(); });
       client.pipe(upstream);
       upstream.pipe(client);
@@ -152,5 +207,5 @@ async function main(argv = process.argv.slice(2)) {
   setTimeout(() => finish('lifetime'), LIMITS.lifetimeMs).unref();
 }
 
-module.exports = { createProxy, forbiddenAddress, reviewedPolicy, DENY_REASONS, LIMITS };
+module.exports = { createProxy, forbiddenAddress, v6Bytes, reviewedPolicy, DENY_REASONS, LIMITS };
 if (require.main === module) main().catch((e) => { process.stderr.write(`BLOCKED_SETUP: egress-proxy:${/^[a-z-]+$/.test(e?.message) ? e.message : 'start-failed'}\n`); process.exit(78); });

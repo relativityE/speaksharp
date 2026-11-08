@@ -53,6 +53,55 @@ test('the forbidden-address table: loopback, private, link-local, CGNAT, metadat
   for (const a of ['93.184.216.34', '76.76.21.21', '104.18.1.1', '172.64.1.1', '2606:4700::6810:1', '::ffff:93.184.216.34']) assert.equal(P.forbiddenAddress(a), false, a);
 });
 
+test('canonical classification (Sam 1794168880): every textual form of a forbidden address refuses, on bytes, not text prefixes', () => {
+  const forbidden = ['::ffff:7f00:1', '::FFFF:7F00:0001', '0:0:0:0:0:ffff:7f00:1', '::ffff:a00:1', '::ffff:a9fe:a9fe', '::127.0.0.1', '::7f00:1',
+    '0:0:0:0:0:0:0:1', '0000:0000:0000:0000:0000:0000:0000:0001', '::0', '64:ff9b::808:808', '64:ff9b:1::1', '2002:7f00:1::', '2002:5db8:d822::1',
+    '2001:0:1::', '2001:db8::1', '2001:0DB8::1', '100::1', 'FE80::1', 'febf::1', 'fec0::1', 'FC00::1', 'fdff::1', 'ff02::1', 'FF0E::1',
+    '::ffff:192.168.0.1', '::ffff:100.64.0.1', '::ffff:198.18.0.1', '1:2:3', 'gggg::1', '1::2::3', '::ffff:256.1.1.1'];
+  for (const a of forbidden) assert.equal(P.forbiddenAddress(a), true, a);
+  for (const a of ['2606:4700::6810:1', '2600:1f18::1', '::ffff:5db8:d822', '::ffff:93.184.216.34', '2a06:98c1:3120::3']) assert.equal(P.forbiddenAddress(a), false, a);
+  assert.deepEqual(P.v6Bytes('::ffff:7f00:1'), P.v6Bytes('::ffff:127.0.0.1'));
+  assert.deepEqual(P.v6Bytes('0:0:0:0:0:0:0:1'), P.v6Bytes('::1'));
+});
+
+test('a late DNS answer never connects: past the bound, after the client closed, or after shutdown began', async (t) => {
+  const echo = await echoServer(t);
+  let connects = 0;
+  const connect = () => { connects += 1; return net.connect({ host: '127.0.0.1', port: echo }); };
+  // (1) the lookup outlives its bound: a closed dns-failed refusal, no connect
+  {
+    const proxy = P.createProxy({ hosts: [HOST], lookup: () => new Promise((r) => setTimeout(() => r(PUBLIC), 400)), connect, limits: { ...P.LIMITS, dnsTimeoutMs: 50 } });
+    const port = await proxy.listen(); t.after(() => proxy.close());
+    const { head } = await rawRequest(port, `CONNECT ${HOST}:443 HTTP/1.1\r\nHost: x\r\n\r\n`);
+    assert.match(head, /^HTTP\/1\.1 502 [\s\S]*dns-failed/);
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(connects, 0);
+  }
+  // (2) the client goes away while DNS is pending: the late answer is dropped
+  {
+    let release; const pending = new Promise((r) => { release = r; });
+    const proxy = P.createProxy({ hosts: [HOST], lookup: () => pending.then(() => PUBLIC), connect });
+    const port = await proxy.listen(); t.after(() => proxy.close());
+    const s = net.connect({ host: '127.0.0.1', port }, () => s.write(`CONNECT ${HOST}:443 HTTP/1.1\r\nHost: x\r\n\r\n`));
+    await new Promise((r) => setTimeout(r, 100)); s.destroy(); await new Promise((r) => setTimeout(r, 50));
+    release(); await new Promise((r) => setTimeout(r, 100));
+    assert.equal(connects, 0);
+    assert.equal(proxy.counters.denied['client-gone'], 1);
+  }
+  // (3) shutdown begins while DNS is pending: nothing connects afterwards
+  {
+    let release; const pending = new Promise((r) => { release = r; });
+    const proxy = P.createProxy({ hosts: [HOST], lookup: () => pending.then(() => PUBLIC), connect });
+    const port = await proxy.listen();
+    const s = net.connect({ host: '127.0.0.1', port }, () => s.write(`CONNECT ${HOST}:443 HTTP/1.1\r\nHost: x\r\n\r\n`));
+    s.on('error', () => {});
+    await new Promise((r) => setTimeout(r, 100));
+    const closed = proxy.close();
+    release(); await closed; await new Promise((r) => setTimeout(r, 100));
+    assert.equal(connects, 0);
+  }
+});
+
 test('only the CODE-pinned production policy is served, and its hosts are exactly the policy hosts', () => {
   const { hosts, policySha256 } = P.reviewedPolicy(BUNDLE);
   const policy = JSON.parse(fs.readFileSync(path.join(BUNDLE, 'config', 'policy.production.TEMPLATE.json'), 'utf8'));
