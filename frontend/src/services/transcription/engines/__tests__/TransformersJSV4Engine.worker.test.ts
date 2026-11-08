@@ -470,6 +470,79 @@ describe('TransformersJSV4Engine worker message contract', () => {
         });
     });
 
+    // Sam's review of c1585147: two races the post-pipeline fence alone missed, on both engines.
+    // (1) A teardown inside the earlier `import(...)` await let the stale attempt capture the NEW generation, pass the
+    //     fence and publish over the successor. (2) A stale load failing late ran the shared failure cleanup, tearing
+    //     down state the successor owned. The attempt's generation is now captured at loadModel entry.
+    describe('a stale main-thread attempt never touches its successor (both engines)', () => {
+        type Engine = { init(): Promise<{ isOk: boolean }>; destroy(): Promise<void> };
+        const engines: Array<{ name: string; mock: typeof mockPipeline; make: () => Promise<Engine> }> = [
+            { name: 'v2', mock: mockXenovaPipeline, make: async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                return new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() }) as unknown as Engine;
+            } },
+            { name: 'v4', mock: mockPipeline, make: async () => {
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                return new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() }) as unknown as Engine;
+            } },
+        ];
+        const pipe = () => Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+        beforeEach(() => { mockXenovaPipeline.mockReset(); (globalThis as { Worker?: unknown }).Worker = undefined; });
+
+        for (const { name, mock, make } of engines) {
+            it(`${name}: a teardown during the module import cannot let the stale load publish over the successor`, async () => {
+                const pending: Array<(value: unknown) => void> = [];
+                mock.mockImplementation(() => new Promise(resolve => { pending.push(resolve); }));
+                const engine = await make();
+                const stale = engine.init();          // suspends inside `await import(...)`
+                await engine.destroy();               // teardown before the stale attempt reaches pipeline()
+                const successorInit = engine.init();
+                await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0));
+                await new Promise(resolve => setTimeout(resolve, 25)); // let a stale attempt reach pipeline() too, if it can
+                const pipes = pending.map(() => pipe());
+                for (let i = pending.length - 1; i >= 0; i--) pending[i](pipes[i]); // the successor's load settles first
+                expect((await successorInit).isOk).toBe(true);
+                expect((await stale).isOk).toBe(false);
+                const successor = pipes[pipes.length - 1];
+                await vi.waitFor(() => expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor));
+                await new Promise(resolve => setTimeout(resolve, 25));
+                expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
+                expect(successor.dispose).not.toHaveBeenCalled();
+                for (const other of pipes.slice(0, -1)) expect(other.dispose).toHaveBeenCalledTimes(1);
+                await engine.destroy();
+            });
+
+            it(`${name}: a stale load that fails late leaves the successor's state alone`, async () => {
+                let rejectStale!: (error: unknown) => void;
+                mock.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectStale = reject; }));
+                const engine = await make();
+                const stale = engine.init();
+                await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1));
+                await engine.destroy();
+                const successor = pipe();
+                mock.mockResolvedValueOnce(successor);
+                expect((await engine.init()).isOk).toBe(true);
+                // Successor-owned state the shared failure cleanup would clear.
+                const state = engine as unknown as { transcriber: unknown; runtimeEvidence: unknown; activeLoadRequestId: unknown; pendingWorkerRequests: Map<number, unknown> };
+                const evidence = { marker: 'successor' };
+                state.runtimeEvidence = evidence;
+                state.activeLoadRequestId = 7;
+                const request = { resolve: vi.fn(), reject: vi.fn(), timeoutId: setTimeout(() => undefined, 60_000) };
+                state.pendingWorkerRequests.set(7, request);
+                rejectStale(new Error('stale load failed late'));
+                expect((await stale).isOk).toBe(false);
+                expect(state.transcriber).toBe(successor);
+                expect(state.runtimeEvidence).toBe(evidence);
+                expect(state.activeLoadRequestId).toBe(7);
+                expect(state.pendingWorkerRequests.get(7)).toBe(request);
+                expect(request.reject).not.toHaveBeenCalled();
+                clearTimeout(request.timeoutId);
+                state.pendingWorkerRequests.clear();
+                await engine.destroy();
+            });
+        }
+    });
+
     it.each(['missing', 'wrong-model', 'wrong-backend'] as const)('refuses ready with %s runtime evidence', async (mode) => {
         vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
         if (mode === 'missing') fakeLoadedDevice = null;

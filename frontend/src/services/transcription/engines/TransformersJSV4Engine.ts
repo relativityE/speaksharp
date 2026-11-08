@@ -145,6 +145,12 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     protected async loadModel(isMock?: boolean): Promise<Result<void, Error>> {
+        // Reviews of 38253831 and c1585147: this attempt's lifetime, captured before ANY await. A destroy/terminate advances
+        // the generation, so after each await a superseded attempt stops: it never publishes, never calls back and never
+        // runs the shared failure cleanup, which by then may belong to the attempt that followed.
+        const generation = this.lifecycleGeneration;
+        const superseded = () => generation !== this.lifecycleGeneration || this.isTerminated;
+        const cancelled = () => Result.err(new Error('[TransformersJSV4] init cancelled by destroy/terminate.'));
         const options = (this.options || {}) as TranscriptionModeOptions;
         // v4 model TIER (Option B): the flag-gated resolver picks the variant
         // (base_q4 floor / distil_q4 tier) and PrivateSTT threads it via options.
@@ -210,6 +216,7 @@ export class TransformersJSV4Engine extends STTEngine {
             }
 
             const transformers = await import('@huggingface/transformers');
+            if (superseded()) return cancelled();
             const { pipeline, env, LogLevel } = transformers;
 
             env.allowLocalModels = false;
@@ -263,15 +270,14 @@ export class TransformersJSV4Engine extends STTEngine {
                 pipelineOptions.device = mainThreadDevice;
             }
 
-            // Elon/Sam review of 38253831: pipeline() cannot be aborted. Capture this lifetime before awaiting it, so a
-            // load that completes after a destroy/terminate is disposed here instead of being published.
-            const generation = this.lifecycleGeneration;
+            // Elon/Sam review of 38253831: pipeline() cannot be aborted, so a load that completes after a destroy/terminate
+            // is disposed below instead of being published.
             const loaded = await pipeline(
                 'automatic-speech-recognition',
                 v4Model.MODEL_ID,
                 pipelineOptions
             );
-            if (generation !== this.lifecycleGeneration || this.isTerminated) {
+            if (superseded()) {
                 // Teardown already ran for this lifetime; a successor may own `transcriber`. Release the late pipeline
                 // and leave the successor's state alone.
                 try {
@@ -280,7 +286,7 @@ export class TransformersJSV4Engine extends STTEngine {
                     logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
                         '[TransformersJSV4] Disposing a pipeline that completed after teardown failed.');
                 }
-                return Result.err(new Error('[TransformersJSV4] init cancelled by destroy/terminate; late pipeline disposed.'));
+                return cancelled();
             }
             this.transcriber = loaded as Pipeline;
 
@@ -297,6 +303,8 @@ export class TransformersJSV4Engine extends STTEngine {
                     warmupError: warmupError instanceof Error ? warmupError.message : String(warmupError),
                 }, '[TransformersJSV4] Warm-up failed; proceeding to ready (model is loaded).');
             }
+            // Teardown during warm-up already released this lifetime; report nothing ready to whoever follows.
+            if (superseded()) return cancelled();
 
             const loadTime = performance.now() - loadStart;
             logger.info({
@@ -316,8 +324,10 @@ export class TransformersJSV4Engine extends STTEngine {
             options.onReady?.();
             return Result.ok(undefined);
         } catch (error) {
-            this.restoreAssetFetch?.(); this.restoreAssetFetch = null;
             const e = error instanceof Error ? error : new Error(String(error));
+            // A superseded attempt's teardown already ran; the fetch hook, worker and requests now belong to its successor.
+            if (superseded()) return Result.err(e);
+            this.restoreAssetFetch?.(); this.restoreAssetFetch = null;
             logger.error({
                 sId: this.serviceId,
                 rId: this.runId,

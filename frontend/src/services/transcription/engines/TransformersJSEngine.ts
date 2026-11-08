@@ -248,6 +248,12 @@ export class TransformersJSEngine extends STTEngine {
     }
 
     protected async loadModel(isMock?: boolean): Promise<Result<void, Error>> {
+        // Reviews of 38253831 and c1585147: this attempt's lifetime, captured before ANY await. A destroy/terminate advances
+        // the generation, so after each await a superseded attempt stops: it never publishes, never calls back and never
+        // runs the shared failure cleanup, which by then may belong to the attempt that followed.
+        const generation = this.lifecycleGeneration;
+        const superseded = () => generation !== this.lifecycleGeneration || this.isTerminated;
+        const cancelled = () => Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate.'));
         const options = (this.options || {}) as TranscriptionModeOptions;
         if (this.transcriber || this.worker) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
@@ -275,6 +281,7 @@ export class TransformersJSEngine extends STTEngine {
 
             // Lazy import transformers.js
             const transformers = await import('@xenova/transformers');
+            if (superseded()) return cancelled();
             const { pipeline, env } = transformers;
 
             if (ENV.debug) {
@@ -339,9 +346,8 @@ export class TransformersJSEngine extends STTEngine {
             // tiny.en fallback), not a hardcoded model — mirrors the worker path.
             const localModelId = this.resolvedModel().localId;
             const loadStart = performance.now();
-            // Elon/Sam review of 38253831: pipeline() cannot be aborted. Capture this lifetime before awaiting it, so a
-            // load that completes after a destroy/terminate is disposed here instead of being published.
-            const generation = this.lifecycleGeneration;
+            // Elon/Sam review of 38253831: pipeline() cannot be aborted, so a load that completes after a destroy/terminate
+            // is disposed below instead of being published.
             let loaded: Pipeline;
             try {
                 loaded = await pipeline(
@@ -371,7 +377,7 @@ export class TransformersJSEngine extends STTEngine {
                     `Original: ${localError instanceof Error ? localError.message : String(localError)}`,
                 );
             }
-            if (generation !== this.lifecycleGeneration || this.isTerminated) {
+            if (superseded()) {
                 // Teardown already ran for this lifetime; a successor may own `transcriber`. Release the late pipeline
                 // and leave the successor's state alone.
                 try {
@@ -380,7 +386,7 @@ export class TransformersJSEngine extends STTEngine {
                     logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
                         '[TransformersJS] Disposing a pipeline that completed after teardown failed.');
                 }
-                return Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate; late pipeline disposed.'));
+                return cancelled();
             }
             this.transcriber = loaded;
 
@@ -397,6 +403,8 @@ export class TransformersJSEngine extends STTEngine {
 
             const warmupStart = performance.now();
             await this.warmUpTranscriber();
+            // Teardown during warm-up already released this lifetime; report nothing ready to whoever follows.
+            if (superseded()) return cancelled();
             logger.info({
                 sId: this.serviceId,
                 rId: this.runId,
@@ -418,8 +426,10 @@ export class TransformersJSEngine extends STTEngine {
 
             return Result.ok(undefined);
         } catch (error) {
-            this.restorePackageFetch?.(); this.restorePackageFetch = null;
             const e = error instanceof Error ? error : new Error(String(error));
+            // A superseded attempt's teardown already ran; the fetch hook, worker and requests now belong to its successor.
+            if (superseded()) return Result.err(e);
+            this.restorePackageFetch?.(); this.restorePackageFetch = null;
 
             // Check for common SPA 404 error (HTML returned instead of JSON)
             if (e.message.includes("Unexpected token '<'") || e.message.includes("Unexpected token <")) {
