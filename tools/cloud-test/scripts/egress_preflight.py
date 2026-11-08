@@ -52,11 +52,13 @@ def no_proxy_matches(no_proxy, host):
 
 
 # scheme://[userinfo@]host[:port][/...] with an http(s) scheme and a non-empty host (syntax only; never resolved or contacted).
-PROXY_URL = re.compile(r"https?://(?:[^@/\s]*@)?(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::[0-9]{1,5})?(?:/\S*)?", re.IGNORECASE)
+PROXY_URL = re.compile(r"https?://(?:[^@/\s]*@)?(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::([0-9]{1,5}))?(?:/\S*)?", re.IGNORECASE)
 
 
 def valid_proxy(value):
-    return isinstance(value, str) and PROXY_URL.fullmatch(value) is not None
+    """Guard parity (Sam 1794159106): the guard's WHATWG `new URL` rejects a port outside 0..65535, so this does too."""
+    m = PROXY_URL.fullmatch(value) if isinstance(value, str) else None
+    return m is not None and (m.group(1) is None or int(m.group(1)) <= 65535)
 
 
 def evaluate(policy, env):

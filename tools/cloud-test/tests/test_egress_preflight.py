@@ -40,6 +40,24 @@ class Verdict(unittest.TestCase):
                 for leak in ("s3cr3t", "proxy.internal", "3128", "user"):
                     self.assertNotIn(leak, json.dumps(v))
 
+    def test_proxy_syntax_has_parity_with_the_guards_url_parser(self):
+        """Sam 1794159106: the receipt must not report ready for a proxy the guard's `new URL` rejects (an out-of-range port)."""
+        samples = ["http://proxy.example:3128", "https://proxy.example", "http://proxy.example:65535", "http://proxy.example:65536",
+                   "http://proxy.invalid:99999", "http://proxy.example:0", "http://user:pw@proxy.example:8080/", "http://[::1]:3128",
+                   "ftp://proxy.example", "not a url", "http://", "proxy.example:3128"]
+        for s in ("http://proxy.invalid:99999", "http://proxy.example:65536"):
+            self.assertEqual(E.evaluate(POLICY, {"HTTPS_PROXY": s})["reason"], "proxy-invalid", s)
+        self.assertEqual(E.evaluate(POLICY, {"HTTPS_PROXY": "http://proxy.example:65535"})["reason"], "ready")
+        import shutil
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node not available for the parser-parity check")
+        script = ("const xs=JSON.parse(process.argv[1]);console.log(JSON.stringify(xs.map(x=>{try{const u=new URL(x);"
+                  "return (u.protocol==='http:'||u.protocol==='https:')&&!!u.hostname;}catch{return false;}})))")
+        r = subprocess.run([node, "-e", script, json.dumps(samples)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([E.valid_proxy(s) for s in samples], json.loads(r.stdout), "egress readiness agrees with the guard's URL parser")
+
     def test_a_policy_that_is_not_env_proxy_needs_no_proxy(self):
         self.assertEqual(E.evaluate({"upstream": {"mode": "direct"}, "hosts": {}}, {})["reason"], "ready")
         self.assertEqual(E.evaluate({"upstream": {"mode": "socks"}, "hosts": {}}, {})["upstreamMode"], "other")
