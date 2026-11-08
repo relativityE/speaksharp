@@ -263,11 +263,26 @@ export class TransformersJSV4Engine extends STTEngine {
                 pipelineOptions.device = mainThreadDevice;
             }
 
-            this.transcriber = await pipeline(
+            // Elon/Sam review of 38253831: pipeline() cannot be aborted. Capture this lifetime before awaiting it, so a
+            // load that completes after a destroy/terminate is disposed here instead of being published.
+            const generation = this.lifecycleGeneration;
+            const loaded = await pipeline(
                 'automatic-speech-recognition',
                 v4Model.MODEL_ID,
                 pipelineOptions
             );
+            if (generation !== this.lifecycleGeneration || this.isTerminated) {
+                // Teardown already ran for this lifetime; a successor may own `transcriber`. Release the late pipeline
+                // and leave the successor's state alone.
+                try {
+                    await (loaded as { dispose?: () => Promise<unknown> }).dispose?.();
+                } catch (disposeError) {
+                    logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
+                        '[TransformersJSV4] Disposing a pipeline that completed after teardown failed.');
+                }
+                return Result.err(new Error('[TransformersJSV4] init cancelled by destroy/terminate; late pipeline disposed.'));
+            }
+            this.transcriber = loaded as Pipeline;
 
             // Warm-up is a one-shot JIT trigger on 1s of silence; it must NOT gate
             // readiness. The model already loaded above, so a warm-up hiccup should

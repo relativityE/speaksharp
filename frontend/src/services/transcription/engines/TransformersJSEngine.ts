@@ -339,8 +339,12 @@ export class TransformersJSEngine extends STTEngine {
             // tiny.en fallback), not a hardcoded model — mirrors the worker path.
             const localModelId = this.resolvedModel().localId;
             const loadStart = performance.now();
+            // Elon/Sam review of 38253831: pipeline() cannot be aborted. Capture this lifetime before awaiting it, so a
+            // load that completes after a destroy/terminate is disposed here instead of being published.
+            const generation = this.lifecycleGeneration;
+            let loaded: Pipeline;
             try {
-                this.transcriber = await pipeline(
+                loaded = await pipeline(
                     'automatic-speech-recognition',
                     localModelId, // local directory name in public/models/ — local-only (allowRemoteModels=false)
                     {
@@ -367,6 +371,18 @@ export class TransformersJSEngine extends STTEngine {
                     `Original: ${localError instanceof Error ? localError.message : String(localError)}`,
                 );
             }
+            if (generation !== this.lifecycleGeneration || this.isTerminated) {
+                // Teardown already ran for this lifetime; a successor may own `transcriber`. Release the late pipeline
+                // and leave the successor's state alone.
+                try {
+                    await (loaded as { dispose?: () => Promise<unknown> }).dispose?.();
+                } catch (disposeError) {
+                    logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
+                        '[TransformersJS] Disposing a pipeline that completed after teardown failed.');
+                }
+                return Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate; late pipeline disposed.'));
+            }
+            this.transcriber = loaded;
 
             const loadTime = performance.now() - loadStart;
             logger.info({

@@ -2,8 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import posthog from 'posthog-js';
 
-const { mockPipeline } = vi.hoisted(() => ({
+const { mockPipeline, mockXenovaPipeline } = vi.hoisted(() => ({
     mockPipeline: vi.fn(),
+    // The v2 (Xenova) main-thread engine, for the late-pipeline fence shared with v4 (review of 38253831).
+    mockXenovaPipeline: vi.fn(),
 }));
 
 vi.mock('@/config/TestFlags', () => ({
@@ -30,6 +32,10 @@ vi.mock('@huggingface/transformers', () => ({
         ERROR: 'error',
         INFO: 'info',
     },
+}));
+vi.mock('@xenova/transformers', () => ({
+    pipeline: mockXenovaPipeline,
+    env: { backends: { onnx: { wasm: {} } } },
 }));
 vi.mock('../../capabilitySnapshot', () => ({ captureCapabilities: vi.fn(async () => Object.freeze({ webgpuAvailable: true, capturedAt: '2026-10-30T00:00:00Z', reason: 'detected' })) }));
 vi.mock('posthog-js', () => ({ default: { isFeatureEnabled: vi.fn() } }));
@@ -397,6 +403,71 @@ describe('TransformersJSV4Engine worker message contract', () => {
         expect(transcribeOptions).not.toHaveProperty('unsafe_option');
 
         await engine.destroy();
+    });
+
+    // Elon/Sam review of 38253831 (P2): the main-thread pipeline() cannot be aborted, so a destroy during the load let it
+    // publish itself afterwards, undisposed, possibly over the transcriber of the lifetime that followed.
+    it('a main-thread pipeline completing after teardown is disposed and never replaces the successor', async () => {
+        (globalThis as { Worker?: unknown }).Worker = undefined;
+        let resolveFirst!: (value: unknown) => void;
+        mockPipeline.mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }));
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+        const stale = engine.init();
+        await vi.waitFor(() => expect(mockPipeline).toHaveBeenCalledTimes(1));
+        await engine.destroy();
+        const successor = Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+        mockPipeline.mockResolvedValueOnce(successor);
+        expect((await engine.init()).isOk).toBe(true);
+        const late = Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+        resolveFirst(late);
+        expect((await stale).isOk).toBe(false);
+        await vi.waitFor(() => expect(late.dispose).toHaveBeenCalledTimes(1));
+        expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
+        expect(successor.dispose).not.toHaveBeenCalled();
+        await engine.destroy();
+    });
+
+    // The same fence on the v2 (Xenova) main-thread engine, which happy-dom always runs on the main thread.
+    describe('v2 main-thread pipeline completing after teardown', () => {
+        const latePipeline = () => Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+        // Reach the main-thread branch through the real condition (no Worker support), as the v4 cases above do.
+        beforeEach(() => { mockXenovaPipeline.mockReset(); (globalThis as { Worker?: unknown }).Worker = undefined; });
+
+        it('is disposed and never published when the engine was destroyed during the load', async () => {
+            let resolveLoad!: (value: unknown) => void;
+            mockXenovaPipeline.mockImplementationOnce(() => new Promise(resolve => { resolveLoad = resolve; }));
+            const { TransformersJSEngine } = await import('../TransformersJSEngine');
+            const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            const init = engine.init();
+            await vi.waitFor(() => expect(mockXenovaPipeline).toHaveBeenCalledTimes(1));
+            await engine.destroy();
+            const late = latePipeline();
+            resolveLoad(late);
+            expect((await init).isOk).toBe(false);
+            await vi.waitFor(() => expect(late.dispose).toHaveBeenCalledTimes(1));
+            expect((engine as unknown as { transcriber: unknown }).transcriber).toBeNull();
+        });
+
+        it('cannot replace the transcriber of the lifetime that followed the teardown', async () => {
+            let resolveFirst!: (value: unknown) => void;
+            mockXenovaPipeline.mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }));
+            const { TransformersJSEngine } = await import('../TransformersJSEngine');
+            const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+            const stale = engine.init();
+            await vi.waitFor(() => expect(mockXenovaPipeline).toHaveBeenCalledTimes(1));
+            await engine.destroy();
+            const successor = latePipeline();
+            mockXenovaPipeline.mockResolvedValueOnce(successor);
+            expect((await engine.init()).isOk).toBe(true);
+            const late = latePipeline();
+            resolveFirst(late);
+            expect((await stale).isOk).toBe(false);
+            await vi.waitFor(() => expect(late.dispose).toHaveBeenCalledTimes(1));
+            expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
+            expect(successor.dispose).not.toHaveBeenCalled();
+            await engine.destroy();
+        });
     });
 
     it.each(['missing', 'wrong-model', 'wrong-backend'] as const)('refuses ready with %s runtime evidence', async (mode) => {
