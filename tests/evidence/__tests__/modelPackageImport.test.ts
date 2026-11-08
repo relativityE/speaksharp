@@ -4,7 +4,7 @@
 // evidence hash could make a package the production default; staging now writes an inert proposal.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createHash, webcrypto } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { CANDIDATES } from '../../../frontend/src/services/transcription/candidateRegistry';
@@ -147,5 +147,66 @@ describe('the evaluator verifies exactly the packages the importer admits (Codex
         expect(await configuredAssetDigest(root, pkg.id as never, pkg.model.id)).toBe(pkg.assetDigest);
         writeFileSync(join(root, 'frontend/public', files[0].url.slice(1)), 'tampered served bytes');
         await expect(configuredAssetDigest(root, pkg.id as never, pkg.model.id)).rejects.toThrow('Package local asset bytes differ');
+    });
+});
+
+/**
+ * Elon/Sam review of 38253831 (P2): the importer checked collisions only against `CANDIDATES`, which under Node holds the
+ * built-ins alone, so a second package reusing an already imported package's cache directory (`localModelId`) was imported
+ * too; the bundle's admission then refused one of them, and when the new file sorts first, the previously admitted one.
+ * The importer now runs the product's own admission over the existing descriptors plus the new one before any write.
+ */
+describe('the importer refuses a package that collides with an already imported package', () => {
+    const packagesOf = (root: string) => join(root, 'frontend/src/services/transcription/model-packages');
+    async function whisperPackage(id: string, localModelId: string, seed = localModelId) {
+        const base = CANDIDATES['v2:base.en'];
+        const directory = realpathSync(mkdtempSync(join(tmpdir(), 'whisper-collision-')));
+        roots.push(directory);
+        const files = base.assets.files!.map((file, index) => {
+            const bytes = Buffer.from(`synthetic ${seed} ${file.path} ${index}`);
+            mkdirSync(join(directory, file.path, '..'), { recursive: true });
+            writeFileSync(join(directory, file.path), bytes);
+            return { path: file.path, url: `/models/${localModelId}/${file.path}`, bytes: bytes.length, sha256: sha(bytes) };
+        });
+        const pkg = await sealModelPackage({ schemaVersion: 1, kind: 'speaksharp-model-package', id,
+            engine: base.engine, runtime: base.runtime, model: { ...base.model, device: 'wasm' },
+            execution: { ...base.execution, localModelId }, assets: { servedFrom: `/models/${localModelId}`, files },
+            license: 'MIT (fixture declaration; synthetic bytes)' } as never);
+        writeFileSync(join(directory, 'package.json'), JSON.stringify(pkg));
+        return join(directory, 'package.json');
+    }
+    const snapshot = (root: string) => Object.fromEntries(
+        (existsSync(packagesOf(root)) ? readdirSync(packagesOf(root)) : []).map(name => [name, readFileSync(join(packagesOf(root), name), 'utf8')]));
+
+    // The copy reuses the first package's cache directory and its exact bytes, so every asset copy is a no-op: only
+    // admission can refuse it. Both orders matter: the bundle admits in path order, so a copy that sorts first would
+    // otherwise displace the package that was already admitted.
+    for (const [first, second] of [['fixture:b-whisper', 'fixture:a-whisper'], ['fixture:a-whisper', 'fixture:b-whisper']]) {
+        it(`refuses ${second} after ${first} when both use one cache directory, leaving the first package unchanged`, async () => {
+            const root = projectRoot();
+            await importModelPackage(root, await whisperPackage(first, 'fixture-shared-cache', 'shared'));
+            const before = snapshot(root);
+            await expect(importModelPackage(root, await whisperPackage(second, 'fixture-shared-cache', 'shared')))
+                .rejects.toThrow('PACKAGE_IDENTITY_COLLISION');
+            expect(snapshot(root)).toEqual(before);
+        });
+    }
+    it('refuses before copying anything when the colliding package brings different bytes', async () => {
+        const root = projectRoot();
+        await importModelPackage(root, await whisperPackage('fixture:b-whisper', 'fixture-shared-cache', 'first'));
+        const served = join(root, 'frontend/public/models/fixture-shared-cache');
+        const servedBefore = Object.fromEntries(readdirSync(served, { recursive: true }).map(String).sort()
+            .filter(name => statSync(join(served, name)).isFile()).map(name => [name, sha(readFileSync(join(served, name)))]));
+        await expect(importModelPackage(root, await whisperPackage('fixture:a-whisper', 'fixture-shared-cache', 'second')))
+            .rejects.toThrow('PACKAGE_IDENTITY_COLLISION');
+        for (const [name, digest] of Object.entries(servedBefore)) expect(sha(readFileSync(join(served, name)))).toBe(digest);
+    });
+    it('still imports packages with distinct cache directories, and a repeated identical import stays idempotent', async () => {
+        const root = projectRoot();
+        const first = await whisperPackage('fixture:b-whisper', 'fixture-cache-one');
+        await importModelPackage(root, first);
+        await importModelPackage(root, await whisperPackage('fixture:a-whisper', 'fixture-cache-two'));
+        await importModelPackage(root, first);
+        expect(Object.keys(snapshot(root)).sort()).toEqual(['fixture_a-whisper.json', 'fixture_b-whisper.json']);
     });
 });

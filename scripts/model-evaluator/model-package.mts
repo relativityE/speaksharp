@@ -1,10 +1,11 @@
-import { readFile, writeFile, mkdir, realpath, stat } from 'node:fs/promises';
+import { readFile, readdir, writeFile, mkdir, realpath, stat } from 'node:fs/promises';
 import { resolve, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import * as modelPackage from '../../frontend/src/services/transcription/modelPackage';
 import { sealModelPackage, verifyModelPackage, expectedModelIdentity, candidateFromPackage, type ModelPackage } from '../../frontend/src/services/transcription/modelPackage';
 import { verifyProjectRuntimeBindings } from './runtime-bindings.mjs';
-import { CANDIDATES } from '../../frontend/src/services/transcription/candidateRegistry';
+import { CANDIDATES, admitPackageDescriptors } from '../../frontend/src/services/transcription/candidateRegistry';
 import { isApprovedUpstreamPin } from '../../frontend/src/services/transcription/moonshineAssetPins';
 
 /**
@@ -18,16 +19,40 @@ function upstreamPinned(pkg: ModelPackage, url: string): boolean {
     return true;
 }
 
+const PACKAGES_DIRECTORY = 'frontend/src/services/transcription/model-packages';
+const packageKey = (file: string) => './model-packages/' + file;
+
+/**
+ * Elon/Sam review of 38253831: under Node, `CANDIDATES` holds the built-ins only (the package glob is a Vite feature), so a
+ * check against it missed a package that reuses an already imported package's cache directory. The bundle admits the
+ * descriptors in path order and refuses the later one, which is the previously imported package when the new file sorts
+ * first. Before any write, run the product's own admission over the existing descriptors with and without the new one:
+ * the new package must be admitted, and every package admitted today must still be.
+ */
+async function refuseCatalogueConflict(root: string, pkg: ModelPackage) {
+    const directory = join(root, PACKAGES_DIRECTORY);
+    const names = await readdir(directory).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return [] as string[]; throw error; });
+    const existing: Record<string, string> = {};
+    for (const name of names.filter(name => name.endsWith('.json')).sort()) existing[packageKey(name)] = await readFile(join(directory, name), 'utf8');
+    const ownKey = packageKey(pkg.id.replace(/:/g, '_') + '.json');
+    const proposed: Record<string, string> = { ...existing, [ownKey]: JSON.stringify(pkg) };
+    const ordered = Object.fromEntries(Object.keys(proposed).sort().map(key => [key, proposed[key]]));
+    const today = admitPackageDescriptors(existing, modelPackage).imported;
+    const after = admitPackageDescriptors(ordered, modelPackage);
+    const refused = after.rejections.find(item => item.file === ownKey);
+    if (refused) throw Error(refused.code);
+    if (!Object.hasOwn(after.imported, pkg.id)) throw Error('PACKAGE_INVALID');
+    // The new package was admitted but displaced one admitted today: the collision is the same, only the order differs.
+    const displaced = Object.keys(today).find(id => !Object.hasOwn(after.imported, id));
+    if (displaced) throw Error(after.rejections.find(item => item.file !== ownKey)?.code ?? 'PACKAGE_IDENTITY_COLLISION');
+}
+
 export async function importModelPackage(root: string, descriptorPath: string) {
     const source = await realpath(resolve(descriptorPath));
     const data = JSON.parse(await readFile(source,'utf8')) as ModelPackage;
     const pkg = data.packageDigest ? await verifyModelPackage(data) : await sealModelPackage(data);
     if (Object.hasOwn(CANDIDATES,pkg.id) && !CANDIDATES[pkg.id].modelPackage) throw Error('PACKAGE_SHADOWS_BUILTIN');
-    // The bundle refuses a package that reuses a registered cache directory (PACKAGE_IDENTITY_COLLISION); refuse it here
-    // too, rather than importing files the product will then reject.
-    if (pkg.execution.localModelId != null && Object.values(CANDIDATES).some(c => c.id !== pkg.id && c.execution.localModelId === pkg.execution.localModelId)) {
-        throw Error('PACKAGE_IDENTITY_COLLISION');
-    }
+    await refuseCatalogueConflict(root, pkg);
     await verifyProjectRuntimeBindings(root);
     // Only already present files are copied. Import never fetches weights, dependencies or executable code.
     const directory = dirname(source);
