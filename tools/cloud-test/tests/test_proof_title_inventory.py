@@ -110,7 +110,7 @@ class Resolution(unittest.TestCase):
                                     "service:tests/b.test.cjs suite: 1 of 1 inventoried tests did not pass"])
 
     def test_unknown_and_malformed_titles_refuse_and_are_never_echoed(self):
-        secret = "token=abc /home/runner/x value 42"
+        secret = "token=abc /opt/ci-work/x value 42"
         rows, problems = self.resolve({"packet:a.test.cjs": [{"title": t, "status": "PASS", "assertion": False} for t in ("first", "second", "third")]
                                        + [{"title": secret, "status": "PASS", "assertion": False}, {"title": "bad\x00title", "status": "FAIL"},
                                           {"title": None, "status": "PASS"}],
@@ -160,11 +160,11 @@ class ProofIntegration(unittest.TestCase):
 
     def test_a_load_error_titled_with_a_path_refuses_and_every_inventoried_test_is_not_run(self):
         suites = run_suites(self.inv)
-        suites[CASE14] = tap([("/home/runner/work/x/case14-fault-boundary.offline.test.cjs", "FAIL", False)])
+        suites[CASE14] = tap([("/opt/ci-work/x/case14-fault-boundary.offline.test.cjs", "FAIL", False)])
         rows, problems = G.title_report(suites, self.inv)
         self.assertIn("%s suite: 1 test title(s) not in the reviewed inventory" % CASE14, problems)
         self.assertEqual(sum(r["status"] == "NOT RUN" and r["suite"] == CASE14 for r in rows), len(self.inv[CASE14]))
-        self.assertNotIn("/home/runner", json.dumps(PT.report_lines(rows)))
+        self.assertNotIn("/opt/ci-work", json.dumps(PT.report_lines(rows)))
 
     def test_main_loads_the_inventory_and_passes_it_to_acceptance(self):
         with open(os.path.join(ROOT, "scripts", "generate_offline_proof.py"), encoding="utf-8") as f:
