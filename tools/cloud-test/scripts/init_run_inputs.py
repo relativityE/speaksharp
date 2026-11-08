@@ -1332,6 +1332,21 @@ def identities(request_path, config_path, admitted_sha256):
             "catalog": {cid: list(c["requiredAssertions"]) for cid, c in cases.items()}}
 
 
+def projection_catalog(request_raw, request_sha256, config_path, qualification=None):
+    """The assertion catalog the projection builds row verdicts from: the PINNED catalog of the admitted request's depth (smoke ->
+    smoke-assertion-catalog, otherwise the full catalog), digest-checked exactly as identities() does for qualification (Sam
+    1794154232.587839: the CLI hardcoded the full catalog, so a smoke run's 15-row AHT-01 verdict was built against 20 full rows and the
+    publisher refused row-verdicts). The request must be the admitted bytes; a qualification, when present, must name the same catalog."""
+    _need(isinstance(request_raw, bytes) and hashlib.sha256(request_raw).hexdigest() == request_sha256, "request-not-the-admitted-bytes")
+    mode = json.loads(request_raw).get("coverageMode")
+    pin = _load(config_path)["modes"]["smoke" if mode == "smoke" else "full"]["assertionCatalog"]
+    raw = _read(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(config_path))), pin["file"]))
+    _need(hashlib.sha256(raw).hexdigest() == pin["sha256"], "assertion-catalog-not-pinned")
+    if isinstance(qualification, dict) and qualification.get("qualified") and qualification.get("catalogSha256") is not None:
+        _need(qualification["catalogSha256"] == pin["sha256"], "projection-catalog-not-the-qualified-catalog")
+    return json.loads(raw)
+
+
 def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_manifest, snapshot_dir, coverage_mode, ids,
             run_verifier=_run_verifier):
     """Freeze every verifier input, run the REAL verifier on the frozen snapshot only (fresh --out, exit 0, zero failures for exactly the
@@ -2184,7 +2199,11 @@ def main(argv):
             q = _load(x.qualification) if x.qualification and os.path.exists(x.qualification) else None
             prov = _load(x.provenance) if x.provenance and os.path.exists(x.provenance) else None
             cr = _read(x.case_results) if x.case_results and os.path.exists(x.case_results) else None
-            catalog = _load(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "assertion-catalog.json"))
+            here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if x.request:
+                catalog = projection_catalog(_read(x.request), x.request_sha256, os.path.join(here, "config", "test-config.v1.json"), q)
+            else:
+                catalog = _load(os.path.join(here, "config", "assertion-catalog.json"))
             media = os.path.join(x.repo or ".", "tests", "fixtures", "rwt", "rwt-fixtures.manifest.json")
             _write_private(x.out, project(_load(x.run_record), x.run_id, x.attempt, x.source_sha, x.tested_sha, q, x.request_sha256, prov, cr, catalog,
                                           _read(x.request) if x.request else None, _read(media) if x.request and os.path.isfile(media) else None))

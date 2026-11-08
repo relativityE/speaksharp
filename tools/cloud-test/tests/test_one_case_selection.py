@@ -283,5 +283,90 @@ class NotTargetedContract(unittest.TestCase):
         self.assertIn("ERROR: notTargeted must be a list of {gap, why}", r.stdout)
 
 
+class ProjectionCatalog(unittest.TestCase):
+    """Sam 1794154232.587839: the CLI `project` hardcoded the FULL assertion catalog (AHT-01 = 20 rows) even for smoke (15), so run
+    42496837188's selected AHT-01 record was refused `row-verdicts`. The projection now builds row verdicts from the pinned catalog of the
+    admitted request's depth, digest-checked; the publisher's count checks are unchanged."""
+    SMOKE_IDS = None
+
+    def setUp(self):
+        import subprocess
+        import sys
+        import tempfile
+        self.subprocess, self.sys = subprocess, sys
+        self.d = tempfile.mkdtemp(prefix="ct-proj-")
+        self.addCleanup(__import__("shutil").rmtree, self.d)
+        occ = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
+        self.request_raw = json.dumps(occ, sort_keys=True).encode()
+        self.request_sha = hashlib.sha256(self.request_raw).hexdigest()
+        ids = SMOKE_CATALOG["cases"]["AHT-01"]["requiredAssertions"]
+        self.assertEqual(len(ids), 15)
+        self.assertEqual(len(load("config/assertion-catalog.json")["cases"]["AHT-01"]["requiredAssertions"]), 20)
+        verdicts = ["PASS", "PASS", "FAIL"] + ["NOT RUN"] * 12          # Sam's exact 2 PASS / 1 FAIL / 12 NOT RUN shape
+        self.case_results = json.dumps({"cases": [{"caseId": "AHT-01", "assertions": [{"id": a, "result": r} for a, r in zip(ids, verdicts)]}]}).encode()
+        cr_sha = hashlib.sha256(self.case_results).hexdigest()
+        T, H, P = "a" * 40, "b" * 64, "c" * 64
+        self.run_record = {"schema": "speaksharp.cloud-test.run-record.v1", "runId": I.R10_ONE_OFF_RUN_ID, "result": "FAIL",
+                           "release": {"testedSha": T, "servedShaAtAdmission": T}, "harness": {"codeManifestSha256": H},
+                           "artifactDigests": {"case-results.json": cr_sha},
+                           "startedUtc": "2026-11-08T15:59:00Z", "endedUtc": "2026-11-08T16:00:00Z",
+                           "cases": [{"case": c, "result": "FAIL" if c == "AHT-01" else "NOT RUN",
+                                      "assertions": {"PASS": 2, "FAIL": 1, "NOT RUN": 12} if c == "AHT-01" else {"PASS": 0, "FAIL": 0, "NOT RUN": 0}}
+                                     for c in I.ALL_CASES]}
+        smoke_pin = CFG["modes"]["smoke"]["assertionCatalog"]["sha256"]
+        self.q = {"qualified": True, "campaignId": I.R10_ONE_OFF_RUN_ID, "caseResultsSha256": cr_sha, "testedSha": T, "servedSha": T,
+                  "codeManifestSha256": H, "requestSha256": self.request_sha, "planSha256": P, "outcome": "failed", "coverageMode": "smoke",
+                  "assertionDepth": "smoke", "coverage": "incomplete", "cases": ["AHT-01"], "catalogSha256": smoke_pin}
+        self.prov = {"requestSha256": self.request_sha, "planSha256": P, "cases": ["AHT-01"], "caseResultsSha256": cr_sha,
+                     "campaignId": I.R10_ONE_OFF_RUN_ID, "runId": "42496837188", "attempt": 1}
+        self.T = T
+
+    def project(self, catalog):
+        return I.project(self.run_record, "42496837188", 1, "d" * 40, self.T, self.q, self.request_sha, self.prov, self.case_results, catalog)
+
+    def test_the_full_catalog_refuses_row_verdicts_and_the_admitted_smoke_catalog_publishes(self):
+        with self.assertRaisesRegex(I.Refused, "run-record-not-publishable:row-verdicts"):     # the defect, reproduced
+            self.project(load("config/assertion-catalog.json"))
+        catalog = I.projection_catalog(self.request_raw, self.request_sha, os.path.join(ROOT, "config", "test-config.v1.json"), self.q)
+        rec = self.project(catalog)
+        self.assertEqual((rec["coverage"], rec["outcome"], rec["rowVerdicts"]), ("incomplete", "failed", {"AHT-01": "PPF" + "N" * 12}))
+        self.assertEqual(sum(c["result"] == "NOT SELECTED" for c in rec["cases"]), 14)
+
+    def test_the_catalog_is_the_admitted_depths_pin_and_must_match_the_qualification(self):
+        cfg_path = os.path.join(ROOT, "config", "test-config.v1.json")
+        with self.assertRaisesRegex(I.Refused, "request-not-the-admitted-bytes"):
+            I.projection_catalog(self.request_raw, "0" * 64, cfg_path, self.q)
+        with self.assertRaisesRegex(I.Refused, "projection-catalog-not-the-qualified-catalog"):
+            I.projection_catalog(self.request_raw, self.request_sha, cfg_path, dict(self.q, catalogSha256="e" * 64))
+        full_request = json.dumps(dict(json.loads(self.request_raw), coverageMode="full")).encode()
+        full = I.projection_catalog(full_request, hashlib.sha256(full_request).hexdigest(), cfg_path)
+        self.assertEqual(len(full["cases"]["AHT-01"]["requiredAssertions"]), 20)
+        with mock.patch.object(I, "_read", lambda path: b'{"cases": {}}'):
+            with self.assertRaisesRegex(I.Refused, "assertion-catalog-not-pinned"):
+                I.projection_catalog(self.request_raw, self.request_sha, cfg_path, self.q)
+
+    def test_the_real_cli_projects_the_smoke_record(self):
+        paths = {}
+        for name, doc in (("run-record.json", self.run_record), ("qualification.json", self.q), ("provenance.json", self.prov)):
+            paths[name] = os.path.join(self.d, name)
+            with open(paths[name], "w", encoding="utf-8") as f:
+                json.dump(doc, f)
+        for name, raw in (("case-results.json", self.case_results), ("request.json", self.request_raw)):
+            paths[name] = os.path.join(self.d, name)
+            with open(paths[name], "wb") as f:
+                f.write(raw)
+        out = os.path.join(self.d, "latest-record.json")
+        r = self.subprocess.run([self.sys.executable, "-I", os.path.join(ROOT, "scripts", "init_run_inputs.py"), "project",
+                                 "--run-record", paths["run-record.json"], "--run-id", "42496837188", "--attempt", "1",
+                                 "--source-sha", "d" * 40, "--tested-sha", self.T, "--qualification", paths["qualification.json"],
+                                 "--provenance", paths["provenance.json"], "--case-results", paths["case-results.json"],
+                                 "--request", paths["request.json"], "--request-sha256", self.request_sha, "--repo", REPO, "--out", out],
+                                capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(out, encoding="utf-8") as f:
+            rec = json.load(f)
+        self.assertEqual((rec["coverage"], rec["outcome"], rec["rowVerdicts"]["AHT-01"]), ("incomplete", "failed", "PPF" + "N" * 12))
+
+
 if __name__ == "__main__":
     unittest.main()
