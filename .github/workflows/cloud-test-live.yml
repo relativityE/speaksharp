@@ -828,7 +828,9 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [ ! -f "$CT_OUT/run-record.json" ]; then echo "no run record: the reservation stays open and counted"; exit 0; fi
+          # Run 42516864915 (Sam 1794167544): an early refusal (egress preflight) stops before init sets CT_OUT; under set -u the bare
+          # reference failed `unbound variable`. No CT_OUT means no run record: nothing to project, the reservation stays open and counted.
+          if [ -z "${CT_OUT:-}" ] || [ ! -f "$CT_OUT/run-record.json" ]; then echo "no run record: the reservation stays open and counted"; exit 0; fi
           mkdir -p "$CT_OUT/settle"
           python3 -I tools/cloud-test/scripts/settle_input.py project --record "$CT_OUT/run-record.json" \
             --case10-observation "$RUNNER_TEMP/case10-observation.json" --out "$CT_OUT/settle/settle-input.json"
