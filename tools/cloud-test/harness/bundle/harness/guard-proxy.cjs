@@ -102,39 +102,64 @@ function noProxy(host) {
   return list.some((e) => e === host || (e.startsWith('.') && host.endsWith(e)) || (e.startsWith('*.') && host.endsWith(e.slice(1))));
 }
 
+// Closed upstream-failure reasons (Sam 1794154809): a reason, never a message, host, port or proxy value. Unknown errors are `other`.
+const UPSTREAM_REASONS = new Set(['proxy-not-configured', 'proxy-invalid', 'proxy-connect-status', 'test-only-trust', 'no-test-override', 'aborted',
+  'dns', 'connect-refused', 'timeout', 'reset', 'tls', 'other']);
+function withReason(error, reason) { error.upstreamReason = reason; return error; }
+function upstreamReason(e) {
+  if (e && UPSTREAM_REASONS.has(e.upstreamReason)) return e.upstreamReason;
+  const c = String((e && e.code) || '');
+  if (c === 'ENOTFOUND' || c === 'EAI_AGAIN') return 'dns';
+  if (c === 'ECONNREFUSED') return 'connect-refused';
+  if (c === 'ETIMEDOUT') return 'timeout';
+  if (c === 'ECONNRESET' || c === 'EPIPE') return 'reset';
+  if (/^ERR_TLS|CERT|SSL/.test(c)) return 'tls';
+  return 'other';
+}
+// Presence and validity booleans only (never the value): is an HTTPS proxy configured, does it parse as an http(s) proxy URL, does
+// NO_PROXY match any policy host. Recorded in the summary so a run proves its own egress configuration.
+function proxyConfig(policy) {
+  const raw = process.env.HTTPS_PROXY || process.env.https_proxy || '';
+  let valid = false;
+  if (raw) { try { const u = new URL(raw); valid = (u.protocol === 'http:' || u.protocol === 'https:') && !!u.hostname; } catch { valid = false; } }
+  return { mode: policy.upstream.mode, proxyConfigured: raw.length > 0, proxyValid: valid,
+           noProxyMatched: Object.keys(policy.hosts || {}).some((h) => noProxy(h)) };
+}
+
 // Upstream TLS socket: through the environment's HTTPS proxy (CONNECT) unless direct/override.
 function upstreamSocket(policy, host, signal) {
   return new Promise((resolve, reject) => {
     const up = policy.upstream;
     const tlsOpts = { servername: host, ALPNProtocols: ['http/1.1'] };
     if (up.caFile) {
-      if (!policy.testOnly) return reject(new Error('upstream.caFile is test-only'));
+      if (!policy.testOnly) return reject(withReason(new Error('upstream.caFile is test-only'), 'test-only-trust'));
       tlsOpts.ca = fs.readFileSync(up.caFile);
     }
     if (up.mode === 'override') {
       const [h, p] = (up.override[host] || '').split(':');
-      if (!h) return reject(new Error('no test override for ' + host));
+      if (!h) return reject(withReason(new Error('no test override for ' + host), 'no-test-override'));
       const s = tls.connect({ host: h, port: Number(p), ...tlsOpts });
       s.once('secureConnect', () => resolve(s)); s.once('error', reject);
-      signal.addEventListener('abort', () => s.destroy(new Error('aborted')), { once: true });
+      signal.addEventListener('abort', () => s.destroy(withReason(new Error('aborted'), 'aborted')), { once: true });
       return;
     }
     const proxyUrl = up.mode === 'env-proxy' && !noProxy(host) ? (process.env.HTTPS_PROXY || process.env.https_proxy) : null;
-    if (up.mode === 'env-proxy' && !proxyUrl && !up.allowDirectWhenNoProxyEnv) return reject(new Error('HTTPS_PROXY is not set'));
+    if (up.mode === 'env-proxy' && !proxyUrl && !up.allowDirectWhenNoProxyEnv) return reject(withReason(new Error('HTTPS_PROXY is not set'), 'proxy-not-configured'));
     if (!proxyUrl) {
       const s = tls.connect({ host, port: 443, ...tlsOpts });
       s.once('secureConnect', () => resolve(s)); s.once('error', reject);
-      signal.addEventListener('abort', () => s.destroy(new Error('aborted')), { once: true });
+      signal.addEventListener('abort', () => s.destroy(withReason(new Error('aborted'), 'aborted')), { once: true });
       return;
     }
-    const pu = new URL(proxyUrl);
+    let pu;
+    try { pu = new URL(proxyUrl); } catch { return reject(withReason(new Error('upstream proxy URL invalid'), 'proxy-invalid')); }
     const req = http.request({ host: pu.hostname, port: pu.port || 80, method: 'CONNECT', path: host + ':443', headers: { host: host + ':443' } });
-    signal.addEventListener('abort', () => req.destroy(new Error('aborted')), { once: true });
+    signal.addEventListener('abort', () => req.destroy(withReason(new Error('aborted'), 'aborted')), { once: true });
     req.once('connect', (res, sock) => {
-      if (res.statusCode !== 200) { sock.destroy(); return reject(new Error('upstream proxy CONNECT ' + res.statusCode)); }
+      if (res.statusCode !== 200) { sock.destroy(); return reject(withReason(new Error('upstream proxy CONNECT ' + res.statusCode), 'proxy-connect-status')); }
       const s = tls.connect({ socket: sock, ...tlsOpts });
       s.once('secureConnect', () => resolve(s)); s.once('error', reject);
-      signal.addEventListener('abort', () => s.destroy(new Error('aborted')), { once: true });
+      signal.addEventListener('abort', () => s.destroy(withReason(new Error('aborted'), 'aborted')), { once: true });
     });
     req.once('error', reject);
     req.end();
@@ -154,7 +179,7 @@ class Guard {
     try{this.logFd = fs.openSync(opts.logFile, 'a', 0o600);}catch(e){this.ledger.release();throw new Error('guard log unavailable');}
     this.seq = 0; this.inFlight = new Map(); this.waiters = []; this.sockets = new Set(); this.active = 0;
     this.closing = false; this.faults = []; this.downloadFaults=[];this.feedbackFaults=[];
-    this.c = { attempted: 0, forwarded: 0, completed: 0, denied: {}, connectAllowed: 0, connectRefused: 0, upgradesDenied: 0, plainHttpDenied: 0, inFlightMax: 0, outcomes: {}, redirectsSeen: 0 };
+    this.c = { attempted: 0, forwarded: 0, completed: 0, denied: {}, connectAllowed: 0, connectRefused: 0, upgradesDenied: 0, plainHttpDenied: 0, inFlightMax: 0, outcomes: {}, redirectsSeen: 0, upstreamReasons: {} };
     this.deadline = Date.parse(policy.deadlineAt);
   }
   // EventEmitter does not await callbacks. Every owned event route goes through this boundary.
@@ -427,7 +452,9 @@ class Guard {
     try { sock = await upstreamSocket(this.policy, host, ac.signal); }
     catch (e) {
       if (rec.outcome) return;
-      finish('upstream-error', { errorCode:'upstream-unavailable', sent: false });
+      const reason = upstreamReason(e);
+      this.c.upstreamReasons[reason] = (this.c.upstreamReasons[reason] || 0) + 1;
+      finish('upstream-error', { errorCode:'upstream-unavailable', upstreamReason: reason, sent: false });
       if (!res.headersSent) { res.writeHead(502, { 'x-ss-harness-deny': 'upstream-error' }); res.end(); }
       return;
     }
@@ -604,7 +631,7 @@ class Guard {
     }
   }
   summary() {
-    return { fatal:this.fatalState||null, caseAllowance:this.ledger?.caseAllowanceState?.()||null, port: this.port, spki: this.spki, feedbackFaults:(this.feedbackFaults||[]).map(f=>f.summary()), completionAttempts:this.completionObserver?.summary()||null, counters: this.c, ledgerUsed: this.ledger.state.used, caps: this.policy.caps, downloadFaults:this.downloadFaults.map(f=>({id:f.id,mode:f.mode,selected:f.selected,fired:f.fired,...(Number.isSafeInteger(f.firedAtEpochMs)?{firedAtEpochMs:f.firedAtEpochMs}:{}),...(Number.isSafeInteger(f.offlineInvokedAtEpochMs)?{offlineInvokedAtEpochMs:f.offlineInvokedAtEpochMs}:{}),...(Number.isSafeInteger(f.offlineAppliedAtEpochMs)?{offlineAppliedAtEpochMs:f.offlineAppliedAtEpochMs}:{}),bytesForwarded:f.bytesForwarded,browserOfflineApplied:f.browserOfflineApplied===true,networkRestored:f.networkRestored===true,...(f.browserPrefixReceipt?{browserPrefixReceipt:f.browserPrefixReceipt}:{})})), faults: this.faults.map((f) => ({ id: f.id, mode: f.mode, fired: f.fired })) };
+    return { upstreamConfig: proxyConfig(this.policy), fatal:this.fatalState||null, caseAllowance:this.ledger?.caseAllowanceState?.()||null, port: this.port, spki: this.spki, feedbackFaults:(this.feedbackFaults||[]).map(f=>f.summary()), completionAttempts:this.completionObserver?.summary()||null, counters: this.c, ledgerUsed: this.ledger.state.used, caps: this.policy.caps, downloadFaults:this.downloadFaults.map(f=>({id:f.id,mode:f.mode,selected:f.selected,fired:f.fired,...(Number.isSafeInteger(f.firedAtEpochMs)?{firedAtEpochMs:f.firedAtEpochMs}:{}),...(Number.isSafeInteger(f.offlineInvokedAtEpochMs)?{offlineInvokedAtEpochMs:f.offlineInvokedAtEpochMs}:{}),...(Number.isSafeInteger(f.offlineAppliedAtEpochMs)?{offlineAppliedAtEpochMs:f.offlineAppliedAtEpochMs}:{}),bytesForwarded:f.bytesForwarded,browserOfflineApplied:f.browserOfflineApplied===true,networkRestored:f.networkRestored===true,...(f.browserPrefixReceipt?{browserPrefixReceipt:f.browserPrefixReceipt}:{})})), faults: this.faults.map((f) => ({ id: f.id, mode: f.mode, fired: f.fired })) };
   }
   async close(reason = 'close') {
     if(this.closePromise)return this.closePromise;
@@ -669,4 +696,4 @@ function listenOwned(server,{signal,timeoutMs}={}) {
     try{server.listen(0,'127.0.0.1',()=>{if(settled){close();return;}settled=true;cleanup();resolve();});}catch{failed();}
   });
 }
-module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned };
+module.exports = { startGuard, validatePolicy, matchPolicyRule, Ledger, Guard, failConnection, listenOwned, upstreamReason, proxyConfig, upstreamSocket, UPSTREAM_REASONS };

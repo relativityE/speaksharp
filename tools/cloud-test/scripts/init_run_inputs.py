@@ -51,10 +51,10 @@ SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 # all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
 # grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
-ONE_OFF_GRANT_SHA256 = "2f1798777b473715e3ee79024eae48b582e640b95c91eea1d05eb5459297bb95"   # Sam 1794151891.299109 / 1794152182.153649: the AHT-01 grant re-issued after run 42494152179 consumed the first (corrected request fd1463f0, pre-reserve head d4c207fb, scope +4 slack:1794152182.153649)
+ONE_OFF_GRANT_SHA256 = "a04d5d747254d8b2b938532012e4b6acc74675ebd53b140fe6a2a5811b23572d"   # Sam 1794151891.299109 / 1794152182.153649: the AHT-01 grant re-issued after run 42494152179 consumed the first (corrected request fd1463f0, pre-reserve head d4c207fb, scope +4 slack:1794152182.153649)
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
 ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
-ONE_OFF_BASE_TEMPLATE_SHA256 = "336524a85a97992e4eff07add32478caa2596b6227615038b27186331012bdef"
+ONE_OFF_BASE_TEMPLATE_SHA256 = "dbe72da340943f320abd62c326d8e39469fb2d7fca035c537754ece3c495a550"
 R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
@@ -1930,6 +1930,17 @@ DRIVER_APIS = frozenset({
     "locator.waitFor", "locator.textContent", "locator.innerText", "locator.getAttribute", "locator.inputValue", "locator.isVisible",
     "locator.isEnabled", "locator.evaluate", "locator.focus", "locator.hover", "locator.scrollIntoViewIfNeeded", "locator.count",
     "locator.boundingBox", "locator.dispatchEvent", "locator.pressSequentially"})
+# The exact Chromium net error (browser-actions.cjs NET_ERRORS) and the guard's closed upstream reasons (guard-proxy.cjs UPSTREAM_REASONS),
+# Sam 1794154809: run 42496837188's page.goto network-error and the guard's upstream-error carried neither. Pinned to those sources by test.
+DRIVER_NET_ERRORS = frozenset({
+    "ERR_HTTP_RESPONSE_CODE_FAILURE", "ERR_CONNECTION_REFUSED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_TIMED_OUT",
+    "ERR_TIMED_OUT", "ERR_NAME_NOT_RESOLVED", "ERR_INTERNET_DISCONNECTED", "ERR_ADDRESS_UNREACHABLE", "ERR_PROXY_CONNECTION_FAILED",
+    "ERR_TUNNEL_CONNECTION_FAILED", "ERR_CERT_AUTHORITY_INVALID", "ERR_CERT_COMMON_NAME_INVALID", "ERR_CERT_DATE_INVALID",
+    "ERR_SSL_PROTOCOL_ERROR", "ERR_ABORTED", "ERR_FAILED", "ERR_EMPTY_RESPONSE", "ERR_BLOCKED_BY_CLIENT", "ERR_TOO_MANY_REDIRECTS",
+    "ERR_NETWORK_CHANGED", "other"})
+GUARD_UPSTREAM_REASONS = frozenset({"proxy-not-configured", "proxy-invalid", "proxy-connect-status", "test-only-trust", "no-test-override",
+                                    "aborted", "dns", "connect-refused", "timeout", "reset", "tls", "other"})
+GUARD_UPSTREAM_MODES = frozenset({"env-proxy", "direct", "override"})
 ERROR_NAMES = frozenset({"TimeoutError", "Error", "TypeError"})
 ERROR_CODES = frozenset({"NOT_RUN", "AUTH_REJECTED", "START_PRESS_CAP", "START_CONTROL_NOT_READY", "PRODUCT_FAIL", "EVIDENCE_READER_UNAVAILABLE"})
 ERROR_KINDS = frozenset({"timeout", "target-closed", "control-not-ready", "strict-mode", "network-error", "other"})
@@ -1997,11 +2008,29 @@ def driver_interruption(case_dir, case_id, row, receipt, allowed_ids):
         out["error"] = {"name": _closed(err.get("name"), ERROR_NAMES, "Error"), "code": _closed(err.get("code"), ERROR_CODES, None),
                         "kind": _closed(err.get("kind"), ERROR_KINDS, "other"), "api": _closed(err.get("api"), DRIVER_APIS, None),
                         "timeoutMs": t if type(t) is int and 0 <= t <= 3600000 else None,
-                        "testIds": sorted({x for x in ids if isinstance(x, str) and x in DRIVER_TEST_IDS})[:5] if isinstance(ids, list) else []}
+                        "testIds": sorted({x for x in ids if isinstance(x, str) and x in DRIVER_TEST_IDS})[:5] if isinstance(ids, list) else [],
+                        "netError": _closed(err.get("netError"), DRIVER_NET_ERRORS, None)}
     return out
 
 
-UNKNOWN_DIAGNOSTIC = {"stopCode": "unknown", "exitCode": None, "firstNonPassingAssertion": None, "driverInterruption": None}
+UNKNOWN_DIAGNOSTIC = {"stopCode": "unknown", "exitCode": None, "firstNonPassingAssertion": None, "driverInterruption": None, "guard": None}
+
+
+def guard_upstream(summary_doc):
+    """The guard's egress configuration and upstream-failure reasons from the DIGEST-VERIFIED case summary, closed: the upstream mode, the
+    proxy presence/validity/NO_PROXY booleans (never values) and the count per closed upstream reason. None when the summary has no guard."""
+    guard = summary_doc.get("guard") if isinstance(summary_doc, dict) else None
+    if not isinstance(guard, dict):
+        return None
+    cfg = guard.get("upstreamConfig") if isinstance(guard.get("upstreamConfig"), dict) else {}
+    counters = guard.get("counters") if isinstance(guard.get("counters"), dict) else {}
+    reasons = counters.get("upstreamReasons") if isinstance(counters.get("upstreamReasons"), dict) else {}
+    flag = lambda v: v if type(v) is bool else None  # noqa: E731
+    return {"upstreamMode": _closed(cfg.get("mode"), GUARD_UPSTREAM_MODES, None),
+            "proxyConfigured": flag(cfg.get("proxyConfigured")), "proxyValid": flag(cfg.get("proxyValid")),
+            "noProxyMatched": flag(cfg.get("noProxyMatched")),
+            "upstreamReasons": {r: n for r, n in sorted(reasons.items())
+                                if isinstance(r, str) and r in GUARD_UPSTREAM_REASONS and type(n) is int and 0 <= n <= 100000}}
 
 
 def case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir=None):
@@ -2041,7 +2070,7 @@ def _case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir):
             first = {"id": aid if isinstance(aid, str) and aid in allowed_ids else "unlisted", "result": a["result"]}
             break
     return {"stopCode": stop, "exitCode": exit_code, "firstNonPassingAssertion": first,
-            "driverInterruption": driver_interruption(case_dir, case_id, row, receipt, allowed_ids)}
+            "driverInterruption": driver_interruption(case_dir, case_id, row, receipt, allowed_ids), "guard": guard_upstream(summary_doc)}
 
 
 def isolated_case_rows(cases_dir, case_results_file, selected, run_id):

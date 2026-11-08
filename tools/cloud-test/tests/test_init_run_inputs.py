@@ -3233,7 +3233,7 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
         self.assertEqual(d["firstNonPassingAssertion"], {"id": "owner-bound", "result": "FAIL"})
         self.assertEqual(d["driverInterruption"], {"stage": "start-press", "step": "owner-bound",
                                                    "error": {"name": "TimeoutError", "code": None, "kind": "timeout", "api": "locator.click",
-                                                             "timeoutMs": 30000, "testIds": ["sign-in-submit"]}})
+                                                             "timeoutMs": 30000, "testIds": ["sign-in-submit"], "netError": None}})
 
     def test_sams_format_valid_injected_values_are_dropped(self):
         doc = dict(self.DOC, stage="password-huntertwo", step="password-huntertwo",
@@ -3242,7 +3242,7 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
         got, text = self.project(doc)
         self.assertEqual(got, {"stage": "other", "step": "unlisted",
                                "error": {"name": "Error", "code": None, "kind": "other", "api": None, "timeoutMs": None,
-                                         "testIds": ["sign-in-submit"]}})
+                                         "testIds": ["sign-in-submit"], "netError": None}})
         for leak in ("huntertwo", "secret.token", "token=abc", "password=x", "LEAK", "SecretError", "user-12345678"):
             self.assertNotIn(leak, text)
 
@@ -3318,6 +3318,32 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
             row, _ = self.run_one(summary={"reason": "completed"}, extra_rows=[peer])
         self.assertEqual(row["diagnostic"], I.UNKNOWN_DIAGNOSTIC)
 
+    def test_the_exact_net_error_is_kept_only_from_the_closed_allowlist(self):
+        for given, kept in (("ERR_HTTP_RESPONSE_CODE_FAILURE", "ERR_HTTP_RESPONSE_CODE_FAILURE"), ("ERR_PROXY_CONNECTION_FAILED", "ERR_PROXY_CONNECTION_FAILED"),
+                            ("other", "other"), ("ERR_SECRET_token=abc", None), (["ERR_FAILED"], None), ("err_failed", None)):
+            with self.subTest(given=given):
+                doc = dict(self.DOC, error=dict(self.DOC["error"], api="page.goto", kind="network-error", netError=given))
+                got, text = self.project(doc)
+                self.assertEqual((got["error"]["api"], got["error"]["kind"], got["error"]["netError"]), ("page.goto", "network-error", kept))
+                self.assertNotIn("token=abc", text)
+
+    def test_the_guard_upstream_configuration_and_reasons_are_closed_and_never_carry_values(self):
+        guard = {"upstreamConfig": {"mode": "env-proxy", "proxyConfigured": False, "proxyValid": False, "noProxyMatched": False,
+                                    "proxy": "http://user:s3cr3t@proxy.internal:3128"},
+                 "counters": {"upstreamReasons": {"proxy-not-configured": 3, "secret.host.example": 1, "dns": "2", "tls": -1}}}
+        row, text = self.run_one(summary={"reason": "completed", "guard": guard}, exit_code=0)
+        self.assertEqual(row["diagnostic"]["guard"], {"upstreamMode": "env-proxy", "proxyConfigured": False, "proxyValid": False,
+                                                      "noProxyMatched": False, "upstreamReasons": {"proxy-not-configured": 3}})
+        for leak in ("s3cr3t", "proxy.internal", "3128", "secret.host"):
+            self.assertNotIn(leak, text)
+        for bad in ({"upstreamConfig": {"mode": "socks", "proxyConfigured": "yes"}}, {"upstreamConfig": [], "counters": []}, "guard"):
+            with self.subTest(bad=bad):
+                row, _ = self.run_one(summary={"reason": "completed", "guard": bad}, exit_code=0)
+                g = row["diagnostic"]["guard"]
+                self.assertTrue(g is None or (g["upstreamMode"] is None and g["proxyConfigured"] is None and g["upstreamReasons"] == {}))
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0)
+        self.assertIsNone(row["diagnostic"]["guard"])
+
     def test_no_interruption_named_is_none(self):
         row, _ = self.run_one(summary={"reason": "completed"}, assertions=[{"id": "owner-bound", "result": "FAIL", "evidenceRefs": []}])
         self.assertIsNone(row["diagnostic"]["driverInterruption"])
@@ -3348,6 +3374,17 @@ class DriverVocabularyPins(unittest.TestCase):
             ids |= set(re.findall(r"getByTestId\('([a-z][a-z0-9-]{1,40})'\)", text))
             ids |= set(re.findall(r'data-testid="([a-z][a-z0-9-]{1,40})"', text))
         self.assertEqual(set(I.DRIVER_TEST_IDS), {i for i in ids if not i.endswith("-")}, "dynamic prefixes are never ids")
+
+    def test_net_errors_equal_the_drivers_allowlist_and_upstream_reasons_the_guards(self):
+        src = self.sources()["browser-actions.cjs"]
+        net = set(re.findall(r"'(ERR_[A-Z_]+)'", re.search(r"const NET_ERRORS=new Set\(\[(.*?)\]\)", src).group(1)))
+        self.assertEqual(set(I.DRIVER_NET_ERRORS) - {"other"}, net)
+        with open(os.path.join(ROOT, "harness", "bundle", "harness", "guard-proxy.cjs"), encoding="utf-8") as f:
+            guard = f.read()
+        reasons = set(re.findall(r"'([a-z-]+)'", re.search(r"const UPSTREAM_REASONS = new Set\(\[(.*?)\]\)", guard, re.S).group(1)))
+        self.assertEqual(set(I.GUARD_UPSTREAM_REASONS), reasons)
+        modes = set(re.findall(r"'([a-z-]+)'", re.search(r"\['env-proxy','direct','override'\]", guard).group(0)))
+        self.assertEqual(set(I.GUARD_UPSTREAM_MODES), modes)
 
     def test_apis_are_playwright_page_or_locator_calls_and_the_page_calls_are_used(self):
         used = set()

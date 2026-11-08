@@ -46,3 +46,53 @@ test('reservation crossing the request deadline stays spent and sends no readbac
  assert.equal(h.o.active,0);assert.equal(h.o.inFlight.size,0);assert.equal(h.o.c.forwarded,0);
 });
 test('offline transport cannot substitute into a live policy',async t=>{let calls=0;const h=readbackHarness(t,async()=>{calls++;});h.o.policy.testOnly=false;await assert.rejects(Guard.prototype.readbackRequest.call(h.o,{url:'https://a.test/rows',boundHost:'a.test'}),/unavailable/);assert.equal(calls,0);});
+
+// Sam 1794154809 / 1794155156: closed guard upstream reasons and proxy-configuration booleans (never values) so a run proves its own
+// egress configuration. Run 42496837188's AHT-01 failed at page.goto with a guard upstream-error that carried no reason.
+const { upstreamReason, proxyConfig, upstreamSocket, UPSTREAM_REASONS } = require('../harness/guard-proxy.cjs');
+
+function withEnv(t, vars) {
+  const keys = ['HTTPS_PROXY', 'https_proxy', 'NO_PROXY', 'no_proxy'];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  for (const k of keys) delete process.env[k];
+  Object.assign(process.env, vars);
+  t.after(() => { for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
+}
+const policy = (upstream) => ({ upstream, hosts: { 'app.test': {}, 'api.test': {} } });
+
+test('upstream errors map to a closed reason; an explicit tag wins; anything else is other', () => {
+  const tagged = Object.assign(new Error('x'), { upstreamReason: 'proxy-not-configured' });
+  assert.equal(upstreamReason(tagged), 'proxy-not-configured');
+  for (const [code, reason] of [['ENOTFOUND', 'dns'], ['EAI_AGAIN', 'dns'], ['ECONNREFUSED', 'connect-refused'], ['ETIMEDOUT', 'timeout'],
+    ['ECONNRESET', 'reset'], ['EPIPE', 'reset'], ['ERR_TLS_CERT_ALTNAME_INVALID', 'tls'], ['CERT_HAS_EXPIRED', 'tls'], ['EWHATEVER', 'other']]) {
+    assert.equal(upstreamReason(Object.assign(new Error('secret message with host proxy.example:3128'), { code })), reason, code);
+  }
+  assert.equal(upstreamReason(Object.assign(new Error('x'), { upstreamReason: 'not-a-reason' })), 'other');
+  assert.equal(upstreamReason(null), 'other');
+  for (const r of UPSTREAM_REASONS) assert.match(r, /^[a-z]+(-[a-z]+)*$/);
+});
+
+test('proxy configuration is recorded as presence and validity booleans, never the value', (t) => {
+  withEnv(t, {});
+  assert.deepEqual(proxyConfig(policy({ mode: 'env-proxy' })), { mode: 'env-proxy', proxyConfigured: false, proxyValid: false, noProxyMatched: false });
+  withEnv(t, { HTTPS_PROXY: 'http://user:s3cr3t@proxy.internal.example:3128' });
+  const c = proxyConfig(policy({ mode: 'env-proxy' }));
+  assert.deepEqual(c, { mode: 'env-proxy', proxyConfigured: true, proxyValid: true, noProxyMatched: false });
+  for (const leak of ['s3cr3t', 'user', 'proxy.internal', '3128']) assert.ok(!JSON.stringify(c).includes(leak), leak);
+  withEnv(t, { https_proxy: 'not a url' });
+  assert.deepEqual(proxyConfig(policy({ mode: 'env-proxy' })), { mode: 'env-proxy', proxyConfigured: true, proxyValid: false, noProxyMatched: false });
+  withEnv(t, { HTTPS_PROXY: 'ftp://proxy.example', NO_PROXY: '.test' });
+  assert.deepEqual(proxyConfig(policy({ mode: 'env-proxy' })), { mode: 'env-proxy', proxyConfigured: true, proxyValid: false, noProxyMatched: true });
+});
+
+test('the production env-proxy path with no proxy refuses as proxy-not-configured, with zero network calls', async (t) => {
+  withEnv(t, {});
+  const ac = new AbortController();
+  await assert.rejects(upstreamSocket({ upstream: { mode: 'env-proxy' } }, 'app.test', ac.signal),
+    (e) => e.upstreamReason === 'proxy-not-configured' && upstreamReason(e) === 'proxy-not-configured');
+  withEnv(t, { HTTPS_PROXY: 'http://[bad' });
+  await assert.rejects(upstreamSocket({ upstream: { mode: 'env-proxy' } }, 'app.test', ac.signal),
+    (e) => upstreamReason(e) === 'proxy-invalid');
+  await assert.rejects(upstreamSocket({ upstream: { mode: 'env-proxy', caFile: '/nonexistent' } }, 'app.test', ac.signal),
+    (e) => upstreamReason(e) === 'test-only-trust');
+});
