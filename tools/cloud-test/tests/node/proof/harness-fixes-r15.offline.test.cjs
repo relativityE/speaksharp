@@ -14,15 +14,73 @@ const {summarizeAssertions}=require(P+'/bundle/harness/case-results.cjs');
 const {sanitizeEvidence}=require(P+'/bundle/harness/evidence-sanitizer.cjs');
 const Pn='pending',Pa='partial',Cv='covered';
 const frozen=(timeline,extra={})=>({frozen:true,samples:60,unreadable:0,timeline,multiMarker:[],...extra});
-test('R10 AHT-02/03 smoke executes only its reviewed denominator and never emits the excluded full-depth coaching row',async()=>{
+// Run 42472935773 (Sam 1794135354): AHT-02/03 smoke now ends with the reviewed smoke-focus-readback row (8ab282b8). The fake run's oracle map
+// had no smokeFocusReadback, so the hook threw and the case was interrupted. The smoke runs below compose the ACTUAL oracles from
+// oracles/index.cjs (createOracles: the existing focusEvidence 'begin' brief capture and smokeFocusReadback, never a PASS stub) over an
+// owner-read page holding exact-session fixtures for the fake run's one saved take ('t1'), reopened on the tested release's canonical
+// /progress/<take> route (derived from the committed release source excerpt, as the composed readback test does).
+const SMOKE_ROUTES=JSON.parse(fs.readFileSync(path.join(__dirname,'..','..','fixtures','tested-release-reopen-route-5a7bf6a1.json'),'utf8'));
+const SMOKE_ROUTE_PREFIX=(/to=\{`([^`$]*)\$\{session\.id\}`\}/.exec(SMOKE_ROUTES.files['frontend/src/components/AnalyticsDashboard.tsx'].lines['500'])||[])[1];
+const SMOKE_TAKE='t1';                                    // fake-run.cjs row(): the one saved take of a one-take smoke run
+// Expected saved verdicts per case for the fake run's deterministic rail (covered/partial persist as detected, missing as not_detected).
+const SMOKE_SAVED={'AHT-02':{verdicts:['detected','detected','not_detected','not_detected'],visible:['Detected: point 1 at 0:05, point 2 at 0:14.','Not detected: point 3, point 4.'],exercised:[1,2]},
+                   'AHT-03':{verdicts:['detected','detected','detected','not_detected'],visible:['Detected: point 1 at 0:05, point 2 at 0:11, point 3 at 0:18.','Not detected: point 4.'],exercised:[1,2,3]}};
+function smokeOwnerTables(c,id,over={}){
+  const uid=c.account.id;
+  return {objective_brief:[{id:'brief-1',user_id:uid}],objective_session:[{id:'os-1',user_id:uid,brief_id:'brief-1',source_session_id:SMOKE_TAKE}],
+          objective_brief_point:c.focus.points.map((label,i)=>({id:'p'+i,user_id:uid,brief_id:'brief-1',sort_order:i,label})),
+          objective_evidence:SMOKE_SAVED[id].verdicts.map((verdict,i)=>({id:'e'+i,user_id:uid,session_id:'os-1',brief_point_id:'p'+i,verdict})),...over};
+}
+function smokeOwnerPage(c,id,{over={},url=c.targetUrl.replace(/\/$/,'')+SMOKE_ROUTE_PREFIX+SMOKE_TAKE,visible=SMOKE_SAVED[id].visible}={}){
+  const db=smokeOwnerTables(c,id,over),reads=[];
+  return {reads,url:()=>url,
+    getByTestId:t=>({first:()=>({count:async()=>(t==='review-evidence'&&visible?1:0),innerText:async()=>(visible||[]).join('\n')})}),
+    async evaluate(_fn,args){
+      if(args&&typeof args.url==='string'){const u=new URL(args.url),table=u.pathname.replace('/rest/v1/','');reads.push(table);
+        const filters=[...u.searchParams].filter(([k])=>!['select','order','limit','offset'].includes(k)).map(([k,v])=>[k,v.replace(/^eq\./,'')]);
+        const rows=(db[table]||[]).filter(r=>filters.every(([k,v])=>String(r[k])===v));return {data:args.single?(rows[0]??null):rows,error:null,count:rows.length};}
+      if(args&&args.railTestId)return {ok:true};
+      throw new Error('unexpected evaluate');}};
+}
+// The real oracles, created on first use from the exact case config the driver hands the hook; only their page is the owner-read page.
+function realSmokeFocusOracles(id,pageOpts={}){
+  const {createOracles}=require(P+'/draft-adapters/oracles/index.cjs');let real=null,owner=null;const evidence=[];
+  const bind=a=>{if(!real){owner=smokeOwnerPage(a.caseConfig,id,pageOpts);real=createOracles({context:{},guard:{},caseConfig:a.caseConfig,writeEvidence:async(name,doc)=>{evidence.push(doc);return 'evidence/'+name;}});}return real;};
+  return {evidence,reads:()=>owner?owner.reads:[],oracles:{
+    focusEvidence:async a=>a.phase==='begin'?bind(a).focusEvidence({...a,page:owner||(bind(a),owner)}):(a.phase==='assert'||a.phase==='numeric'?{result:'PASS',contentSafe:true,evidenceRefs:['unit.json'],observed:true}:{observed:true}),
+    smokeFocusReadback:async a=>bind(a).smokeFocusReadback({...a,page:owner})}};
+}
+async function smokeRun(id,pageOpts){
   const smokeTiming=require(P+'/draft-adapters/oracles/pure/smokeTiming.cjs');
-  const ownerStub={'./oracles/owner-query.cjs':{createOwnerDb:()=>({}),rows:async()=>[]}};
+  const required=sourceAdapters.SMOKE_CONTRACTS[id].rows,real=realSmokeFocusOracles(id,pageOpts);
+  const r=await fake(id,{cfg:{sampleMode:'smoke',recordingWindowMs:smokeTiming.WINDOWS[id],requiredAssertions:required,takeCap:1,startPressCap:1},
+                        extraStubs:{'./oracles/owner-query.cjs':{createOwnerDb:()=>({}),rows:async()=>[]}},oracles:real.oracles});
+  return {r,required,real,row:r.res.assertions.find(a=>a.id==='smoke-focus-readback')};
+}
+test('R10 AHT-02/03 smoke executes only its reviewed denominator and never emits the excluded full-depth coaching row',async()=>{
   for(const id of ['AHT-02','AHT-03']){
-    const required=sourceAdapters.SMOKE_CONTRACTS[id].rows;
-    const r=await fake(id,{cfg:{sampleMode:'smoke',recordingWindowMs:smokeTiming.WINDOWS[id],requiredAssertions:required,takeCap:1,startPressCap:1},extraStubs:ownerStub});
+    const {r,required,real,row}=await smokeRun(id);
     assert.equal(r.res.blocker,null);
     assert.equal(r.res.assertions.some(row=>row.id==='grounded-coaching'),false);
     assert.deepEqual(r.res.assertions.filter(row=>!required.includes(row.id)).map(row=>row.id),[],'the live adapter must not add a row outside the selected smoke denominator');
+    // the reviewed readback row is produced by the real oracle: one brief read by the existing begin, then exactly three owner reads
+    assert.equal(row?.result,'PASS',id);
+    assert.deepEqual(real.reads(),['objective_brief','objective_session','objective_brief_point','objective_evidence'],id);
+    assert.deepEqual(real.evidence.at(-1)?.facts?.exercisedOrdinals,SMOKE_SAVED[id].exercised,id);
+  }
+});
+test('R10 AHT-02/03 smoke readback through the real oracle refuses empty or wrong-session owner data and a page that is not the reopened take',async()=>{
+  for(const id of ['AHT-02','AHT-03']){
+    const refusals={'no owner rows':{over:{objective_session:[],objective_brief_point:[],objective_evidence:[]}},
+                    'objective of another session':{over:{objective_session:[{id:'os-1',user_id:'00000000-0000-4000-8000-000000000001',brief_id:'brief-1',source_session_id:'t2'}]}},
+                    'saved verdict differs for an exercised point':{over:{objective_evidence:SMOKE_SAVED[id].verdicts.map((v,i)=>({id:'e'+i,user_id:'00000000-0000-4000-8000-000000000001',session_id:'os-1',brief_point_id:'p'+i,verdict:i===0?'not_detected':v}))}},
+                    'the fake reopen page (not /progress/<take>)':{url:'https://speaksharp-public.vercel.app/session'},
+                    'legacy alias route':{url:'https://speaksharp-public.vercel.app/analytics/t1'}};
+    for(const [name,opts] of Object.entries(refusals)){
+      const {r,row}=await smokeRun(id,opts);
+      assert.notEqual(row?.result,'PASS',id+': '+name);
+      assert.notEqual(r.res.blocker,null,id+': '+name+' must stop the case, never pass silently');
+    }
   }
 });
 test('R10 AHT-08 real adapter performs its required feedback receiver preflight',async()=>{
