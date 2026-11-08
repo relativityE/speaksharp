@@ -1,30 +1,27 @@
 /**
  * Browser-endurance account readiness — READ-ONLY, injectable, FAIL-CLOSED (Stress and Endurance run 42474354454; Sam 1794138777,
- * 1794138818).
+ * 1794138818, 1794141451, 1794141486).
  *
- * The dedicated endurance accounts must already be genuine active-trial accounts by the SERVER's definition before the soak setup
- * performs ANY write (rename, password synchronization, provisioning, tier synchronization). Recreating an account cannot restore a
- * trial: `public.ensure_trial_profile_for_new_user` (migration 20261013180000) keys `public.trial_entitlements` by e-mail and copies
- * the historical trial dates onto a recreated profile, so an expired e-mail stays expired (run 42474354454 deleted and recreated
- * soak-test45/46 and both came back with their 2026-05-30 expiry). This module therefore only READS:
- *   - the Auth inventory (exactly one owner per address),
- *   - that owner's `user_profiles` trial fields (the commercial grant marker AND an unexpired `trial_expires_at`),
- *   - the e-mail's `trial_entitlements` row (bound to that owner, the same expiry).
- * Each account is `active`, `expired`, `missing`, `ambiguous` or `unreadable`; `ready` only when every account is `active`.
- * It never creates, deletes, renames, resets a password, stamps or extends a trial. Callers refuse (non-zero exit) when not ready.
- * Expiry is judged against the caller-supplied SERVER time (`serverNow` reads the Supabase response Date header), not the runner clock.
+ * The dedicated endurance accounts must already be genuine active-trial accounts before the soak setup performs ANY write. Recreating
+ * an account cannot restore a trial: `public.ensure_trial_profile_for_new_user` (migration 20261013180000) keys
+ * `public.trial_entitlements` by e-mail and copies the historical trial dates onto a recreated profile.
+ *
+ * The eligibility decision is NOT a parallel rule: it is the existing read-only `verifyCanaryFoundation(adminClient, userId,
+ * 'free_test')` contract (scripts/lib/canaryAccountAdmin.mjs) — the genuine standard Free account with an active 30-day trial —
+ * whose "active" verdict is the canonical five-argument `public.effective_subscription_tier` RPC evaluated with the DATABASE's now().
+ * No runner clock and no HTTP response time is consulted. This module adds only identity checks around it:
+ *   - the Auth inventory has exactly one owner for the address (a truncated or failed inventory is unreadable);
+ *   - the e-mail's `trial_entitlements` row is bound to that owner with exactly the profile's trial window.
+ * Each account is `active`, `expired`, `ineligible`, `missing`, `ambiguous` or `unreadable`; `ready` only when every account is `active`.
+ * It never creates, deletes, renames, resets a password, stamps or extends a trial (the RPC is a read-only function call).
  */
+import { verifyCanaryFoundation } from './canaryAccountAdmin.mjs';
 
 const PAGE_SIZE = 100;
 const MAX_PAGES = 1000;
+const ENDURANCE_PURPOSE = 'free_test';   // verify:'trial' — a genuine standard Free account with an active 30-day trial
 
 const normalize = (email) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
-
-function instant(value) {
-    if (value === null || value === undefined) return null;
-    const ms = new Date(value).getTime();
-    return Number.isFinite(ms) ? ms : NaN;
-}
 
 async function authInventory(adminClient) {
     const users = [];
@@ -42,9 +39,9 @@ async function authInventory(adminClient) {
     return null; // a truncated inventory is unreadable, never "missing"
 }
 
-async function readOne(adminClient, table, columns, column, value) {
+async function readLedger(adminClient, email) {
     try {
-        const res = await adminClient.from(table).select(columns).eq(column, value).maybeSingle();
+        const res = await adminClient.from('trial_entitlements').select('email, user_id, trial_started_at, trial_expires_at').eq('email', email).maybeSingle();
         if (!res || res.error) return { unreadable: true };
         return { row: res.data ?? null };
     } catch {
@@ -52,7 +49,17 @@ async function readOne(adminClient, table, columns, column, value) {
     }
 }
 
-async function accountReadiness(adminClient, users, email, now) {
+/** Map the shared foundation verdict to a readiness state (closed reason codes only). */
+function stateOfFoundation(verdict) {
+    if (verdict.ok) return 'active';
+    const reason = String(verdict.reason || '');
+    if (reason === 'trial_not_active_server_time') return 'expired';
+    if (reason === 'profile_missing_after_foundation') return 'missing';
+    if (reason.startsWith('profile_readback_error') || reason.startsWith('tier_rpc_error')) return 'unreadable';
+    return 'ineligible';
+}
+
+async function accountReadiness(adminClient, users, email) {
     const want = normalize(email);
     const owners = users.filter((u) => normalize(u?.email) === want);
     if (owners.length === 0) return { email, state: 'missing', reason: 'no-auth-owner' };
@@ -60,29 +67,30 @@ async function accountReadiness(adminClient, users, email, now) {
     const id = owners[0].id;
     if (typeof id !== 'string' || !id) return { email, state: 'unreadable', reason: 'auth-owner-id' };
 
-    const profile = await readOne(adminClient, 'user_profiles', 'id, trial_started_at, trial_expires_at, commercial_trial_granted_at', 'id', id);
-    if (profile.unreadable) return { email, state: 'unreadable', reason: 'profile-read' };
-    if (!profile.row) return { email, state: 'missing', reason: 'no-profile' };
-    const ledger = await readOne(adminClient, 'trial_entitlements', 'email, user_id, trial_started_at, trial_expires_at', 'email', want);
+    let verdict;
+    try {
+        verdict = await verifyCanaryFoundation(adminClient, id, ENDURANCE_PURPOSE);
+    } catch {
+        return { email, state: 'unreadable', reason: 'foundation-read' };
+    }
+    const state = stateOfFoundation(verdict);
+    if (state !== 'active') return { email, state, reason: String(verdict.reason || 'foundation') };
+
+    const ledger = await readLedger(adminClient, want);
     if (ledger.unreadable) return { email, state: 'unreadable', reason: 'entitlement-read' };
     if (!ledger.row) return { email, state: 'missing', reason: 'no-trial-entitlement' };
     if (ledger.row.user_id !== id) return { email, state: 'ambiguous', reason: 'entitlement-bound-to-another-owner' };
-
-    const grant = instant(profile.row.commercial_trial_granted_at);
-    const expiry = instant(profile.row.trial_expires_at);
-    const ledgerExpiry = instant(ledger.row.trial_expires_at);
-    if ([grant, expiry, ledgerExpiry].some((v) => Number.isNaN(v))) return { email, state: 'unreadable', reason: 'trial-date' };
-    if (grant === null || expiry === null || ledgerExpiry === null) return { email, state: 'missing', reason: 'no-trial-grant' };
-    if (expiry !== ledgerExpiry) return { email, state: 'ambiguous', reason: 'profile-and-entitlement-expiry-differ' };
-    const expiresAt = new Date(expiry).toISOString();
-    if (expiry <= now) return { email, state: 'expired', reason: 'trial-expired', expiresAt };
-    return { email, state: 'active', reason: 'active-trial', expiresAt };
+    const same = (a, b) => Number.isFinite(Date.parse(a)) && Date.parse(a) === Date.parse(b);
+    const profile = verdict.snapshot || {};
+    if (!same(ledger.row.trial_started_at, profile.trial_started_at) || !same(ledger.row.trial_expires_at, profile.trial_expires_at)) {
+        return { email, state: 'ambiguous', reason: 'profile-and-entitlement-window-differ' };
+    }
+    return { email, state: 'active', reason: 'active-trial-server-time' };
 }
 
-/** { ready, accounts: [{ email, state, reason, expiresAt? }] } — reads only; never throws for an unavailable read. `now` is the SERVER's time
- * (the caller reads it from the database response, never the runner clock); a missing or invalid time is unreadable. */
-export async function enduranceReadiness({ adminClient, emails, now }) {
-    if (!Array.isArray(emails) || emails.length === 0 || !Number.isFinite(now)) {
+/** { ready, accounts: [{ email, state, reason }] } — reads only (Auth list, profile, entitlement, the read-only tier RPC). */
+export async function enduranceReadiness({ adminClient, emails }) {
+    if (!Array.isArray(emails) || emails.length === 0) {
         return { ready: false, accounts: [{ email: null, state: 'unreadable', reason: 'invalid-input' }] };
     }
     const users = await authInventory(adminClient);
@@ -90,18 +98,6 @@ export async function enduranceReadiness({ adminClient, emails, now }) {
         return { ready: false, accounts: emails.map((email) => ({ email, state: 'unreadable', reason: 'auth-inventory' })) };
     }
     const accounts = [];
-    for (const email of emails) accounts.push(await accountReadiness(adminClient, users, email, now));
+    for (const email of emails) accounts.push(await accountReadiness(adminClient, users, email));
     return { ready: accounts.every((a) => a.state === 'active'), accounts };
-}
-
-/** The server's time from the Supabase API response `Date` header (HTTP time, 1 s resolution); null when unavailable. */
-export async function serverNow({ url, apiKey, fetchImpl = fetch }) {
-    try {
-        const res = await fetchImpl(`${String(url).replace(/\/$/, '')}/rest/v1/`, { method: 'HEAD', headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}` } });
-        const header = res?.headers?.get?.('date');
-        const ms = header ? Date.parse(header) : NaN;
-        return Number.isFinite(ms) ? ms : null;
-    } catch {
-        return null;
-    }
 }

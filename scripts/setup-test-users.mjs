@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { provisionCanaryCredential } from './lib/canaryAccountAdmin.mjs';
-import { enduranceReadiness, serverNow } from './lib/enduranceReadiness.mjs';
+import { enduranceReadiness } from './lib/enduranceReadiness.mjs';
 
 // Load environment from .env.development (Standard for Soak/Canary tests)
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
@@ -440,11 +440,11 @@ async function main() {
 
     console.log(`  Target: ${finalFree} free, ${finalPro} pro (Total: ${totalRequested})`);
 
-    // Server-authoritative endurance readiness BEFORE any write (rename, password sync, provisioning, tier sync). Not ready -> refuse
+    // Endurance readiness (the shared read-only foundation verdict; 'active' is the database's effective_subscription_tier) BEFORE any write (rename, password sync, provisioning, tier sync). Not ready -> refuse
     // with zero account mutations: no delete/recreate, no password reset, no fabricated or extended entitlement.
     if (MODE === 'soak') {
         console.log('\nStep 1b: 🎟️  Browser-endurance readiness (read-only, before any write)...');
-        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email), now: await serverNow({ url: SUPABASE_URL, apiKey: SUPABASE_SERVICE_ROLE_KEY }) });
+        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email) });
         reportEnduranceReadiness(readiness);
         if (!readiness.ready) {
             console.error('\n❌ Browser-endurance accounts are not genuine active-trial accounts; refusing BEFORE any account write.');
@@ -501,7 +501,7 @@ async function main() {
     // #1294 Option 1: re-verify (read-only) that the earlier writes left the endurance accounts genuine active-trial.
     if (MODE === 'soak') {
         console.log('\nStep 6: 🎟️  Re-verifying browser-endurance readiness (read-only)...');
-        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email), now: await serverNow({ url: SUPABASE_URL, apiKey: SUPABASE_SERVICE_ROLE_KEY }) });
+        const readiness = await enduranceReadiness({ adminClient: supabase, emails: DEDICATED_BROWSER_ENDURANCE_ACCOUNTS.map((a) => a.email) });
         reportEnduranceReadiness(readiness);
         if (!readiness.ready) {
             console.error('\n❌ Browser-endurance accounts are no longer genuine active-trial; refusing (no fabricated entitlement, no private_sample fallback).');

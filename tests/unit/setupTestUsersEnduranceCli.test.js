@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 // Sam 1794140111: an EXECUTABLE regression of the real CLI (scripts/setup-test-users.mjs, MODE=soak) against a local fake Supabase
 // (Auth admin + PostgREST over HTTP, as supabase-js calls them). The fake records every mutating request. No network, no real account.
 
-const SERVER_DATE = 'Sun, 08 Nov 2026 12:00:00 GMT';      // the server clock the readiness decision must use
+const SERVER_DATE = 'Sun, 08 Nov 2026 12:00:00 GMT';      // an HTTP response clock: never the readiness authority
 const NOW = Date.parse(SERVER_DATE);
 const DAY = 86400_000;
 const iso = (ms) => new Date(ms).toISOString();
@@ -15,11 +15,13 @@ const E45 = 'soak-test45@test.com', E46 = 'soak-test46@test.com', G0 = 'soak-tes
 const U0 = '00000000-0000-4000-8000-000000000000', U45 = '00000000-0000-4000-8000-000000000045', U46 = '00000000-0000-4000-8000-000000000046';
 
 function trialRow(id, expiry) {
-    return { id, subscription_status: 'free', trial_started_at: iso(expiry - 30 * DAY), trial_expires_at: iso(expiry), commercial_trial_granted_at: iso(expiry - 30 * DAY) };
+    return { id, subscription_status: 'free', subscription_id: null, stripe_customer_id: null, stripe_subscription_id: null,
+             trial_started_at: iso(expiry - 30 * DAY), trial_expires_at: iso(expiry), commercial_trial_granted_at: iso(expiry - 30 * DAY) };
 }
 
 /** inventories: the Auth user list returned by the 1st, 2nd, ... listUsers page-1 call (the last one repeats). */
-function fakeSupabase({ inventories, expiry = NOW + 20 * DAY, serverDate = SERVER_DATE }) {
+/** dbNow: the DATABASE clock the read-only effective_subscription_tier RPC evaluates with (the only readiness authority). */
+function fakeSupabase({ inventories, expiry = NOW + 20 * DAY, serverDate = SERVER_DATE, dbNow = NOW }) {
     const mutations = [];
     let listCalls = 0;
     const profiles = { [U0]: trialRow(U0, expiry), [U45]: trialRow(U45, expiry), [U46]: trialRow(U46, expiry) };
@@ -34,6 +36,11 @@ function fakeSupabase({ inventories, expiry = NOW + 20 * DAY, serverDate = SERVE
                 res.writeHead(status, { 'content-type': 'application/json', date: serverDate });
                 res.end(json === undefined ? '' : JSON.stringify(json));
             };
+            if (req.method === 'POST' && url.pathname === '/rest/v1/rpc/effective_subscription_tier') {
+                const args = JSON.parse(body || '{}');
+                const active = !!args.p_commercial_trial_granted_at && Date.parse(args.p_trial_expires_at) > dbNow;
+                return send(200, active ? 'pro' : 'free');     // a read-only function call, not recorded as a mutation
+            }
             if (req.method !== 'GET' && req.method !== 'HEAD') {
                 mutations.push({ method: req.method, path: url.pathname, body });
                 return send(200, url.pathname.startsWith('/auth/') ? { id: 'created', email: 'x@test.com' } : []);
@@ -89,7 +96,7 @@ describe('setup-test-users.mjs (real CLI, fake Supabase): endurance identities a
         expect(fake.mutations.some((m) => m.method === 'DELETE')).toBe(false);
     }, 30000);
 
-    it('an expired endurance trial (by the SERVER clock) refuses before ANY write', async () => {
+    it('an expired endurance trial (by the DATABASE decision) refuses before ANY write', async () => {
         const fake = fakeSupabase({ inventories: [[G0, E45, E46]], expiry: NOW - DAY });
         const { code, out } = await runCli(fake);
         expect(code).toBe(1);
@@ -97,10 +104,18 @@ describe('setup-test-users.mjs (real CLI, fake Supabase): endurance identities a
         expect(fake.mutations).toEqual([]);
     }, 30000);
 
-    it('the SERVER clock decides: a trial the runner clock still calls active is refused when the server time is past its expiry', async () => {
-        // expiry one year after the runner's real clock; the fake server reports a time two years ahead -> expired by the server
-        const runnerNow = Date.now();
-        const fake = fakeSupabase({ inventories: [[G0, E45, E46]], expiry: runnerNow + 365 * DAY, serverDate: new Date(runnerNow + 730 * DAY).toUTCString() });
+    it("Sam's repro: HTTP Date 12:00:00, expiry 12:00:01, DATABASE time 12:00:02 -> expired, refused before any write", async () => {
+        const fake = fakeSupabase({ inventories: [[G0, E45, E46]], expiry: Date.parse('2026-11-08T12:00:01Z'), serverDate: SERVER_DATE,
+                                    dbNow: Date.parse('2026-11-08T12:00:02Z') });
+        const { code, out } = await runCli(fake);
+        expect(code).toBe(1);
+        expect(out).toContain('refusing BEFORE any account write');
+        expect(out).toContain('expired');
+        expect(fake.mutations).toEqual([]);
+    }, 30000);
+
+    it('a failing tier decision (database unavailable) refuses before any write, whatever the HTTP clock says', async () => {
+        const fake = fakeSupabase({ inventories: [[G0, E45, E46]], dbNow: NaN });   // NaN: every comparison false -> not active
         const { code, out } = await runCli(fake);
         expect(code).toBe(1);
         expect(out).toContain('refusing BEFORE any account write');
