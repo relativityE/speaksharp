@@ -648,6 +648,11 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertLess(run.index('reconcile --previous "$RUNNER_TEMP/previous.md"'), absent)
         self.assertLess(absent, run.index('retire-unattested --previous "$RUNNER_TEMP/previous.md"'))
         self.assertNotIn('"completion-artifact-missing-or-ambiguous"', run)
+        # Sam 1794163062: an API failure stops the step (never read as "no artifact"): the listing call is unguarded under set -euo pipefail,
+        # it paginates and slurps every page, and its exit status is not consumed by a pipe or an `||`
+        self.assertTrue(run.lstrip().startswith("set -euo pipefail"))
+        listing = next(l for l in run.splitlines() if "actions/runs/$pending_run_id/artifacts" in l).strip()
+        self.assertEqual(listing, 'gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$pending_run_id/artifacts" > "$RUNNER_TEMP/prior-artifact-pages.json"')
         # a retirement re-reads and binds the stored predecessor before the one PATCH, like the other retirements
         self.assertLess(run.index('retire-unattested'), run.index('retired_unreserved=1', run.index('retire-unattested')))
         self.assertLess(run.index('retire-unattested'), run.index('verify-predecessor --selected'))

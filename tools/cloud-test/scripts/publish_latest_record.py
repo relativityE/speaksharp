@@ -762,8 +762,15 @@ def completion_artifacts(pages, run_id):
     holds none (expired, never uploaded, or the upload failed); refuses on more than one, or on a listing that is not this run's."""
     pages = pages if isinstance(pages, list) else [pages]
     _need(pages and all(isinstance(p, dict) and isinstance(p.get("artifacts"), list) for p in pages), "completion-artifact-listing")
+    # Sam 1794163062: only a COMPLETE successful listing may say "no artifact". Every page carries GitHub's total_count, all agree, and the
+    # rows received are exactly that many: a pagination gap, a truncated or partial response, or an error body is never read as absence.
+    # (An API failure already stops the step: the gh call is not guarded, under set -euo pipefail.)
+    totals = {p.get("total_count") for p in pages}
+    _need(len(totals) == 1 and type(next(iter(totals))) is int, "completion-artifact-listing-incomplete")
     rows = [a for p in pages for a in p["artifacts"]]
+    _need(len(rows) == next(iter(totals)), "completion-artifact-listing-incomplete")
     _need(all(isinstance(a, dict) for a in rows), "completion-artifact-listing")
+    _need(len({a.get("id") for a in rows}) == len(rows), "completion-artifact-listing-incomplete")
     named = [a for a in rows if a.get("name") == COMPLETION_ARTIFACT]
     for a in named:
         wr = a.get("workflow_run")

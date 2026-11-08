@@ -1033,6 +1033,8 @@ class CompletionUnverified(unittest.TestCase):
     def test_no_unexpired_attestation_retires_the_candidate_unfolded_and_keeps_everything_else(self):
         state, rec = self.pending_state()
         for label, pages in {"expired": [{"total_count": 1, "artifacts": [artifact_row(expired=True)]}],
+                             "expired across two pages": [{"total_count": 2, "artifacts": [artifact_row(expired=True)]},
+                                                          {"total_count": 2, "artifacts": [artifact_row(name="cloud-test-settle-input", aid=9)]}],
                              "never uploaded": [{"total_count": 1, "artifacts": [artifact_row(name="cloud-test-settle-input")]}],
                              "empty listing": [{"total_count": 0, "artifacts": []}],
                              "a single (unslurped) page": {"total_count": 0, "artifacts": []}}.items():
@@ -1058,21 +1060,33 @@ class CompletionUnverified(unittest.TestCase):
 
     def test_a_present_artifact_ambiguity_or_a_foreign_listing_refuses(self):
         state, _ = self.pending_state()
-        status, row, named = P.completion_artifacts([{"artifacts": [artifact_row(), artifact_row(expired=True, aid=8)]}], "101")
+        status, row, named = P.completion_artifacts([{"total_count": 2, "artifacts": [artifact_row(), artifact_row(expired=True, aid=8)]}], "101")
         self.assertEqual((status, row, named), ("present", {"id": 7, "created_at": "2026-10-31T18:42:00Z"}, 2))
-        cases = {"an unexpired attestation exists (reconcile instead)": ([{"artifacts": [artifact_row()]}], "unattested-artifact-present"),
-                 "two unexpired attestations": ([{"artifacts": [artifact_row(), artifact_row(aid=8)]}], "completion-artifact-ambiguous"),
-                 "another run's listing": ([{"artifacts": [artifact_row(run_id="99", expired=True)]}], "completion-artifact-listing"),
-                 "no expiry flag": ([{"artifacts": [dict(artifact_row(), expired=None)]}], "completion-artifact-listing"),
-                 "not a listing": ([{"items": []}], "completion-artifact-listing"),
-                 "no pages": ([], "completion-artifact-listing")}
+        cases = {"an unexpired attestation exists (reconcile instead)": ([{"total_count": 1, "artifacts": [artifact_row()]}], "unattested-artifact-present"),
+                 "two unexpired attestations": ([{"total_count": 2, "artifacts": [artifact_row(), artifact_row(aid=8)]}], "completion-artifact-ambiguous"),
+                 "another run's listing": ([{"total_count": 1, "artifacts": [artifact_row(run_id="99", expired=True)]}], "completion-artifact-listing"),
+                 "no expiry flag": ([{"total_count": 1, "artifacts": [dict(artifact_row(), expired=None)]}], "completion-artifact-listing"),
+                 "not a listing (an error body)": ([{"message": "Server Error", "status": "502"}], "completion-artifact-listing"),
+                 "no pages": ([], "completion-artifact-listing"),
+                 # Sam 1794163062: incomplete evidence is never absence
+                 "a pagination gap: fewer rows than GitHub's total": ([{"total_count": 3, "artifacts": [artifact_row(name="other", aid=1)]}],
+                                                                       "completion-artifact-listing-incomplete"),
+                 "a missing second page": ([{"total_count": 101, "artifacts": [artifact_row(name="other", aid=n) for n in range(100)]}],
+                                           "completion-artifact-listing-incomplete"),
+                 "pages that disagree on the total": ([{"total_count": 1, "artifacts": []}, {"total_count": 2, "artifacts": [artifact_row(expired=True)]}],
+                                                      "completion-artifact-listing-incomplete"),
+                 "no total_count": ([{"artifacts": []}], "completion-artifact-listing-incomplete"),
+                 "a non-integer total": ([{"total_count": "0", "artifacts": []}], "completion-artifact-listing-incomplete"),
+                 "a duplicated row (a repeated page)": ([{"total_count": 2, "artifacts": [artifact_row(expired=True)]},
+                                                         {"total_count": 2, "artifacts": [artifact_row(expired=True)]}],
+                                                        "completion-artifact-listing-incomplete")}
         for label, (pages, code) in cases.items():
             with self.subTest(label), self.assertRaisesRegex(P.Refused, code):
                 P.retire_unattested(state, pages, "2026-11-02T09:00:00Z", "9" * 64)
 
     def test_only_a_pending_incomplete_attempt_can_retire_and_the_inputs_are_closed(self):
         state, _ = self.pending_state()
-        none = [{"artifacts": []}]
+        none = [{"total_count": 0, "artifacts": []}]
         running = P.begin(P.parse_body(""), "101", 1, SHA, "2026-10-31T19:00:00Z")
         for label, (st, listed, pred, code) in {
                 "no pending completion": (running, "2026-11-02T09:00:00Z", "9" * 64, "unattested-not-a-candidate"),
@@ -1097,13 +1111,17 @@ class CompletionUnverified(unittest.TestCase):
             pf = os.path.join(d, "pages.json"); open(pf, "w").write(json.dumps(pages))
             return subprocess.run(["python3", "-I", script, cmd, "--previous", prev, "--artifact-pages", pf, "--out", os.path.join(d, "out")] + list(extra),
                                   capture_output=True, text=True, timeout=60)
-        p = run("completion-artifact", [{"artifacts": [artifact_row()]}])
+        p = run("completion-artifact", [{"total_count": 1, "artifacts": [artifact_row()]}])
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(json.load(open(os.path.join(d, "out"))), {"created_at": "2026-10-31T18:42:00Z", "id": 7})
-        self.assertEqual(run("completion-artifact", [{"artifacts": [artifact_row(expired=True)]}]).returncode, 1)
-        p = run("completion-artifact", [{"artifacts": [artifact_row(), artifact_row(aid=8)]}])
+        self.assertEqual(run("completion-artifact", [{"total_count": 1, "artifacts": [artifact_row(expired=True)]}]).returncode, 1)
+        p = run("completion-artifact", [{"total_count": 3, "artifacts": [artifact_row(expired=True)]}])
+        self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: completion-artifact-listing-incomplete"))
+        p = run("retire-unattested", [{"total_count": 3, "artifacts": []}], "--listed-utc", "2026-11-02T09:00:00Z")
+        self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: completion-artifact-listing-incomplete"))
+        p = run("completion-artifact", [{"total_count": 2, "artifacts": [artifact_row(), artifact_row(aid=8)]}])
         self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: completion-artifact-ambiguous"))
-        p = run("retire-unattested", [{"artifacts": []}], "--listed-utc", "2026-11-02T09:00:00Z")
+        p = run("retire-unattested", [{"total_count": 0, "artifacts": []}], "--listed-utc", "2026-11-02T09:00:00Z")
         self.assertEqual(p.returncode, 0, p.stderr)
         out = P.parse_body(open(os.path.join(d, "out")).read())
         self.assertEqual(out["retiredAttempts"][-1]["predecessorSha256"], hashlib.sha256(P.render(state).encode()).hexdigest())
