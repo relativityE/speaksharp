@@ -682,6 +682,18 @@ class RetireUnreserved(unittest.TestCase):
         with self.assertRaisesRegex(P.Refused, "retired-attempts-bound"):
             retire(dict(stuck_state(), retiredAttempts=full))
 
+    def test_a_full_retired_history_still_renders_and_parses_inside_the_body_limit(self):
+        """Run 42472935773: the 9th retirement is admitted; RETIRED_MAX retired entries stay under MAX_BODY_CHARS and round-trip."""
+        self.assertGreaterEqual(P.RETIRED_MAX, 9)
+        one = retire(stuck_state())["retiredAttempts"][0]
+        full = [dict(one, runId=str(41900000000 + i)) for i in range(P.RETIRED_MAX)]
+        state = dict(stuck_state(), retiredAttempts=full)
+        body = P.render(state)
+        self.assertLessEqual(len(body), P.MAX_BODY_CHARS)
+        self.assertEqual(P.parse_body(body)["retiredAttempts"], full)
+        nine = [dict(one, runId=str(41900000000 + i)) for i in range(8)]
+        self.assertEqual(len(retire(dict(stuck_state(), retiredAttempts=nine))["retiredAttempts"]), 9)
+
     def test_a_stored_retired_entry_must_be_exactly_the_closed_shape(self):
         good = retire(stuck_state())
         entry = good["retiredAttempts"][0]

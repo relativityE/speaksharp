@@ -475,7 +475,10 @@ def interrupt(state, run_id, attempt, status):
 # retirement does NOT manufacture a completed run: latestCompleted and history are untouched, no usage, attempt or reservation record is read
 # for change or written, and the attempt is kept in the record as `retiredAttempts` history with the evidence that it never reserved.
 RETIRABLE_ATTEMPT = {"runId": "41933223835", "attempt": 1, "sourceSha": "af1781ba6e07524c82dea3a66a1b7cb772c14e51"}
-RETIRED_MAX = 8
+# Run 42472935773 (setup failure, reserved-not-executed) would be the 9th retired attempt: with a bound of 8 the next record-begin refused
+# `retired-attempts-bound` before any reserve, so no run could start. The bound only keeps the public record small; the rendered comment is
+# independently held under MAX_BODY_CHARS (fail closed `record-overflow`), and 32 retired entries render well inside it (tested).
+RETIRED_MAX = 32
 RETIRED_KEYS = {"runId", "attempt", "sourceSha", "startedUtc", "retiredReason", "predecessorSha256", "evidence"}
 RETIRED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "collectedUtc", "reserveJob", "liveJob", "settleJob", "journalRootSha",
                          "journalHeadSha", "journalEventsNamingRun"}
