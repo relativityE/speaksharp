@@ -418,6 +418,24 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      # Sam 1794156633 / 1794156723: no-network egress readiness BEFORE any credential-bearing or production prerequisite step. The guard's
+      # production policy requires env-proxy; run_stage forwards only uppercase HTTPS_PROXY/NO_PROXY. Presence and syntax only, never values;
+      # the closed receipt is retained even on refusal (exit 78). No secrets in this step.
+      - name: Egress readiness preflight (no network; closed receipt)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          python3 -I tools/cloud-test/scripts/egress_preflight.py --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --source-sha "$GITHUB_SHA" --out "$RUNNER_TEMP/egress-preflight.json"
+      - name: Retain the egress readiness receipt
+        timeout-minutes: 3
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-test-egress-preflight
+          path: ${{ runner.temp }}/egress-preflight.json
+          retention-days: 90
+          if-no-files-found: ignore
       - name: Bind private runner paths and initialize the inactive accounting workspace
         timeout-minutes: 2
         run: |
