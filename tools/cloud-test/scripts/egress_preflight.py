@@ -52,13 +52,22 @@ def no_proxy_matches(no_proxy, host):
 
 
 # scheme://[userinfo@]host[:port][/...] with an http(s) scheme and a non-empty host (syntax only; never resolved or contacted).
-PROXY_URL = re.compile(r"https?://(?:[^@/\s]*@)?(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::([0-9]{1,5}))?(?:/\S*)?", re.IGNORECASE)
+PROXY_URL = re.compile(r"https?://(?:[^@/\s]*@)?(?:\[([0-9A-Fa-f:.]+)\]|[A-Za-z0-9.-]+)(?::([0-9]{1,5}))?(?:/\S*)?", re.IGNORECASE)
 
 
 def valid_proxy(value):
-    """Guard parity (Sam 1794159106): the guard's WHATWG `new URL` rejects a port outside 0..65535, so this does too."""
+    """Guard parity (Sam 1794159106 / 1794160532): the guard's WHATWG `new URL` rejects a port outside 0..65535 and a bracketed
+    host that is not a valid IPv6 address (e.g. `[1:2:3]`), so this does too."""
+    import ipaddress
     m = PROXY_URL.fullmatch(value) if isinstance(value, str) else None
-    return m is not None and (m.group(1) is None or int(m.group(1)) <= 65535)
+    if m is None or (m.group(2) is not None and int(m.group(2)) > 65535):
+        return False
+    if m.group(1) is not None:
+        try:
+            ipaddress.IPv6Address(m.group(1))
+        except ValueError:
+            return False
+    return True
 
 
 def evaluate(policy, env):

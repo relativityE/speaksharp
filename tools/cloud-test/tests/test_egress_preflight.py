@@ -44,8 +44,9 @@ class Verdict(unittest.TestCase):
         """Sam 1794159106: the receipt must not report ready for a proxy the guard's `new URL` rejects (an out-of-range port)."""
         samples = ["http://proxy.example:3128", "https://proxy.example", "http://proxy.example:65535", "http://proxy.example:65536",
                    "http://proxy.invalid:99999", "http://proxy.example:0", "http://user:pw@proxy.example:8080/", "http://[::1]:3128",
-                   "ftp://proxy.example", "not a url", "http://", "proxy.example:3128"]
-        for s in ("http://proxy.invalid:99999", "http://proxy.example:65536"):
+                   "ftp://proxy.example", "not a url", "http://", "proxy.example:3128",
+                   "http://[1:2:3]:3128", "http://[::ffff:127.0.0.1]:3128", "http://[fe80::1]:8080", "http://[zz::1]:3128"]
+        for s in ("http://proxy.invalid:99999", "http://proxy.example:65536", "http://[1:2:3]:3128"):
             self.assertEqual(E.evaluate(POLICY, {"HTTPS_PROXY": s})["reason"], "proxy-invalid", s)
         self.assertEqual(E.evaluate(POLICY, {"HTTPS_PROXY": "http://proxy.example:65535"})["reason"], "ready")
         import shutil

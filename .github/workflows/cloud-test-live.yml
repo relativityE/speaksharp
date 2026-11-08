@@ -742,7 +742,7 @@ jobs:
         with:
           name: cloud-test-first-observations
           path: ${{ runner.temp }}/first-observations.json
-          retention-days: 90
+          retention-days: 1
           if-no-files-found: error
       - name: Project content-free per-case timing telemetry
         timeout-minutes: 3
@@ -779,7 +779,7 @@ jobs:
         with:
           name: cloud-test-case-timings
           path: ${{ runner.temp }}/case-timings.json
-          retention-days: 90
+          retention-days: 1
           if-no-files-found: error
       - name: Project the closed settle input (ids, digests and counts only; without a run record, none)
         timeout-minutes: 3
