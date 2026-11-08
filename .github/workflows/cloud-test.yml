@@ -8,6 +8,10 @@ name: Cloud Test control plane (manual, secret-free)
 #   mode=preflight (default): evaluates every gate for the request and builds the report with Latest = PENDING.
 #   mode=report: after a run's receipts were sealed into config/history/receipts/<latest_label>/ (and pinned in the config), compares Latest against the
 #                previous run automatically and derives gap status, spend and the summary from that evidence.
+#   mode=egress-diagnostic (Sam 1794164253): skips the control plane entirely and runs ONLY the no-network egress readiness preflight on the
+#                live job's runner image, retaining its closed, content-free receipt for one day. No credential, reservation, sysctl, browser,
+#                dependency install or product request. It diagnoses the current runner configuration only: not an AHT-01 pass, not the
+#                historical failure, and no transport-policy change.
 #
 # Network use: setup downloads only (PyPI pyyaml pinned, the npm lockfile); no browser is downloaded or installed. The control-plane scripts run
 # under a network guard; the attestation artifact records secret-free: true, network attempts: 0 and product hosts contacted: 0.
@@ -26,6 +30,7 @@ on:
         options:
           - preflight
           - report
+          - egress-diagnostic
       latest_label:
         description: For mode=report only, the sealed receipt label of the latest run (for example R6). Leave empty for preflight.
         required: false
@@ -41,6 +46,7 @@ concurrency:
 jobs:
   control-plane:
     name: Offline checks, gates, comparison and report (no secrets, no product traffic)
+    if: inputs.mode != 'egress-diagnostic'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # PO 2026-10-30 redesign: every check and test here is a current-run check on current code and versioned synthetic fixtures; nothing reads
@@ -160,4 +166,35 @@ jobs:
           # attestation and timings stay on the runner.
           path: ${{ runner.temp }}/offline-checks-summary.json
           retention-days: 14
+          if-no-files-found: error
+
+  # Sam 1794164253: the smallest diagnostic of the live runner's egress configuration. Exactly the live job's preflight step (same script,
+  # same closed receipt), on the live job's runner image, and nothing else; the job stops after the receipt is retained.
+  egress-diagnostic:
+    name: Egress readiness diagnostic only (no secrets, no network, no product traffic)
+    if: inputs.mode == 'egress-diagnostic'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Refuse report-only inputs
+        env:
+          LATEST_LABEL: ${{ inputs.latest_label }}
+        run: |
+          [ -z "$LATEST_LABEL" ] || { echo "BLOCKED_SETUP: latest_label is only for mode=report"; exit 78; }
+      - name: Egress readiness preflight (no network; closed receipt)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          python3 -I tools/cloud-test/scripts/egress_preflight.py --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --source-sha "$GITHUB_SHA" --out "$RUNNER_TEMP/egress-preflight.json"
+      - name: Retain the egress readiness receipt (1 day)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: cloud-test-egress-diagnostic
+          path: ${{ runner.temp }}/egress-preflight.json
+          retention-days: 1
           if-no-files-found: error

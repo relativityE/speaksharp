@@ -47,13 +47,19 @@ class WorkflowPolicy(unittest.TestCase):
     def test_default_mode_is_the_preflight_that_spends_nothing(self):
         inp = self.doc.get("on", self.doc.get(True))["workflow_dispatch"]["inputs"]
         self.assertEqual(inp["mode"]["default"], "preflight")
-        self.assertEqual(inp["mode"]["options"], ["preflight", "report"])
+        self.assertIn(inp["mode"]["options"], (["preflight", "report"], ["preflight", "report", "egress-diagnostic"]))
         self.assertEqual(inp["latest_label"]["default"], "")
         self.assertNotIn("execute", json.dumps(inp))
 
-    def test_there_is_exactly_one_job_and_it_has_no_execute_path(self):
-        self.assertEqual(list(self.doc["jobs"]), ["control-plane"])
-        self.assertFalse([x for x in self.steps() if "execute_run" in json.dumps(x)])
+    def test_there_is_exactly_one_job_per_dispatch_and_none_has_an_execute_path(self):
+        jobs = list(self.doc["jobs"])
+        self.assertIn(jobs, (["control-plane"], ["control-plane", "egress-diagnostic"]))
+        if len(jobs) == 2:   # mutually exclusive by mode: one dispatch runs exactly one job, so the runner budget is the control plane's
+            self.assertEqual(self.job["if"], "inputs.mode != 'egress-diagnostic'")
+            self.assertEqual(self.doc["jobs"]["egress-diagnostic"]["if"], "inputs.mode == 'egress-diagnostic'")
+            self.assertLessEqual(self.doc["jobs"]["egress-diagnostic"]["timeout-minutes"], self.job["timeout-minutes"])
+        for job in self.doc["jobs"].values():
+            self.assertFalse([x for x in job["steps"] if "execute_run" in json.dumps(x)])
 
     def test_no_secret_no_variable_no_environment_no_token(self):
         for needle in ("secrets.", "secrets:", "vars.", "environment:", "GITHUB_TOKEN", "id-token", "inherit"):
@@ -127,6 +133,50 @@ class WorkflowPolicy(unittest.TestCase):
     def test_the_model_evaluation_project_is_not_touched(self):
         for needle in ("model-downselection", "private-model-smoke", "gemini-model-currency", "comparison_cell", "comparison-authorization", "gh workflow run", "workflow_run"):
             self.assertNotIn(needle, self.text, needle)
+
+
+
+class EgressDiagnosticMode(unittest.TestCase):
+    """Sam 1794164253: the smallest diagnostic-only mode in the CURRENT cloud-test.yml (not the preserved fixture): skip the control plane,
+    check out the dispatched ref without persisted credentials, run only the no-network egress preflight, retain its closed receipt one day,
+    stop. No secret, variable, reservation, sysctl, browser, install or product request."""
+    @classmethod
+    def setUpClass(cls):
+        import yaml
+        with open(os.path.join(REPO, ".github", "workflows", "cloud-test.yml"), encoding="utf-8") as f:
+            cls.text = f.read()
+        cls.doc = yaml.safe_load(cls.text)
+        cls.job = cls.doc["jobs"]["egress-diagnostic"]
+        with open(os.path.join(REPO, ".github", "workflows", "cloud-test-live.yml"), encoding="utf-8") as f:
+            cls.live = yaml.safe_load(f.read())
+
+    def test_the_mode_runs_only_the_diagnostic_job(self):
+        self.assertIn("egress-diagnostic", self.doc.get("on", self.doc.get(True))["workflow_dispatch"]["inputs"]["mode"]["options"])
+        self.assertEqual(self.doc["jobs"]["control-plane"]["if"], "inputs.mode != 'egress-diagnostic'")
+        self.assertEqual(self.job["if"], "inputs.mode == 'egress-diagnostic'")
+        self.assertNotIn("needs", self.job)
+
+    def test_it_is_exactly_the_live_jobs_preflight_on_the_live_runner_image_and_nothing_else(self):
+        live = self.live["jobs"]["live"]
+        self.assertEqual(self.job["runs-on"], live["runs-on"])
+        steps = self.job["steps"]
+        self.assertEqual([s.get("name") or s.get("uses") for s in steps],
+                         ["actions/checkout@v6", "Refuse report-only inputs", "Egress readiness preflight (no network; closed receipt)",
+                          "Retain the egress readiness receipt (1 day)"])
+        self.assertEqual(steps[0].get("with"), {"persist-credentials": False})
+        live_pre = next(s for s in live["steps"] if s.get("name") == "Egress readiness preflight (no network; closed receipt)")
+        self.assertEqual(steps[2]["run"], live_pre["run"])
+        up = steps[3]
+        self.assertEqual((up["if"], up["with"]["retention-days"], up["with"]["if-no-files-found"], up["with"]["path"]),
+                         ("always()", 1, "error", "${{ runner.temp }}/egress-preflight.json"))
+        self.assertLessEqual(self.job["timeout-minutes"], 5)
+
+    def test_no_credential_reservation_sysctl_browser_install_or_product_request(self):
+        block = json.dumps(self.job)
+        for needle in ("secrets.", "vars.", "GITHUB_TOKEN", "environment", "permissions", "sudo", "sysctl", "unshare", "npm", "pip install", "install_browser",
+                       "execute_run", "reservation", "manual_reservation", "curl", "wget", "gh api", "setup-node", "setup-python"):
+            self.assertNotIn(needle, block, needle)
+        self.assertEqual(self.doc["permissions"], {"contents": "read"})
 
 
 if __name__ == "__main__":
