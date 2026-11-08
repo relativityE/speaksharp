@@ -24,8 +24,9 @@ test('bounded native routes retain explicit planner/protocol and fixture-only cl
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
-  assert.equal(contracts.length,7);
-  assert.equal(contracts.filter(item=>item.runner==='node-test').length,6);
+  // seven helpers, each with its own consumer test (all node-test), plus one Deno test (Sam 1794171113: + egress_connect_proxy)
+  assert.equal(contracts.length,8);
+  assert.equal(contracts.filter(item=>item.runner==='node-test').length,7);
   for(const item of NATIVE_HELPERS) {
     assert.equal(nativeTestRoute(item.file,root).consumer,item.consumer);
     assert.match(nativeTestRoute(item.file,root).claim,/NOT RUN/);
