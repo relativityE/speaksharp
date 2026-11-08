@@ -116,18 +116,18 @@ class SubsetTemplate(unittest.TestCase):
 
 class GrantBinding(unittest.TestCase):
     def test_the_committed_grant_admits_exactly_its_selection_inside_its_window(self):
-        occ = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T15:10:00Z")
+        occ = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
         self.assertEqual([s["case"] for s in occ["selection"]], ["AHT-01"])
         self.assertEqual((occ["window"]["endUtc"], occ["window"]["liveMinutes"], occ["selectionApprovalRef"]),
-                         ("2026-11-08T16:50:00Z", 60, GRANT["approvalRef"]))
-        cases = I.check_request(occ, datetime(2026, 11, 8, 15, 10, tzinfo=timezone.utc), I._request_keys())
+                         ("2026-11-08T17:50:00Z", 60, GRANT["approvalRef"]))
+        cases = I.check_request(occ, datetime(2026, 11, 8, 16, 10, tzinfo=timezone.utc), I._request_keys())
         self.assertEqual(cases, ["AHT-01"])
         self.assertEqual(I.check_ceilings(CFG, occ, cases, 85), 31)
         self.assertEqual(C.request_caps(occ, execution=True), ("smoke", {"AHT-01": 2}))
         with self.assertRaisesRegex(I.Refused, "one-off-grant-selection-differs"):
-            I.one_off_grant(REPO, None, "2026-11-08T15:10:00Z", selection=["AHT-01", "AHT-02"])
+            I.one_off_grant(REPO, None, "2026-11-08T16:10:00Z", selection=["AHT-01", "AHT-02"])
         with self.assertRaisesRegex(I.Refused, "one-off-grant-selection-differs"):
-            I.one_off_grant(REPO, None, "2026-11-08T15:10:00Z", selection=I.ALL_CASES)
+            I.one_off_grant(REPO, None, "2026-11-08T16:10:00Z", selection=I.ALL_CASES)
 
     def test_a_grant_without_or_with_another_selection_refuses(self):
         original = I._read
@@ -141,21 +141,21 @@ class GrantBinding(unittest.TestCase):
             reader = lambda path, v=variant: v if str(path).endswith(I.ONE_OFF_GRANT_PATH) else original(path)  # noqa: E731
             with self.subTest(label), mock.patch.multiple(I, _read=reader, ONE_OFF_GRANT_SHA256=hashlib.sha256(variant).hexdigest()):
                 with self.assertRaisesRegex(I.Refused, code):
-                    I.one_off_grant(REPO, None, "2026-11-08T15:10:00Z", selection=["AHT-01"])
+                    I.one_off_grant(REPO, None, "2026-11-08T16:10:00Z", selection=["AHT-01"])
 
     def test_the_base_template_is_pinned(self):
         with mock.patch.object(I, "ONE_OFF_BASE_TEMPLATE_SHA256", "0" * 64), self.assertRaisesRegex(I.Refused, "one-off-grant-base-template"):
-            I.one_off_grant(REPO, None, "2026-11-08T15:10:00Z", selection=["AHT-01"])
+            I.one_off_grant(REPO, None, "2026-11-08T16:10:00Z", selection=["AHT-01"])
 
 
 class SmokeSubsetOnlyForTheR10Campaign(unittest.TestCase):
     def occurrence(self):
-        return I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T15:10:00Z")
+        return I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
 
     def test_check_request_and_start_caps_refuse_a_smoke_subset_of_any_other_campaign(self):
         other = dict(self.occurrence(), runId="UNIT-SMOKE-SUBSET")
         with self.assertRaisesRegex(I.Refused, "smoke-mode-needs-all-fifteen"):
-            I.check_request(other, datetime(2026, 11, 8, 15, 10, tzinfo=timezone.utc), I._request_keys())
+            I.check_request(other, datetime(2026, 11, 8, 16, 10, tzinfo=timezone.utc), I._request_keys())
         with self.assertRaises(C.InputValidationError):
             C.request_caps(other, execution=True)
 
@@ -163,7 +163,7 @@ class SmokeSubsetOnlyForTheR10Campaign(unittest.TestCase):
         occ = self.occurrence()
         occ["selection"] = [dict(BASE["selection"][1], order=1), dict(occ["selection"][0], order=2)]
         with self.assertRaisesRegex(I.Refused, "smoke-mode-needs-all-fifteen"):
-            I.check_request(occ, datetime(2026, 11, 8, 15, 10, tzinfo=timezone.utc), I._request_keys())
+            I.check_request(occ, datetime(2026, 11, 8, 16, 10, tzinfo=timezone.utc), I._request_keys())
 
 
 class RealRequestValidator(unittest.TestCase):
@@ -183,7 +183,7 @@ class RealRequestValidator(unittest.TestCase):
         from _fixtures import fake_rv, reconciliation
         self.V, self.rv, self.rc = V, fake_rv(), reconciliation()
         self.ledger, self.wf = load("config/gap-ledger.json"), load("workflow.json")
-        self.occ = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T15:10:00Z")
+        self.occ = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
 
     def errors(self, req):
         return self.V.validate(req, CFG, self.ledger, self.wf, self.rv, self.rc)[0]
@@ -217,6 +217,70 @@ class RealRequestValidator(unittest.TestCase):
         with mock.patch.object(I, "ONE_OFF_GRANT_SHA256", "0" * 64):
             self.assertIsNone(self.V.r10_selected_subset(self.occ))
             self.assertIn(self.SUBSET_ERROR, self.errors(self.occ))
+
+
+class NotTargetedContract(unittest.TestCase):
+    """Run 42494152179 (Sam 1794151710.472899 / 1794151891.299109): the admitted one-case request carried notTargeted as bare gap ids; the
+    run reserved, passed admission, browser guard and identity, then the live report crashed (workflow_report: string indices). The
+    run-request contract is a list of {gap, why}; the shape is now refused BEFORE the reserve (record-begin occurrence-check) and by the
+    validator, and the corrected request passes the real pipeline and report."""
+    ADMITTED = os.path.join(ROOT, "tests", "fixtures", "settled", "admitted-42494152179.json")
+
+    def admitted(self):
+        with open(self.ADMITTED, "rb") as f:
+            raw = f.read()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), "98dac077a5cd032f39a3854dbf2fe810f4b69d5f12bffd54458ace35aaf0b3f0",
+                         "the exact bytes run 42494152179 reserved (its reserve provenance)")
+        return json.loads(raw)
+
+    def test_the_exact_admitted_request_is_refused_before_the_reserve_and_by_the_validator(self):
+        bad = self.admitted()
+        with self.assertRaisesRegex(I.Refused, "^request-not-targeted$"):
+            I.check_request(bad, datetime(2026, 11, 8, 15, 19, tzinfo=timezone.utc), I._request_keys())
+        import validate_run_request as V
+        from _fixtures import fake_rv, reconciliation
+        errs = V.validate(bad, CFG, load("config/gap-ledger.json"), load("workflow.json"), fake_rv(), reconciliation())[0]
+        self.assertIn("notTargeted must be a list of {gap, why}: each a tracked gap id and its reason (at least 10 characters)", errs)
+
+    def test_every_malformed_entry_is_refused_and_an_empty_list_stays_valid(self):
+        occ = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
+        now = datetime(2026, 11, 8, 16, 10, tzinfo=timezone.utc)
+        self.assertTrue(all(set(n) == {"gap", "why"} for n in occ["notTargeted"]))
+        for bad in (["GAP-02"], [{"gap": "GAP-02"}], [{"gap": "GAP-02", "why": "short"}], [{"gap": "GAP-02", "why": "a long enough reason", "x": 1}],
+                    [{"gap": "gap-2", "why": "a long enough reason"}], [{"gap": 2, "why": "a long enough reason"}], "GAP-02", {"GAP-02": "why"}):
+            with self.subTest(bad=bad), self.assertRaisesRegex(I.Refused, "^request-not-targeted$"):
+                I.check_request(dict(occ, notTargeted=bad), now, I._request_keys())
+        self.assertEqual(I.check_request(dict(occ, notTargeted=[]), now, I._request_keys()), ["AHT-01"])
+
+    def test_the_real_pipeline_and_report_accept_the_corrected_request_and_mark_the_admitted_one_invalid(self):
+        import tempfile
+        from _fixtures import NOW, TESTED, prerequisite, run_py
+        from _synthetic_history import shared as synthetic_history
+        prerequisite(os.system("git -C %s cat-file -e %s 2>/dev/null" % (REPO, TESTED)) == 0, "git history of the repository")
+        good = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
+        results = {}
+        for name, req in (("corrected", good), ("admitted", self.admitted())):
+            d = tempfile.mkdtemp(prefix="ct-nt-")
+            src, oc, out = os.path.join(d, "request.json"), os.path.join(d, "oc.json"), os.path.join(d, "out")
+            with open(src, "w", encoding="utf-8") as f:
+                json.dump(req, f)
+            with open(oc, "w", encoding="utf-8") as f:
+                json.dump({"passed": True}, f)
+            h = synthetic_history()
+            r = run_py("scripts/pipeline.py", "--request", h.request(src), "--out-dir", out, "--offline-checks", oc, "--repo", REPO,
+                       "--now", NOW, "--generated-at", NOW, *h.args(), "--require-secret-free")
+            results[name] = (r, out)
+        r, out = results["corrected"]
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("run request VALID", r.stdout)
+        with open(os.path.join(out, "report", "validation.json"), encoding="utf-8") as f:
+            self.assertTrue(json.load(f)["valid"])
+        with open(os.path.join(out, "report", "REPORT.html"), encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("Not selected: this one-case attempt runs only AHT-01 (GAP-01). GAP-02 is tracked separately", html)
+        r, _ = results["admitted"]
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("ERROR: notTargeted must be a list of {gap, why}", r.stdout)
 
 
 if __name__ == "__main__":

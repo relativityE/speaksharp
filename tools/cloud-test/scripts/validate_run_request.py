@@ -145,6 +145,15 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         E("targetedGaps has duplicates")
     if full and set(targeted) != set(gaps):
         E("a full-coverage run evaluates every tracked gap: targetedGaps must be exactly %s" % sorted(gaps))
+    # notTargeted is the run-request contract's list of {gap, why} (templates/run-request.template.json), rendered by the report as the
+    # reason each tracked gap is left out on purpose. A bare id or any other shape crashed the live report after admission (run
+    # 42494152179, Sam 1794151710.472899), so it is refused here, before anything runs.
+    nt = req.get("notTargeted", [])
+    if not isinstance(nt, list) or not all(isinstance(n, dict) and set(n) == {"gap", "why"} and isinstance(n["gap"], str)
+                                           and isinstance(n["why"], str) and len(n["why"].strip()) >= 10 for n in nt):
+        E("notTargeted must be a list of {gap, why}: each a tracked gap id and its reason (at least 10 characters)")
+    elif not all(n["gap"] in gaps for n in nt):
+        E("notTargeted names a gap the ledger does not track")
     win = req.get("window") or {}
     wstart = parse_utc(win.get("startUtc"))
     created = parse_utc(req.get("createdUtc"))

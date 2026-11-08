@@ -51,7 +51,7 @@ SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 # all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
 # grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
-ONE_OFF_GRANT_SHA256 = "4b778895846a7005e44c991e61f0dc98f5c64131b0dbefa9fc0d100bf601bf9a"   # Sam 1794149353.956719: AHT-01 one-case grant (approval slack:1794145532.283429, scope +4 slack:1794145971.641009), pre-reserve head 2e68640581be
+ONE_OFF_GRANT_SHA256 = "2f1798777b473715e3ee79024eae48b582e640b95c91eea1d05eb5459297bb95"   # Sam 1794151891.299109 / 1794152182.153649: the AHT-01 grant re-issued after run 42494152179 consumed the first (corrected request fd1463f0, pre-reserve head d4c207fb, scope +4 slack:1794152182.153649)
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
 ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_BASE_TEMPLATE_SHA256 = "336524a85a97992e4eff07add32478caa2596b6227615038b27186331012bdef"
@@ -551,6 +551,11 @@ def check_request(req, now, template_keys, nightly=False):
     _need(isinstance((req.get("release") or {}).get("testedSha"), str) and LR.SHA40.match(req["release"]["testedSha"]), "request-release-sha")
     cases = [s.get("case") for s in req.get("selection") or [] if isinstance(s, dict)]
     _need(cases and len(cases) == len(req["selection"]) == len(set(cases)) and all(c in ROLE for c in cases), "case-selection")
+    # the run-request contract's notTargeted: a list of {gap, why}, refused BEFORE reservation (run 42494152179 crashed its report on bare ids)
+    nt = req.get("notTargeted", [])
+    _need(isinstance(nt, list) and all(isinstance(n, dict) and set(n) == {"gap", "why"} and isinstance(n["gap"], str)
+                                       and re.fullmatch(r"GAP-\d\d", n["gap"]) is not None
+                                       and isinstance(n["why"], str) and len(n["why"].strip()) >= 10 for n in nt), "request-not-targeted")
     _need(req.get("coverageMode") in ("partial", "smoke", "full"), "coverage-mode")
     if req["coverageMode"] == "full":
         _need(sorted(cases) == ALL_CASES, "full-mode-needs-all-fifteen")
