@@ -414,5 +414,147 @@ class PublishedDiagnosticCodes(ProjectionCatalog):
         self.assertIn('--cases-dir "$CT_OUT/plan/run/cases"', block)
 
 
+# The real driver path for a guard-refused navigation: browser-actions trackedGoto -> the source-adapters catch diagnostic ->
+# retainInterruptionEvidence -> createCaseRecorder.finish, written into a real case directory. Shape and deny value are argv; a forged
+# error (trustedBlocker-like properties on an ordinary Error) is the "forged" shape. Nothing else is synthesized.
+GUARD_REFUSAL_DRIVER = r"""
+const [ui, adapters, results, dir, shape, deny] = [require(process.argv[1]), require(process.argv[2]), require(process.argv[3]),
+  process.argv[4], process.argv[5], process.argv[6]];
+const listeners = new Set(), frame = {}, headers = { 'x-ss-harness-deny': deny };
+const response = { status: () => 502, headerValue: async (n) => headers[n] ?? null, headers: () => headers,
+  request: () => ({ isNavigationRequest: () => true }), frame: () => frame };
+const page = { mainFrame: () => frame, on: (e, f) => { if (e === 'response') listeners.add(f); }, off: (e, f) => listeners.delete(f),
+  goto: async () => { for (const f of listeners) f(response); if (shape === 'thrown') throw new Error('page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://app.example/auth/signin'); return response; } };
+(async () => {
+  let error;
+  if (shape === 'forged') error = Object.assign(new Error('x'), { code: 'NOT_RUN', trustedBlocker: 'guard-refused-navigation:upstream-error', stopReason: 'guard-refused-navigation:upstream-error' });
+  else { try { await ui.trackedGoto(page, 'https://app.example/auth/signin', 'route-signin', {}); } catch (e) { error = e; } }
+  const config = { caseId: 'AHT-01', sourceSha: 'a'.repeat(40), servedSha: 'a'.repeat(40), targetUrl: 'https://speaksharp-public.vercel.app',
+    requiredAssertions: ['owner-bound', 'fresh-first-session', 'owned-pages-closed'] };
+  const recorder = results.createCaseRecorder(config, dir);
+  const diag = { stage: ui.failureStage(error, page), stopReason: ui.stopReason(error), step: 'fresh-first-session', error: ui.safeErrorSummary(error), trail: ui.navigationTrail(page) };
+  const ref = await adapters.retainInterruptionEvidence({ caseId: 'AHT-01', diag, assertions: [], writeEvidence: recorder.writeEvidence });
+  recorder.finish({ caseId: 'AHT-01', contentSafe: true, assertions: [
+    { id: 'owner-bound', result: 'FAIL', detail: 'The named assertion failed.', evidenceRefs: [] },
+    { id: 'fresh-first-session', result: 'NOT RUN', detail: 'The named assertion was not established.', evidenceRefs: [ref] },
+    { id: 'owned-pages-closed', result: 'PASS', detail: 'The named source assertion was observed.', evidenceRefs: [ref] }] });
+})().catch((e) => { console.error(String(e && e.message)); process.exit(1); });
+"""
+
+
+class GuardRefusalExportAndPublication(ProjectionCatalog):
+    """Sam 1794178828 RETURN: the closed guard-refused reason must reach the EXPORTED driverInterruption and the PUBLISHED codes, not only
+    the raw interruption file. Driven end to end from the real JS recorder output for both refusal shapes, through the same digest-bound
+    isolated_case_rows -> diagnostic_codes -> project -> publisher-sanitize path the workflow runs, and run_timing_export. Controls: an
+    unreviewed cap and a forged error property never produce a reason; an out-of-vocabulary reason rebound with valid digests is dropped;
+    a tampered file without rebinding stays `unknown`; the earlier FAIL remains the first non-passing assertion."""
+    RUN_ID = "42496837188"
+    BIND = {"runId": RUN_ID, "runAttempt": "1", "headSha": "2" * 40, "workflowStartUtc": "2026-11-08T13:02:28Z"}
+
+    def drive(self, shape, deny="upstream-error"):
+        cases = os.path.join(self.d, shape + "-" + deny.replace(":", "_"))
+        case_dir = os.path.join(cases, "AHT-01")
+        os.makedirs(case_dir)
+        case_dir = os.path.realpath(case_dir)
+        h = os.path.join(ROOT, "harness")
+        r = self.subprocess.run(["node", "-e", GUARD_REFUSAL_DRIVER, os.path.join(h, "draft-adapters", "browser-actions.cjs"),
+                                 os.path.join(h, "draft-adapters", "source-adapters.cjs"), os.path.join(h, "bundle", "harness", "case-results.cjs"),
+                                 case_dir, shape, deny], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return cases, case_dir
+
+    def export(self, cases, case_dir):
+        with open(os.path.join(case_dir, "case-result.json"), "rb") as f:
+            raw = f.read()
+        doc = json.loads(raw)
+        # the guard's own summary for a driver that caught the refusal and returned normally (stop code `completed`, exit 0)
+        summary = (json.dumps({"startedAt": "2026-11-08T13:11:56.988Z", "endedAt": "2026-11-08T13:11:58.127Z", "reason": "completed"}) + "\n").encode()
+        with open(os.path.join(case_dir, "summary.json"), "wb") as f:
+            f.write(summary)
+        receipt = {"caseId": "AHT-01", "runId": self.RUN_ID, "exitCode": 0, "summarySha256": hashlib.sha256(summary).hexdigest(),
+                   "caseResultSha256": hashlib.sha256(raw).hexdigest()}
+        results = os.path.join(cases, "case-results.json")
+        with open(results, "w", encoding="utf-8") as f:
+            json.dump({"cases": [{"caseId": "AHT-01", "result": doc["result"], "executionReceipt": receipt, "assertions": doc["assertions"]}]}, f)
+        rows, _ = I.isolated_case_rows(cases, results, list(I.ALL_CASES), self.RUN_ID)       # exactly the CLI `project` path
+        started = os.path.join(cases, "started.txt")
+        with open(started, "w", encoding="utf-8") as f:
+            f.write("2026-11-08T13:10:40Z\n")
+        timing = I.run_timing_export(cases, results, ["AHT-01"], started, None, self.BIND)
+        return rows["AHT-01"], next(c for c in timing["cases"] if c["caseId"] == "AHT-01"), json.dumps(timing)
+
+    def publish(self, codes):
+        catalog = I.projection_catalog(self.request_raw, self.request_sha, os.path.join(ROOT, "config", "test-config.v1.json"), self.q)
+        rec = I.project(self.run_record, self.RUN_ID, 1, "d" * 40, self.T, self.q, self.request_sha, self.prov, self.case_results, catalog,
+                        case_codes={"AHT-01": codes})
+        return I.LR.sanitize_record(rec, require_source=True)["cases"][0]["codes"]
+
+    def test_both_refusal_shapes_reach_the_exported_interruption_and_the_published_codes(self):
+        for shape in ("resolved", "thrown"):
+            with self.subTest(shape):
+                row, timed, text = self.export(*self.drive(shape))
+                for d in (row["diagnostic"], timed["diagnostic"]):
+                    self.assertEqual(d["driverInterruption"]["stage"], "signin-navigate")
+                    self.assertEqual(d["driverInterruption"]["stopReason"], "guard-refused-navigation:upstream-error")
+                    self.assertEqual(d["driverInterruption"]["error"]["code"], "NOT_RUN")
+                    self.assertEqual(d["firstNonPassingAssertion"], {"id": "owner-bound", "result": "FAIL"}, "the earlier FAIL stays first")
+                self.assertEqual(row["result"], "FAIL")
+                codes = I.diagnostic_codes(row["diagnostic"])
+                self.assertEqual(codes, ["stage-signin-navigate", "guard-refused-upstream-error"])
+                self.assertEqual(self.publish(codes), codes)
+                self.assertNotIn("app.example", text)
+
+    def test_reviewed_caps_publish_and_an_unreviewed_cap_is_other(self):
+        for deny, code in (("cap:auth", "guard-refused-cap-auth"), ("cap:signed-in", "guard-refused-cap-signed-in"),
+                           ("cap:private-secret", "guard-refused-other")):
+            with self.subTest(deny):
+                row, _, text = self.export(*self.drive("thrown", deny))
+                codes = I.diagnostic_codes(row["diagnostic"])
+                self.assertIn(code, codes)
+                self.assertEqual(self.publish(codes), codes)
+                self.assertNotIn("private-secret", text + json.dumps(codes))
+
+    def test_a_forged_error_property_carries_no_reason_and_no_code(self):
+        row, _, _ = self.export(*self.drive("forged"))
+        di = row["diagnostic"]["driverInterruption"]
+        self.assertNotIn("stopReason", di)
+        self.assertFalse([c for c in I.diagnostic_codes(row["diagnostic"]) if c.startswith("guard-refused")])
+
+    def test_an_out_of_vocabulary_reason_rebound_with_valid_digests_is_dropped_and_an_unbound_edit_is_unknown(self):
+        cases, case_dir = self.drive("resolved")
+        name = os.path.join(case_dir, "aht-01-interruption.json")
+        with open(name, encoding="utf-8") as f:
+            doc = json.load(f)
+        for forged in ("guard-refused-navigation:cap:private-secret", "guard-refused-navigation:upstream-error ", "token=abc", 7):
+            with self.subTest(forged):
+                raw = json.dumps(dict(doc, stopReason=forged)).encode()
+                with open(name, "wb") as f:
+                    f.write(raw)
+                with open(os.path.join(case_dir, "case-result.json"), encoding="utf-8") as f:
+                    result = json.load(f)
+                result["evidenceDigests"]["aht-01-interruption.json"] = hashlib.sha256(raw).hexdigest()   # rebound: binding is valid
+                with open(os.path.join(case_dir, "case-result.json"), "w", encoding="utf-8") as f:
+                    json.dump(result, f)
+                row, _, text = self.export(cases, case_dir)
+                self.assertEqual(row["diagnostic"]["driverInterruption"]["stage"], "signin-navigate")
+                self.assertNotIn("stopReason", row["diagnostic"]["driverInterruption"])
+                self.assertFalse([c for c in I.diagnostic_codes(row["diagnostic"]) if c.startswith("guard-refused")])
+                self.assertNotIn("private-secret", text)
+                self.assertNotIn("token=abc", text)
+        with open(name, "wb") as f:                     # edited after the digest was recorded: not bound, so `unknown`, no reason
+            f.write(json.dumps(dict(doc, stopReason="guard-refused-navigation:policy")).encode())
+        row, _, _ = self.export(cases, case_dir)
+        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None, "trail": []})
+
+    def test_the_python_vocabulary_is_the_drivers_own(self):
+        with open(os.path.join(ROOT, "harness", "draft-adapters", "browser-actions.cjs"), encoding="utf-8") as f:
+            src = f.read()
+        import re
+        words = set(re.findall(r"'([a-z-]+)'", re.search(r"GUARD_DENY_WORDS=new Set\(\[([^\]]*)\]", src).group(1)))
+        caps = set(re.findall(r"'([a-z-]+)'", re.search(r"GUARD_CAPS=new Set\(\[([^\]]*)\]", src).group(1)))
+        self.assertEqual((words, caps), (set(I.GUARD_DENY_WORDS), set(I.GUARD_CAPS)))
+        self.assertIn("'guard-refused-navigation:'+guardDenyCode(deny)", src)
+
+
 if __name__ == "__main__":
     unittest.main()
