@@ -478,7 +478,7 @@ export function admitPackageDescriptors(
             // Review of 27607fb3: an inert package must not share the cache directory (localModelId) of any registered
             // candidate: it replaced the built-in incumbent's entry in the legacy telemetry/cache view and saved sessions under
             // the incumbent's model name. (Runtime attribution without a selection considers built-ins only; see candidateForRuntime.)
-            const registered = [...Object.values(CANDIDATE_DEFINITIONS), ...Object.values(imported)];
+            const registered: readonly Candidate[] = [...Object.values(CANDIDATE_DEFINITIONS as Readonly<Record<string, Candidate>>), ...Object.values(imported)];
             if (candidate.execution.localModelId != null
                 && registered.some(other => other.execution.localModelId === candidate.execution.localModelId)) {
                 throw new Error('PACKAGE_IDENTITY_COLLISION');
@@ -537,7 +537,7 @@ export function candidateForRuntime(state: ResolvedRuntimeState): CandidateId {
     // Review of 27607fb3: this attributes a session that has NO selection (an injected engine). An imported package is only
     // ever run through its own selection, so it is never a candidate here; including packages let one that copied a
     // built-in's engine and variant make the incumbent's attribution ambiguous.
-    const registered = Object.values(CANDIDATE_DEFINITIONS);
+    const registered: readonly Candidate[] = Object.values(CANDIDATE_DEFINITIONS as Readonly<Record<string, Candidate>>);
     const variantMatches = registered.filter((candidate) =>
         candidate.engine === engineType && candidate.execution.variant === (variant ?? null));
     // A resolved decoder override may select a sibling precision, but cannot change model,

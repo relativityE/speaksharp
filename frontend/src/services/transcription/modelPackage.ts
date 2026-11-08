@@ -115,7 +115,7 @@ export function parseModelPackage(input: unknown): ModelPackage {
     if (p.engine === 'transformers-js' && decode?.kind === 'whisper') {
         const generation = (decode as { generation?: unknown }).generation;
         if (generation !== undefined && (!object(generation)
-            || Object.entries(generation).some(([key, value]) => !Object.hasOwn(WHISPER_GENERATION_RULES, key) || !WHISPER_GENERATION_RULES[key](value)))) {
+            || Object.entries(generation).some(([key, value]) => !Object.prototype.hasOwnProperty.call(WHISPER_GENERATION_RULES, key) || !WHISPER_GENERATION_RULES[key](value)))) {
             refuse('UNSUPPORTED_WHISPER_GENERATION');
         }
         const { language, task } = decode as { language?: unknown; task?: unknown };
