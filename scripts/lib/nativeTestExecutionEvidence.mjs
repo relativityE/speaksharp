@@ -166,14 +166,6 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
     [coachingTest]:'b27cc9bf1b50d4d584528ec31a13270c90c3f9a12c97eec431e7ef1abc392150',
     'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2'}},
-  // #1760: the coaching sources are exactly coaching-errors-cors-compatible; only package.json differs (the model:import and
-  // model:stage-adoption scripts), and the closure pins package.json.
-  {id:'coaching-model-package-scripts-1760',files:{...coachingClosure,
-    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
-    'backend/supabase/functions/get-ai-suggestions/index.ts':'9da0672ed3c81dd86ff8624565f03b13004e493456965b42a28ad60231f1216b',
-    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
-    [coachingTest]:'b27cc9bf1b50d4d584528ec31a13270c90c3f9a12c97eec431e7ef1abc392150',
-    'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2'}},
   // #1773: the provider call moved behind providers/ (descriptor catalogue, Gemini adapter family, registry), so the handler's local
   // import closure now includes those four modules; the test, decoder, retry and contract bytes are unchanged.
   {id:'coaching-provider-adapter-1773',files:{...coachingClosure,
@@ -185,17 +177,34 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
     'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
     'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb'}},
-  // #1760 on current main: the #1773 provider-adapter closure, with #1760's package.json (its model:import / model:stage-adoption scripts).
-  {id:'coaching-provider-adapter-1773-model-scripts-1760',files:{...coachingClosure,
-    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+  // LLM evaluator parity: the coaching test also runs the handler on each Open Mic take of the committed synthetic evaluation set and
+  // requires the exact evaluator prompt, so its closure adds the prompt module and that set. Handler, decoder, retry, contract and
+  // provider bytes are unchanged from #1773; the key policy (set 'test-key', delete) is unchanged.
+  {id:'coaching-llm-evaluator-parity',files:{...coachingClosure,
     'backend/supabase/functions/get-ai-suggestions/index.ts':'6216addf51bbf99e4c961f79b2ebbe9eba4d24bd4527a311c71c3fff747be877',
     'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
-    [coachingTest]:'3adb7f8da23d2a00ace89da534fe93c146e647e3c383dde374a0a565b1495882',
+    [coachingTest]:'f7a86245794090b3b85d48aa6166fee1af6eee6c5840cefb6e1fa173a4a97995',
     'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2',
     'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
     'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
     'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
-    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb'}},
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // #1760 after #1792: the LLM evaluator parity closure, with #1760's package.json (its model:import / model:stage-adoption
+  // scripts). Every other pin is exactly coaching-llm-evaluator-parity's.
+  {id:'coaching-llm-evaluator-parity-model-scripts-1760',files:{...coachingClosure,
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'6216addf51bbf99e4c961f79b2ebbe9eba4d24bd4527a311c71c3fff747be877',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'f7a86245794090b3b85d48aa6166fee1af6eee6c5840cefb6e1fa173a4a97995',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
 ]);
 export function nativeDenoPolicy(file) {
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:[],

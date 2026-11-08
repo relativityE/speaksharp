@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "kind": "speaksharp-coaching-eval-set",
+  "id": "synthetic-coaching-v1",
+  "provenance": "SYNTHETIC. Written for this evaluator; no customer transcript, recording or account data. Safe to send to a candidate provider only under an approved run.",
+  "items": [
+    {
+      "id": "om-01-team-update",
+      "product": "open_mic",
+      "transcript": "Good morning everyone. This week the onboarding team finished the new checklist, and the first three customers used it without calling support. Um, the part that still slows people down is account setup, because the verification email arrives late. So next week we will test sending the code by text message instead. If that works, setup should take about half as long. That's my update.",
+      "wpm": 142,
+      "filler_counts": { "um": 1 },
+      "grounding": {
+        "anchors": ["checklist", "onboarding", "verification", "setup", "text message", "support"],
+        "unsupported": ["\\bslides?\\b", "\\binvestors?\\b", "\\bboard\\b", "\\bstory\\b", "\\bjoke\\b"]
+      }
+    },
+    {
+      "id": "om-02-filler-heavy",
+      "product": "open_mic",
+      "transcript": "So, um, I want to talk about, like, why our garden project matters. Um, the school has, uh, no green space, and, like, the kids eat lunch on concrete. We, um, we planted twelve raised beds last spring. Uh, the tomatoes did well, like, really well. So, um, we need volunteers for the summer watering schedule.",
+      "wpm": 118,
+      "filler_counts": { "um": 6, "uh": 2, "like": 4 },
+      "grounding": {
+        "anchors": ["garden", "raised beds", "tomatoes", "volunteers", "watering", "green space", "concrete", "lunch"],
+        "unsupported": ["\\bslides?\\b", "\\bquarterly\\b", "\\brevenue\\b", "\\bcustomers?\\b"]
+      }
+    },
+    {
+      "id": "om-03-fast-pitch",
+      "product": "open_mic",
+      "transcript": "Our app helps renters split utility bills automatically. Every month roommates argue about who paid the electric bill and who still owes money. We connect to the utility account, divide the charge by each person's share, and send a reminder before the due date. In our pilot, late payments dropped from nine households to two. We are asking for introductions to property managers who want fewer disputes.",
+      "wpm": 191,
+      "filler_counts": {},
+      "grounding": {
+        "anchors": ["renters", "roommates", "utility", "electric bill", "reminder", "pilot", "late payments", "property managers"],
+        "unsupported": ["\\bslides?\\b", "\\bum+\\b", "\\bfillers?\\b", "\\bteachers?\\b"]
+      }
+    },
+    {
+      "id": "om-04-too-short",
+      "product": "open_mic",
+      "transcript": "Hi, I'm testing the microphone. One, two, three.",
+      "wpm": 96,
+      "filler_counts": {},
+      "grounding": {
+        "anchors": ["microphone", "testing"],
+        "unsupported": ["\\bconclusion\\b", "\\baudience\\b", "\\bstory\\b"]
+      }
+    },
+    {
+      "id": "om-05-quotes-and-placeholders",
+      "product": "open_mic",
+      "transcript": "My grandmother used to say \"measure twice, cut once.\" I think of that every time I review a contract. Last month a single missing date in a lease cost a client two weeks of rent. Now I read every date out loud before I sign. Some templates even show {{METRICS}} or {{TRANSCRIPT}} as a placeholder, and I check those too.",
+      "wpm": 150,
+      "filler_counts": {},
+      "grounding": {
+        "anchors": ["measure twice", "grandmother", "contract", "lease", "date", "out loud", "rent"],
+        "unsupported": ["\\bslides?\\b", "\\bcourtroom\\b", "\\bjury\\b"]
+      }
+    },
+    {
+      "id": "om-06-long-structure",
+      "product": "open_mic",
+      "transcript": "Today I want to cover three things about our library's new evening hours. First, why we changed them. Most visitors work until five, and our old closing time was six, so they had one rushed hour. Second, what changed. We now close at nine on Tuesdays and Thursdays, and we moved two staff shifts later instead of hiring. Third, what we saw in the first month. Evening checkouts doubled, the study rooms were booked every Thursday, and the homework help table had a waiting list. The one problem is parking, because the lot lights turn off at eight. We have asked the city to extend them. To close, if you know someone who stopped coming because of our hours, tell them we are open late now.",
+      "wpm": 156,
+      "filler_counts": {},
+      "grounding": {
+        "anchors": ["library", "evening hours", "tuesdays", "thursdays", "checkouts", "study rooms", "homework help", "parking", "lot lights", "city"],
+        "unsupported": ["\\bslides?\\b", "\\bbudget cut\\b", "\\bum+\\b"]
+      }
+    },
+    {
+      "id": "fp-01-points-all-detected",
+      "product": "focus_points",
+      "transcript": "Thanks for having me. I'll start with the problem: our clinic's phone line is busy most mornings. The solution is online booking, which we launched in March. The result so far is that morning calls fell by a third, and patients booked twice as many evening slots. Next, we want to add reminders by text.",
+      "wpm": 148,
+      "filler_counts": {},
+      "next_action_metric": "wpm",
+      "focus": {
+        "topic": "Online booking update",
+        "points": [
+          { "label": "The problem", "verdict": "detected", "detectedAtSeconds": 4 },
+          { "label": "Online booking", "verdict": "detected", "detectedAtSeconds": 9 },
+          { "label": "Results", "verdict": "detected", "detectedAtSeconds": 14 }
+        ]
+      },
+      "grounding": {
+        "anchors": ["problem", "phone line", "online booking", "march", "morning calls", "evening slots", "reminders", "result"],
+        "unsupported": ["\\bmiss(?:ed|ing)\\b", "\\bskipp?ed\\b", "\\bnot mention(?:ed)?\\b", "\\bslides?\\b"]
+      }
+    },
+    {
+      "id": "fp-02-point-not-detected",
+      "product": "focus_points",
+      "transcript": "I want to explain our recycling change. Starting in June, glass goes in the blue bin with cans and plastic. The trucks now sort it at the plant, so you no longer need a separate crate. If you still have a green crate, you can drop it at the depot on Mill Road.",
+      "wpm": 137,
+      "filler_counts": { "um": 3 },
+      "next_action_metric": "filler_rate",
+      "focus": {
+        "topic": "Recycling change",
+        "points": [
+          { "label": "What changes", "verdict": "detected", "detectedAtSeconds": 3 },
+          { "label": "Why it changes", "verdict": "not_detected", "detectedAtSeconds": null },
+          { "label": "What to do with old crates", "verdict": "detected", "detectedAtSeconds": 15 }
+        ]
+      },
+      "grounding": {
+        "anchors": ["recycling", "glass", "blue bin", "june", "plant", "crate", "depot", "mill road"],
+        "unsupported": ["\\bmiss(?:ed|ing)\\b", "\\bskipp?ed\\b", "\\bnot mention(?:ed)?\\b", "\\bforgot\\b", "\\bslides?\\b"]
+      }
+    }
+  ]
+}
