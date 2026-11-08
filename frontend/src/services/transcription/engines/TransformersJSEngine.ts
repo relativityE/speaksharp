@@ -271,6 +271,8 @@ export class TransformersJSEngine extends STTEngine {
         try {
             if (this.shouldUseWorker()) {
                 await this.initWorker(isMock);
+                // Elon's review of c1585147: a worker attempt superseded while it started reports nothing ready.
+                if (superseded()) return cancelled();
                 if (options.onModelLoadProgress) {
                     options.onModelLoadProgress(100);
                 }

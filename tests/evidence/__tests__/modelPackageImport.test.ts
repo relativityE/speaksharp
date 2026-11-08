@@ -158,7 +158,7 @@ describe('the evaluator verifies exactly the packages the importer admits (Codex
  */
 describe('the importer refuses a package that collides with an already imported package', () => {
     const packagesOf = (root: string) => join(root, 'frontend/src/services/transcription/model-packages');
-    async function whisperPackage(id: string, localModelId: string, seed = localModelId) {
+    async function whisperPackage(id: string, localModelId: string, seed = localModelId, license = 'MIT (fixture declaration; synthetic bytes)') {
         const base = CANDIDATES['v2:base.en'];
         const directory = realpathSync(mkdtempSync(join(tmpdir(), 'whisper-collision-')));
         roots.push(directory);
@@ -171,7 +171,7 @@ describe('the importer refuses a package that collides with an already imported 
         const pkg = await sealModelPackage({ schemaVersion: 1, kind: 'speaksharp-model-package', id,
             engine: base.engine, runtime: base.runtime, model: { ...base.model, device: 'wasm' },
             execution: { ...base.execution, localModelId }, assets: { servedFrom: `/models/${localModelId}`, files },
-            license: 'MIT (fixture declaration; synthetic bytes)' } as never);
+            license } as never);
         writeFileSync(join(directory, 'package.json'), JSON.stringify(pkg));
         return join(directory, 'package.json');
     }
@@ -200,6 +200,24 @@ describe('the importer refuses a package that collides with an already imported 
         await expect(importModelPackage(root, await whisperPackage('fixture:a-whisper', 'fixture-shared-cache', 'second')))
             .rejects.toThrow('PACKAGE_IDENTITY_COLLISION');
         for (const [name, digest] of Object.entries(servedBefore)) expect(sha(readFileSync(join(served, name)))).toBe(digest);
+    });
+    // Elon's review of c1585147 (P3): the bundle's 1 MiB limit applies to the descriptor text it loads, which is the
+    // pretty-printed file the importer writes. Admission checked the compact form, so a descriptor just under the limit
+    // compact but over it pretty was imported and then refused by the product.
+    it('admits the exact descriptor text it writes, so a file the bundle would refuse as too large is never imported', async () => {
+        const probe = JSON.parse(readFileSync(await whisperPackage('fixture:large-whisper', 'fixture-large-cache'), 'utf8'));
+        const compact = JSON.stringify(probe).length, pretty = JSON.stringify(probe, null, 2).length + 1;
+        expect(pretty - compact).toBeGreaterThan(2);
+        const target = 1_048_576 - Math.floor((pretty - compact) / 2); // compact under the limit, pretty over it
+        const license = probe.license + ' ' + 'x'.repeat(target - compact - 1);
+        const descriptor = await whisperPackage('fixture:large-whisper', 'fixture-large-cache', 'fixture-large-cache', license);
+        const sealed = JSON.parse(readFileSync(descriptor, 'utf8'));
+        expect(JSON.stringify(sealed).length).toBeLessThanOrEqual(1_048_576);
+        expect(JSON.stringify(sealed, null, 2).length + 1).toBeGreaterThan(1_048_576);
+        const root = projectRoot();
+        await expect(importModelPackage(root, descriptor)).rejects.toThrow('PACKAGE_DESCRIPTOR_TOO_LARGE');
+        expect(snapshot(root)).toEqual({});
+        expect(existsSync(join(root, 'frontend/public/models/fixture-large-cache'))).toBe(false);
     });
     it('still imports packages with distinct cache directories, and a repeated identical import stays idempotent', async () => {
         const root = projectRoot();

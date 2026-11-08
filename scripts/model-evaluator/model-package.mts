@@ -20,6 +20,8 @@ function upstreamPinned(pkg: ModelPackage, url: string): boolean {
 }
 
 const PACKAGES_DIRECTORY = 'frontend/src/services/transcription/model-packages';
+/** The exact descriptor text the importer writes, and so the text the bundle admits. */
+const descriptorText = (pkg: ModelPackage) => JSON.stringify(pkg, null, 2) + '\n';
 const packageKey = (file: string) => './model-packages/' + file;
 
 /**
@@ -35,7 +37,8 @@ async function refuseCatalogueConflict(root: string, pkg: ModelPackage) {
     const existing: Record<string, string> = {};
     for (const name of names.filter(name => name.endsWith('.json')).sort()) existing[packageKey(name)] = await readFile(join(directory, name), 'utf8');
     const ownKey = packageKey(pkg.id.replace(/:/g, '_') + '.json');
-    const proposed: Record<string, string> = { ...existing, [ownKey]: JSON.stringify(pkg) };
+    // Elon's review of c1585147: admit the exact bytes the importer writes (the size limit is on the raw text).
+    const proposed: Record<string, string> = { ...existing, [ownKey]: descriptorText(pkg) };
     const ordered = Object.fromEntries(Object.keys(proposed).sort().map(key => [key, proposed[key]]));
     const today = admitPackageDescriptors(existing, modelPackage).imported;
     const after = admitPackageDescriptors(ordered, modelPackage);
@@ -82,7 +85,7 @@ export async function importModelPackage(root: string, descriptorPath: string) {
     const target = join(root,'frontend/src/services/transcription/model-packages',pkg.id.replace(/:/g,'_')+'.json');
     await mkdir(dirname(target),{recursive:true});
     // Never overwrite an existing candidate or silently change an imported identity.
-    try { await writeFile(target,JSON.stringify(pkg,null,2)+'\n',{flag:'wx'}); }
+    try { await writeFile(target,descriptorText(pkg),{flag:'wx'}); }
     catch (error) {
         if ((error as NodeJS.ErrnoException).code!=='EEXIST' || (await verifyModelPackage(JSON.parse(await readFile(target,'utf8')))).packageDigest!==pkg.packageDigest) throw error;
     }

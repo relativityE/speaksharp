@@ -523,9 +523,13 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 mock.mockResolvedValueOnce(successor);
                 expect((await engine.init()).isOk).toBe(true);
                 // Successor-owned state the shared failure cleanup would clear.
-                const state = engine as unknown as { transcriber: unknown; runtimeEvidence: unknown; activeLoadRequestId: unknown; pendingWorkerRequests: Map<number, unknown> };
+                const state = engine as unknown as { transcriber: unknown; runtimeEvidence: unknown; activeLoadRequestId: unknown; pendingWorkerRequests: Map<number, unknown> } & Record<string, unknown>;
                 const evidence = { marker: 'successor' };
                 state.runtimeEvidence = evidence;
+                // Elon's review of c1585147: the successor's verified-fetch hook (v2 restorePackageFetch, v4 restoreAssetFetch).
+                const hookField = name === 'v2' ? 'restorePackageFetch' : 'restoreAssetFetch';
+                const successorHook = vi.fn();
+                state[hookField] = successorHook;
                 state.activeLoadRequestId = 7;
                 const request = { resolve: vi.fn(), reject: vi.fn(), timeoutId: setTimeout(() => undefined, 60_000) };
                 state.pendingWorkerRequests.set(7, request);
@@ -536,8 +540,62 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 expect(state.activeLoadRequestId).toBe(7);
                 expect(state.pendingWorkerRequests.get(7)).toBe(request);
                 expect(request.reject).not.toHaveBeenCalled();
+                expect(state[hookField]).toBe(successorHook);
+                expect(successorHook).not.toHaveBeenCalled();
+                state[hookField] = null;
                 clearTimeout(request.timeoutId);
                 state.pendingWorkerRequests.clear();
+                await engine.destroy();
+            });
+
+            // Elon's review of c1585147: a worker attempt superseded while its worker started must not report ready.
+            it(`${name}: a worker start-up that completes after teardown reports nothing ready`, async () => {
+                const onReady = vi.fn();
+                const onModelLoadProgress = vi.fn();
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady, onModelLoadProgress, onTranscriptUpdate: vi.fn() });
+                const seam = engine as unknown as { shouldUseWorker: () => boolean; initWorker: () => Promise<void> };
+                vi.spyOn(seam, 'shouldUseWorker').mockReturnValue(true);
+                let finishStale!: () => void;
+                vi.spyOn(seam, 'initWorker')
+                    .mockImplementationOnce(() => new Promise<void>(resolve => { finishStale = resolve; }))
+                    .mockResolvedValueOnce(undefined);
+                const stale = engine.init();
+                await vi.waitFor(() => expect(seam.initWorker).toHaveBeenCalledTimes(1));
+                await engine.destroy();
+                expect((await engine.init()).isOk).toBe(true);
+                const readyCalls = onReady.mock.calls.length;
+                const progressCalls = onModelLoadProgress.mock.calls.length;
+                finishStale();
+                expect((await stale).isOk).toBe(false);
+                expect(onReady).toHaveBeenCalledTimes(readyCalls);
+                expect(onModelLoadProgress).toHaveBeenCalledTimes(progressCalls);
+                await engine.destroy();
+            });
+
+            // Elon's review of c1585147: a teardown during the post-publish warm-up.
+            it(`${name}: a teardown during warm-up leaves nothing ready for the attempt that follows`, async () => {
+                const onReady = vi.fn();
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady, onTranscriptUpdate: vi.fn() });
+                let finishWarmUp!: (value: unknown) => void;
+                const warming = Object.assign(vi.fn(() => new Promise(resolve => { finishWarmUp = resolve; })), { dispose: vi.fn(async () => undefined) });
+                mock.mockResolvedValueOnce(warming);
+                const stale = engine.init();
+                await vi.waitFor(() => expect(warming).toHaveBeenCalledTimes(1)); // warm-up is running
+                await engine.destroy();
+                const successor = pipe();
+                mock.mockResolvedValueOnce(successor);
+                expect((await engine.init()).isOk).toBe(true);
+                const readyCalls = onReady.mock.calls.length;
+                finishWarmUp({ text: '' });
+                expect((await stale).isOk).toBe(false);
+                expect(onReady).toHaveBeenCalledTimes(readyCalls);
+                expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
                 await engine.destroy();
             });
         }

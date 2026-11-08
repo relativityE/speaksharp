@@ -209,6 +209,8 @@ export class TransformersJSV4Engine extends STTEngine {
             if (useWorker) {
                 const requestedDevice = evaluatorBackend ?? this.resolvedCandidate().model.device ?? undefined;
                 await this.initWorker(isMock, v4Model, requestedDevice);
+                // Elon's review of c1585147: a worker attempt superseded while it started reports nothing ready.
+                if (superseded()) return cancelled();
                 options.onModelLoadProgress?.(100);
                 this.updateHeartbeat();
                 options.onReady?.();
