@@ -1013,3 +1013,97 @@ class NeverStartedReconciliation(unittest.TestCase):
             self.reconcile(record(), occurrence_bytes(runId="R10-other"))
         with self.assertRaises(P.Refused):    # a named campaign on a never-started shape refuses (record validation or identity)
             self.reconcile(never_started(campaignId="R6-other"), occurrence_bytes(runId="R10-3b040043-smoke15"))
+
+
+def artifact_row(run_id="101", expired=False, aid=7, name=P.COMPLETION_ARTIFACT):
+    return {"id": aid, "name": name, "expired": expired, "created_at": "2026-10-31T18:42:00Z", "workflow_run": {"id": int(run_id)}}
+
+
+class CompletionUnverified(unittest.TestCase):
+    """Sam 1794162379: the attestation is kept one day; a pending completion whose run has no unexpired attestation artifact retires as
+    `completion-unverified` history. The candidate is not folded, no attestation is recreated and no result is upgraded."""
+
+    def pending_state(self, prior=None):
+        base = prior if prior is not None else P.complete(started(P.parse_body(""), "100"), record("100"))
+        running = P.begin(base, "101", 1, SHA, "2026-10-31T19:00:00Z")
+        rec = record("101", outcome="failed", startedUtc="2026-10-31T19:00:00Z", endedUtc="2026-10-31T19:40:00Z")
+        pending = P.pending_completion(running, rec, "2026-10-31T20:40:00Z", "3" * 64, "4" * 64)
+        return P.parse_body(P.render(pending)), rec
+
+    def test_no_unexpired_attestation_retires_the_candidate_unfolded_and_keeps_everything_else(self):
+        state, rec = self.pending_state()
+        for label, pages in {"expired": [{"total_count": 1, "artifacts": [artifact_row(expired=True)]}],
+                             "never uploaded": [{"total_count": 1, "artifacts": [artifact_row(name="cloud-test-settle-input")]}],
+                             "empty listing": [{"total_count": 0, "artifacts": []}],
+                             "a single (unslurped) page": {"total_count": 0, "artifacts": []}}.items():
+            with self.subTest(label):
+                out = P.retire_unattested(state, pages, "2026-11-02T09:00:00Z", "9" * 64)
+                body = P.render(out)
+                again = P.parse_body(body)
+                self.assertEqual(again, out)
+                self.assertIsNone(out["inProgress"])
+                self.assertNotIn("pendingCompletion", out)
+                self.assertEqual((out["latestCompleted"], out.get("history")), (state["latestCompleted"], state.get("history")))
+                self.assertEqual(out["latestCompleted"]["runId"], "100")          # the candidate run is never folded or upgraded
+                entry = out["retiredAttempts"][-1]
+                self.assertEqual((entry["runId"], entry["retiredReason"], entry["predecessorSha256"]), ("101", "completion-unverified", "9" * 64))
+                ev = entry["evidence"]
+                self.assertEqual((ev["unexpiredArtifacts"], ev["settleReceiptSha256"], ev["occurrenceSha256"], ev["completionDeadlineUtc"]),
+                                 (0, "3" * 64, "4" * 64, "2026-10-31T20:40:00Z"))
+                self.assertEqual(ev["candidateSha256"], hashlib.sha256(P.canon(rec)).hexdigest())
+                self.assertIn("Completion unverified (not a completed run; its pending candidate was not folded", body)
+                self.assertNotIn("Pending completion", body)
+                # the next run can begin from this state
+                self.assertEqual(P.begin(again, "102", 1, SHA, "2026-11-02T09:00:01Z")["inProgress"]["runId"], "102")
+
+    def test_a_present_artifact_ambiguity_or_a_foreign_listing_refuses(self):
+        state, _ = self.pending_state()
+        status, row, named = P.completion_artifacts([{"artifacts": [artifact_row(), artifact_row(expired=True, aid=8)]}], "101")
+        self.assertEqual((status, row, named), ("present", {"id": 7, "created_at": "2026-10-31T18:42:00Z"}, 2))
+        cases = {"an unexpired attestation exists (reconcile instead)": ([{"artifacts": [artifact_row()]}], "unattested-artifact-present"),
+                 "two unexpired attestations": ([{"artifacts": [artifact_row(), artifact_row(aid=8)]}], "completion-artifact-ambiguous"),
+                 "another run's listing": ([{"artifacts": [artifact_row(run_id="99", expired=True)]}], "completion-artifact-listing"),
+                 "no expiry flag": ([{"artifacts": [dict(artifact_row(), expired=None)]}], "completion-artifact-listing"),
+                 "not a listing": ([{"items": []}], "completion-artifact-listing"),
+                 "no pages": ([], "completion-artifact-listing")}
+        for label, (pages, code) in cases.items():
+            with self.subTest(label), self.assertRaisesRegex(P.Refused, code):
+                P.retire_unattested(state, pages, "2026-11-02T09:00:00Z", "9" * 64)
+
+    def test_only_a_pending_incomplete_attempt_can_retire_and_the_inputs_are_closed(self):
+        state, _ = self.pending_state()
+        none = [{"artifacts": []}]
+        running = P.begin(P.parse_body(""), "101", 1, SHA, "2026-10-31T19:00:00Z")
+        for label, (st, listed, pred, code) in {
+                "no pending completion": (running, "2026-11-02T09:00:00Z", "9" * 64, "unattested-not-a-candidate"),
+                "listed before the attempt started": (state, "2026-10-31T18:59:59Z", "9" * 64, "unattested-listed-at"),
+                "listed time not UTC": (state, "2026-11-02 09:00", "9" * 64, "unattested-listed-at"),
+                "no predecessor": (state, "2026-11-02T09:00:00Z", "x", "unattested-predecessor")}.items():
+            with self.subTest(label), self.assertRaisesRegex(P.Refused, code):
+                P.retire_unattested(st, none, listed, pred)
+        out = P.retire_unattested(state, none, "2026-11-02T09:00:00Z", "9" * 64)
+        stored = P.parse_body(P.render(out))
+        bad = json.loads(json.dumps(stored))
+        bad["retiredAttempts"][-1]["evidence"]["unexpiredArtifacts"] = 1
+        with self.assertRaisesRegex(P.Refused, "retired-evidence"):
+            P.parse_body(P.render.__globals__["MARKER"] + "\n\n```json\n" + json.dumps(bad, sort_keys=True, separators=(",", ":")) + "\n```\n")
+
+    def test_the_cli_branches_present_absent_and_refused(self):
+        state, _ = self.pending_state()
+        d = tempfile.mkdtemp(prefix="ct-unattested-"); self.addCleanup(shutil.rmtree, d, True)
+        script = os.path.join(ROOT, "scripts", "publish_latest_record.py")
+        prev = os.path.join(d, "prev.md"); open(prev, "w").write(P.render(state))
+        def run(cmd, pages, *extra):
+            pf = os.path.join(d, "pages.json"); open(pf, "w").write(json.dumps(pages))
+            return subprocess.run(["python3", "-I", script, cmd, "--previous", prev, "--artifact-pages", pf, "--out", os.path.join(d, "out")] + list(extra),
+                                  capture_output=True, text=True, timeout=60)
+        p = run("completion-artifact", [{"artifacts": [artifact_row()]}])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.load(open(os.path.join(d, "out"))), {"created_at": "2026-10-31T18:42:00Z", "id": 7})
+        self.assertEqual(run("completion-artifact", [{"artifacts": [artifact_row(expired=True)]}]).returncode, 1)
+        p = run("completion-artifact", [{"artifacts": [artifact_row(), artifact_row(aid=8)]}])
+        self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: completion-artifact-ambiguous"))
+        p = run("retire-unattested", [{"artifacts": []}], "--listed-utc", "2026-11-02T09:00:00Z")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        out = P.parse_body(open(os.path.join(d, "out")).read())
+        self.assertEqual(out["retiredAttempts"][-1]["predecessorSha256"], hashlib.sha256(P.render(state).encode()).hexdigest())

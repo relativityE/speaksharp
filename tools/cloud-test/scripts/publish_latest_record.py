@@ -411,6 +411,13 @@ def render(state):
                              r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"], e["settleSha"][:12], e["reserveSha"][:12],
                              e["runnerMinutes"], e["evidenceSha256"][:12]))
             continue
+        if r["retiredReason"] == UNVERIFIED_REASON:
+            e = r["evidence"]
+            lines.append("Completion unverified (not a completed run; its pending candidate was not folded; no case result asserted): run %s attempt %d "
+                         "at `%s`, started %s; no unexpired completion attestation for the run at %s (listing `%s`), pending candidate `%s`." % (
+                             r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"], e["listedUtc"], e["listingSha256"][:12],
+                             e["candidateSha256"][:12]))
+            continue
         if r["retiredReason"] in RESERVED_REASONS:
             lines.append("%s (not a completed run): run %s attempt %d at `%s`, started %s; %d runner minute(s), evidence `%s`." % (
                 RESERVED_REASONS[r["retiredReason"]], r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"],
@@ -521,17 +528,33 @@ UNEXECUTED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "evid
 SETTLED_REASON = "settled-unpublished"
 SETTLED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "collectedUtc", "evidenceSha256", "journalHeadSha", "reserveSha",
                           "settleSha", "settleAtUtc", "runnerMinutes"}
+# Sam 1794162379 (owner, Nov 7: "We only want repository artifacts stored for 1 day"): the completion attestation is kept one day, so the
+# next admitted run can find a pending completion whose run has no unexpired attestation artifact. That candidate can never be reconciled:
+# it is retired as `completion-unverified` history bound to the artifact listing it was judged on and to the pending candidate's digests.
+# The candidate is NOT folded, no attestation is recreated and no result is upgraded; latestCompleted and history are unchanged.
+UNVERIFIED_REASON = "completion-unverified"
+UNVERIFIED_EVIDENCE_KEYS = {"listedUtc", "listingSha256", "namedArtifacts", "unexpiredArtifacts", "candidateSha256", "settleReceiptSha256",
+                            "occurrenceSha256", "completionDeadlineUtc"}
+COMPLETION_ARTIFACT = "cloud-test-completion-attestation"
 
 
 def sanitize_retired(r):
     """A retired-attempt entry exactly as stored; anything outside the closed shape of its reason refuses."""
     _keys(r, RETIRED_KEYS, "retired-attempt")
-    _need(set(r) == RETIRED_KEYS and (r["retiredReason"] in ("never-reserved", SETTLED_REASON) or r["retiredReason"] in RESERVED_REASONS),
-          "retired-attempt")
+    _need(set(r) == RETIRED_KEYS and (r["retiredReason"] in ("never-reserved", SETTLED_REASON, UNVERIFIED_REASON)
+                                      or r["retiredReason"] in RESERVED_REASONS), "retired-attempt")
     _need(isinstance(r["predecessorSha256"], str) and SHA64.match(r["predecessorSha256"]), "retired-attempt")
     _attempt(r["runId"], r["attempt"])
     _need(isinstance(r["sourceSha"], str) and SHA40.match(r["sourceSha"]) and isinstance(r["startedUtc"], str) and UTC.match(r["startedUtc"]), "retired-attempt")
     ev = r["evidence"]
+    if r["retiredReason"] == UNVERIFIED_REASON:
+        _keys(ev, UNVERIFIED_EVIDENCE_KEYS, "retired-evidence")
+        _need(set(ev) == UNVERIFIED_EVIDENCE_KEYS and ev["unexpiredArtifacts"] == 0
+              and type(ev["namedArtifacts"]) is int and 0 <= ev["namedArtifacts"] <= 100 and type(ev["unexpiredArtifacts"]) is int
+              and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("listedUtc", "completionDeadlineUtc"))
+              and all(isinstance(ev[k], str) and SHA64.match(ev[k]) for k in ("listingSha256", "candidateSha256", "settleReceiptSha256",
+                                                                               "occurrenceSha256")), "retired-evidence")
+        return {k: (dict(sorted(v.items())) if k == "evidence" else v) for k, v in sorted(r.items())}
     if r["retiredReason"] == SETTLED_REASON:
         _keys(ev, SETTLED_EVIDENCE_KEYS, "retired-evidence")
         _need(set(ev) == SETTLED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure"
@@ -734,6 +757,59 @@ def retire_settled(state, evidence, predecessor_sha256):
     return out
 
 
+def completion_artifacts(pages, run_id):
+    """(`present`, its {id, created_at}) when the run's listing holds exactly one unexpired completion attestation; (`absent`, None) when it
+    holds none (expired, never uploaded, or the upload failed); refuses on more than one, or on a listing that is not this run's."""
+    pages = pages if isinstance(pages, list) else [pages]
+    _need(pages and all(isinstance(p, dict) and isinstance(p.get("artifacts"), list) for p in pages), "completion-artifact-listing")
+    rows = [a for p in pages for a in p["artifacts"]]
+    _need(all(isinstance(a, dict) for a in rows), "completion-artifact-listing")
+    named = [a for a in rows if a.get("name") == COMPLETION_ARTIFACT]
+    for a in named:
+        wr = a.get("workflow_run")
+        _need(isinstance(wr, dict) and str(wr.get("id")) == str(run_id) and isinstance(a.get("expired"), bool), "completion-artifact-listing")
+    live = [a for a in named if a["expired"] is False]
+    _need(len(live) <= 1, "completion-artifact-ambiguous")
+    if not live:
+        return "absent", None, len(named)
+    _need(isinstance(live[0].get("id"), int) and isinstance(live[0].get("created_at"), str), "completion-artifact-listing")
+    return "present", {"id": live[0]["id"], "created_at": live[0]["created_at"]}, len(named)
+
+
+def retire_unattested(state, pages, listed_utc, predecessor_sha256):
+    """The state after retiring a pending completion whose run has no unexpired completion attestation, or a refusal (Sam 1794162379).
+
+    Only the pending record's own run is judged, from GitHub's artifact listing for that run. The candidate is not folded and nothing is
+    recreated: the entry keeps the candidate's digest and the settlement/occurrence digests it was bound to, so it stays identifiable but is
+    never a completed run, never row evidence and never a result. `predecessor_sha256` binds the exact record body consumed. inProgress
+    and pendingCompletion are cleared; latestCompleted, history and the earlier retired entries come back exactly as read (checked)."""
+    pending, live = state.get("pendingCompletion"), state.get("inProgress")
+    _need(pending is not None and live is not None and live.get("status") == "incomplete", "unattested-not-a-candidate")
+    rec = pending["record"]
+    _need((live.get("runId"), live.get("attempt"), live.get("sourceSha")) == (rec["runId"], rec["attempt"], rec["sourceSha"]),
+          "unattested-not-a-candidate")
+    _need(isinstance(predecessor_sha256, str) and SHA64.match(predecessor_sha256), "unattested-predecessor")
+    _need(isinstance(listed_utc, str) and UTC.match(listed_utc) and live["startedUtc"] <= listed_utc, "unattested-listed-at")
+    status, _row, named = completion_artifacts(pages, rec["runId"])
+    _need(status == "absent", "unattested-artifact-present")
+    entry = sanitize_retired({"runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "startedUtc": live["startedUtc"],
+                              "retiredReason": UNVERIFIED_REASON, "predecessorSha256": predecessor_sha256,
+                              "evidence": {"listedUtc": listed_utc, "listingSha256": hashlib.sha256(canon(pages)).hexdigest(),
+                                           "namedArtifacts": named, "unexpiredArtifacts": 0,
+                                           "candidateSha256": hashlib.sha256(canon(rec)).hexdigest(),
+                                           "settleReceiptSha256": pending["settleReceiptSha256"],
+                                           "occurrenceSha256": pending["occurrenceSha256"],
+                                           "completionDeadlineUtc": pending["completionDeadlineUtc"]}})
+    prior = list(state.get("retiredAttempts") or [])
+    _need(all(r["runId"] != entry["runId"] for r in prior) and len(prior) < RETIRED_MAX, "retired-attempts-bound")
+    out = _with_retired(state, entry)
+    out.pop("pendingCompletion", None)
+    for key in ("latestCompleted", "history"):
+        _need(canon(out.get(key)) == canon(state.get(key)), "unattested-history-changed")
+    _need(out["retiredAttempts"][:len(prior)] == prior and "pendingCompletion" not in out, "unattested-history-changed")
+    return out
+
+
 def verify_predecessor(selected, current):
     """Refuses unless the stored comment is still exactly the record `select` returned: same comment id, same body bytes, same updated_at.
     Run immediately before publishing a retirement, so a record changed since it was read is never overwritten (the PATCH itself is not a
@@ -882,11 +958,12 @@ def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "pending", "reconcile", "verify", "attest",
                                        "unreserved-candidate", "retire-unreserved", "unexecuted-candidate", "retire-unexecuted",
-                                       "settled-candidate", "retire-settled", "verify-predecessor"))
+                                       "settled-candidate", "retire-settled", "verify-predecessor", "completion-artifact",
+                                       "retire-unattested"))
     for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url",
                  "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256",
                  "--completion-deadline-utc", "--published-at", "--artifact-created-at", "--attestation",
-                 "--settle-receipt", "--occurrence", "--evidence", "--selected", "--current"):
+                 "--settle-receipt", "--occurrence", "--evidence", "--selected", "--current", "--artifact-pages", "--listed-utc"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--comment-id", type=int)
@@ -914,6 +991,16 @@ def main(argv):
                 f.write("\n")
             return 0
         state = parse_body(_read(x.previous))
+        if x.command == "completion-artifact":
+            # exit 0 with the artifact's {id, created_at} written to --out when present; exit 1 when absent; refuses (78) otherwise
+            pending = state.get("pendingCompletion")
+            _need(pending is not None, "no-pending-completion")
+            status, row, _named = completion_artifacts(json.loads(_read(x.artifact_pages)), pending["record"]["runId"])
+            if status == "absent":
+                return 1
+            with open(x.out, "w", encoding="utf-8") as f:
+                json.dump(row, f, sort_keys=True)
+            return 0
         if x.command == "unreserved-candidate":
             run_id = unreserved_candidate(state)
             if run_id is None:
@@ -932,7 +1019,10 @@ def main(argv):
                 return 1
             print(run_id)
             return 0
-        if x.command == "retire-settled":
+        if x.command == "retire-unattested":
+            state = retire_unattested(state, json.loads(_read(x.artifact_pages)), x.listed_utc,
+                                      hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())
+        elif x.command == "retire-settled":
             state = retire_settled(state, json.loads(_read(x.evidence)), hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())
         elif x.command == "retire-unexecuted":
             state = retire_unexecuted(state, json.loads(_read(x.evidence)), hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())

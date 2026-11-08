@@ -628,10 +628,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
         uploads = [s for s in self.jobs["record-complete"]["steps"] if s.get("uses") == "actions/upload-artifact@v4"]
         self.assertEqual(len(uploads), 1)
         self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/completion")
-        # A missed run must not make an otherwise valid terminal record
-        # unrecoverable after only a day or two.  GitHub's bounded maximum is
-        # the retention design; expired/missing evidence still fails closed.
-        self.assertEqual(uploads[0]["with"]["retention-days"], 90)
+        # Owner rule (Sam 1794162379): repository artifacts are kept one day, the attestation included. An expired or missing attestation
+        # no longer blocks the next run: record-begin retires that pending candidate as `completion-unverified` (never folded or upgraded).
+        self.assertEqual(uploads[0]["with"]["retention-days"], 1)
         self.assertIn('cp "$receipt" "$RUNNER_TEMP/completion/settle-receipt.json"', complete["run"])
         self.assertIn('cp "$RUNNER_TEMP/manual-occurrence.json" "$RUNNER_TEMP/completion/occurrence.json"', complete["run"])
         self.assertIn('cp "$RUNNER_TEMP/nightly-request.json" "$RUNNER_TEMP/completion/occurrence.json"', complete["run"])
@@ -642,6 +641,16 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('--attestation "$RUNNER_TEMP/prior-completion/completion-attestation.json"', begin["run"])
         self.assertIn('--settle-receipt "$RUNNER_TEMP/prior-completion/settle-receipt.json"', begin["run"])
         self.assertIn('--occurrence "$RUNNER_TEMP/prior-completion/occurrence.json"', begin["run"])
+        run = begin["run"]
+        branch = run.index('completion-artifact --previous "$RUNNER_TEMP/previous.md"')
+        self.assertLess(branch, run.index('reconcile --previous "$RUNNER_TEMP/previous.md"'))
+        absent = run.index('[ "$?" -eq 1 ] || exit 78', branch)
+        self.assertLess(run.index('reconcile --previous "$RUNNER_TEMP/previous.md"'), absent)
+        self.assertLess(absent, run.index('retire-unattested --previous "$RUNNER_TEMP/previous.md"'))
+        self.assertNotIn('"completion-artifact-missing-or-ambiguous"', run)
+        # a retirement re-reads and binds the stored predecessor before the one PATCH, like the other retirements
+        self.assertLess(run.index('retire-unattested'), run.index('retired_unreserved=1', run.index('retire-unattested')))
+        self.assertLess(run.index('retire-unattested'), run.index('verify-predecessor --selected'))
         # Settlement remains independent of the occurrence deadline: a late
         # publisher cannot claim completion, but held usage is still reconciled
         # under the accepted accounting period.
@@ -759,6 +768,13 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(len(runner), 3, "setup stages, run, collect (reserve and settle are the writer jobs')")
         for step in runner:
             self.assertEqual({k: step["env"].get(k) for k in want}, want, step.get("name"))
+
+    def test_every_artifact_this_workflow_uploads_is_kept_one_day(self):
+        """Owner, Nov 7: "We only want repository artifacts stored for 1 day" (Sam 1794162379: no attestation exception)."""
+        uploads = [(job, s) for job, j in self.jobs.items() for s in j["steps"] if "upload-artifact" in str(s.get("uses", ""))]
+        self.assertGreaterEqual(len(uploads), 7)
+        for job, s in uploads:
+            self.assertEqual(s["with"].get("retention-days"), 1, (job, s.get("name")))
 
     def test_the_ownership_recovery_runs_between_the_run_stage_and_collect_with_no_secret(self):
         """Sam 1794161531: SIGKILL skips the run stage's traps; recovery returns the trees only after every stage process stops."""

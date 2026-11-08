@@ -197,18 +197,29 @@ jobs:
           if python3 -I -c 'import json,re,sys; b=open(sys.argv[1],encoding="utf-8").read(); m=re.findall(r"```json\n(.*?)\n```",b,re.S); raise SystemExit(0 if m and json.loads(m[0]).get("pendingCompletion") else 1)' "$RUNNER_TEMP/previous.md"; then
             pending_run_id="$(python3 -I -c 'import json,re,sys; b=open(sys.argv[1],encoding="utf-8").read(); m=re.findall(r"```json\n(.*?)\n```",b,re.S); print(json.loads(m[0])["pendingCompletion"]["record"]["runId"])' "$RUNNER_TEMP/previous.md")"
             gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$pending_run_id/artifacts" > "$RUNNER_TEMP/prior-artifact-pages.json"
-            python3 -I -c 'import json,sys; pages=json.load(open(sys.argv[1])); pages=pages if isinstance(pages,list) else [pages]; rows=[a for p in pages for a in p.get("artifacts",[]) if a.get("name")=="cloud-test-completion-attestation" and not a.get("expired")]; assert len(rows)==1,"completion-artifact-missing-or-ambiguous"; open(sys.argv[2],"w").write(json.dumps({"id":rows[0]["id"],"created_at":rows[0]["created_at"]}))' "$RUNNER_TEMP/prior-artifact-pages.json" "$RUNNER_TEMP/prior-artifact.json"
-            artifact_id="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$RUNNER_TEMP/prior-artifact.json")"
-            artifact_created_at="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["created_at"])' "$RUNNER_TEMP/prior-artifact.json")"
-            mkdir -p "$RUNNER_TEMP/prior-completion"
-            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/prior-completion.zip"
-            python3 -I -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); expected={"completion-attestation.json","settle-receipt.json","occurrence.json","terminal-candidate.md"}; assert set(z.namelist())==expected,"completion-artifact-files"; z.extractall(sys.argv[2])' "$RUNNER_TEMP/prior-completion.zip" "$RUNNER_TEMP/prior-completion"
-            python3 -I "$P" reconcile --previous "$RUNNER_TEMP/previous.md" --published-at "$(cat "$RUNNER_TEMP/previous-updated-at")" \
-              --artifact-created-at "$artifact_created_at" \
-              --attestation "$RUNNER_TEMP/prior-completion/completion-attestation.json" \
-              --settle-receipt "$RUNNER_TEMP/prior-completion/settle-receipt.json" \
-              --occurrence "$RUNNER_TEMP/prior-completion/occurrence.json" --out "$RUNNER_TEMP/reconciled.md"
-            mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
+            # Sam 1794162379: the attestation is kept one day (owner rule), so it can be gone by the next admitted run. Exactly one unexpired
+            # artifact of that run reconciles as before; none retires the pending candidate as `completion-unverified` history (not folded,
+            # nothing recreated, no result upgraded); more than one, or a listing that is not that run's, refuses.
+            if python3 -I "$P" completion-artifact --previous "$RUNNER_TEMP/previous.md" --artifact-pages "$RUNNER_TEMP/prior-artifact-pages.json" \
+                 --out "$RUNNER_TEMP/prior-artifact.json"; then
+              artifact_id="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$RUNNER_TEMP/prior-artifact.json")"
+              artifact_created_at="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["created_at"])' "$RUNNER_TEMP/prior-artifact.json")"
+              mkdir -p "$RUNNER_TEMP/prior-completion"
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/prior-completion.zip"
+              python3 -I -c 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); expected={"completion-attestation.json","settle-receipt.json","occurrence.json","terminal-candidate.md"}; assert set(z.namelist())==expected,"completion-artifact-files"; z.extractall(sys.argv[2])' "$RUNNER_TEMP/prior-completion.zip" "$RUNNER_TEMP/prior-completion"
+              python3 -I "$P" reconcile --previous "$RUNNER_TEMP/previous.md" --published-at "$(cat "$RUNNER_TEMP/previous-updated-at")" \
+                --artifact-created-at "$artifact_created_at" \
+                --attestation "$RUNNER_TEMP/prior-completion/completion-attestation.json" \
+                --settle-receipt "$RUNNER_TEMP/prior-completion/settle-receipt.json" \
+                --occurrence "$RUNNER_TEMP/prior-completion/occurrence.json" --out "$RUNNER_TEMP/reconciled.md"
+              mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
+            else
+              [ "$?" -eq 1 ] || exit 78
+              python3 -I "$P" retire-unattested --previous "$RUNNER_TEMP/previous.md" --artifact-pages "$RUNNER_TEMP/prior-artifact-pages.json" \
+                --listed-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$RUNNER_TEMP/retired-unattested.md"
+              mv "$RUNNER_TEMP/retired-unattested.md" "$RUNNER_TEMP/previous.md"
+              retired_unreserved=1
+            fi
           fi
           # Sam 1793881260.206739 / 1793881491.714239: a reserved attempt that stopped in setup is settled from evidence keyed on the JOURNAL, not
           # the record. Whenever the freshly validated chain ends with an open reserve, that run's closed evidence is collected here (GitHub's run
@@ -1018,14 +1029,13 @@ jobs:
               --occurrence-sha256 "$occurrence_sha256" \
               --out "$RUNNER_TEMP/completion/completion-attestation.json"
           fi
-      - name: Retain the fail-closed completion evidence for the next admitted run (2 days)
+      - name: Retain the fail-closed completion evidence for the next admitted run (1 day)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cloud-test-completion-attestation
           path: ${{ runner.temp }}/completion
-          # This artifact is the immutable counterpart of the durable pending
-          # record.  Keep it across missed nightly/manual runs; the next
-          # admitted run must still reconcile the exact bytes or refuse.
-          retention-days: 90
+          # The immutable counterpart of the durable pending record, kept one day (owner rule, Sam 1794162379). The next admitted run
+          # reconciles these exact bytes; once expired, record-begin retires the pending candidate as `completion-unverified`, never a result.
+          retention-days: 1
           if-no-files-found: ignore
