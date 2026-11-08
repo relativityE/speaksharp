@@ -165,7 +165,8 @@ jobs:
           # Minimal exposure (PO 2026-10-30, Sam RETURN 1793371883): names, statuses and counts only. Browser identity, the
           # attestation and timings stay on the runner.
           path: ${{ runner.temp }}/offline-checks-summary.json
-          retention-days: 14
+          # PO rule (Nov 7): repository artifacts are kept one day (Sam 1794173764).
+          retention-days: 1
           if-no-files-found: error
 
   # Sam 1794164253: the smallest diagnostic of the live runner's egress configuration. Exactly the live job's preflight step (same script,

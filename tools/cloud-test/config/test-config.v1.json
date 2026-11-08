@@ -90,7 +90,7 @@
     "workflowVariables": []
   },
   "artifacts": {
-    "evidenceRetentionDays": 14,
+    "evidenceRetentionDays": 1,
     "reviewScreenshotRetentionDays": 1,
     "alwaysUpload": [
       "run-record.json",

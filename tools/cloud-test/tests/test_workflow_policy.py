@@ -179,5 +179,21 @@ class EgressDiagnosticMode(unittest.TestCase):
         self.assertEqual(self.doc["permissions"], {"contents": "read"})
 
 
+
+class OneDayRetention(unittest.TestCase):
+    """PO rule (Nov 7, "We only want repository artifacts stored for 1 day"; Sam 1794173764 / 1794167738): the control-plane upload in the
+    CURRENT cloud-test.yml and the stress-endurance upload keep one day, and the configured evidence retention says so."""
+    def test_the_control_plane_and_stress_uploads_keep_one_day(self):
+        import yaml
+        self.assertEqual(J("config", "test-config.v1.json")["artifacts"]["evidenceRetentionDays"], 1)
+        for wf in ("cloud-test.yml", "stress-endurance.yml"):
+            with open(os.path.join(REPO, ".github", "workflows", wf), encoding="utf-8") as f:
+                doc = yaml.safe_load(f.read())
+            uploads = [s for j in doc["jobs"].values() for s in j.get("steps", []) if "upload-artifact" in str(s.get("uses", ""))]
+            self.assertTrue(uploads, wf)
+            for s in uploads:
+                self.assertEqual(s["with"].get("retention-days"), 1, (wf, s.get("name")))
+
+
 if __name__ == "__main__":
     unittest.main()

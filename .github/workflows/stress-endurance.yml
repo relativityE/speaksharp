@@ -69,4 +69,5 @@ jobs:
             test-results/endurance/
             test-results/soak/
             test-results/soak-report/
-          retention-days: 7
+          # PO rule (Nov 7): repository artifacts are kept one day (Sam 1794167738 / 1794173764).
+          retention-days: 1

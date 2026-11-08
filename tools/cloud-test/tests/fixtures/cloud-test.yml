@@ -123,5 +123,5 @@ jobs:
             ${{ runner.temp }}/control-plane/*.md
             ${{ runner.temp }}/offline-checks.json
             ${{ runner.temp }}/timings/**
-          retention-days: 14
+          retention-days: 1
           if-no-files-found: error
