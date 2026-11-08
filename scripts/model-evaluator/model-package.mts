@@ -37,6 +37,13 @@ async function refuseCatalogueConflict(root: string, pkg: ModelPackage) {
     const existing: Record<string, string> = {};
     for (const name of names.filter(name => name.endsWith('.json')).sort()) existing[packageKey(name)] = await readFile(join(directory, name), 'utf8');
     const ownKey = packageKey(pkg.id.replace(/:/g, '_') + '.json');
+    // Review of 29c088e4: an id already imported with different content would replace that descriptor in the proposed
+    // catalogue (and so pass admission), copy its assets, and only then fail to write. Refuse it before any write.
+    if (Object.hasOwn(existing, ownKey)) {
+        let present: unknown;
+        try { present = (JSON.parse(existing[ownKey]) as { packageDigest?: unknown }).packageDigest; } catch { present = undefined; }
+        if (present !== pkg.packageDigest) throw Error('PACKAGE_DUPLICATE_ID');
+    }
     // Elon's review of c1585147: admit the exact bytes the importer writes (the size limit is on the raw text).
     const proposed: Record<string, string> = { ...existing, [ownKey]: descriptorText(pkg) };
     const ordered = Object.fromEntries(Object.keys(proposed).sort().map(key => [key, proposed[key]]));

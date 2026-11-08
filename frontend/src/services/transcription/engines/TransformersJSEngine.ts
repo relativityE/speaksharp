@@ -339,6 +339,8 @@ export class TransformersJSEngine extends STTEngine {
             }
 
             const progress_callback = (data: { progress?: number }) => {
+                // The download cannot be aborted: a superseded attempt keeps reporting after teardown (review of 29c088e4).
+                if (superseded()) return;
                 if (options.onModelLoadProgress && data.progress !== undefined) {
                     options.onModelLoadProgress(data.progress);
                 }
@@ -634,7 +636,8 @@ export class TransformersJSEngine extends STTEngine {
     /** The worker message handler. Extracted from the constructor closure so it can be driven directly. */
     private handleWorkerMessage(response: WorkerResponse, options: TranscriptionModeOptions): void {
         if (response.type === 'progress') {
-            options.onModelLoadProgress?.(response.progress);
+            // During a teardown's round trip to the worker, its progress belongs to no live attempt (review of 29c088e4).
+            if (!this.isTerminated) options.onModelLoadProgress?.(response.progress);
             return;
         }
 

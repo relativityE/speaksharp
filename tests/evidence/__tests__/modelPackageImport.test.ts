@@ -219,6 +219,17 @@ describe('the importer refuses a package that collides with an already imported 
         expect(snapshot(root)).toEqual({});
         expect(existsSync(join(root, 'frontend/public/models/fixture-large-cache'))).toBe(false);
     });
+    // Review of 29c088e4: an id already imported with different content replaced that descriptor in the proposed catalogue,
+    // passed admission and copied its assets before the descriptor write failed with a raw EEXIST.
+    it('refuses an already imported id with different content before copying anything', async () => {
+        const root = projectRoot();
+        await importModelPackage(root, await whisperPackage('fixture:x-whisper', 'fixture-cache-one'));
+        const before = snapshot(root);
+        await expect(importModelPackage(root, await whisperPackage('fixture:x-whisper', 'fixture-cache-two')))
+            .rejects.toThrow('PACKAGE_DUPLICATE_ID');
+        expect(snapshot(root)).toEqual(before);
+        expect(existsSync(join(root, 'frontend/public/models/fixture-cache-two'))).toBe(false);
+    });
     it('still imports packages with distinct cache directories, and a repeated identical import stays idempotent', async () => {
         const root = projectRoot();
         const first = await whisperPackage('fixture:b-whisper', 'fixture-cache-one');

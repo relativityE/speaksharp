@@ -234,6 +234,8 @@ export class TransformersJSV4Engine extends STTEngine {
             options.onModelLoadProgress?.(0);
 
             const progress_callback = (data: unknown) => {
+                // The download cannot be aborted: a superseded attempt keeps reporting after teardown (review of 29c088e4).
+                if (superseded()) return;
                 const progress = typeof data === 'object' && data !== null && 'progress' in data
                     ? Number((data as { progress?: number }).progress)
                     : undefined;
@@ -610,7 +612,8 @@ export class TransformersJSV4Engine extends STTEngine {
         v4Model: { MODEL_ID: string; DTYPE: unknown },
     ): void {
             if (response.type === 'progress') {
-                    this.reportModelProgress(response.progress);
+                    // During a teardown's round trip to the worker, its progress belongs to no live attempt (review of 29c088e4).
+                    if (!this.isTerminated) this.reportModelProgress(response.progress);
                     return;
             }
 

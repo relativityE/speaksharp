@@ -509,6 +509,8 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 expect((engine as unknown as { transcriber: unknown }).transcriber).toBe(successor);
                 expect(successor.dispose).not.toHaveBeenCalled();
                 for (const other of pipes.slice(0, -1)) expect(other.dispose).toHaveBeenCalledTimes(1);
+                // Review of 29c088e4: the stale attempt stops right after the import, so it never starts a download.
+                expect(mock).toHaveBeenCalledTimes(1);
                 await engine.destroy();
             });
 
@@ -573,6 +575,60 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 expect(onReady).toHaveBeenCalledTimes(readyCalls);
                 expect(onModelLoadProgress).toHaveBeenCalledTimes(progressCalls);
                 await engine.destroy();
+            });
+
+            // Review of 29c088e4: the un-abortable download's progress callback keeps firing after teardown.
+            it(`${name}: a stale download reports no progress after teardown, even once the successor is ready`, async () => {
+                let report!: (data: unknown) => void;
+                let finishStale!: (value: unknown) => void;
+                mock.mockImplementationOnce((_task: unknown, _model: unknown, options: { progress_callback: (data: unknown) => void }) => {
+                    report = options.progress_callback;
+                    return new Promise(resolve => { finishStale = resolve; });
+                });
+                const onModelLoadProgress = vi.fn();
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady: vi.fn(), onModelLoadProgress, onTranscriptUpdate: vi.fn() });
+                const stale = engine.init();
+                await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1));
+                await engine.destroy();
+                mock.mockResolvedValueOnce(pipe());
+                expect((await engine.init()).isOk).toBe(true);
+                onModelLoadProgress.mockClear();
+                report({ progress: 42 });
+                expect(onModelLoadProgress).not.toHaveBeenCalled();
+                finishStale(pipe());
+                expect((await stale).isOk).toBe(false);
+                await engine.destroy();
+            });
+
+            // Review of 29c088e4: the worker's progress during the teardown round trip belongs to no live attempt.
+            it(`${name}: worker progress arriving while teardown awaits the worker is not reported`, async () => {
+                (globalThis as { Worker?: unknown }).Worker = FakeWorker as unknown as typeof Worker;
+                fakeWorkerMode = 'silent';
+                const onModelLoadProgress = vi.fn();
+                const onReady = vi.fn();
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady, onModelLoadProgress, onTranscriptUpdate: vi.fn() });
+                vi.spyOn(engine as unknown as { shouldUseWorker: () => boolean }, 'shouldUseWorker').mockReturnValue(true);
+                const stale = engine.init();
+                await vi.waitFor(() => expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledTimes(1));
+                const worker = fakeWorkerInstances[0];
+                const destroying = engine.destroy();
+                await vi.waitFor(() => expect(worker.postMessage).toHaveBeenCalledTimes(2)); // the destroy request is out
+                const initId = worker.postMessage.mock.calls[0][0].id;
+                const destroyId = worker.postMessage.mock.calls[1][0].id;
+                const progressBefore = onModelLoadProgress.mock.calls.length;
+                worker.onmessage?.({ data: { id: initId, type: 'progress', progress: 55 } } as MessageEvent);
+                expect(onModelLoadProgress).toHaveBeenCalledTimes(progressBefore);
+                worker.onmessage?.({ data: { id: initId, type: 'ready' } } as MessageEvent);
+                worker.onmessage?.({ data: { id: destroyId, type: 'destroyed' } } as MessageEvent);
+                await destroying;
+                expect((await stale).isOk).toBe(false);
+                expect(onReady).not.toHaveBeenCalled();
             });
 
             // Elon's review of c1585147: a teardown during the post-publish warm-up.
