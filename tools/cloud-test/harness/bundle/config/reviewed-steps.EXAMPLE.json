@@ -205,6 +205,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -407,6 +411,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -609,6 +617,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -811,6 +823,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1013,6 +1029,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1215,6 +1235,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1417,6 +1441,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1619,6 +1647,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1821,6 +1853,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2023,6 +2059,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2225,6 +2265,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2427,6 +2471,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2629,6 +2677,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2831,6 +2883,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -3033,6 +3089,10 @@
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -3135,6 +3195,10 @@
         {
           "path": "draft-adapters/progress-numeric.cjs",
           "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },

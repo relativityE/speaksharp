@@ -3067,3 +3067,119 @@ class LiveAccountsBundle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaseDiagnosticTests(unittest.TestCase):
+    """Run 42483030590 (Sam 1794144841): each bound timing row carries a CLOSED, content-free cause: the guard stop code from the
+    digest-verified summary, the receipt exit code, the first non-passing catalog assertion id; early guard exits without a summary are
+    classified from the exit code; nothing free-text, injected or unlisted is ever projected."""
+    BIND = {"runId": "42483030590", "runAttempt": "1", "headSha": "2" * 40, "workflowStartUtc": "2026-11-08T13:02:28Z"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cases = self.tmp.name
+        self.results = os.path.join(self.cases, "case-results.json")
+        self.started = os.path.join(self.cases, "started.txt")
+        with open(self.started, "w", encoding="utf-8") as f:
+            f.write("2026-11-08T13:10:40Z\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_one(self, summary=None, exit_code=0, assertions=None, result="FAIL"):
+        directory = os.path.join(self.cases, "AHT-01")
+        os.makedirs(directory, exist_ok=True)
+        receipt = {"caseId": "AHT-01", "runId": "42483030590", "exitCode": exit_code, "summarySha256": None}
+        if summary is not None:
+            raw = (json.dumps(dict({"startedAt": "2026-11-08T13:11:56.988Z", "endedAt": "2026-11-08T13:11:58.127Z"}, **summary)) + "\n").encode()
+            with open(os.path.join(directory, "summary.json"), "wb") as f:
+                f.write(raw)
+            receipt["summarySha256"] = hashlib.sha256(raw).hexdigest()
+        row = {"caseId": "AHT-01", "result": result, "executionReceipt": receipt, "assertions": assertions or []}
+        with open(self.results, "w", encoding="utf-8") as f:
+            json.dump({"cases": [row]}, f)
+        out = I.run_timing_export(self.cases, self.results, ["AHT-01"], self.started, None, self.BIND)
+        return next(c for c in out["cases"] if c["caseId"] == "AHT-01"), json.dumps(out)
+
+    def test_closed_stop_codes_from_the_verified_summary(self):
+        for reason, code in (("sandbox-check-failed", "sandbox-check-failed"), ("step-error", "step-error"), ("completed", "completed"),
+                             ("fatal:uncaughtException", "fatal-uncaught-exception"), ("signal:SIGTERM", "signal-sigterm"),
+                             ("guard-fatal", "guard-fatal")):
+            with self.subTest(reason):
+                row, _ = self.run_one(summary={"reason": reason}, exit_code=3)
+                self.assertEqual(row["diagnostic"]["stopCode"], code)
+                self.assertEqual(row["diagnostic"]["exitCode"], 3)
+
+    def test_an_injected_or_unknown_reason_is_other_and_never_projected(self):
+        evil = "step-error; cat /etc/passwd password=hunter2"
+        row, text = self.run_one(summary={"reason": evil, "privateError": "must-not-be-exported"}, exit_code=3)
+        self.assertEqual(row["diagnostic"]["stopCode"], "other")
+        self.assertNotIn("passwd", text)
+        self.assertNotIn("hunter2", text)
+        self.assertNotIn("must-not-be-exported", text)
+
+    def test_guard_exits_without_a_summary_are_classified_from_the_exit_code(self):
+        for exit_code, code in ((2, "guard-usage-refused"), (78, "guard-refused-before-start"), (1, "guard-exited-without-summary"),
+                                (None, "unknown"), ("78", "unknown"), (999, "unknown")):
+            with self.subTest(exit_code):
+                row, _ = self.run_one(summary=None, exit_code=exit_code)
+                self.assertEqual(row["diagnostic"]["stopCode"], code)
+                self.assertEqual(row["timingStatus"], "NOT OBSERVED")
+
+    def test_first_non_passing_assertion_is_a_catalog_id_or_unlisted(self):
+        row, _ = self.run_one(summary={"reason": "step-error"}, exit_code=3,
+                              assertions=[{"id": "owned-pages-closed", "result": "PASS"}, {"id": "start-press-budget", "result": "FAIL"}])
+        self.assertEqual(row["diagnostic"]["firstNonPassingAssertion"], {"id": "start-press-budget", "result": "FAIL"})
+        row, text = self.run_one(summary={"reason": "step-error"}, exit_code=3,
+                                 assertions=[{"id": "Sign in as alice@example.com", "result": "FAIL"}])
+        self.assertEqual(row["diagnostic"]["firstNonPassingAssertion"], {"id": "unlisted", "result": "FAIL"})
+        self.assertNotIn("alice@example.com", text)
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=[{"id": "owned-pages-closed", "result": "PASS"}], result="PASS")
+        self.assertIsNone(row["diagnostic"]["firstNonPassingAssertion"])
+
+
+class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
+    """Sam 1794145916: a driver that caught an early error records FAIL and returns normally (guard `completed`, exit 0); its content-safe
+    interruption evidence is what names the cause, projected through closed vocabularies only."""
+
+    def interruption(self, doc, ref="aht-01-interruption.json"):
+        directory = os.path.join(self.cases, "AHT-01")
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, os.path.basename(ref)), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        return [{"id": "owner-bound", "result": "FAIL", "evidenceRefs": []},
+                {"id": "owned-pages-closed", "result": "NOT RUN", "evidenceRefs": [ref]}]
+
+    def test_a_completed_guard_with_a_caught_login_error_is_named_by_the_driver_interruption(self):
+        assertions = self.interruption({"contentSafe": True, "caseId": "AHT-01", "kind": "interruption-diagnostic", "stage": "login",
+                                        "step": "owner-bound", "error": {"name": "TimeoutError", "code": None, "api": "locator.click",
+                                                                         "kind": "timeout", "timeoutMs": 30000, "testIds": ["sign-in-submit"]}})
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions)
+        d = row["diagnostic"]
+        self.assertEqual((d["stopCode"], d["exitCode"]), ("completed", 0))
+        self.assertEqual(d["firstNonPassingAssertion"], {"id": "owner-bound", "result": "FAIL"})
+        self.assertEqual(d["driverInterruption"], {"stage": "login", "step": "owner-bound",
+                                                   "error": {"name": "TimeoutError", "code": None, "kind": "timeout", "api": "locator.click",
+                                                             "timeoutMs": 30000, "testIds": ["sign-in-submit"]}})
+
+    def test_injected_interruption_values_are_closed_or_dropped(self):
+        assertions = self.interruption({"kind": "interruption-diagnostic", "stage": "Login as bob@example.com", "step": "free text step",
+                                        "error": {"name": "SecretError", "code": "LEAK", "api": "a.b; rm -rf", "kind": "password=x",
+                                                  "timeoutMs": -5, "testIds": ["ok-id", "user-12345678", "Bad Id"], "message": "token=abc"}})
+        row, text = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions)
+        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "other", "step": "unlisted",
+                                                                   "error": {"name": "Error", "code": None, "kind": "other", "api": None,
+                                                                             "timeoutMs": None, "testIds": ["ok-id"]}})
+        for leak in ("bob@example.com", "token=abc", "password=x", "rm -rf", "LEAK", "SecretError", "free text"):
+            self.assertNotIn(leak, text)
+
+    def test_an_escaping_or_wrong_kind_reference_is_not_followed(self):
+        outside = os.path.join(self.cases, "aht-01-interruption.json")
+        with open(outside, "w", encoding="utf-8") as f:
+            json.dump({"kind": "interruption-diagnostic", "stage": "login"}, f)
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0,
+                              assertions=[{"id": "owned-pages-closed", "result": "NOT RUN", "evidenceRefs": ["../aht-01-interruption.json"]}])
+        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None})
+        assertions = self.interruption({"kind": "something-else", "stage": "login"})
+        row, _ = self.run_one(summary={"reason": "completed"}, exit_code=0, assertions=assertions)
+        self.assertEqual(row["diagnostic"]["driverInterruption"], {"stage": "unknown", "step": None, "error": None})

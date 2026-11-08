@@ -46,7 +46,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-one-off-grant.json"
-ONE_OFF_GRANT_SHA256 = "d6729f973d66c5fa24a65f226dcba23b7ed141607d09a3f1d3eaae7627f8796a"   # PO one-run authorization relayed by Sam (slack:1794126096.067599): run cap 3329 + 32 identity; ceilings 9518/129/80/80 (increased; prior charges retained); 60 live / 100 end-to-end; pre-reserve head 3ad9de4f
+ONE_OFF_GRANT_SHA256 = "e501e203ce05e0429e65c4767e6f7096fcd91ece0b53add00dd071f875c86382"   # PO one-run authorization relayed by Sam (slack:1794126096.067599): run cap 3329 + 32 identity; ceilings 9518/129/80/80 (increased; prior charges retained); 60 live / 100 end-to-end; pre-reserve head 3ad9de4f
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
@@ -1742,6 +1742,107 @@ def _unknown_row(case_id, reason):
 TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z")
 
 
+# Run 42483030590 (Sam 1794144841): every case FAILED in ~1.1 s and the public timing table could not say why. Each bound row now carries a
+# CLOSED, content-free diagnostic: the guard's stop code (from the digest-verified summary, mapped into this enumeration), its exit code,
+# and the first non-passing assertion id when that id is a reviewed catalog id. A guard that exited before writing a summary (usage exit 2,
+# setup refusal 78 before stop(), a crash) is classified from the receipt's exit code; anything else is "unknown". No raw stderr,
+# free-text reason, path or credential is ever projected.
+STOP_CODES = {"completed", "deadline", "allowance-exhausted", "parent-lost", "sandbox-check-failed", "step-error", "guard-fatal"}
+STOP_PREFIXED = {"fatal:uncaughtException": "fatal-uncaught-exception", "fatal:unhandledRejection": "fatal-unhandled-rejection",
+                 "signal:SIGTERM": "signal-sigterm", "signal:SIGINT": "signal-sigint", "signal:SIGHUP": "signal-sighup"}
+HARNESS_ROW_IDS = {"owned-pages-closed", "start-press-budget", "no-cloud-stt"}
+ASSERTION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+
+
+def _catalog_assertion_ids():
+    ids = set(HARNESS_ROW_IDS)
+    for name in ("smoke-assertion-catalog.json", "assertion-catalog.json"):
+        try:
+            doc = json.loads(_read(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", name)))
+        except (OSError, ValueError, Refused):
+            continue
+        cases = doc.get("cases") if isinstance(doc, dict) else None
+        for case in (cases.values() if isinstance(cases, dict) else []):
+            for key in ("requiredAssertions", "assertions"):
+                for item in (case.get(key) or []) if isinstance(case, dict) else []:
+                    aid = item.get("id") if isinstance(item, dict) else item
+                    if isinstance(aid, str) and ASSERTION_ID.fullmatch(aid):
+                        ids.add(aid)
+    return ids
+
+
+STAGE = re.compile(r"[a-z][a-z0-9-]{0,40}")
+ERROR_NAMES = {"TimeoutError", "Error", "TypeError"}
+ERROR_CODES = {"NOT_RUN", "AUTH_REJECTED", "START_PRESS_CAP", "START_CONTROL_NOT_READY", "PRODUCT_FAIL", "EVIDENCE_READER_UNAVAILABLE"}
+ERROR_KINDS = {"timeout", "target-closed", "control-not-ready", "strict-mode", "network-error", "other"}
+API = re.compile(r"[A-Za-z]{2,24}\.[A-Za-z]{2,24}")
+TEST_ID = re.compile(r"[a-z][a-z0-9-]{1,40}")
+INTERRUPTION_MAX_BYTES = 65536
+
+
+def driver_interruption(case_dir, row, allowed_ids):
+    """Sam 1794145916: the driver catches early page/observer/navigation/login errors, records an owner-bound FAIL and returns normally, so
+    the guard's stop code can be `completed`. Its content-safe interruption evidence (source-adapters retainInterruptionEvidence: stage,
+    step, safeErrorSummary) is projected here through closed vocabularies only; anything else is dropped or `other`."""
+    ref = None
+    for a in (row.get("assertions") or []) if isinstance(row, dict) else []:
+        for r in (a.get("evidenceRefs") or []) if isinstance(a, dict) else []:
+            if isinstance(r, str) and re.fullmatch(r"aht-\d\d-interruption\.json", os.path.basename(r)):
+                ref = r
+                break
+        if ref:
+            break
+    if ref is None or not isinstance(case_dir, str):
+        return None
+    base = os.path.realpath(case_dir)
+    f = os.path.realpath(os.path.join(base, ref))
+    try:
+        if not f.startswith(base + os.sep) or os.path.islink(f) or not os.path.isfile(f) or os.path.getsize(f) > INTERRUPTION_MAX_BYTES:
+            return {"stage": "unknown", "step": None, "error": None}
+        doc = json.loads(_read(f))
+    except (OSError, ValueError, UnicodeDecodeError, Refused):
+        return {"stage": "unknown", "step": None, "error": None}
+    if not isinstance(doc, dict) or doc.get("kind") != "interruption-diagnostic":
+        return {"stage": "unknown", "step": None, "error": None}
+    stage, step, err = doc.get("stage"), doc.get("step"), doc.get("error")
+    out = {"stage": stage if isinstance(stage, str) and STAGE.fullmatch(stage) else "other",
+           "step": (step if step in allowed_ids else "unlisted") if isinstance(step, str) else None, "error": None}
+    if isinstance(err, dict):
+        t = err.get("timeoutMs")
+        out["error"] = {"name": err.get("name") if err.get("name") in ERROR_NAMES else "Error",
+                        "code": err.get("code") if err.get("code") in ERROR_CODES else None,
+                        "kind": err.get("kind") if err.get("kind") in ERROR_KINDS else "other",
+                        "api": err.get("api") if isinstance(err.get("api"), str) and API.fullmatch(err["api"]) else None,
+                        "timeoutMs": t if type(t) is int and 0 <= t <= 3600000 else None,
+                        "testIds": [x for x in (err.get("testIds") or []) if isinstance(x, str) and TEST_ID.fullmatch(x) and not re.search(r"\d{6,}", x)][:5]}
+    return out
+
+
+def case_diagnostic(row, receipt, summary_doc, allowed_ids, case_dir=None):
+    """{stopCode, exitCode, firstNonPassingAssertion, driverInterruption} from closed sources only."""
+    code = receipt.get("exitCode") if isinstance(receipt, dict) else None
+    exit_code = code if type(code) is int and 0 <= code <= 255 else None
+    if isinstance(summary_doc, dict):
+        reason = summary_doc.get("reason")
+        stop = (reason if isinstance(reason, str) and reason in STOP_CODES else STOP_PREFIXED.get(reason, "other")) if reason is not None else "unknown"
+    elif exit_code == 2:
+        stop = "guard-usage-refused"
+    elif exit_code == 78:
+        stop = "guard-refused-before-start"
+    elif exit_code is not None:
+        stop = "guard-exited-without-summary"
+    else:
+        stop = "unknown"
+    first = None
+    for a in (row.get("assertions") or []) if isinstance(row, dict) else []:
+        if isinstance(a, dict) and a.get("result") in ("FAIL", "NOT RUN"):
+            aid = a.get("id")
+            first = {"id": aid if isinstance(aid, str) and aid in allowed_ids else "unlisted", "result": a["result"]}
+            break
+    return {"stopCode": stop, "exitCode": exit_code, "firstNonPassingAssertion": first,
+            "driverInterruption": driver_interruption(case_dir, row, allowed_ids)}
+
+
 def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
     """Per-case isolated display rows (Sam 1793967113.871439 / 1793968108.194389 / 1793968197.126469; Bezos B3-B9). Never raises on input:
     corrupt or ambiguous TOP-LEVEL results make every selected row UNKNOWN (nothing credited); a malformed, unbound or unverifiable CASE makes
@@ -1764,6 +1865,7 @@ def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
             ambiguous.add(cid)
         by[cid] = r
     out = {}
+    allowed_ids = _catalog_assertion_ids()
     for c in selected:
         r = by.get(c)
         if c in ambiguous:
@@ -1783,7 +1885,9 @@ def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
         digest = receipt.get("summarySha256")
         base = {"caseId": c, "result": result, "evidence": "bound-case-receipt"}
         if digest is None:                      # the guard exited before a summary: the verdict stands, the timing was not observed
-            out[c] = dict(base, timingStatus="NOT OBSERVED", startedAtUtc=None, endedAtUtc=None, durationMs=None); continue
+            out[c] = dict(base, timingStatus="NOT OBSERVED", startedAtUtc=None, endedAtUtc=None, durationMs=None,
+                          diagnostic=case_diagnostic(r, receipt, None, allowed_ids,
+                                                     os.path.join(cases_dir, c) if isinstance(cases_dir, str) else None)); continue
         summary = os.path.join(os.path.realpath(cases_dir), c, "summary.json") if isinstance(cases_dir, str) else ""
         try:
             raw = _read(summary) if os.path.isfile(summary) and not os.path.islink(summary) else None
@@ -1803,7 +1907,8 @@ def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
         duration = round((ended - started).total_seconds() * 1000)
         if not 0 <= duration <= 40 * 60 * 1000:
             out[c] = _unknown_row(c, "case-timing-invalid"); continue
-        out[c] = dict(base, timingStatus="OBSERVED", startedAtUtc=stamps[0], endedAtUtc=stamps[1], durationMs=duration)
+        out[c] = dict(base, timingStatus="OBSERVED", startedAtUtc=stamps[0], endedAtUtc=stamps[1], durationMs=duration,
+                      diagnostic=case_diagnostic(r, receipt, sd, allowed_ids, os.path.join(cases_dir, c)))
     return out, "results"
 
 
@@ -1846,7 +1951,8 @@ def run_timing_export(cases_dir, case_results_file, selected, started_file, trac
         row = rows[c]
         cases.append({"caseId": c, "result": row["result"], "evidence": row["evidence"],
                       "timingStatus": row.get("timingStatus", "NOT OBSERVED"), "startedAtUtc": row.get("startedAtUtc"),
-                      "endedAtUtc": row.get("endedAtUtc"), "durationMs": row.get("durationMs")})
+                      "endedAtUtc": row.get("endedAtUtc"), "durationMs": row.get("durationMs"),
+                      **({"diagnostic": row["diagnostic"]} if "diagnostic" in row else {})})
     stages = stage_trace_rows(trace_file)
     wstart = binding.get("workflowStartUtc") or None
     # Out-of-order times are refused, never reported as a negative or misleading duration (Sam 1793933116.625009): the run stage cannot
