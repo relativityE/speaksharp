@@ -686,6 +686,14 @@ jobs:
           # PO 2026-11-06: the guarded browser lane needs root on this ephemeral runner; execute_run.sh elevates only the run stage.
           CT_RUN_STAGE_AS_ROOT: '1'
         run: bash tools/cloud-test/scripts/execute_run.sh run
+      # Sam 1794161531: the run stage returns its trees from TERM/INT traps and on exit, which SIGKILL (or an ignored TERM then KILL) skips.
+      # No secret; returns only the canonical run-owned trees, only after no run-stage process remains (bounded, fail closed, no signal).
+      - name: Return the run-owned trees once every run-stage process has stopped (only if the stage could not)
+        timeout-minutes: 3
+        if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'
+        env:
+          CT_RUN_STAGE_AS_ROOT: '1'
+        run: bash tools/cloud-test/scripts/execute_run.sh recover-ownership
       - name: Collect, verify the binding, qualify every selected row, and project the closed record
         timeout-minutes: 5
         if: always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'

@@ -12,6 +12,33 @@
 set -euo pipefail
 STAGE="${1:-}"
 blocked() { echo "BLOCKED_SETUP: $*" >&2; exit 78; }
+# Sam 1794066886: a privileged recursive ownership change accepts only canonical roots: absolute, no trailing slash, an existing
+# directory whose realpath is itself (so no component, including the last, is a symlink).
+canonical_dir() { case "$1" in /*/|/) return 1 ;; /*) ;; *) return 1 ;; esac; [ -d "$1" ] && [ ! -L "$1" ] && [ "$(realpath "$1")" = "$1" ]; }
+# Sam 1794161531: the run stage's TERM/INT traps cannot run on SIGKILL (nor after an ignored TERM is followed by KILL), so the run-owned
+# trees can stay root-owned. Internal second half of `recover-ownership`, entered only through sudo: return exactly the canonical run-owned
+# trees, and only once run_stage_quiescence.py finds no stage process left (bounded wait, fail closed, no signal sent). Trees the stage
+# already returned are left alone. Ownership only: no mode, ACL or other tree is touched.
+if [ "$STAGE" = recover-as-root ]; then
+  [ "$(id -u)" = 0 ] && [ "$#" -eq 4 ] || blocked "recover-as-root is internal to the run-stage ownership recovery"
+  owner="$2"; out="$3"; pin="$4"
+  [[ "$owner" =~ ^[1-9][0-9]*:[0-9]+$ ]] || blocked "the recovery owner must be the job user's numeric uid:gid"
+  canonical_dir "$out" || blocked "CT_OUT must be a canonical directory with no symlink component"
+  trees=("$out")
+  case "$pin" in /*) ;; *) blocked "private run inputs must be a canonical directory with no symlink component" ;; esac
+  if [ -e "$pin" ] || [ -L "$pin" ]; then
+    canonical_dir "$pin" || blocked "private run inputs must be a canonical directory with no symlink component"
+    trees+=("$pin")
+  fi
+  foreign="$(find "${trees[@]}" ! -uid "${owner%%:*}" -print -quit)" || blocked "run-owned trees could not be inspected"
+  if [ -z "$foreign" ]; then echo "run-owned trees already returned to the job user"; exit 0; fi
+  quiet=(); for t in "${trees[@]}"; do quiet+=(--tree "$t"); done
+  python3 -I "$(dirname "$0")/run_stage_quiescence.py" "${quiet[@]}" --wait-seconds 90 \
+    || blocked "run-owned trees not returned: a run-stage process may still write into them"
+  chown -R "$owner" "${trees[@]}" || blocked "run outputs could not be returned to the job user"
+  echo "run-owned trees returned to the job user after the run stage stopped"
+  exit 0
+fi
 # Internal second half of the elevated run stage (see below), entered only through sudo. Sam 1794066566/1794066358 corrections: taking
 # ownership of the run-owned trees must stop the stage when it fails, and returning it must be reported (and fail the stage) when it fails.
 if [ "$STAGE" = run-as-root ]; then
@@ -19,9 +46,6 @@ if [ "$STAGE" = run-as-root ]; then
   envfile="$2"; owner="$3"; pin="$4"
   [ -f "$envfile" ] && [ ! -L "$envfile" ] || blocked "elevated run environment missing"
   . "$envfile"; rm -f "$envfile"
-  # Sam 1794066886: a privileged recursive ownership change accepts only canonical roots: absolute, no trailing slash, an existing
-  # directory whose realpath is itself (so no component, including the last, is a symlink).
-  canonical_dir() { case "$1" in /*/|/) return 1 ;; /*) ;; *) return 1 ;; esac; [ -d "$1" ] && [ ! -L "$1" ] && [ "$(realpath "$1")" = "$1" ]; }
   [ -n "${CT_OUT:-}" ] && canonical_dir "$CT_OUT" || blocked "CT_OUT must be a canonical directory with no symlink component"
   trees=("$CT_OUT")
   case "$pin" in /*) ;; *) blocked "private run inputs must be a canonical directory with no symlink component" ;; esac
@@ -40,6 +64,13 @@ if [ "$STAGE" = run-as-root ]; then
   rc=0; bash "$0" run || rc=$?
   if ! give_back; then [ "$rc" -ne 0 ] || rc=78; fi
   exit "$rc"
+fi
+# The job-user entry of the ownership recovery above (workflow step after the run stage, always()); only when the run stage was elevated.
+if [ "$STAGE" = recover-ownership ]; then
+  [ "${CT_RUN_STAGE_AS_ROOT:-}" = 1 ] && [ "$(id -u)" != 0 ] || blocked "recover-ownership follows only an elevated run stage, as the job user"
+  [ -n "${CT_OUT:-}" ] || blocked "CT_OUT is required to recover the run-owned trees"
+  private_inputs="${CT_PRIVATE_INPUT_DIR:-${RUNNER_TEMP:-/nonexistent}/run-inputs}"
+  exec sudo -n bash "$0" recover-as-root "$(id -u):$(id -g)" "$CT_OUT" "$private_inputs"
 fi
 case "$STAGE" in
   install-tools|build-plan|stimulus-preflight|build-plan-with-receipt|gate-and-validate|reserve|manual-reserve|run|collect|settle|manual-settle) ;;

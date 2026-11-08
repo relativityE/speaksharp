@@ -755,10 +755,23 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_the_runner_receives_the_admission_digests_only_from_init_step_outputs(self):
         want = {"CT_REQUEST_SHA256": "${{ steps.init.outputs.request_sha256 }}",
                 "CT_LIVE_ACCOUNTS_SHA256": "${{ steps.init.outputs.live_accounts_sha256 }}"}
-        runner = [s for s in self.jobs["live"]["steps"] if "execute_run.sh" in s.get("run", "")]
+        runner = [s for s in self.jobs["live"]["steps"] if "execute_run.sh" in s.get("run", "") and "recover-ownership" not in s["run"]]
         self.assertEqual(len(runner), 3, "setup stages, run, collect (reserve and settle are the writer jobs')")
         for step in runner:
             self.assertEqual({k: step["env"].get(k) for k in want}, want, step.get("name"))
+
+    def test_the_ownership_recovery_runs_between_the_run_stage_and_collect_with_no_secret(self):
+        """Sam 1794161531: SIGKILL skips the run stage's traps; recovery returns the trees only after every stage process stops."""
+        steps = self.jobs["live"]["steps"]
+        i = next(k for k, s in enumerate(steps) if "execute_run.sh recover-ownership" in s.get("run", ""))
+        step = steps[i]
+        self.assertEqual(steps[i - 1].get("id"), "run")
+        self.assertTrue(steps[i + 1]["name"].startswith("Collect, verify the binding"))
+        self.assertEqual(step["if"], "always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'")
+        self.assertEqual(step["env"], {"CT_RUN_STAGE_AS_ROOT": "1"})
+        self.assertEqual(step["run"].strip(), "bash tools/cloud-test/scripts/execute_run.sh recover-ownership")
+        self.assertNotIn("secrets.", json.dumps(step))
+        self.assertLessEqual(step["timeout-minutes"], 3)
 
     def test_the_private_run_inputs_are_removed_last_and_never_uploaded(self):
         steps = self.jobs["live"]["steps"]

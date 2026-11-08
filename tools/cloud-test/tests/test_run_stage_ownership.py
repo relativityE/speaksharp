@@ -8,6 +8,7 @@ import signal
 import stat
 import time
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -104,6 +105,209 @@ class RunAsRoot(unittest.TestCase):
         self.shim("id", '#!/bin/sh\necho 0\n')
         p, calls, _ = self.run_as_root(extra_args=["only-one"])
         self.assertEqual((p.returncode, calls), (78, []))
+
+
+QUIESCENCE = ROOT / "scripts/run_stage_quiescence.py"
+
+
+class FakeProc:
+    """A synthetic /proc: status (PPid, Uid), NUL-separated cmdline, and cwd/root/exe/fd symlinks. Readlink returns the target text."""
+    def __init__(self, root):
+        self.root = root
+        os.mkdir(root)
+
+    def add(self, pid, ppid=1, euid=1001, argv=("sleep", "1"), cwd="/", fds=(), unreadable=False):
+        d = os.path.join(self.root, str(pid)); os.mkdir(d); os.mkdir(os.path.join(d, "fd"))
+        Path(d, "status").write_text("Name:\tx\nPPid:\t%d\nUid:\t%d\t%d\t%d\t%d\n" % (ppid, euid, euid, euid, euid))
+        Path(d, "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+        os.symlink(cwd, os.path.join(d, "cwd")); os.symlink("/", os.path.join(d, "root")); os.symlink("/usr/bin/x", os.path.join(d, "exe"))
+        for n, target in enumerate(fds):
+            os.symlink(target, os.path.join(d, "fd", str(n)))
+        if unreadable:
+            os.chmod(os.path.join(d, "fd"), 0)
+        return str(pid)
+
+
+class Quiescence(unittest.TestCase):
+    """Sam 1794161531: the recovery may return the trees only after every run-stage process has stopped; anything unreadable counts."""
+    def setUp(self):
+        self.d = os.path.realpath(tempfile.mkdtemp(prefix="quiescence-"))
+        self.addCleanup(subprocess.run, ["chmod", "-R", "u+rwx", self.d])
+        self.addCleanup(subprocess.run, ["rm", "-rf", self.d])
+        self.tree = os.path.join(self.d, "ct-out")
+        self.pin = os.path.join(self.d, "run-inputs")
+        self.proc = FakeProc(os.path.join(self.d, "proc"))
+        # the recovery chain itself: runner step shell -> sudo -> bash execute_run.sh recover-as-root -> python (self)
+        self.proc.add(10, ppid=1, argv=("bash", "-e", "/home/runner/work/_temp/step.sh"))
+        self.proc.add(11, ppid=10, euid=0, argv=("sudo", "-n", "bash", "tools/cloud-test/scripts/execute_run.sh", "recover-as-root",
+                                                 "1001:118", self.tree, self.pin))
+        self.proc.add(12, ppid=11, euid=0, argv=("bash", "tools/cloud-test/scripts/execute_run.sh", "recover-as-root", "1001:118", self.tree,
+                                                 self.pin), fds=(self.tree + "/plan/x.json",))
+        self.proc.add(13, ppid=12, euid=0, argv=("python3", "-I", str(QUIESCENCE)), cwd=self.tree)
+        self.proc.add(2, ppid=0, euid=0, argv=())                  # a kernel thread
+        self.proc.add(500, ppid=1, euid=1001, argv=("Runner.Worker",), cwd="/home/runner")
+
+    def check(self, wait=0):
+        return subprocess.run([sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--tree", self.pin, "--wait-seconds", str(wait),
+                               "--proc-root", self.proc.root, "--self-pid", "13"], capture_output=True, text=True, timeout=30)
+
+    def test_only_the_recovery_chain_and_unrelated_processes_remain_quiescent(self):
+        p = self.check()
+        self.assertEqual((p.returncode, p.stdout.strip()), (0, "run stage quiescent"))
+
+    def test_every_kind_of_surviving_stage_process_blocks_the_return(self):
+        cases = {
+            "a detached, re-sessioned browser running as the setpriv uid": dict(euid=65534, argv=("/var/tmp/ss-harness/chrome", "--type=renderer")),
+            "an orphaned run-as-root shell after its parent was killed": dict(euid=0, argv=("bash", "tools/cloud-test/scripts/execute_run.sh", "run-as-root")),
+            "the stage shell itself": dict(euid=0, argv=("bash", "/w/speaksharp/tools/cloud-test/scripts/execute_run.sh", "run")),
+            "a harness process naming a tree path in an argument": dict(euid=0, argv=("node", "campaign-runner.cjs", "--plan=%s/plan/cfg/campaign-plan.json" % self.tree)),
+            "a process whose cwd is inside a tree": dict(euid=0, argv=("node",), cwd=self.tree + "/plan"),
+            "a process holding a descriptor inside the private inputs": dict(euid=0, argv=("node",), fds=(self.pin + "/live-accounts.json",)),
+            "a deleted-but-open file inside a tree": dict(euid=0, argv=("node",), fds=(self.tree + "/log.txt (deleted)",)),
+            "a process whose descriptors cannot be read (fail closed)": dict(euid=0, argv=("node",), unreadable=True),
+        }
+        for label, kw in cases.items():
+            with self.subTest(label):
+                pid = self.proc.add(900, ppid=1, **kw)
+                try:
+                    if kw.get("unreadable") and os.geteuid() == 0:
+                        self.skipTest("root reads a mode-0 directory")
+                    p = self.check()
+                    self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: run-stage-processes-remain"))
+                    for leak in ("900", self.tree, self.pin, "campaign-plan", "chrome"):
+                        self.assertNotIn(leak, p.stdout + p.stderr)
+                finally:
+                    subprocess.run(["chmod", "-R", "u+rwx", os.path.join(self.proc.root, pid)])
+                    subprocess.run(["rm", "-rf", os.path.join(self.proc.root, pid)])
+
+    def test_a_sibling_path_with_the_same_prefix_is_not_a_tree(self):
+        self.proc.add(901, ppid=1, euid=0, argv=("node", self.tree + "-other/x"), cwd=self.tree + "-other", fds=(self.tree + "2/y",))
+        self.assertEqual(self.check().returncode, 0)
+
+    def test_the_wait_is_bounded_and_returns_as_soon_as_the_stage_stops(self):
+        pid = self.proc.add(902, ppid=1, euid=65534, argv=("chrome",))
+        started = time.monotonic()
+        p = subprocess.Popen([sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--wait-seconds", "20",
+                              "--proc-root", self.proc.root, "--self-pid", "13"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(1.5)
+        subprocess.run(["rm", "-rf", os.path.join(self.proc.root, pid)])
+        out, _ = p.communicate(timeout=30)
+        self.assertEqual((p.returncode, out.strip()), (0, "run stage quiescent"))
+        self.assertLess(time.monotonic() - started, 10)
+        self.proc.add(902, ppid=1, euid=65534, argv=("chrome",))
+        started = time.monotonic()
+        p = self.check(wait=2)
+        self.assertEqual(p.returncode, 78)
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_arguments_are_closed(self):
+        for extra in (["--wait-seconds", "121"], ["--wait-seconds", "-1"]):
+            p = subprocess.run([sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--proc-root", self.proc.root] + extra,
+                               capture_output=True, text=True)
+            self.assertEqual(p.returncode, 78, extra)
+        for tree in ("relative", self.tree + "/", self.d + "/x/../ct-out"):
+            p = subprocess.run([sys.executable, "-I", str(QUIESCENCE), "--tree", tree, "--wait-seconds", "0", "--proc-root", self.proc.root],
+                               capture_output=True, text=True)
+            self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: run-stage-quiescence-arguments"), tree)
+        p = subprocess.run([sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--wait-seconds", "0", "--proc-root", self.d + "/none"],
+                           capture_output=True, text=True)
+        self.assertEqual((p.returncode, p.stderr.strip()), (78, "BLOCKED_SETUP: run-stage-quiescence-proc-unavailable"))
+
+    def test_the_browser_uid_is_the_one_chrome_wrapper_setprivs_to(self):
+        self.assertIn("\nRUNAS=65534\n", (ROOT / "harness/bundle/harness/chrome-wrapper.sh").read_text())
+        self.assertIn("BROWSER_UID = 65534", QUIESCENCE.read_text())
+
+    @unittest.skipUnless(sys.platform.startswith("linux") and os.path.isdir("/proc/self/fd") and os.geteuid() == 0,
+                         "Linux /proc as root (as on the runner): a non-root reader cannot read other users' descriptors, which counts as remaining")
+    def test_on_linux_a_real_killed_parent_leaves_an_orphan_that_blocks_until_it_exits(self):
+        """Linux/root regression with the real /proc: SIGKILL the parent shell; its orphaned child still holds the tree; the check waits.
+        An unused browser uid keeps a host's own `nobody` processes out of this control."""
+        os.mkdir(self.tree)
+        parent = subprocess.Popen(["bash", "-c", "cd %s && (sleep 4) & wait" % self.tree], start_new_session=True)
+        time.sleep(0.5)
+        parent.kill(); parent.wait()                       # the trap-less path: the parent is gone, the orphan keeps its cwd in the tree
+        started = time.monotonic()
+        p = subprocess.run([sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--wait-seconds", "1", "--browser-uid", "4242424"], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 78)
+        p = subprocess.run([sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--wait-seconds", "15", "--browser-uid", "4242424"], capture_output=True, text=True)
+        self.assertEqual((p.returncode, p.stdout.strip()), (0, "run stage quiescent"))
+        self.assertLess(time.monotonic() - started, 20)
+
+
+class RecoverAsRoot(unittest.TestCase):
+    """The root half of `recover-ownership`, exercised with `id`/`chown`/`python3` shims (the privileged path runs on the runner)."""
+    def setUp(self):
+        self.d = os.path.realpath(tempfile.mkdtemp(prefix="recover-as-root-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", self.d])
+        self.bin = os.path.join(self.d, "bin"); os.mkdir(self.bin)
+        self.log = os.path.join(self.d, "calls.log")
+        self.out = os.path.join(self.d, "out"); os.mkdir(self.out, 0o700); Path(self.out, "f").write_text("x")
+        self.inputs = os.path.join(self.d, "run-inputs"); os.mkdir(self.inputs, 0o700)
+        self.shim("id", '#!/bin/sh\n[ "$1" = -u ] && echo 0 && exit 0\n[ "$1" = -g ] && echo 0 && exit 0\nexec /usr/bin/id "$@"\n')
+        self.shim("chown", '#!/bin/sh\necho "chown $*" >> "%s"\n[ -n "$CHOWN_FAILS" ] && exit 1\nexit 0\n' % self.log)
+        self.shim("python3", '#!/bin/sh\necho "quiescence $*" >> "%s"\n[ -n "$STAGE_ALIVE" ] && exit 78\nexit 0\n' % self.log)
+
+    def shim(self, name, body):
+        p = os.path.join(self.bin, name); Path(p).write_text(body); os.chmod(p, stat.S_IRWXU)
+
+    def recover(self, owner="1001:118", out=None, pin=None, **env):
+        e = {"PATH": self.bin + ":/usr/bin:/bin", "HOME": self.d, **env}
+        p = subprocess.run(["bash", str(SCRIPT), "recover-as-root", owner, self.out if out is None else out, self.inputs if pin is None else pin],
+                           capture_output=True, text=True, env=e)
+        return p, (Path(self.log).read_text().splitlines() if os.path.exists(self.log) else [])
+
+    def test_a_tree_the_stage_left_root_owned_is_returned_only_after_quiescence(self):
+        p, calls = self.recover()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(len(calls), 2)
+        self.assertRegex(calls[0], r"^quiescence -I \S*run_stage_quiescence\.py --tree %s --tree %s --wait-seconds 90$" % (self.out, self.inputs))
+        self.assertEqual(calls[1], "chown -R 1001:118 %s %s" % (self.out, self.inputs))
+
+    def test_a_surviving_stage_process_blocks_the_return_and_nothing_changes(self):
+        p, calls = self.recover(STAGE_ALIVE="1")
+        self.assertEqual(p.returncode, 78)
+        self.assertIn("run-owned trees not returned: a run-stage process may still write into them", p.stderr)
+        self.assertEqual([c for c in calls if c.startswith("chown")], [])
+
+    def test_trees_the_stage_already_returned_are_left_alone(self):
+        p, calls = self.recover(owner="%d:%d" % (os.getuid(), os.getgid()))
+        self.assertEqual((p.returncode, calls), (0, []))
+        self.assertIn("already returned", p.stdout)
+
+    def test_a_failed_return_is_reported(self):
+        p, _ = self.recover(CHOWN_FAILS="1")
+        self.assertEqual(p.returncode, 78)
+        self.assertIn("run outputs could not be returned to the job user", p.stderr)
+
+    def test_closed_arguments_refuse_before_any_inspection(self):
+        link = os.path.join(self.d, "link"); os.symlink(self.out, link)
+        for label, kw in {"root owner": {"owner": "0:0"}, "named owner": {"owner": "runner:docker"}, "symlinked out": {"out": link},
+                          "trailing slash": {"out": self.out + "/"}, "relative pin": {"pin": "run-inputs"}, "symlinked pin": {"pin": link}}.items():
+            with self.subTest(label):
+                os.path.exists(self.log) and os.remove(self.log)
+                p, calls = self.recover(**kw)
+                self.assertEqual((p.returncode, calls), (78, []))
+
+    def test_absent_private_inputs_are_skipped(self):
+        p, calls = self.recover(pin=os.path.join(self.d, "absent"))
+        self.assertEqual(calls[-1], "chown -R 1001:118 %s" % self.out)
+
+    def test_only_root_may_enter_and_the_job_user_entry_needs_an_elevated_stage(self):
+        os.remove(os.path.join(self.bin, "id"))
+        p, calls = self.recover()
+        self.assertEqual((p.returncode, calls), (78, []))
+        self.assertIn("recover-as-root is internal", p.stderr)
+        p = subprocess.run(["bash", str(SCRIPT), "recover-ownership"], capture_output=True, text=True,
+                           env={"PATH": "/usr/bin:/bin", "HOME": self.d, "CT_OUT": self.out})
+        self.assertEqual(p.returncode, 78)
+        self.assertIn("recover-ownership follows only an elevated run stage", p.stderr)
+
+    def test_the_recovery_never_signals_changes_modes_or_widens_scope(self):
+        text = SCRIPT.read_text()
+        block = text[text.index('if [ "$STAGE" = recover-as-root ]; then'):text.index('if [ "$STAGE" = run-as-root ]; then')]
+        self.assertNotRegex(block, r"chmod|setfacl|kill|pkill|\|\| true|chown -R 0:0")
+        self.assertIn('exec sudo -n bash "$0" recover-as-root "$(id -u):$(id -g)" "$CT_OUT" "$private_inputs"', text)
+        self.assertNotRegex(QUIESCENCE.read_text(), r"os\.kill|signal\.|subprocess")
 
 
 class Wiring(unittest.TestCase):
