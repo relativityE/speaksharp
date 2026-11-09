@@ -189,27 +189,26 @@ class ShortSmokeContract(unittest.TestCase):
                 init.select_manual_occurrence(
                     str(ROOT.parents[1]), template_rel, str(path), hashlib.sha256(raw).hexdigest(),
                     init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), "2026-11-08T16:00:01Z")
-        # The grant pinned by the PO (Sam's verified relays slack:1794073342.879639, slack:1794072158.779099): earliest start 15:30Z Nov 7, latest start 22:20Z Dec 30 (a 100-minute
-        # occurrence ending at the extended period end, 2026-12-31T00:00Z). Both boundaries are exact.
+        # The committed grant's earliest start is exact.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-08T15:36:22Z")
-        # Sam 1794174768 / 1794176240: the window extended so an immediate start is admitted (the owner's timing source's timezone is not
-        # asserted); expiresUtc 03:00Z leaves the latest start at 01:20Z. 00:00Z is only a sample point inside the window.
+        # The window is extended so an immediate start is admitted; expiresUtc 08:00Z leaves the latest start at 06:20Z (a 100-minute
+        # occurrence). 00:00Z is only a sample point inside the window.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-09T00:00:00Z")
         init.materialize_authoritative_smoke_occurrence(
-            str(ROOT.parents[1]), template, "2026-11-09T01:20:00Z")
-        for outside in ("2026-11-08T15:36:21Z", "2026-11-09T01:20:01Z"):
+            str(ROOT.parents[1]), template, "2026-11-09T06:20:00Z")
+        for outside in ("2026-11-08T15:36:21Z", "2026-11-09T06:20:01Z"):
             with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
                 init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
     def test_an_extended_window_names_its_source_and_never_relabels_the_approval(self):
-        """Sam 1794175603 / 1794175926, PO go-ahead 2026-11-08: the committed grant extends the window to 03:00Z (latest start 01:20Z) and
-        names the timing's actual source as windowSourceRef (the owner's ChatGPT message; no timezone asserted), while approvalRef stays
+        """The committed grant extends the window to 08:00Z (latest start 06:20Z; owner-approved re-issue after the 01:20Z start passed) and
+        names the timing's approval source as an opaque windowSourceRef, while approvalRef stays
         the original approval and the selected case and every limit are unchanged.
         An extended window without a well-formed source, or a source on the original window, refuses."""
-        self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T03:00:00Z")
-        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "approval-6c213a6dc33221f4e8db790cef4e10c6")
+        self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T08:00:00Z")
+        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "approval-d9c6031792c04c6f1d3da807d0852ffc")
         self.assertEqual(COMMITTED_GRANT["approvalRef"], "approval-bcde5476311b392d618839dd2ae6b2f0")
         self.assertEqual(init.ONE_OFF_APPROVED_EXPIRES_UTC, "2026-11-09T00:00:00Z")
         # unchanged: the selected case, every limit, the scope, release and journal bindings
