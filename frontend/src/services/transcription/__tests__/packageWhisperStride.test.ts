@@ -35,6 +35,20 @@ describe('a Whisper package is admitted only with a stride the shipping decoder 
     });
 });
 
+/**
+ * Codex P2 on 359f7efd: a window longer than Whisper's 30 s context (e.g. 60 s / 5 s) passed admission; for a 45 s clip
+ * the decoder built one 45 s chunk and the feature extractor truncated it to 30 s, silently dropping the last 15 s.
+ */
+describe('a Whisper package window cannot exceed the model context', () => {
+    it.each([[60, 5], [45, 5], [30.5, 5]])('window %s s / stride %s s: refused at admission', async (window, stride) => {
+        await expect(whisperPackage(window, stride)).rejects.toThrow('UNSUPPORTED_WHISPER_PROFILE');
+    });
+    it.each([[30, 5], [20, 5]])('window %s s / stride %s s: admitted', async (window, stride) => {
+        const candidate = candidateFromPackage(await whisperPackage(window, stride), 'fixture.json');
+        expect(buildShippingDecodeOptions(60, candidate.execution.decode as never)).toMatchObject({ chunk_length_s: window, stride_length_s: stride });
+    });
+});
+
 /** Independent review of 27607fb3 (P1): `generation` was spread into the decode options after the shipping window/stride. */
 function whisperPackageWith(decodeExtra: Record<string, unknown>) {
     const base = CANDIDATES['v2:base.en'];

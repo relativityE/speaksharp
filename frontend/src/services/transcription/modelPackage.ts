@@ -56,6 +56,9 @@ export async function assetInventoryDigest(files: readonly PackageAsset[]): Prom
  * Each role is bound to one reviewed runtime pin, so an imported weight package cannot point an executable role at a
  * different file. Checked against the pin table at load, so the binding cannot drift from the reviewed bytes.
  */
+// Codex P2 on 359f7efd: Whisper's encoder context is 30 s (480,000 samples at 16 kHz). The installed feature extractor
+// truncates a longer chunk to that context, so a package window above it silently discards speech; such a profile is refused.
+const WHISPER_CONTEXT_SECONDS = 30;
 /** The model-data formats the installed adapters load (Whisper JSON/ONNX, ONNX external data, Granite/Moonshine .bin and .ort,
  *  vocabularies); served with non-executable content types. */
 const INERT_PACKAGE_ASSET = /\.(?:json|onnx|data|bin|txt|ort)$/i;
@@ -112,7 +115,8 @@ export function parseModelPackage(input: unknown): ModelPackage {
     if (p.engine === 'transformers-js' && (p.execution.family !== 'whisper' || decode?.kind !== 'whisper'
         || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(p.execution.localModelId ?? '') || p.model.device !== 'wasm' || p.runtime.distribution === 'pinned-assets'
         || p.model.dtype !== null
-        || !Number.isFinite(decode.windowSeconds) || decode.windowSeconds <= 0 || !Number.isFinite(decode.strideSeconds)
+        || !Number.isFinite(decode.windowSeconds) || decode.windowSeconds <= 0 || decode.windowSeconds > WHISPER_CONTEXT_SECONDS
+        || !Number.isFinite(decode.strideSeconds)
         || decode.strideSeconds < 0 || decode.strideSeconds * 2 >= decode.windowSeconds || typeof decode.returnTimestamps !== 'boolean')) refuse('UNSUPPORTED_WHISPER_PROFILE');
     // Independent review of 27607fb3 (P1): `generation` is spread into the decode options, so a package could re-introduce
     // a window/stride/timestamp setting (e.g. stride_length_s 15 against a 30 s window: Xenova's chunk loop never advances).
