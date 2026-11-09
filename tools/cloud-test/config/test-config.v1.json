@@ -1,7 +1,7 @@
 {
  "aggregateReceiver": {
   "activated": true,
-    "manifestSha256": "09caf9995429f62143f6165f4023d7269ee687dd416d530af0002642ed787855",
+    "manifestSha256": "39398e24591e0631bec25bfc5b1fbce15e488f885a71e5ef6ece8f4aac900ca1",
   "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
   "note": "Active fail-closed receiver for the reviewed retained four-file aggregate. Current request, served-release identity, journal head and reconciliation remain occurrence-bound runtime evidence and are never admitted from this retained bundle."
  },
