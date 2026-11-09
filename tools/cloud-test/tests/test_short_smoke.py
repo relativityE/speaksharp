@@ -97,7 +97,7 @@ class ApprovalPin(unittest.TestCase):
         verified relays (historically scope 2158 for the
         capacity and next run, grant 3342 for the 60-minute signal run); an AWAITING_OWNER_DECISION grant, even in reviewed bytes, refuses."""
         self.assertEqual((COMMITTED_GRANT["status"], COMMITTED_GRANT["approvalRef"], COMMITTED_GRANT["scopeApprovalRef"]),
-                         ("APPROVED", "approval-bcde5476311b392d618839dd2ae6b2f0", "approval-3663a9c1434cbbe4ae96624b47c24126"))
+                         ("APPROVED", "approval-bcde5476311b392d618839dd2ae6b2f0", "approval-2c749f7fca826f9e54d962517a702665"))
         self.assertEqual((COMMITTED_GRANT["limits"]["liveMinutes"], COMMITTED_GRANT["limits"]["endToEndMinutes"]), (60, 100))
         template = json.loads((ROOT / ONE_OFF_TEMPLATE).read_text())
         init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-08T16:00:00Z")
@@ -192,23 +192,23 @@ class ShortSmokeContract(unittest.TestCase):
         # The committed grant's earliest start is exact.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-08T15:36:22Z")
-        # The window is extended so an immediate start is admitted; expiresUtc 14:00Z leaves the latest start at 12:20Z (a 100-minute
+        # The window is extended so an immediate start is admitted; expiresUtc 18:00Z leaves the latest start at 16:20Z (a 100-minute
         # occurrence). 00:00Z is only a sample point inside the window.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-09T00:00:00Z")
         init.materialize_authoritative_smoke_occurrence(
-            str(ROOT.parents[1]), template, "2026-11-09T12:20:00Z")
-        for outside in ("2026-11-08T15:36:21Z", "2026-11-09T12:20:01Z"):
+            str(ROOT.parents[1]), template, "2026-11-09T16:20:00Z")
+        for outside in ("2026-11-08T15:36:21Z", "2026-11-09T16:20:01Z"):
             with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
                 init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
     def test_an_extended_window_names_its_source_and_never_relabels_the_approval(self):
-        """The committed grant extends the window to 14:00Z (latest start 12:20Z; owner-approved re-issue after the 06:20Z start passed) and
+        """The committed grant extends the window to 18:00Z (latest start 16:20Z; owner-approved re-issue at journal 95172c6c after run 42607776111) and
         names the timing's approval source as an opaque windowSourceRef, while approvalRef stays
         the original approval and the selected case and every limit are unchanged.
         An extended window without a well-formed source, or a source on the original window, refuses."""
-        self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T14:00:00Z")
-        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "approval-51c5cbce6f1f15bc08fbc30003b62ea3")
+        self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T18:00:00Z")
+        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "approval-29acdc3e44f0f47802aea8b618c8cf2a")
         self.assertEqual(COMMITTED_GRANT["approvalRef"], "approval-bcde5476311b392d618839dd2ae6b2f0")
         self.assertEqual(init.ONE_OFF_APPROVED_EXPIRES_UTC, "2026-11-09T00:00:00Z")
         # unchanged: the selected case, every limit, the scope, release and journal bindings
@@ -217,8 +217,8 @@ class ShortSmokeContract(unittest.TestCase):
                                                      "starts": 2, "takes": 2, "coachingCalls": 3, "retries": 0})
         self.assertEqual((COMMITTED_GRANT["notBeforeUtc"], COMMITTED_GRANT["preReserveStateHead"], COMMITTED_GRANT["scopeApprovalRef"],
                           COMMITTED_GRANT["requestTemplateSha256"], COMMITTED_GRANT["testedSha"], COMMITTED_GRANT["backendSha"]),
-                         ("2026-11-08T15:36:22Z", "19a9251d0df19e6ffee87a312c2efc49eb793cf5", "approval-3663a9c1434cbbe4ae96624b47c24126",
-                          "c46b5c0e03afba335374f935c2cdb4c5fb8ddb6d6c6ab1cf8a64e35f743c2347", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+                         ("2026-11-08T15:36:22Z", "95172c6cf9e6a55a270af425d7b2543e141f4457", "approval-2c749f7fca826f9e54d962517a702665",
+                          "a7dd509e1f8908d58efb834670624a72f2014af9cb9fe3883f800907827e2267", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
                           "c32319f9121d4fef64dc48bb40fae5464dc6b65a"))
         repo = str(ROOT.parents[1])
         grant_path = os.path.join(repo, init.ONE_OFF_GRANT_PATH)
@@ -255,7 +255,7 @@ class ShortSmokeContract(unittest.TestCase):
         scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
         # The committed grant is pinned at the journal head after run 42318728005's capped settle (the reviewer's verified ChatGPT receipt ).
         # The re-issued AHT-01 grant is pinned at the journal head after run 42494152179's capped settle .
-        self.assertEqual(COMMITTED_GRANT["preReserveStateHead"], "19a9251d0df19e6ffee87a312c2efc49eb793cf5")
+        self.assertEqual(COMMITTED_GRANT["preReserveStateHead"], "95172c6cf9e6a55a270af425d7b2543e141f4457")
         checkpoint = json.dumps({
             "headSha": COMMITTED_GRANT["preReserveStateHead"],
             "scopeApprovalRef": scope["approvalRef"],
@@ -422,7 +422,7 @@ class ShortSmokeContract(unittest.TestCase):
                 self.assertEqual(prepared["facts"]["actionApproval"]["selectionApprovalRef"],
                                  "approval-bcde5476311b392d618839dd2ae6b2f0")
                 self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
-                                 "approval-3663a9c1434cbbe4ae96624b47c24126")
+                                 "approval-2c749f7fca826f9e54d962517a702665")
                 # the manual R10 flow emits the binding from ITS verified own reserve at the real head (never own=None)
                 b = prepared["reservationBinding"]
                 self.assertEqual((b["campaignId"], b["runId"], b["attempt"], b["requestSha256"]), (template["runId"], run_id, 1, request_sha))

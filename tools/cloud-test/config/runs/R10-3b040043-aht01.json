@@ -74,8 +74,8 @@
   "proposedLimits": {
     "cumulativeCeilingRequests": 9518,
     "ceilingIncreaseJustification": "Unchanged period request ceiling; all prior settled charges remain. This single AHT-01 attempt reserves 450 campaign requests plus 4 identity reads. The campaign ceiling is the existing 350-request estimate with its 125 percent ceiling rounded to 440, plus 10 cleanup requests.",
-    "identityCap": 141,
-    "identityIncreaseJustification": "Fresh journal 19a9251d0df19e6ffee87a312c2efc49eb793cf5 contains 137 settled identity reads, including runs 42494152179 and 42496837188 (4 each). The next one-case attempt requires exactly 4 additional reads (admission, before, after, final), raising only the period identity ceiling from 137 to 141. No refund or deletion of prior usage.",
+    "identityCap": 149,
+    "identityIncreaseJustification": "Fresh journal 95172c6cf9e6a55a270af425d7b2543e141f4457 contains 141 settled identity reads, including run 42607776111's 4 settled at its caps. The owner credits +8 identity reads (two one-case attempts of exactly 4: admission, before, after, final), raising only the period identity ceiling from 141 to 149. No refund or deletion of prior usage.",
     "startsCap": 80,
     "startsIncreaseJustification": "Unchanged period ceiling; this selected smoke attempt reserves 2 Starts.",
     "takesCap": 80,
@@ -91,7 +91,7 @@
   },
   "approvedLimits": {
     "cumulativeCeilingRequests": 9518,
-    "identityCap": 141,
+    "identityCap": 149,
     "startsCap": 80,
     "takesCap": 80,
     "runCapRequests": 450,
