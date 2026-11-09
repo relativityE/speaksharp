@@ -204,6 +204,15 @@ function summarizeRawResult(result: unknown): UnknownRecord {
 export class TransformersJSEngine extends STTEngine {
     public readonly type: EngineType = 'transformers-js';
     private transcriber: Pipeline | null = null;
+    /** Main-thread pipeline calls in flight. Teardown disposes the pipeline only after these settle (review of c8b04e5f): releasing an
+     *  ONNX session underneath an active run is not safe. */
+    private readonly mainThreadRuns = new Set<Promise<unknown>>();
+    private trackMainThreadRun<T>(run: Promise<T>): Promise<T> {
+        this.mainThreadRuns.add(run);
+        const settled = () => { this.mainThreadRuns.delete(run); };
+        run.then(settled, settled);
+        return run;
+    }
     private worker: Worker | null = null;
     private workerRequestId: number = 0;
     private activeLoadRequestId: number | null = null;
@@ -232,7 +241,7 @@ export class TransformersJSEngine extends STTEngine {
             return_timestamps: false,
         };
 
-        await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(warmupAudio, options);
+        await this.trackMainThreadRun((this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(warmupAudio, options));
     }
 
     constructor(options?: TranscriptionModeOptions) {
@@ -497,12 +506,18 @@ export class TransformersJSEngine extends STTEngine {
         const published = this.transcriber as { dispose?: () => Promise<unknown> } | null;
         this.transcriber = null;
         if (published) {
-            try {
-                await published.dispose?.();
-            } catch (disposeError) {
-                logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
-                    '[TransformersJS] Disposing the main-thread pipeline at teardown failed.');
-            }
+            // A decode or warm-up still running on it keeps the session until it settles; teardown does not wait for it.
+            const inFlight = [...this.mainThreadRuns];
+            const release = async () => {
+                await Promise.allSettled(inFlight);
+                try {
+                    await published.dispose?.();
+                } catch (disposeError) {
+                    logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
+                        '[TransformersJS] Disposing the main-thread pipeline at teardown failed.');
+                }
+            };
+            if (inFlight.length) void release(); else await release();
         }
         if (this.worker) {
             try {
@@ -601,7 +616,7 @@ export class TransformersJSEngine extends STTEngine {
             const profile = candidate.execution.decode;
             if (profile.kind !== 'whisper') throw new Error('Whisper adapter requires a Whisper decode profile');
             const options = buildWhisperDecodeOptions(profile, audioLengthSeconds, readPrivateDecodeOptionsOverride());
-            const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
+            const result = await this.trackMainThreadRun((this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options));
 
             const latency = performance.now() - start;
             logger.info({

@@ -672,6 +672,45 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 await engine.destroy();
             });
 
+            // Independent review of c8b04e5f: disposing at teardown must not release the session under a run still using it.
+            it(`${name}: teardown defers the dispose until a decode still running on the pipeline has settled`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine & { transcribe(a: Float32Array): Promise<{ isOk: boolean }> };
+                const engine = new Ctor({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+                let finishDecode!: (value: unknown) => void;
+                const decoding = Object.assign(vi.fn()
+                    .mockResolvedValueOnce({ text: '' })                                     // warm-up
+                    .mockImplementationOnce(() => new Promise(resolve => { finishDecode = resolve; })), // the decode in flight
+                { dispose: vi.fn(async () => undefined) });
+                mock.mockResolvedValueOnce(decoding);
+                expect((await engine.init()).isOk).toBe(true);
+                const transcribing = engine.transcribe(new Float32Array(16000));
+                await vi.waitFor(() => expect(decoding).toHaveBeenCalledTimes(2));
+                await engine.destroy();                    // teardown completes without waiting for the decode
+                expect(decoding.dispose).not.toHaveBeenCalled();
+                finishDecode({ text: 'late words' });
+                await transcribing;
+                await vi.waitFor(() => expect(decoding.dispose).toHaveBeenCalledTimes(1));
+            });
+
+            it(`${name}: teardown during warm-up disposes the pipeline only after the warm-up settles`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+                let finishWarmUp!: (value: unknown) => void;
+                const warming = Object.assign(vi.fn(() => new Promise(resolve => { finishWarmUp = resolve; })), { dispose: vi.fn(async () => undefined) });
+                mock.mockResolvedValueOnce(warming);
+                const init = engine.init();
+                await vi.waitFor(() => expect(warming).toHaveBeenCalledTimes(1));
+                await engine.destroy();
+                expect(warming.dispose).not.toHaveBeenCalled();
+                finishWarmUp({ text: '' });
+                expect((await init).isOk).toBe(false);
+                await vi.waitFor(() => expect(warming.dispose).toHaveBeenCalledTimes(1));
+            });
+
             // Elon's review of c1585147: a teardown during the post-publish warm-up.
             it(`${name}: a teardown during warm-up leaves nothing ready for the attempt that follows`, async () => {
                 const onReady = vi.fn();

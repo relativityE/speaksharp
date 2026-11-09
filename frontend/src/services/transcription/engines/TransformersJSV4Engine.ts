@@ -95,6 +95,15 @@ function summarizeRawResult(result: unknown): UnknownRecord {
 export class TransformersJSV4Engine extends STTEngine {
     public readonly type: EngineType = 'transformers-js-v4';
     private transcriber: Pipeline | null = null;
+    /** Main-thread pipeline calls in flight. Teardown disposes the pipeline only after these settle (review of c8b04e5f): releasing an
+     *  ONNX session underneath an active run is not safe. */
+    private readonly mainThreadRuns = new Set<Promise<unknown>>();
+    private trackMainThreadRun<T>(run: Promise<T>): Promise<T> {
+        this.mainThreadRuns.add(run);
+        const settled = () => { this.mainThreadRuns.delete(run); };
+        run.then(settled, settled);
+        return run;
+    }
     private worker: Worker | null = null;
     private workerRequestId: number = 0;
     private activeLoadRequestId: number | null = null;
@@ -391,12 +400,18 @@ export class TransformersJSV4Engine extends STTEngine {
         const published = this.transcriber as { dispose?: () => Promise<unknown> } | null;
         this.transcriber = null;
         if (published) {
-            try {
-                await published.dispose?.();
-            } catch (disposeError) {
-                logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
-                    '[TransformersJSV4] Disposing the main-thread pipeline at teardown failed.');
-            }
+            // A decode or warm-up still running on it keeps the session until it settles; teardown does not wait for it.
+            const inFlight = [...this.mainThreadRuns];
+            const release = async () => {
+                await Promise.allSettled(inFlight);
+                try {
+                    await published.dispose?.();
+                } catch (disposeError) {
+                    logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
+                        '[TransformersJSV4] Disposing the main-thread pipeline at teardown failed.');
+                }
+            };
+            if (inFlight.length) void release(); else await release();
         }
         if (this.worker) {
             try {
@@ -480,7 +495,7 @@ export class TransformersJSV4Engine extends STTEngine {
             const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
             const options = this.decodeOptions(audioLengthSeconds);
 
-            const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
+            const result = await this.trackMainThreadRun((this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options));
 
             const latency = performance.now() - start;
             logger.info({
@@ -766,10 +781,10 @@ export class TransformersJSV4Engine extends STTEngine {
         if (!this.transcriber) return;
         const warmupAudio = new Float32Array(PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
         const start = performance.now();
-        await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<unknown>)(warmupAudio, {
+        await this.trackMainThreadRun((this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<unknown>)(warmupAudio, {
             chunk_length_s: 0,
             return_timestamps: false,
-        });
+        }));
         logger.info({
             sId: this.serviceId,
             rId: this.runId,
