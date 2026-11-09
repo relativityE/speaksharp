@@ -47,7 +47,7 @@ const MAX_REPEAT_VALUE_DIGITS = 6;
 /**
  * #1548: the linked repeat's same-target values, original session → repeat, in the stored target units. Filler rate
  * starts at one decimal and pace/points at whole numbers; precision grows only until two different stored values no
- * longer print alike (3/1000 vs 3/1001 of words). If they still print alike at the cap,
+ * longer print alike (Sam 1793055143.755569: 3/1000 vs 3/1001 of words). If they still print alike at the cap,
  * `belowPrecision` says so — the values are never rounded into a manufactured change or an implied "no change".
  * It states the values, never that the target was reached.
  */

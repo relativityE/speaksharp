@@ -56,7 +56,7 @@ import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
  * ARCHITECTURE NOTE (Gap Analysis 2025-12-22):
  * This component follows the Container/Presentational pattern:
  * - It receives ALL data via props (no internal data fetching)
- * - AnalyticsPage.tsx is the CONTAINER that fetches data via useAnalytics
+ * - AnalyticsPage.tsx is the CONTAINER that fetches data via useAnalytics()
  * - This separation enables easier testing and clear data flow
  * 
  * @see AnalyticsPage.tsx - Container component that fetches and passes data
