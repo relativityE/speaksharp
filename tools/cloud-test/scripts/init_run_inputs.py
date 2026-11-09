@@ -51,10 +51,10 @@ SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
 # all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
 # grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
-ONE_OFF_GRANT_SHA256 = "65b3f360ecc021445691b1a0cf4a71346ead40c1e349d70e649ae4835afd2a8e"   # Sam 1794156633.525579: the AHT-01 grant re-issued at 19a9251d after run 42496837188 (scope +4 slack:1794156633.525579; approval slack:1794145532.283429)
+ONE_OFF_GRANT_SHA256 = "3c548e30962f64b72415491fdf702bf7a3f57e4649341d6d24943f5502b61a5e"   # the AHT-01 grant, opaque approval codes and role token
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
 ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
-ONE_OFF_BASE_TEMPLATE_SHA256 = "e0a213c9467dda1ee20281ceb0258f7d6ae75f7ccfc76c476fa176e9b6c8ba42"
+ONE_OFF_BASE_TEMPLATE_SHA256 = "a5f17fc0563534b80e7e8a3b168d184b4fa53f64a165d106ef7282778062bc3f"
 R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
@@ -65,6 +65,28 @@ ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "ap
 # which stays `approvalRef`). The original window carries none.
 ONE_OFF_APPROVED_EXPIRES_UTC = "2026-11-09T00:00:00Z"
 ONE_OFF_WINDOW_SOURCE_KEY = "windowSourceRef"
+# Public-repository rule: nothing a dispatch publishes to GitHub (the committed grant/request, the materialized request, the dispatch
+# facts input) may identify a person or a chat message. Approvals are carried as opaque codes (`approval-<32 hex>`, the code -> source
+# record map is held privately) and the approver as a role token; the approval check itself is unchanged: a valid reference is still
+# required and must equal the request's own. A chat-message reference, a chat user id or a personal name anywhere in those documents
+# refuses with a closed code.
+APPROVER_ROLE = "product-owner"
+REVIEWER_ROLES = frozenset({"release-reviewer"})
+APPROVAL_CODE = re.compile(r"approval-[0-9a-f]{32}")
+NOT_PUBLISHABLE = re.compile(r"(?i)(?:^|[^a-z0-9])(?:slack|chatgpt)[:_]|\bU0[A-Z0-9]{8,}\b|\b(?:akin|sam|sam-i-am|elon|jensen|bezos)\b")
+
+
+def publishable(doc, depth=0):
+    """True when no string (key or value) anywhere in doc names a person, a chat message or a chat user."""
+    if depth > 32:
+        return False
+    if isinstance(doc, str):
+        return NOT_PUBLISHABLE.search(doc) is None
+    if isinstance(doc, dict):
+        return all(publishable(k, depth + 1) and publishable(v, depth + 1) for k, v in doc.items())
+    if isinstance(doc, list):
+        return all(publishable(v, depth + 1) for v in doc)
+    return True
 # The time envelope is NOT resized from estimates (Sam 1794149071): the reviewed 100-minute occurrence and 60-minute live ceiling stay.
 ONE_OFF_WINDOW = {"endToEndMinutes": 100, "liveMinutes": 60}
 CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
@@ -176,7 +198,9 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
     # Sam 1794070407: a grant whose proposed scope grew past its recorded owner decision is committed AWAITING_OWNER_DECISION and cannot
     # admit a dispatch; only a reviewed change pinning the owner's new decision sets APPROVED (and re-pins ONE_OFF_GRANT_SHA256).
     _need(grant.get("status") == "APPROVED", "one-off-grant-not-approved")
-    _need(_ref(grant.get("approvalRef")) and grant.get("approvedBy") == "Akin"
+    _need(publishable(grant), "one-off-grant-not-publishable")
+    _need(APPROVAL_CODE.fullmatch(str(grant.get("approvalRef"))) is not None and APPROVAL_CODE.fullmatch(str(grant.get("scopeApprovalRef"))) is not None
+          and grant.get("approvedBy") == APPROVER_ROLE
           and grant.get("runId") == R10_ONE_OFF_RUN_ID and grant.get("attempt") == 1,
           "one-off-grant-reference")
     selected = _canonical_cases(grant.get("selectedCases"))
@@ -1214,6 +1238,10 @@ def prepare(x, now):
     _need(not (nightly and x.facts), "nightly-facts-input-refused")
     facts = nightly_facts(repo) if nightly else (manual_facts if manual_occurrence else json.loads(x.facts or "null"))
     _need(isinstance(facts, dict), "facts-shape")
+    if not nightly:     # a dispatch's facts input and its request are published in the public repository's run
+        _need(publishable(facts), "facts-not-publishable")
+        _need(facts.get("approvedBy") == APPROVER_ROLE and facts.get("reviewer") in REVIEWER_ROLES, "facts-approver-not-a-role")
+        _need(publishable(req), "request-not-publishable")
     grant = None
     if req.get("runId") == "R10-3b040043-smoke15":
         _need(not (set(facts) & CALLER_AUTHORITY_FIELDS), "one-off-caller-authority-refused")

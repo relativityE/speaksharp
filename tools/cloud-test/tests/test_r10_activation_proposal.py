@@ -70,15 +70,15 @@ class R10ActivationProposal(unittest.TestCase):
         self.assertEqual(scope["knownMinimumCeilings"], expected)
         # PO 2026-11-06 (slack:1794063978.986369): ceilings credited by run 42284568156's source-bounded over-charge
         # (+2,022 requests, +32 identity reads, +16 starts, +16 takes); the known minimum is unchanged.
-        # Then one-run INCREASED ceilings, prior charges retained, not a refund (PO via Sam, slack:1794126096.067599): Starts 74 -> 80,
+        # Then one-run INCREASED ceilings, prior charges retained, not a refund (PO via Sam, approval-d55ad6280012255a44d56a9f5c0497f3): Starts 74 -> 80,
         # takes 64 -> 80, identity 128 -> 129.
         # Then the AHT-01 one-case attempt: identity reads 129 -> 133, exactly its source-derived 2 x 1 + 2 (Sam 1794145971 / 1794149071);
         # nothing else changes and every prior charge is retained.
         # Then the re-issued AHT-01 attempt after run 42494152179 settled its 4 at the caps: another exact +4 (slack:1794152182.153649).
-        # And again after run 42496837188 settled its 4: another exact +4 for the next one-case attempt (slack:1794156633.525579).
+        # And again after run 42496837188 settled its 4: another exact +4 for the next one-case attempt (approval-3663a9c1434cbbe4ae96624b47c24126).
         credited = {"requests": 9518, "protectedReserveRequests": 0, "identityReads": 141, "starts": 80, "takes": 80}
         self.assertEqual((scope["ceilings"], scope["approvalRef"], scope["sha256"]),
-                         (credited, "slack:1794156633.525579", "2ff81a40a412799b161c5ddbc6f14eaf0b2c11549ef5fcc05007930c0be9caae"))
+                         (credited, "approval-3663a9c1434cbbe4ae96624b47c24126", "c2780cf3ce321a5573d41499e4c6cfccf83b315aa7f6d8d96dc0d9aab4f0ed58"))
         self.assertTrue(self.proposal["rootRefCreationSelected"])
         self.assertTrue(self.proposal["activationPinsSelected"])
         scope_path = ROOT / "config/aggregate/period-scope.json"
@@ -96,9 +96,9 @@ class R10ActivationProposal(unittest.TestCase):
         self.assertEqual(self.proposal["periodScope"]["knownMinimumCeilings"], expected)
         # The known minimum is unchanged; the period ceilings carry only the PO credit for run 42284568156 (slack:1794063978.986369).
         credit = {"requests": 5176, "protectedReserveRequests": 0, "identityReads": 96, "starts": 32, "takes": 33}
-        # slack:1794126096.067599: NEW capacity for one run (not a credit/refund); run 42423408284's capped settle stays as recorded.
+        # approval-d55ad6280012255a44d56a9f5c0497f3: NEW capacity for one run (not a credit/refund); run 42423408284's capped settle stays as recorded.
         increase = {"requests": 0, "protectedReserveRequests": 0, "identityReads": 1, "starts": 6, "takes": 16}
-        # slack:1794145971.641009: NEW capacity for the AHT-01 one-case attempt only, exactly its 4 identity reads (not a credit/refund).
+        # approval-b1c63f140780f9117f95b571efe91162: NEW capacity for the AHT-01 one-case attempt only, exactly its 4 identity reads (not a credit/refund).
         # (and slack:1794152182.153649: the same exact 4 again for the re-issued attempt, run 42494152179's charge retained)
         one_case = {"requests": 0, "protectedReserveRequests": 0, "identityReads": 12, "starts": 0, "takes": 0}
         self.assertEqual(self.proposal["periodScope"]["ceilings"], {k: expected[k] + credit[k] + increase[k] + one_case[k] for k in expected})

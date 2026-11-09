@@ -95,8 +95,8 @@
     "startsCap": 80,
     "takesCap": 80,
     "runCapRequests": 450,
-    "approvalRef": "slack:1794145971.641009",
-    "approvedBy": "Akin",
+    "approvalRef": "approval-b1c63f140780f9117f95b571efe91162",
+    "approvedBy": "product-owner",
     "startPressCaps": {
       "AHT-01": 2
     }
@@ -104,7 +104,7 @@
   "window": {
     "startUtc": "2026-11-08T14:41:03Z",
     "endUtc": "2026-11-08T16:21:03Z",
-    "approvalRef": "slack:1794145532.283429"
+    "approvalRef": "approval-bcde5476311b392d618839dd2ae6b2f0"
   },
   "release": {
     "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
@@ -121,7 +121,7 @@
   "harness": {
     "codeManifestSha256": "565ae1b339cec7f19ed35c6d8b720150db0011c9a2b1e2a9f179a84afe4c773e",
     "packetManifestSha256": "9384b05133f6f1437736aa787a8e3ffd0281b8a7789f775a512f2bc762f70a86",
-    "ownerApprovalRef": "slack:1794145532.283429",
+    "ownerApprovalRef": "approval-bcde5476311b392d618839dd2ae6b2f0",
     "offlineProofFile": "config/proofs/offline-proof-74d26870.json"
   },
   "priorRuns": [
@@ -134,7 +134,7 @@
       "bindingFile": "config/history/binding-R5.json"
     }
   ],
-  "selectionApprovalRef": "slack:1794145971.641009",
+  "selectionApprovalRef": "approval-b1c63f140780f9117f95b571efe91162",
   "ownerInputs": {
     "prDocsCloseout": {
       "status": "closed",
@@ -142,7 +142,7 @@
     },
     "r10Binding": {
       "status": "closed",
-      "evidence": "slack:1794145532.283429"
+      "evidence": "approval-bcde5476311b392d618839dd2ae6b2f0"
     },
     "retainedInputs": {
       "status": "closed",

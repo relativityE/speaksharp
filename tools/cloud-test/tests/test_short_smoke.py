@@ -97,7 +97,7 @@ class ApprovalPin(unittest.TestCase):
         verified relays (historically scope 2158 for the
         capacity and next run, grant 3342 for the 60-minute signal run); an AWAITING_OWNER_DECISION grant, even in reviewed bytes, refuses."""
         self.assertEqual((COMMITTED_GRANT["status"], COMMITTED_GRANT["approvalRef"], COMMITTED_GRANT["scopeApprovalRef"]),
-                         ("APPROVED", "slack:1794145532.283429", "slack:1794156633.525579"))
+                         ("APPROVED", "approval-bcde5476311b392d618839dd2ae6b2f0", "approval-3663a9c1434cbbe4ae96624b47c24126"))
         self.assertEqual((COMMITTED_GRANT["limits"]["liveMinutes"], COMMITTED_GRANT["limits"]["endToEndMinutes"]), (60, 100))
         template = json.loads((ROOT / ONE_OFF_TEMPLATE).read_text())
         init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-08T16:00:00Z")
@@ -142,15 +142,15 @@ class ShortSmokeContract(unittest.TestCase):
     def test_occurrence_materializer_refuses_wrong_case_set_or_release(self):
         template = json.loads((ROOT / ONE_OFF_TEMPLATE).read_text())
         with self.assertRaisesRegex(init.Refused, "smoke-occurrence-release"):
-            init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "slack:scope", "Akin", "bad", "b" * 40, ["AHT-01"])
-        init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "slack:scope", "Akin", "a" * 40, "b" * 40, ["AHT-01"])
+            init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "approval-fc4d9d2e4cd035ea2c1c7c941f334599", "approval-70496d0877a56e774637d598ed3f1792", "product-owner", "bad", "b" * 40, ["AHT-01"])
+        init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "approval-fc4d9d2e4cd035ea2c1c7c941f334599", "approval-70496d0877a56e774637d598ed3f1792", "product-owner", "a" * 40, "b" * 40, ["AHT-01"])
         # the selection must be exactly the grant's explicit selectedCases: never defaulted, widened, reordered or emptied
         for selected in (["AHT-01", "AHT-02"], ["AHT-02"], [], None, ["AHT-01", "AHT-01"], init.ALL_CASES):
             with self.assertRaises(init.Refused, msg=repr(selected)):
-                init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "slack:x", "slack:scope", "Akin", "a" * 40, "b" * 40, selected)
+                init.materialize_smoke_occurrence(template, "2026-11-03T16:00:00Z", "approval-fc4d9d2e4cd035ea2c1c7c941f334599", "approval-70496d0877a56e774637d598ed3f1792", "product-owner", "a" * 40, "b" * 40, selected)
         all15 = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
         with self.assertRaisesRegex(init.Refused, "smoke-occurrence-selection"):
-            init.materialize_smoke_occurrence(all15, "2026-11-03T16:00:00Z", "slack:x", "slack:scope", "Akin", "a" * 40, "b" * 40, ["AHT-01"])
+            init.materialize_smoke_occurrence(all15, "2026-11-03T16:00:00Z", "approval-fc4d9d2e4cd035ea2c1c7c941f334599", "approval-70496d0877a56e774637d598ed3f1792", "product-owner", "a" * 40, "b" * 40, ["AHT-01"])
 
     def test_exact_occurrence_bytes_are_rederived_from_the_committed_template(self):
         template_rel = init.ONE_OFF_TEMPLATE_PATH
@@ -209,8 +209,8 @@ class ShortSmokeContract(unittest.TestCase):
         the original approval and the selected case and every limit are unchanged.
         An extended window without a well-formed source, or a source on the original window, refuses."""
         self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T03:00:00Z")
-        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "chatgpt:Sentinel_e42f51a0e7c08191aa31e080ac2cd3f6")
-        self.assertEqual(COMMITTED_GRANT["approvalRef"], "slack:1794145532.283429")
+        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "approval-6c213a6dc33221f4e8db790cef4e10c6")
+        self.assertEqual(COMMITTED_GRANT["approvalRef"], "approval-bcde5476311b392d618839dd2ae6b2f0")
         self.assertEqual(init.ONE_OFF_APPROVED_EXPIRES_UTC, "2026-11-09T00:00:00Z")
         # unchanged: the selected case, every limit, the scope, release and journal bindings
         self.assertEqual(COMMITTED_GRANT["selectedCases"], ["AHT-01"])
@@ -218,8 +218,8 @@ class ShortSmokeContract(unittest.TestCase):
                                                      "starts": 2, "takes": 2, "coachingCalls": 3, "retries": 0})
         self.assertEqual((COMMITTED_GRANT["notBeforeUtc"], COMMITTED_GRANT["preReserveStateHead"], COMMITTED_GRANT["scopeApprovalRef"],
                           COMMITTED_GRANT["requestTemplateSha256"], COMMITTED_GRANT["testedSha"], COMMITTED_GRANT["backendSha"]),
-                         ("2026-11-08T15:36:22Z", "19a9251d0df19e6ffee87a312c2efc49eb793cf5", "slack:1794156633.525579",
-                          "d436254e4401f5da38b922996f12631ea876770d525ad9786331ca0869d2b70b", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+                         ("2026-11-08T15:36:22Z", "19a9251d0df19e6ffee87a312c2efc49eb793cf5", "approval-3663a9c1434cbbe4ae96624b47c24126",
+                          "3a509b79e66b7eeac1d8742c3f9fceed0e824138e719b4c806ba519676689d48", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
                           "c32319f9121d4fef64dc48bb40fae5464dc6b65a"))
         repo = str(ROOT.parents[1])
         grant_path = os.path.join(repo, init.ONE_OFF_GRANT_PATH)
@@ -272,7 +272,7 @@ class ShortSmokeContract(unittest.TestCase):
         init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, checkpoint, repo)
         envelope = init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
         self.assertEqual(envelope["approvalRef"], scope["approvalRef"])
-        self.assertEqual(envelope["selectionApprovalRef"], "slack:1794145532.283429")
+        self.assertEqual(envelope["selectionApprovalRef"], "approval-bcde5476311b392d618839dd2ae6b2f0")
         wrong_release = copy.deepcopy(occurrence)
         wrong_release["release"]["testedSha"] = "f" * 40
         with self.assertRaisesRegex(init.Refused, "relative-occurrence-request-release"):
@@ -321,14 +321,14 @@ class ShortSmokeContract(unittest.TestCase):
             init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, raw(settled), repo, chain)
             # a preflight-only setup failure (R10 run 42059286564) settles at its bound, 10 campaign requests and nothing else: still admitted
             bounded = chain[:2] + [node(settled_head, [reserve, dict(settle, allocation=dict(settle["allocation"], requests=10))])]
-            self.assertEqual(approve(dict(settled, period=dict(settled["period"], requests=10)), bounded)["selectionApprovalRef"], "slack:1794145532.283429")
-            self.assertEqual(approve(settled, chain)["selectionApprovalRef"], "slack:1794145532.283429")
+            self.assertEqual(approve(dict(settled, period=dict(settled["period"], requests=10)), bounded)["selectionApprovalRef"], "approval-bcde5476311b392d618839dd2ae6b2f0")
+            self.assertEqual(approve(settled, chain)["selectionApprovalRef"], "approval-bcde5476311b392d618839dd2ae6b2f0")
             # prepare: the verified head adds this run's own open reserve; the approval chain is computed at its parent, which admits
             own_reserve = dict(reserve, runId="41999999999", provenance="request-sha256:" + request_sha, atUtc="2026-11-05T12:00:05Z")
             full = chain + [node("a" * 40, [reserve, settle, own_reserve])]
             parent = init.manual_approval_chain(full, ("R10-3b040043-smoke15", "41999999999", 1, request_sha))
             self.assertEqual(parent, chain)
-            self.assertEqual(approve(settled, parent)["selectionApprovalRef"], "slack:1794145532.283429")
+            self.assertEqual(approve(settled, parent)["selectionApprovalRef"], "approval-bcde5476311b392d618839dd2ae6b2f0")
             bad_settle = lambda **over: chain[:2] + [node(settled_head, [reserve, dict(settle, **over)])]
             chain_refusals = [None, [], chain[:2], [node(root, []), node(settled_head, [reserve])],
                               bad_settle(type="release"), bad_settle(runId="41960376783"), bad_settle(attempt=2),
@@ -344,7 +344,7 @@ class ShortSmokeContract(unittest.TestCase):
                     approve(settled, bad)
             rollup_refusals = [dict(settled, headSha=reserved_head, outstandingReservations=1, openReservationsByRequest={"c7e6698a": 1}),
                                dict(settled, outstandingReservations=1), dict(settled, openReservationsByRequest={"x": 1}),
-                               dict(settled, root="f" * 40), dict(settled, source="other"), dict(settled, scopeApprovalRef="slack:1.000001"),
+                               dict(settled, root="f" * 40), dict(settled, source="other"), dict(settled, scopeApprovalRef="approval-6dca8b0dda1efd6f49eee6840f42357b"),
                                dict(settled, unknown={"coachingRequests": True, "runnerMinutes": False}), dict(settled, unknown={}),
                                {k: v for k, v in settled.items() if k != "period"}]
             rollup_refusals.append(dict(settled, period=dict(settled["period"], requests=11)))          # more than one preflight's bound
@@ -398,8 +398,8 @@ class ShortSmokeContract(unittest.TestCase):
                 bundle = json.loads(bundle_with(ACCOUNT_ID))
                 maintained_id = bundle["accounts"]["maintained-read-only"]["accountId"]
                 nonsecret_facts = facts(
-                    ownerApprovalReference="slack:1794145532.283429",
-                    approvedBy="Akin", reviewer="review:unit@1",
+                    ownerApprovalReference="approval-bcde5476311b392d618839dd2ae6b2f0",
+                    approvedBy="product-owner", reviewer="release-reviewer",
                     producerReviewReference="review:producer@1",
                     # AHT-01 alone needs only the existing-disposable role; the facts name exactly the selection's roles
                     accounts={
@@ -421,9 +421,9 @@ class ShortSmokeContract(unittest.TestCase):
                 self.assertEqual(prepared["requestSha256"], request_sha)
                 self.assertEqual(prepared["liveMinutes"], 31)
                 self.assertEqual(prepared["facts"]["actionApproval"]["selectionApprovalRef"],
-                                 "slack:1794145532.283429")
+                                 "approval-bcde5476311b392d618839dd2ae6b2f0")
                 self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
-                                 "slack:1794156633.525579")
+                                 "approval-3663a9c1434cbbe4ae96624b47c24126")
                 # Sam 1794114759: the manual R10 flow emits the binding from ITS verified own reserve at the real head (never own=None)
                 b = prepared["reservationBinding"]
                 self.assertEqual((b["campaignId"], b["runId"], b["attempt"], b["requestSha256"]), (template["runId"], run_id, 1, request_sha))

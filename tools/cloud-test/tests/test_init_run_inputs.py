@@ -48,22 +48,26 @@ def live_request(cases=None, **over):
         r["estimate"]["requests"]["runCap"] = 700
         r["estimate"]["identityReads"] = 8
         r["estimate"].pop("window", None)
-    r.update(synthetic=False, executionRuntime=I.RUNTIME, selectionApprovalRef="slack:1793538100.358869")
+    r.update(synthetic=False, executionRuntime=I.RUNTIME, selectionApprovalRef=FIXTURE_APPROVAL)
     r["release"]["testedSha"] = SHA
-    r["harness"]["ownerApprovalRef"] = "slack:1793538100.358869"
-    r["window"] = {"startUtc": "2026-11-01T13:00:00Z", "endUtc": "2026-11-01T20:00:00Z", "approvalRef": "slack:1793538100.358869"}
+    r["harness"]["ownerApprovalRef"] = FIXTURE_APPROVAL
+    r["window"] = {"startUtc": "2026-11-01T13:00:00Z", "endUtc": "2026-11-01T20:00:00Z", "approvalRef": FIXTURE_APPROVAL}
     full = r["coverageMode"] == "full"
     start_caps = {row["case"]: row["startPressCap"] for row in r["selection"]}
     r["proposedLimits"]["startPressCaps"] = copy.deepcopy(start_caps)
     r["estimate"]["starts"] = sum(start_caps.values())
     r["approvedLimits"] = {"cumulativeCeilingRequests": 12000, "identityCap": 126, "runCapRequests": 4310 if full else 800,
-                           "startPressCaps": start_caps, "approvalRef": "slack:1793538100.358869", "approvedBy": "sam"}
+                           "startPressCaps": start_caps, "approvalRef": FIXTURE_APPROVAL, "approvedBy": I.APPROVER_ROLE}
     r.update(over)
     return r
 
 
+# A synthetic opaque approval code (public-repository rule: no chat-message reference or personal name in dispatch inputs).
+FIXTURE_APPROVAL = "approval-" + "0123456789abcdef" * 2
+
+
 def facts(**over):
-    f = {"ownerApprovalReference": "slack:1793538100.358869", "approvedBy": "sam", "reviewer": "jensen",
+    f = {"ownerApprovalReference": FIXTURE_APPROVAL, "approvedBy": I.APPROVER_ROLE, "reviewer": "release-reviewer",
          "receipts": {k: "receipt:%s@aaaaaaaaaaaa" % k for k in I.RECEIPT_KEYS},
          "accounts": {"existing-disposable": {"idSha256": hashlib.sha256(ACCOUNT_ID.encode()).hexdigest(), "historyRef": "history:throwaway@r5"}},
          "backend": {"manifestRef": "synthetic:backend-manifest@1", "generation": 7, "completion": "OFF", "migration129": "absent"}}
@@ -679,7 +683,7 @@ class Facts(unittest.TestCase):
                                                            "idSha256": "FIRST-DISCOVERY"},
                                    "maintained-read-only": {"historyRef": "first-observation:maintained-read-only@R10-3b040043-smoke15",
                                                             "idSha256": "FIRST-DISCOVERY"}},
-                      "approvedBy": "Akin", "ownerApprovalReference": "slack:1793538100.358869", "producerReviewReference": "slack:1793822205.697629",
+                      "approvedBy": "Akin", "ownerApprovalReference": FIXTURE_APPROVAL, "producerReviewReference": "slack:1793822205.697629",
                       "receipts": {"analytics": "pending:preflight", "disp": "slack:1793833165.587389", "fence": "slack:1793822399.432639",
                                    "pre": "pending:preflight", "review": "slack:1793822205.697629", "rls": "pending:preflight"}, "reviewer": "Sam"}
         refused(self, "facts-backend-missing", I.translate_facts, dispatched, live_request(), "github-producer")
@@ -1996,7 +2000,7 @@ class ContinuityCheckpoint(Journal):
     """Increment I (Sam 1793566031.065709): the continuity checkpoint is the accepted rollup over the verified journal, bound to the admitted
     request, written as the exact bytes the stage runner consumes before plan construction. Synthetic inputs and test-only pins only."""
 
-    APPROVAL = "slack:1793538100.358869"
+    APPROVAL = FIXTURE_APPROVAL
 
     def setUp(self):
         super().setUp()
@@ -2185,9 +2189,9 @@ class ContinuityCheckpoint(Journal):
                                (dict(good, schema="x"), "action-approval-shape"),
                                (dict(good, requestSha256="0" * 64), "action-approval-not-the-request"),
                                (dict(good, reconciliationSha256="0" * 64), "action-approval-not-the-checkpoint"),
-                               (dict(good, approvalRef="slack:1793566031.065709"), "action-approval-reference"),
+                               (dict(good, approvalRef="approval-" + "f" * 32), "action-approval-reference"),
                                (dict(good, approvedBy="someone-else"), "action-approval-reference"),
-                               (dict(good, selectionApprovalRef="slack:1793566031.065709"), "action-approval-selection")):
+                               (dict(good, selectionApprovalRef="approval-" + "f" * 32), "action-approval-selection")):
             with self.subTest(code=code, envelope=str(envelope)[:60]):
                 result = prepare(envelope)
                 self.assertEqual(result[:2], (78, "BLOCKED_SETUP: " + code))

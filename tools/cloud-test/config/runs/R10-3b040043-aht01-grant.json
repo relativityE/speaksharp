@@ -1,22 +1,22 @@
 {
   "schema": "speaksharp.cloud-test.one-off-grant.v1",
   "status": "APPROVED",
-  "approvalRef": "slack:1794145532.283429",
-  "scopeApprovalRef": "slack:1794156633.525579",
-  "approvedBy": "Akin",
+  "approvalRef": "approval-bcde5476311b392d618839dd2ae6b2f0",
+  "scopeApprovalRef": "approval-3663a9c1434cbbe4ae96624b47c24126",
+  "approvedBy": "product-owner",
   "runId": "R10-3b040043-smoke15",
   "attempt": 1,
   "selectedCases": [
     "AHT-01"
   ],
-  "requestTemplateSha256": "d436254e4401f5da38b922996f12631ea876770d525ad9786331ca0869d2b70b",
+  "requestTemplateSha256": "3a509b79e66b7eeac1d8742c3f9fceed0e824138e719b4c806ba519676689d48",
   "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
   "backendSha": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
-  "periodScopeSha256": "2ff81a40a412799b161c5ddbc6f14eaf0b2c11549ef5fcc05007930c0be9caae",
+  "periodScopeSha256": "c2780cf3ce321a5573d41499e4c6cfccf83b315aa7f6d8d96dc0d9aab4f0ed58",
   "preReserveStateHead": "19a9251d0df19e6ffee87a312c2efc49eb793cf5",
   "notBeforeUtc": "2026-11-08T15:36:22Z",
   "expiresUtc": "2026-11-09T03:00:00Z",
-  "windowSourceRef": "chatgpt:Sentinel_e42f51a0e7c08191aa31e080ac2cd3f6",
+  "windowSourceRef": "approval-6c213a6dc33221f4e8db790cef4e10c6",
   "limits": {
     "endToEndMinutes": 100,
     "liveMinutes": 60,
