@@ -95,6 +95,7 @@ class PreIdentitySpend(unittest.TestCase):
             "old window": admission(binding=dict(admission()["binding"], approvedStartAt="2026-11-08T10:00:00Z",
                                                  approvedDeadlineAt="2026-11-08T11:00:00Z")),
             "started before this run stage": admission(startedAt="2026-11-09T12:20:00.000Z"),
+            "ended after the approved deadline": admission(binding=dict(admission()["binding"], approvedDeadlineAt="2026-11-09T12:27:00Z")),
             "ended after collection": admission(endedAt="2026-11-09T12:40:00.000Z"),
             "unparseable times": admission(startedAt="yesterday"),
             "invalid schema": admission(schemaVersion=2),
@@ -147,6 +148,33 @@ class PreIdentitySpend(unittest.TestCase):
             os.symlink(real, self.adm_path)
             self.assertIsNone(self.spend(adm=False))
             os.remove(self.adm_path)
+        with self.subTest("the admission directory is a symlink to a real directory elsewhere"):
+            outside = os.path.join(self.root, "outside-admission")
+            os.mkdir(outside)
+            self.write(os.path.join(outside, "admission-receipt.json"), admission())
+            real_dir = os.path.join(self.run_root, "admission")
+            os.rename(real_dir, real_dir + ".real")
+            os.symlink(outside, real_dir)
+            self.assertIsNone(C.pre_identity_spend(self.adm_path, self.write(os.path.join(self.root, "pre.json"), PREFLIGHT), self.cases,
+                                                   REQ, SOURCE, STAGE_START, COLLECTED))
+            os.remove(real_dir)
+            os.rename(real_dir + ".real", real_dir)
+        with self.subTest("the run root is reached through a symlinked ancestor"):
+            link_parent = os.path.join(self.root, "plan-link")
+            os.symlink(os.path.join(self.root, "plan"), link_parent)
+            via = os.path.join(link_parent, "run")
+            self.write(self.adm_path, admission())
+            self.assertIsNone(C.pre_identity_spend(os.path.join(via, "admission", "admission-receipt.json"),
+                                                   self.write(os.path.join(self.root, "pre.json"), PREFLIGHT), os.path.join(via, "cases"),
+                                                   REQ, SOURCE, STAGE_START, COLLECTED))
+        with self.subTest("the preflight receipt is reached through a symlinked parent"):
+            pre_dir = os.path.join(self.root, "pre-real")
+            os.mkdir(pre_dir)
+            self.write(os.path.join(pre_dir, "receipt.json"), PREFLIGHT)
+            os.symlink(pre_dir, os.path.join(self.root, "pre-link"))
+            self.write(self.adm_path, admission())
+            self.assertIsNone(C.pre_identity_spend(self.adm_path, os.path.join(self.root, "pre-link", "receipt.json"), self.cases,
+                                                   REQ, SOURCE, STAGE_START, COLLECTED))
         with self.subTest("unparseable receipt"):
             with open(self.adm_path, "w", encoding="utf-8") as f:
                 f.write("{not json")
@@ -159,3 +187,37 @@ class PreIdentitySpend(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProjectionAgreesWithTheDirectSettle(unittest.TestCase):
+    """Review of 50647108: the projection drops byCategory, so a contradictory claimed coaching 0 must refuse BEFORE projection; the direct
+    and the projected settle can never disagree."""
+    def record(self, **spend):
+        base = {"requests": 10, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "byCategory": {"preflight": 10}}
+        base.update(spend)
+        return json.dumps({"schema": M.RUN_RECORD_SCHEMA, "runId": CAMPAIGN, "spend": base,
+                           "executionProvenance": {"campaignId": CAMPAIGN, "runId": "42615792133", "attempt": 1, "requestSha256": "a" * 64}}).encode()
+
+    def direct(self, raw):
+        reserved = {"type": "reserve", "campaignId": CAMPAIGN, "runId": "42615792133", "attempt": 1, "provenance": "request-sha256:" + "a" * 64}
+        orig = M._identity
+        M._identity = lambda r: {k: r[k] for k in ("campaignId", "runId", "attempt")}
+        try:
+            return M.usage_from_record(raw, reserved)[0]
+        finally:
+            M._identity = orig
+
+    def test_a_contradictory_claimed_zero_refuses_both_directly_and_at_projection(self):
+        for label, spend in {"coaching category count": {"byCategory": {"preflight": 10, "coaching": 3}}, "a take": {"takes": 1},
+                             "a Start": {"starts": 1}, "an identity read": {"identityReads": 1}, "unmeasured takes": {"takes": None}}.items():
+            with self.subTest(label):
+                raw = self.record(**spend)
+                with self.assertRaises(M.Refused):
+                    self.direct(raw)
+                with self.assertRaises(SI.Refused):
+                    SI.project(raw)
+
+    def test_a_consistent_zero_settles_the_same_directly_and_projected(self):
+        raw = self.record()
+        self.assertEqual(self.direct(raw), self.direct(SI.project(raw)))
+        self.assertEqual(self.direct(raw)["coachingRequests"], 0)

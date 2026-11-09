@@ -165,6 +165,12 @@ def _utc(value):
         return None
 
 
+def _canonical_file(path):
+    """A regular file at an absolute, normalized path whose every component is real: realpath equals the path itself."""
+    return (isinstance(path, str) and os.path.isabs(path) and os.path.normpath(path) == path and os.path.isfile(path)
+            and not os.path.islink(path) and os.path.realpath(path) == path)
+
+
 def pre_identity_spend(admission_receipt, prerequisite_receipt, cases_dir, req, source_sha, started_utc, ended_utc):
     """Consultant P1-4: the MEASURED spend of a run whose admission stopped before its identity read, or None (settle at the caps).
 
@@ -180,12 +186,16 @@ def pre_identity_spend(admission_receipt, prerequisite_receipt, cases_dir, req, 
       * the prerequisite preflight receipt names this campaign and this workflow source, was observed inside that window and before the
         run stage started, made no mutation, and carries its exact closed charge (2 + 8 = 10).
     Then requests = 10, identity reads, Starts, takes and coaching = 0. Anything missing, malformed, foreign, stale or contradictory: None."""
-    if not (isinstance(cases_dir, str) and os.path.isabs(cases_dir) and not os.path.lexists(cases_dir)):
+    if not (isinstance(cases_dir, str) and os.path.isabs(cases_dir) and os.path.normpath(cases_dir) == cases_dir
+            and not os.path.lexists(cases_dir)):
         return None
     run_root = os.path.dirname(cases_dir)
-    if not (os.path.isdir(run_root) and not os.path.islink(run_root) and os.path.realpath(run_root) == run_root):
+    if not (os.path.isdir(run_root) and os.path.realpath(run_root) == run_root):
         return None
-    if admission_receipt != os.path.join(run_root, "admission", "admission-receipt.json"):
+    # Review of 50647108: the canonical path, with every ancestor real (no symlink anywhere, the admission directory included).
+    if admission_receipt != os.path.join(run_root, "admission", "admission-receipt.json") or not _canonical_file(admission_receipt):
+        return None
+    if not _canonical_file(prerequisite_receipt):
         return None
     rec = _regular_json(admission_receipt)
     if not (isinstance(rec, dict) and rec.get("schemaVersion") == 3 and rec.get("result") == "BLOCKED_SETUP"):
@@ -211,7 +221,8 @@ def pre_identity_spend(admission_receipt, prerequisite_receipt, cases_dir, req, 
     stage_start, collected = _utc(started_utc), _utc(ended_utc)
     if None in window or None in (began, ended, stage_start, collected):
         return None
-    if not (window[0] <= stage_start <= began <= ended <= collected and began <= window[1]):
+    # Review of 50647108: the whole admission, its end included, lies inside the approved window and inside this run stage.
+    if not (window[0] <= stage_start <= began <= ended <= collected and ended <= window[1]):
         return None
     pre = _regular_json(prerequisite_receipt)
     observed = _utc(pre.get("observedAt")) if isinstance(pre, dict) else None

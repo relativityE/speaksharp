@@ -69,10 +69,15 @@ def project(record_raw, observation_raw=None):
     prov = rec["executionProvenance"]
     spend = {k: rec["spend"].get(k) for k in G5_KEYS}
     # Only the collector's verified pre-identity form crosses with coaching (exactly 0 beside zero identity reads, Starts and takes); any
-    # other coaching field stays behind, as before, and that coaching settles at the reserved cap.
-    pre_identity = rec["spend"].get("coachingRequests") == 0 and type(rec["spend"].get("coachingRequests")) is int \
-        and all(type(spend[k]) is int and spend[k] == 0 for k in ("identityReads", "starts", "takes"))
-    if pre_identity:
+    # other coaching field stays behind, as before, and that coaching settles at the reserved cap. Review of 50647108: a claimed 0 is checked
+    # against EVERY field of the full record BEFORE projection (the projection drops byCategory), exactly as usage_from_record checks it, so
+    # the direct and the projected settle can never disagree: a contradictory claim refuses here.
+    claimed = rec["spend"].get("coachingRequests")
+    if type(claimed) is int and claimed == 0:
+        categories = rec["spend"].get("byCategory")
+        coaching_seen = categories.get("coaching") if isinstance(categories, dict) else None
+        _need(all(type(spend[k]) is int and spend[k] == 0 for k in ("identityReads", "starts", "takes")) and coaching_seen in (None, 0),
+              "settle-input-usage-contradictory")
         spend["coachingRequests"] = 0
     doc = {"schema": rec.get("schema"), "runId": rec.get("runId"),
            "executionProvenance": {k: prov.get(k) for k in PROVENANCE_KEYS}, "spend": spend,
