@@ -821,6 +821,8 @@ jobs:
             --cases "${CASES:-}" --request "$req" --started-file "$out/started.txt" --stage-trace "$out/stage-trace.tsv" \
             --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --source-sha "$GITHUB_SHA" \
             --workflow-start-utc "${WORKFLOW_START_UTC:-}" --out "$RUNNER_TEMP/case-timings.json"
+          # Consultant P1-2: name each selected case's closed reason in the log itself (closed codes only, never free text).
+          python3 -I tools/cloud-test/scripts/init_run_inputs.py case-log --case-timings "$RUNNER_TEMP/case-timings.json" || true
       - name: Retain content-free per-case timing telemetry
         timeout-minutes: 3
         if: always()

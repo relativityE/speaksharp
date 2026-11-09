@@ -126,6 +126,26 @@ class FirstObservationExportTests(unittest.TestCase):
         self.assertEqual(out["observations"][1]["observation"]["inventoryStatus"], "UNKNOWN")
         self.assertNotIn("00000000-0000-4000-8000-000000000001", json.dumps(out))
 
+    def test_a_run_that_stopped_before_any_case_records_no_case_reached_instead_of_refusing(self):
+        """Consultant P2-2 (R10 runs 42494152179, 42615792133): no cases directory at all is a retained, content-safe record."""
+        missing = os.path.join(self.cases, "no-cases-yet")
+        out = I.first_observation_export(missing, ["AHT-01"])
+        self.assertEqual(out, {"schema": "speaksharp-first-observations-v1", "contentSafe": True, "selectedCases": ["AHT-01"],
+                               "observations": [], "notObserved": [{"caseId": "AHT-01", "status": "NOT OBSERVED", "reason": "CASE NOT REACHED"}]})
+        out = I.first_observation_export(missing, ["AHT-02"])
+        self.assertEqual((out["observations"], out["notObserved"]), ([], []))
+        # A symlink or a regular file where the directory belongs still refuses.
+        as_file = os.path.join(self.cases, "cases-file")
+        with open(as_file, "w", encoding="utf-8") as f:
+            f.write("x")
+        real = os.path.join(self.cases, "real-cases")
+        os.mkdir(real)
+        link = os.path.join(self.cases, "cases-link")
+        os.symlink(real, link)
+        for bad in (as_file, link):
+            with self.subTest(bad), self.assertRaisesRegex(I.Refused, "first-observation-cases-dir"):
+                I.first_observation_export(bad, ["AHT-01"])
+
     def test_completed_observation_survives_when_a_later_selected_case_was_never_reached(self):
         self.write_case("AHT-01")
         out = I.first_observation_export(self.cases, ["AHT-%02d" % n for n in range(1, 16)])

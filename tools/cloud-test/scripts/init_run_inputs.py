@@ -1806,9 +1806,16 @@ def first_observation_export(cases_dir, selected):
     The case directory itself is ephemeral. This closed projection is safe to retain and can become the next run's history reference; a
     present-but-unlinked or substituted observation refuses rather than silently disappearing when the runner is destroyed.
     """
-    _need(isinstance(cases_dir, str) and os.path.isdir(cases_dir) and not os.path.islink(cases_dir), "first-observation-cases-dir")
+    # Consultant P2-2 (runs 42423408284, 42494152179, 42615792133): a run that stopped before any case never creates the cases directory.
+    # That is a closed, retained "no case reached" record, not a refusal (and a refused export then also failed the upload step). Anything
+    # present at that path must still be a real directory.
+    _need(isinstance(cases_dir, str) and (not os.path.lexists(cases_dir) or (os.path.isdir(cases_dir) and not os.path.islink(cases_dir))),
+          "first-observation-cases-dir")
     _need(isinstance(selected, list) and selected and len(selected) == len(set(selected))
           and all(re.fullmatch(r"AHT-(?:0[1-9]|1[0-5])", x or "") for x in selected), "first-observation-selection")
+    if not os.path.lexists(cases_dir):
+        return {"schema": "speaksharp-first-observations-v1", "contentSafe": True, "selectedCases": selected, "observations": [],
+                "notObserved": [{"caseId": c, "status": "NOT OBSERVED", "reason": "CASE NOT REACHED"} for c in ("AHT-01", "AHT-15") if c in selected]}
     expected = {"AHT-01": ("aht-01-first-observation.json", "existing-disposable"),
                 "AHT-15": ("aht-15-first-observation.json", "maintained-read-only")}
     observations, not_observed = [], []
@@ -2313,15 +2320,46 @@ def run_timing_export(cases_dir, case_results_file, selected, started_file, trac
             "stages": stages, "stoppedAtStage": next((r["stage"] for r in stages if r["exitCode"] != 0), None), "traceScope": TRACE_SCOPE}
 
 
+
+CASE_LOG_RESULTS = ("PASS", "FAIL", "NOT RUN", "UNKNOWN", "NOT SELECTED", "BLOCKED", "BLOCKED_SETUP", "INCOMPLETE", "HARNESS_LIMITED")
+CASE_LOG_ASSERTION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,79}")
+
+
+def case_log_lines(timings):
+    """Consultant P1-2: the run log names why each selected case ended, one line per case, from the case-timings projection's closed values
+    only (result, the closed diagnostic codes, the first non-passing assertion id from the reviewed catalog, the stage where setup stopped).
+    Free text, paths, messages and identifiers never reach the log: anything outside a closed vocabulary prints as `other`."""
+    _need(isinstance(timings, dict) and timings.get("schema") == "speaksharp-case-timings-v2" and timings.get("contentSafe") is True,
+          "case-log-input")
+    stopped = timings.get("stoppedAtStage")
+    stopped = stopped if stopped is None or stopped in STAGE_NAMES else "other"
+    lines = ["RUN outcome=%s stoppedAtStage=%s" % (_closed(timings.get("outcome"), ("not-started", "started-without-results", "results", "results-invalid"), "other"),
+                                                   stopped or "none")]
+    for row in timings.get("cases") or []:
+        if not isinstance(row, dict) or row.get("caseId") not in ALL_AHT or row.get("result") == "NOT SELECTED":
+            continue
+        diag = row.get("diagnostic") if isinstance(row.get("diagnostic"), dict) else None
+        codes = diagnostic_codes(diag) if diag else []
+        first = (diag or {}).get("firstNonPassingAssertion") if diag else None
+        first_id = first.get("id") if isinstance(first, dict) and isinstance(first.get("id"), str) else None
+        evidence = row.get("evidence")
+        parts = ["CASE", row["caseId"], _closed(row.get("result"), CASE_LOG_RESULTS, "other"),
+                 "codes=" + (",".join(codes) if codes else "none"),
+                 "first=" + (first_id if first_id and CASE_LOG_ASSERTION.fullmatch(first_id) else "none"),
+                 "evidence=" + (evidence if isinstance(evidence, str) and CASE_CODE.fullmatch(evidence) else "none")]
+        lines.append(" ".join(parts))
+    return lines
+
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("prepare", "qualify", "provenance", "project", "first-observations", "case-timings", "window-check", "occurrence-check",
-                                       "occurrence-materialize", "completion-deadline"))
+                                       "occurrence-materialize", "completion-deadline", "case-log"))
     for flag in ("--repo", "--config", "--request", "--facts", "--checkpoint", "--run-id", "--source-sha", "--out", "--execution-deadline",
                  "--env-file", "--outputs", "--plan", "--case-results", "--cases-dir", "--cases", "--run-record", "--tested-sha", "--approval", "--qualification",
                  "--code-manifest", "--snapshot-dir", "--coverage-mode", "--live-minutes", "--request-sha256", "--build-receipt",
                  "--reservations", "--provenance", "--nightly-request-file", "--nightly-request-sha256", "--case10-observation",
-                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now", "--started-file", "--stage-trace", "--run-attempt"):
+                 "--manual-occurrence-file", "--manual-occurrence-sha256", "--workflow-start-utc", "--now", "--started-file", "--stage-trace", "--run-attempt",
+                 "--case-timings"):
         a.add_argument(flag)
     a.add_argument("--attempt", type=int)
     a.add_argument("--job-timeout-minutes", type=int)
@@ -2329,6 +2367,10 @@ def main(argv):
     try:
         if x.command == "first-observations":
             _write_private(x.out, first_observation_export(x.cases_dir, (x.cases or "").split(",")))
+            return 0
+        if x.command == "case-log":
+            for line in case_log_lines(_load(x.case_timings)):
+                print(line)
             return 0
         if x.command == "case-timings":
             selected = [c for c in (x.cases or "").split(",") if c] or selection_from_request(x.request)
