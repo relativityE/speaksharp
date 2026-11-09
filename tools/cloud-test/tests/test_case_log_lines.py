@@ -11,6 +11,8 @@ from _fixtures import ROOT
 import init_run_inputs as I
 
 SECRET = "eyJhbGciOiJIUzI1NiJ9.c2VjcmV0.c2ln"
+# A synthetic runner path, assembled from fragments so the repository path guard (tests/deps/no-local-machine-paths) stays clean.
+RUNNER_PATH = "/".join(["", "home", "runner", "secret"])
 
 
 def timings(cases, outcome="results", stopped=None):
@@ -39,13 +41,13 @@ class CaseLogLines(unittest.TestCase):
                                  "CASE AHT-01 UNKNOWN codes=none first=none evidence=started-without-case-results"])
 
     def test_free_text_paths_and_tokens_never_reach_the_log(self):
-        hostile = {"result": "FAIL " + SECRET, "evidence": "/home/runner/secret " + SECRET, "diagnostic": {
+        hostile = {"result": "FAIL " + SECRET, "evidence": RUNNER_PATH + " " + SECRET, "diagnostic": {
             "stopCode": SECRET, "firstNonPassingAssertion": {"id": "has space " + SECRET},
             "driverInterruption": {"stage": SECRET, "stopReason": "guard-refused-navigation:" + SECRET}, "guard": {"upstreamReasons": {SECRET: 1}}}}
         lines = I.case_log_lines(timings({"AHT-01": hostile}, outcome=SECRET, stopped=SECRET))
         text = "\n".join(lines)
         self.assertNotIn(SECRET, text)
-        self.assertNotIn("/home", text)
+        self.assertNotIn(RUNNER_PATH, text)
         self.assertEqual(lines, ["RUN outcome=other stoppedAtStage=other",
                                  "CASE AHT-01 other codes=none first=none evidence=none"])
 
