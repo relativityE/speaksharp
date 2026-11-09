@@ -73,7 +73,14 @@ ONE_OFF_WINDOW_SOURCE_KEY = "windowSourceRef"
 APPROVER_ROLE = "product-owner"
 REVIEWER_ROLES = frozenset({"release-reviewer"})
 APPROVAL_CODE = re.compile(r"approval-[0-9a-f]{32}")
-NOT_PUBLISHABLE = re.compile(r"(?i)(?:^|[^a-z0-9])(?:slack|chatgpt)[:_]|\bU0[A-Z0-9]{8,}\b|\b(?:akin|sam|sam-i-am|elon|jensen|bezos)\b")
+NOT_PUBLISHABLE = re.compile(
+    r"(?i)(?:^|[^a-z0-9])(?:slack|chatgpt)(?:[:_./\\-]|$)"         # slack:/slack-/slack_/slack./slack/ references (pooledSlack stays fine)
+    r"|slack\.com|chat\.openai\.com|chatgpt\.com"                 # any chat host, e.g. a permalink https://x.slack.com/archives/...
+    r"|/archives/[a-z0-9]{6,}(?:/|$)"                               # a chat permalink path
+    r"|(?<![0-9])p[0-9]{16}(?![0-9])"                               # a permalink message id (p + seconds and microseconds)
+    r"|(?<![0-9.])1[0-9]{9}[.][0-9]{6}(?![0-9])"                    # a chat message timestamp (epoch seconds . microseconds)
+    r"|(?<![A-Za-z0-9])[UW]0[A-Z0-9]{8,}(?![A-Za-z0-9])"            # a chat user id
+    r"|(?<![a-z])(?:akin|sam|sam-i-am|elon|jensen|bezos)(?![a-z])")
 
 
 def publishable(doc, depth=0):
@@ -1239,6 +1246,8 @@ def prepare(x, now):
     _need(isinstance(facts, dict), "facts-shape")
     if not nightly:     # a dispatch's facts input and its request are published in the public repository's run
         _need(publishable(facts), "facts-not-publishable")
+        _need(isinstance(facts.get("ownerApprovalReference"), str) and APPROVAL_CODE.fullmatch(facts["ownerApprovalReference"]) is not None,
+              "facts-approval-not-opaque")
         _need(facts.get("approvedBy") == APPROVER_ROLE and facts.get("reviewer") in REVIEWER_ROLES, "facts-approver-not-a-role")
         _need(publishable(req), "request-not-publishable")
     grant = None

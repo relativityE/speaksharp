@@ -50,6 +50,25 @@ class Publishable(unittest.TestCase):
             with self.subTest(ok):
                 self.assertTrue(I.publishable({"v": ok}))
 
+    def test_chat_references_are_refused_by_structure_not_only_by_prefix(self):
+        for bad in ("https://speaksharp.slack.com/archives/C0C9RE8KNHG/p1794180342464149", "slack-1794180342.464149", "slack.1794180342.464149",
+                    "SLACK:1", "see 1794180342.464149", "p1794180342464149", "/archives/C0C9RE8KNHG/", "chatgpt_x", "chatgpt.com/share/abc",
+                    "https://chat.openai.com/c/abc"):
+            with self.subTest(bad):
+                self.assertFalse(I.publishable({"receipts": {"disp": bad}}))
+        for ok in ("pooledSlack", "structural slack; limit", "receipt:pre@aaaaaaaaaaaa", "2026-11-09T12:00:00Z", "1794180342",
+                   "r10-preflight:" + "a" * 64, "first-observation:existing-disposable@R10-3b040043-smoke15"):
+            with self.subTest(ok):
+                self.assertTrue(I.publishable({"v": ok}))
+
+    def test_the_dispatch_approval_reference_must_be_an_opaque_code(self):
+        with open(os.path.join(ROOT, "scripts", "init_run_inputs.py"), encoding="utf-8") as f:
+            src = f.read()
+        self.assertIn('APPROVAL_CODE.fullmatch(facts["ownerApprovalReference"]) is not None', src)
+        self.assertIn('"facts-approval-not-opaque"', src)
+        self.assertIsNone(I.APPROVAL_CODE.fullmatch("slack-1794180342.464149"))
+        self.assertIsNotNone(I.APPROVAL_CODE.fullmatch("approval-" + "0" * 32))
+
     def test_prepare_refuses_unpublishable_dispatch_facts_and_a_named_approver(self):
         with open(os.path.join(ROOT, "scripts", "init_run_inputs.py"), encoding="utf-8") as f:
             src = f.read()
