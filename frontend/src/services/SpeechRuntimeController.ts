@@ -5489,11 +5489,13 @@ export class SpeechRuntimeController {
                 this.releaseFinalizingIfOwner('superseded_before_stop', stopAuthority.lifecycleVersion, stopAuthority);
                 return null;
             }
+            // Work point 2, D5: declared outside the try so the catch knows the save already succeeded (a failure
+            // after it, such as the owner's destroy() rejecting, must not report the transcript as not saved).
+            let sessionCompleted = false;
             try {
                 this.stopHeartbeat();
                 this.stopWatchdog();
                 const service = this.service;
-                let sessionCompleted = false;
                 if (!service) {
                     await this.transition('READY', undefined, token);
                     this.releaseFinalizingIfOwner('no_service', stopAuthority.lifecycleVersion, stopAuthority);
@@ -6594,7 +6596,16 @@ export class SpeechRuntimeController {
                  */
                 await this.transition('FAILED', err as Error, terminalTuple !== null ? undefined : token);
                 this.releaseFinalizingIfOwner('stop_failed', stopAuthority.lifecycleVersion, stopAuthority);
-                if (err instanceof FinalizationTimeoutError) {
+                if (sessionCompleted) {
+                    // Work point 2, D5: the session row was already completed with its transcript; only the teardown
+                    // after it failed. The server refuses to re-complete a completed row with a different status, so
+                    // the `failed` mark above cannot undo the save.
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'warning',
+                        message: 'Your session was saved.',
+                        detail: 'The recorder did not shut down cleanly afterwards.',
+                    });
+                } else if (err instanceof FinalizationTimeoutError) {
                     // #1089: name the real failure instead of hanging on Finalizing… forever. The control
                     // is usable again (FAILED clears the finalizing latch).
                     // Work point 2, D1: say only what is true. The transcript working memory is purged below
