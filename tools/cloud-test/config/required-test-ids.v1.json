@@ -1,7 +1,7 @@
 {
   "schema": "speaksharp.cloud-test.required-test-ids.v1",
-  "sourceHead": "f14c9652e419921801f54ace8878dd3133616422",
-  "sourceTree": "9a64452c9d58dc7943c32c7bd6a34052d74d9cb9",
+  "sourceHead": "7fdeb1e4309304c0d21aee3f8bde2038fb1f797d",
+  "sourceTree": "95f043f64754bc628503e154ba134e5786a014c8",
   "provenance": "mechanical inventory regeneration from unittest discovery of the current source for both suites (package-unit-tests and report-builder-tests); no test outcome is inferred",
   "ids": [
     "package-unit-tests::test_accounting_rollup.Rollup.test_a_bound_cannot_understate_or_substitute_the_usage_it_charges",
@@ -631,6 +631,7 @@
     "package-unit-tests::test_live_workflow_policy.UnexecutedAttemptRecovery.test_no_job_gains_a_permission_and_the_live_job_is_untouched",
     "package-unit-tests::test_live_workflow_policy.UnexecutedAttemptRecovery.test_record_begin_retires_the_pinned_attempt_after_the_evidence_and_before_begin_and_the_one_patch",
     "package-unit-tests::test_live_workflow_policy.UnexecutedAttemptRecovery.test_the_earlier_never_reserved_retirement_is_unchanged",
+    "package-unit-tests::test_manual_reservation.ManualReservation.test_a_deferred_reserve_check_is_a_refusal_at_the_cli",
     "package-unit-tests::test_manual_reservation.ManualReservation.test_a_landed_transition_with_a_durable_journal_recovers_its_missing_receipt",
     "package-unit-tests::test_manual_reservation.ManualReservation.test_a_late_settle_is_refused_before_the_append_and_the_reservation_stays_held",
     "package-unit-tests::test_manual_reservation.ManualReservation.test_a_measured_settlement_charges_campaign_requests_plus_identity_reads_once",
@@ -933,6 +934,8 @@
     "package-unit-tests::test_pre_identity_spend.PreIdentitySpend.test_foreign_or_stale_preflight_evidence_keeps_the_caps",
     "package-unit-tests::test_pre_identity_spend.PreIdentitySpend.test_foreign_stale_missing_or_contradictory_admission_evidence_keeps_the_caps",
     "package-unit-tests::test_pre_identity_spend.PreIdentitySpend.test_the_paths_and_the_absence_of_cases_must_be_positive",
+    "package-unit-tests::test_pre_identity_spend.ProjectionAgreesWithTheDirectSettle.test_a_consistent_zero_settles_the_same_directly_and_projected",
+    "package-unit-tests::test_pre_identity_spend.ProjectionAgreesWithTheDirectSettle.test_a_contradictory_claimed_zero_refuses_both_directly_and_at_projection",
     "package-unit-tests::test_prepare_media_parent.EntrypointOrdering.test_missing_parent_reproduces_the_content_free_enoent",
     "package-unit-tests::test_prepare_media_parent.EntrypointOrdering.test_the_elevated_run_stage_prepares_the_plan_parent_before_admission",
     "package-unit-tests::test_prepare_media_parent.PrepareMediaParent.test_cli_refuses_without_root_and_writes_nothing",
