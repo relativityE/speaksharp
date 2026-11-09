@@ -268,7 +268,7 @@ test('I1 run identity: release, runner and backend are required and labelled; ow
 test('I2 the report carries the run identity with the media and driver hash of every selected case (null media where none is bound)',async()=>{
   const ri={frontend:{sourceSha:commit,servedSha:commit},runner:{codeManifestSha256:hash,packetManifestSha256:hash},backend};
   const x1=io();x1.verifyRunIdentity=async()=>{};const r=await core.runCampaign(plan({selection:selection(),identityCap:12,runIdentity:ri}),x1,{});
-  assert.ok(r.report&&r.report.runIdentity,'the report carries a run identity');  // asserted before use (Sam 1793390819): absence is a FAIL, never a runtime error
+  assert.ok(r.report&&r.report.runIdentity,'the report carries a run identity');  // asserted before use: absence is a FAIL, never a runtime error
   assert.equal(r.report.runIdentity.backend.source,'owner-stated');assert.equal(r.report.runIdentity.cases.length,5);assert.equal(r.report.runIdentity.cases.find(c=>c.id==='AHT-12').mediaSha256,hash);
   const x2=io();x2.verifyRunIdentity=async()=>{};const r2=await core.runCampaign(plan({runIdentity:ri}),x2,{});assert.ok(r2.report&&r2.report.runIdentity,'the full-run report carries a run identity');assert.equal(r2.report.runIdentity.cases.find(c=>c.id==='AHT-01').mediaSha256,null);
 });

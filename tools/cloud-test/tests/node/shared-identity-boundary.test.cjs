@@ -169,7 +169,7 @@ test('unshared plans are unchanged: 31 identity calls and the 32 minimum', async
 });
 
 
-test('Sam 1794111937 #1: elapsed validation/snapshot work counts toward freshness (a 26 s first snapshot is not reused)', async t => {
+test('freshness #1: elapsed validation/snapshot work counts toward freshness (a 26 s first snapshot is not reused)', async t => {
   const r = rig(t, { cap: 32 });
   r.state.between = { phase: 'after-AHT-04', at: 1, fn: () => { r.state.mono += 26000; } };    // during the boundary's own snapshot
   const out = await run(r);
@@ -177,7 +177,7 @@ test('Sam 1794111937 #1: elapsed validation/snapshot work counts toward freshnes
   assert.equal(out.report.cases[4].identityBefore.citation, undefined);
 });
 
-test('Sam 1794111937 #2: a writer that tries to acquire the ledger DURING the snapshot read is refused; the snapshot never steals a held lock', t => {
+test('freshness #2: a writer that tries to acquire the ledger DURING the snapshot read is refused; the snapshot never steals a held lock', t => {
   const r = rig(t);
   const realRead = fs.readFileSync;
   let writerError = null, snap;
@@ -197,7 +197,7 @@ test('Sam 1794111937 #2: a writer that tries to acquire the ledger DURING the sn
   assert.equal(JSON.parse(fs.readFileSync(r.campaignLedger + '.lock', 'utf8')).token, 'producer');   // never stolen
 });
 
-test('Sam 1794111937 #3: the affected rows are invalidated on the new failure paths; an existing FAIL is preserved', async t => {
+test('freshness #3: the affected rows are invalidated on the new failure paths; an existing FAIL is preserved', async t => {
   const missing = rig(t);
   missing.state.hooks.cleanup = id => (id === 'AHT-02' ? null : { ...POSITIVE });
   const a = await run(missing);
@@ -237,7 +237,7 @@ test('wrong bindings: a receipt for another target is never reused; a ledger tha
   assert.deepEqual([stop.report.cases[0].result, stop.report.cases[0].executionInvalid], ['NOT RUN', true]);
 });
 
-test('Sam 1794114759: a shared plan without the verified reservation binding, or with a binding for another run/request/amount, never starts', async t => {
+test('reservation binding: a shared plan without the verified reservation binding, or with a binding for another run/request/amount, never starts', async t => {
   const missing = rig(t);
   delete missing.plan.reservationBinding;
   assert.equal((await run(missing)).exitCode, 78);

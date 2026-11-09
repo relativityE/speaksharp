@@ -437,7 +437,7 @@ class Equivalence(unittest.TestCase):
             unit.update(passed=False, stderr="Ran %d tests in 1.0s\n\nFAILED (failures=1, errors=1)\n" % n)
         out = self.summary(teardown)
         inv = out["equivalence"]["inventory"]
-        self.assertEqual((inv["status"], inv["codes"]), ("COMPLETE", []), "two unsuccessful callbacks are legitimate evidence (Sam 1793410430)")
+        self.assertEqual((inv["status"], inv["codes"]), ("COMPLETE", []), "two unsuccessful callbacks are legitimate evidence")
         row = inv["executed"][[e[0] for e in inv["executed"]].index("package-unit-tests::" + REQUIRED["package-unit-tests"][0])]
         self.assertEqual(row[1:], ["error", {}, {"error": 1, "failure": 1}], "worst outcome first, and the failure is retained")
         self.assertIn("UNSUCCESSFUL_OUTCOMES:package-unit-tests", out["deliveryRefusals"])

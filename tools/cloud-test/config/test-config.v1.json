@@ -1,7 +1,7 @@
 {
  "aggregateReceiver": {
   "activated": true,
-    "manifestSha256": "39398e24591e0631bec25bfc5b1fbce15e488f885a71e5ef6ece8f4aac900ca1",
+    "manifestSha256": "d6de546d0bd846773cc779563a99d17e7c3a0c9e9d6c985d6c099b43f1365174",
   "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
   "note": "Active fail-closed receiver for the reviewed retained four-file aggregate. Current request, served-release identity, journal head and reconciliation remain occurrence-bound runtime evidence and are never admitted from this retained bundle."
  },
@@ -32,10 +32,10 @@
   ],
   "harness": {
     "packetDir": "tools/cloud-test/harness",
-    "expectedCodeManifestSha256": "993695c0e7a27373ec84bd6cd09bb34250a632227240aff93fcc225cf88c4b70",
+    "expectedCodeManifestSha256": "25b4189b4486a0a0b3d7a267015936eec7c62a6cfbb378f9772a3e6fbf533c93",
     "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
     "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
-    "expectedPacketManifestSha256": "77301ea7141e8b254a86cac78dc1902198a84688c9a006b59b27af7961845947"
+    "expectedPacketManifestSha256": "8c51b80e8a92db4f2fb34124491ae2e49d08df33d8123dd96db4740cb3936d11"
   },
   "credentials": {
     "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",
@@ -282,7 +282,7 @@
         "AHT-10": 166000, "AHT-11": 92000, "AHT-12": 73000,
         "AHT-13": 45000, "AHT-14": 45000, "AHT-15": 17000
       },
-      "timingBasis": "Completed-case maxima retain the prior R5/R9 wall-time basis. AHT-01 reserves 35 seconds for the unchanged 30-second/75-word eligibility gate. AHT-13/14 use provisional 30-second diagnostic transition ceilings plus bounded Retry observation; these are not measured product runtimes. Whole smoke is capped at 60 minutes (PO 60-minute signal run, Sam 1794073342.879639): case maxima 33 + admission A0-A5/A7 5 + 31 identity reads at their supervised 35 s worst case and per-case reporting 20 + cleanup 2. A6's 20-minute qualification ceiling is not covered: a practical signal run, not a worst-case guarantee."
+      "timingBasis": "Completed-case maxima retain the prior R5/R9 wall-time basis. AHT-01 reserves 35 seconds for the unchanged 30-second/75-word eligibility gate. AHT-13/14 use provisional 30-second diagnostic transition ceilings plus bounded Retry observation; these are not measured product runtimes. Whole smoke is capped at 60 minutes (owner 60-minute signal run): case maxima 33 + admission A0-A5/A7 5 + 31 identity reads at their supervised 35 s worst case and per-case reporting 20 + cleanup 2. A6's 20-minute qualification ceiling is not covered: a practical signal run, not a worst-case guarantee."
     },
     "full": {
       "label": "FULL COVERAGE",

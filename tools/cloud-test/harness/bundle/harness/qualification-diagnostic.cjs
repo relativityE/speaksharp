@@ -48,6 +48,12 @@ function checkGroup(id) {
   const head = id.split('.')[0];
   return CHECK_SECTIONS.includes(head) ? head : guardRunKey(head);
 }
+// A failed check's own code identifier (e.g. S6.queue-wait-denied), so a refusal names the check, not only its group. Closed form:
+// a known group prefix, then lowercase code segments; never free text. At most MAX_FAILED_CHECKS, in failure order.
+const MAX_FAILED_CHECKS = 20;
+const CHECK_ID = /^[A-Za-z0-9=-]{1,48}\.[a-z0-9][a-z0-9.=-]{0,79}$/;
+function isCheckId(id) { return typeof id === 'string' && CHECK_ID.test(id) && checkGroup(id) !== null; }
+function failedCheckIds(ids) { return [...new Set(ids.filter(isCheckId))].slice(0, MAX_FAILED_CHECKS); }
 function groupCounts(ids) {
   const out = [];
   for (const id of ids) { const g = checkGroup(id); if (!g) continue; const last = out[out.length - 1]; if (last && last.group === g) last.count = Math.min(last.count + 1, MAX_COUNT); else out.push({ group: g, count: 1 }); }
@@ -83,13 +89,14 @@ function buildDiagnostic(state, { reason, error, results, shutdownErrorCount = 0
     guardRuns: Number.isSafeInteger(state.guardRuns) && state.guardRuns >= 0 ? Math.min(state.guardRuns, 999) : 0,
     completedCheckGroups: groupCounts(ids),
     failedCheckGroups: groupCounts(failed),
+    failedChecks: failedCheckIds(failed),
     ...(() => { const c = classifyError(error); return { errorCategory: c.category, errorCode: c.code, errorSignatures: c.signatures }; })(),
     cleanupErrorCount: Math.min(launchErrors + shutdownErrors, 99), // launch cleanup + qualification shutdown errors; no text kept
     contentFree: true,
   };
 }
 
-const KEYS = ['schema', 'stopReason', 'phase', 'guardRun', 'guardRuns', 'completedCheckGroups', 'failedCheckGroups', 'errorCategory', 'errorCode', 'errorSignatures', 'cleanupErrorCount', 'contentFree'];
+const KEYS = ['schema', 'stopReason', 'phase', 'guardRun', 'guardRuns', 'completedCheckGroups', 'failedCheckGroups', 'failedChecks', 'errorCategory', 'errorCode', 'errorSignatures', 'cleanupErrorCount', 'contentFree'];
 // Strict re-validation at the receiving side: unknown keys, out-of-set values or non-ID strings refuse.
 function validateDiagnostic(d) {
   const fail = why => { throw new Error('qualification diagnostic refused: ' + why); };
@@ -101,11 +108,14 @@ function validateDiagnostic(d) {
   if (!(d.guardRun === null || GUARD_RUN_KEYS.includes(d.guardRun))) fail('guardRun');
   if (!Number.isSafeInteger(d.guardRuns) || d.guardRuns < 0 || d.guardRuns > 999) fail('guardRuns');
   for (const k of ['completedCheckGroups', 'failedCheckGroups']) if (!Array.isArray(d[k]) || d[k].length > 200 || d[k].some(g => !g || typeof g !== 'object' || Array.isArray(g) || JSON.stringify(Object.keys(g).sort()) !== '["count","group"]' || !CHECK_GROUPS.includes(g.group) || !Number.isSafeInteger(g.count) || g.count < 1 || g.count > MAX_COUNT)) fail(k);
+  if (!Array.isArray(d.failedChecks) || d.failedChecks.length > MAX_FAILED_CHECKS || d.failedChecks.some(id => !isCheckId(id))
+      || new Set(d.failedChecks).size !== d.failedChecks.length) fail('failed checks');
   if (!ERROR_CATEGORIES.includes(d.errorCategory) || !ERROR_CODES.includes(d.errorCode)) fail('error class');
   if (!Array.isArray(d.errorSignatures) || d.errorSignatures.some(s => !SIGNATURE_KEYS.includes(s)) || new Set(d.errorSignatures).size !== d.errorSignatures.length) fail('signatures');
   if (!Number.isSafeInteger(d.cleanupErrorCount) || d.cleanupErrorCount < 0 || d.cleanupErrorCount > 99) fail('cleanup count');
   const copy = a => a.map(g => ({ group: g.group, count: g.count }));
-  return { ...d, completedCheckGroups: copy(d.completedCheckGroups), failedCheckGroups: copy(d.failedCheckGroups), errorSignatures: [...d.errorSignatures] };
+  return { ...d, completedCheckGroups: copy(d.completedCheckGroups), failedCheckGroups: copy(d.failedCheckGroups), failedChecks: [...d.failedChecks],
+    errorSignatures: [...d.errorSignatures] };
 }
 
 // One guarded self-test run with its lifecycle phases recorded. Exceptions outside the test body escape
@@ -128,4 +138,4 @@ async function guardedRun(state, { id, launch, fn, onBodyError }) {
   return { h, summary };
 }
 
-module.exports = { GUARD_RUNS, GUARD_RUN_KEYS, CHECK_SECTIONS, CHECK_GROUPS, guardRunKey, checkGroup, PHASES, STOP_REASONS, ERROR_CATEGORIES, ERROR_CODES, SIGNATURE_KEYS, classifyError, createState, buildDiagnostic, validateDiagnostic, guardedRun };
+module.exports = { GUARD_RUNS, GUARD_RUN_KEYS, CHECK_SECTIONS, CHECK_GROUPS, guardRunKey, checkGroup, isCheckId, MAX_FAILED_CHECKS, PHASES, STOP_REASONS, ERROR_CATEGORIES, ERROR_CODES, SIGNATURE_KEYS, classifyError, createState, buildDiagnostic, validateDiagnostic, guardedRun };

@@ -123,7 +123,7 @@ test('admission records RECORDED, REFUSED or ABSENT and never the raw file', () 
   assert.deepEqual(readQualificationDiagnostic(io(new Error('ENOENT ' + SECRET)), 'x'), { result: 'ABSENT' });
 });
 
-test('Sam 1793998673 negative controls: a token-shaped check ID or guard run never survives build + validate', () => {
+test('negative controls: a token-shaped check ID or guard run never survives build + validate', () => {
   const tokenLower = 'abcdef0123456789abcdef0123456789-token';
   for (const guardRun of [SECRET, tokenLower, 'sandbox-' + SECRET, 'feedback-' + SECRET]) {
     const d = QD.validateDiagnostic(QD.buildDiagnostic({ phase: 'browser-launch', guardRun, guardRuns: 1 }, { reason: 'qualification-error', error: null, results: [] }));
@@ -156,4 +156,27 @@ test('the closed guard-run and check-section lists cover every withGuard ID and 
   for (const id of literal) assert.ok(QD.GUARD_RUNS.includes(id), 'unlisted guard run ' + id);
   const sections = new Set([...src.matchAll(/'(S[0-9]+[a-z]?)\./g)].map(m => m[1]));
   for (const s of sections) assert.ok(QD.CHECK_SECTIONS.includes(s), 'unlisted section ' + s);
+});
+
+test('a failed self-test check is named by its code id; forged or free-text ids never survive', () => {
+  const results = [
+    { id: 'S6.concurrency', ok: true }, { id: 'S6.queue-wait-denied', ok: false }, { id: 'S6.upstream-error', ok: false },
+    { id: 'concurrency.reconcile.a.test', ok: false }, { id: 'S6.queue-wait-denied', ok: false },
+    { id: 'token=abc secret', ok: false }, { id: 'X9.not-a-group', ok: false }, { id: 'S6.Has Spaces', ok: false }, { id: 42, ok: false },
+  ];
+  const d = QD.buildDiagnostic(QD.createState(), { reason: 'verdict-fail', results });
+  assert.deepEqual(d.failedChecks, ['S6.queue-wait-denied', 'S6.upstream-error', 'concurrency.reconcile.a.test']);
+  assert.deepEqual(QD.validateDiagnostic(d).failedChecks, d.failedChecks);
+  assert.ok(!JSON.stringify(d).includes('secret') && !JSON.stringify(d).includes('X9'));
+});
+
+test('the receiving side refuses free text, unknown groups, duplicates and too many failed check ids', () => {
+  const base = QD.buildDiagnostic(QD.createState(), { reason: 'verdict-fail', results: [{ id: 'S6.request-deadline', ok: false }] });
+  assert.deepEqual(base.failedChecks, ['S6.request-deadline']);
+  for (const bad of [['token=abc secret'], ['X9.unknown'], ['S6.request-deadline', 'S6.request-deadline'],
+    Array.from({ length: QD.MAX_FAILED_CHECKS + 1 }, (_, i) => 'S6.check-' + i), 'S6.request-deadline', [7]]) {
+    assert.throws(() => QD.validateDiagnostic({ ...base, failedChecks: bad }), /failed checks/, JSON.stringify(bad));
+  }
+  const { failedChecks, ...withoutKey } = base;
+  assert.throws(() => QD.validateDiagnostic(withoutKey), /keys/);
 });
