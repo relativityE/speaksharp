@@ -45,7 +45,8 @@ from reservations import CATS, caps_of_request  # noqa: E402
 
 G5_KEYS = ("requests", "identityReads", "starts", "takes")
 SHA256 = re.compile(r"[0-9a-f]{64}")
-APPROVAL = re.compile(r"slack-[0-9]{10}\.[0-9]{6}")
+# The historical slack-<ts> form stays accepted; new owner approvals use the opaque approval-<32 hex> code.
+APPROVAL = re.compile(r"slack-[0-9]{10}\.[0-9]{6}|approval-[0-9a-f]{32}")
 RUN_RECORD_SCHEMA = "speaksharp.cloud-test.run-record.v1"
 # The exact PO-approved fresh-period scope, pinned with the bootstrap and writer
 # root.  A substituted scope is refused before any journal transition.

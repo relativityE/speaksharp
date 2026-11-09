@@ -39,7 +39,7 @@ class Publishable(unittest.TestCase):
         self.assertTrue(I.publishable(occ))
 
     def test_chat_references_user_ids_and_names_are_not_publishable_anywhere_in_a_document(self):
-        for bad in ("slack:1794145532.283429", "see slack:1.2", "chatgpt:Sentinel_x", "Slack_ref", "U0CA39HPCV8", "Akin", "approved by Sam",
+        for bad in ("slack:1000000018.000018", "see slack:1.2", "chatgpt:Sentinel_x", "Slack_ref", "U0CA39HPCV8", "Akin", "approved by Sam",
                     "Sam-I-am", "elon", "Jensen", "bezos"):
             with self.subTest(bad):
                 self.assertFalse(I.publishable({"facts": {"receipts": {"disp": bad}}}))
@@ -51,8 +51,8 @@ class Publishable(unittest.TestCase):
                 self.assertTrue(I.publishable({"v": ok}))
 
     def test_chat_references_are_refused_by_structure_not_only_by_prefix(self):
-        for bad in ("https://speaksharp.slack.com/archives/C0C9RE8KNHG/p1794180342464149", "slack-1794180342.464149", "slack.1794180342.464149",
-                    "SLACK:1", "see 1794180342.464149", "p1794180342464149", "/archives/C0C9RE8KNHG/", "chatgpt_x", "chatgpt.com/share/abc",
+        for bad in ("https://speaksharp.slack.com/archives/C0C9RE8KNHG/p1794180342464149", "slack-1000000019.000019", "slack.1794180342.464149",
+                    "SLACK:1", "see 1000000019.000019", "p1794180342464149", "/archives/C0C9RE8KNHG/", "chatgpt_x", "chatgpt.com/share/abc",
                     "https://chat.openai.com/c/abc"):
             with self.subTest(bad):
                 self.assertFalse(I.publishable({"receipts": {"disp": bad}}))
@@ -66,7 +66,7 @@ class Publishable(unittest.TestCase):
             src = f.read()
         self.assertIn('APPROVAL_CODE.fullmatch(facts["ownerApprovalReference"]) is not None', src)
         self.assertIn('"facts-approval-not-opaque"', src)
-        self.assertIsNone(I.APPROVAL_CODE.fullmatch("slack-1794180342.464149"))
+        self.assertIsNone(I.APPROVAL_CODE.fullmatch("slack-1000000019.000019"))
         self.assertIsNotNone(I.APPROVAL_CODE.fullmatch("approval-" + "0" * 32))
 
     def test_prepare_refuses_unpublishable_dispatch_facts_and_a_named_approver(self):
@@ -77,6 +77,23 @@ class Publishable(unittest.TestCase):
         for code in ('"facts-not-publishable"', '"facts-approver-not-a-role"', '"request-not-publishable"'):
             self.assertIn(code, block)
         self.assertIn('facts.get("approvedBy") == APPROVER_ROLE and facts.get("reviewer") in REVIEWER_ROLES', block)
+
+
+class OpaqueApprovalsInJournalAndRelease(unittest.TestCase):
+    """New journal provenance and manual-release approvals can be opaque codes; the historical chat-timestamp form stays accepted
+    only so the existing journal history keeps validating."""
+
+    def test_opaque_codes_are_accepted_and_malformed_values_refused(self):
+        import manual_reservation as M
+        import state_ref_writer as W
+        code = "approval-" + "0123456789abcdef" * 2
+        self.assertIsNotNone(W.PROVENANCE.fullmatch("approval:" + code))
+        self.assertIsNotNone(M.APPROVAL.fullmatch(code))
+        self.assertIsNotNone(W.PROVENANCE.fullmatch("approval:slack-1000000001.000001"))
+        for bad in ("approval:approval-XYZ", "approval:" + code + "0", "approval:anything"):
+            self.assertIsNone(W.PROVENANCE.fullmatch(bad), bad)
+        for bad in ("approval-XYZ", code + "0", "slack:1000000001.000001"):
+            self.assertIsNone(M.APPROVAL.fullmatch(bad), bad)
 
 
 if __name__ == "__main__":

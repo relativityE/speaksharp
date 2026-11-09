@@ -589,7 +589,7 @@ class Lineage(unittest.TestCase):
 
     def test_an_older_release_diagnostic_is_bound_to_workflow_tested_request_and_selection(self):
         head = self.repo.commit({"frontend/app.json": {"v": 2}, RUNS + "r6.json": self.req()})
-        good = {"approvalRef": "slack:1793539739.216639", "workflowSha": head, "testedSha": self.release, "requestBlob": "blob", "cases": ["AHT-05"]}
+        good = {"approvalRef": "slack:1000000010.000010", "workflowSha": head, "testedSha": self.release, "requestBlob": "blob", "cases": ["AHT-05"]}
         self.assertEqual(self.lineage(head, good), "explicit-older-release-diagnostic")
         for k, v in (("workflowSha", "c" * 40), ("testedSha", "c" * 40), ("requestBlob", "other"), ("cases", ["AHT-06"]), ("approvalRef", "")):
             refused(self, "source-changes-product-beyond-request", self.lineage, head, dict(good, **{k: v}))
@@ -683,9 +683,9 @@ class Facts(unittest.TestCase):
                                                            "idSha256": "FIRST-DISCOVERY"},
                                    "maintained-read-only": {"historyRef": "first-observation:maintained-read-only@R10-3b040043-smoke15",
                                                             "idSha256": "FIRST-DISCOVERY"}},
-                      "approvedBy": "Akin", "ownerApprovalReference": FIXTURE_APPROVAL, "producerReviewReference": "slack:1793822205.697629",
-                      "receipts": {"analytics": "pending:preflight", "disp": "slack:1793833165.587389", "fence": "slack:1793822399.432639",
-                                   "pre": "pending:preflight", "review": "slack:1793822205.697629", "rls": "pending:preflight"}, "reviewer": "Sam"}
+                      "approvedBy": "product-owner", "ownerApprovalReference": FIXTURE_APPROVAL, "producerReviewReference": "slack:1000000011.000011",
+                      "receipts": {"analytics": "pending:preflight", "disp": "slack:1000000012.000012", "fence": "slack:1000000013.000013",
+                                   "pre": "pending:preflight", "review": "slack:1000000011.000011", "rls": "pending:preflight"}, "reviewer": "Sam"}
         refused(self, "facts-backend-missing", I.translate_facts, dispatched, live_request(), "github-producer")
         with_backend = dict(dispatched, backend={"manifestRef": "synthetic:backend-manifest@1", "generation": 7, "completion": "OFF",
                                                  "migration129": "absent"})
@@ -1264,9 +1264,9 @@ class Qualify(unittest.TestCase):
         put(request_file, self.request())
         admitted = self.sha(request_file)
         substitute = self.request()
-        substitute["window"].update(endUtc="2099-01-01T00:00:00Z", approvalRef="slack:1793549999.000001")
-        substitute["selectionApprovalRef"] = "slack:1793549999.000002"
-        substitute["approvedLimits"].update(runCapRequests=4000, cumulativeCeilingRequests=99999, identityCap=999, approvalRef="slack:1793549999.000003")
+        substitute["window"].update(endUtc="2099-01-01T00:00:00Z", approvalRef="slack:1000000014.000014")
+        substitute["selectionApprovalRef"] = "slack:1000000015.000015"
+        substitute["approvedLimits"].update(runCapRequests=4000, cumulativeCeilingRequests=99999, identityCap=999, approvalRef="slack:1000000016.000016")
         substitute["estimate"]["requests"]["runCap"] = 4000
         self.assertEqual({k: substitute[k] for k in ("runId", "selection", "release", "coverageMode", "harness")},
                          {k: self.request()[k] for k in ("runId", "selection", "release", "coverageMode", "harness")})
@@ -1929,7 +1929,7 @@ class NightlyMode(unittest.TestCase):
         refused(self, "nightly-facts-not-pinned", I.nightly_facts, repo)
         self.assertIsNone(I.NIGHTLY_FACTS_SHA256)
         refused(self, "nightly-facts-unreadable", I.nightly_facts, repo, "0" * 64)
-        raw = json.dumps(facts(ownerApprovalReference="slack:1793553158.013909")).encode()
+        raw = json.dumps(facts(ownerApprovalReference="slack:1000000008.000008")).encode()
         os.makedirs(os.path.join(repo, os.path.dirname(I.NIGHTLY_FACTS_PATH)))
         with open(os.path.join(repo, I.NIGHTLY_FACTS_PATH), "wb") as f:
             f.write(raw)
@@ -1952,7 +1952,7 @@ class NightlyMode(unittest.TestCase):
         second_raw = nightly_derive(run_id="102", sha=self.sha)
         second = json.loads(second_raw)
         reconciliation = b'{"accepted":"synthetic-unit-control"}\n'
-        committed = facts(ownerApprovalReference="slack:1793553158.013909")
+        committed = facts(ownerApprovalReference="slack:1000000008.000008")
         self.assertNotIn("actionApproval", committed)
         def standing(request, raw):
             # D1(a): the stand-in for standing_envelope, whose gates are controlled in StandingEnvelope; it returns the request- and
@@ -2394,7 +2394,7 @@ process.exitCode = result.exitCode;
         bad_rc.write_bytes(rc_bytes.replace(b'"outstandingReservations":0', b'"outstandingReservations":1'))
         bad_facts = ct_out / "substituted-facts.json"
         changed = json.loads(Path(env["BP_FACTS"]).read_text())
-        changed["actionApproval"]["selectionApprovalRef"] = "slack:1793566031.065709"
+        changed["actionApproval"]["selectionApprovalRef"] = "slack:1000000017.000017"
         bad_facts.write_text(json.dumps(changed))
         for label, over in (("reconciliation bytes", {"BP_RECONCILIATION_FILE": str(bad_rc),
                                                       "BP_RECONCILIATION_SHA256": hashlib.sha256(bad_rc.read_bytes()).hexdigest()}),
@@ -2440,7 +2440,7 @@ class StandingEnvelope(Journal):
     recurring approval. Every approval, grant, pin and checkpoint here is SYNTHETIC, supplied through test-only overrides; the production pin
     stays unset, so production derivation refuses."""
     GRANT = {"scope": "per-occurrence-start-take", "cases": I.ALL_CASES, "grantRef": "SYNTHETIC-NOT-A-GRANT"}
-    REF = "slack:1793553158.013909"  # the synthetic recurring approval's reference (test_nightly_request.approval)
+    REF = "slack:1000000008.000008"  # the synthetic recurring approval's reference (test_nightly_request.approval)
 
     def setUp(self):
         super().setUp()
@@ -2835,8 +2835,8 @@ class StandingEnvelope(Journal):
                 ("estimate requests", {"req": self.changed(lambda r: r["estimate"]["requests"].update(runCap=4401))}, "per-run"),
                 ("period ceiling", {"req": self.changed(lambda r: r["approvedLimits"].update(cumulativeCeilingRequests=131999))}, "period"),
                 ("approver", {"req": self.changed(lambda r: r["approvedLimits"].update(approvedBy="someone-else"))}, "reference"),
-                ("selection", {"req": self.changed(lambda r: r.update(selectionApprovalRef="slack:1793566031.065709"))}, "reference"),
-                ("standing ref", {"req": self.changed(lambda r: r["nightly"].update(standingApprovalRef="slack:1793566031.065709"))}, "reference")):
+                ("selection", {"req": self.changed(lambda r: r.update(selectionApprovalRef="slack:1000000017.000017"))}, "reference"),
+                ("standing ref", {"req": self.changed(lambda r: r["nightly"].update(standingApprovalRef="slack:1000000017.000017"))}, "reference")):
             with self.subTest(label):
                 refused(self, "action-approval-standing-" + code, self.derive, **kw)
 

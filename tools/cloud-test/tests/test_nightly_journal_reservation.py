@@ -134,7 +134,7 @@ class NightlyJournalReservation(Journal):
                                "atUtc": "2026-11-02T03:02:00Z"})
             self.assertTrue(admission(), "a global charge is never discounted: %s" % extra)
             self.append_event({"type": "release", "campaignId": "manual-other", "runId": run, "attempt": 1,
-                               "allocation": dict({k: 0 for k in W.CATS}, **extra), "provenance": "approval:slack-1793653087.495259",
+                               "allocation": dict({k: 0 for k in W.CATS}, **extra), "provenance": "approval:slack-1000000007.000007",
                                "atUtc": "2026-11-02T03:03:00Z"})
         self.assertEqual(admission(), [])
         self.append_event({"type": "reserve", "campaignId": self.req["runId"], "runId": "124", "attempt": 1, "allocation": held,
@@ -226,7 +226,7 @@ class SealedUsageNeverHidesAReservation(unittest.TestCase):
     def fold(self, entries, approval_over=None):
         from recurring_usage import usage
         ledger = RES.append(RES.empty(), {"event": "reserve", "runId": "nightly-x", "atUtc": "2026-11-02T03:01:00Z", "caps": dict(self.CAPS),
-                                          "requestConsumption": {}, "ref": "slack:1793553158.013909"})
+                                          "requestConsumption": {}, "ref": "slack:1000000008.000008"})
         ap = dict(json.loads(approval()), **(approval_over or {}))
         return usage(ap, {"entries": entries}, ledger, None)
 

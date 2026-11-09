@@ -38,8 +38,8 @@ class ManualReservation(Journal):
         request = json.loads(read(request_path("R7-full-coverage-proposal.json")))
         request["approvedLimits"]["runCapRequests"] = request["estimate"]["requests"]["runCap"]
         # the request's own approval references, which the action approval must name (init_run_inputs.check_action_approval)
-        request["approvedLimits"].update(approvalRef="slack:1793555433.084449", approvedBy="synthetic-owner")
-        request["selectionApprovalRef"] = "slack:1793555433.084449"
+        request["approvedLimits"].update(approvalRef="slack:1000000002.000002", approvedBy="synthetic-owner")
+        request["selectionApprovalRef"] = "slack:1000000002.000002"
         self.req = json.dumps(request, sort_keys=True).encode()
         self.sha = hashlib.sha256(self.req).hexdigest()
         self.scope = scope_raw()
@@ -498,10 +498,10 @@ class ManualReservation(Journal):
 
     def test_the_release_event_needs_never_started_and_an_approval(self):
         e = self.reserved()
-        self.refused("manual-release-run-started", M.release, e, True, "slack-1793556225.890759", AT)
-        self.refused("manual-release-run-started", M.release, e, None, "slack-1793556225.890759", AT)
+        self.refused("manual-release-run-started", M.release, e, True, "slack-1000000021.000021", AT)
+        self.refused("manual-release-run-started", M.release, e, None, "slack-1000000021.000021", AT)
         self.refused("manual-release-approval", M.release, e, False, "free text", AT)
-        self.assertEqual(M.release(e, False, "slack-1793556225.890759", AT)["allocation"], ALLOCATION)
+        self.assertEqual(M.release(e, False, "slack-1000000021.000021", AT)["allocation"], ALLOCATION)
 
     def test_the_activated_cli_still_refuses_unreadable_inputs(self):
         expected = {

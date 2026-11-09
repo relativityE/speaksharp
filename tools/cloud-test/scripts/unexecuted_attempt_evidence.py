@@ -345,7 +345,7 @@ def _check_shape(doc):
           and SHA40.match(str(ident["headSha"])), "unexecuted-identity")
     _need(isinstance(doc["workflowSha256"], str) and SHA64.match(doc["workflowSha256"]), "unexecuted-shape")
     _need(doc["accounting"] in ACCOUNTING, "unexecuted-shape")
-    _need(doc["dispositionRef"] is None or (isinstance(doc["dispositionRef"], str) and re.fullmatch(r"slack:\d+\.\d+", doc["dispositionRef"])),
+    _need(doc["dispositionRef"] is None or (isinstance(doc["dispositionRef"], str) and re.fullmatch(r"slack:\d+\.\d+|approval-[0-9a-f]{32}", doc["dispositionRef"])),
           "unexecuted-shape")
     _need(isinstance(doc["failedStep"], str) or doc["failedStep"] is None, "unexecuted-shape")     # null only for a pre-run failure (_rules)
     run = doc["run"]

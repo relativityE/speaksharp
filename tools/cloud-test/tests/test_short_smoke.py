@@ -331,7 +331,7 @@ class ShortSmokeContract(unittest.TestCase):
             bad_settle = lambda **over: chain[:2] + [node(settled_head, [reserve, dict(settle, **over)])]
             chain_refusals = [None, [], chain[:2], [node(root, []), node(settled_head, [reserve])],
                               bad_settle(type="release"), bad_settle(runId="41960376783"), bad_settle(attempt=2),
-                              bad_settle(provenance="approval:slack-1793814535.013849"),
+                              bad_settle(provenance="approval:slack-1000000022.000022"),
                               bad_settle(allocation=dict(settle["allocation"], runnerMinutes=41)),
                               [node("f" * 40, []), node(reserved_head, [reserve]), node(settled_head, [reserve, settle])],
                               chain[:2] + [node("b" * 40, [reserve, settle])]]

@@ -28,7 +28,7 @@ PARENT, HEAD = "a" * 40, "b" * 40
 
 
 def occurrence(template=TEMPLATE):
-    occ = I.materialize_smoke_occurrence(template, "2026-11-07T21:00:00Z", "slack:1794073342.879639", "slack:1794072158.779099", "Akin",
+    occ = I.materialize_smoke_occurrence(template, "2026-11-07T21:00:00Z", "slack:1000000004.000004", "slack:1000000005.000005", "product-owner",
                                          template["release"]["testedSha"], template["release"]["backend"]["sha"], ["AHT-01"])
     return occ, json.dumps(occ, sort_keys=True, separators=(",", ":")).encode()
 
@@ -36,7 +36,7 @@ def occurrence(template=TEMPLATE):
 def accepted_rollup():
     """The accepted-rollup checkpoint shape (accounting_rollup.checkpoint_bytes), as the occurrence route places it."""
     return {"source": "accepted-rollup", "headSha": PARENT, "root": "92d6ebf902351750c368d7d513116c6b1f19f80c",
-            "scopeApprovalRef": "slack:1794072158.779099",
+            "scopeApprovalRef": "slack:1000000005.000005",
             "requests": {"conservativeUsed": 6136, "ownerCounted": 6136}, "identityReads": {"conservativeUsed": 96, "ownerCounted": 96},
             "starts": {"ownerCounted": 48}, "takes": {"ownerCounted": 48},
             "period": {"requests": 6136, "identityReads": 96, "starts": 48, "takes": 48, "coachingRequests": 60, "runnerMinutes": 153},

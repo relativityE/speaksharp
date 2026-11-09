@@ -1,6 +1,6 @@
 {
  "sourceSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
- "note": "Exact lines of the tested release that define where ui.reopen lands (Sam 1794104563). Each line is verbatim; line numbers are 1-based.",
+ "note": "Exact lines of the tested release that define where ui.reopen lands. Each line is verbatim; line numbers are 1-based.",
  "files": {
   "frontend/src/components/AnalyticsDashboard.tsx": {
    "blobSha": "0c5edec2e38fcf61d14953e64481d568238d8a97",

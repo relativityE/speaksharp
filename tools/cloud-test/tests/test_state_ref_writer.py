@@ -16,7 +16,7 @@ import state_ref_writer as W
 
 REF = W.STATE_REF
 CAPS = {"requests": 800, "identityReads": 20, "starts": 6, "takes": 4, "coachingRequests": 5, "runnerMinutes": 340}
-APPROVAL = "approval:slack-1793548444.540999"
+APPROVAL = "approval:slack-1000000009.000009"
 TEST_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@invalid"}
 
 

@@ -42,7 +42,7 @@ test('exercised points are exactly the window-scored ones of focusWindowVerdict,
   assert.deepEqual([r.exercisedOrdinals, r.unexercisedOrdinals, r.errors], [[1, 2], [3, 4], []]);
 });
 
-test("Sam's reproduction: an unknown in-window rail, its missing evidence and missing review ordinal FAIL, never 'unexercised'", () => {
+test("reproduction: an unknown in-window rail, its missing evidence and missing review ordinal FAIL, never 'unexercised'", () => {
   const input = shortWindow({ expected: rails(['covered', 'BROKEN', 'pending', 'pending']),
                               evidence: shortWindow().evidence.filter(e => e.brief_point_id !== 'p1'),
                               visibleEvidence: ['Detected: point 1 at 0:05.', 'Not detected: point 3, point 4.'] });

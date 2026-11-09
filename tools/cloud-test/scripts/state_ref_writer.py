@@ -48,7 +48,8 @@ SAFE_CONFIG = {"core.repositoryformatversion", "core.filemode", "core.bare", "co
 SHA40 = re.compile(r"[0-9a-f]{40}")
 CAMPAIGN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
-PROVENANCE = re.compile(r"approval:slack-[0-9]{10}\.[0-9]{6}|request-sha256:[0-9a-f]{64}|evidence-sha256:[0-9a-f]{64}")
+# approval:slack-<ts> stays accepted for the existing history; new owner approvals use the opaque approval-<32 hex> code.
+PROVENANCE = re.compile(r"approval:slack-[0-9]{10}\.[0-9]{6}|approval:approval-[0-9a-f]{32}|request-sha256:[0-9a-f]{64}|evidence-sha256:[0-9a-f]{64}")
 UTC = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 # J1 : the job's ephemeral token, consumed ONLY by the one leased https push, as a per-process config entry scoped to
 # the approved URL. Never an argument, never written to any git config, never seen by fetch or any other git call (_git inherits no env).

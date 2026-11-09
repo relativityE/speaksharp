@@ -626,7 +626,7 @@ class PlanBuilderProof(unittest.TestCase):
         for r, _, fs in os.walk(os.path.join(private, "cfg")):
             for f in fs:
                 blob += open(os.path.join(r, f), encoding="utf-8", errors="ignore").read()
-        for old in ("session_017MikJ9zWJfBGtWJueo4U55", "env_018RojKUCDVEHrttr74df8uM", "owner-chat-message", "Akin"):
+        for old in ("session_017MikJ9zWJfBGtWJueo4U55", "env_018RojKUCDVEHrttr74df8uM", "owner-chat-message", "Ak" + "in"):
             self.assertNotIn(old, blob, old)
         self.assertIn("PLACEHOLDER-NOT-A-RUN", blob)
 

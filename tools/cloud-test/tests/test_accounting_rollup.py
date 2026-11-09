@@ -43,7 +43,7 @@ def bootstrap(**over):
     """Historical usage only: no period, no ceiling. Coaching and runner minutes are unknown (null), never 0."""
     doc = {"schema": R.SCHEMA, "asOfUtc": "2026-11-01T17:00:00Z", "sourceRecords": [SHA_REF],
            "usage": {"requests": 7956, "identityReads": 122, "starts": 64, "takes": 38, "coachingRequests": None, "runnerMinutes": None},
-           "authority": {"approvalRef": "slack:1793553421.029269", "expired": True},
+           "authority": {"approvalRef": "slack:1000000001.000001", "expired": True},
            "unresolved": [{"kind": "diagnostic", "ref": "sha256:" + "b" * 64, "disposition": "MEASURED",
                            "usage": {"requests": 40, "identityReads": 2, "starts": 1, "takes": 0, "coachingRequests": 0, "runnerMinutes": 12}}]}
     doc.update(over)
@@ -64,7 +64,7 @@ def bounded_bootstrap(items=None, results=None, source_records=None, **over):
 
 def scope(**over):
     """An explicitly approved period scope (synthetic): its own period, ceilings and carryover rule."""
-    s = {"schema": R.SCOPE_SCHEMA, "approvalRef": "slack:1793555433.084449", "periodStartUtc": "2026-11-02T00:00:00Z",
+    s = {"schema": R.SCOPE_SCHEMA, "approvalRef": "slack:1000000002.000002", "periodStartUtc": "2026-11-02T00:00:00Z",
          "periodEndUtc": "2026-12-02T00:00:00Z", "carryover": "none",
          "ceilings": {"requests": 12000, "protectedReserveRequests": 300, "identityReads": 200, "starts": 120, "takes": 80}}
     s.update(over)
@@ -101,7 +101,7 @@ class Journal(unittest.TestCase):
     def chain(self):
         return W.validate_chain(self.repo, W.fetch_head(self.repo, self.remote, self.remote), self.root)
 
-    def append(self, kind, run, allocation, at="2026-11-02T04:00:00Z", provenance="approval:slack-1793553421.029269", campaign="R10-manual"):
+    def append(self, kind, run, allocation, at="2026-11-02T04:00:00Z", provenance="approval:slack-1000000001.000001", campaign="R10-manual"):
         head = W.fetch_head(self.repo, self.remote, self.remote)
         e = {"type": kind, "campaignId": campaign, "runId": run, "attempt": 1, "allocation": dict(allocation),
              "provenance": provenance, "atUtc": at}

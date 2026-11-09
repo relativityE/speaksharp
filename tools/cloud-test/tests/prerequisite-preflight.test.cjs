@@ -34,7 +34,7 @@ function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'prereq-'))); t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   fs.chmodSync(root, 0o700);
   const facts = path.join(root, 'input.json');
-  fs.writeFileSync(facts, JSON.stringify({ownerApprovalReference: 'slack:approval', approvedBy: 'PO', reviewer: 'Sam',
+  fs.writeFileSync(facts, JSON.stringify({ownerApprovalReference: 'slack:approval', approvedBy: 'product-owner', reviewer: 'release-reviewer',
     producerReviewReference: 'github:producer-review', receipts: {pre: 'missing:pre', rls: 'missing:rls', analytics: 'missing:analytics',
       disp: 'slack:owner-disposition', fence: 'slack:fence-current', review: 'github:review-current'},
     accounts: {'existing-disposable': {idSha256: 'FIRST-DISCOVERY', historyRef: 'first-observation:existing-disposable@R10-3b040043-smoke15'},

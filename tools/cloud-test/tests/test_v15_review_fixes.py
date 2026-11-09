@@ -1007,7 +1007,7 @@ class ReviewedFeaturesReachRegressionWithoutABug(unittest.TestCase):
                                                         "FEAT-OWNER-GOAL-UPDATE", "FEAT-PCM-BOUNDARY-RECEIPTS",
                                                         "FEAT-REPLACEABLE-COACHING-ADAPTER"])
         self.assertTrue(all(f["review"]["outcome"] == "approved" for f in features))
-        self.assertEqual(features[0]["review"]["reviewedBy"], "Sam (independent Codex source review)")
+        self.assertEqual(features[0]["review"]["reviewedBy"], "independent reviewer (Codex source review)")
         self.assertEqual(features[0]["review"]["reviewRef"],
                          "codex-source-review:0d1047f31d5ddde09a90081c613a92307df83682:FEAT-R5-OBJECTIVE-PUBLICATION")
         goal = next(f for f in features if f["id"] == "FEAT-OWNER-GOAL-UPDATE")

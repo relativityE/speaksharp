@@ -21,7 +21,7 @@ SIZED = {"requests": 450 + 4, "identityReads": 4, "starts": 2, "takes": 2}
 
 
 def occurrence(template=TEMPLATE):
-    occ = I.materialize_smoke_occurrence(template, "2026-11-07T17:00:00Z", "slack:1794063978.986369", "slack:1794063978.986369", "Akin",
+    occ = I.materialize_smoke_occurrence(template, "2026-11-07T17:00:00Z", "slack:1000000006.000006", "slack:1000000006.000006", "product-owner",
                                          template["release"]["testedSha"], template["release"]["backend"]["sha"], ["AHT-01"])
     raw = json.dumps(occ, sort_keys=True, separators=(",", ":")).encode()
     return raw, hashlib.sha256(raw).hexdigest()

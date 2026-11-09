@@ -29,7 +29,7 @@ class AggregateReceiver(unittest.TestCase):
         self.request, self.ledger = approved(fixture["req"], fixture["ledger"])
         self.config, self.workflow = copy.deepcopy(fixture["cfg"]), copy.deepcopy(fixture["wf"])
         self.request["release"]["testedSha"] = "a" * 40
-        self.request["approvedLimits"] = {**(self.request.get("approvedLimits") or {}), "approvalRef": "slack-1793000000.000001"}
+        self.request["approvedLimits"] = {**(self.request.get("approvedLimits") or {}), "approvalRef": "slack-1000000003.000003"}
         labels = [p["label"] for p in self.request["priorRuns"]]
         configured = {r["label"]: r["receiptsManifestSha256"] for r in self.config["history"]["runs"]}
         rc = reconciliation()
