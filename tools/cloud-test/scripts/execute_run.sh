@@ -90,7 +90,7 @@ if [ "$STAGE" = run-as-root ]; then
       fi
       trusted="$checkout"
     fi
-    if [ "$(rootgit -C "$checkout" rev-parse --show-toplevel 2>/dev/null)" != "$checkout" ]; then
+    if [ "$(rootgit -C "$checkout" rev-parse --show-toplevel)" != "$checkout" ]; then
       echo "BLOCKED_SETUP: the tested checkout is not a work tree root git accepts; the stage did not run" >&2
       restore || exit 78
       exit 78
