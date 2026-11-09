@@ -492,7 +492,18 @@ export class TransformersJSEngine extends STTEngine {
         this.activeLoadRequestId = null;
         this.runtimeEvidence = null;
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Destroying engine resources...');
+        // Elon's review of 12552563: release the published main-thread pipeline, not only the reference to it. A failed dispose is
+        // logged and never fails the teardown (the reference is gone either way).
+        const published = this.transcriber as { dispose?: () => Promise<unknown> } | null;
         this.transcriber = null;
+        if (published) {
+            try {
+                await published.dispose?.();
+            } catch (disposeError) {
+                logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
+                    '[TransformersJS] Disposing the main-thread pipeline at teardown failed.');
+            }
+        }
         if (this.worker) {
             try {
                 await this.sendWorkerRequest({ type: 'destroy' });

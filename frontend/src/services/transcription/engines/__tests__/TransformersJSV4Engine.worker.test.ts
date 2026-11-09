@@ -470,6 +470,25 @@ describe('TransformersJSV4Engine worker message contract', () => {
         });
     });
 
+    // Independent review of 12552563 (P3): v4's progress floor survived teardown, so a re-init of the same engine reported no
+    // worker progress until it passed the previous run's highest value (none at all after a run that reached 100).
+    it('v4: a re-init reports worker progress from the start again', async () => {
+        (globalThis as { Worker?: unknown }).Worker = undefined;
+        const onModelLoadProgress = vi.fn();
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onModelLoadProgress, onTranscriptUpdate: vi.fn() });
+        const report = (value: number) => (engine as unknown as { reportModelProgress(p: number): void }).reportModelProgress(value);
+        report(100);
+        expect(onModelLoadProgress).toHaveBeenCalledWith(100);
+        await engine.destroy();
+        mockPipeline.mockResolvedValueOnce(Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) }));
+        expect((await engine.init()).isOk).toBe(true);
+        onModelLoadProgress.mockClear();
+        report(40);
+        expect(onModelLoadProgress).toHaveBeenCalledWith(40);
+        await engine.destroy();
+    });
+
     // Sam's review of c1585147: two races the post-pipeline fence alone missed, on both engines.
     // (1) A teardown inside the earlier `import(...)` await let the stale attempt capture the NEW generation, pass the
     //     fence and publish over the successor. (2) A stale load failing late ran the shared failure cleanup, tearing
@@ -629,6 +648,28 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 await destroying;
                 expect((await stale).isOk).toBe(false);
                 expect(onReady).not.toHaveBeenCalled();
+            });
+
+            // Elon's review of 12552563 (P3): teardown released the published main-thread pipeline by dropping the reference only.
+            it(`${name}: teardown disposes the published main-thread pipeline, and a failing dispose does not fail teardown`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine;
+                const engine = new Ctor({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+                const published = pipe();
+                mock.mockResolvedValueOnce(published);
+                expect((await engine.init()).isOk).toBe(true);
+                await engine.destroy();
+                expect(published.dispose).toHaveBeenCalledTimes(1);
+                expect((engine as unknown as { transcriber: unknown }).transcriber).toBeNull();
+                const failing = Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => { throw new Error('dispose failed'); }) });
+                mock.mockResolvedValueOnce(failing);
+                expect((await engine.init()).isOk).toBe(true);
+                await expect(engine.destroy()).resolves.toBeUndefined();
+                expect(failing.dispose).toHaveBeenCalledTimes(1);
+                mock.mockResolvedValueOnce(pipe());
+                expect((await engine.init()).isOk).toBe(true); // a failed dispose leaves no sticky teardown failure
+                await engine.destroy();
             });
 
             // Elon's review of c1585147: a teardown during the post-publish warm-up.

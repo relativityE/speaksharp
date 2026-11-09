@@ -151,6 +151,8 @@ export class TransformersJSV4Engine extends STTEngine {
         const generation = this.lifecycleGeneration;
         const superseded = () => generation !== this.lifecycleGeneration || this.isTerminated;
         const cancelled = () => Result.err(new Error('[TransformersJSV4] init cancelled by destroy/terminate.'));
+        // Independent review of 12552563: each init reports its own download from the start; the previous run's floor never carries over.
+        this.lastModelProgress = -1;
         const options = (this.options || {}) as TranscriptionModeOptions;
         // v4 model TIER (Option B): the flag-gated resolver picks the variant
         // (base_q4 floor / distil_q4 tier) and PrivateSTT threads it via options.
@@ -384,7 +386,18 @@ export class TransformersJSV4Engine extends STTEngine {
         this.activeLoadRequestId = null;
         this.runtimeEvidence = null;
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJSV4] Destroying engine resources...');
+        // Elon's review of 12552563: release the published main-thread pipeline, not only the reference to it. A failed dispose is
+        // logged and never fails the teardown (the reference is gone either way).
+        const published = this.transcriber as { dispose?: () => Promise<unknown> } | null;
         this.transcriber = null;
+        if (published) {
+            try {
+                await published.dispose?.();
+            } catch (disposeError) {
+                logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
+                    '[TransformersJSV4] Disposing the main-thread pipeline at teardown failed.');
+            }
+        }
         if (this.worker) {
             try {
                 await this.sendWorkerRequest({ type: 'destroy' });
