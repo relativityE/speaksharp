@@ -53,6 +53,24 @@ not claim to prove the public upgrade button. Duplicate/out-of-order webhook
 controls remain separate handler/DB evidence. Account deletion, actual microphone
 hardware, live activation and rollback remain separate acceptance obligations.
 
+### Broader paid acceptance remains separate and NOT PROVEN
+
+This sandbox family is not full `PAID-01` or `PAID-04` acceptance. The
+[requirements traceability matrix](../../../tools/cloud-test/harness/run-packet/requirements-traceability.matrix.json)
+requires the same genuinely paid identity to continue through successful grounded
+coaching, a deliberate same-target linked repeat, honest target-specific comparison,
+and returning-user readback, with the linked COACH-01, VALUE-01 and applicable human
+observations. This suite ends its conversion branch at a paid recording/save and does
+not implement or count those later outcomes. Test-mode Stripe is not Production paid
+proof. Supported Open Mic/Focus paid entitlement still needs its applicable coverage.
+
+`PAID-04` additionally requires the intended credential pair to remain atomic,
+verified auth/profile/entitlement identity, HOLD before mutation for missing, partial
+or ambiguous credentials, no password/signup fallback, and a truthful mutated outcome
+when post-write verification fails. Disposable sandbox credentials are not a substitute
+for that current identity-consumer acceptance. Both broader requirements remain
+NOT PROVEN by this draft, regardless of any future sandbox-family PASSED receipts.
+
 ## Review and offline checks
 
 Use the repository's supported Node and pnpm versions and host interlock:
