@@ -349,6 +349,40 @@ def identity(checks, cfg):
     return {"fileSet": file_set, "pins": pins, "externalInputs": external_inputs(), "environment": environment(), "git": git_diagnostic()}
 
 
+TEST_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}(?:\.[A-Za-z_][A-Za-z0-9_]{0,199}){1,4}")
+FIXTURE_ID = re.compile(r"(?:setUpClass|tearDownClass|setUpModule|tearDownModule) \(([A-Za-z_][A-Za-z0-9_.]{0,250})\)")
+
+
+def failed_test_lines(check):
+    """One closed line per failed or errored test of a suite check: the test's code identifier (module.Class.method) and the outcome
+    category, from the structured records (never from text). Subtest parameters, tracebacks, messages and paths are never printed; an
+    identifier outside the closed form is counted, not printed."""
+    results = check.get("results") if isinstance(check, dict) else None
+    if not isinstance(results, dict):
+        return ["FAILED-TEST %s results unavailable" % check.get("id")] if isinstance(check, dict) and check.get("passed") is not True else []
+    lines, unprintable = [], 0
+    for t in results.get("tests") or []:
+        if not isinstance(t, dict):
+            continue
+        bad = [o for o in (t.get("outcomes") or []) + (t.get("subtests") or []) if o in ("failure", "error", "unexpectedSuccess")]
+        if not bad:
+            continue
+        if isinstance(t.get("id"), str) and TEST_ID.fullmatch(t["id"]):
+            lines.append("FAILED-TEST %s %s [%s]" % (check["id"], t["id"], "error" if "error" in bad else "failure"))
+        else:
+            unprintable += 1
+    for fx in results.get("fixtures") or []:
+        if isinstance(fx, dict) and fx.get("outcome") in ("failure", "error"):
+            m = FIXTURE_ID.fullmatch(str(fx.get("description")))
+            if m:
+                lines.append("FAILED-TEST %s %s [fixture-%s]" % (check["id"], m.group(1), fx["outcome"]))
+            else:
+                unprintable += 1
+    if unprintable:
+        lines.append("FAILED-TEST %s %d failed test(s) with an unprintable identifier" % (check["id"], unprintable))
+    return lines
+
+
 def command_check(name, cmd, env):
     """Keep actual child outcomes, including output needed to diagnose a failed run."""
     try:
@@ -456,6 +490,9 @@ def main():
         print("OFFLINE_CHECKS_REPORT_WRITE_FAILED: " + type(error).__name__, file=sys.stderr)
     for c in checks:
         print(("PASS " if c["passed"] is True else "FAIL ") + c["id"])
+        if c["passed"] is not True and c["id"] in SUITE_DIRS:
+            for line in failed_test_lines(c):
+                print(line)
     return 0 if written and out["passed"] else 1
 
 
