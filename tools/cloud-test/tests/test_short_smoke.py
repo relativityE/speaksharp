@@ -412,10 +412,15 @@ class ShortSmokeContract(unittest.TestCase):
                     manual_occurrence_file=str(occurrence_file), manual_occurrence_sha256=request_sha,
                     workflow_start_utc=start, nightly_request_file=None, nightly_request_sha256=None,
                     facts=json.dumps(nonsecret_facts), run_id=run_id, attempt=1, source_sha=source_sha,
-                    job_timeout_minutes=85, case10_observation=None)
+                    job_timeout_minutes=60, case10_observation=None)
+                # #1788 review: the dispatch's job bound is the occurrence's reserved runner minutes (60), never a larger constant.
                 with mock.patch.object(init, "state_chain", return_value=chain), \
                         mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": json.dumps(bundle),
                                                      "SUPABASE_URL": SUPABASE_URL_OK}):
+                    for wrong in (85, 59):
+                        with self.assertRaisesRegex(init.Refused, "job-timeout-not-the-reserved-runner-minutes"):
+                            init.prepare(SimpleNamespace(**dict(vars(args), job_timeout_minutes=wrong)),
+                                         datetime(2026, 11, 8, 16, 5, 0, tzinfo=timezone.utc))
                     prepared = init.prepare(args, datetime(2026, 11, 8, 16, 5, 0, tzinfo=timezone.utc))
                 self.assertEqual(prepared["requestSha256"], request_sha)
                 self.assertEqual(prepared["liveMinutes"], 31)

@@ -123,6 +123,24 @@ class GrantBinding(unittest.TestCase):
         cases = I.check_request(occ, datetime(2026, 11, 8, 16, 10, tzinfo=timezone.utc), I._request_keys())
         self.assertEqual(cases, ["AHT-01"])
         self.assertEqual(I.check_ceilings(CFG, occ, cases, 85), 31)
+
+    def test_the_one_case_job_is_bounded_by_its_reserved_runner_minutes(self):
+        """#1788 review: an 85-minute dispatch job exceeded the one-case occurrence's 60-minute runner reservation. The job bound is that
+        reservation exactly (the workflow derives it from the occurrence), and the one case's setup, live and collect fit inside it."""
+        occ = I.materialize_authoritative_smoke_occurrence(REPO, REQUEST, "2026-11-08T16:10:00Z")
+        reserved = occ["estimate"]["githubRunnerMinutesMax"]
+        self.assertEqual(reserved, 60)
+        I.check_job_bound(occ, reserved)
+        live = I.check_ceilings(CFG, occ, ["AHT-01"], reserved)
+        self.assertLessEqual(I.SETUP_RESERVE_MINUTES + live + I.COLLECT_RESERVE_MINUTES, reserved)
+        for wrong in (85, 61, 59, None, "60"):
+            with self.subTest(wrong=wrong), self.assertRaisesRegex(I.Refused, "job-timeout-not-the-reserved-runner-minutes"):
+                I.check_job_bound(occ, wrong)
+        for bad in (None, 0, 361, "60", True):
+            broken = copy.deepcopy(occ)
+            broken["estimate"]["githubRunnerMinutesMax"] = bad
+            with self.subTest(bad=bad), self.assertRaisesRegex(I.Refused, "job-timeout-not-the-reserved-runner-minutes"):
+                I.check_job_bound(broken, 60)
         self.assertEqual(C.request_caps(occ, execution=True), ("smoke", {"AHT-01": 2}))
         with self.assertRaisesRegex(I.Refused, "one-off-grant-selection-differs"):
             I.one_off_grant(REPO, None, "2026-11-08T16:10:00Z", selection=["AHT-01", "AHT-02"])

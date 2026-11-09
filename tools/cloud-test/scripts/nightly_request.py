@@ -96,7 +96,8 @@ JOB_TIMEOUT = re.compile(r"^  ([A-Za-z0-9_-]+):\n(?:(?!^  \S).*\n)*?^    timeout
 # This only verifies the workflow's manual-vs-scheduled selector; it never dispatches a workflow.
 # Keep the event name assembled so the package boundary scan can reserve the complete token for actual dispatch code.
 MANUAL_EVENT = "workflow_" + "dispatch"
-SPLIT_LIVE_TIMEOUT = "${{ fromJSON(github.event_name == '%s' && '85' || '340') }}" % MANUAL_EVENT
+SPLIT_LIVE_TIMEOUT = ("${{ fromJSON(github.event_name == '%s' && needs.record-begin.outputs.manual_runner_minutes || '340') }}"
+                      % MANUAL_EVENT)
 
 
 def workflow_job_timeouts(text):
@@ -107,7 +108,7 @@ def workflow_job_timeouts(text):
         if raw.isdecimal():
             found[name] = int(raw)
         elif name == "live" and raw == SPLIT_LIVE_TIMEOUT:
-            found[name] = 340  # scheduled/nightly arm; manual dispatch is 85 (60-minute R10 signal run)
+            found[name] = 340  # scheduled/nightly arm; a manual dispatch is bounded by its occurrence's reserved runner minutes
         else:
             raise Refused("nightly-workflow-timeouts")
     _need(found and {"nightly-gate", "record-begin", "live", "record-complete"} <= set(found), "nightly-workflow-timeouts")

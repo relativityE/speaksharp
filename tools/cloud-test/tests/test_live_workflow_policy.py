@@ -632,9 +632,23 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_job_timeout_is_the_one_prepare_checks_and_the_run_step_is_bounded_to_the_live_minutes(self):
         live = self.jobs["live"]
-        self.assertEqual(live["timeout-minutes"], "${{ fromJSON(github.event_name == 'workflow_dispatch' && '85' || '340') }}")
+        # #1788 review: a dispatch's job timeout is its occurrence's reserved runner minutes (an 85-minute constant exceeded a 60-minute
+        # reservation). record-begin derives it once from the occurrence, and the gate, journal-reserve and prepare all check that bound.
+        self.assertEqual(live["timeout-minutes"],
+                         "${{ fromJSON(github.event_name == 'workflow_dispatch' && needs.record-begin.outputs.manual_runner_minutes || '340') }}")
         init = next(s for s in live["steps"] if s.get("id") == "init")
-        self.assertEqual(init["env"]["JOB_TIMEOUT_MINUTES"], "${{ github.event_name == 'workflow_dispatch' && '85' || '340' }}")
+        self.assertEqual(init["env"]["JOB_TIMEOUT_MINUTES"],
+                         "${{ github.event_name == 'workflow_dispatch' && needs.record-begin.outputs.manual_runner_minutes || '340' }}")
+        self.assertEqual(self.jobs["record-begin"]["outputs"]["manual_runner_minutes"], "${{ steps.manual-occurrence.outputs.runner_minutes }}")
+        occ = next(s for s in self.jobs["record-begin"]["steps"] if s.get("id") == "manual-occurrence")["run"]
+        self.assertIn('cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" estimate.githubRunnerMinutesMax)"', occ)
+        self.assertIn("BLOCKED_SETUP: reserved-runner-minutes", occ)
+        self.assertIn('--job-timeout-minutes "$runner_minutes"', occ)
+        self.assertLess(occ.index("estimate.githubRunnerMinutesMax"), occ.index("occurrence-check"))
+        reserve = next(s for s in self.jobs["journal-reserve"]["steps"] if "CT_STATE_PUSH_TOKEN" in (s.get("env") or {}))
+        self.assertEqual(reserve["env"]["MANUAL_RUNNER_MINUTES"], "${{ needs.record-begin.outputs.manual_runner_minutes }}")
+        self.assertIn('--job-timeout-minutes "$MANUAL_RUNNER_MINUTES"', reserve["run"])
+        self.assertNotRegex(self.text, r"job-timeout-minutes [0-9]|'85'")
         self.assertIn('--job-timeout-minutes "$JOB_TIMEOUT_MINUTES" ', init["run"])
         run = next(s for s in live["steps"] if s.get("run", "").strip() == "bash tools/cloud-test/scripts/execute_run.sh run")
         self.assertEqual(run["timeout-minutes"], "${{ fromJSON(steps.init.outputs.live_minutes) }}")

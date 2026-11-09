@@ -640,6 +640,14 @@ def check_ceilings(cfg, req, cases, job_timeout_minutes):
     return live
 
 
+def check_job_bound(req, job_timeout_minutes):
+    """#1788 review: a manual dispatch's job timeout IS its occurrence's reserved runner minutes (the workflow derives it from the
+    occurrence), so the live job can never outlast what the journal reserves for it. A different bound refuses before any write."""
+    reserved = (req.get("estimate") or {}).get("githubRunnerMinutesMax")
+    _need(_int(reserved) and 0 < reserved <= HOSTED_JOB_CAP_MINUTES and job_timeout_minutes == reserved,
+          "job-timeout-not-the-reserved-runner-minutes")
+
+
 def check_window_fit(req, now, live_minutes):
     """The whole job (setup + live + collect) must finish before the approved window closes, not merely start inside it."""
     end = _utc(req["window"]["endUtc"])
@@ -1240,6 +1248,8 @@ def prepare(x, now):
     req, cfg, template_keys = json.loads(req_raw), _load(os.path.join(repo, x.config)), _request_keys()
     cases = check_request(req, now, template_keys, nightly)
     route = "github-producer" if set(cases) & PRODUCER_CASES else "github-direct"
+    if manual_occurrence:
+        check_job_bound(req, x.job_timeout_minutes)
     live_minutes = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
     check_window_fit(req, now, live_minutes)
     deadline = execution_deadline(req, now, live_minutes)
@@ -2438,6 +2448,7 @@ def main(argv):
             req = json.loads(raw)
             cases = check_request(req, datetime.now(timezone.utc), _request_keys())
             cfg = _load(os.path.join(repo, x.config))
+            check_job_bound(req, x.job_timeout_minutes)
             live = check_ceilings(cfg, req, cases, x.job_timeout_minutes)
             check_window_fit(req, datetime.now(timezone.utc), live)
             return 0

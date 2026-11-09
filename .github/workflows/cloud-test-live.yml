@@ -117,6 +117,8 @@ jobs:
       manual_occurrence_sha256: ${{ steps.manual-occurrence.outputs.occurrence_sha256 }}
       manual_occurrence_b64: ${{ steps.manual-occurrence.outputs.occurrence_b64 }}
       manual_workflow_start_utc: ${{ steps.manual-occurrence.outputs.workflow_start_utc }}
+      # The occurrence's reserved runner minutes: the one bound for the dispatch's live job (its timeout) and every timing check before it.
+      manual_runner_minutes: ${{ steps.manual-occurrence.outputs.runner_minutes }}
       # The closed evidence of a reserved attempt that did not execute, retired in this job (empty when none was); journal-reserve settles its
       # reservation from exactly these bytes, bound by the digest.
       unexecuted_evidence_sha256: ${{ steps.begin.outputs.unexecuted_evidence_sha256 }}
@@ -159,6 +161,7 @@ jobs:
             echo 'occurrence_sha256=' >> "$GITHUB_OUTPUT"
             echo 'occurrence_b64=' >> "$GITHUB_OUTPUT"
             echo 'workflow_start_utc=' >> "$GITHUB_OUTPUT"
+            echo 'runner_minutes=' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           case "$MANUAL_REQUEST" in tools/cloud-test/config/runs/*.json) ;; *) echo 'BLOCKED_SETUP: request-not-in-the-reviewed-request-location'; exit 78 ;; esac
@@ -168,15 +171,20 @@ jobs:
           python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-materialize --repo "$GITHUB_WORKSPACE" \
             --request "$MANUAL_REQUEST" --facts "$MANUAL_FACTS" --workflow-start-utc "$workflow_start_utc" \
             --source-sha "$GITHUB_SHA" --out "$RUNNER_TEMP/manual-occurrence.json"
+          # #1788 review: the live job's timeout is the occurrence's reserved runner minutes, never a larger constant, so the job can
+          # never run past what the journal reserves for it. Every timing check below uses that same bound.
+          runner_minutes="$(python3 -I tools/cloud-test/scripts/cfg_get.py "$RUNNER_TEMP/manual-occurrence.json" estimate.githubRunnerMinutesMax)"
+          [[ "$runner_minutes" =~ ^[1-9][0-9]{0,2}$ ]] && [ "$runner_minutes" -le 360 ] || { echo 'BLOCKED_SETUP: reserved-runner-minutes'; exit 78; }
           MANUAL_OCCURRENCE_SHA256="$(sha256sum "$RUNNER_TEMP/manual-occurrence.json" | cut -d' ' -f1)"
           python3 -I tools/cloud-test/scripts/init_run_inputs.py occurrence-check --repo "$GITHUB_WORKSPACE" \
             --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
             --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
             --facts "$MANUAL_FACTS" --workflow-start-utc "$workflow_start_utc" \
-            --source-sha "$GITHUB_SHA" --job-timeout-minutes 85
+            --source-sha "$GITHUB_SHA" --job-timeout-minutes "$runner_minutes"
           echo "occurrence_sha256=$MANUAL_OCCURRENCE_SHA256" >> "$GITHUB_OUTPUT"
           echo "occurrence_b64=$(base64 < "$RUNNER_TEMP/manual-occurrence.json" | tr -d '\n')" >> "$GITHUB_OUTPUT"
           echo "workflow_start_utc=$workflow_start_utc" >> "$GITHUB_OUTPUT"
+          echo "runner_minutes=$runner_minutes" >> "$GITHUB_OUTPUT"
       - name: Can this dispatch start now (exact-head proof green; the reserve admissible at the journal head) before any record mutation
         # Consultant P1-5 and P2-3: a dispatch on a head whose CI proof is not green, or whose reserve would be refused (grant consumed or
         # expired, checkpoint, headroom, action approval), stops HERE with no record comment and no journal event. Read-only throughout.
@@ -380,6 +388,7 @@ jobs:
           MANUAL_OCCURRENCE_SHA256: ${{ needs.record-begin.outputs.manual_occurrence_sha256 }}
           MANUAL_OCCURRENCE_B64: ${{ needs.record-begin.outputs.manual_occurrence_b64 }}
           MANUAL_WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
+          MANUAL_RUNNER_MINUTES: ${{ needs.record-begin.outputs.manual_runner_minutes }}
           UNEXECUTED_EVIDENCE_SHA256: ${{ needs.record-begin.outputs.unexecuted_evidence_sha256 }}
           UNEXECUTED_EVIDENCE_B64: ${{ needs.record-begin.outputs.unexecuted_evidence_b64 }}
           CT_STATE_PUSH_TOKEN: ${{ github.token }}
@@ -411,7 +420,7 @@ jobs:
               --config tools/cloud-test/config/test-config.v1.json --request "$MANUAL_REQUEST" \
               --manual-occurrence-file "$RUNNER_TEMP/manual-occurrence.json" --manual-occurrence-sha256 "$MANUAL_OCCURRENCE_SHA256" \
               --facts "$MANUAL_FACTS" --workflow-start-utc "$MANUAL_WORKFLOW_START_UTC" \
-              --source-sha "$GITHUB_SHA" --job-timeout-minutes 85
+              --source-sha "$GITHUB_SHA" --job-timeout-minutes "$MANUAL_RUNNER_MINUTES"
             (umask 077; printf '%s' "$MANUAL_FACTS" > "$RUNNER_TEMP/manual-facts.json")
             python3 -I tools/cloud-test/scripts/manual_reservation.py reserve --journal "$RUNNER_TEMP/reserve-journal" \
               --out "$RUNNER_TEMP/reserve-receipt.json" --request "$RUNNER_TEMP/manual-occurrence.json" --admitted-sha256 "$MANUAL_OCCURRENCE_SHA256" \
@@ -441,9 +450,10 @@ jobs:
     # PO decision : the existing repository Secrets are the single stored source, read by reference here; nothing is
     # duplicated, regenerated or copied. Protected main, the protected environment's rules, this job's read-only permission and the
     # isolated writer jobs are unchanged.
-    # Manual R10 smoke watchdog: 15 minutes setup + 40 minutes live ceiling + 10 minutes collection/settlement. These are admission bounds,
-    # not measured runtime. The separately owned scheduled lane retains its existing outer watchdog until measured full-depth timings replace it.
-    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '85' || '340') }}
+    # A dispatch's watchdog is its occurrence's reserved runner minutes (#1788 review: an 85-minute constant exceeded a 60-minute
+    # reservation). prepare refuses unless 15 minutes setup + the live minutes + 10 minutes collection fit inside it, so the job is killed
+    # no later than the reservation ends. The separately owned scheduled lane retains its existing outer watchdog.
+    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && needs.record-begin.outputs.manual_runner_minutes || '340') }}
     permissions:
       contents: read
     env:
@@ -624,7 +634,7 @@ jobs:
           # observe step hands them, with the bundle's account id and email, to case10_reader's own subprocess and to nothing else.
           CT_CASE10_PASSWORD: ${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}
           CT_CASE10_ANON_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}
-          JOB_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && '85' || '340' }}
+          JOB_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && needs.record-begin.outputs.manual_runner_minutes || '340' }}
         run: |
           set -euo pipefail
           # the Case 10 reader's credentials reach ONLY the observe child. They move into unexported shell variables at
