@@ -107,6 +107,15 @@
                     "value": "text/plain; charset=utf-8"
                 }
             ]
+        },
+        {
+            "source": "/models/((?:[^/]+/)*[^/]+\\.(?!(?:json|txt|onnx|data|bin|ort|js|mjs|cjs|wasm)$)[^/.]+)",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/octet-stream"
+                }
+            ]
         }
     ]
 }

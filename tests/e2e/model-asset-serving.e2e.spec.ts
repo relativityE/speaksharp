@@ -39,14 +39,14 @@ for (const serverName of ['vite preview', 'vite dev', 'E2E server']) {
     test.describe(`${serverName}: navigating to a model file never runs it as a document`, () => {
         for (const name of Object.keys(MODEL_FIXTURE_FILES)) {
             test(name, async ({ page }) => {
-                const origin = running.servers.find(server => server.name === serverName)!.origin;
-                const result = await navigate(page, `${origin}/models/${name}`);
-                if (!result.rendered) return;
-                expect(result.contentType).not.toMatch(DOCUMENT_TYPES);
-                expect(result.executed).toBe(false);
-                expect(result.executedInDialog).toBe(false);
-                expect(result.title).not.toBe('EXECUTED');
-                expect(result.scripts).toBe(0);
+                const { origin, prefixes } = running.servers.find(server => server.name === serverName)!;
+                for (const prefix of prefixes) {
+                    const result = await navigate(page, `${origin}${prefix}${name}`);
+                    if (!result.rendered) continue;
+                    expect({ prefix, ...result }).toMatchObject({ prefix, executed: false, executedInDialog: false, scripts: 0 });
+                    expect(result.contentType).not.toMatch(DOCUMENT_TYPES);
+                    expect(result.title).not.toBe('EXECUTED');
+                }
             });
         }
     });

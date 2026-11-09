@@ -4,7 +4,7 @@
  * with an inline script. Used by tests/evidence/__tests__/modelAssetServing.test.ts (response headers) and
  * tests/e2e/model-asset-serving.e2e.spec.ts (browser navigation).
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +37,11 @@ export const MODEL_FIXTURE_FILES: Readonly<Record<string, string>> = Object.free
     'fixture/stray.svg': 'application/octet-stream',
 });
 
-export type ModelAssetServer = { name: string; origin: string };
+/**
+ * `prefixes` are every URL prefix the server answers with the model files: `/models/` everywhere, and on Vite dev also
+ * its root-relative `/public/models/` and its absolute-path `/@fs/.../public/models/` (independent review of d8753964).
+ */
+export type ModelAssetServer = { name: string; origin: string; prefixes: string[] };
 export type ModelAssetServers = { servers: ModelAssetServer[]; close: () => Promise<void> };
 
 function writeFixture(modelsRoot: string) {
@@ -54,9 +58,12 @@ function originOf(address: AddressInfo | string | null) {
 
 /** Vite preview and Vite dev from frontend/vite.config.mjs, and the E2E server's real app, on ephemeral ports. */
 export async function startModelAssetServers(): Promise<ModelAssetServers> {
-    const distDir = mkdtempSync(join(tmpdir(), 'model-serving-dist-'));
-    const publicDir = mkdtempSync(join(tmpdir(), 'model-serving-public-'));
+    const distDir = realpathSync(mkdtempSync(join(tmpdir(), 'model-serving-dist-')));
+    // The dev server gets its own root holding public/, laid out like frontend/ (root) and frontend/public (publicDir).
+    const devRoot = realpathSync(mkdtempSync(join(tmpdir(), 'model-serving-root-')));
+    const publicDir = join(devRoot, 'public');
     writeFileSync(join(distDir, 'index.html'), '<!doctype html><title>app</title>');
+    writeFileSync(join(devRoot, 'index.html'), '<!doctype html><title>app</title>');
     writeFixture(join(distDir, 'models'));
     writeFixture(join(publicDir, 'models'));
     const closers: Array<() => Promise<void>> = [];
@@ -64,7 +71,7 @@ export async function startModelAssetServers(): Promise<ModelAssetServers> {
     const close = async () => {
         await Promise.allSettled(closers.map(closeServer => closeServer()));
         rmSync(distDir, { recursive: true, force: true });
-        rmSync(publicDir, { recursive: true, force: true });
+        rmSync(devRoot, { recursive: true, force: true });
     };
     try {
         const vitePreview = await preview({
@@ -72,22 +79,25 @@ export async function startModelAssetServers(): Promise<ModelAssetServers> {
             build: { outDir: distDir }, preview: { host: '127.0.0.1', port: 0, strictPort: false },
         });
         closers.push(() => vitePreview.close());
-        servers.push({ name: 'vite preview', origin: originOf(vitePreview.httpServer.address()) });
+        servers.push({ name: 'vite preview', origin: originOf(vitePreview.httpServer.address()), prefixes: ['/models/'] });
 
         const viteDev = await createServer({
-            configFile: VITE_CONFIG, logLevel: 'silent', publicDir,
-            server: { host: '127.0.0.1', port: 0, strictPort: false, watch: null },
+            configFile: VITE_CONFIG, logLevel: 'silent', root: devRoot, publicDir,
+            server: { host: '127.0.0.1', port: 0, strictPort: false, watch: null, fs: { allow: [devRoot] } },
             optimizeDeps: { noDiscovery: true, include: [] },
         });
         closers.push(() => viteDev.close());
         await viteDev.listen();
-        servers.push({ name: 'vite dev', origin: originOf(viteDev.httpServer!.address()) });
+        servers.push({
+            name: 'vite dev', origin: originOf(viteDev.httpServer!.address()),
+            prefixes: ['/models/', '/public/models/', `/@fs${publicDir}/models/`],
+        });
 
         const e2e: Server = await new Promise((done, fail) => {
             const server = createE2eApp(distDir).listen(0, '127.0.0.1', () => done(server)).on('error', fail);
         });
         closers.push(() => new Promise(done => { e2e.closeAllConnections(); e2e.close(() => done()); }));
-        servers.push({ name: 'E2E server', origin: originOf(e2e.address()) });
+        servers.push({ name: 'E2E server', origin: originOf(e2e.address()), prefixes: ['/models/'] });
     } catch (error) {
         await close();
         throw error;

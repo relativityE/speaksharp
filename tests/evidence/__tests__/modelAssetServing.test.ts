@@ -32,6 +32,18 @@ describe('the model asset serving policy', () => {
         expect(modelAssetHeaders('/models/x/Vocab.TXT')?.['Content-Type']).toBe('text/plain; charset=utf-8');
         expect(modelAssetHeaders('/models/x/page%2Ehtml?download=1')?.['Content-Type']).toBe('application/octet-stream');
         expect(modelAssetHeaders('/models/x/%E0%A4%A.onnx')?.['Content-Type']).toBe('application/octet-stream');
+        // A case-insensitive file system serves /MODELS/ as /models/.
+        expect(modelAssetHeaders('/MODELS/x/model.onnx')?.['Content-Type']).toBe('application/octet-stream');
+    });
+    it('also covers other URLs that reach a guarded model directory (a dev server\'s root and /@fs/ routes)', () => {
+        const guard = { root: '/srv/app', modelDirs: ['/srv/app/public/models'] };
+        expect(modelAssetHeaders('/public/models/x/model.onnx', guard)?.['Content-Type']).toBe('application/octet-stream');
+        expect(modelAssetHeaders('/PUBLIC/Models/x/LICENSE', guard)?.['Content-Type']).toBe('text/plain; charset=utf-8');
+        expect(modelAssetHeaders('/@fs/srv/app/public/models/x/vocab.txt', guard)?.['Content-Type']).toBe('text/plain; charset=utf-8');
+        expect(modelAssetHeaders('/@fs/srv/app/public/models/../models/x/a.ort', guard)?.['Content-Type']).toBe('application/octet-stream');
+        expect(modelAssetHeaders('/public/favicon.ico', guard)).toBeNull();
+        expect(modelAssetHeaders('/@fs/srv/app/src/main.tsx', guard)).toBeNull();
+        expect(modelAssetHeaders('/public/models/x/model.onnx')).toBeNull();
     });
     it('applies to model paths only, after the same normalization the static servers use', () => {
         expect(modelAssetHeaders('/index.html')).toBeNull();
@@ -41,13 +53,20 @@ describe('the model asset serving policy', () => {
     });
 });
 
+const served = (serverName: string) => running.servers.find(server => server.name === serverName)!;
 describe.each(['vite preview', 'vite dev', 'E2E server'])('%s serves model assets as non-executable', serverName => {
-    it.each(Object.entries(MODEL_FIXTURE_FILES))('%s', async (name, type) => {
-        const response = await fetch(`${originOf(serverName)}/models/${name}`);
-        expect(response.status).toBe(200);
-        expect(response.headers.get('content-type')).toBe(type);
-        expect(response.headers.get('x-content-type-options')).toBe('nosniff');
-        expect(await response.text()).toBe(ACTIVE_MODEL_BYTES);
+    it.each(Object.entries(MODEL_FIXTURE_FILES))('%s, under every prefix that reaches it', async (name, type) => {
+        const { origin, prefixes } = served(serverName);
+        for (const prefix of prefixes) {
+            const response = await fetch(`${origin}${prefix}${name}`);
+            // Vite dev transforms what it serves from its root (a source-map comment, its HTML injections); the type and
+            // nosniff are what keep those responses inert. /models/ is served byte for byte.
+            const body = await response.text();
+            expect({
+                prefix, status: response.status, type: response.headers.get('content-type'),
+                nosniff: response.headers.get('x-content-type-options'), exactBytes: body === ACTIVE_MODEL_BYTES || prefix !== '/models/',
+            }).toEqual({ prefix, status: 200, type, nosniff: 'nosniff', exactBytes: true });
+        }
     });
     it('never answers a missing model asset with an HTML document', async () => {
         const response = await fetch(`${originOf(serverName)}/models/fixture/missing.onnx`);
@@ -79,7 +98,7 @@ describe('production (vercel.json) applies the same policy', () => {
     it("uses Vercel's matcher version", () => {
         expect((fromMsw('path-to-regexp/package.json') as { version: string }).version).toMatch(/^6\./);
     });
-    it.each(Object.entries(MODEL_FIXTURE_FILES).filter(([name]) => !/\.(html|svg)$/.test(name)))('%s', (name, type) => {
+    it.each(Object.entries(MODEL_FIXTURE_FILES))('%s', (name, type) => {
         expect(effective('/models/' + name)).toEqual({ types: [type], nosniff: true });
     });
     it("covers every file the repository serves under /models/, with exactly the shared policy's type", () => {
@@ -93,6 +112,11 @@ describe('production (vercel.json) applies the same policy', () => {
         for (const file of files) {
             const pathname = '/models/' + relative(modelsRoot, file).split('\\').join('/');
             expect({ pathname, ...effective(pathname) }).toEqual({ pathname, types: [modelAssetHeaders(pathname)!['Content-Type']], nosniff: true });
+        }
+    });
+    it('gives any other extension, in any case, an opaque type', () => {
+        for (const pathname of ['/models/x/page.html', '/models/x/y/icon.SVG', '/models/x/feed.xml', '/models/x/model.ONNX']) {
+            expect({ pathname, ...effective(pathname) }).toEqual({ pathname, types: ['application/octet-stream'], nosniff: true });
         }
     });
     it('adds nothing to application paths', () => {

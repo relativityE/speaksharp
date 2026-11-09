@@ -1,7 +1,7 @@
 // scripts/serve-e2e.mjs
 import express from 'express';
 import { resolve } from 'path';
-import fs from 'fs';
+import fs, { realpathSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { buildSandboxEpermArtifact, isSandboxBindEperm } from './sandbox-eperm-evidence.mjs';
 import { modelAssetHeadersMiddleware, MODEL_ASSET_PREFIX } from './lib/modelAssetHeaders.mjs';
@@ -19,7 +19,7 @@ export function createE2eApp(distDir = resolve('frontend/dist')) {
   });
 
   // Model assets: an explicit non-executable type and nosniff on every response (release review of 1816ec61).
-  app.use(modelAssetHeadersMiddleware());
+  app.use(modelAssetHeadersMiddleware({ root: distDir, modelDirs: [resolve(distDir, 'models')] }));
 
   // Serve the production E2E build (from frontend/dist)
   app.use(express.static(distDir));
@@ -68,7 +68,16 @@ function writeSandboxEpermArtifact(error) {
 }
 
 // Listen only when run as the server, so tests can import createE2eApp.
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function runAsServer() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (runAsServer()) {
   const server = createE2eApp().listen(port, host, () => {
     console.log(`🚀 [E2E Server] Running at http://${host}:${port}`);
     console.log('🛡️  [Security] COOP: same-origin | COEP: credentialless');

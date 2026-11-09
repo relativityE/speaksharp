@@ -42,15 +42,37 @@ function servedPathname(url) {
     return path.posix.normalize(decoded.replace(/\\/g, '/'));
 }
 
-/** The headers a response for this request path must carry, or null when the path is not a model asset. */
-export function modelAssetHeaders(url) {
-    const pathname = servedPathname(url);
-    if (!pathname.startsWith(MODEL_ASSET_PREFIX)) return null;
-    const name = pathname.slice(pathname.lastIndexOf('/') + 1);
+function headersForModelName(name) {
     const dot = name.lastIndexOf('.');
     const type = dot === -1 ? MODEL_ASSET_EXTENSIONLESS_TYPE
         : MODEL_ASSET_CONTENT_TYPES[name.slice(dot + 1).toLowerCase()] ?? MODEL_ASSET_FALLBACK_TYPE;
     return { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff' };
+}
+
+function isInside(directory, file) {
+    // Compared without case: a case-insensitive file system serves /MODELS/ and /models/ alike.
+    const relativePath = path.relative(directory.toLowerCase(), file.toLowerCase());
+    return relativePath !== '' && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+}
+
+/**
+ * The headers a response for this request path must carry, or null when it is not a model asset.
+ *
+ * `/models/...` is the served URL space on every path (the prefix is matched without case for case-insensitive file
+ * systems). A development server also reaches the same files by other URLs (Vite dev serves `/public/models/...` from
+ * its root and `/@fs/<absolute path>`), so a caller that serves files from disk passes its `root` and the `modelDirs`
+ * it holds model files in, and any URL resolving inside one of them gets the same policy (independent review of
+ * d8753964).
+ */
+export function modelAssetHeaders(url, { root = null, modelDirs = [] } = {}) {
+    const pathname = servedPathname(url);
+    const name = pathname.slice(pathname.lastIndexOf('/') + 1);
+    if (pathname.toLowerCase().startsWith(MODEL_ASSET_PREFIX)) return headersForModelName(name);
+    const candidates = [];
+    if (pathname.startsWith('/@fs/')) candidates.push(path.resolve(pathname.slice('/@fs'.length)));
+    if (root) candidates.push(path.resolve(root, '.' + pathname));
+    return candidates.some(file => modelDirs.some(directory => isInside(path.resolve(directory), file)))
+        ? headersForModelName(name) : null;
 }
 
 const OWNED = new Set(['content-type', 'x-content-type-options']);
@@ -69,9 +91,9 @@ function withoutOwnedHeaders(headers) {
  * none is set; sirv in the headers it passes to writeHead), so the policy is applied at writeHead itself and wins
  * over either. An implicit header write (res.end without writeHead) also goes through writeHead.
  */
-export function modelAssetHeadersMiddleware() {
+export function modelAssetHeadersMiddleware(options = {}) {
     return function modelAssetHeadersMiddleware(req, res, next) {
-        const headers = modelAssetHeaders(req.url);
+        const headers = modelAssetHeaders(req.url, options);
         if (!headers) return next();
         for (const [key, value] of Object.entries(headers)) res.setHeader(key, value);
         const writeHead = res.writeHead;
@@ -85,12 +107,23 @@ export function modelAssetHeadersMiddleware() {
     };
 }
 
-/** Vite plugin: the same middleware ahead of Vite's own static handling, in dev and in preview. */
+/**
+ * Vite plugin: the same middleware ahead of Vite's own static handling, in dev and in preview. The dev server also
+ * serves files from its root (`/public/models/...`) and by absolute path (`/@fs/...`), so it guards the public and
+ * build model directories wherever they are reached from.
+ */
 export function modelAssetHeadersPlugin() {
-    const middleware = modelAssetHeadersMiddleware();
     return {
         name: 'speaksharp-model-asset-headers',
-        configureServer(server) { server.middlewares.use(middleware); },
-        configurePreviewServer(server) { server.middlewares.use(middleware); },
+        configureServer(server) {
+            const { root, publicDir, build } = server.config;
+            const modelDirs = [publicDir && path.join(publicDir, 'models'), path.resolve(root, build.outDir, 'models')].filter(Boolean);
+            server.middlewares.use(modelAssetHeadersMiddleware({ root, modelDirs }));
+        },
+        configurePreviewServer(server) {
+            const { root, build } = server.config;
+            const outDir = path.resolve(root, build.outDir);
+            server.middlewares.use(modelAssetHeadersMiddleware({ root: outDir, modelDirs: [path.join(outDir, 'models')] }));
+        },
     };
 }
