@@ -383,6 +383,41 @@ def failed_test_lines(check):
     return lines
 
 
+PYTHON_STATUS = (("error", "ERROR"), ("failure", "FAIL"), ("unexpectedSuccess", "XPASS"), ("skipped", "SKIP"), ("expectedFailure", "XFAIL"),
+                 ("success", "PASS"))
+
+
+def test_lines(check):
+    """One closed line per test of a suite check, every status: `TEST <PASS|FAIL|ERROR|SKIP|XFAIL|XPASS|NOT RUN> <suite> <module.Class.method>`,
+    in execution order, from the structured records (never from text); a failed class/module fixture is `TEST ERROR <suite> <class> [fixture]`.
+    The worst outcome of a test or any of its subtests decides its status; a started test with no outcome is NOT RUN. Subtest parameters,
+    tracebacks, messages and paths are never printed; an identifier outside the closed form is counted, not printed."""
+    results = check.get("results") if isinstance(check, dict) else None
+    if not isinstance(results, dict):
+        return ["TEST NOT RUN %s results unavailable" % check.get("id")] if isinstance(check, dict) else []
+    lines, unprintable = [], 0
+    for t in results.get("tests") or []:
+        if not isinstance(t, dict):
+            unprintable += 1
+            continue
+        seen = [o for o in (t.get("outcomes") or []) + (t.get("subtests") or []) if isinstance(o, str)]
+        status = next((label for outcome, label in PYTHON_STATUS if outcome in seen), "NOT RUN")
+        if isinstance(t.get("id"), str) and TEST_ID.fullmatch(t["id"]):
+            lines.append("TEST %s %s %s" % (status, check["id"], t["id"]))
+        else:
+            unprintable += 1
+    for fx in results.get("fixtures") or []:
+        if isinstance(fx, dict) and fx.get("outcome") in ("failure", "error"):
+            m = FIXTURE_ID.fullmatch(str(fx.get("description")))
+            if m:
+                lines.append("TEST ERROR %s %s [fixture]" % (check["id"], m.group(1)))
+            else:
+                unprintable += 1
+    if unprintable:
+        lines.append("TEST UNPRINTABLE %s %d test(s) with an unprintable identifier" % (check["id"], unprintable))
+    return lines
+
+
 def command_check(name, cmd, env):
     """Keep actual child outcomes, including output needed to diagnose a failed run."""
     try:
@@ -480,8 +515,9 @@ def main():
            "checks": checks, "passed": all(c["passed"] is True for c in checks)}
     # What was tested, for the equivalence comparison of two environments; the summary validates it and recomputes every digest.
     out["identity"] = identity(checks, cfg if isinstance(cfg, dict) else {})
-    # The job log of this public repository shows only check names and statuses; child output and details stay in the
-    # written report on the runner. A report that cannot be written is a failure, and its diagnostics are not printed.
+    # The job log of this public repository shows check names and statuses and, for each unittest suite, every test's code identifier
+    # with its status (closed form; never a traceback, message or subtest parameter); child output and details stay in the written report.
+    # A report that cannot be written is a failure, and its diagnostics are not printed.
     written = True
     try:
         dump(out, x.out)
@@ -490,8 +526,8 @@ def main():
         print("OFFLINE_CHECKS_REPORT_WRITE_FAILED: " + type(error).__name__, file=sys.stderr)
     for c in checks:
         print(("PASS " if c["passed"] is True else "FAIL ") + c["id"])
-        if c["passed"] is not True and c["id"] in SUITE_DIRS:
-            for line in failed_test_lines(c):
+        if c["id"] in SUITE_DIRS:
+            for line in test_lines(c):
                 print(line)
     return 0 if written and out["passed"] else 1
 

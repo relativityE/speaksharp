@@ -1,5 +1,5 @@
-"""A failed package suite names each failing test by its code identifier in the public job log (live run 42536487067 printed only
-"FAIL package-unit-tests"): driven through the real suite child on a synthetic suite; never a traceback, message, subtest parameter or path."""
+"""Every package test is named in the public job log with its status (live run 42536487067 printed only "FAIL package-unit-tests"):
+driven through the real suite child on a synthetic suite; never a traceback, message, subtest parameter or path."""
 import json
 import os
 import subprocess
@@ -73,11 +73,35 @@ class FailedTestLines(unittest.TestCase):
                          ["FAILED-TEST package-unit-tests 2 failed test(s) with an unprintable identifier"])
         self.assertEqual(C.failed_test_lines({"id": "package-unit-tests", "passed": True, "results": {"tests": [], "fixtures": []}}), [])
 
-    def test_main_prints_the_lines_for_a_failed_suite_check(self):
+    def test_every_test_is_printed_with_its_status_in_execution_order(self):
+        r, results = self.run_child()
+        lines = C.test_lines({"id": "package-unit-tests", "passed": False, "results": results})
+        self.assertEqual(lines, [
+            "TEST ERROR package-unit-tests test_sample.Sample.test_errors",
+            "TEST FAIL package-unit-tests test_sample.Sample.test_fails_with_a_secret_message",
+            "TEST PASS package-unit-tests test_sample.Sample.test_passes",
+            "TEST FAIL package-unit-tests test_sample.Sample.test_subtest_fails",
+            "TEST ERROR package-unit-tests test_sample.BrokenFixture [fixture]"])
+        text = "\n".join(lines)
+        for leak in ("token=abc", "/opt/ci-work", "hunter2", "secret-param", "fixture secret", "Traceback"):
+            self.assertNotIn(leak, text)
+
+    def test_every_status_is_closed_and_a_started_test_without_an_outcome_is_not_run(self):
+        rec = {"tests": [{"id": "m.C.test_%s" % o, "outcomes": [o], "subtests": []} for o in
+                         ("success", "skipped", "expectedFailure", "unexpectedSuccess")]
+               + [{"id": "m.C.test_started", "outcomes": [], "subtests": []}, {"id": "bad id; x", "outcomes": ["success"]}], "fixtures": []}
+        self.assertEqual(C.test_lines({"id": "package-unit-tests", "passed": True, "results": rec}), [
+            "TEST PASS package-unit-tests m.C.test_success", "TEST SKIP package-unit-tests m.C.test_skipped",
+            "TEST XFAIL package-unit-tests m.C.test_expectedFailure", "TEST XPASS package-unit-tests m.C.test_unexpectedSuccess",
+            "TEST NOT RUN package-unit-tests m.C.test_started", "TEST UNPRINTABLE package-unit-tests 1 test(s) with an unprintable identifier"])
+        self.assertEqual(C.test_lines({"id": "package-unit-tests", "passed": False, "results": None}),
+                         ["TEST NOT RUN package-unit-tests results unavailable"])
+
+    def test_main_prints_every_test_of_every_suite_check(self):
         with open(os.path.join(ROOT, "scripts", "run_offline_checks.py"), encoding="utf-8") as f:
             src = f.read()
-        self.assertIn('if c["passed"] is not True and c["id"] in SUITE_DIRS:', src)
-        self.assertIn("for line in failed_test_lines(c):", src)
+        self.assertIn('if c["id"] in SUITE_DIRS:', src)
+        self.assertIn("for line in test_lines(c):", src)
 
 
 if __name__ == "__main__":

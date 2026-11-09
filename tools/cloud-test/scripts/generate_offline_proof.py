@@ -5,7 +5,7 @@
 3. the eleven original mutation controls plus the additional A- controls (harness_mutation_controls.py);
 4. the 3 positive / 11 negative plan controls on the real runner;
 5. offline_proof.py (fail-closed) over all of it, bound to the pinned code manifest.
-Only statuses, counts and, for each non-passing test, its suite, inventory ordinal, closed category and REVIEWED title from
+Only statuses, counts and, for EVERY test, its suite, inventory ordinal, status, closed category and REVIEWED title from
 config/proof-test-titles.v1.json (proof_title_inventory.py; an unknown or malformed title refuses the proof) are printed; TAP, plans and
 the proof stay in --work on the runner. No network beyond loopback, no credentials.
 Usage: generate_offline_proof.py --work NEW_DIR --proof-out FILE [--chrome PINNED_CHROME] [--playwright-cwd DIR]"""
@@ -220,7 +220,7 @@ def main():
         print("proof %s; refusals: %s" % (proof.get("result"), "; ".join(proof.get("refusals", [])) or "none"))
     rows, _ = title_report(suites, titles)
     print("tests by reviewed title: %s" % {st: sum(r["status"] == st for r in rows) for st in PT.STATUSES})
-    for line in PT.report_lines(rows):
+    for line in PT.all_lines(rows):
         print(line)
     for problem in problems:
         print("NOT ACCEPTED: " + problem)

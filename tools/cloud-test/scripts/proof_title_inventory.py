@@ -90,6 +90,11 @@ def resolve(inventory, results):
     return rows, problems
 
 
+def all_lines(rows):
+    """One closed line per inventoried test, every status (PASS included): suite, ordinal, status, category and the reviewed title."""
+    return ["TEST %s %s test %d [%s]: %s" % (r["status"], r["suite"], r["ordinal"], r["category"], r["title"]) for r in rows]
+
+
 def report_lines(rows):
     """One closed line per non-passing inventoried test: suite, ordinal, status, category and the reviewed title."""
     return ["TEST %s %s test %d [%s]: %s" % (r["status"], r["suite"], r["ordinal"], r["category"], r["title"])

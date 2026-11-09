@@ -171,7 +171,17 @@ class ProofIntegration(unittest.TestCase):
             src = f.read()
         self.assertIn("titles = PT.load()", src)
         self.assertIn("title_inventory=titles)", src)
-        self.assertIn("for line in PT.report_lines(rows):", src)
+        self.assertIn("for line in PT.all_lines(rows):", src)
+
+    def test_every_inventoried_test_is_printed_with_its_status(self):
+        suites = run_suites(self.inv)
+        titles = self.inv[CASE14]
+        suites[CASE14] = tap([(titles[0], "FAIL", True)] + [(t, "PASS", False) for t in titles[1:]])
+        rows, _ = G.title_report(suites, self.inv)
+        lines = PT.all_lines(rows)
+        self.assertEqual(len(lines), sum(len(t) for t in self.inv.values()))
+        self.assertIn("TEST FAIL %s test 1 [assertion]: %s" % (CASE14, titles[0]), lines)
+        self.assertIn("TEST PASS %s test 2 [none]: %s" % (CASE14, titles[1]), lines)
 
 
 if __name__ == "__main__":
