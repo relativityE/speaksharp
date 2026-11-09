@@ -192,23 +192,23 @@ class ShortSmokeContract(unittest.TestCase):
         # The committed grant's earliest start is exact.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-08T15:36:22Z")
-        # The window is extended so an immediate start is admitted; expiresUtc 18:00Z leaves the latest start at 16:20Z (a 100-minute
+        # The window is extended so an immediate start is admitted; expiresUtc 20:00Z leaves the latest start at 18:20Z (a 100-minute
         # occurrence). 00:00Z is only a sample point inside the window.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-09T00:00:00Z")
         init.materialize_authoritative_smoke_occurrence(
-            str(ROOT.parents[1]), template, "2026-11-09T16:20:00Z")
-        for outside in ("2026-11-08T15:36:21Z", "2026-11-09T16:20:01Z"):
+            str(ROOT.parents[1]), template, "2026-11-09T18:20:00Z")
+        for outside in ("2026-11-08T15:36:21Z", "2026-11-09T18:20:01Z"):
             with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
                 init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
     def test_an_extended_window_names_its_source_and_never_relabels_the_approval(self):
-        """The committed grant extends the window to 18:00Z (latest start 16:20Z; owner-approved re-issue at journal 95172c6c after run 42607776111) and
+        """The committed grant extends the window to 20:00Z (latest start 18:20Z; owner-approved re-issue at journal 39ec9ab2 after run 42615792133) and
         names the timing's approval source as an opaque windowSourceRef, while approvalRef stays
         the original approval and the selected case and every limit are unchanged.
         An extended window without a well-formed source, or a source on the original window, refuses."""
-        self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T18:00:00Z")
-        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "approval-29acdc3e44f0f47802aea8b618c8cf2a")
+        self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T20:00:00Z")
+        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "approval-4ac57c91e91e89071ee0d42b05110655")
         self.assertEqual(COMMITTED_GRANT["approvalRef"], "approval-bcde5476311b392d618839dd2ae6b2f0")
         self.assertEqual(init.ONE_OFF_APPROVED_EXPIRES_UTC, "2026-11-09T00:00:00Z")
         # unchanged: the selected case, every limit, the scope, release and journal bindings
@@ -217,7 +217,7 @@ class ShortSmokeContract(unittest.TestCase):
                                                      "starts": 2, "takes": 2, "coachingCalls": 3, "retries": 0})
         self.assertEqual((COMMITTED_GRANT["notBeforeUtc"], COMMITTED_GRANT["preReserveStateHead"], COMMITTED_GRANT["scopeApprovalRef"],
                           COMMITTED_GRANT["requestTemplateSha256"], COMMITTED_GRANT["testedSha"], COMMITTED_GRANT["backendSha"]),
-                         ("2026-11-08T15:36:22Z", "95172c6cf9e6a55a270af425d7b2543e141f4457", "approval-2c749f7fca826f9e54d962517a702665",
+                         ("2026-11-08T15:36:22Z", "39ec9ab27559662d003ad1a9b8f9b6586f86196f", "approval-2c749f7fca826f9e54d962517a702665",
                           "82b813fe207f5dea447eb5e02739879e743a25c3da62597fe7739d24c3530f5b", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
                           "c32319f9121d4fef64dc48bb40fae5464dc6b65a"))
         repo = str(ROOT.parents[1])
@@ -255,7 +255,7 @@ class ShortSmokeContract(unittest.TestCase):
         scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
         # The committed grant is pinned at the journal head after run 42318728005's capped settle (the reviewer's verified ChatGPT receipt ).
         # The re-issued AHT-01 grant is pinned at the journal head after run 42494152179's capped settle .
-        self.assertEqual(COMMITTED_GRANT["preReserveStateHead"], "95172c6cf9e6a55a270af425d7b2543e141f4457")
+        self.assertEqual(COMMITTED_GRANT["preReserveStateHead"], "39ec9ab27559662d003ad1a9b8f9b6586f86196f")
         checkpoint = json.dumps({
             "headSha": COMMITTED_GRANT["preReserveStateHead"],
             "scopeApprovalRef": scope["approvalRef"],

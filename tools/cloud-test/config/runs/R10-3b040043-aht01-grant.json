@@ -13,10 +13,10 @@
   "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
   "backendSha": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
   "periodScopeSha256": "ab44af95da89cb07e28c6680f0f2e92278574f6c6bd4611dfb15afe60416eff4",
-  "preReserveStateHead": "95172c6cf9e6a55a270af425d7b2543e141f4457",
+  "preReserveStateHead": "39ec9ab27559662d003ad1a9b8f9b6586f86196f",
   "notBeforeUtc": "2026-11-08T15:36:22Z",
-  "expiresUtc": "2026-11-09T18:00:00Z",
-  "windowSourceRef": "approval-29acdc3e44f0f47802aea8b618c8cf2a",
+  "expiresUtc": "2026-11-09T20:00:00Z",
+  "windowSourceRef": "approval-4ac57c91e91e89071ee0d42b05110655",
   "limits": {
     "endToEndMinutes": 100,
     "liveMinutes": 60,
