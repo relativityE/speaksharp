@@ -69,14 +69,14 @@ def live_smoke_request():
 class ShortSmokeContract(unittest.TestCase):
     def test_actual_initiation_derives_one_bounded_occurrence_that_admits(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        start = "2026-11-03T17:30:00Z"
+        start = "2026-11-05T19:30:00Z"
         value = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, start)
         self.assertEqual(value["window"]["startUtc"], start)
-        self.assertEqual(value["window"]["endUtc"], "2026-11-03T18:50:00Z")
+        self.assertEqual(value["window"]["endUtc"], "2026-11-05T20:50:00Z")
         self.assertEqual(value["window"]["endToEndMinutes"], 80)
         self.assertEqual(value["window"]["liveMinutes"], 40)
         self.assertIn("not measured runtime", value["window"]["basis"])
-        now = datetime(2026, 11, 3, 17, 30, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 11, 5, 19, 30, 0, tzinfo=timezone.utc)
         cases = init.check_request(value, now, init._request_keys())
         cfg = json.loads((ROOT / "config/test-config.v1.json").read_text())
         live = init.check_ceilings(cfg, value, cases, 65)
@@ -86,9 +86,9 @@ class ShortSmokeContract(unittest.TestCase):
         init.check_window_fit(value, now, live)
         # A real dispatch has startup delay.  The occurrence must survive it,
         # while still refusing once less than live + collect remains.
-        init.check_window_fit(value, datetime(2026, 11, 3, 17, 35, 0, tzinfo=timezone.utc), live)
+        init.check_window_fit(value, datetime(2026, 11, 5, 19, 35, 0, tzinfo=timezone.utc), live)
         with self.assertRaisesRegex(init.Refused, "run-would-outlast-approved-window"):
-            init.check_window_fit(value, datetime(2026, 11, 3, 18, 0, 1, tzinfo=timezone.utc), live)
+            init.check_window_fit(value, datetime(2026, 11, 5, 20, 0, 1, tzinfo=timezone.utc), live)
 
     def test_occurrence_materializer_refuses_wrong_case_set_or_release(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
@@ -101,7 +101,7 @@ class ShortSmokeContract(unittest.TestCase):
     def test_exact_occurrence_bytes_are_rederived_from_the_committed_template(self):
         template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        start = "2026-11-03T17:30:00Z"
+        start = "2026-11-05T19:30:00Z"
         occurrence = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, start)
         raw = json.dumps(occurrence, sort_keys=True, separators=(",", ":")).encode()
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,7 +114,7 @@ class ShortSmokeContract(unittest.TestCase):
             self.assertEqual(selected[2], raw)
 
             tampered = dict(occurrence)
-            tampered["window"] = dict(occurrence["window"], endUtc="2026-11-03T17:21:00Z")
+            tampered["window"] = dict(occurrence["window"], endUtc="2026-11-05T19:21:00Z")
             bad = json.dumps(tampered, sort_keys=True, separators=(",", ":")).encode()
             path.write_bytes(bad)
             with self.assertRaisesRegex(init.Refused, "manual-occurrence-not-the-template-materialization"):
@@ -126,7 +126,7 @@ class ShortSmokeContract(unittest.TestCase):
     def test_occurrence_refuses_an_external_timestamp_or_expired_authority(self):
         template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        occurrence = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-03T17:30:00Z")
+        occurrence = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-05T19:30:00Z")
         raw = json.dumps(occurrence, sort_keys=True, separators=(",", ":")).encode()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "occurrence.json"
@@ -134,17 +134,21 @@ class ShortSmokeContract(unittest.TestCase):
             with self.assertRaisesRegex(init.Refused, "manual-occurrence-not-the-workflow-start"):
                 init.select_manual_occurrence(
                     str(ROOT.parents[1]), template_rel, str(path), hashlib.sha256(raw).hexdigest(),
-                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), "2026-11-03T17:30:01Z")
+                    init._git(str(ROOT.parents[1]), "rev-parse", "HEAD"), "2026-11-05T19:30:01Z")
+        # The grant renewed by the PO (slack:1793903873.185479): earliest start 18:38Z, latest start 00:40Z (an 80-minute window ending at
+        # the extended period end, 2026-11-06T02:00Z). Both boundaries are exact.
         init.materialize_authoritative_smoke_occurrence(
-            str(ROOT.parents[1]), template, "2026-11-05T16:40:00Z")
-        with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
-            init.materialize_authoritative_smoke_occurrence(
-                str(ROOT.parents[1]), template, "2026-11-05T16:40:01Z")
+            str(ROOT.parents[1]), template, "2026-11-05T18:38:00Z")
+        init.materialize_authoritative_smoke_occurrence(
+            str(ROOT.parents[1]), template, "2026-11-06T00:40:00Z")
+        for outside in ("2026-11-05T18:37:59Z", "2026-11-06T00:40:01Z"):
+            with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
+                init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
     def test_one_off_grant_rejects_caller_authority_release_checkpoint_and_scope_tampering(self):
         repo = str(ROOT.parents[1])
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        occurrence = init.materialize_authoritative_smoke_occurrence(repo, template, "2026-11-03T17:30:00Z")
+        occurrence = init.materialize_authoritative_smoke_occurrence(repo, template, "2026-11-05T19:30:00Z")
         occurrence_raw = json.dumps(occurrence, sort_keys=True).encode()
         request_sha = hashlib.sha256(occurrence_raw).hexdigest()
         scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
@@ -160,7 +164,7 @@ class ShortSmokeContract(unittest.TestCase):
         init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, checkpoint, repo)
         envelope = init.occurrence_action_approval({}, request_sha, checkpoint, occurrence, repo=repo)
         self.assertEqual(envelope["approvalRef"], scope["approvalRef"])
-        self.assertEqual(envelope["selectionApprovalRef"], "slack:1793814535.013849")
+        self.assertEqual(envelope["selectionApprovalRef"], "slack:1793903873.185479")
         wrong_release = copy.deepcopy(occurrence)
         wrong_release["release"]["testedSha"] = "f" * 40
         with self.assertRaisesRegex(init.Refused, "relative-occurrence-request-release"):
@@ -176,6 +180,72 @@ class ShortSmokeContract(unittest.TestCase):
         finally:
             init.manual_reservation.ACCEPTED_SCOPE_SHA256 = original
 
+    def test_one_off_grant_survives_only_zero_usage_setup_failure_settles_past_its_pinned_head(self):
+        """R10 runs 41933223835 and 41960376782 stopped in setup. A setup failure that reserved is settled from evidence with zero product
+        usage, which moves the journal head. Past its pinned head the grant admits only a verified chain of complete reserve -> settle pairs
+        with zero on all five product counters (runner minutes counted) whose accepted rollup agrees (Sam 1793874766.615719); prepare excludes
+        the current run's own reserve. A release, an executed or open attempt, a missing chain or any doubt still refuses."""
+        repo = str(ROOT.parents[1])
+        template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
+        occurrence = init.materialize_authoritative_smoke_occurrence(repo, template, "2026-11-05T19:30:00Z")
+        occurrence_raw = json.dumps(occurrence, sort_keys=True).encode()
+        request_sha = hashlib.sha256(occurrence_raw).hexdigest()
+        scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
+        root, reserved_head, settled_head = ("92d6ebf902351750c368d7d513116c6b1f19f80c", "0909b53ff6dc767105633ddc14db520c762dff64",
+                                             "6430357513fcc5f4bba12f8deab3c06bb5b01996")
+        # the real journal events of run 41960376782 and its evidence-bound settle (computed with the real writer and rollup)
+        held = {"requests": 2032, "identityReads": 32, "starts": 16, "takes": 16, "coachingRequests": 20, "runnerMinutes": 40}
+        reserve = {"type": "reserve", "campaignId": "R10-3b040043-smoke15", "runId": "41960376782", "attempt": 1, "allocation": held,
+                   "provenance": "request-sha256:c7e6698a9c9aeb09504a83bff2078a1d41478943067f1084f39a901cdd2cc4ee", "atUtc": "2026-11-05T03:15:17Z"}
+        settle = dict(reserve, type="settle", atUtc="2026-11-05T03:21:44Z",
+                      allocation={"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6},
+                      provenance="evidence-sha256:ee620b386e60dd988f8eac73a6c0c4901063f6614f119360b6759302c622925e")
+        led = lambda events: json.dumps({"events": events, "schema": "speaksharp.cloud-test.state-ledger.v1"}, sort_keys=True).encode()
+        node = lambda sha, events: (sha, events, led(events))   # validate_chain's (sha, events, ledger bytes)
+        chain = [node(root, []), node(reserved_head, [reserve]), node(settled_head, [reserve, settle])]
+        settled = {"source": "accepted-rollup", "root": root, "headSha": settled_head,
+                   "scopeApprovalRef": scope["approvalRef"], "outstandingReservations": 0, "openReservationsByRequest": {},
+                   "period": {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6},
+                   "unknown": {"coachingRequests": False, "runnerMinutes": False}}
+        raw = lambda d: json.dumps(d, sort_keys=True).encode()
+        approve = lambda cp, ch: init.occurrence_action_approval({}, request_sha, raw(cp), occurrence, repo=repo, chain=ch)
+        init.manual_reservation.admit_action_approval(b"{}", occurrence_raw, request_sha, raw(settled), repo, chain)
+        # a preflight-only setup failure (R10 run 42059286564) settles at its bound, 10 campaign requests and nothing else: still admitted
+        bounded = chain[:2] + [node(settled_head, [reserve, dict(settle, allocation=dict(settle["allocation"], requests=10))])]
+        self.assertEqual(approve(dict(settled, period=dict(settled["period"], requests=10)), bounded)["selectionApprovalRef"], "slack:1793903873.185479")
+        self.assertEqual(approve(settled, chain)["selectionApprovalRef"], "slack:1793903873.185479")
+        # prepare: the verified head adds this run's own open reserve; the approval chain is computed at its parent, which admits
+        own_reserve = dict(reserve, runId="41999999999", provenance="request-sha256:" + request_sha, atUtc="2026-11-05T12:00:05Z")
+        full = chain + [node("a" * 40, [reserve, settle, own_reserve])]
+        parent = init.manual_approval_chain(full, ("R10-3b040043-smoke15", "41999999999", 1, request_sha))
+        self.assertEqual(parent, chain)
+        self.assertEqual(approve(settled, parent)["selectionApprovalRef"], "slack:1793903873.185479")
+        bad_settle = lambda **over: chain[:2] + [node(settled_head, [reserve, dict(settle, **over)])]
+        chain_refusals = [None, [], chain[:2], [node(root, []), node(settled_head, [reserve])],
+                          bad_settle(type="release"), bad_settle(runId="41960376783"), bad_settle(attempt=2),
+                          bad_settle(provenance="approval:slack-1793814535.013849"),
+                          bad_settle(allocation=dict(settle["allocation"], runnerMinutes=41)),
+                          [node("f" * 40, []), node(reserved_head, [reserve]), node(settled_head, [reserve, settle])],
+                          chain[:2] + [node("b" * 40, [reserve, settle])]]
+        for key in ("identityReads", "starts", "takes", "coachingRequests"):
+            chain_refusals.append(bad_settle(allocation=dict(settle["allocation"], **{key: 1})))
+        chain_refusals.append(bad_settle(allocation=dict(settle["allocation"], requests=11)))      # above the preflight's bounded charge
+        for bad in chain_refusals:
+            with self.assertRaisesRegex(init.Refused, "one-off-grant-checkpoint"):
+                approve(settled, bad)
+        rollup_refusals = [dict(settled, headSha=reserved_head, outstandingReservations=1, openReservationsByRequest={"c7e6698a": 1}),
+                           dict(settled, outstandingReservations=1), dict(settled, openReservationsByRequest={"x": 1}),
+                           dict(settled, root="f" * 40), dict(settled, source="other"), dict(settled, scopeApprovalRef="slack:1.000001"),
+                           dict(settled, unknown={"coachingRequests": True, "runnerMinutes": False}), dict(settled, unknown={}),
+                           {k: v for k, v in settled.items() if k != "period"}]
+        rollup_refusals.append(dict(settled, period=dict(settled["period"], requests=11)))          # more than one preflight's bound
+        for key in ("identityReads", "starts", "takes", "coachingRequests"):
+            rollup_refusals.append(dict(settled, period=dict(settled["period"], **{key: 1})))
+            rollup_refusals.append(dict(settled, period={k: v for k, v in settled["period"].items() if k != key}))
+        for bad in rollup_refusals:
+            with self.assertRaisesRegex(init.Refused, "one-off-grant-checkpoint"):
+                approve(bad, chain)
+
     def test_committed_grant_scope_real_reserve_then_prepare_on_verified_chain(self):
         """The production reserve appends to a verified state chain, then the
         production prepare path consumes that exact open reserve. No hand-built
@@ -184,7 +254,7 @@ class ShortSmokeContract(unittest.TestCase):
         root = init.continuity_pins()["accepted_root"]
         template_rel = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        start = "2026-11-03T17:30:00Z"
+        start = "2026-11-05T19:30:00Z"
         occurrence = init.materialize_authoritative_smoke_occurrence(repo, template, start)
         occurrence_raw = json.dumps(occurrence, sort_keys=True, separators=(",", ":")).encode()
         request_sha = hashlib.sha256(occurrence_raw).hexdigest()
@@ -218,7 +288,7 @@ class ShortSmokeContract(unittest.TestCase):
             bundle = json.loads(bundle_with(ACCOUNT_ID))
             maintained_id = bundle["accounts"]["maintained-read-only"]["accountId"]
             nonsecret_facts = facts(
-                ownerApprovalReference="slack:1793814535.013849",
+                ownerApprovalReference="slack:1793903873.185479",
                 approvedBy="Akin", reviewer="review:unit@1",
                 producerReviewReference="review:producer@1",
                 accounts={
@@ -238,31 +308,31 @@ class ShortSmokeContract(unittest.TestCase):
             with mock.patch.object(init, "state_chain", return_value=chain), \
                     mock.patch.dict(os.environ, {"CLOUD_TEST_LIVE_ACCOUNTS": json.dumps(bundle),
                                                  "SUPABASE_URL": SUPABASE_URL_OK}):
-                prepared = init.prepare(args, datetime(2026, 11, 3, 17, 35, 0, tzinfo=timezone.utc))
+                prepared = init.prepare(args, datetime(2026, 11, 5, 19, 35, 0, tzinfo=timezone.utc))
             self.assertEqual(prepared["requestSha256"], request_sha)
             self.assertEqual(prepared["liveMinutes"], 40)
             self.assertEqual(prepared["facts"]["actionApproval"]["selectionApprovalRef"],
-                             "slack:1793814535.013849")
+                             "slack:1793903873.185479")
             self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
                              "slack:1793814535.013849")
 
     def test_completion_deadline_marks_queue_delay_incomplete_without_changing_settlement_period(self):
         template = json.loads((ROOT / "config/runs/R10-3b040043-all15.json").read_text())
-        value = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-03T17:30:00Z")
+        value = init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, "2026-11-05T19:30:00Z")
         raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-        self.assertTrue(init.completion_within_occurrence(raw, datetime(2026, 11, 3, 18, 50, 0, tzinfo=timezone.utc)))
-        self.assertFalse(init.completion_within_occurrence(raw, datetime(2026, 11, 3, 18, 50, 1, tzinfo=timezone.utc)))
+        self.assertTrue(init.completion_within_occurrence(raw, datetime(2026, 11, 5, 20, 50, 0, tzinfo=timezone.utc)))
+        self.assertFalse(init.completion_within_occurrence(raw, datetime(2026, 11, 5, 20, 50, 1, tzinfo=timezone.utc)))
         scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
-        self.assertLess(datetime(2026, 11, 3, 18, 50, 1, tzinfo=timezone.utc), init._utc(scope["periodEndUtc"]))
+        self.assertLess(datetime(2026, 11, 5, 20, 50, 1, tzinfo=timezone.utc), init._utc(scope["periodEndUtc"]))
         with tempfile.TemporaryDirectory(prefix="completion-deadline-") as tmp:
             occurrence_file = Path(tmp) / "occurrence.json"
             occurrence_file.write_bytes(raw)
             self.assertEqual(init.main(["init_run_inputs.py", "completion-deadline",
                                         "--manual-occurrence-file", str(occurrence_file),
-                                        "--now", "2026-11-03T18:50:00Z"]), 0)
+                                        "--now", "2026-11-05T20:50:00Z"]), 0)
             self.assertEqual(init.main(["init_run_inputs.py", "completion-deadline",
                                         "--manual-occurrence-file", str(occurrence_file),
-                                        "--now", "2026-11-03T18:50:01Z"]), 79)
+                                        "--now", "2026-11-05T20:50:01Z"]), 79)
 
     def test_all_fifteen_smoke_maps_to_distinct_builder_mode(self):
         mode, caps = request_caps(request())

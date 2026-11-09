@@ -1,0 +1,9 @@
+{
+ "conclusion": "failure",
+ "head_sha": "8f9f9451bb6bf37ba2bca524acd92d933e2b826c",
+ "id": 41960376782,
+ "run_attempt": 1,
+ "run_started_at": "2026-11-05T03:14:52Z",
+ "status": "completed",
+ "updated_at": "2026-11-05T03:21:45Z"
+}

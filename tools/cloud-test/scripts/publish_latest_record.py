@@ -28,6 +28,11 @@ Usage:
                                       with no pending completion; exits 1 otherwise
   publish_latest_record.py retire-unreserved --previous BODY --evidence EVIDENCE.json --out BODY
                                       retires that one attempt as `never-reserved` history, only on the closed evidence (see retire_unreserved)
+  publish_latest_record.py unexecuted-candidate --previous BODY --evidence EVIDENCE.json
+                                      prints the run id and exits 0 only when the in-progress attempt is `incomplete`, with no pending
+                                      completion, and is exactly the run the unexecuted-attempt evidence is about
+  publish_latest_record.py retire-unexecuted --previous BODY --evidence EVIDENCE.json --out BODY
+                                      retires that attempt as `reserved-not-executed` history, only on the closed evidence (see retire_unexecuted)
   publish_latest_record.py verify-predecessor --selected SELECTED.json --current COMMENT.json
                                       refuses unless the stored comment is still exactly the one `select` returned (body, id and updated_at)
 Exit 78 (BLOCKED_SETUP) on every refusal.
@@ -380,6 +385,16 @@ def render(state):
     if live:
         lines.append("In progress: run %s attempt %d, status %s." % (live["runId"], live["attempt"], live["status"]))
     for r in state.get("retiredAttempts") or []:
+        if r["retiredReason"] == "reserved-not-executed":      # rendered exactly as before, so stored records read back unchanged
+            lines.append("Reserved, not executed: no credential-bearing step ran (not a completed run): run %s attempt %d at `%s`, started %s; "
+                         "0 product usage, %d runner minute(s), evidence `%s`." % (
+                             r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"], r["evidence"]["runnerMinutes"], r["evidence"]["evidenceSha256"][:12]))
+            continue
+        if r["retiredReason"] in RESERVED_REASONS:
+            lines.append("%s (not a completed run): run %s attempt %d at `%s`, started %s; %d runner minute(s), evidence `%s`." % (
+                RESERVED_REASONS[r["retiredReason"]], r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"],
+                r["evidence"]["runnerMinutes"], r["evidence"]["evidenceSha256"][:12]))
+            continue
         lines.append("Retired without a reservation (not a completed run): run %s attempt %d at `%s`, started %s." % (
             r["runId"], r["attempt"], r["sourceSha"][:12], r["startedUtc"]))
     pending = state.get("pendingCompletion")
@@ -459,36 +474,54 @@ RETIRED_MAX = 8
 RETIRED_KEYS = {"runId", "attempt", "sourceSha", "startedUtc", "retiredReason", "predecessorSha256", "evidence"}
 RETIRED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "collectedUtc", "reserveJob", "liveJob", "settleJob", "journalRootSha",
                          "journalHeadSha", "journalEventsNamingRun"}
-UNRESERVED_JOBS = (("reserveJob", "Reserve the run on the state-ref journal", "failure"),
-                   ("liveJob", "Selected live journeys", "skipped"),
-                   ("settleJob", "Settle the run's reservation", "skipped"))
+# A never-reserved attempt: its reserve job failed or never ran, and its live and settle jobs were skipped. The journal check below is what
+# proves no reservation exists; the jobs only have to agree with it.
+UNRESERVED_JOBS = (("reserveJob", "Reserve the run on the state-ref journal", ("failure", "skipped")),
+                   ("liveJob", "Selected live journeys", ("skipped",)),
+                   ("settleJob", "Settle the run's reservation", ("skipped",)))
 UNRESERVED_EVIDENCE_KEYS = {"run", "jobs", "journal", "collectedAt"}
 
 
+# The retirement reason follows the evidence's accounting (unexecuted_attempt_evidence.ACCOUNTING); the settle carries the usage itself.
+RESERVED_REASONS = {"reserved-not-executed": "Reserved, not executed: no credential-bearing step ran; 0 product usage",
+                    "reserved-preflight-only": "Reserved, setup failed: only the prerequisite preflight ran; settled at its bounded request charge",
+                    "reserved-capped": "Reserved, setup failed after a credential-bearing step ran; usage unknown, settled at the reserved caps"}
+ACCOUNTING_REASON = {"none": "reserved-not-executed", "preflight-bound": "reserved-preflight-only", "capped": "reserved-capped"}
+UNEXECUTED_EVIDENCE_KEYS = {"runStatus", "runConclusion", "runUpdatedUtc", "evidenceSha256", "journalHeadSha", "runnerMinutes", "settleAtUtc"}
+
+
 def sanitize_retired(r):
-    """A retired-attempt entry exactly as stored; anything outside the closed shape refuses."""
+    """A retired-attempt entry exactly as stored; anything outside the closed shape of its reason refuses."""
     _keys(r, RETIRED_KEYS, "retired-attempt")
-    _need(set(r) == RETIRED_KEYS and r["retiredReason"] == "never-reserved", "retired-attempt")
+    _need(set(r) == RETIRED_KEYS and (r["retiredReason"] == "never-reserved" or r["retiredReason"] in RESERVED_REASONS), "retired-attempt")
     _need(isinstance(r["predecessorSha256"], str) and SHA64.match(r["predecessorSha256"]), "retired-attempt")
     _attempt(r["runId"], r["attempt"])
     _need(isinstance(r["sourceSha"], str) and SHA40.match(r["sourceSha"]) and isinstance(r["startedUtc"], str) and UTC.match(r["startedUtc"]), "retired-attempt")
     ev = r["evidence"]
+    if r["retiredReason"] in RESERVED_REASONS:
+        _keys(ev, UNEXECUTED_EVIDENCE_KEYS, "retired-evidence")
+        _need(set(ev) == UNEXECUTED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure"
+              and type(ev["runnerMinutes"]) is int and 0 < ev["runnerMinutes"] <= 1000
+              and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("runUpdatedUtc", "settleAtUtc"))
+              and isinstance(ev["evidenceSha256"], str) and SHA64.match(ev["evidenceSha256"])
+              and isinstance(ev["journalHeadSha"], str) and SHA40.match(ev["journalHeadSha"]), "retired-evidence")
+        return {k: (dict(sorted(v.items())) if k == "evidence" else v) for k, v in sorted(r.items())}
     _keys(ev, RETIRED_EVIDENCE_KEYS, "retired-evidence")
-    _need(set(ev) == RETIRED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure" and ev["reserveJob"] == "failure"
-          and ev["liveJob"] == "skipped" and ev["settleJob"] == "skipped" and ev["journalEventsNamingRun"] == 0
+    _need(set(ev) == RETIRED_EVIDENCE_KEYS and ev["runStatus"] == "completed" and ev["runConclusion"] == "failure"
+          and ev["reserveJob"] in ("failure", "skipped") and ev["liveJob"] == "skipped" and ev["settleJob"] == "skipped"
+          and ev["journalEventsNamingRun"] == 0
           and all(isinstance(ev[k], str) and UTC.match(ev[k]) for k in ("runUpdatedUtc", "collectedUtc")) and ev["runUpdatedUtc"] <= ev["collectedUtc"]
-          and all(isinstance(ev[k], str) and SHA40.match(ev[k]) for k in ("journalRootSha", "journalHeadSha"))
-          and ev["journalHeadSha"] == ev["journalRootSha"], "retired-evidence")   # the journal was still at genesis when it was read
+          and all(isinstance(ev[k], str) and SHA40.match(ev[k]) for k in ("journalRootSha", "journalHeadSha")), "retired-evidence")
     return {k: (dict(sorted(v.items())) if k == "evidence" else v) for k, v in sorted(r.items())}
 
 
 def unreserved_candidate(state):
-    """The run id when the in-progress attempt is exactly the one retirable attempt and is `incomplete` with no pending completion, else None.
-    Any other stuck attempt is NOT a candidate: `begin` keeps refusing it."""
+    """The run id when the in-progress attempt is `incomplete` with no pending completion, else None. The workflow tries the reserved-attempt
+    retirement first, so a reserved attempt reaching here is refused below (the journal names it). Sam 1793881260.206739: any manual attempt that stopped before reserving (41933223835, or a later run interrupted
+    before its reserve) must be retirable, or one setup failure wedges every later run. Being a candidate proves nothing: retire_unreserved
+    retires it only on GitHub's evidence and a journal that names no event for it; otherwise it refuses and `begin` keeps refusing."""
     live = state.get("inProgress")
     if live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None:
-        return None
-    if (live.get("runId"), live.get("attempt"), live.get("sourceSha")) != (RETIRABLE_ATTEMPT["runId"], RETIRABLE_ATTEMPT["attempt"], RETIRABLE_ATTEMPT["sourceSha"]):
         return None
     return live["runId"]
 
@@ -504,8 +537,8 @@ def retire_unreserved(state, evidence, predecessor_sha256):
     jobs [{name, status, conclusion, runId, attempt, headSha}]: every job belongs to that run, attempt and source; exactly one job per
       UNRESERVED_JOBS prefix, `completed`, the reserve job `failure`, the live and settle jobs `skipped` (a missing, duplicated, running,
       cancelled or successful job is uncertain or contradicting, and refuses);
-    journal {rootSha, headSha, runIds}: the state-ref head freshly read and validated from the pinned reviewed root: it IS the root (genesis,
-      no event of any run), so nothing was ever reserved or settled;
+    journal {rootSha, headSha, runIds}: the state-ref head freshly read and validated from the pinned reviewed root, at any head, naming no event
+      of this run, so this attempt never reserved or settled anything (other runs' events, such as an earlier settle, are untouched);
     collectedAt: when that was read, not before the run finished.
     `predecessor_sha256` binds the exact record body this retirement consumed. Only inProgress and retiredAttempts change; latestCompleted and
     history come back exactly as read, which is checked here, not assumed."""
@@ -528,15 +561,15 @@ def retire_unreserved(state, evidence, predecessor_sha256):
     seen = {}
     for key, prefix, wanted in UNRESERVED_JOBS:
         found = [j for j in jobs if isinstance(j["name"], str) and j["name"].startswith(prefix)]
-        _need(len(found) == 1 and found[0]["status"] == "completed" and found[0]["conclusion"] == wanted, "unreserved-job-" + key)
+        _need(len(found) == 1 and found[0]["status"] == "completed" and found[0]["conclusion"] in wanted, "unreserved-job-" + key)
         seen[key] = found[0]["conclusion"]
     import state_ref_writer
     _need(isinstance(journal, dict) and set(journal) == {"rootSha", "headSha", "runIds"}, "unreserved-evidence")
     _need(isinstance(journal["runIds"], list) and all(isinstance(r, str) for r in journal["runIds"]) and run["runId"] not in journal["runIds"],
           "unreserved-journal-names-the-run")
-    # genesis: the freshly read head equals the pinned reviewed root, so the journal holds no event at all
-    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT and journal["headSha"] == journal["rootSha"] and journal["runIds"] == [],
-          "unreserved-journal-not-genesis")
+    # the freshly read chain is validated from the pinned reviewed root; at whatever head, no event names this run
+    _need(journal["rootSha"] == state_ref_writer.REVIEWED_ROOT and isinstance(journal["headSha"], str) and SHA40.match(journal["headSha"]),
+          "unreserved-journal-unverified")
     entry = sanitize_retired({"runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "startedUtc": live["startedUtc"],
                               "retiredReason": "never-reserved", "predecessorSha256": predecessor_sha256,
                               "evidence": {"runStatus": "completed", "runConclusion": "failure", "runUpdatedUtc": run["updatedAt"], "collectedUtc": collected,
@@ -548,6 +581,52 @@ def retire_unreserved(state, evidence, predecessor_sha256):
     # the prior run's record and history must come back exactly as read
     for key in ("latestCompleted", "history", "pendingCompletion"):
         _need(canon(out.get(key)) == canon(state.get(key)), "unreserved-history-changed")
+    return out
+
+
+def unexecuted_candidate(state, evidence):
+    """The run id when the in-progress attempt is `incomplete`, with no pending completion, and is exactly the run (id, attempt and head) the
+    unexecuted-attempt evidence is about; else None. Which run that is comes from the journal's open reserve (unexecuted_attempt_evidence
+    pending), never from a pinned list (Sam 1793881491.714239)."""
+    live = state.get("inProgress")
+    if live is None or live.get("status") != "incomplete" or state.get("pendingCompletion") is not None or not isinstance(evidence, dict):
+        return None
+    ident = evidence.get("identity") or {}
+    if (live.get("runId"), live.get("attempt"), live.get("sourceSha")) != (ident.get("runId"), ident.get("attempt"), ident.get("headSha")):
+        return None
+    return live["runId"]
+
+
+def retire_unexecuted(state, evidence, predecessor_sha256):
+    """The state after retiring a RESERVED attempt that did not execute, or a refusal. `evidence` is the closed document of
+    unexecuted_attempt_evidence, re-verified HERE (never trusted from the caller): the pinned run, attempt and head, completed and failed, every job
+    of that run, the live job failed at the pinned step with every credential-bearing step skipped, the journal (freshly validated from the pinned
+    root) at the pinned head holding this run's one reserve, and the usage and settle time recomputed. The attempt is kept as `retiredAttempts`
+    history, never as a completed run. It does not settle anything: the reservation is settled on the journal from the SAME evidence digest by
+    journal-reserve, at that exact head. `predecessor_sha256` binds the exact record body consumed. Only inProgress and retiredAttempts change;
+    latestCompleted, history, pendingCompletion and the earlier retired entries come back exactly as read, which is checked, not assumed."""
+    import unexecuted_attempt_evidence as U
+    _need(unexecuted_candidate(state, evidence) is not None, "unexecuted-not-a-candidate")
+    live = state["inProgress"]
+    _need(isinstance(predecessor_sha256, str) and SHA64.match(predecessor_sha256), "unexecuted-predecessor")
+    try:
+        digest, usage, at_utc = U.check_evidence(evidence)
+    except U.Refused as err:
+        raise Refused(str(err))
+    run = evidence["run"]
+    _need((run["runId"], run["attempt"], run["headSha"]) == (live["runId"], live["attempt"], live["sourceSha"]), "unexecuted-run-differs")
+    _need(live["startedUtc"] <= run["updatedAt"], "unexecuted-time")
+    entry = sanitize_retired({"runId": live["runId"], "attempt": live["attempt"], "sourceSha": live["sourceSha"], "startedUtc": live["startedUtc"],
+                              "retiredReason": ACCOUNTING_REASON[evidence["accounting"]], "predecessorSha256": predecessor_sha256,
+                              "evidence": {"runStatus": run["status"], "runConclusion": run["conclusion"], "runUpdatedUtc": run["updatedAt"],
+                                           "evidenceSha256": digest, "journalHeadSha": evidence["journal"]["headSha"],
+                                           "runnerMinutes": usage["runnerMinutes"], "settleAtUtc": at_utc}})
+    prior = list(state.get("retiredAttempts") or [])
+    _need(all(r["runId"] != entry["runId"] for r in prior) and len(prior) < RETIRED_MAX, "retired-attempts-bound")
+    out = _with_retired(state, entry)
+    for key in ("latestCompleted", "history", "pendingCompletion"):
+        _need(canon(out.get(key)) == canon(state.get(key)), "unexecuted-history-changed")
+    _need(out["retiredAttempts"][:len(prior)] == prior, "unexecuted-history-changed")
     return out
 
 
@@ -684,7 +763,8 @@ def _read(path):
 def main(argv):
     a = argparse.ArgumentParser()
     a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "pending", "reconcile", "verify", "attest",
-                                       "unreserved-candidate", "retire-unreserved", "verify-predecessor"))
+                                       "unreserved-candidate", "retire-unreserved", "unexecuted-candidate", "retire-unexecuted",
+                                       "verify-predecessor"))
     for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url",
                  "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256",
                  "--completion-deadline-utc", "--published-at", "--artifact-created-at", "--attestation",
@@ -722,7 +802,15 @@ def main(argv):
                 return 1
             print(run_id)
             return 0
-        if x.command == "retire-unreserved":
+        if x.command == "unexecuted-candidate":
+            run_id = unexecuted_candidate(state, json.loads(_read(x.evidence)) if x.evidence else None)
+            if run_id is None:
+                return 1
+            print(run_id)
+            return 0
+        if x.command == "retire-unexecuted":
+            state = retire_unexecuted(state, json.loads(_read(x.evidence)), hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())
+        elif x.command == "retire-unreserved":
             state = retire_unreserved(state, json.loads(_read(x.evidence)), hashlib.sha256(_read(x.previous).encode("utf-8")).hexdigest())
         elif x.command == "reconcile":
             state = reconcile_pending(state, x.published_at, json.loads(_read(x.attestation)),

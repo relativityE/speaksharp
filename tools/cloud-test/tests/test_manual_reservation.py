@@ -11,6 +11,7 @@ from unittest import mock
 
 from _fixtures import ROOT, request_path
 import accounting_rollup as R
+import unexecuted_attempt_evidence as U
 import manual_reservation as M
 import state_ref_writer as W
 from test_accounting_rollup import Journal, scope
@@ -400,6 +401,101 @@ class ManualReservation(Journal):
         self.execute("settle", dict(late, atUtc="2026-12-01T23:59:59Z"), "s4")
         self.assertEqual(self.receive()["outstandingReservations"], 0)
 
+    # ---- settle-unexecuted: a reserved attempt whose live job failed in setup (the real run 41960376782; any such run, Sam 1793881491.714239) ----
+    UNEXEC_RUN = "41960376782"
+
+    def unexec(self, scope_bytes=None):
+        """A journal whose open last event is the attempt's reserve, and the closed evidence built from the REAL run, jobs and workflow fixtures
+        against it (no pin: the reserve is read from the journal). Returns (doc, digest, reserve event, head before)."""
+        import test_unexecuted_attempt_evidence as T
+        event = self.reserved(run=self.UNEXEC_RUN)
+        head = self.head()
+        doc = U.build_evidence(T.load("run-41960376782.json"), T.load("jobs-41960376782.json"), self.chain(), T.workflow())
+        return doc, U.check_evidence(doc)[0], event, head
+
+    def settle_unexec(self, doc, digest, name, scope_bytes=None, url=None, pins=None):
+        d = os.path.join(self.d, name)
+        os.mkdir(d)
+        inputs = {"unexecuted": doc, "unexecutedSha256": digest, "scope": scope_bytes or self.scope}
+        return M.execute("settle-unexecuted", inputs, self.repo, url or self.remote, self.root, os.path.join(d, "journal.json"),
+                         os.path.join(d, "receipt.json"), pins or self.all_pins, url or self.remote)
+
+    def test_the_unexecuted_settle_closes_the_reservation_with_measured_usage_and_restores_the_headroom(self):
+        before_rollup = self.receive()
+        doc, digest, event, head = self.unexec()
+        held = self.receive()
+        self.assertEqual((held["outstandingReservations"], held["requests"]["conservativeUsed"]), (1, 4342))
+        e = self.settle_unexec(doc, digest, "s1")
+        self.assertEqual((e["type"], e["campaignId"], e["runId"], e["attempt"], e["atUtc"]), ("settle", event["campaignId"], self.UNEXEC_RUN, 1, "2026-11-05T03:21:44Z"))
+        self.assertEqual(e["allocation"], {"requests": 0, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": 6})
+        self.assertEqual(e["provenance"], "evidence-sha256:" + digest)
+        chain = self.chain()
+        self.assertEqual([x["type"] for x in chain[-1][1]], ["reserve", "settle"], "the reserve stays in the history; nothing is released or reset")
+        self.assertEqual(chain[-1][1][0], event)
+        after = self.receive()
+        self.assertEqual(after["outstandingReservations"], 0)
+        self.assertEqual(after["currentHeadroom"], before_rollup["currentHeadroom"], "the period's caps are fully available again")
+
+    def test_the_unexecuted_settle_head_is_deterministic(self):
+        import shutil
+        doc, digest, _, _ = self.unexec()
+        twin = os.path.join(self.d, "twin.git")
+        shutil.copytree(self.remote, twin)
+        self.settle_unexec(doc, digest, "a")
+        self.settle_unexec(doc, digest, "b", url=twin)
+        self.assertEqual(W.fetch_head(self.repo, self.remote, self.remote), W.fetch_head(self.repo, twin, twin))
+
+    def test_an_identical_unexecuted_settle_already_on_the_chain_is_a_no_op(self):
+        doc, digest, _, _ = self.unexec()
+        e = self.settle_unexec(doc, digest, "first")
+        landed = self.head()
+        self.assertEqual(self.settle_unexec(doc, digest, "retry"), e)
+        self.assertEqual(self.head(), landed, "a retry appends nothing")
+
+    def test_the_unexecuted_settle_refuses_any_other_head_and_appends_nothing(self):
+        doc, digest, _, head = self.unexec()
+        self.append("reserve", "41400000077", ALLOCATION)                  # another reserve lands first: the head is no longer the evidence's
+        moved = self.head()
+        self.refused("manual-unexecuted-journal-moved", self.settle_unexec, doc, digest, "m1")
+        self.assertEqual(self.head(), moved)
+
+    def test_the_unexecuted_settle_refuses_a_journal_that_is_already_closed_differently(self):
+        doc, digest, event, head = self.unexec()
+        self.append("settle", self.UNEXEC_RUN, {"requests": 100, "identityReads": 1, "starts": 1, "takes": 1, "coachingRequests": 0, "runnerMinutes": 1},
+                    campaign=event["campaignId"], provenance="evidence-sha256:" + "9" * 64)
+        closed = self.head()
+        self.refused("manual-unexecuted-journal-moved", self.settle_unexec, doc, digest, "c1")
+        self.assertEqual(self.head(), closed)
+
+    def test_the_unexecuted_settle_refuses_a_wrong_digest_a_tampered_document_and_another_run(self):
+        doc, digest, _, head = self.unexec()
+        self.refused("manual-unexecuted-evidence-digest", self.settle_unexec, doc, "0" * 64, "d1")
+        bad = json.loads(json.dumps(doc))
+        bad["usage"]["runnerMinutes"] = 30                                   # claims the whole reservation
+        self.refused("manual-unexecuted-usage-differs", self.settle_unexec, bad, U.canon(bad) and hashlib.sha256(U.canon(bad)).hexdigest(), "d2")
+        other = json.loads(json.dumps(doc))
+        other["identity"]["runId"] = "41933223835"
+        self.refused("manual-unexecuted-run-differs", self.settle_unexec, other, digest, "d3")
+        ran = json.loads(json.dumps(doc))
+        live = next(j for j in ran["jobs"] if j["name"].startswith("Selected live journeys"))
+        next(s for s in live["steps"] if s["name"].startswith("Stage runner (run)"))["conclusion"] = "success"
+        self.refused("manual-unexecuted-credential-step-ran", self.settle_unexec, ran, hashlib.sha256(U.canon(ran)).hexdigest(), "d4")
+        self.assertEqual(self.head(), head, "nothing was appended")
+
+    def test_the_unexecuted_settle_keeps_the_period_and_scope_boundaries(self):
+        doc, digest, _, head = self.unexec()
+        early = scope_raw(periodEndUtc="2026-11-05T03:21:44Z")               # the settle time must be INSIDE the accepted period (end exclusive)
+        pins = dict(self.all_pins, accepted_scope_sha256=hashlib.sha256(early).hexdigest())
+        self.refused("manual-settle-outside-period", lambda: self.settle_unexec(doc, digest, "p1", scope_bytes=early, pins=pins))
+        self.refused("manual-reservation-scope-not-accepted", lambda: self.settle_unexec(doc, digest, "p2", scope_bytes=scope_raw(carryover="historical")))
+        self.assertEqual(self.head(), head)
+        self.assertEqual(self.receive()["outstandingReservations"], 1, "the reservation stays held at its caps until a valid settle")
+
+    def test_the_unexecuted_command_refuses_a_missing_evidence_input_on_the_cli(self):
+        p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "manual_reservation.py"), "settle-unexecuted", "--scope", "/nonexistent"],
+                           capture_output=True, text=True)
+        self.assertEqual((p.returncode, p.stdout, p.stderr.strip()), (78, "", "BLOCKED_SETUP: manual-unexecuted-evidence"))
+
     def test_the_release_event_needs_never_started_and_an_approval(self):
         e = self.reserved()
         self.refused("manual-release-run-started", M.release, e, True, "slack-1793556225.890759", AT)
@@ -422,7 +518,7 @@ class ManualReservation(Journal):
                          ("92d6ebf902351750c368d7d513116c6b1f19f80c",
                           "0a3e60271dc703f12cf02684450a9f74bc7f60d5c3f610a86bb9eaddc268f174",
                           "92d6ebf902351750c368d7d513116c6b1f19f80c",
-                          "ee31d2f9b9a3e0c75af903466e262041ab2b800a00d79d31a58cd404ea2b8eb9"))
+                          "ee4d3d5ea2c343433ff2b1d7fd36aecdf5ca1438faf0836402d18ac74ddbe397"))
 
 
 if __name__ == "__main__":

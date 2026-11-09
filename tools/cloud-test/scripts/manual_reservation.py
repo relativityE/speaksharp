@@ -13,6 +13,12 @@ fresh-period scope are pinned below. Nightly runs keep their own path (reservati
             measured request charge is requests + identityReads exactly once while identityReads remains separately reported. If either
             half is unknown, requests settle at the reserved cap. Any unmeasured dimension keeps its reserved cap (never under-counted);
             an actual above the reservation refuses, leaving the reservation open and counted.
+  settle-unexecuted
+            closes the reservation of the ONE pinned attempt whose live job failed in setup with every credential-bearing step skipped
+            (unexecuted_attempt_evidence.py). The usage is DERIVED from that evidence, never supplied: zero product usage and the live job's measured
+            runner minutes; its digest is the `evidence-sha256:` provenance and the evidence's own terminal time is `atUtc`, so the settle's
+            journal commit is a deterministic function of the evidence. It appends only when the freshly validated journal is exactly the evidence's
+            head (genesis plus that one reserve, no settle or release); an already-appended identical settle is a no-op.
   release   returns exactly the reservation, under an owner approval reference, only for a run that never started. The integrated path
             refuses every release until a verifier of never-started evidence exists (`started=False` alone is not evidence).
   execute   the integrated path: accepted scope BYTES (pinned digest, not a nonempty approvalRef), the chain verified from the accepted root,
@@ -43,7 +49,7 @@ APPROVAL = re.compile(r"slack-[0-9]{10}\.[0-9]{6}")
 RUN_RECORD_SCHEMA = "speaksharp.cloud-test.run-record.v1"
 # The exact PO-approved fresh-period scope, pinned with the bootstrap and writer
 # root.  A substituted scope is refused before any journal transition.
-ACCEPTED_SCOPE_SHA256 = "ee31d2f9b9a3e0c75af903466e262041ab2b800a00d79d31a58cd404ea2b8eb9"
+ACCEPTED_SCOPE_SHA256 = "ee4d3d5ea2c343433ff2b1d7fd36aecdf5ca1438faf0836402d18ac74ddbe397"
 
 
 class Refused(ValueError):
@@ -167,6 +173,18 @@ def release(reserved, started, approval_ref, at_utc):
     return _event("release", identity, reserved["allocation"], "approval:" + approval_ref, at_utc)
 
 
+def usage_from_unexecuted(doc, digest_claimed):
+    """(usage, evidence sha256, atUtc) for the unexecuted-attempt evidence, from `unexecuted_attempt_evidence.check_evidence` (which recomputes the
+    usage and the time). The caller's digest must equal the recomputed one."""
+    import unexecuted_attempt_evidence as U
+    try:
+        digest, usage, at_utc = U.check_evidence(doc)
+    except U.Refused as err:
+        raise Refused("manual-" + str(err))
+    _need(isinstance(digest_claimed, str) and digest_claimed == digest, "manual-unexecuted-evidence-digest")
+    return usage, digest, at_utc
+
+
 def _reserved_on_chain(chain, campaign_id, run_id):
     """The reserve event for this identity, read from the VERIFIED chain (never from a file the caller hands over)."""
     found = [e for e in chain[-1][1] if e["type"] == "reserve" and (e["campaignId"], e["runId"], e["attempt"]) == (campaign_id, run_id, 1)]
@@ -203,6 +221,18 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
             request, allocation = manual_request(inputs["request"], inputs["admittedSha256"])
             event = _event("reserve", {"campaignId": request.get("runId"), "runId": inputs["runId"], "attempt": 1}, allocation,
                            "request-sha256:" + inputs["admittedSha256"], inputs["atUtc"])
+        elif command == "settle-unexecuted":
+            doc = inputs["unexecuted"]
+            usage, evidence, at_utc = usage_from_unexecuted(doc, inputs["unexecutedSha256"])
+            _in_period(scope, at_utc, "manual-settle-outside-period")
+            run_id = doc["identity"]["runId"]
+            held = doc["journal"]["reserve"]
+            event = settle(held, usage, evidence, at_utc)
+            on_run = [e for e in chain[-1][1] if e["runId"] == run_id]
+            if on_run == [held, event]:
+                return event          # the exact settle is already on the verified chain: nothing to append
+            _need(head == doc["journal"]["headSha"] and chain[-1][1] and chain[-1][1][-1] == held and on_run == [held],
+                  "manual-unexecuted-journal-moved")
         else:
             _need(command == "settle", "manual-reservation-command")
             # Sam 1793557361.926929: a late settle is refused before the append; the reservation stays held (counted at its caps) until an
@@ -245,7 +275,7 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
                 # #1772 RETURN 1793645360.787039 #2: the authenticated action approval is admitted against THIS checkpoint (the head the
                 # reserve is appended on) before anything is written, so a stale or invalid approval consumes no cap and leaves no reservation.
                 admit_action_approval(inputs.get("facts"), inputs["request"], inputs["admittedSha256"],
-                                      accounting_rollup.checkpoint_bytes(rollup), source_repo)
+                                      accounting_rollup.checkpoint_bytes(rollup), source_repo, chain)
                 # Admission and headroom are checked immediately before the
                 # first append.  A recovered exact transition was already
                 # checked at its original parent and is reverified below.
@@ -256,7 +286,7 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
     return event
 
 
-def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint, source_repo=None):
+def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint, source_repo=None, chain=None):
     """#1772 RETURN 1793645360.787039 #2: the dispatched facts' action approval, admitted by the SAME check prepare applies
     (init_run_inputs.check_action_approval) against the checkpoint bytes the reserve will be appended on. Refuses before any write."""
     import init_run_inputs as I
@@ -272,7 +302,7 @@ def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint, s
     if request.get("runId") != "R10-3b040043-smoke15":
         _need("actionApproval" in facts, "manual-reservation-approval-facts")
     try:
-        I.occurrence_action_approval(facts, admitted_sha256, checkpoint, request, repo=source_repo)
+        I.occurrence_action_approval(facts, admitted_sha256, checkpoint, request, repo=source_repo, chain=chain)
     except I.Refused as err:
         raise Refused("manual-reservation-" + str(err))
 
@@ -301,9 +331,9 @@ def _read(path):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("reserve", "settle", "release"))
+    a.add_argument("command", choices=("reserve", "settle", "settle-unexecuted", "release"))
     for flag in ("--repo", "--source-repo", "--journal", "--out", "--request", "--admitted-sha256", "--run-id", "--bootstrap", "--scope", "--campaign-id",
-                 "--record", "--settle-input", "--facts", "--now"):
+                 "--record", "--settle-input", "--facts", "--now", "--unexecuted-evidence", "--unexecuted-sha256"):
         a.add_argument(flag)
     x = a.parse_args(argv[1:])
     try:
@@ -317,6 +347,9 @@ def main(argv):
             _need(bool(x.record) != bool(x.settle_input), "manual-settle-input-source")
             inputs = {"campaignId": x.campaign_id, "runId": x.run_id, "record": _read(x.record or x.settle_input),
                       "settleInput": bool(x.settle_input), "scope": _read(x.scope), "atUtc": at}
+        elif x.command == "settle-unexecuted":
+            _need(bool(x.unexecuted_evidence) and bool(x.unexecuted_sha256) and bool(x.scope), "manual-unexecuted-evidence")
+            inputs = {"unexecuted": json.loads(_read(x.unexecuted_evidence)), "unexecutedSha256": x.unexecuted_sha256, "scope": _read(x.scope)}
         else:
             inputs = {}
         pins = {"accepted_sha256": accounting_rollup.ACCEPTED_BOOTSTRAP_SHA256, "accepted_root": accounting_rollup.ACCEPTED_ROOT,

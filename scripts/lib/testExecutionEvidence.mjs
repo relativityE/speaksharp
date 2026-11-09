@@ -8,7 +8,7 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
-import {nativeTestRoute,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness,
+import {nativeTestRoute,nativeHelper,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,NATIVE_MAX_BATCHES,reconcileExecutionBatches} from './nativeTestExecutionEvidence.mjs';
 import {pythonTestRoute,validatePythonReceipt} from './pythonTestExecutionEvidence.mjs';
 
@@ -262,8 +262,10 @@ export function changedEvidencePaths(root, base) {
   // Deletions still affect raw change/pilot applicability, but cannot be executed.
   // lstat retains malformed existing entries (including dangling links) for refusal.
   // Python unittest modules are named test_*.py; outside tests/ they were silently omitted, not reported UNCOVERED.
-  return changedPaths(root,base).filter(file=>/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
-    && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
+  // A registered native helper is evidence input by registration, wherever it lives: without this a change to
+  // tools/cloud-test/scripts/prerequisite_preflight.cjs alone never reached its node:test consumer (#1787).
+  return changedPaths(root,base).filter(file=>(/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$|(?:^|\/)test_[^/]+\.py$/.test(file)
+    || nativeHelper(file)!==undefined) && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
 }
 
 export function executionRequiredFiles(root,base,kind='changed-evidence') {

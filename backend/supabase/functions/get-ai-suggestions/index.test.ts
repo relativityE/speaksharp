@@ -18,6 +18,8 @@ import {
 import { MAX_PROVIDER_ATTEMPTS, PROVIDER_BUDGET_MS } from './providerRetry.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { type EvaluationItem, evaluationPrompt } from './evaluation/prompt.ts';
+import evaluationSet from './evaluation/transcripts.json' with { type: 'json' };
 
 const suggestionA = {
   version: 'gemini_coaching_v1',
@@ -2449,4 +2451,30 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   Deno.env.delete('GEMINI_API_KEY');
+});
+
+/**
+ * LLM evaluator parity: the offline evaluator must measure the prompt a customer's saved take actually produces. For every Open Mic
+ * take in the committed evaluation set, the REAL handler (saved session read, delivery signals, prompt build, Gemini adapter) is run
+ * on that take's evidence, and the prompt it sends must equal the evaluator's prompt byte for byte. Focus takes need the objective
+ * tables; their prompt is built by the same exported functions and is covered in evaluation/evaluator.test.ts.
+ */
+Deno.test('LLM evaluator parity: the handler sends exactly the evaluator prompt for every Open Mic take in the set', async () => {
+  // The set's shape is validated by evaluation/evaluator.test.ts; this test imports only the prompt module and the data.
+  const openMic = (evaluationSet.items as EvaluationItem[]).filter((item) => item.product === 'open_mic');
+  assertEquals(openMic.length, 6);
+  try {
+    for (const item of openMic) {
+      resetProvider();
+      const mock = mockSupabase({
+        session: savedSession({ transcript: item.transcript, wpm: item.wpm, filler_counts: item.filler_counts, filler_words: null }),
+        focus: { objective: null },
+      });
+      assertEquals((await handler(request(), mock.create)).status, 200, item.id);
+      assertEquals(fetchCount, 1, item.id);
+      assertEquals(lastPrompt, evaluationPrompt(item), item.id);
+    }
+  } finally {
+    Deno.env.delete('GEMINI_API_KEY');
+  }
 });

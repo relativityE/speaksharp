@@ -11,7 +11,8 @@ import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,s
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
   PROOF_CASES_TEST,REAL_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
-import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {testEnvironment,executionContext,sourceIdentity,executionRoute,changedEvidencePaths} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {execFileSync} from 'node:child_process';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -23,8 +24,8 @@ test('bounded native routes retain explicit planner/protocol and fixture-only cl
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
-  assert.equal(contracts.length,6);
-  assert.equal(contracts.filter(item=>item.runner==='node-test').length,5);
+  assert.equal(contracts.length,7);
+  assert.equal(contracts.filter(item=>item.runner==='node-test').length,6);
   for(const item of NATIVE_HELPERS) {
     assert.equal(nativeTestRoute(item.file,root).consumer,item.consumer);
     assert.match(nativeTestRoute(item.file,root).claim,/NOT RUN/);
@@ -312,7 +313,7 @@ test('frozen source refuses global, aliased and imported setters even while all 
     assert.equal(validateSyntheticSource(f.dir,entry).files[entry],hash(fs.readFileSync(path.join(root,entry))));
   }finally{f.clean();}
 });
-test('reviewed coaching error source admits exactly its ten pinned inputs and refuses drift in every input',()=>{
+test('reviewed coaching source admits exactly its pinned inputs (handler, providers, evaluator prompt and set) and refuses drift in every input',()=>{
   const f=fixture(),entry='backend/supabase/functions/get-ai-suggestions/index.test.ts';
   const files=[...new Set([...dependencyPaths(root,entry),'package.json','pnpm-lock.yaml',
     'backend/supabase/functions/deno.json','backend/supabase/functions/deno.lock'])];
@@ -320,8 +321,10 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
   fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
-    assert.equal(admitted.id,'coaching-provider-adapter-1773');
-    assert.equal(Object.keys(admitted.files).length,14);
+    assert.equal(admitted.id,'coaching-llm-evaluator-parity');
+    assert.equal(Object.keys(admitted.files).length,16);
+    for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json'])
+      assert.ok(files.includes(`backend/supabase/functions/get-ai-suggestions/${added}`),added);
     assert.deepEqual(Object.keys(admitted.files).sort(),files.sort());
     for(const file of files) {
       const original=fs.readFileSync(path.join(root,file));
@@ -330,7 +333,7 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
       assert.throws(()=>validateSyntheticSource(f.dir,entry),/Synthetic-key test\/import profile/,file);
       f.write(file,original);
     }
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-provider-adapter-1773');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-llm-evaluator-parity');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
@@ -749,4 +752,25 @@ test('proof-generation timeout with an undrained descendant retains its owned in
     });
     assert.ok(retained&&fs.existsSync(retained),'unverified descendant ownership must retain the generated-input directory');
   } finally {if(retained)fs.rmSync(retained,{recursive:true,force:true});}
+});
+
+test('a script-only change to a registered native helper outside tests/ selects its consumer through the real changed-evidence filter',()=>{
+  // #1787: the route was registered, but changedEvidencePaths dropped tools/cloud-test/scripts/*.cjs before routing, so CI never saw it.
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'native-helper-diff-'));
+  try {
+    const git=(...args)=>execFileSync('git',['-C',dir,'-c','user.name=t','-c','user.email=t@example.invalid',...args],{encoding:'utf8'}).trim();
+    const helper='tools/cloud-test/scripts/prerequisite_preflight.cjs',plain='tools/cloud-test/scripts/other_script.cjs';
+    git('init','-q');
+    for(const file of [helper,plain]){fs.mkdirSync(path.join(dir,path.dirname(file)),{recursive:true});fs.writeFileSync(path.join(dir,file),'one\n');}
+    git('add','-A');git('commit','-q','-m','base');const base=git('rev-parse','HEAD');
+    for(const file of [helper,plain])fs.writeFileSync(path.join(dir,file),'two\n');
+    git('commit','-q','-am','script-only change');
+    const files=changedEvidencePaths(dir,base);
+    assert.deepEqual(files,[helper],'only the registered helper becomes evidence input');
+    const [contract,...rest]=selectNativeContracts(root,files);
+    assert.equal(rest.length,0);
+    assert.equal(contract.testFile,'tools/cloud-test/tests/prerequisite-preflight.test.cjs');
+    assert.deepEqual(contract.helpers,[helper]);
+    assert.equal(executionRoute(helper,root).runner,'node-test-helper');
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });

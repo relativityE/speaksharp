@@ -173,3 +173,85 @@ test('the deadline is re-checked before every request: once it passes mid-sequen
   assert.equal(counted.calls.length, 3);
   assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false);
 });
+
+test('run as a script (the workflow entry), the deadline check works and an expired or not-yet-open occurrence sends nothing', async t => {
+  // R10 run 42059286564: the CLI entry called main() before module.exports was assigned, so the deadline check's clock read threw
+  // "Cannot read properties of undefined (reading 'now')". Imported-function tests could not see it; this spawns the script itself.
+  const {spawnSync} = require('node:child_process');
+  const entry = path.join(__dirname, '..', 'scripts', 'prerequisite_preflight.cjs');
+  for (const [label, startMs] of [['expired', Date.now() - 2 * 80 * MINUTE], ['not yet open', Date.now() + 60 * MINUTE]]) {
+    const f = fixture(t);
+    f.occurrence = writeOccurrence(f.root, {createdUtc: iso(startMs), window: {startUtc: iso(startMs), endUtc: iso(startMs + 80 * MINUTE), approvalRef: 'slack:renewal'}});
+    // any network attempt from the child is recorded and fails: the refusal must come first
+    const marker = path.join(f.root, 'fetch-called'), preload = path.join(f.root, 'no-fetch.cjs');
+    fs.writeFileSync(preload, `globalThis.fetch = async () => { require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'x'); throw new Error('network'); };\n`);
+    const argv = Object.entries(args(f)).flat();
+    const child = spawnSync(process.execPath, ['--require', preload, entry, 'prepare', ...argv], {env: process.env, encoding: 'utf8', timeout: 30000});
+    assert.equal(child.status, 78, `${label}: ${child.stderr}`);
+    assert.equal(child.stderr.trim(), 'BLOCKED_SETUP: occurrence-deadline', label);
+    assert.equal(fs.existsSync(marker), false, `${label}: no request may be attempted`);
+    assert.equal(fs.existsSync(path.join(f.root, 'receipt.json')), false, label);
+  }
+});
+
+test('run as scripts inside an open window, prepare then charge complete their normal path with the network intercepted only at fetch', async t => {
+  // Sam 1793895799.280589: the workflow-faithful success case. The real CLI entry and argument parsing, the real occurrence and deadline
+  // checks against the real clock, the real request sequence, receipt and facts writing; only fetch is a synthetic Supabase at the boundary.
+  // It proves the script's own path end to end offline. It does NOT prove the hosted step's environment, real credentials, real Supabase
+  // RLS behaviour or the live workflow wiring; only a real run does.
+  const {spawnSync} = require('node:child_process');
+  const entry = path.join(__dirname, '..', 'scripts', 'prerequisite_preflight.cjs');
+  const f = fixture(t), startMs = Date.now() - MINUTE;
+  f.occurrence = writeOccurrence(f.root, {createdUtc: iso(startMs), window: {startUtc: iso(startMs), endUtc: iso(startMs + 80 * MINUTE), approvalRef: 'slack:renewal'}});
+  const calls = path.join(f.root, 'fetch-calls'), preload = path.join(f.root, 'synthetic-supabase.cjs');
+  fs.writeFileSync(preload, `const fs = require('node:fs'); const IDS = ${JSON.stringify(IDS)}, EMAILS = ${JSON.stringify(EMAILS)};
+const json = (status, body) => ({status, json: async () => body});
+globalThis.fetch = async (url, options) => {
+  fs.appendFileSync(${JSON.stringify(calls)}, new URL(url).pathname + '\\n');
+  const parsed = new URL(url);
+  if (parsed.pathname === '/auth/v1/token') {
+    const role = Object.keys(EMAILS).find(key => EMAILS[key] === JSON.parse(options.body).email);
+    return json(200, {access_token: 'private-token-' + role, user: {id: IDS[role], app_metadata: {internal_tester: true}}});
+  }
+  const role = Object.keys(IDS).find(key => options.headers.authorization === 'Bearer private-token-' + key);
+  const target = parsed.searchParams.get(parsed.pathname.endsWith('user_profiles') ? 'id' : 'user_id')?.replace(/^eq\\./, '');
+  if (target !== IDS[role]) return json(200, []);
+  if (parsed.pathname.endsWith('user_profiles')) return json(200, [{id: IDS[role]}]);
+  return json(200, role === 'maintained-read-only' ? [{id: 'history-row', status: 'completed'}] : []);
+};\n`);
+  // Only the names the workflow step supplies (cloud-test-live.yml "Prove the selected accounts' ..."), not this process's environment.
+  const stepEnv = {PATH: process.env.PATH, HOME: process.env.HOME || os.tmpdir()};
+  for (const name of ['CLOUD_TEST_LIVE_ACCOUNTS', 'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'THROWAWAY_TEST_PASSWORD', 'FREE_TEST_PASSWORD']) stepEnv[name] = process.env[name];
+  const child = spawnSync(process.execPath, ['--require', preload, entry, 'prepare', ...Object.entries(args(f)).flat()],
+    {env: stepEnv, encoding: 'utf8', timeout: 30000});
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.stderr, '');
+  const sent = fs.readFileSync(calls, 'utf8').trim().split('\n');
+  assert.equal(sent.length, 10, 'exactly the bounded request count');
+  assert.equal(sent.filter(p => p === '/auth/v1/token').length, 2);
+  const receiptBytes = fs.readFileSync(path.join(f.root, 'receipt.json'), 'utf8');
+  for (const forbidden of [...Object.values(IDS), ...Object.values(EMAILS), 'throwaway-secret', 'free-secret', 'anon-secret-value', 'private-token']) {
+    assert.equal(receiptBytes.includes(forbidden), false, forbidden);
+    assert.equal(child.stdout.includes(forbidden), false, forbidden);
+  }
+  const receipt = JSON.parse(receiptBytes), facts = JSON.parse(fs.readFileSync(path.join(f.root, 'facts.json')));
+  assert.deepEqual(receipt.charges, {auth: 2, signedIn: 8, total: 10});
+  assert.equal(receipt.mutationCount, 0);
+  assert.match(facts.receipts.pre, /^r10-preflight:[0-9a-f]{64}$/);
+  assert.equal(facts.receipts.disp, 'slack:owner-disposition');
+  assert.equal(fs.statSync(path.join(f.root, 'receipt.json')).mode & 0o777, 0o600);
+  // Bezos #1787 H3: then charge, exactly as execute_run.sh runs it: `env -i PATH HOME node ... charge`, with no credential, fetch
+  // preload or harness environment. It must import the produced receipt into the admitted ledger as 10 requests, and only once.
+  const ledgerFile = path.join(f.root, 'campaign-ledger.json');
+  Ledger.initialize(ledgerFile, {total: 2000, preflight: 10, auth: 2, 'signed-in': 8});
+  const chargeArgs = [entry, 'charge', '--receipt', path.join(f.root, 'receipt.json'), '--ledger', ledgerFile];
+  const bare = {PATH: process.env.PATH, HOME: process.env.HOME || os.tmpdir()};
+  const charged = spawnSync(process.execPath, chargeArgs, {env: bare, encoding: 'utf8', timeout: 30000});
+  assert.equal(charged.status, 0, charged.stderr);
+  assert.equal(charged.stdout, 'prerequisite preflight charged 10 existing campaign requests\n');
+  assert.deepEqual(JSON.parse(fs.readFileSync(ledgerFile)).used, {total: 10, preflight: 10, auth: 2, 'signed-in': 8});
+  const again = spawnSync(process.execPath, chargeArgs, {env: bare, encoding: 'utf8', timeout: 30000});
+  assert.equal(again.status, 78);
+  assert.equal(again.stderr, 'BLOCKED_SETUP: preflight-import-not-first\n');
+  assert.equal(JSON.parse(fs.readFileSync(ledgerFile)).reservations, 10);
+});
