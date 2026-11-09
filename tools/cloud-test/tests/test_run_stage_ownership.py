@@ -237,6 +237,9 @@ class Quiescence(unittest.TestCase):
 class RecoverAsRoot(unittest.TestCase):
     """The root half of `recover-ownership`, exercised with `id`/`chown`/`python3` shims (the privileged path runs on the runner)."""
     def setUp(self):
+        # The job owner must differ from whoever creates these fixture trees: on a GitHub-hosted runner the test process itself is
+        # uid 1001, so a literal 1001 owner makes every tree look "already returned" and hides the recovery path under test.
+        self.owner = "%d:%d" % (os.getuid() + 1, os.getgid())
         self.d = os.path.realpath(tempfile.mkdtemp(prefix="recover-as-root-"))
         self.addCleanup(subprocess.run, ["rm", "-rf", self.d])
         self.bin = os.path.join(self.d, "bin"); os.mkdir(self.bin)
@@ -250,9 +253,9 @@ class RecoverAsRoot(unittest.TestCase):
     def shim(self, name, body):
         p = os.path.join(self.bin, name); Path(p).write_text(body); os.chmod(p, stat.S_IRWXU)
 
-    def recover(self, owner="1001:118", out=None, pin=None, **env):
+    def recover(self, owner=None, out=None, pin=None, **env):
         e = {"PATH": self.bin + ":/usr/bin:/bin", "HOME": self.d, **env}
-        p = subprocess.run(["bash", str(SCRIPT), "recover-as-root", owner, self.out if out is None else out, self.inputs if pin is None else pin],
+        p = subprocess.run(["bash", str(SCRIPT), "recover-as-root", owner or self.owner, self.out if out is None else out, self.inputs if pin is None else pin],
                            capture_output=True, text=True, env=e)
         return p, (Path(self.log).read_text().splitlines() if os.path.exists(self.log) else [])
 
@@ -261,7 +264,7 @@ class RecoverAsRoot(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(len(calls), 2)
         self.assertRegex(calls[0], r"^quiescence -I \S*run_stage_quiescence\.py --tree %s --tree %s --wait-seconds 90$" % (self.out, self.inputs))
-        self.assertEqual(calls[1], "chown -R 1001:118 %s %s" % (self.out, self.inputs))
+        self.assertEqual(calls[1], "chown -R " + self.owner + " %s %s" % (self.out, self.inputs))
 
     def test_a_surviving_stage_process_blocks_the_return_and_nothing_changes(self):
         p, calls = self.recover(STAGE_ALIVE="1")
@@ -290,7 +293,7 @@ class RecoverAsRoot(unittest.TestCase):
 
     def test_absent_private_inputs_are_skipped(self):
         p, calls = self.recover(pin=os.path.join(self.d, "absent"))
-        self.assertEqual(calls[-1], "chown -R 1001:118 %s" % self.out)
+        self.assertEqual(calls[-1], "chown -R " + self.owner + " %s" % self.out)
 
     def test_only_root_may_enter_and_the_job_user_entry_needs_an_elevated_stage(self):
         os.remove(os.path.join(self.bin, "id"))
