@@ -679,6 +679,19 @@ def unexecuted_candidate(state, evidence):
     return live["runId"]
 
 
+def recovery_record_plan(state, evidence):
+    """The latest-record action of the protected recovery-only route (cloud-test-recover.yml) for the open reserve the evidence is about:
+    "retire" when the in-progress attempt is exactly that run and may be retired from this evidence (unexecuted_candidate), "none" when the
+    record is not about that run (no attempt in progress, or another run), and a refusal when the record IS about that run but cannot be
+    retired from this evidence. Then the journal is never settled behind a record that no later dispatch could reconcile."""
+    _need(isinstance(evidence, dict) and isinstance(evidence.get("identity"), dict), "recovery-record-evidence")
+    live = state.get("inProgress")
+    if live is None or live.get("runId") != evidence["identity"].get("runId"):
+        return "none"
+    _need(unexecuted_candidate(state, evidence) == live["runId"], "recovery-record-unreconcilable")
+    return "retire"
+
+
 def retire_unexecuted(state, evidence, predecessor_sha256):
     """The state after retiring a RESERVED attempt that did not execute, or a refusal. `evidence` is the closed document of
     unexecuted_attempt_evidence, re-verified HERE (never trusted from the caller): the pinned run, attempt and head, completed and failed, every job
@@ -989,7 +1002,7 @@ def main(argv):
     a.add_argument("command", choices=("select", "begin", "complete", "interrupt", "pending", "reconcile", "verify", "attest",
                                        "unreserved-candidate", "retire-unreserved", "unexecuted-candidate", "retire-unexecuted",
                                        "settled-candidate", "retire-settled", "verify-predecessor", "completion-artifact",
-                                       "retire-unattested"))
+                                       "retire-unattested", "recovery-record-plan"))
     for flag in ("--comments", "--previous", "--record", "--run-id", "--source-sha", "--started-utc", "--status", "--out", "--issue-url",
                  "--candidate", "--public-body", "--published", "--settle-receipt-sha256", "--occurrence-sha256",
                  "--completion-deadline-utc", "--published-at", "--artifact-created-at", "--attestation",
@@ -1036,6 +1049,9 @@ def main(argv):
             if run_id is None:
                 return 1
             print(run_id)
+            return 0
+        if x.command == "recovery-record-plan":
+            print(recovery_record_plan(state, json.loads(_read(x.evidence))))
             return 0
         if x.command == "unexecuted-candidate":
             run_id = unexecuted_candidate(state, json.loads(_read(x.evidence)) if x.evidence else None)

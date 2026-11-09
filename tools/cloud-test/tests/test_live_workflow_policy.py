@@ -176,6 +176,10 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('recovery=(--unexecuted-evidence', run)
         self.assertIn('${recovery[@]+"${recovery[@]}"}', run)
         self.assertNotIn("manual_reservation.py settle", run, "the gate never appends a settle")
+        # #1797 recovery P1: a refusal with an open reservation names the protected recovery-only route
+        self.assertIn("BLOCKED_SETUP: reserve-check-open-attempt-needs-recovery", run)
+        self.assertIn("cloud-test-recover.yml with confirm=RECOVER", run)
+        self.assertTrue(os.path.isfile(os.path.join(REPO, ".github", "workflows", "cloud-test-recover.yml")))
         self.assertEqual(sorted(n for n, j in self.jobs.items() if "pull-requests" in (j.get("permissions") or {})),
                          ["record-begin", "record-complete"])
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})

@@ -1,0 +1,153 @@
+name: Cloud test recovery (settle the journal's one open reservation; no run, no reservation, no product)
+
+# The protected recovery-only route (work point 5, #1797; release review of e3f0b94c, recovery P1). An attempt that reserved and then stopped
+# without settling (failed in setup, cancelled or timed out) leaves the journal's last event an open reserve. The normal dispatch can stop at
+# its pre-dispatch check before reaching the recovery it carries, so this route settles that reservation on its own:
+#  - protected main only, an explicit RECOVER confirmation, the immutable source commit;
+#  - the open attempt's closed, deterministic terminal evidence (unexecuted_attempt_evidence: run, attempt, head, its own workflow, every job
+#    completed, the journal head and that exact reserve), validated BEFORE any write; missing, malformed, mismatched or non-terminal refuses;
+#  - the existing settlement calculation: zero product usage when nothing product-capable ran, the preflight's fixed 10 requests when only
+#    it ran, and otherwise the reserved caps, labelled conservative (accounting "capped" / "terminated-capped"), never measured;
+#  - the latest record: that attempt is retired from the same evidence when the record is about it, and the route refuses when the record is
+#    about it but cannot be retired, so the journal is never settled behind a record no later dispatch could reconcile;
+#  - one leased journal write (expected head, chain revalidated; an identical settle already on the chain is a no-op; a moved head refuses).
+# It never begins an attempt, appends a reserve, runs a live job, calls the product or receives a product credential. The journal push
+# uses this repository's own token. It renews no grant, adds no budget and authorizes no new run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type RECOVER to settle the journal's one open reservation from its closed terminal evidence
+        required: true
+        type: string
+
+# The ONE serialized cloud-test publisher group, shared with cloud-test-live.yml: recovery never races a dispatch.
+concurrency:
+  group: cloud-test-live
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  TRACKING_ISSUE: '1763'
+
+jobs:
+  validate:
+    name: Validate the open attempt's terminal evidence (read-only)
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.ref_protected == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      evidence_sha256: ${{ steps.collect.outputs.evidence_sha256 }}
+      evidence_b64: ${{ steps.collect.outputs.evidence_b64 }}
+    steps:
+      - name: Refuse an unconfirmed recovery
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          [ "$CONFIRM" = RECOVER ] || { echo "BLOCKED_SETUP: recovery-not-confirmed"; exit 78; }
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Collect and validate the open attempt's closed terminal evidence before any write
+        id: collect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          U=tools/cloud-test/scripts/unexecuted_attempt_evidence.py
+          open_run="$(python3 -I "$U" pending)"
+          [ -n "$open_run" ] || { echo "BLOCKED_SETUP: recovery-no-open-reservation"; exit 78; }
+          [ "$open_run" != "$GITHUB_RUN_ID" ] || { echo "BLOCKED_SETUP: recovery-own-run"; exit 78; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$open_run" > "$RUNNER_TEMP/recover-run.json"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$open_run/jobs?per_page=100" > "$RUNNER_TEMP/recover-jobs.json"
+          open_head="$(python3 -I -c 'import json,re,sys; h=json.load(open(sys.argv[1])).get("head_sha"); assert re.fullmatch(r"[0-9a-f]{40}", str(h)); print(h)' "$RUNNER_TEMP/recover-run.json")"
+          git fetch --quiet --no-tags --depth=1 origin "$open_head"
+          git show "$open_head:.github/workflows/cloud-test-live.yml" > "$RUNNER_TEMP/recover-workflow.yml"
+          python3 -I "$U" collect --run "$RUNNER_TEMP/recover-run.json" --jobs "$RUNNER_TEMP/recover-jobs.json" \
+            --workflow "$RUNNER_TEMP/recover-workflow.yml" --out "$RUNNER_TEMP/recover-evidence.json"
+          sha="$(python3 -I "$U" check --evidence "$RUNNER_TEMP/recover-evidence.json" | cut -d' ' -f1)"
+          python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("recovery accounting:", d["accounting"], "| run", d["identity"]["runId"], "attempt", d["identity"]["attempt"])' "$RUNNER_TEMP/recover-evidence.json"
+          echo "evidence_sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "evidence_b64=$(base64 < "$RUNNER_TEMP/recover-evidence.json" | tr -d '\n')" >> "$GITHUB_OUTPUT"
+
+  retire-record:
+    name: Retire that attempt from the latest record (or refuse when it cannot be reconciled)
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.validate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The latest-record comment lives on tracking PR #1763 (the pull-requests permission is required for a PR's comments).
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            tools/cloud-test/scripts
+      - name: Retire exactly that attempt from the same evidence; nothing else in the record changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_SHA256: ${{ needs.validate.outputs.evidence_sha256 }}
+          EVIDENCE_B64: ${{ needs.validate.outputs.evidence_b64 }}
+        run: |
+          set -euo pipefail
+          P=tools/cloud-test/scripts/publish_latest_record.py
+          (umask 077; printf '%s' "$EVIDENCE_B64" | base64 -d > "$RUNNER_TEMP/recover-evidence.json")
+          [ "$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py check --evidence "$RUNNER_TEMP/recover-evidence.json" | cut -d' ' -f1)" = "$EVIDENCE_SHA256" ] \
+            || { echo "BLOCKED_SETUP: recovery-evidence-not-the-validated-bytes"; exit 78; }
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" | python3 -I -c 'import json,sys; print(json.dumps([c for page in json.load(sys.stdin) for c in page]))' > "$RUNNER_TEMP/comments.json"
+          python3 -I "$P" select --comments "$RUNNER_TEMP/comments.json" --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" > "$RUNNER_TEMP/selected.json"
+          python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); open(sys.argv[2],"w").write(s["body"]); print(s["commentId"] or "")' "$RUNNER_TEMP/selected.json" "$RUNNER_TEMP/previous.md" > "$RUNNER_TEMP/comment-id"
+          plan="$(python3 -I "$P" recovery-record-plan --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/recover-evidence.json")"
+          if [ "$plan" != retire ]; then echo "the latest record is not about this attempt; nothing to retire"; exit 0; fi
+          python3 -I "$P" retire-unexecuted --previous "$RUNNER_TEMP/previous.md" --evidence "$RUNNER_TEMP/recover-evidence.json" \
+            --out "$RUNNER_TEMP/retired.md"
+          id="$(cat "$RUNNER_TEMP/comment-id")"
+          [ -n "$id" ] || { echo "BLOCKED_SETUP: recovery-record-missing"; exit 78; }
+          # Bind the PATCH to the exact record the retirement consumed (the shared concurrency group is the single publisher).
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" > "$RUNNER_TEMP/predecessor-current.json"
+          python3 -I "$P" verify-predecessor --selected "$RUNNER_TEMP/selected.json" --current "$RUNNER_TEMP/predecessor-current.json"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$RUNNER_TEMP/retired.md" > /dev/null
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" --jq '[.]' > "$RUNNER_TEMP/retired-readback.json"
+          python3 -I "$P" verify --previous "$RUNNER_TEMP/retired.md" --comments "$RUNNER_TEMP/retired-readback.json" \
+            --issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE" --comment-id "$id"
+
+  settle:
+    name: Settle the reservation from the same evidence (expected-head lease; an identical settle is a no-op)
+    needs: [validate, retire-record]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.validate.result == 'success' && needs.retire-record.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    # contents: write is used only for the one leased push to refs/heads/cloud-test-state.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Append the settle the evidence supports (the existing settle-unexecuted calculation)
+        env:
+          EVIDENCE_SHA256: ${{ needs.validate.outputs.evidence_sha256 }}
+          EVIDENCE_B64: ${{ needs.validate.outputs.evidence_b64 }}
+          CT_STATE_PUSH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (umask 077; printf '%s' "$EVIDENCE_B64" | base64 -d > "$RUNNER_TEMP/recover-evidence.json")
+          python3 -I tools/cloud-test/scripts/manual_reservation.py settle-unexecuted --journal "$RUNNER_TEMP/recover-journal" \
+            --out "$RUNNER_TEMP/recover-receipt.json" --unexecuted-evidence "$RUNNER_TEMP/recover-evidence.json" \
+            --unexecuted-sha256 "$EVIDENCE_SHA256" --scope tools/cloud-test/config/aggregate/period-scope.json
+          if [ -f "$RUNNER_TEMP/recover-receipt.json" ]; then
+            python3 -I -c 'import json,sys; r=json.load(open(sys.argv[1])); print("settled on the journal:", r["previousSha"][:12], "->", r["newSha"][:12])' "$RUNNER_TEMP/recover-receipt.json"
+          else
+            echo "no-op: the identical settle is already on the journal"
+          fi

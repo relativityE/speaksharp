@@ -593,6 +593,144 @@ class ManualReservation(Journal):
         self.assertEqual(self.head(), head)
         self.assertEqual(self.receive()["outstandingReservations"], 1, "the reservation stays held at its caps until a valid settle")
 
+    # ---- the protected recovery-only route (cloud-test-recover.yml; #1797, release review of e3f0b94c, recovery P1) ----
+    # Composed offline: the route's own sequence on a temporary journal with the REAL validators. The open reserve is found on the journal
+    # (pending_run), the closed evidence is built and checked from the run's GitHub report and its own workflow, and the existing
+    # settle-unexecuted calculation is appended through the leased writer. No attempt record is begun and no reserve is appended.
+
+    def ev(self):
+        import test_unexecuted_attempt_evidence as T
+        return T, T.Evidence("test_the_cli_checks_a_document_and_refuses_with_exit_78")
+
+    def route(self, jobs=None, run=None, name="route", scope_bytes=None, pins=None):
+        T, _ = self.ev()
+        chain = self.chain()
+        self.assertEqual(U.pending_run(chain), self.UNEXEC_RUN, "the route recovers exactly the journal's open reserve")
+        doc = U.build_evidence(run or T.load("run-41960376782.json"), jobs or T.load("jobs-41960376782.json"), chain, T.workflow())
+        digest = U.check_evidence(doc)[0]
+        return doc, digest, self.settle_unexec(doc, digest, name, scope_bytes=scope_bytes, pins=pins)
+
+    def recovered_class(self, jobs, accounting):
+        event = self.reserved(run=self.UNEXEC_RUN)
+        doc, digest, e = self.route(jobs)
+        self.assertEqual((doc["accounting"], e["type"], e["runId"], e["provenance"]), (accounting, "settle", self.UNEXEC_RUN, "evidence-sha256:" + digest))
+        self.assertEqual(self.receive()["outstandingReservations"], 0, "the reservation is closed")
+        self.assertEqual([x["type"] for x in self.chain()[-1][1]][-2:], ["reserve", "settle"], "exactly one settle; no reserve appended")
+        return event, e
+
+    def test_recovery_route_zero_usage_when_nothing_product_capable_ran(self):
+        _, e = self.recovered_class(None, "none")
+        self.assertEqual({k: e["allocation"][k] for k in U.PRODUCT_KEYS}, {k: 0 for k in U.PRODUCT_KEYS})
+
+    def test_recovery_route_preflight_only_settles_its_fixed_ten_requests(self):
+        T, ev = self.ev()
+        _, e = self.recovered_class(ev.failed_at(U.PREFLIGHT_STEP), "preflight-bound")
+        self.assertEqual({k: e["allocation"][k] for k in U.PRODUCT_KEYS}, {"requests": 10, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0})
+
+    def test_recovery_route_unknown_usage_settles_conservatively_at_the_reserved_caps(self):
+        T, ev = self.ev()
+        event, e = self.recovered_class(ev.stage_setup_failure(), "capped")
+        self.assertEqual({k: e["allocation"][k] for k in U.PRODUCT_KEYS}, {k: event["allocation"][k] for k in U.PRODUCT_KEYS})
+
+    def test_recovery_route_a_cancelled_or_timed_out_attempt_settles_at_the_reserved_caps_labelled_terminated(self):
+        T, ev = self.ev()
+        jobs = ev.stage_setup_failure()
+        ev.live(jobs)["conclusion"] = "timed_out"
+        event, e = self.recovered_class(jobs, "terminated-capped")
+        self.assertEqual({k: e["allocation"][k] for k in U.PRODUCT_KEYS}, {k: event["allocation"][k] for k in U.PRODUCT_KEYS})
+
+    def test_recovery_route_refuses_non_terminal_malformed_and_mismatched_evidence_and_writes_nothing(self):
+        T, ev = self.ev()
+        self.reserved(run=self.UNEXEC_RUN)
+        head = self.head()
+        running = ev.stage_setup_failure()
+        ev.live(running)["status"], ev.live(running)["conclusion"] = "in_progress", None
+        still = T.load("run-41960376782.json")
+        still["status"], still["conclusion"] = "in_progress", None
+        other_run = T.load("run-41960376782.json")
+        other_run["id"] = 41933223835
+        second_attempt = T.load("run-41960376782.json")
+        second_attempt["run_attempt"] = 2
+        for label, kwargs in {"a live job still running": {"jobs": running}, "a run still running": {"run": still},
+                              "another run than the open reserve": {"run": other_run}, "another attempt": {"run": second_attempt}}.items():
+            with self.subTest(label), self.assertRaises((U.Refused, M.Refused)):
+                self.route(name="bad-" + label.replace(" ", "-"), **kwargs)
+        doc, digest, _ = None, None, None
+        T2, _ = self.ev()
+        doc = U.build_evidence(T2.load("run-41960376782.json"), T2.load("jobs-41960376782.json"), self.chain(), T2.workflow())
+        digest = U.check_evidence(doc)[0]
+        tampered = json.loads(json.dumps(doc))
+        tampered["usage"]["requests"] = 0
+        tampered["accounting"] = "none"
+        tampered["journal"]["headSha"] = "1" * 40                             # bound to another head
+        self.refused("manual-unexecuted-evidence-digest", self.settle_unexec, tampered, digest, "malformed")
+        self.refused("manual-unexecuted-journal-moved", self.settle_unexec, tampered, hashlib.sha256(U.canon(tampered)).hexdigest(), "other-head")
+        self.assertEqual(self.head(), head, "nothing was appended")
+        self.assertEqual(self.receive()["outstandingReservations"], 1, "the reservation stays held at its caps")
+
+    def test_recovery_route_refuses_concurrent_movement_and_a_retry_is_a_no_op(self):
+        T, _ = self.ev()
+        self.reserved(run=self.UNEXEC_RUN)
+        doc = U.build_evidence(T.load("run-41960376782.json"), T.load("jobs-41960376782.json"), self.chain(), T.workflow())
+        digest = U.check_evidence(doc)[0]
+        first = self.settle_unexec(doc, digest, "first")
+        landed = self.head()
+        self.assertEqual(self.settle_unexec(doc, digest, "retry"), first, "an identical retry returns the landed settle")
+        self.assertEqual(self.head(), landed, "and appends nothing")
+        # another dispatch's reserve lands after the evidence was collected: the route refuses the moved head
+        self.setUp()
+        self.reserved(run=self.UNEXEC_RUN)
+        doc = U.build_evidence(T.load("run-41960376782.json"), T.load("jobs-41960376782.json"), self.chain(), T.workflow())
+        digest = U.check_evidence(doc)[0]
+        self.append("reserve", "41400000077", ALLOCATION)
+        moved = self.head()
+        self.refused("manual-unexecuted-journal-moved", self.settle_unexec, doc, digest, "moved")
+        self.assertEqual(self.head(), moved)
+
+    def test_recovery_route_keeps_the_period_boundary(self):
+        self.reserved(run=self.UNEXEC_RUN)
+        head = self.head()
+        early = scope_raw(periodEndUtc="2026-11-05T03:21:44Z")                   # the settle time falls outside the accepted period
+        pins = dict(self.all_pins, accepted_scope_sha256=hashlib.sha256(early).hexdigest())
+        self.refused("manual-settle-outside-period", lambda: self.route(name="late", scope_bytes=early, pins=pins))
+        self.assertEqual(self.head(), head)
+
+    def test_recovery_succeeds_even_when_a_new_reservation_remains_inadmissible(self):
+        """The P1 itself: a capped recovery is reachable although the next reservation is refused, before AND after the recovery."""
+        T, ev = self.ev()
+        event = self.reserved(run=self.UNEXEC_RUN)
+        tight = scope_raw(ceilings=dict(scope()["ceilings"], takes=event["allocation"]["takes"] + 1))   # one reserve fits, two do not
+        tight_pins = dict(self.all_pins, accepted_scope_sha256=hashlib.sha256(tight).hexdigest())
+
+        def new_reserve_check(name):
+            d = os.path.join(self.d, name)
+            os.mkdir(d)
+            with mock.patch.object(M, "admit_action_approval", lambda *a, **k: None):
+                return M.execute("reserve", self.reserve_inputs(runId="41400000088", scope=tight), self.repo, self.remote, self.root,
+                                 os.path.join(d, "journal.json"), os.path.join(d, "receipt.json"), tight_pins, self.remote, dry_run=True)
+        self.refused("manual-reservation-exceeds-headroom", new_reserve_check, "before")
+        doc, digest, e = self.route(ev.stage_setup_failure(), name="recover", scope_bytes=tight, pins=tight_pins)
+        self.assertEqual((doc["accounting"], self.receive()["outstandingReservations"]), ("capped", 0), "the capped recovery landed")
+        self.refused("manual-reservation-exceeds-headroom", new_reserve_check, "after")
+
+    def test_recovery_record_plan_retires_only_this_attempt_and_refuses_an_unreconcilable_record(self):
+        import publish_latest_record as P
+        T, ev = self.ev()
+        self.reserved(run=self.UNEXEC_RUN)
+        doc = U.build_evidence(T.load("run-41960376782.json"), T.load("jobs-41960376782.json"), self.chain(), T.workflow())
+        ident = doc["identity"]
+        live = {"runId": ident["runId"], "attempt": ident["attempt"], "sourceSha": ident["headSha"], "status": "incomplete"}
+        base = {"schema": P.SCHEMA, "latestCompleted": None, "pendingCompletion": None}
+        self.assertEqual(P.recovery_record_plan(dict(base, inProgress=None), doc), "none")
+        self.assertEqual(P.recovery_record_plan(dict(base, inProgress=dict(live, runId="41400000099")), doc), "none")
+        self.assertEqual(P.recovery_record_plan(dict(base, inProgress=live), doc), "retire")
+        for label, state in {"still running without terminated evidence": dict(base, inProgress=dict(live, status="running")),
+                             "another head": dict(base, inProgress=dict(live, sourceSha="2" * 40)),
+                             "a pending completion": dict(base, inProgress=live, pendingCompletion={"record": {}})}.items():
+            with self.subTest(label), self.assertRaises(P.Refused) as raised:
+                P.recovery_record_plan(state, doc)
+            self.assertEqual(str(raised.exception), "recovery-record-unreconcilable")
+
     def test_the_unexecuted_command_refuses_a_missing_evidence_input_on_the_cli(self):
         p = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "manual_reservation.py"), "settle-unexecuted", "--scope", "/nonexistent"],
                            capture_output=True, text=True)

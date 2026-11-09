@@ -212,11 +212,17 @@ jobs:
               echo "reserve-check: the open attempt has no unexecuted-attempt evidence; its reserve is assumed settled at its caps"
             fi
           fi
-          python3 -I tools/cloud-test/scripts/manual_reservation.py reserve-check --journal "$RUNNER_TEMP/check-journal" \
+          if ! python3 -I tools/cloud-test/scripts/manual_reservation.py reserve-check --journal "$RUNNER_TEMP/check-journal" \
             --out "$RUNNER_TEMP/check-receipt.json" --request "$RUNNER_TEMP/manual-occurrence.json" \
             --admitted-sha256 "$OCCURRENCE_SHA256" --run-id "$GITHUB_RUN_ID" \
             --facts "$RUNNER_TEMP/check-facts.json" --bootstrap tools/cloud-test/config/aggregate/accounting-bootstrap.json \
-            --scope tools/cloud-test/config/aggregate/period-scope.json --source-repo "$GITHUB_WORKSPACE" ${recovery[@]+"${recovery[@]}"}
+            --scope tools/cloud-test/config/aggregate/period-scope.json --source-repo "$GITHUB_WORKSPACE" ${recovery[@]+"${recovery[@]}"}; then
+            # The recovery P1 (#1797): an open reservation is settled by the protected recovery-only route, never by a new attempt.
+            if [ -n "$open_run" ]; then
+              echo "BLOCKED_SETUP: reserve-check-open-attempt-needs-recovery (run $open_run): dispatch cloud-test-recover.yml with confirm=RECOVER"
+            fi
+            exit 78
+          fi
       - name: Begin the attempt in the latest record
         id: begin
         env:
