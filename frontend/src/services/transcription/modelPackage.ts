@@ -175,12 +175,14 @@ export function parseModelPackage(input: unknown): ModelPackage {
         || p.assets.files.some(f => f.url !== p.assets.servedFrom + '/' + f.path))) refuse('UNSUPPORTED_WHISPER_LAYOUT');
     const requiredWhisper = ['config.json','generation_config.json','preprocessor_config.json','tokenizer.json','tokenizer_config.json',
         'onnx/encoder_model_quantized.onnx','onnx/decoder_model_merged_quantized.onnx'];
-    // Optional cache requirements, when declared, must contain the COMPLETE supported set (a shorter list would let
-    // readiness report a model as cached while a file the loader needs is missing) and name only distinct files the
-    // package ships. An absent list is derived at admission (WHISPER_PACKAGE_CACHE_FILES).
+    // Optional cache requirements, when declared, must be EXACTLY the supported loader set, in any order. A shorter list
+    // would let readiness report a model as cached while a file the loader needs is missing; an extra entry (Codex P2 on
+    // 26cd4fde) is a file the Xenova loader never fetches, so readiness could never report the package cached. Every
+    // entry must also be a distinct file the package ships. An absent list is derived at admission (WHISPER_PACKAGE_CACHE_FILES).
     const cacheFiles = (p.execution as { cacheFiles?: unknown }).cacheFiles;
     if (p.engine === 'transformers-js' && cacheFiles !== undefined && (!Array.isArray(cacheFiles)
         || cacheFiles.some(file => typeof file !== 'string' || !paths.has(file)) || new Set(cacheFiles).size !== cacheFiles.length
+        || cacheFiles.length !== WHISPER_PACKAGE_CACHE_FILES.length
         || WHISPER_PACKAGE_CACHE_FILES.some(file => !cacheFiles.includes(file)))) refuse('UNSUPPORTED_WHISPER_CACHE_FILES');
     if (p.engine === 'transformers-js' && (requiredWhisper.some(file=>!paths.has(file))
         || p.assets.files.some(f=>/\.(?:[cm]?js|wasm)$/i.test(f.path)))) refuse('UNSUPPORTED_WHISPER_ASSETS');

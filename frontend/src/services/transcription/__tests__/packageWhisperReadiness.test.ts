@@ -71,13 +71,20 @@ describe('an admitted Whisper package always carries its readiness requirements'
         const partial = ['config.json', 'onnx/encoder_model_quantized.onnx'];
         await expect(whisperPackage(partial)).rejects.toThrow('UNSUPPORTED_WHISPER_CACHE_FILES');
     });
-    it('keeps a complete declared list (extras allowed only when shipped); refuses empty, duplicated, unshipped or non-array lists', async () => {
-        const declared = [...WHISPER_PACKAGE_CACHE_FILES, 'vocab.json'];
+    it('keeps a declared list that is exactly the supported loader set (any order); refuses empty, duplicated, unshipped or non-array lists', async () => {
+        const declared = [...WHISPER_PACKAGE_CACHE_FILES].reverse();
         const valid = await whisperPackage(declared);
         expect(candidateFromPackage(valid, 'fixture.json').execution.cacheFiles).toEqual(declared);
         for (const bad of [[], [...WHISPER_PACKAGE_CACHE_FILES, 'config.json'], [...WHISPER_PACKAGE_CACHE_FILES, 'onnx/decoder_model_merged_q4.onnx'], 'config.json']) {
             const changed = { ...valid, execution: { ...valid.execution, cacheFiles: bad } };
             await expect(verifyModelPackage(changed)).rejects.toThrow('UNSUPPORTED_WHISPER_CACHE_FILES');
         }
+    });
+    /**
+     * Codex P2 on 26cd4fde: an extra declared entry (here vocab.json, which the package ships) was admitted, but the Xenova
+     * loader only fetches the supported files, so readiness required a file that is never cached and stayed CACHE_MISS.
+     */
+    it('refuses a declared list with an extra file the loader never fetches, even one the package ships', async () => {
+        await expect(whisperPackage([...WHISPER_PACKAGE_CACHE_FILES, 'vocab.json'])).rejects.toThrow('UNSUPPORTED_WHISPER_CACHE_FILES');
     });
 });
