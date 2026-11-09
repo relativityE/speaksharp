@@ -1,7 +1,7 @@
 {
   "schema": "speaksharp.cloud-test.required-test-ids.v1",
-  "sourceHead": "961515523ef61e38c4b42c52fa6de3a554618e9e",
-  "sourceTree": "da9f7353064b5add63460d386fcc3fb35a0eec38",
+  "sourceHead": "3d38e2177aabf2c3dcc7dca39d2a2910f786e252",
+  "sourceTree": "ef09be00ca1035cda7e209680b42f2e68312587b",
   "provenance": "mechanical inventory regeneration from unittest discovery of the current source for both suites (package-unit-tests and report-builder-tests); no test outcome is inferred",
   "ids": [
     "package-unit-tests::test_accounting_rollup.Rollup.test_a_bound_cannot_understate_or_substitute_the_usage_it_charges",
@@ -615,6 +615,7 @@
     "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_the_only_installs_are_the_pinned_python_evidence_dependency_and_reviewed_lockfile",
     "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_the_ownership_recovery_runs_between_the_run_stage_and_collect_with_no_secret",
     "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_the_po_approved_loopback_egress_service_starts_before_the_preflight_and_stops_with_a_receipt",
+    "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_the_pre_dispatch_check_admits_a_clean_journal_only_and_assumes_no_recovery",
     "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_the_private_run_inputs_are_removed_last_and_never_uploaded",
     "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_the_record_is_qualified_only_with_an_execution_provenance_verdict_from_the_producers_records",
     "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_the_record_jobs_bind_the_exact_issue_and_comment",
