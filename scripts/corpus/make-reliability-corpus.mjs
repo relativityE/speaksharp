@@ -56,11 +56,13 @@ const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 export function decodeFlacToPcm(flacPath) {
     // Parsed by key: ffprobe prints stream fields in its own order, not the order they were requested.
     const probe = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a:0',
-        '-show_entries', 'stream=sample_rate,channels,bits_per_raw_sample,duration_ts', '-of', 'default=noprint_wrappers=1', flacPath],
+        '-show_entries', 'stream=sample_rate,channels,bits_per_raw_sample,duration_ts,time_base', '-of', 'default=noprint_wrappers=1', flacPath],
     { encoding: 'utf8' });
     const field = Object.fromEntries(probe.trim().split('\n').map(line => line.split('=')));
     const declaredSamples = field.duration_ts;
+    // duration_ts counts samples only when the stream's time base is one sample.
     if (field.sample_rate !== String(SAMPLE_RATE_HZ) || field.channels !== '1' || field.bits_per_raw_sample !== '16'
+        || field.time_base !== `1/${SAMPLE_RATE_HZ}`
         || !/^\d+$/.test(declaredSamples ?? '')) {
         throw new Error(`NOT 16 kHz mono 16-bit with a declared length (${probe.trim().replace(/\n/g, ' ')}): ${flacPath}`);
     }

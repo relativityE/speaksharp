@@ -158,10 +158,14 @@ export function alignTokens(ref: readonly string[], hyp: readonly string[]): Op[
 
 /**
  * The same lowest-cost alignment, but with insertions and deletions pushed toward the END. Among equally cheap
- * alignments, this one has the fewest leading insertions and keeps the opening word whenever any lowest-cost
- * alignment does. Q2 and Q5 use it; Q3 uses alignTokens, which pushes edits toward the START. So each check
- * gets the most favourable lowest-cost alignment for the boundary it judges, and a doubled phrase is never
- * mistaken for an invented prefix.
+ * alignments, this one has the FEWEST LEADING INSERTIONS (verified by brute force against every lowest-cost
+ * alignment), so a doubled phrase is never mistaken for an invented prefix (Q5). Q2 and Q5 use it; Q3 uses
+ * alignTokens, which pushes edits toward the START.
+ *
+ * Limitation, stated rather than hidden: the backtrace prefers a substitution to an insertion followed by a
+ * match. So Q2 and Q3 can report a boundary word as lost when another equally cheap alignment would keep it
+ * (e.g. "hello world today" against "oh hello today"). That errs only toward FAIL, never toward a false PASS,
+ * because the alignment used is itself a lowest-cost one.
  */
 export function alignTokensPreferringEarlyMatches(ref: readonly string[], hyp: readonly string[]): Op[] {
     return alignTokens([...ref].reverse(), [...hyp].reverse()).reverse();
