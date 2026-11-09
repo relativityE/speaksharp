@@ -167,7 +167,7 @@ test('prepare fails closed when a cross-account row is visible and writes no rec
 });
 
 test('AHT-01 selected and the disposable account already holds a session: refuse before any Start from the charged read, content-free', async t => {
-  // Sam 1794161531: the own-session read (limit 2) is already made and charged; reuse it. No extra query, no lease read, no deletion.
+  // the own-session read (limit 2) is already made and charged; reuse it. No extra query, no lease read, no deletion.
   for (const [label, selection, sessions, refused] of [
     ['AHT-01 alone, one prior session', [{case: 'AHT-01'}], [{id: 'prior-row-a', status: 'completed'}], true],
     ['AHT-01 alone, the read capped at two', [{case: 'AHT-01'}], [{id: 'prior-row-a', status: 'completed'}, {id: 'prior-row-b', status: 'active'}], true],
@@ -204,6 +204,38 @@ test('AHT-01 selected and the disposable account already holds a session: refuse
       assert.equal(counted.calls.filter(u => new URL(u).pathname === '/auth/v1/token').length, 2, label);
       assert.equal(counted.calls.every(u => ['/auth/v1/token', '/rest/v1/user_profiles', '/rest/v1/sessions'].includes(new URL(u).pathname)), true, label);
     } finally { global.fetch = original; script.clock.now = savedNow; }
+  }
+});
+
+test('a public fresh-account receipt line precedes the decision: id digest, count bucket, closed statuses, verdict; never an id or row', async t => {
+  const crypto = require('node:crypto');
+  const digest = crypto.createHash('sha256').update(IDS['existing-disposable']).digest('hex').slice(0, 12);
+  for (const [label, selection, sessions, expected] of [
+    ['one prior session', [{case: 'AHT-01'}], [{id: 'prior-row-a', status: 'completed'}], `own-sessions=1 statuses=completed verdict=not-fresh`],
+    ['read capped at two', [{case: 'AHT-01'}], [{id: 'prior-row-a', status: 'completed'}, {id: 'prior-row-b', status: 'active'}], `own-sessions=2+ statuses=active,completed verdict=not-fresh`],
+    ['an unknown status is other', [{case: 'AHT-01'}], [{id: 'prior-row-a', status: 'weird-secret-state'}], `own-sessions=1 statuses=other verdict=not-fresh`],
+    ['fresh', [{case: 'AHT-01'}], [], `own-sessions=0 statuses=none verdict=fresh`],
+    ['AHT-01 not selected: no receipt line', [{case: 'AHT-02'}], [{id: 'prior-row-a', status: 'completed'}], null],
+  ]) {
+    const f = fixture(t); f.occurrence = writeOccurrence(f.root, {selection});
+    const normal = successfulFetch();
+    const counted = countingFetch(async (url, options) => {
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith('/sessions') && parsed.searchParams.get('user_id') === `eq.${IDS['existing-disposable']}`
+          && options.headers.authorization === 'Bearer private-token-existing-disposable') return response(200, sessions);
+      return normal(url, options);
+    });
+    const original = global.fetch; global.fetch = counted.fetch;
+    const savedNow = script.clock.now; script.clock.now = () => START + MINUTE;
+    const writes = []; const savedWrite = process.stdout.write;
+    process.stdout.write = (chunk, ...rest) => { writes.push(String(chunk)); return true; };
+    try { await script.prepare(args(f)).catch(() => {}); }
+    finally { process.stdout.write = savedWrite; global.fetch = original; script.clock.now = savedNow; }
+    const lines = writes.join('').split('\n').filter(l => l.startsWith('fresh-account receipt:'));
+    if (expected === null) { assert.deepEqual(lines, [], label); continue; }
+    assert.deepEqual(lines, [`fresh-account receipt: role=existing-disposable account=${digest} ${expected}`], label);
+    for (const leak of ['prior-row', IDS['existing-disposable'], 'weird-secret-state', 'secret']) assert.equal(lines[0].includes(leak), false, label);
+    assert.equal(counted.calls.length, 10, label);
   }
 });
 
@@ -259,7 +291,7 @@ test('the deadline is re-checked before every request: once it passes mid-sequen
 });
 
 test('run as a script (the workflow entry), the deadline check works and an expired or not-yet-open occurrence sends nothing', async t => {
-  // R10 run 42059286564: the CLI entry called main() before module.exports was assigned, so the deadline check's clock read threw
+  // R10 run 42059286564: the CLI entry called main before module.exports was assigned, so the deadline check's clock read threw
   // "Cannot read properties of undefined (reading 'now')". Imported-function tests could not see it; this spawns the script itself.
   const {spawnSync} = require('node:child_process');
   const entry = path.join(__dirname, '..', 'scripts', 'prerequisite_preflight.cjs');
@@ -279,7 +311,7 @@ test('run as a script (the workflow entry), the deadline check works and an expi
 });
 
 test('run as scripts inside an open window, prepare then charge complete their normal path with the network intercepted only at fetch', async t => {
-  // Sam 1793895799.280589: the workflow-faithful success case. The real CLI entry and argument parsing, the real occurrence and deadline
+  // the workflow-faithful success case. The real CLI entry and argument parsing, the real occurrence and deadline
   // checks against the real clock, the real request sequence, receipt and facts writing; only fetch is a synthetic Supabase at the boundary.
   // It proves the script's own path end to end offline. It does NOT prove the hosted step's environment, real credentials, real Supabase
   // RLS behaviour or the live workflow wiring; only a real run does.
@@ -324,7 +356,7 @@ globalThis.fetch = async (url, options) => {
   assert.match(facts.receipts.pre, /^r10-preflight:[0-9a-f]{64}$/);
   assert.equal(facts.receipts.disp, 'slack:owner-disposition');
   assert.equal(fs.statSync(path.join(f.root, 'receipt.json')).mode & 0o777, 0o600);
-  // Bezos #1787 H3: then charge, exactly as execute_run.sh runs it: `env -i PATH HOME node ... charge`, with no credential, fetch
+  // the reviewer #1787 H3: then charge, exactly as execute_run.sh runs it: `env -i PATH HOME node ... charge`, with no credential, fetch
   // preload or harness environment. It must import the produced receipt into the admitted ledger as 10 requests, and only once.
   const ledgerFile = path.join(f.root, 'campaign-ledger.json');
   Ledger.initialize(ledgerFile, {total: 2000, preflight: 10, auth: 2, 'signed-in': 8});

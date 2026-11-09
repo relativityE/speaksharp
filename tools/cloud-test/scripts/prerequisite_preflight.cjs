@@ -26,6 +26,7 @@ const FRESH_ACCOUNT_CASE = 'AHT-01', FRESH_ACCOUNT_ROLE = 'existing-disposable';
 // The one clock every deadline check reads; tests replace clock.now, production never does.
 const clock = {now: () => Date.now()};
 
+const SESSION_STATUSES = new Set(['pending', 'active', 'recording', 'processing', 'completed', 'failed', 'abandoned']);
 function refuse(code) { const error = new Error(code); error.code = 'BLOCKED_SETUP'; throw error; }
 function plain(value) { return value && typeof value === 'object' && !Array.isArray(value); }
 function sha(bytes) { return crypto.createHash('sha256').update(bytes).digest('hex'); }
@@ -143,13 +144,19 @@ async function inspectRole(origin, anon, role, account, otherId, deadline) {
   const trafficClass = claims?.canary === true ? 'canary' : claims?.internal_tester === true ? 'internal_test' : null;
   if (!trafficClass) refuse('analytics-classification');
   return {authenticated: true, ownProfileVisible: true, crossProfileDenied: true, ownSessionRead: true, ownSessionCount: ownSessions.length,
-    crossSessionEmpty: true, completedSessionPresent: ownSessions.some(row => row?.status === 'completed'), trafficClass};
+    crossSessionEmpty: true, completedSessionPresent: ownSessions.some(row => row?.status === 'completed'), trafficClass,
+    ownSessionStatuses: [...new Set(ownSessions.map(row => (SESSION_STATUSES.has(row?.status) ? row.status : 'other')))].sort()};
 }
 function args(argv) {
   const command = argv.shift(); const out = {};
   if (!['prepare', 'charge'].includes(command)) refuse('command');
   while (argv.length) { const key = argv.shift(), value = argv.shift(); if (!key?.startsWith('--') || value === undefined || out[key]) refuse('arguments'); out[key] = value; }
   return {command, out};
+}
+function freshAccountReceipt(accountId, count, statuses) {
+  const bucket = count === 0 ? '0' : count === 1 ? '1' : '2+';
+  const seen = Array.isArray(statuses) && statuses.length ? statuses.filter(s => SESSION_STATUSES.has(s) || s === 'other').join(',') : 'none';
+  return `fresh-account receipt: role=${FRESH_ACCOUNT_ROLE} account=${sha(String(accountId)).slice(0, 12)} own-sessions=${bucket} statuses=${seen} verdict=${count === 0 ? 'fresh' : 'not-fresh'}`;
 }
 async function prepare(values) {
   for (const key of ['--facts', '--out-dir', '--run-id', '--source-sha', '--occurrence-file', '--occurrence-sha256']) if (!values[key]) refuse('arguments');
@@ -176,10 +183,17 @@ async function prepare(values) {
     const otherRole = ROLES.find(candidate => candidate !== role);
     observations[role].crossSessionDenial = observations[otherRole].ownSessionCount > 0 ? 'controlled' : 'uncontrolled-other-has-no-sessions';
   }
-  // Sam 1794161531: refuse before any Start, from the own-session read already made and charged above (no extra query, no lease read, no
-  // deletion; the ten-request charge is unchanged). Content-free: a closed code only, never a count, identifier or row. The driver's own
-  // `fresh-first-session` check is unchanged and still decides the case when this passes.
-  if (deadline.selected.includes(FRESH_ACCOUNT_CASE) && observations[FRESH_ACCOUNT_ROLE].ownSessionCount !== 0) refuse('aht01-fresh-account-precondition');
+  // Refuse before any Start, from the own-session read already made and charged above (no extra query, no lease read, no
+  // deletion; the ten-request charge is unchanged). The driver's own `fresh-first-session` check is unchanged and still decides the case
+  // when this passes. Before deciding, one public fresh-account receipt line lets anyone verify the precondition independently of a
+  // manual database read: the account's id digest (first 12 hex of sha256 of the bundle accountId, comparable with the id an operator
+  // reset), a count bucket (0, 1 or 2+; the read is limited to 2), the closed session statuses seen, and the verdict. Never an id, email,
+  // row or value.
+  if (deadline.selected.includes(FRESH_ACCOUNT_CASE)) {
+    const fresh = observations[FRESH_ACCOUNT_ROLE];
+    process.stdout.write(freshAccountReceipt(bundle.accounts[FRESH_ACCOUNT_ROLE].accountId, fresh.ownSessionCount, fresh.ownSessionStatuses) + '\n');
+    if (fresh.ownSessionCount !== 0) refuse('aht01-fresh-account-precondition');
+  }
   const receipt = {schema: 'speaksharp.cloud-test.prerequisite-preflight.v1', runId: values['--run-id'], sourceSha: values['--source-sha'],
     observedAt: new Date().toISOString(), mutationCount: 0, charges: {auth: 2, signedIn: 8, total: 10}, observations};
   const digest = sha(bytes(receipt));
@@ -210,6 +224,6 @@ async function main(argv = process.argv.slice(2)) {
   try { const parsed = args([...argv]); if (parsed.command === 'prepare') await prepare(parsed.out); else charge(parsed.out); return 0; }
   catch (error) { process.stderr.write(`BLOCKED_SETUP: ${error?.message || 'prerequisite-preflight'}\n`); return 78; }
 }
-// Exports first, then the CLI entry: R10 run 42059286564 ran main() while module.exports was still empty.
-module.exports = {main, prepare, charge, canonical, bytes, clock};
+// Exports first, then the CLI entry: R10 run 42059286564 ran main while module.exports was still empty.
+module.exports = {main, prepare, charge, canonical, bytes, clock, freshAccountReceipt};
 if (require.main === module) main().then(code => { process.exitCode = code; });
