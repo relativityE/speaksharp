@@ -1,7 +1,7 @@
 {
   "schema": "speaksharp.cloud-test.required-test-ids.v1",
-  "sourceHead": "718e2420cc423578dd0762fa235e1ff7087ed618",
-  "sourceTree": "69378fa2d6b49900b98dd28f54e328f1a0a18017",
+  "sourceHead": "3f11a64995b59d945186ca847184d05c15f28b9d",
+  "sourceTree": "4e340613484b301123f3a12c19bab352a4f1006b",
   "provenance": "mechanical inventory regeneration from unittest discovery of the current source for both suites (package-unit-tests and report-builder-tests); no test outcome is inferred",
   "ids": [
     "package-unit-tests::test_accounting_rollup.Rollup.test_a_bound_cannot_understate_or_substitute_the_usage_it_charges",
@@ -575,6 +575,7 @@
     "package-unit-tests::test_legacy_audit_runner.LegacyAuditJudgement.test_without_the_retained_history_nothing_is_executed_and_nothing_passes",
     "package-unit-tests::test_live_workflow_policy.Case10ObserveCredentials.test_only_the_observe_child_receives_the_case10_credentials",
     "package-unit-tests::test_live_workflow_policy.Case10ObserveCredentials.test_the_case10_credentials_reach_only_the_init_step_on_scheduled_runs",
+    "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_a_dispatch_proves_it_can_start_before_any_record_mutation",
     "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_a_rerun_attempt_and_an_unconfirmed_dispatch_are_refused_before_any_effect",
     "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_a_scheduled_run_is_gated_before_any_record_secret_or_live_job_and_no_cron_is_registered",
     "package-unit-tests::test_live_workflow_policy.LiveWorkflowPolicy.test_an_early_refusal_before_init_leaves_every_always_step_safe_without_ct_out",
@@ -638,6 +639,7 @@
     "package-unit-tests::test_manual_reservation.ManualReservation.test_measured_zero_starts_and_takes_bound_coaching_at_zero_and_nothing_else",
     "package-unit-tests::test_manual_reservation.ManualReservation.test_only_the_admitted_manual_request_with_known_caps_is_reserved",
     "package-unit-tests::test_manual_reservation.ManualReservation.test_phase_bound_journals_allow_exact_retries_and_refuse_cross_phase_reuse",
+    "package-unit-tests::test_manual_reservation.ManualReservation.test_reserve_check_admits_exactly_as_reserve_does_and_writes_nothing",
     "package-unit-tests::test_manual_reservation.ManualReservation.test_settlement_is_bound_to_the_record_bytes_and_the_reservation",
     "package-unit-tests::test_manual_reservation.ManualReservation.test_the_activated_cli_still_refuses_unreadable_inputs",
     "package-unit-tests::test_manual_reservation.ManualReservation.test_the_headroom_boundary_admits_4342_and_refuses_4341",
