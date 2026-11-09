@@ -111,7 +111,15 @@
    "route probe claims PASS with no hosts stops A7 before any identity dispatch",
    "route probe unreadable output stops A7 before any identity dispatch",
    "route probe crashed stops A7 before any identity dispatch",
-   "route probe runs after the guard self-test and immediately before the identity read, on the admitted policy"
+   "route probe runs after the guard self-test and immediately before the identity read, on the admitted policy",
+   "route probe claims PASS missing a policy host stops A7 before any identity dispatch",
+   "route probe claims PASS with an extra host stops A7 before any identity dispatch",
+   "route probe claims PASS with a duplicated host stops A7 before any identity dispatch",
+   "route probe claims PASS for another host set stops A7 before any identity dispatch",
+   "route probe claims PASS with a malformed row stops A7 before any identity dispatch",
+   "route probe claims PASS but its cleanup was incomplete stops A7 before any identity dispatch",
+   "route probe claims PASS after a supervisor deadline stop stops A7 before any identity dispatch",
+   "route probe claims PASS with an unknown result stops A7 before any identity dispatch"
   ],
   "packet:bundle/selftest/authenticated-job-producer.test.cjs": [
    "real role-specific route calls own-session SELECT then existing authority RPC; projection passes outer gate",

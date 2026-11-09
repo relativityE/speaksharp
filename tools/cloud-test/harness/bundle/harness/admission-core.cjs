@@ -148,10 +148,20 @@ async function runAdmission(options,io){
       // identityDispatch NOT_RUN and productionTrafficSent 0.
       const probe=await recordedCommand('A7.route-probe',io.nodeExecutable,[path.join(B,'harness/route-probe.cjs'),'--policy',c.policyFile],{timeout:60000});
       let routed;try{routed=JSON.parse(String(probe.stdout||'').trim().split('\n').pop());}catch{routed=null;}
-      const hostResults=Array.isArray(routed?.hosts)?routed.hosts.filter(h=>h&&ROUTE_RESULTS.has(h.result)).map(h=>h.result):[];
-      receipt.routeProbe={schema:'speaksharp.cloud-test.route-probe.v1',result:routed?.schema==='speaksharp.cloud-test.route-probe.v1'&&routed?.result==='PASS'&&probe.status===0?'PASS':'BLOCKED',hostCount:hostResults.length,results:[...new Set(hostResults)].sort()};
+      // Review of 50647108: the receiver itself requires complete, unique coverage of exactly the admitted policy's hosts, each with a
+      // closed result; a missing, extra, duplicated or malformed host row, or any non-ok result, blocks.
+      const expectedHosts=Object.keys(policy.hosts).sort();
+      const rows=Array.isArray(routed?.hosts)?routed.hosts:[];
+      const rowHosts=rows.map(h=>h&&typeof h.host==='string'?h.host:null);
+      const covered=rows.length===expectedHosts.length&&rowHosts.every(h=>h!==null)&&new Set(rowHosts).size===rowHosts.length
+        &&JSON.stringify([...rowHosts].sort())===JSON.stringify(expectedHosts)&&rows.every(h=>ROUTE_RESULTS.has(h.result));
+      const hostResults=rows.filter(h=>h&&ROUTE_RESULTS.has(h.result)).map(h=>h.result);
+      // ...and the probe process itself ended cleanly (no supervisor stop, signal or incomplete cleanup) before the identity dispatch.
+      const cleaned=probe.status===0&&!probe.signal&&!probe.reason&&probe.cleanupIncomplete!==true;
+      const passed=covered&&cleaned&&routed?.schema==='speaksharp.cloud-test.route-probe.v1'&&routed?.result==='PASS'&&hostResults.every(r=>r==='ok');
+      receipt.routeProbe={schema:'speaksharp.cloud-test.route-probe.v1',result:passed?'PASS':'BLOCKED',coverage:covered?'complete':'incomplete',hostCount:expectedHosts.length,results:[...new Set(hostResults)].sort()};
       await save();
-      if(receipt.routeProbe.result!=='PASS'||!hostResults.length||hostResults.some(r=>r!=='ok'))throw new Error('route probe failed before the identity read: '+(receipt.routeProbe.results.filter(r=>r!=='ok').join(',')||'no-result'));
+      if(!passed)throw new Error('route probe failed before the identity read: '+(!covered?'host-coverage-incomplete':!cleaned?'probe-not-cleanly-ended':(receipt.routeProbe.results.filter(r=>r!=='ok').join(',')||'not-pass')));
       if(remaining(25000)<25000)throw new Error('insufficient approved time for bounded identity GET plus cleanup');
       receipt.identityDispatch='ATTEMPTED_OR_AMBIGUOUS';receipt.productionTrafficSent='UNKNOWN_PENDING_IDENTITY_RECEIPT';await save();
       const r=await command(io.nodeExecutable,[path.join(B,'harness/identity-check.cjs'),'--authorize-identity-read','true','--url',c.identityUrl,'--expect-sha',c.expectedServedSha,'--ledger',c.identityLedger,'--cap',String(c.identityCap),'--phase','admission'],{timeout:25000});

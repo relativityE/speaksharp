@@ -9,7 +9,7 @@
   "selectedCases": [
     "AHT-01"
   ],
-  "requestTemplateSha256": "507040ee6cec12c56a22299ae6840c78ba0082da93abc71c8cae16926cce2267",
+  "requestTemplateSha256": "82b813fe207f5dea447eb5e02739879e743a25c3da62597fe7739d24c3530f5b",
   "testedSha": "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
   "backendSha": "c32319f9121d4fef64dc48bb40fae5464dc6b65a",
   "periodScopeSha256": "ab44af95da89cb07e28c6680f0f2e92278574f6c6bd4611dfb15afe60416eff4",
