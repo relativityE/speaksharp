@@ -212,14 +212,20 @@ def _in_period(scope, at_utc, code):
     _need(accounting_rollup._utc(scope["periodStartUtc"]) <= accounting_rollup._utc(at_utc) < accounting_rollup._utc(scope["periodEndUtc"]), code)
 
 
-def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=state_ref_writer.APPROVED_URL, source_repo=None):
+def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=state_ref_writer.APPROVED_URL, source_repo=None, dry_run=False):
     """One manual transition on the state ref; returns the appended event. `pins` holds the accepted bootstrap digest, its root and the
-    accepted scope digest; `root` must be that accepted root, so the journal appended to is the one the rollup reads."""
+    accepted scope digest; `root` must be that accepted root, so the journal appended to is the one the rollup reads.
+    dry_run (reserve only; consultant P2-3): every read and every admission check of the reserve at the current head, and NO append. It
+    returns the event that would be appended, or None when the journal ends with an open reserve: that attempt is recovered by the
+    dispatch's own path (settle-unexecuted) before its real reserve, so the decision is deferred to that reserve."""
     _need(root is not None and root == pins.get("accepted_root"), "manual-reservation-root-mismatch")
     _need(command != "release", "manual-release-never-started-unverified")
+    _need(not dry_run or command == "reserve", "manual-reservation-command")
     try:
         head = state_ref_writer.fetch_head(repo, url, approved_url)
         chain = state_ref_writer.validate_chain(repo, head, root)
+        if dry_run and chain[-1][1] and chain[-1][1][-1].get("type") == "reserve":
+            return None
         scope = accepted_scope(inputs["scope"], pins.get("accepted_scope_sha256"))
         if command == "reserve":
             _in_period(scope, inputs["atUtc"], "manual-reservation-outside-period")
@@ -285,6 +291,9 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
                 # first append.  A recovered exact transition was already
                 # checked at its original parent and is reverified below.
                 event = reserve(inputs["request"], inputs["admittedSha256"], inputs["runId"], rollup, head, inputs["atUtc"])
+                if dry_run:
+                    return event
+        _need(not dry_run, "manual-reservation-dry-run-recovered-transition")
         state_ref_writer.propose_to_files(repo, url, expected, event, root, journal, out, approved_url)
     except (state_ref_writer.Refused, accounting_rollup.Refused) as err:
         raise Refused("manual-reservation-" + str(err))
@@ -336,7 +345,7 @@ def _read(path):
 
 def main(argv):
     a = argparse.ArgumentParser()
-    a.add_argument("command", choices=("reserve", "settle", "settle-unexecuted", "release"))
+    a.add_argument("command", choices=("reserve", "reserve-check", "settle", "settle-unexecuted", "release"))
     for flag in ("--repo", "--source-repo", "--journal", "--out", "--request", "--admitted-sha256", "--run-id", "--bootstrap", "--scope", "--campaign-id",
                  "--record", "--settle-input", "--facts", "--now", "--unexecuted-evidence", "--unexecuted-sha256"):
         a.add_argument(flag)
@@ -345,6 +354,9 @@ def main(argv):
         # Decided FIRST, before any input is read: nothing is appended until the writer root, bootstrap and scope are pinned by review.
         _need(activated(), "manual-reservation-not-activated")
         at = x.now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        dry_run = x.command == "reserve-check"
+        if dry_run:
+            x.command = "reserve"
         if x.command == "reserve":
             inputs = {"request": _read(x.request), "admittedSha256": x.admitted_sha256, "runId": x.run_id, "bootstrap": _read(x.bootstrap),
                       "scope": _read(x.scope), "facts": _read(x.facts), "atUtc": at}
@@ -359,8 +371,11 @@ def main(argv):
             inputs = {}
         pins = {"accepted_sha256": accounting_rollup.ACCEPTED_BOOTSTRAP_SHA256, "accepted_root": accounting_rollup.ACCEPTED_ROOT,
                 "accepted_scope_sha256": ACCEPTED_SCOPE_SHA256}
-        execute(x.command, inputs, x.repo or _isolated_repo(), state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT, x.journal, x.out,
-                pins, source_repo=x.source_repo)
+        event = execute(x.command, inputs, x.repo or _isolated_repo(), state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT, x.journal,
+                        x.out, pins, source_repo=x.source_repo, dry_run=dry_run)
+        if dry_run:
+            print("reserve-check: " + ("deferred: the journal ends with an open reserve this dispatch recovers first" if event is None
+                                       else "admissible at the current journal head (nothing written)"))
         return 0
     except Refused as e:
         print("BLOCKED_SETUP: " + str(e), file=sys.stderr)

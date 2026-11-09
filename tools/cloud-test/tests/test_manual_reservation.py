@@ -252,6 +252,30 @@ class ManualReservation(Journal):
         self.refused("manual-reservation-transition-without-open-reservation", self.execute, "settle", settle, "s2")
         self.refused("manual-reservation-not-reserved", self.execute, "settle", dict(settle, runId="41400000009"), "s3")
 
+    def test_reserve_check_admits_exactly_as_reserve_does_and_writes_nothing(self):
+        """Consultant P2-3: the pre-dispatch check runs every read and admission check of the reserve at the current head and appends
+        nothing; it defers when the journal ends with an open reserve (that attempt is recovered first by the dispatch's own path), and
+        it refuses exactly where the reserve would."""
+        def check(inputs, name):
+            d = os.path.join(self.d, name)
+            os.mkdir(d)
+            return M.execute("reserve", inputs, self.repo, self.remote, self.root, os.path.join(d, "journal.json"),
+                             os.path.join(d, "receipt.json"), self.all_pins, self.remote, dry_run=True)
+        before = self.head()
+        would = check(self.reserve_inputs(), "c1")
+        self.assertEqual((would["type"], would["runId"], would["allocation"]), ("reserve", RUN, ALLOCATION))
+        self.assertEqual(self.head(), before, "the check appends nothing")
+        self.assertFalse(os.path.exists(os.path.join(self.d, "c1", "journal.json")))
+        real = self.execute("reserve", self.reserve_inputs(), "r1")
+        self.assertEqual(real, would, "the check predicts the real reserve's event exactly")
+        self.assertIsNone(check(dict(self.reserve_inputs(), runId="41400000077"), "c2"), "an open reserve defers to the dispatch's own recovery")
+        settle = {"campaignId": "R7-full-coverage", "runId": RUN, "record": self.record(), "scope": self.scope, "atUtc": AT}
+        self.execute("settle", settle, "s1")
+        self.refused("manual-reservation-outside-period", check, dict(self.reserve_inputs(), atUtc="2099-01-01T00:00:00Z"), "c3")
+        with self.assertRaises(M.Refused):
+            M.execute("settle", settle, self.repo, self.remote, self.root, os.path.join(self.d, "j"), os.path.join(self.d, "o"),
+                      self.all_pins, self.remote, dry_run=True)
+
     def test_the_reserve_path_sends_a_current_format_long_token_and_refuses_an_injected_one_before_any_append(self):
         """Run 41933223835 refused manual-reservation-push-token-missing on GitHub's ~520-character GITHUB_TOKEN. Offline, the whole
         reserve path runs as if over https: each https git call is captured, then replayed against the temporary bare remote without the

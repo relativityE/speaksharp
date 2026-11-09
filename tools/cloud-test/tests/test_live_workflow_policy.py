@@ -137,8 +137,26 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(self.doc["permissions"], {})
         # Run 41906815122: the tracking target #1763 is a pull request, so its comments need the pull-requests permission; only the two
         # record jobs (which list, create, update and read back that one comment) hold it, and no other job does.
-        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read"})
+        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read", "checks": "read"})
         self.assertEqual(self.jobs["record-complete"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read"})
+
+    def test_a_dispatch_proves_it_can_start_before_any_record_mutation(self):
+        """Consultant P1-5 / P2-3: before the latest-record comment, a dispatch requires the exact head's full-evidence check run to be a
+        completed success and runs the read-only reserve-check (the reserve's own admission, nothing appended). Read-only: checks: read is
+        the only permission added, and the step holds no write token in its command."""
+        steps = self.jobs["record-begin"]["steps"]
+        names = [s.get("name", "") for s in steps]
+        gate = next(i for i, n in enumerate(names) if n.startswith("Can this dispatch start now"))
+        self.assertLess(gate, names.index("Begin the attempt in the latest record"))
+        self.assertGreater(gate, names.index("Materialize the exact manual occurrence from the authoritative workflow start before any record mutation"))
+        step = steps[gate]
+        self.assertEqual(step["if"], "github.event_name == 'workflow_dispatch'")
+        self.assertIn('-f check_name=full-evidence', step["run"])
+        self.assertIn('.status == "completed" and .conclusion == "success"', step["run"])
+        self.assertIn('BLOCKED_SETUP: exact-head-proof-not-green', step["run"])
+        self.assertIn("manual_reservation.py reserve-check", step["run"])
+        self.assertNotIn("CT_STATE_PUSH_TOKEN", json.dumps(step))
+        self.assertNotIn(" reserve --", step["run"])
         self.assertEqual(sorted(n for n, j in self.jobs.items() if "pull-requests" in (j.get("permissions") or {})),
                          ["record-begin", "record-complete"])
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
@@ -1137,7 +1155,7 @@ class UnexecutedAttemptRecovery(unittest.TestCase):
         self.assertIn('base64 -d > "$RUNNER_TEMP/unexecuted-evidence.json"', run[:settle + 200])
 
     def test_no_job_gains_a_permission_and_the_live_job_is_untouched(self):
-        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read"})
+        self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read", "checks": "read"})
         self.assertEqual(self.jobs["journal-reserve"]["permissions"], {"contents": "write"})
         self.assertEqual([n for n, j in self.jobs.items() if (j.get("permissions") or {}).get("contents") == "write"], ["journal-reserve", "journal-settle"])
         live = json.dumps(self.jobs["live"])

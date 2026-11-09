@@ -108,6 +108,8 @@ jobs:
       issues: write
       pull-requests: write
       actions: read
+      # Consultant P1-5: the exact head's CI proof is read through its check runs before any record mutation.
+      checks: read
     outputs:
       comment_id: ${{ steps.begin.outputs.comment_id }}
       prior_state: ${{ steps.begin.outputs.prior_state }}
@@ -179,6 +181,25 @@ jobs:
           echo "occurrence_sha256=$MANUAL_OCCURRENCE_SHA256" >> "$GITHUB_OUTPUT"
           echo "occurrence_b64=$(base64 < "$RUNNER_TEMP/manual-occurrence.json" | tr -d '\n')" >> "$GITHUB_OUTPUT"
           echo "workflow_start_utc=$workflow_start_utc" >> "$GITHUB_OUTPUT"
+      - name: Can this dispatch start now (exact-head proof green; the reserve admissible at the journal head) before any record mutation
+        # Consultant P1-5 and P2-3: a dispatch on a head whose CI proof is not green, or whose reserve would be refused (grant consumed or
+        # expired, checkpoint, headroom, action approval), stops HERE with no record comment and no journal event. Read-only throughout.
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          MANUAL_FACTS: ${{ inputs.facts }}
+          OCCURRENCE_SHA256: ${{ steps.manual-occurrence.outputs.occurrence_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          green="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --method GET -f check_name=full-evidence -f per_page=100 \
+            --jq '[.check_runs[] | select(.app.slug == "github-actions" and .status == "completed" and .conclusion == "success")] | length')"
+          [ "${green:-0}" -ge 1 ] || { echo "BLOCKED_SETUP: exact-head-proof-not-green"; exit 78; }
+          (umask 077; printf '%s' "$MANUAL_FACTS" > "$RUNNER_TEMP/check-facts.json")
+          python3 -I tools/cloud-test/scripts/manual_reservation.py reserve-check --journal "$RUNNER_TEMP/check-journal" \
+            --out "$RUNNER_TEMP/check-receipt.json" --request "$RUNNER_TEMP/manual-occurrence.json" \
+            --admitted-sha256 "$OCCURRENCE_SHA256" --run-id "$GITHUB_RUN_ID" \
+            --facts "$RUNNER_TEMP/check-facts.json" --bootstrap tools/cloud-test/config/aggregate/accounting-bootstrap.json \
+            --scope tools/cloud-test/config/aggregate/period-scope.json --source-repo "$GITHUB_WORKSPACE"
       - name: Begin the attempt in the latest record
         id: begin
         env:
