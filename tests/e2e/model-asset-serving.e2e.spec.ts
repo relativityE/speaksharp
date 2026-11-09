@@ -3,7 +3,7 @@
  * it on the application origin. Each local serving path (Vite preview and Vite dev from the real config, and the E2E
  * server's real app) serves the same fixture; the browser must either download the file or show it as text/data, and
  * the inline script must not run. Response headers, and production's vercel.json, are covered in
- * tests/evidence/__tests__/modelAssetServing.test.ts.
+ * tests/evidence/__tests__/modelPackageImport.test.ts.
  */
 import { test, expect, type Page } from '@playwright/test';
 import { MODEL_FIXTURE_FILES, startModelAssetServers, type ModelAssetServers } from '../evidence/fixtures/model-serving/modelAssetServers';

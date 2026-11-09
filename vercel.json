@@ -109,7 +109,7 @@
             ]
         },
         {
-            "source": "/models/((?:[^/]+/)*[^/]+\\.(?!(?:json|txt|onnx|data|bin|ort|js|mjs|cjs|wasm)$)[^/.]+)",
+            "source": "/models/((?:[^/]+/)*[^/]*\\.(?!(?:json|txt|onnx|data|bin|ort|js|mjs|cjs|wasm)$)[^/.]*)",
             "headers": [
                 {
                     "key": "Content-Type",

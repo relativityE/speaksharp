@@ -9,7 +9,7 @@ import path from 'node:path';
  * extension-less LICENSE) and without nosniff, a browser that navigates to it sniffs and renders that HTML on the
  * application origin. Every model response therefore gets an explicit non-executable type and nosniff, on every
  * serving path: the Vite dev and preview servers and the E2E server use this module, and vercel.json carries the same
- * table (tests/evidence/__tests__/modelAssetServing.test.ts holds the two together).
+ * table (tests/evidence/__tests__/modelPackageImport.test.ts holds the two together).
  *
  * The reviewed runtime files keep a JavaScript or WASM type: their consumers require it, and nosniff makes the browser
  * enforce it. A navigation to one renders text, never a document.

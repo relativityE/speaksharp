@@ -1,7 +1,7 @@
 /**
  * Shared fixture for the /models/ serving contract (release review of 1816ec61): the three local serving paths,
  * started on the repository's real configuration, each serving the same model files whose bytes are an HTML document
- * with an inline script. Used by tests/evidence/__tests__/modelAssetServing.test.ts (response headers) and
+ * with an inline script. Used by tests/evidence/__tests__/modelPackageImport.test.ts (response headers) and
  * tests/e2e/model-asset-serving.e2e.spec.ts (browser navigation).
  */
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
