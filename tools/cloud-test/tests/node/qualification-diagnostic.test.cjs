@@ -4,6 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
 const B = path.join(__dirname, '..', '..', 'harness', 'bundle', 'harness');
 const QD = require(path.join(B, 'qualification-diagnostic.cjs'));
 const { ownedLaunch } = require(path.join(B, 'launch-ownership.cjs'));
@@ -130,9 +131,11 @@ test('negative controls: a token-shaped check ID or guard run never survives bui
     assert.ok(d.guardRun === null || d.guardRun === 'feedback-*', String(d.guardRun));
     assert.ok(!JSON.stringify(d).includes(SECRET.slice(0, 12)));
   }
-  const results = [SECRET, tokenLower, SECRET + '.x', 'sandbox', 'S1.' + SECRET, 'caps-1.reconcile.a.test', 'feedback-prefer-41.reconcile.a.test'].map(id => ({ id, ok: false }));
+  // Review of 7e07474b: only reviewed ids count, even toward a group; a known prefix or shape alone counts for nothing.
+  const results = [SECRET, tokenLower, SECRET + '.x', 'sandbox', 'S1.' + SECRET, 'caps-1.reconcile.a.test', 'feedback-prefer-41.reconcile.a.test',
+    'feedback-prefer-41.no-exception', 'S6c.reconcile.a.test'].map(id => ({ id, ok: false }));
   const d = QD.validateDiagnostic(QD.buildDiagnostic(QD.createState(), { reason: 'qualification-error', error: null, results }));
-  assert.deepEqual(d.completedCheckGroups, [{ group: 'sandbox', count: 1 }, { group: 'S1', count: 1 }, { group: 'caps-1', count: 1 }, { group: 'feedback-prefer-*', count: 1 }]);
+  assert.deepEqual(d.completedCheckGroups, [{ group: 'feedback-prefer-*', count: 1 }, { group: 'S6c', count: 1 }]);
   assert.ok(!JSON.stringify(d).includes(SECRET.slice(0, 12)) && !JSON.stringify(d).includes('token'));
 });
 
@@ -161,11 +164,15 @@ test('the closed guard-run and check-section lists cover every withGuard ID and 
 test('a failed self-test check is named by its code id; forged or free-text ids never survive', () => {
   const results = [
     { id: 'S6.concurrency', ok: true }, { id: 'S6.queue-wait-denied', ok: false }, { id: 'S6.upstream-error', ok: false },
-    { id: 'concurrency.reconcile.a.test', ok: false }, { id: 'S6.queue-wait-denied', ok: false },
+    { id: 'S6b.reconcile.a.test', ok: false }, { id: 'S6.queue-wait-denied', ok: false },
     { id: 'token=abc secret', ok: false }, { id: 'X9.not-a-group', ok: false }, { id: 'S6.Has Spaces', ok: false }, { id: 42, ok: false },
+    // review of 7e07474b: a known prefix with a well-formed tail is still not a reviewed id
+    { id: 'S6.anything-goes', ok: false }, { id: 'concurrency.reconcile.a.test', ok: false }, { id: 'S6.campaign-deadline-cancels-x', ok: false },
   ];
   const d = QD.buildDiagnostic(QD.createState(), { reason: 'verdict-fail', results });
-  assert.deepEqual(d.failedChecks, ['S6.queue-wait-denied', 'S6.upstream-error', 'concurrency.reconcile.a.test']);
+  assert.deepEqual(d.failedChecks, ['S6.queue-wait-denied', 'S6.upstream-error', 'S6b.reconcile.a.test']);
+  assert.deepEqual(d.failedCheckGroups, [{ group: 'S6', count: 2 }, { group: 'S6b', count: 1 }, { group: 'S6', count: 1 }],
+    'the generated S6b reconcile failure is kept and grouped; the forged ids count toward nothing');
   assert.deepEqual(QD.validateDiagnostic(d).failedChecks, d.failedChecks);
   assert.ok(!JSON.stringify(d).includes('secret') && !JSON.stringify(d).includes('X9'));
 });
@@ -174,9 +181,46 @@ test('the receiving side refuses free text, unknown groups, duplicates and too m
   const base = QD.buildDiagnostic(QD.createState(), { reason: 'verdict-fail', results: [{ id: 'S6.request-deadline', ok: false }] });
   assert.deepEqual(base.failedChecks, ['S6.request-deadline']);
   for (const bad of [['token=abc secret'], ['X9.unknown'], ['S6.request-deadline', 'S6.request-deadline'],
-    Array.from({ length: QD.MAX_FAILED_CHECKS + 1 }, (_, i) => 'S6.check-' + i), 'S6.request-deadline', [7]]) {
+    Array.from({ length: QD.MAX_FAILED_CHECKS + 1 }, (_, i) => QD.CHECK_IDS[i]), 'S6.request-deadline', [7], ['S6.anything-goes']]) {
     assert.throws(() => QD.validateDiagnostic({ ...base, failedChecks: bad }), /failed checks/, JSON.stringify(bad));
   }
   const { failedChecks, ...withoutKey } = base;
   assert.throws(() => QD.validateDiagnostic(withoutKey), /keys/);
+});
+
+// Review of 7e07474b: the exact catalog is the source's own. Re-derive every id the self-test can emit (literal check/reconcile/withGuard
+// ids, the closed loop lists that build the rest, and the reconcile/no-leak/no-exception suffixes) and require equality, so a new or
+// renamed check can never be silently dropped from (or a stale one kept in) the diagnostic.
+test('the reviewed check-id catalog is exactly what the self-test source can emit, including generated reconcile ids', () => {
+  const Bq = path.join(__dirname, '..', '..', 'harness', 'bundle');
+  const st = fs.readFileSync(path.join(Bq, 'qualification/selftest.cjs'), 'utf8');
+  const fc = fs.readFileSync(path.join(Bq, 'qualification/feedback-controls.cjs'), 'utf8');
+  const ff = fs.readFileSync(path.join(Bq, 'harness/feedback-fault.cjs'), 'utf8');
+  const lit = (src, fn) => [...src.matchAll(new RegExp(fn + "\\(\\s*'([^']+)'\\s*,", 'g'))].map(m => m[1]);
+  const loop = re => { const m = fc.match(re); assert.ok(m, 'loop list moved: ' + re); return m[1]; };
+  const MODES = JSON.parse(ff.match(/const MODES=Object\.freeze\((\[[^\]]+\])\)/)[1].replace(/'/g, '"'));
+  const STATUSES = [...loop(/for\(const \[n,status\]of (\[\[.*?\]\])\)\{/).matchAll(/\[\d+,(\d+)\]/g)].map(m => m[1]);
+  const LABELS = [/for\(const \[n,label,metadata\]of (\[\[\d+,'wrong-constraint'.*?\]\])\)\{/, /for\(const \[n,label,metadata\]of (\[\[\d+,'rollback-response'.*?\]\])\)\{/,
+    /for\(const \[n,label,profile\]of (\[\[.*?\]\])\)\{/].flatMap(re => [...loop(re).matchAll(/\[\d+,'([a-z0-9-]+)'/g)].map(m => m[1]));
+  const PREFER = [...loop(/for\(const \[n,prefer\]of (\[\[.*?\]\])\)\{/).matchAll(/\[(\d+),'/g)].map(m => m[1]);
+  // Every non-literal check id in the source is one of the known builders: nothing else can produce an id.
+  const builders = [...(st + fc).matchAll(/(?<!function )check\(\s*('S15\.'\s*\+[^,]*?|[^'\s][^,]*?),/g)].map(m => m[1].replace(/\s+/g, ''));
+  assert.deepEqual([...new Set(builders)].sort(), ["'S15.'+label", "'S15.'+label+'-denied'", "'S15.'+mode+'.before-retry'", "'S15.'+mode+'.initial'",
+    "'S15.'+mode+'.retry'", "id+'.no-exception'", "id+'.no-leak'", "id+'.reconcile.'+h"].sort());
+  assert.deepEqual([...new Set([...fc.matchAll(/check\('S15\.initial-status-'\+status|check\('S15\.prefer-'\+n/g)].map(m => m[0]))].length, 2);
+  const ids = new Set([...lit(st, 'check'), ...lit(fc, 'check')]);
+  for (const l of LABELS) { ids.add('S15.' + l); ids.add('S15.' + l + '-denied'); }
+  for (const m of MODES) for (const sfx of ['.initial', '.before-retry', '.retry']) ids.add('S15.' + m + sfx);
+  for (const x of STATUSES) ids.add('S15.initial-status-' + x);
+  for (const n of PREFER) ids.add('S15.prefer-' + n);
+  const reconciled = [...lit(st, 'reconcile'), ...lit(fc, 'reconcile'), ...LABELS.map(l => 'S15.' + l), ...STATUSES.map(x => 'S15.initial-status-' + x),
+    ...PREFER.map(n => 'S15.prefer-' + n)];
+  for (const r of reconciled) for (const sfx of ['.reconcile.a.test', '.reconcile.c.test', '.no-leak']) ids.add(r + sfx);
+  const prefixes = ['feedback-', 'feedback-initial-status-', 'feedback-prefer-'];
+  const runs = [...lit(st, 'withGuard'), ...lit(fc, 'withGuard')].filter(r => !prefixes.includes(r))
+    .concat(LABELS.map(l => 'feedback-' + l), STATUSES.map(x => 'feedback-initial-status-' + x), PREFER.map(n => 'feedback-prefer-' + n));
+  for (const r of runs) ids.add(r + '.no-exception');
+  assert.deepEqual([...QD.CHECK_IDS], [...ids].sort());
+  for (const id of ['S6a.reconcile.a.test', 'S6b.reconcile.a.test', 'S6c.reconcile.a.test', 'S6.campaign-deadline-cancels']) assert.ok(QD.isCheckId(id), id);
+  for (const id of QD.CHECK_IDS) assert.notEqual(QD.checkGroup(id), null, 'every reviewed id has a group: ' + id);
 });
