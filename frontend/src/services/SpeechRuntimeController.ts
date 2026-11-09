@@ -6606,11 +6606,21 @@ export class SpeechRuntimeController {
                             ? 'The transcript from this recording was not saved. You can record again.'
                             : 'You can record again.',
                     });
-                } else if (hasRecoveryDraftSignal) {
+                } else if (hasRecoveryDraftSignal && this.holdsRecoverableSave(this.sessionId)) {
+                    // A save really failed: a finalized draft and Retry Save exist for this session.
                     useSessionStore.getState().setSTTStatus({
                         type: 'warning',
                         message: 'Session was not saved yet.',
                         detail: 'A local recovery draft was kept in this browser after a save issue.',
+                    });
+                } else if (hasRecoveryDraftSignal) {
+                    // Work point 2, D5: the stop itself failed (for example, the final decode threw). No save was
+                    // attempted and none will follow, the recording is unlocked, and the transcript is purged below.
+                    // Saying "not saved yet … after a save issue" promised a save that will never come.
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'error',
+                        message: 'We could not finish processing this recording.',
+                        detail: 'The transcript from this recording was not saved. You can record again.',
                     });
                 }
                 // #1306 P1: the FAILED terminal is also a terminal stop — transcript-derived processing is done

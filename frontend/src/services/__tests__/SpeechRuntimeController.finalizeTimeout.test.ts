@@ -106,6 +106,50 @@ describe('#1089 bounded finalization', () => {
         expect(state.sessionSaved).toBe(false);
     });
 
+    /**
+     * Work point 2, D5: a stop failure that is NOT a timeout (e.g. the final decode throws) used to show "Session was
+     * not saved yet. A local recovery draft was kept in this browser after a save issue." whenever transcript text
+     * existed. No save was attempted and none will follow: there is no finalized draft and no Retry Save, the
+     * recording is unlocked, and the transcript is purged. The copy must say what is true.
+     */
+    const failingService = (error: Error) => ({
+        getMode: vi.fn().mockReturnValue('private'),
+        getStartTime: vi.fn().mockReturnValue(Date.now() - 60_000),
+        stopTranscription: vi.fn().mockRejectedValue(error),
+        destroy: vi.fn().mockResolvedValue(undefined),
+        isServiceDestroyed: () => false,
+        getState: vi.fn().mockReturnValue('RECORDING'),
+        subscribe: vi.fn(() => vi.fn()),
+        fsm: { is: vi.fn().mockReturnValue(false) },
+    } as unknown as ITranscriptionService);
+
+    it('D5: a decode failure with no pending save does not claim a save issue or a pending save', async () => {
+        (controller as unknown as { service: unknown }).service = failingService(new Error('final decode failed'));
+        const outcome = await controller.stopRecording().catch((e: unknown) => e);
+        expect(outcome).toBeInstanceOf(Error);
+        const state = useSessionStore.getState();
+        expect(state.transcript.transcript).toBe('');
+        expect(state.sttStatus.message).not.toMatch(/not saved yet/i);
+        expect(state.sttStatus.detail ?? '').not.toMatch(/save issue/i);
+        expect(state.sttStatus).toMatchObject({
+            type: 'error',
+            message: 'We could not finish processing this recording.',
+            detail: 'The transcript from this recording was not saved. You can record again.',
+        });
+    });
+
+    it('D5: when a recoverable save really is pending, the save-issue copy stays', async () => {
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'test-sess' };
+        (controller as unknown as { service: unknown }).service = failingService(new Error('stop failed after save issue'));
+        await controller.stopRecording().catch(() => undefined);
+        expect(useSessionStore.getState().sttStatus).toMatchObject({
+            type: 'warning',
+            message: 'Session was not saved yet.',
+            detail: 'A local recovery draft was kept in this browser after a save issue.',
+        });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+    });
+
     it('does NOT time out a decode that completes within the ceiling', async () => {
         const slowButWorking = {
             getMode: vi.fn().mockReturnValue('private'),
