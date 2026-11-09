@@ -1,15 +1,396 @@
 # Release Status
 
-**Status:** Authoritative for the bounded 5 November 2026 source reconciliation below; earlier dated component snapshots remain history. Release acceptance HOLD.
+**Status:** Authoritative for the bounded 9 November 2026 MVP acceptance map and source snapshot below; earlier dated component snapshots remain history. Release acceptance HOLD.
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-10-28 — specialist source review and current-main receiving; exact-head qualification remains a separate gate.
-**Last Verified:** 2026-11-05 — source interval through main `8f9f9451`; no fresh Production read, hosted recovery success or end-to-end acceptance is claimed.
+**Last Verified:** 2026-11-09 — GitHub main `524c325a95874d31239203dce9ef7893331ca756` and seven retained PR identities inspected. #1760 and #1788 are closed unmerged; five legacy PRs remain open. This is source reconciliation, not a fresh Production read, hosted recovery success or end-to-end acceptance.
 **Applies To:** Current production deployment + RWT/Alpha and MVP/Beta release tracks.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
 **Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`), or documentation structure (→ `README.md`).
 **Supersedes:** the September current-status narrative and October baseline-only banner here. Historical evidence and archives remain unchanged.
 **Evidence Sources:** the exact GitHub PR, issue-comment and workflow receipts linked below.
+
+## 9 November 2026 MVP acceptance map
+
+**HOLD.** The release outcome is customer benefit worth paying for: useful, trustworthy
+practice that helps the customer improve what they intended to practise. The
+recommendation → deliberate same-target repeat → honest comparison → return loop is
+the mechanism to test that value. Executing the loop, moving an unrelated metric,
+passing CI or merging a PR does not establish usefulness or willingness to pay.
+
+This is the one bounded acceptance map under [#1539](https://github.com/relativityE/speaksharp/issues/1539),
+not another broad audit. All work belongs to the ten numbered buckets below. Each
+bucket follows all four stages: **1. Define the release/pilot contract; 2. Close its
+product or safety gap; 3. Prove the identified release; 4. Release and learn.** A
+source increment can finish stage 2 while stages 3 and 4 remain open. Work can proceed
+in parallel only with disjoint ownership; integration and release remain serial.
+
+The selected Private STT (`v2:base.en`), Gemini coaching provider and software stack
+stay fixed. Model/provider competitions and infrastructure expansion are deferred
+unless separately selected. Existing broader obligations remain visible.
+
+### Release contract and evidence rules
+
+- Open Mic, full Focus and partial Focus remain in the acceptance inventory. Supported
+  device/browser versions, pilot participants, named observation owners, free-only
+  versus paid pilot, and quality thresholds still need an explicit release decision.
+  Until then, no narrower scope is treated as approved.
+- Keep **15 automated practice cases**, **six human/device records**, the existing
+  **151 requirements**, and billing lifecycle/paid-value obligations as distinct
+  inventories. A short pilot check cannot close #1788 or its remaining cases.
+- State speech-quality and coaching-usefulness thresholds before measuring. Record
+  real-speech provenance, task, device, duration, opening/trailing speech preservation,
+  saved/reopened transcript, groundedness, specificity, actionability, latency and
+  failure handling. Synthetic evaluator proxies are supporting evidence only.
+- For each result retain source head, observed frontend, backend and schema identity,
+  account role, product, same accepted target and saved-session binding, test method,
+  reviewer, actual outcome and limitations. Keep source, mocked, real-engine,
+  authoritative database, provider-received and human observations separate.
+- Missing evidence is NOT RUN, NOT MEASURED, UNKNOWN or HOLD as appropriate, never
+  zero or PASS. Observed metric movement is not causal proof that advice worked.
+- A free pilot still needs its applicable safety, useful-practice and device evidence.
+  Payment activation additionally needs buckets 7 and 8. Neither pilot nor payment
+  activation is authorized by this map.
+
+### Test effectiveness belongs inside the ten PRs
+
+Every receiving PR includes a risk-proportionate causal test-effectiveness contract:
+the customer or safety claim; the responsible code boundary; an independent oracle;
+a passing baseline; an equivalent-source control that stays green where applicable;
+the intended semantic fault that makes the designated assertion fail; and a
+byte-identical restored pass with unchanged test collection. A setup failure, timeout,
+crash, missing test or skipped assertion is not evidence that the test detects the
+intended defect. String-only source checks cannot prove runtime or product behavior;
+bucket 1's structural document checks prove only the document contract. This tests
+whether a control catches its fault, not whether coaching caused a customer to improve.
+
+Each PR reports exact-source evidence as PASS, FAIL, NOT RUN, NOT MEASURED, UNKNOWN or
+HOLD without converting missing or contradictory evidence to success. Fault injection
+uses isolated permitted fixtures; live or destructive effects retain their separate
+authorization. These obligations stay in the ten buckets. The forthcoming consultant
+review may identify a residual cross-cutting gap, but it does not create an eleventh
+PR without a separate decision.
+
+| Bucket | Required defect-sensitive proof within its own PR |
+|---|---|
+| 1 | Missing/duplicated outcome, dropped retained requirement or falsely completed evidence is detected; preserved history and inventory denominators remain unchanged. |
+| 2 | Wrong model/readiness/served type, lost speech boundary or unpreserved transcript fails the appropriate assertion; source serving tests do not imply measured speech quality. |
+| 3 | Unsupported advice, wrong saved-session context, unusable recommendation or hidden failure is rejected by the declared oracle; human judgments stay separate from deterministic proxies. |
+| 4 | Wrong accepted target, unrelated/latest-session substitution, cross-account/product linkage or missing durable reference cannot pass; explicitly incomparable content cannot receive a delivery-metric success label. |
+| 5 | Stale/split release identity, wrong oracle source, missing case, setup-only execution or incomplete receipts fail closed; the complete intended-release oracle is qualified before an authorized journey run. |
+| 6 | Wrong-owner review, lost partial Focus detection and discarded correction show baseline/equivalent-green, intended-red and restored-green; actual-device faults remain actual-device evidence. |
+| 7 | Wrong billing identity, synthetic rather than genuine event delivery, lifecycle omission or unsettled cleanup cannot produce acceptance. |
+| 8 | Substituting a free/trial user, another paid identity, unrelated repeat or nonpersistent result fails the same-paid-identity value-loop proof. |
+| 9 | Partial/ambiguous credentials, unauthorized account access, missing consent, unsafe recovery/deletion or unintended privilege cannot pass; intended identity remains bound before mutation. |
+| 10 | Stale release identity, missing evidence, fabricated monitoring readiness or unverified rollback fails the release decision; historical results cannot stand in for current execution. |
+
+### Coordinated transition into ten bucket PRs
+
+**Current developer roster:** Bezos and Elon only. Bezos is selected for bucket 2 and
+Elon for bucket 5; their receiving writer checkpoints are not yet confirmed. Bucket 4 remains queued until one is free
+and its file ownership is confirmed. Sam coordinates acceptance and handoffs; no
+additional developer assignment is inferred from older dated records below.
+
+All seven legacy PRs are mapped below, not additional or unassigned workstreams.
+#1760 and #1788 were closed unmerged on 9 November at their preserved heads. The
+Product Owner has selected leaving both closed and carrying every outstanding item
+into the corresponding numbered PR. This is administrative closure, not acceptance
+or source delivery. Five legacy PRs remain open pending their receiving checkpoints.
+Other retained PRs do not create additional active developers or implementation lanes.
+
+The transition is not yet complete: closure does not establish an accepted receiving
+handoff. Obtain each writer's exact checkpoint, including unpublished changes,
+head/tree, unresolved findings, evidence and remaining obligations. Preserve private
+work in its existing approved location rather than copying it into a public ledger.
+For the five still-open legacy PRs, agree the receiving checkpoint before closure.
+Preserve unmerged source and do not claim it shipped. Then confirm one writer and one
+numbered bucket PR. No merge is implied by administrative closure or this map.
+Do not delete branches, discard work, transfer operational grants or start overlapping
+implementations. Existing merged PRs remain immutable provenance.
+
+| New bucket PR | Prior work to receive | Current transition |
+|---|---|---|
+| 1. MVP acceptance map | #1539 and this existing release record | This substantive documentation increment; ten-bucket and retained-source acceptance controls. |
+| 2. Selected speech path | Closed-unmerged #1760; retain #1789/#1790/#1794 as explicitly deferred or remaining obligations | Bezos selected; exact receiving branch/writer confirmation remains pending. |
+| 3. Useful current coaching | Merged #1773/#1792 evidence, no active PR to restore | Freeze scope and real-session rubric; no speculative provider change. |
+| 4. Same-target outcome | Merged #1548 provenance; preserved local product preparation | Queued until Bezos or Elon is free and ownership is confirmed; no releasable implementation claimed. |
+| 5. Automated practice journeys | Closed-unmerged #1788 and its exact all-15 closure contract | Elon selected; receiving checkpoint, outstanding recovery finding and qualification remain open. |
+| 6. Supported-device journey | #1782 and retained #1539 human/device obligations | Mapped retained source for the coordinated closeout queue; desktop proof stays distinct. |
+| 7. Testable billing | #1795 | Mapped published billing checkpoint; receiving ownership follows the two active agent closeouts. |
+| 8. Connect paid access to the same value loop | #1795's PAID-01 extension; dependencies from buckets 4 and 7 and identity controls from bucket 9 | Same paid identity through coaching → linked repeat → comparison → return; no separate implementation underway. |
+| 9. Account/privacy/credentials | #1770 and #1775; retained #1539 controls and PAID-04 identity/credential controls | Both retained PRs map here; reconcile their shared workflow before one successor writer. |
+| 10. One operated release | #1774 and canonical release evidence | Retained checkpoint maps here; receive only its unique delta against current main. |
+
+No placeholder implementation or unearned completion is implied by a planned bucket.
+Each resulting PR must show its actual delivered increment, four-stage contract,
+carried obligations and remaining approvals. Source delivery cannot claim stages 3–4.
+
+### Existing PR inventory to preserve
+
+GitHub was read on 9 November 2026. Every retained PR has one primary bucket; dependencies
+may cross buckets without creating another workstream. These are source identities,
+not release identities. Re-read heads before any review, integration or operation.
+
+| Bucket | Retained PR | Observed head | Remaining acceptance boundary / source owner |
+|---|---|---|---|
+| 2 | [#1760](https://github.com/relativityE/speaksharp/pull/1760), closed unmerged | `f99627fc85f2a9f44abe979605402970ea0fec03` | All source and review obligations retained for Bezos; earlier `2fd1bc27` is not a final-head handoff. Real incumbent speech quality remains unproven. |
+| 5 | [#1788](https://github.com/relativityE/speaksharp/pull/1788), closed unmerged | `655d229bf7b3d7dfe450a190775ee48c626cf325` | Protected-main source restored; recovery disposition, authorized all-15 run and final-head qualification remain required. Elon selected; receiving ownership confirmation pending. |
+| 6 | [#1782](https://github.com/relativityE/speaksharp/pull/1782) | `62b7a0d044df736cd86c81a50271e8fd565fc646` | Saved-review viewport coverage and three semantic controls; real device/human acceptance remains separate. Existing viewport-test owner. |
+| 7 | [#1795](https://github.com/relativityE/speaksharp/pull/1795) | `5dc87301962252bf599963a86ebb0de6e2336462` | Draft sandbox lifecycle source; isolated entry, cleanup, genuine delivery and final qualification remain open. Sam coordinates billing implementation. |
+| 9 | [#1770](https://github.com/relativityE/speaksharp/pull/1770) | `47b5974f58ff28018b3f4f3737eea43397fdbeda` | Read-only account verifier; shared workflow reconciliation and current qualification. Existing account-verifier owner. |
+| 9 | [#1775](https://github.com/relativityE/speaksharp/pull/1775) | `d08055ca5165d1a1c40fe49f18366f5afad75490` | Trusted-main credential-job source; provisioning, consumer proof and fallback removal remain separately gated. Existing credential-boundary owner. |
+| 10 | [#1774](https://github.com/relativityE/speaksharp/pull/1774) | `54c674ace88f2e22acd1c01a9a5ec2cf533193f2` | Nightly foundation checkpoint; reconcile with landed source and qualify. No active schedule is established. Existing nightly owner. |
+
+Merged [#1548](https://github.com/relativityE/speaksharp/pull/1548),
+[#1773](https://github.com/relativityE/speaksharp/pull/1773) and
+[#1792](https://github.com/relativityE/speaksharp/pull/1792) are immutable delivery
+provenance, not extra active PRs. Their unproven outcomes map to buckets 4, 3 and 3
+respectively. No branch is restored or deleted, source discarded, or historical
+result rewritten by this documentation increment. The observed administrative
+closures above are not evidence of implementation or acceptance. New implementation
+must stay within the ten bucket PRs.
+
+### 1. One MVP acceptance map
+
+**Owner/handoff:** Sam maintains the map; Product Owner selects pilot scope and release.
+**State:** this documentation increment supplies the map; release decisions remain open.
+
+1. **Define:** record customer value, supported modes/devices, free/paid scope, quality
+   bars, owners and explicit deferrals without shrinking full-release obligations.
+2. **Close:** reconcile every open PR and retained requirement to these ten buckets,
+   using this existing release record and #1539; preserve original denominators.
+3. **Prove:** verify every claimed result against exact source/runtime evidence and
+   review the map for missing, contradictory or falsely completed obligations.
+4. **Release/learn:** use the accepted map for the go/no-go and subsequent learning;
+   update it only at coherent checkpoints with actual evidence and owner decisions.
+
+### 2. Qualify the selected speech path
+
+**Owner/handoff:** Bezos selected; receiving checkpoint → independent review → Sam → authorized operator.
+**State:** serving correction was published at `359f7efd` per the
+[dated receipt](https://github.com/relativityE/speaksharp/pull/1760#issuecomment-6746204253);
+the newer observed head is recorded above and requires its own qualification.
+Production serving behavior and representative real-speech quality are not established.
+
+**Outstanding source and review carryover:** retain all #1760 commits and its
+three unresolved review threads, including the supported-window correction at
+`2fd1bc27` and exact-cache-set correction at `f99627fc`; unresolved thread state does
+not mean their reported corrections are absent. The
+[PCM-report finding](https://github.com/relativityE/speaksharp/pull/1760#discussion_r4516450447)
+is disputed by the author's
+[command-test reproduction](https://github.com/relativityE/speaksharp/pull/1760#discussion_r4516694843).
+Independently reconcile that disposition and retain any new regression before claiming
+it fixed or rejected. Preserve serving-safety acceptance, final-head CI/reviews, real
+selected-engine transcripts and device quality as separate unfinished obligations.
+Alternative-model evaluation/adoption (#1789/#1790) and P3 (#1794) remain explicitly
+deferred, with their source retained; they cannot silently expand the fixed-stack scope.
+
+1. **Define:** keep the incumbent and fixed stack; select representative speech,
+   supported devices and predeclared quality/reliability bars, including speech edges.
+2. **Close:** finish #1760's serving-safety finding and remaining foundation defects;
+   add only demonstrated incumbent defects to this bucket. No model switch is implied.
+3. **Prove:** exact-head tests/reviews plus real selected-engine Start → Stop → final
+   transcript → save → reopen; distinguish source, model quality and device evidence.
+4. **Release/learn:** after separate authorization, verify the actual served headers,
+   runtime/model identity and repeat reliability; preserve rollback and observed gaps.
+
+### 3. Prove current coaching is useful
+
+**Owner/handoff:** coaching engineering and quality → human observation owner (to select)
+→ Sam. **State:** #1773/#1792 merged groundwork; real saved-session usefulness NOT PROVEN.
+
+1. **Define:** predeclare groundedness, specificity, actionability, latency and failure
+   criteria for Open Mic/full and partial Focus using the current Gemini path.
+2. **Close:** evaluate authorized real saved sessions and fix only demonstrated gaps;
+   use a bounded successor within this bucket if code is actually needed.
+3. **Prove:** bind saved source, generated/persisted/rendered advice and human judgment
+   to the same session/model/release; include failure and recovery. Synthetic grounding
+   proxies, format checks and prompt parity do not establish useful advice.
+4. **Release/learn:** verify the approved deployed coaching path, then observe whether
+   customers understand and choose a useful action. Do not claim causal improvement or
+   willingness to pay from a served suggestion.
+
+### 4. Close the same-target outcome gap
+
+**Owner/handoff:** queued for Bezos or Elon when free and file ownership is confirmed
+→ independent code, security and product review → authorized release operator.
+**State:** local preparation preserved and paused; no active implementation assignment.
+#1548's generic stored-metric clarification does not close this gap.
+
+1. **Define:** explicitly accepted advice must preserve its source, version, product
+   and target through deliberate repeat, saved review and return. A target the product
+   cannot measure must be explicitly not comparable.
+2. **Close:** deliver durable same-target identity and truthful comparison in one
+   coherent product increment. Keep unrelated filler/clarity progress separate; do not
+   invent content scoring or infer advice efficacy from it.
+3. **Prove:** acceptance versus display, correct target/session linkage, account/product
+   isolation, save/recovery/reopen, no-change and not-comparable states, plus applicable
+   schema/authorization controls. Human usefulness remains its own evidence.
+4. **Release/learn:** after authorized release/schema steps, verify persistence and
+   observed customer benefit. Measure accepted action, deliberate repeat, comparable
+   result and return separately; completion alone is not improvement.
+
+**Reuse existing association evidence without overstating it.**
+[`progress-cross-page.e2e.spec.ts:164`](https://github.com/relativityE/speaksharp/blob/524c325a95874d31239203dce9ef7893331ca756/tests/e2e/progress-cross-page.e2e.spec.ts#L164)
+seeds a mocked completed source, its linked repeat and a newer unrelated session, then
+checks stored before/after values and the delivery-versus-tip disclosure after reload.
+Retain it as an association/readback control, including the wrong-latest-session fault.
+It does not create the accepted attempt or execute recording, save and resolution,
+and therefore is not full lifecycle, real STT, database, human-usefulness or Production
+proof. The bucket 4 increment needs the complete accepted-target lifecycle at the
+appropriate layer in addition to this reusable control.
+
+### 5. Execute the automated practice journeys
+
+**Owner/handoff:** Elon selected; receiving checkpoint → security/Code review → Sam → authorized operator.
+**State:** all-15 acceptance remains open. Source `655d229b` restores protected-main-only
+privileged dispatch. The [owner handoff](https://github.com/relativityE/speaksharp/pull/1788#issuecomment-6746535363)
+preserves outstanding disposition and environment-policy work, and the
+[fresh Security receipt](https://github.com/relativityE/speaksharp/pull/1788#issuecomment-6746695318)
+reports no issues on that head. Code findings, final qualification and the mismatch
+between the old candidate-branch closure wording and the restored protected-source
+route still need coordinated disposition. No live outcome is established.
+
+**Outstanding source and review carryover:** retain every #1788 commit, both unresolved
+review threads and the full 15-case contract. The
+[open-reservation recovery P1](https://github.com/relativityE/speaksharp/pull/1788#discussion_r4515733970)
+still needs disposition: the new admission check must not make the supported recovery
+path unreachable. The protected-source correction and its fresh review remain source
+evidence, not operational qualification. The author's linked checkpoint also retains
+unpublished recovery work outside the PR; its approved private location remains the
+source until the owner supplies a safe receiving patch. Do not discard it, disclose its
+contents here, or infer it is already implemented. Keep final-head qualification,
+environment-policy decisions, fresh bounded execution authority, actual all-15 results
+and settlement as separate open requirements.
+
+1. **Define:** retain all 15 case IDs and closure criteria; identify exact candidate,
+   environment, accounts, finite effects budget, grant and execution window.
+2. **Close:** finish admission/execution blockers and the security finding without
+   weakening protected-source or credential boundaries; separate setup defects from
+   product defects and retain prior attempts.
+3. **Prove:** qualify the complete intended-release oracle, reconcile the execution
+   contract with protected-main-only control code, and only under required authorization
+   reach and truthfully record all 15 cases. Review tested and final source identities;
+   preserve the restored main-only conditions and qualify the final head.
+4. **Release/learn:** after separate landing/release decisions, bind accepted results
+   to what is served and route observed product defects to their numbered bucket.
+   A shorter pilot check cannot relabel the remaining cases complete.
+
+**Release-bound numeric oracle handoff.** At `655d229b`,
+[`progress-numeric.cjs`](https://github.com/relativityE/speaksharp/blob/655d229bf7b3d7dfe450a190775ee48c626cf325/tools/cloud-test/harness/draft-adapters/progress-numeric.cjs)
+still requires both source and served SHA to equal
+`5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2`; other bindings are refused. Before using a
+different intended release, requalify the complete oracle: actual source-file bytes,
+AST-selected pure functions, snapshots/provenance and hashes, owner-scoped field
+projections, expected attempt/session binding, rendered route/selectors/units/precision,
+the AHT-01/02/03 integration and negative controls. A constant-only repin is insufficient.
+The [receiving-source record](https://github.com/relativityE/speaksharp/blob/655d229bf7b3d7dfe450a190775ee48c626cf325/tools/cloud-test/harness/draft-adapters/source/receiving-numeric-source.json)
+and [offline tests](https://github.com/relativityE/speaksharp/blob/655d229bf7b3d7dfe450a190775ee48c626cf325/tools/cloud-test/harness/draft-adapters/tests/progress-numeric.offline.test.cjs)
+are source evidence only. Keep wrong-release, missing evidence and contradictory
+identity fail-closed. No current Production result is claimed; this work remains in
+bucket 5 with bucket 4 supplying the product contract, not an additional test-gap PR.
+
+### 6. Observe the complete supported-device journey
+
+**Owner/handoff:** existing #1782 owner → named human/device observation owner (to select)
+→ Sam. **State:** automated desktop viewport source exists; actual phone/user acceptance open.
+
+1. **Define:** supported device/browser matrix, participant tasks and human observations
+   for record → transcript → coaching → repeat → comparison → return.
+2. **Close:** finish #1782's 32 saved-review observations and three named user-harm
+   controls; fix observed usability/recovery defects rather than a generic UX rewrite.
+3. **Prove:** real microphone denial, interrupted recording, failed saves/recovery and
+   applicable phone/accessibility checks, alongside unchanged non-gamma coverage.
+   Desktop Chromium viewport tests do not establish phone acceptance.
+4. **Release/learn:** on the approved release, collect the actual supported-device
+   observations and customer friction; preserve unsupported/unobserved cases explicitly.
+
+### 7. Make billing genuinely testable
+
+**Owner/handoff:** #1795 billing implementation → security/billing review → separately
+authorized sandbox operator → Sam. **State:** draft source; sandbox journeys NOT RUN.
+
+1. **Define:** reviewed isolated test-mode app/database/provider target, legitimate
+   entry path, allowed effects, provider-event identity and safe settlement/cleanup.
+2. **Close:** continue #1795 with the isolated entry and billing-specific cleanup;
+   preserve production live-key gates and refuse unreviewed targets or credentials.
+3. **Prove:** hosted Checkout → paid test invoice → genuine Stripe-delivered webhook
+   → correct account access; renewal/failure/recovery and portal cancellation/expiry;
+   counted cleanup and retained audit records. No synthetic webhook counts as delivery.
+4. **Release/learn:** sandbox PASS is not Production paid proof. Payment activation,
+   production lifecycle acceptance and rollback need their own approved release actions;
+   reconcile free-pilot applicability with bucket 1 rather than silently waive billing.
+
+### 8. Connect paid access to the same value loop
+
+**Owner/handoff:** billing and same-target owners → quality/human observation owner → Sam.
+**State:** #1795 does not prove this extension. The outcome is the same paid identity
+through coaching → linked repeat → comparison → return, not generic account lifecycle.
+PAID-01 remains open; bucket 9 supplies the required PAID-04 identity/credential controls.
+
+1. **Define:** same paid identity, accepted target and exact release across coaching,
+   linked repeat, target-specific comparison and return, with applicable Open Mic/Focus
+   entitlement and explicit bounded effects budget separate from the 15-case allowance.
+2. **Close:** add the bounded paid-value acceptance increment in the bucket 8 PR only
+   after buckets 4 and 7 supply its dependencies. Receive #1795's retained PAID-01
+   same-identity value-loop obligation and consume bucket 9's PAID-04 controls without
+   duplicating billing or account-lifecycle implementation.
+3. **Prove:** link PAID-01 to COACH-01, VALUE-01 and relevant HUM observations for that
+   same identity, with bucket 9's PAID-04 evidence for atomic intended credentials,
+   verified identity, pre-mutation HOLD, no fallback and truthful mutation reporting. A separate free loop
+   plus a paid recording, or a test-mode transaction, cannot substitute.
+4. **Release/learn:** before charging customers, verify the approved paid journey and
+   access/return behavior. Assess useful repeat use and perceived value rather than
+   declaring commercial success from entitlement activation.
+
+### 9. Close account, privacy and credential gaps
+
+**Owner/handoff:** #1770/#1775 existing owners → security review → Sam → separately
+authorized operations owner. **State:** source increments open; broader controls unproven.
+
+1. **Define:** applicable account isolation, disclosure/consent, deletion, recovery,
+   credential and stress-workflow account-recreation controls for the selected release.
+   This bucket owns PAID-04's atomic intended credential pair, verified identity,
+   pre-mutation HOLD for missing/partial/ambiguous inputs, no credential/signup fallback
+   and truthful post-write mutation reporting; bucket 8 consumes that evidence.
+2. **Close:** reconcile #1770/#1775's shared workflow and current source; add a focused
+   verified missing control only within this bucket. No parallel writer on shared files.
+3. **Prove:** exact-head positive/negative controls and authorized runtime evidence for
+   the applicable isolation, consent, safe recovery/deletion and credential consumers.
+   Source environment bindings alone do not remove repository-secret fallback.
+4. **Release/learn:** separately authorize credential provisioning/removal, permission,
+   schema or account operations; verify effective boundaries and safe rollback before
+   exposing the pilot. Keep unresolved customer-exit/global-drain requirements open.
+
+### 10. Assemble and operate one release
+
+**Owner/handoff:** Sam integrates accepted evidence; Product Owner authorizes release;
+named release operator and observation owner execute. **State:** release HOLD; #1774 is
+monitoring groundwork, not an active nightly service.
+
+1. **Define:** one release manifest with exact frontend/backend/schema/configuration,
+   accepted evidence, open-risk decisions, owner and rollback; select learning measures.
+2. **Close:** reconcile #1774 with current landed work and resolve its checkpoint holds;
+   assemble the smallest complete approved release without adding unrelated lanes.
+3. **Prove:** final-head qualification, actual served identities and applicable evidence
+   from buckets 1–9; verify rollback readiness and truthful monitoring/report boundaries.
+4. **Release/learn:** only after separate authorization, deploy/verify, start the approved
+   pilot and measure first useful session, accepted action, deliberate second session,
+   comparable target result and return. Activate payment or recurring monitoring only
+   after its own acceptance and permission. Record what customers found worth paying for.
+
+### Decisions and preserved boundaries
+
+The immediate source sequence is: acceptance-map consolidation; critical safety and
+same-target product work; qualified journeys and device/quality evidence; then one
+authorized release. Billing preparation may proceed with disjoint ownership. Release
+date, pilot scope, observation owners and real-quality results are not yet established.
+
+This update does not change the machine-readable currency block or its paired ROADMAP
+baseline, historical served identities, pinned artifacts, acceptance results, model
+selection or operational grants. It grants no merge, deployment, schema application,
+credential/permission change, live test, spending, payment activation or tester invitation.
 
 ## 5 November 2026 source reconciliation and R10 hold
 
