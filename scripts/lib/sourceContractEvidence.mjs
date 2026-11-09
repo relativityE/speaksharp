@@ -8,6 +8,9 @@ export const SOURCE_CONSUMER='tests/unit/sourceContractEvidence.test.js';
 export const SOURCE_ASSERTION='consumes registered source inputs with fault-sensitive contracts and no live credit';
 export const CASE07_APPLY='product_release/evidence/retained/case07-apply.proposed.sql';
 export const CASE07_ROLLBACK='product_release/evidence/retained/case07-rollback.proposed.sql';
+export const BILLING_SPEC='tests/billing/user-journey/journey.billing.spec.ts';
+export const BILLING_TARGET='tests/billing/user-journey/sandbox-target.json';
+export const BILLING_README='tests/billing/user-journey/README.md';
 export const SOURCE_CONTRACTS=Object.freeze([
   'tests/canary/smoke.canary.spec.ts',
   'tests/live/rwt-open-mic-first-session.live.spec.ts',
@@ -20,6 +23,9 @@ export const SOURCE_CONTRACTS=Object.freeze([
   'tests/live/account-delete-entry-a3-3.live.spec.ts',
   CASE07_APPLY,
   CASE07_ROLLBACK,
+  BILLING_SPEC,
+  BILLING_TARGET,
+  BILLING_README,
 ]);
 const CASE07_SQL=Object.freeze({
   [CASE07_APPLY]:Object.freeze({
@@ -66,6 +72,8 @@ const CASE07_SQL=Object.freeze({
 const REQUIRED_IMPORTS=Object.freeze({
   [SOURCE_CONTRACTS[0]]:{module:'./canaryStopSaveOracle',names:['collectCanaryStopSave','isOwnedStopSettledInPage','startOwnerId']},
   [SOURCE_CONTRACTS[1]]:{module:'./helpers/rwtFillerReference',names:['corpusRows','crossCheckCounts','fillerAnnotationsOf','hesitationTotals']},
+  [BILLING_SPEC]:{module:'./contract',names:['BILLING_JOURNEYS','receipt','requireFact','assertSandboxConfiguration',
+    'assertTestPrice','assertInvoice','isCorrelatedDelivery','safeFailureReason']},
 });
 const importsMissing=(ts,parsed,file)=>{
   const required=REQUIRED_IMPORTS[file];
@@ -83,7 +91,9 @@ export function sourceContractApplicability(root,file) {
   try {read(root,SOURCE_CONSUMER);} catch {return {supported:false,reason:'source contract consumer unavailable or aliased'};}
   try {
     const source=read(root,file);
-    if(CASE07_SQL[file]) {
+    if(file===BILLING_TARGET || file===BILLING_README) {
+      inspectBillingInput(file,source);
+    } else if(CASE07_SQL[file]) {
       inspectCase07Sql(file,source);
     } else if(file===SOURCE_CONTRACTS[2]) {
       const entry=JSON.parse(source).fixtures?.open_mic_tts;
@@ -155,6 +165,24 @@ function tokens(root,source) {
 }
 
 const wiring={
+  [BILLING_SPEC]:[
+    'readonly targets = assertSandboxConfiguration(env, sandboxTarget);',
+    "requireFact(balance.livemode === false, 'stripe_account_not_test');",
+    "const event = await this.stripe(`events/${encodeURIComponent(candidate.id)}`) as unknown as BillingEvent;",
+    ".select('event_id,event_type,processed_at').eq('event_id', event.id).maybeSingle();",
+    'isCorrelatedDelivery(event, { type, objectId, customer: this.customer }, data) && extra(event)',
+    "await this.delivery('checkout.session.completed', this.session);",
+    "await this.delivery('invoice.payment_succeeded', renewal.id);",
+    "await this.delivery('invoice.payment_failed', failedInvoice);",
+    "await this.delivery('invoice.payment_succeeded', failedInvoice);",
+    "await this.delivery('customer.subscription.updated', this.subscription, e => e.data.object.cancel_at_period_end === true);",
+    "await this.delivery('customer.subscription.deleted', this.subscription);",
+    "for (const table of ['account_billing_fences', 'account_checkout_operations', 'account_save_obligations'])",
+    'if (readback.error || readback.count !== 0) accountFailed = true;',
+    "requireFact(!stripeFailed && !accountFailed && stripeClean && !this.uncertainStripeCreate, 'cleanup_unproven');",
+    'for (const journey of BILLING_JOURNEYS)',
+    "requireFact(!failed && !cleanupFailed && result.result === 'PASSED', 'journey_incomplete_see_sanitized_receipt');",
+  ],
   [SOURCE_CONTRACTS[0]]:[
     'const savedId = startOutcome.sessionId;',
     'const outcome = await collectCanaryStopSave(page, {',
@@ -196,6 +224,40 @@ const wiring={
   ],
 };
 
+// Explicit data/document contracts for the dormant sandbox draft, not exclusions from execution.
+// They consume the exact selected bytes; their witness can never grant browser/payment credit.
+const BILLING_SCOPE_STATEMENTS=Object.freeze([
+  'This family is separate from, and does not renumber, the 15 practice journeys.',
+  'The committed `sandbox-target.json` is deliberately UNCONFIGURED.',
+  'This draft does not implement that privileged cleanup path.',
+  'This sandbox family is not full `PAID-01` or `PAID-04` acceptance.',
+  'Test-mode Stripe is not Production paid proof.',
+  'Both broader requirements remain NOT PROVEN by this draft, regardless of any future sandbox-family PASSED receipts.',
+  'No webhook signing secret is accepted.',
+]);
+function inspectBillingInput(file,source) {
+  if(file===BILLING_TARGET) {
+    const target=JSON.parse(source);
+    const expected={status:'UNCONFIGURED',appOrigin:null,apiOrigin:null,productionApiOrigin:null};
+    const valid=value=>value && Object.keys(value).sort().join(',')===Object.keys(expected).sort().join(',')
+      && Object.entries(expected).every(([key,want])=>value[key]===want);
+    if(!valid(target)) throw new Error('Billing target must remain explicitly unconfigured until separately reviewed');
+    const faults=Object.keys(expected).map(key=>({...target,[key]:key==='status'?'REVIEWED_ISOLATED_SANDBOX':'https://unreviewed.example.invalid'}));
+    if(faults.some(valid)) throw new Error('Billing target fault escaped');
+    return {file,sha256:hash(source),kind:'dormant-sandbox-target',checks:4,detectedFaults:faults.length,
+      liveExecution:'NOT RUN',scope:'closed unconfigured target only; no admission or credential use'};
+  }
+  if(file===BILLING_README) {
+    const prose=source.replace(/<!--[\s\S]*?-->/g,'').replace(/\s+/g,' ').trim();
+    if(BILLING_SCOPE_STATEMENTS.some(statement=>prose.split(statement).length!==2)) throw new Error('Billing documentation scope contract failed');
+    const faults=BILLING_SCOPE_STATEMENTS.map(statement=>prose.replace(statement,'SCOPE_REMOVED'));
+    if(faults.some(text=>BILLING_SCOPE_STATEMENTS.every(statement=>text.split(statement).length===2))) throw new Error('Billing documentation fault escaped');
+    return {file,sha256:hash(source),kind:'document-scope-contract',checks:BILLING_SCOPE_STATEMENTS.length,
+      detectedFaults:faults.length,liveExecution:'NOT RUN',scope:'documented limits only; not billing acceptance'};
+  }
+  throw new Error('Unregistered billing input');
+}
+
 function savedMatchers(ts,parsed) {
   const matches=[];
   const visit=node=>{
@@ -229,6 +291,7 @@ function savedMatchers(ts,parsed) {
 
 export function inspectSourceContract(root,file,source=read(root,file)) {
   if(!registeredSourceContract(file)) throw new Error('Unregistered source contract');
+  if(file===BILLING_TARGET || file===BILLING_README) return inspectBillingInput(file,source);
   if(CASE07_SQL[file]) return inspectCase07Sql(file,source);
   if(wiring[file]) {
     const ts=createRequire(path.join(root,'package.json'))('typescript');

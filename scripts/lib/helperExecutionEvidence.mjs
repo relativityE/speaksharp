@@ -45,6 +45,10 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/rwtDocumentIdentity.ts',testFile:'tests/unit/rwtWatchdog1593.test.ts',
   callables:['trackDocuments','documentTrackerOf'],
+}, {
+  helperFile:'tests/billing/user-journey/contract.ts',testFile:'tests/billing/user-journey/contract.test.ts',
+  callables:['requireFact','safeFailureReason','receipt','assertTestPrice','assertInvoice',
+    'isCorrelatedDelivery','assertSandboxConfiguration'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
