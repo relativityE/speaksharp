@@ -165,6 +165,17 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn("manual_reservation.py reserve-check", step["run"])
         self.assertNotIn("CT_STATE_PUSH_TOKEN", json.dumps(step))
         self.assertNotIn(" reserve --", step["run"])
+        # Review of 2eb03676: an open attempt's recovery is evaluated from its evidence. The unexecuted-attempt evidence is collected
+        # (read-only) BEFORE the check and passed only when collection succeeded; otherwise the check assumes a settle at the caps.
+        run = step["run"]
+        pending, collect, check = (run.index("unexecuted_attempt_evidence.py pending"), run.index("unexecuted_attempt_evidence.py collect"),
+                                   run.index("manual_reservation.py reserve-check"))
+        self.assertLess(pending, collect)
+        self.assertLess(collect, check)
+        self.assertIn('if python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py collect', run)
+        self.assertIn('recovery=(--unexecuted-evidence', run)
+        self.assertIn('${recovery[@]+"${recovery[@]}"}', run)
+        self.assertNotIn("manual_reservation.py settle", run, "the gate never appends a settle")
         self.assertEqual(sorted(n for n, j in self.jobs.items() if "pull-requests" in (j.get("permissions") or {})),
                          ["record-begin", "record-complete"])
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
