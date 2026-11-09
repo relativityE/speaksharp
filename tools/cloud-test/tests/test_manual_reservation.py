@@ -286,6 +286,23 @@ class ManualReservation(Journal):
             M.execute("settle", settle, self.repo, self.remote, self.root, os.path.join(self.d, "j"), os.path.join(self.d, "o"),
                       self.all_pins, self.remote, dry_run=True)
 
+    def test_a_deferred_reserve_check_is_a_refusal_at_the_cli(self):
+        """Review of 50647108: the CLI never reports a deferred check (open reserve, nothing evaluated) as success."""
+        d = os.path.join(self.d, "cli")
+        os.mkdir(d)
+        paths = {}
+        for name, data in (("req", self.req), ("facts", b"{}"), ("boot", b"{}"), ("scope", b"{}")):
+            paths[name] = os.path.join(d, name)
+            with open(paths[name], "wb") as f:
+                f.write(data)
+        argv = ["manual_reservation.py", "reserve-check", "--journal", os.path.join(d, "j"), "--out", os.path.join(d, "o"), "--request",
+                paths["req"], "--admitted-sha256", self.sha, "--run-id", RUN, "--facts", paths["facts"], "--bootstrap", paths["boot"],
+                "--scope", paths["scope"]]
+        for returned, code in ((None, 78), ({"type": "reserve"}, 0)):
+            with self.subTest(returned=returned), mock.patch.object(M, "activated", lambda: True), \
+                    mock.patch.object(M, "execute", lambda *a, **k: returned), mock.patch.object(M, "_isolated_repo", lambda: d):
+                self.assertEqual(M.main(argv), code)
+
     def test_the_reserve_path_sends_a_current_format_long_token_and_refuses_an_injected_one_before_any_append(self):
         """Run 41933223835 refused manual-reservation-push-token-missing on GitHub's ~520-character GITHUB_TOKEN. Offline, the whole
         reserve path runs as if over https: each https git call is captured, then replayed against the temporary bare remote without the

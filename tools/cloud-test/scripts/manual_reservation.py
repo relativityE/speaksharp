@@ -222,8 +222,8 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
     """One manual transition on the state ref; returns the appended event. `pins` holds the accepted bootstrap digest, its root and the
     accepted scope digest; `root` must be that accepted root, so the journal appended to is the one the rollup reads.
     dry_run (reserve only; consultant P2-3): every read and every admission check of the reserve at the current head, and NO append. It
-    returns the event that would be appended, or None when the journal ends with an open reserve: that attempt is recovered by the
-    dispatch's own path (settle-unexecuted) before its real reserve, so the decision is deferred to that reserve."""
+    returns the event that would be appended, or None when the journal ends with an open reserve (no admission is evaluated then; the CLI
+    treats that as a refusal, never as success)."""
     _need(root is not None and root == pins.get("accepted_root"), "manual-reservation-root-mismatch")
     _need(command != "release", "manual-release-never-started-unverified")
     _need(not dry_run or command == "reserve", "manual-reservation-command")
@@ -380,8 +380,11 @@ def main(argv):
         event = execute(x.command, inputs, x.repo or _isolated_repo(), state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT, x.journal,
                         x.out, pins, source_repo=x.source_repo, dry_run=dry_run)
         if dry_run:
-            print("reserve-check: " + ("deferred: the journal ends with an open reserve this dispatch recovers first" if event is None
-                                       else "admissible at the current journal head (nothing written)"))
+            # Review of 50647108: a deferred check proves nothing about this dispatch's own scope, request, action or window, so it is not
+            # success. The dispatch stops before any record mutation; an open reservation is recovered first through its own path
+            # (settle-unexecuted from its closed evidence), and the dispatch is then repeated.
+            _need(event is not None, "reserve-check-deferred-open-reservation")
+            print("reserve-check: admissible at the current journal head (nothing written)")
         return 0
     except Refused as e:
         print("BLOCKED_SETUP: " + str(e), file=sys.stderr)
