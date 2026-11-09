@@ -8,6 +8,7 @@ import { sentryVitePlugin } from '@sentry/vite-plugin';
 
 import { PORTS, resolveAppModeMeta } from '../scripts/build.config.js';
 import { runtimeBindingsPlugin } from '../scripts/model-evaluator/runtime-bindings.mjs';
+import { modelAssetHeadersPlugin } from '../scripts/lib/modelAssetHeaders.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -83,6 +84,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
+      // Every /models/ response gets a non-executable type and nosniff, in dev and in preview (release review of
+      // 1816ec61). vercel.json carries the same table for production.
+      modelAssetHeadersPlugin(),
       runtimeBindingsPlugin(path.resolve(__dirname, '..')),
       tsconfigPaths(),
       react(),

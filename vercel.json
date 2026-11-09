@@ -44,6 +44,69 @@
                     "value": "credentialless"
                 }
             ]
+        },
+        {
+            "source": "/models/(.*)",
+            "headers": [
+                {
+                    "key": "X-Content-Type-Options",
+                    "value": "nosniff"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.json",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.txt",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "text/plain; charset=utf-8"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.(onnx|data|bin|ort)",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/octet-stream"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.(js|mjs|cjs)",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "text/javascript; charset=utf-8"
+                }
+            ]
+        },
+        {
+            "source": "/models/(.*)\\.wasm",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/wasm"
+                }
+            ]
+        },
+        {
+            "source": "/models/((?:[^/]+/)*[^/.]+)",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "text/plain; charset=utf-8"
+                }
+            ]
         }
     ]
 }
