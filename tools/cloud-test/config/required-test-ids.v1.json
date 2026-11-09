@@ -1,7 +1,7 @@
 {
   "schema": "speaksharp.cloud-test.required-test-ids.v1",
-  "sourceHead": "12aff5c49b6f892b592d9183e3d133ac9d59087f",
-  "sourceTree": "c3611a697bc139b3fad696dcd50cc14ccd92ceef",
+  "sourceHead": "961515523ef61e38c4b42c52fa6de3a554618e9e",
+  "sourceTree": "da9f7353064b5add63460d386fcc3fb35a0eec38",
   "provenance": "mechanical inventory regeneration from unittest discovery of the current source for both suites (package-unit-tests and report-builder-tests); no test outcome is inferred",
   "ids": [
     "package-unit-tests::test_accounting_rollup.Rollup.test_a_bound_cannot_understate_or_substitute_the_usage_it_charges",
@@ -859,6 +859,7 @@
     "package-unit-tests::test_one_case_selection.GrantBinding.test_a_grant_without_or_with_another_selection_refuses",
     "package-unit-tests::test_one_case_selection.GrantBinding.test_the_base_template_is_pinned",
     "package-unit-tests::test_one_case_selection.GrantBinding.test_the_committed_grant_admits_exactly_its_selection_inside_its_window",
+    "package-unit-tests::test_one_case_selection.GrantBinding.test_the_one_case_job_is_bounded_by_its_reserved_runner_minutes",
     "package-unit-tests::test_one_case_selection.GuardRefusalExportAndPublication.test_a_forged_error_property_carries_no_reason_and_no_code",
     "package-unit-tests::test_one_case_selection.GuardRefusalExportAndPublication.test_an_out_of_vocabulary_reason_rebound_with_valid_digests_is_dropped_and_an_unbound_edit_is_unknown",
     "package-unit-tests::test_one_case_selection.GuardRefusalExportAndPublication.test_both_refusal_shapes_reach_the_exported_interruption_and_the_published_codes",
