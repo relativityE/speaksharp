@@ -56,6 +56,11 @@ export async function assetInventoryDigest(files: readonly PackageAsset[]): Prom
  * Each role is bound to one reviewed runtime pin, so an imported weight package cannot point an executable role at a
  * different file. Checked against the pin table at load, so the binding cannot drift from the reviewed bytes.
  */
+/** The model-data formats the installed adapters load (Whisper JSON/ONNX, ONNX external data, Granite/Moonshine .bin and .ort,
+ *  vocabularies); served with non-executable content types. */
+const INERT_PACKAGE_ASSET = /\.(?:json|onnx|data|bin|txt|ort)$/i;
+/** Runtime code, admitted only where it is byte-identical to the reviewed runtime pins (never for transformers-js or Moonshine). */
+const EXECUTABLE_PACKAGE_ASSET = /\.(?:[cm]?js|wasm)$/i;
 export const PARAKEET_EXECUTABLE_ROLES = Object.freeze({
     runtimeBundleFile: 'parakeet-runtime.mjs', wasmGlueFile: 'ort-wasm-simd-threaded.mjs', wasmBinaryFile: 'ort-wasm-simd-threaded.wasm',
 } as const);
@@ -150,6 +155,10 @@ export function parseModelPackage(input: unknown): ModelPackage {
             // The URL constructor already removed dot segments from `pathname`, so check the raw text (review of 27607fb3),
             // including percent-encoded dots.
             || f.url.split('/').some(v => v === '..' || v === '.') || /%2e/i.test(f.url)) refuse('PACKAGE_ASSET_LOCATION_INVALID');
+        // Code review of 403e2cda (P2): an inert package carries only model data. Local assets are copied into the served
+        // tree on the application origin, so an HTML/SVG/XML document (or any unknown type) could execute script there.
+        // Executable runtime files are admitted only through the reviewed-runtime rules below.
+        if (!INERT_PACKAGE_ASSET.test(f.path) && !EXECUTABLE_PACKAGE_ASSET.test(f.path)) refuse('UNSUPPORTED_PACKAGE_ASSET_TYPE');
         paths.add(f.path); urls.add(f.url);
     }
     if (p.engine === 'transformers-js' && (!p.assets.servedFrom || p.assets.servedFrom !== '/models/' + p.execution.localModelId

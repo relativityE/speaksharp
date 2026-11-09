@@ -239,3 +239,50 @@ describe('the importer refuses a package that collides with an already imported 
         expect(Object.keys(snapshot(root)).sort()).toEqual(['fixture_a-whisper.json', 'fixture_b-whisper.json']);
     });
 });
+
+/**
+ * Code review of 403e2cda (P2, confirmed by the release review): package admission only refused JavaScript and WASM
+ * extensions, so a Whisper package could ship an HTML or SVG document with an inline script. The importer copies every
+ * local asset into frontend/public/models, which is served on the application origin, so opening that URL would run the
+ * script with the signed-in user's storage. Assets are now limited to inert model formats (and the reviewed runtime pins).
+ */
+describe('the importer refuses active documents in an inert model package', () => {
+    async function whisperWithExtra(extraPath: string, extraBytes: Buffer) {
+        const base = CANDIDATES['v2:base.en'];
+        const directory = realpathSync(mkdtempSync(join(tmpdir(), 'whisper-active-')));
+        roots.push(directory);
+        const localModelId = 'fixture-active-document';
+        const entries = [...base.assets.files!.map((file, index) => ({ path: file.path, bytes: Buffer.from(`synthetic ${file.path} ${index}`) })),
+            { path: extraPath, bytes: extraBytes }];
+        const files = entries.map(({ path, bytes }) => {
+            mkdirSync(join(directory, path, '..'), { recursive: true });
+            writeFileSync(join(directory, path), bytes);
+            return { path, url: `/models/${localModelId}/${path}`, bytes: bytes.length, sha256: sha(bytes) };
+        });
+        return { directory, localModelId, files, base };
+    }
+    for (const extra of ['open.html', 'icon.svg', 'page.xhtml', 'legacy.htm', 'feed.xml', 'notes/readme.md', 'LICENSE']) {
+        it(`refuses ${extra} at sealing and never copies anything into the served tree`, async () => {
+            const { directory, localModelId, files, base } = await whisperWithExtra(extra,
+                Buffer.from('<html><body><script>fetch("/x?"+localStorage.length)</script></body></html>'));
+            const draft = { schemaVersion: 1, kind: 'speaksharp-model-package', id: 'fixture:active-document',
+                engine: base.engine, runtime: base.runtime, model: { ...base.model, device: 'wasm' },
+                execution: { ...base.execution, localModelId }, assets: { servedFrom: `/models/${localModelId}`, files },
+                license: 'MIT (fixture declaration; synthetic bytes)' };
+            await expect(sealModelPackage(draft as never)).rejects.toThrow('UNSUPPORTED_PACKAGE_ASSET_TYPE');
+            // A descriptor sealed elsewhere is refused by the importer's own verification before any copy.
+            writeFileSync(join(directory, 'package.json'), JSON.stringify({ ...draft, packageDigest: 'f'.repeat(64), assetDigest: 'f'.repeat(64) }));
+            const root = projectRoot();
+            await expect(importModelPackage(root, join(directory, 'package.json'))).rejects.toThrow();
+            expect(existsSync(join(root, 'frontend/public/models', localModelId))).toBe(false);
+        });
+    }
+    it('still admits the supported inert formats', async () => {
+        const { localModelId, files, base } = await whisperWithExtra('extra/added_tokens.json', Buffer.from('{}'));
+        await expect(sealModelPackage({ schemaVersion: 1, kind: 'speaksharp-model-package', id: 'fixture:inert-extra',
+            engine: base.engine, runtime: base.runtime, model: { ...base.model, device: 'wasm' },
+            execution: { ...base.execution, localModelId }, assets: { servedFrom: `/models/${localModelId}`, files },
+            license: 'MIT (fixture declaration; synthetic bytes)' } as never)).resolves.toMatchObject({ id: 'fixture:inert-extra' });
+    });
+});
+
