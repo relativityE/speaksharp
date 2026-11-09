@@ -56,6 +56,7 @@ def main():
     a.add_argument("--cases-dir", help="run/cases: Starts and takes are counted from each case's action-reservations.jsonl")
     a.add_argument("--admission-receipt", help="run/admission/admission-receipt.json: proves a stop before the identity read (P1-4)")
     a.add_argument("--prerequisite-receipt", help="the prerequisite preflight's content-free receipt: its closed request charge (P1-4)")
+    a.add_argument("--source-sha", help="this workflow's source sha: the prerequisite preflight receipt must name it (P1-4)")
     a.add_argument("--started-utc")
     a.add_argument("--ended-utc")
     x = a.parse_args()
@@ -151,17 +152,43 @@ def _regular_json(path):
         return None
 
 
-def pre_identity_spend(admission_receipt, prerequisite_receipt, cases_dir):
+UTC_MS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z")
+SHA40 = re.compile(r"[0-9a-f]{40}")
+
+
+def _utc(value):
+    if not (isinstance(value, str) and UTC_MS.fullmatch(value)):
+        return None
+    try:
+        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def pre_identity_spend(admission_receipt, prerequisite_receipt, cases_dir, req, source_sha, started_utc, ended_utc):
     """Consultant P1-4: the MEASURED spend of a run whose admission stopped before its identity read, or None (settle at the caps).
 
-    Closed evidence, all required: the admission receipt (the harness's own, written before every step and after each) shows one blocked
-    step in A0-A7, every earlier step PASS and every later one NOT_RUN, productionTrafficSent the integer 0 and identityDispatch NOT_RUN (set
-    to ATTEMPTED before the identity helper is ever invoked, so a block inside A7 before that is still pre-identity); no case
-    directory exists (cases run only after ADMISSION PASS). Product traffic before admission is only the prerequisite preflight, whose
-    receipt states its exact closed charge. Then identity reads, Starts and takes are 0 and requests are that charge. Anything missing,
-    malformed or ambiguous returns None."""
+    Closed evidence, all required, each piece bound to THIS execution (review RETURN on 7e07474b: a foreign, stale or contradictory receipt
+    must never reduce a charge):
+      * the cases directory is named, absolute, its run root exists as a real directory, and the cases directory itself does not exist
+        (cases run only after ADMISSION PASS): a positive absence, never an omitted argument;
+      * the admission receipt is exactly <run root>/admission/admission-receipt.json, a regular file: schemaVersion 3, result
+        BLOCKED_SETUP, stage = its one BLOCKED step (A0-A7), every earlier step PASS and every later step NOT_RUN, productionTrafficSent
+        the integer 0, identityDispatch NOT_RUN (set to ATTEMPTED before the identity helper is ever invoked);
+      * its A0 binding names this request's campaign and tested release, and its own start/end lie inside this run stage (started.txt to
+        collection) and inside the approved window it was bound to;
+      * the prerequisite preflight receipt names this campaign and this workflow source, was observed inside that window and before the
+        run stage started, made no mutation, and carries its exact closed charge (2 + 8 = 10).
+    Then requests = 10, identity reads, Starts, takes and coaching = 0. Anything missing, malformed, foreign, stale or contradictory: None."""
+    if not (isinstance(cases_dir, str) and os.path.isabs(cases_dir) and not os.path.lexists(cases_dir)):
+        return None
+    run_root = os.path.dirname(cases_dir)
+    if not (os.path.isdir(run_root) and not os.path.islink(run_root) and os.path.realpath(run_root) == run_root):
+        return None
+    if admission_receipt != os.path.join(run_root, "admission", "admission-receipt.json"):
+        return None
     rec = _regular_json(admission_receipt)
-    if not isinstance(rec, dict) or rec.get("result") != "BLOCKED_SETUP":
+    if not (isinstance(rec, dict) and rec.get("schemaVersion") == 3 and rec.get("result") == "BLOCKED_SETUP"):
         return None
     if type(rec.get("productionTrafficSent")) is not int or rec["productionTrafficSent"] != 0 or rec.get("identityDispatch") != "NOT_RUN":
         return None
@@ -170,21 +197,34 @@ def pre_identity_spend(admission_receipt, prerequisite_receipt, cases_dir):
         return None
     results = [s.get("result") for s in steps]
     blocked = [i for i, r in enumerate(results) if r == "BLOCKED"]
-    # A7 itself may block before its dispatch (source re-checks, the P0-2 route probe): identityDispatch NOT_RUN above proves the helper
-    # was never invoked, so no identity read happened.
-    if len(blocked) != 1:
+    if len(blocked) != 1 or rec.get("stage") != ADMISSION_STAGES[blocked[0]]:
         return None
     if any(r != "PASS" for r in results[:blocked[0]]) or any(r != "NOT_RUN" for r in results[blocked[0] + 1:]):
         return None
-    if isinstance(cases_dir, str) and os.path.lexists(cases_dir):
+    binding = rec.get("binding")
+    release = req.get("release") if isinstance(req, dict) else None
+    if not (isinstance(binding, dict) and isinstance(release, dict) and binding.get("campaignId") == req.get("runId")
+            and isinstance(release.get("testedSha"), str) and binding.get("sourceSha") == release["testedSha"]):
+        return None
+    window = (_utc(binding.get("approvedStartAt")), _utc(binding.get("approvedDeadlineAt")))
+    began, ended = _utc(rec.get("startedAt")), _utc(rec.get("endedAt"))
+    stage_start, collected = _utc(started_utc), _utc(ended_utc)
+    if None in window or None in (began, ended, stage_start, collected):
+        return None
+    if not (window[0] <= stage_start <= began <= ended <= collected and began <= window[1]):
         return None
     pre = _regular_json(prerequisite_receipt)
+    observed = _utc(pre.get("observedAt")) if isinstance(pre, dict) else None
     if not (isinstance(pre, dict) and pre.get("schema") == "speaksharp.cloud-test.prerequisite-preflight.v1"
+            and pre.get("runId") == req.get("runId") and isinstance(source_sha, str) and SHA40.fullmatch(source_sha)
+            and pre.get("sourceSha") == source_sha and observed is not None and window[0] <= observed <= stage_start
             and type(pre.get("mutationCount")) is int and pre["mutationCount"] == 0 and pre.get("charges") == PREFLIGHT_CHARGES):
         return None
     return {"requests": PREFLIGHT_CHARGES["total"], "byCategory": {"preflight": PREFLIGHT_CHARGES["total"]}, "identityReads": 0, "starts": 0,
-            "takes": 0, "source": "MEASURED: admission stopped at %s before its identity read (productionTrafficSent 0, identityDispatch NOT_RUN, "
-                                   "no case directory); requests are the prerequisite preflight's closed charge" % ADMISSION_STAGES[blocked[0]]}
+            "takes": 0, "coachingRequests": 0,
+            "source": "MEASURED: admission stopped at %s before its identity read (productionTrafficSent 0, identityDispatch NOT_RUN, "
+                      "no case directory), bound to this campaign, release, window and run stage; requests are the prerequisite "
+                      "preflight's closed charge" % ADMISSION_STAGES[blocked[0]]}
 
 
 def incomplete_record(x, req, reason):
@@ -200,7 +240,8 @@ def incomplete_record(x, req, reason):
         "startedUtc": x.started_utc, "endedUtc": x.ended_utc, "gateDecisionAtLaunch": gs.get("decision"),
         "release": {"testedSha": req["release"]["testedSha"], "servedShaAtAdmission": None, "finalIdentity": None},
         "harness": req["harness"], "runner": load(x.runner_json),
-        "spend": pre_identity_spend(getattr(x, "admission_receipt", None), getattr(x, "prerequisite_receipt", None), x.cases_dir)
+        "spend": pre_identity_spend(getattr(x, "admission_receipt", None), getattr(x, "prerequisite_receipt", None), x.cases_dir, req,
+                                    getattr(x, "source_sha", None), x.started_utc, x.ended_utc)
                  or {"requests": None, "byCategory": {}, "identityReads": None, "starts": None, "takes": None,
                      "source": "INCOMPLETE run (%s): no verified aggregate results, so every count is unmeasured (null) and settles at the reserved caps" % reason},
         "paidActions": "unknown", "safetyStopped": None, "result": "INCOMPLETE", "incompleteReason": reason, "cases": cases,

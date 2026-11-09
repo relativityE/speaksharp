@@ -162,9 +162,15 @@ def usage_from_record(record_raw, reserved):
         usage["requests"] = None
     else:
         usage["requests"] += usage["identityReads"]
-    # Consultant P1-4: a coaching call follows a saved take, so measured zero Starts AND zero takes bound coaching at zero. Coaching is
-    # otherwise unmeasured here and stays at the reserved cap.
-    if usage["starts"] == 0 and usage["takes"] == 0 and type(usage["starts"]) is int and type(usage["takes"]) is int:
+    # Consultant P1-4 (narrowed on review of 7e07474b): coaching is settled below its cap ONLY when the collector's verified pre-identity
+    # evidence states it, as an explicit integer 0 next to zero identity reads, Starts and takes. A claimed 0 beside a non-zero or unmeasured
+    # sibling, or beside a coaching count in the categories, refuses. Any other value (absent, non-zero, not an int) is not used: coaching
+    # then stays at the reserved cap, as before. Contradictory evidence never reduces a charge.
+    claimed = spend.get("coachingRequests")
+    if type(claimed) is int and claimed == 0:
+        coaching_seen = (spend.get("byCategory") or {}).get("coaching") if isinstance(spend.get("byCategory"), dict) else None
+        _need(all(type(usage[k]) is int and usage[k] == 0 for k in ("identityReads", "starts", "takes")) and coaching_seen in (None, 0),
+              "manual-settle-usage-contradictory")
         usage["coachingRequests"] = 0
     return usage, hashlib.sha256(record_raw).hexdigest()
 

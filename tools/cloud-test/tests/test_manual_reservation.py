@@ -173,17 +173,27 @@ class ManualReservation(Journal):
             self.assertEqual(M.settle(e, unmeasured, EVIDENCE, AT)["allocation"]["requests"], 4342,
                              "either unknown component keeps the full reserved G5 request charge")
 
-    def test_measured_zero_starts_and_takes_bound_coaching_at_zero_and_nothing_else(self):
-        """Consultant P1-4: a run measured at 0 Starts and 0 takes made no coaching call; any other measurement keeps coaching at the cap."""
+    def test_coaching_settles_at_zero_only_on_the_explicit_verified_pre_identity_zero(self):
+        """Consultant P1-4, narrowed on review of 7e07474b: zero Starts and takes alone never imply zero coaching; only the collector's
+        explicit pre-identity coachingRequests 0, beside zero identity reads, Starts and takes, does. Contradictory evidence refuses."""
         e = self.reserved()
-        usage, _ = M.usage_from_record(self.record(requests=10, identityReads=0, starts=0, takes=0), e)
+        usage, _ = M.usage_from_record(self.record(requests=10, identityReads=0, starts=0, takes=0, coachingRequests=0), e)
         self.assertEqual(usage, {"requests": 10, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": None})
         settled = M.settle(e, usage, EVIDENCE, AT)["allocation"]
         self.assertEqual((settled["coachingRequests"], settled["runnerMinutes"]), (0, ALLOCATION["runnerMinutes"]))
-        for kept in ({"starts": 1, "takes": 0}, {"starts": 0, "takes": 1}, {"starts": None, "takes": 0}, {"starts": 0, "takes": None}):
-            with self.subTest(kept):
-                u, _ = M.usage_from_record(self.record(requests=10, identityReads=0, **kept), e)
-                self.assertIsNone(u["coachingRequests"])
+        implied, _ = M.usage_from_record(self.record(requests=10, identityReads=0, starts=0, takes=0), e)
+        self.assertIsNone(implied["coachingRequests"], "no inference from zero Starts and takes")
+        for label, spend in {"three coaching requests": dict(coachingRequests=3), "not an int": dict(coachingRequests="0")}.items():
+            with self.subTest(label):
+                kept, _ = M.usage_from_record(self.record(**dict(requests=10, identityReads=0, starts=0, takes=0), **spend), e)
+                self.assertIsNone(kept["coachingRequests"], "never settled below the cap")
+        for label, spend in {"a coaching count in the categories": dict(coachingRequests=0, byCategory={"coaching": 3}),
+                             "a Start": dict(coachingRequests=0, starts=1), "a take": dict(coachingRequests=0, takes=1),
+                             "an identity read": dict(coachingRequests=0, identityReads=1),
+                             "unmeasured takes": dict(coachingRequests=0, takes=None)}.items():
+            with self.subTest(label):
+                base = dict(requests=10, identityReads=0, starts=0, takes=0)
+                self.refused("manual-settle-usage-contradictory", M.usage_from_record, self.record(**dict(base, **spend)), e)
 
     def test_headroom_is_recomputed_at_the_proposed_head(self):
         self.refused("manual-reservation-exceeds-headroom", M.reserve, self.req, self.sha, RUN, self.receive(scope(carryover="historical")), self.head(), AT)

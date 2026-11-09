@@ -499,7 +499,7 @@ case "$STAGE" in
     printf '{"os":"%s","nodeVersion":"%s","taskId":"%s"}\n' "$(uname -sr)" "$(node -v)" "${CT_TASK_ID:-}" > "$OUT/runner.json"
     run_stage collect python3 -I "$ROOT/scripts/collect_run_record.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" --execution-run-id "$execution_run_id" --attempt "$attempt" \
       --case-results "$OUT/plan/run/case-results.json" --cases-dir "$OUT/plan/run/cases" --ledger-dir "$OUT/plan/ledgers" \
-      --admission-receipt "$OUT/plan/run/admission/admission-receipt.json" ${CT_PREREQUISITE_RECEIPT:+--prerequisite-receipt "$CT_PREREQUISITE_RECEIPT"} \
+      --admission-receipt "$OUT/plan/run/admission/admission-receipt.json" ${CT_PREREQUISITE_RECEIPT:+--prerequisite-receipt "$CT_PREREQUISITE_RECEIPT"} ${CT_SOURCE_SHA:+--source-sha "$CT_SOURCE_SHA"} \
       --gate-status "$OUT/final-gates/gate-status.json" --workflow "$ROOT/workflow.json" --runner-json "$OUT/runner.json" --started-utc "$started" --ended-utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out "$OUT/run-record.json" ;;
   manual-settle)
     [ -f "$OUT/run-record.json" ] || blocked "a completed collector run record is required before settle"
