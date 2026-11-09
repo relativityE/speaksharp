@@ -10,7 +10,7 @@
  *
  * The contract asserted here: finalization is BOUNDED, and expiry lands in the existing recovery
  * architecture rather than hanging — FAILED state, finalizing latch cleared (so the control is usable
- * again), an honest error message, and the captured transcript kept as a recovery draft.
+ * again), and an honest error message that does not claim the purged transcript was kept (work point 2, D1).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpeechRuntimeController, FinalizationTimeoutError } from '../SpeechRuntimeController';
@@ -97,8 +97,12 @@ describe('#1089 bounded finalization', () => {
         // Honest failure, not a silent reset and not a fake success.
         expect(state.sttStatus.type).toBe('error');
         expect(state.sttStatus.message).toContain('could not finish processing');
-        // The user's speech is not thrown away.
-        expect(state.sttStatus.detail).toContain('kept in this browser');
+        // Work point 2, D1: the copy must say what was actually kept. The FAILED path purges the transcript
+        // working memory (#1306), and the recovery draft is content-free, so no transcript text survives in
+        // this browser. The copy used to claim "What we transcribed so far was kept in this browser".
+        expect(state.transcript.transcript).toBe('');
+        expect(state.sttStatus.detail).not.toMatch(/kept in this browser/i);
+        expect(state.sttStatus.detail).toBe('The transcript from this recording was not saved. You can record again.');
         expect(state.sessionSaved).toBe(false);
     });
 

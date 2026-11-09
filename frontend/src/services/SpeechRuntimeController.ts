@@ -6596,13 +6596,14 @@ export class SpeechRuntimeController {
                 this.releaseFinalizingIfOwner('stop_failed', stopAuthority.lifecycleVersion, stopAuthority);
                 if (err instanceof FinalizationTimeoutError) {
                     // #1089: name the real failure instead of hanging on Finalizing… forever. The control
-                    // is usable again (FAILED clears the finalizing latch), and the transcript captured up
-                    // to this point is kept as a recovery draft when there is one.
+                    // is usable again (FAILED clears the finalizing latch).
+                    // Work point 2, D1: say only what is true. The transcript working memory is purged below
+                    // (#1306) and the recovery draft is content-free, so no transcript text is kept here.
                     useSessionStore.getState().setSTTStatus({
                         type: 'error',
                         message: 'We could not finish processing this recording.',
                         detail: hasRecoveryDraftSignal
-                            ? 'What we transcribed so far was kept in this browser. You can record again.'
+                            ? 'The transcript from this recording was not saved. You can record again.'
                             : 'You can record again.',
                     });
                 } else if (hasRecoveryDraftSignal) {
