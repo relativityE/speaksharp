@@ -104,7 +104,14 @@
    "A3 binds actual selected CLI hash and A6 passes that exact hash",
    "A3 refuses selected CLI without actual hash before browser setup",
    "A6 refuses changed qualified CLI bytes",
-   "actual local CLI observation flows into qualification and dispatch hash binding without executing file"
+   "actual local CLI observation flows into qualification and dispatch hash binding without executing file",
+   "route probe proxy not configured stops A7 before any identity dispatch",
+   "route probe one host refused stops A7 before any identity dispatch",
+   "route probe claims PASS with a failed host stops A7 before any identity dispatch",
+   "route probe claims PASS with no hosts stops A7 before any identity dispatch",
+   "route probe unreadable output stops A7 before any identity dispatch",
+   "route probe crashed stops A7 before any identity dispatch",
+   "route probe runs after the guard self-test and immediately before the identity read, on the admitted policy"
   ],
   "packet:bundle/selftest/authenticated-job-producer.test.cjs": [
    "real role-specific route calls own-session SELECT then existing authority RPC; projection passes outer gate",
