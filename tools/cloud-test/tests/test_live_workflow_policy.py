@@ -17,10 +17,9 @@ SECRET_REF = re.compile(r"\$\{\{\s*[^}]*secrets\.")
 
 
 
-# TEMPORARY (PO 2026-11-05): protected main, or a MANUAL dispatch of exactly the R10 candidate branch. Restored to the
-# main-only form before merge; the environment gate on the live job is asserted unchanged below.
-PROTECTED_MAIN = ("((github.ref == 'refs/heads/main' && github.ref_protected == true) || "
-                  "(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class'))")
+# Codex Security P2 on 4626f984 (finding 4515516715): privileged jobs run only from the server-reported protected main ref. The temporary
+# candidate-branch dispatch allowance (a7581bc2) is removed, so branch-controlled code never receives the live secrets or write tokens.
+PROTECTED_MAIN = "github.ref == 'refs/heads/main' && github.ref_protected == true"
 
 class LiveWorkflowPolicy(unittest.TestCase):
     @classmethod
@@ -139,6 +138,15 @@ class LiveWorkflowPolicy(unittest.TestCase):
         # record jobs (which list, create, update and read back that one comment) hold it, and no other job does.
         self.assertEqual(self.jobs["record-begin"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read", "checks": "read"})
         self.assertEqual(self.jobs["record-complete"]["permissions"], {"issues": "write", "pull-requests": "write", "actions": "read"})
+
+    def test_every_privileged_job_runs_only_from_protected_main(self):
+        """Codex Security P2 on 4626f984: no job condition admits any other ref, and no branch name besides main appears in a condition."""
+        for name in ("record-begin", "journal-reserve", "live", "journal-settle"):
+            cond = self.jobs[name]["if"]
+            self.assertIn(PROTECTED_MAIN, cond, name)
+            self.assertEqual(re.findall(r"refs/heads/[A-Za-z0-9._/-]+", cond), ["refs/heads/main"], name)
+            self.assertEqual(cond.count("github.ref "), 1, name)          # exactly one ref test: protected main
+        self.assertNotIn("r10-preflight-traffic-class", self.text)
 
     def test_a_dispatch_proves_it_can_start_before_any_record_mutation(self):
         """Consultant P1-5 / P2-3: before the latest-record comment, a dispatch requires the exact head's full-evidence check run to be a

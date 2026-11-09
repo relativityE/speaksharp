@@ -53,10 +53,6 @@ concurrency:
 env:
   TRACKING_ISSUE: '1763'
 
-# TEMPORARY (PO 2026-11-05, PR for R10 attempt 5): the four protected-main job conditions below also admit a MANUAL dispatch of
-# exactly refs/heads/elon/r10-preflight-traffic-class, so the actual 15-case test can run on the candidate branch before merge.
-# The live job keeps environment trusted-main-credentials (deployment branches: main), so it still runs only if that environment
-# separately admits this branch. This allowance MUST be removed (restoring the main-only conditions) before merge.
 jobs:
   nightly-gate:
     name: Nightly gate (switch, attempt, activated writer, standing approval; no credentials)
@@ -99,7 +95,7 @@ jobs:
     needs: nightly-gate
     # Privileged issue writes and every downstream credential-bearing job are admitted only from the server-reported protected main ref.
     # A dispatch skips the nightly gate; a scheduled run proceeds only when that gate admitted it. Every later job needs this one to succeed.
-    if: ${{ !cancelled() && ((github.ref == 'refs/heads/main' && github.ref_protected == true) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class')) && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -342,7 +338,7 @@ jobs:
     needs: record-begin
     # J1 (PO approval recorded , scope ): only this reviewed workflow on protected main, never a PR or fork.
     # #1772 review 4446137323: a manual dispatch reserves here too, so the credentialed live job stays contents: read and never sees the token.
-    if: ${{ !cancelled() && ((github.ref == 'refs/heads/main' && github.ref_protected == true) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class')) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.record-begin.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.record-begin.result == 'success' }}
     runs-on: ubuntu-latest
     # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
     timeout-minutes: 3
@@ -415,7 +411,7 @@ jobs:
     name: Selected live journeys (existing stage runner; preinstalled browser)
     needs: [record-begin, journal-reserve]
     # Every run, scheduled or dispatched, starts only after its journal reserve landed (#1772 review 4446137323). Protected main only.
-    if: ${{ !cancelled() && ((github.ref == 'refs/heads/main' && github.ref_protected == true) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class')) && needs.record-begin.result == 'success' && needs.journal-reserve.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.record-begin.result == 'success' && needs.journal-reserve.result == 'success' }}
     # This is the only credentialed job that needs the preinstalled browser.
     # Keep it on the supported image family whose rolling releases satisfy the
     # reviewed Chrome >=156 baseline without a download or install.
@@ -924,7 +920,7 @@ jobs:
     needs: [record-begin, journal-reserve, live]
     # Runs whenever the run was reserved; with no run record (cancelled or missing collection) it appends nothing and the reservation stays
     # open, so the period keeps counting it at its caps.
-    if: ${{ always() && ((github.ref == 'refs/heads/main' && github.ref_protected == true) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class')) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.journal-reserve.result == 'success' }}
+    if: ${{ always() && github.ref == 'refs/heads/main' && github.ref_protected == true && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.journal-reserve.result == 'success' }}
     runs-on: ubuntu-latest
     # one leased push; keeps the nightly runner-minute need (359) within the approved 360 per run
     timeout-minutes: 3

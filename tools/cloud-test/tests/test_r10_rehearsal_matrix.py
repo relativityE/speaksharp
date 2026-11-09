@@ -76,7 +76,8 @@ def workflow():
         return yaml.safe_load(f)
 
 
-GITHUB = {"event_name": "workflow_dispatch", "ref": "refs/heads/elon/r10-preflight-traffic-class", "ref_protected": False}
+# A manual dispatch on protected main: the only ref the privileged jobs admit (Codex Security P2 on 4626f984).
+GITHUB = {"event_name": "workflow_dispatch", "ref": "refs/heads/main", "ref_protected": True}
 
 
 def simulate_live(steps, fail_at=None, cancel_at=None):
