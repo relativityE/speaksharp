@@ -249,9 +249,14 @@ export class TransformersJSEngine extends STTEngine {
     }
 
     protected override async onInit(): Promise<Result<void, Error>> {
+        // Sam's review of 12552563: a teardown that lands while loadModel runs (for example one queued from the 100% progress
+        // callback) owns the engine; this lifetime never reports ready afterwards.
+        const generation = this.lifecycleGeneration;
         const result = await this.loadModel(ENV.isE2E);
         if (!result.isOk) return result;
-        
+        if (generation !== this.lifecycleGeneration || this.isTerminated) {
+            return Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate.'));
+        }
         (this.options as TranscriptionModeOptions).onReady?.();
         return Result.ok(undefined);
     }
@@ -285,6 +290,7 @@ export class TransformersJSEngine extends STTEngine {
                 if (options.onModelLoadProgress) {
                     options.onModelLoadProgress(100);
                 }
+                if (superseded()) return cancelled();   // the progress callback itself may have torn the engine down
                 this.updateHeartbeat();
                 options.onReady?.();
                 return Result.ok(undefined);
@@ -430,6 +436,7 @@ export class TransformersJSEngine extends STTEngine {
             if (options.onModelLoadProgress) {
                 options.onModelLoadProgress(100);
             }
+            if (superseded()) return cancelled();   // the progress callback itself may have torn the engine down
 
             this.updateHeartbeat();
 

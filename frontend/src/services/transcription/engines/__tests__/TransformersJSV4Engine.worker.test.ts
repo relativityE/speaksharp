@@ -489,6 +489,50 @@ describe('TransformersJSV4Engine worker message contract', () => {
         await engine.destroy();
     });
 
+    // Sam's review of 12552563 (P2): onInit called onReady after `await loadModel()` without a lifetime check, so a teardown queued
+    // from the 100% progress callback let a terminated engine report ready. Every engine, path and teardown kind, with the teardown
+    // both queued (as reproduced) and synchronous inside the callback.
+    describe('no ready after a teardown started from the 100% progress callback', () => {
+        beforeEach(() => { mockXenovaPipeline.mockReset(); (globalThis as { Worker?: unknown }).Worker = undefined; });
+        const combos: Array<[string, string, 'destroy' | 'terminate', 'queued' | 'synchronous']> = [];
+        for (const engineName of ['v2', 'v4']) for (const path of ['main-thread', 'worker']) for (const kind of ['destroy', 'terminate'] as const)
+            for (const timing of ['queued', 'synchronous'] as const) combos.push([engineName, path, kind, timing]);
+        for (const [engineName, path, kind, timing] of combos) {
+            it(`${engineName} ${path} ${kind} (${timing}): a terminated engine never reports ready and init does not succeed`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (engineName === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as
+                    new (o: unknown) => { init(): Promise<{ isOk: boolean }>; destroy(): Promise<void>; terminate(): Promise<void> };
+                const readyWhileTerminated: boolean[] = [];
+                let teardown: Promise<void> | null = null;
+                const holder: { engine?: InstanceType<typeof Ctor> } = {};
+                const start = () => { teardown = holder.engine![kind](); };
+                const engine = new Ctor({
+                    onTranscriptUpdate: vi.fn(),
+                    onReady: () => { readyWhileTerminated.push((holder.engine as unknown as { isTerminated: boolean }).isTerminated); },
+                    onModelLoadProgress: (value: number) => {
+                        if (value !== 100 || teardown) return;
+                        if (timing === 'queued') queueMicrotask(start); else start();
+                    },
+                });
+                holder.engine = engine;
+                if (path === 'worker') {
+                    const seam = engine as unknown as { shouldUseWorker: () => boolean; initWorker: () => Promise<void> };
+                    vi.spyOn(seam, 'shouldUseWorker').mockReturnValue(true);
+                    vi.spyOn(seam, 'initWorker').mockResolvedValue(undefined);
+                } else {
+                    const loaded = Object.assign(vi.fn(async () => ({ text: '' })), { dispose: vi.fn(async () => undefined) });
+                    (engineName === 'v2' ? mockXenovaPipeline : mockPipeline).mockResolvedValueOnce(loaded);
+                }
+                const result = await engine.init();
+                await teardown;
+                expect(teardown).not.toBeNull();
+                expect(result.isOk).toBe(false);
+                expect(readyWhileTerminated).not.toContain(true);
+            });
+        }
+    });
+
     // Sam's review of c1585147: two races the post-pipeline fence alone missed, on both engines.
     // (1) A teardown inside the earlier `import(...)` await let the stale attempt capture the NEW generation, pass the
     //     fence and publish over the successor. (2) A stale load failing late ran the shared failure cleanup, tearing
