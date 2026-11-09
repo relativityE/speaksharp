@@ -199,32 +199,11 @@ jobs:
             --jq '[.check_runs[] | select(.app.slug == "github-actions" and .status == "completed" and .conclusion == "success")] | length')"
           [ "${green:-0}" -ge 1 ] || { echo "BLOCKED_SETUP: exact-head-proof-not-green"; exit 78; }
           (umask 077; printf '%s' "$MANUAL_FACTS" > "$RUNNER_TEMP/check-facts.json")
-          # Review of 2eb03676: when the journal ends with an open reserve, the check evaluates admission after the recovery the EVIDENCE
-          # supports. The open attempt's unexecuted-attempt evidence is collected here exactly as the Begin step collects it (read-only).
-          # When it validates, the zero-product-usage settle-unexecuted settle is assumed; when it refuses (the attempt ran or timed out),
-          # nothing is passed and the check assumes the reserve settles at its caps.
-          recovery=()
-          open_run="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py pending)"
-          if [ -n "$open_run" ]; then
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$open_run" > "$RUNNER_TEMP/check-unexecuted-run.json"
-            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$open_run/jobs?per_page=100" > "$RUNNER_TEMP/check-unexecuted-jobs.json"
-            open_head="$(python3 -I -c 'import json,re,sys; h=json.load(open(sys.argv[1])).get("head_sha"); assert re.fullmatch(r"[0-9a-f]{40}", str(h)); print(h)' "$RUNNER_TEMP/check-unexecuted-run.json")"
-            git fetch --quiet --no-tags --depth=1 origin "$open_head"
-            git show "$open_head:.github/workflows/cloud-test-live.yml" > "$RUNNER_TEMP/check-unexecuted-workflow.yml"
-            if python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py collect --run "$RUNNER_TEMP/check-unexecuted-run.json" \
-                 --jobs "$RUNNER_TEMP/check-unexecuted-jobs.json" --workflow "$RUNNER_TEMP/check-unexecuted-workflow.yml" \
-                 --out "$RUNNER_TEMP/check-unexecuted-evidence.json"; then
-              evidence_sha="$(python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py check --evidence "$RUNNER_TEMP/check-unexecuted-evidence.json" | cut -d' ' -f1)"
-              recovery=(--unexecuted-evidence "$RUNNER_TEMP/check-unexecuted-evidence.json" --unexecuted-sha256 "$evidence_sha")
-            else
-              echo "reserve-check: the open attempt has no unexecuted-attempt evidence; its reserve is assumed settled at its caps"
-            fi
-          fi
           python3 -I tools/cloud-test/scripts/manual_reservation.py reserve-check --journal "$RUNNER_TEMP/check-journal" \
             --out "$RUNNER_TEMP/check-receipt.json" --request "$RUNNER_TEMP/manual-occurrence.json" \
             --admitted-sha256 "$OCCURRENCE_SHA256" --run-id "$GITHUB_RUN_ID" \
             --facts "$RUNNER_TEMP/check-facts.json" --bootstrap tools/cloud-test/config/aggregate/accounting-bootstrap.json \
-            --scope tools/cloud-test/config/aggregate/period-scope.json --source-repo "$GITHUB_WORKSPACE" ${recovery[@]+"${recovery[@]}"}
+            --scope tools/cloud-test/config/aggregate/period-scope.json --source-repo "$GITHUB_WORKSPACE"
       - name: Begin the attempt in the latest record
         id: begin
         env:

@@ -104,8 +104,13 @@ class ManualReservation(Journal):
                 ("an extra field", self.facts(extra=1), "manual-reservation-action-approval-shape")):
             self.refused(code, self.execute, "reserve", self.reserve_inputs(facts=facts), "a-" + label.replace(" ", "-"))
             self.assertEqual(self.head(), before, label)
-        # a STALE approval: another run reserved after the approver saw the checkpoint, so it no longer names the append's checkpoint
-        self.reserved(run="41400000077")
+        # Release review of 6280f775 (clean journal only): another run's OPEN reserve refuses this reserve outright, nothing appended
+        other = self.reserved(run="41400000077")
+        self.refused("manual-reserve-open-reservation", self.execute, "reserve", self.reserve_inputs(), "a-open")
+        self.refused("manual-reserve-open-reservation", self.execute, "reserve", self.reserve_inputs(facts=stale), "a-open-stale")
+        # a STALE approval: another run reserved and settled after the approver saw the checkpoint, so it no longer names the append's
+        # checkpoint
+        self.push(M.settle(other, {k: None for k in M.CATS}, "0" * 64, AT))
         moved = self.head()
         self.refused("manual-reservation-action-approval-not-the-checkpoint", self.execute, "reserve", self.reserve_inputs(facts=stale), "a-stale")
         self.assertEqual(self.head(), moved)
@@ -264,8 +269,8 @@ class ManualReservation(Journal):
 
     def test_reserve_check_admits_exactly_as_reserve_does_and_writes_nothing(self):
         """Consultant P2-3: the pre-dispatch check runs every read and admission check of the reserve at the current head and appends
-        nothing; it defers when the journal ends with an open reserve (that attempt is recovered first by the dispatch's own path), and
-        it refuses exactly where the reserve would."""
+        nothing, and it refuses exactly where the reserve would, including on a journal that ends with an open reserve (clean journal
+        only)."""
         def check(inputs, name):
             d = os.path.join(self.d, name)
             os.mkdir(d)
@@ -278,48 +283,18 @@ class ManualReservation(Journal):
         self.assertFalse(os.path.exists(os.path.join(self.d, "c1", "journal.json")))
         real = self.execute("reserve", self.reserve_inputs(), "r1")
         self.assertEqual(real, would, "the check predicts the real reserve's event exactly")
-        # Codex P1 on 655d229b and the review of 2eb03676: an open reserve is neither a bare deferral (that blocked recovery) nor assumed
-        # to settle at zero. The admission runs on the chain as it will stand after the recovery the EVIDENCE supports: valid
-        # unexecuted-attempt evidence for exactly this reserve -> its zero-product settle; anything else -> the reserve settled at its caps.
-        held, open_head = real, self.head()
-        tight = scope_raw(ceilings=dict(scope()["ceilings"], takes=61))     # one 31-take reserve fits; two do not
-        tight_pins = dict(self.all_pins, accepted_scope_sha256=hashlib.sha256(tight).hexdigest())
-        seen = []
-
-        def capture(facts, request, sha, checkpoint, source_repo=None, chain=None):
-            seen.append((json.loads(checkpoint), chain[-1][1][-1]))
-
-        def tight_check(name, **extra):
-            d = os.path.join(self.d, name)
-            os.mkdir(d)
-            inputs = dict(self.reserve_inputs(runId="41400000077", scope=tight), **extra)
-            return M.execute("reserve", inputs, self.repo, self.remote, self.root, os.path.join(d, "journal.json"),
-                             os.path.join(d, "receipt.json"), tight_pins, self.remote, dry_run=True)
-        zero = {k: 0 for k in M.CATS}
-        zero["runnerMinutes"] = 5
-        evidence = {"journal": {"reserve": held, "headSha": open_head}}
-        with mock.patch.object(M, "admit_action_approval", capture):
-            # (1) no unexecuted evidence (a timed-out or executed attempt): settled at its caps, so the next reserve is refused
-            self.refused("manual-reservation-exceeds-headroom", tight_check, "c-caps")
-            checkpoint, last = seen[-1]
-            self.assertEqual((last["type"], last["runId"], last["allocation"]), ("settle", RUN, ALLOCATION), "caps, every counter")
-            self.assertEqual((checkpoint["outstandingReservations"], checkpoint["headSha"]), (0, M.RECOVERY_HYPOTHESIS_SHA))
-            # (2) valid unexecuted evidence for exactly this reserve: the zero-product settle it computes, so the next reserve is admissible
-            with mock.patch.object(M, "usage_from_unexecuted", lambda doc, sha: (zero, "a" * 64, AT)):
-                post = tight_check("c-zero", unexecuted=evidence, unexecutedSha256="a" * 64)
-                self.assertEqual((post["type"], post["runId"]), ("reserve", "41400000077"))
-                last = seen[-1][1]
-                self.assertEqual((last["allocation"]["takes"], last["allocation"]["runnerMinutes"], last["provenance"]),
-                                 (0, 5, "evidence-sha256:" + "a" * 64))
-                # (3) evidence for another reserve, or bound to another head, is refused
-                for label, doc in {"another reserve": {"journal": {"reserve": dict(held, runId="41400000999"), "headSha": open_head}},
-                                   "another head": {"journal": {"reserve": held, "headSha": "0" * 40}}, "no binding": {}}.items():
-                    with self.subTest(label):
-                        self.refused("reserve-check-unexecuted-evidence-not-this-reserve",
-                                     lambda: tight_check("c-" + label.replace(" ", "-"), unexecuted=doc, unexecutedSha256="a" * 64))
-        self.assertEqual(self.head(), open_head, "nothing is written in any case")
+        # Release review of 6280f775: clean journal only. With the journal ending in an open reserve, the pre-dispatch check (before any
+        # record mutation) and the real reserve both refuse, whatever that attempt did; nothing is written. The protected recovery route,
+        # not a new dispatch, settles it.
+        before_open = self.head()
+        self.refused("reserve-check-open-reservation", check, dict(self.reserve_inputs(), runId="41400000077"), "c2")
+        self.refused("manual-reserve-open-reservation", self.execute, "reserve", dict(self.reserve_inputs(), runId="41400000077"), "r2")
+        self.assertEqual(self.head(), before_open, "an open reserve refuses before any append")
+        self.assertFalse(os.path.exists(os.path.join(self.d, "c2", "journal.json")))
         settle = {"campaignId": "R7-full-coverage", "runId": RUN, "record": self.record(), "scope": self.scope, "atUtc": AT}
         self.execute("settle", settle, "s1")
+        after = check(dict(self.reserve_inputs(), runId="41400000077"), "c2c")
+        self.assertEqual((after["type"], after["runId"]), ("reserve", "41400000077"), "once settled, the journal is clean again")
         self.refused("manual-reservation-outside-period", check, dict(self.reserve_inputs(), atUtc="2099-01-01T00:00:00Z"), "c3")
         with self.assertRaises(M.Refused):
             M.execute("settle", settle, self.repo, self.remote, self.root, os.path.join(self.d, "j"), os.path.join(self.d, "o"),

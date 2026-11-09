@@ -218,46 +218,24 @@ def _in_period(scope, at_utc, code):
     _need(accounting_rollup._utc(scope["periodStartUtc"]) <= accounting_rollup._utc(at_utc) < accounting_rollup._utc(scope["periodEndUtc"]), code)
 
 
-# The in-memory head of the hypothetical post-recovery chain reserve-check evaluates; never a real commit, never written anywhere.
-RECOVERY_HYPOTHESIS_SHA = "f" * 40
-
-
 def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=state_ref_writer.APPROVED_URL, source_repo=None, dry_run=False):
     """One manual transition on the state ref; returns the appended event. `pins` holds the accepted bootstrap digest, its root and the
     accepted scope digest; `root` must be that accepted root, so the journal appended to is the one the rollup reads.
     dry_run (reserve only; consultant P2-3): every read and every admission check of the reserve at the current head, and NO append. It
-    returns the event that would be appended. When the journal ends with an open reserve, the admission is evaluated on the chain as it
-    will stand after this dispatch's own recovery settles that attempt (see below)."""
+    returns the event that would be appended. A journal that ends with an open reserve refuses (clean journal only, see below)."""
     _need(root is not None and root == pins.get("accepted_root"), "manual-reservation-root-mismatch")
     _need(command != "release", "manual-release-never-started-unverified")
     _need(not dry_run or command == "reserve", "manual-reservation-command")
     try:
         head = state_ref_writer.fetch_head(repo, url, approved_url)
         chain = state_ref_writer.validate_chain(repo, head, root)
-        if dry_run and chain[-1][1] and chain[-1][1][-1].get("type") == "reserve":
-            # Codex P1 on 655d229b (review of 50647108, alternative 2): an open reserve is recovered by THIS dispatch (record-begin collects
-            # the unexecuted evidence, journal-reserve appends settle-unexecuted), so refusing here would make that recovery unreachable.
-            # Prove admissibility AFTER that recovery instead, read-only: append to an in-memory copy of the chain the settle the recovery
-            # will write and run the same admission on it. Nothing is written; the real recovery and the real reserve re-validate everything.
-            #
-            # Review of 2eb03676 (RETURN): the recovery is NOT assumed to be zero usage. A timed-out or executed attempt settles at its
-            # reserved caps. So the hypothetical settle is exactly what the evidence supports: the settle-unexecuted settle computed from
-            # this dispatch's own unexecuted-attempt evidence, only when that evidence validates and is for exactly this open reserve at
-            # this head; otherwise the reserve settled at its caps (every counter unmeasured). Caps is the upper bound of any real settle,
-            # so the check can only be stricter than the real recovery, never more permissive.
-            held = chain[-1][1][-1]
-            hypothetical = None
-            doc = inputs.get("unexecuted")
-            if doc is not None:
-                usage, evidence, at_utc = usage_from_unexecuted(doc, inputs.get("unexecutedSha256"))
-                journal_bind = doc.get("journal") if isinstance(doc, dict) else None
-                _need(isinstance(journal_bind, dict) and journal_bind.get("reserve") == held and journal_bind.get("headSha") == head,
-                      "reserve-check-unexecuted-evidence-not-this-reserve")
-                hypothetical = settle(held, usage, evidence, at_utc)
-            if hypothetical is None:
-                hypothetical = settle(held, {k: None for k in CATS}, "0" * 64, inputs["atUtc"])
-            chain = chain + [(RECOVERY_HYPOTHESIS_SHA, chain[-1][1] + [hypothetical], b"")]
-            head = RECOVERY_HYPOTHESIS_SHA
+        last = chain[-1][1][-1] if chain[-1][1] else None
+        if command == "reserve" and last is not None and last.get("type") == "reserve" and (dry_run or last.get("runId") != inputs["runId"]):
+            # Release review of 6280f775: the one-case harness admits a reserve only on a CLEAN journal. An earlier attempt's open
+            # reserve (reserved, never settled) refuses here, at the pre-dispatch check (dry run, before any record mutation) and at the
+            # real reserve, whatever that attempt did. Settling it is the protected recovery route's job, never an assumption made by a
+            # new dispatch. Only this run's own landed reserve passes on, to the exact-retry recovery below.
+            raise Refused("reserve-check-open-reservation" if dry_run else "manual-reserve-open-reservation")
         scope = accepted_scope(inputs["scope"], pins.get("accepted_scope_sha256"))
         if command == "reserve":
             _in_period(scope, inputs["atUtc"], "manual-reservation-outside-period")
@@ -392,10 +370,6 @@ def main(argv):
         if x.command == "reserve":
             inputs = {"request": _read(x.request), "admittedSha256": x.admitted_sha256, "runId": x.run_id, "bootstrap": _read(x.bootstrap),
                       "scope": _read(x.scope), "facts": _read(x.facts), "atUtc": at}
-            if dry_run and x.unexecuted_evidence:
-                # the open attempt's unexecuted-attempt evidence, collected read-only by the gate step (absent when it refused)
-                _need(bool(x.unexecuted_sha256), "manual-unexecuted-evidence")
-                inputs.update(unexecuted=json.loads(_read(x.unexecuted_evidence)), unexecutedSha256=x.unexecuted_sha256)
         elif x.command == "settle":
             _need(bool(x.record) != bool(x.settle_input), "manual-settle-input-source")
             inputs = {"campaignId": x.campaign_id, "runId": x.run_id, "record": _read(x.record or x.settle_input),

@@ -165,17 +165,6 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn("manual_reservation.py reserve-check", step["run"])
         self.assertNotIn("CT_STATE_PUSH_TOKEN", json.dumps(step))
         self.assertNotIn(" reserve --", step["run"])
-        # Review of 2eb03676: an open attempt's recovery is evaluated from its evidence. The unexecuted-attempt evidence is collected
-        # (read-only) BEFORE the check and passed only when collection succeeded; otherwise the check assumes a settle at the caps.
-        run = step["run"]
-        pending, collect, check = (run.index("unexecuted_attempt_evidence.py pending"), run.index("unexecuted_attempt_evidence.py collect"),
-                                   run.index("manual_reservation.py reserve-check"))
-        self.assertLess(pending, collect)
-        self.assertLess(collect, check)
-        self.assertIn('if python3 -I tools/cloud-test/scripts/unexecuted_attempt_evidence.py collect', run)
-        self.assertIn('recovery=(--unexecuted-evidence', run)
-        self.assertIn('${recovery[@]+"${recovery[@]}"}', run)
-        self.assertNotIn("manual_reservation.py settle", run, "the gate never appends a settle")
         self.assertEqual(sorted(n for n, j in self.jobs.items() if "pull-requests" in (j.get("permissions") or {})),
                          ["record-begin", "record-complete"])
         self.assertEqual(self.jobs["live"]["permissions"], {"contents": "read"})
@@ -498,6 +487,17 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertIn("CT_OUT=" + os.path.join(directory, "out"), exports)
             self.assertIn("CT_STATE_JOURNAL_RESERVE=" + os.path.join(directory, "cloud-test-state-reserve.json"), exports)
             self.assertIn("CT_STATE_JOURNAL_SETTLE=" + os.path.join(directory, "cloud-test-state-settle.json"), exports)
+
+    def test_the_pre_dispatch_check_admits_a_clean_journal_only_and_assumes_no_recovery(self):
+        """Release review of 6280f775: the gate runs the reserve check read-only before any record mutation and passes it nothing about an
+        earlier open attempt, so an open reserve refuses there (reserve-check-open-reservation) rather than being assumed recovered."""
+        gate = next(s for s in self.jobs["record-begin"]["steps"] if s.get("name", "").startswith("Can this dispatch start now"))
+        begin = next(s for s in self.jobs["record-begin"]["steps"] if s.get("id") == "begin")
+        steps = self.jobs["record-begin"]["steps"]
+        self.assertLess(steps.index(gate), steps.index(begin))
+        self.assertIn("manual_reservation.py reserve-check", gate["run"])
+        self.assertNotIn("unexecuted", gate["run"])
+        self.assertNotIn("--unexecuted-evidence", gate["run"])
 
     def test_the_admitted_tested_release_gets_its_own_clean_checkout_and_the_source_checkout_fails_that_gate(self):
         """Request-only descendants remain workflow source, never tested product source."""
