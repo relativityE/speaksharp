@@ -54,11 +54,16 @@ const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
  * That is an independent source, so a decode that drops or pads samples is caught.
  */
 export function decodeFlacToPcm(flacPath) {
+    // Parsed by key: ffprobe prints stream fields in its own order, not the order they were requested.
     const probe = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a:0',
-        '-show_entries', 'stream=sample_rate,channels,bits_per_raw_sample,duration_ts', '-of', 'csv=p=0', flacPath],
-    { encoding: 'utf8' }).trim();
-    const [rate, channels, bits, declaredSamples] = probe.split(',');
-    if (`${rate},${channels},${bits}` !== `${SAMPLE_RATE_HZ},1,16`) throw new Error(`NOT 16 kHz mono 16-bit (${probe}): ${flacPath}`);
+        '-show_entries', 'stream=sample_rate,channels,bits_per_raw_sample,duration_ts', '-of', 'default=noprint_wrappers=1', flacPath],
+    { encoding: 'utf8' });
+    const field = Object.fromEntries(probe.trim().split('\n').map(line => line.split('=')));
+    const declaredSamples = field.duration_ts;
+    if (field.sample_rate !== String(SAMPLE_RATE_HZ) || field.channels !== '1' || field.bits_per_raw_sample !== '16'
+        || !/^\d+$/.test(declaredSamples ?? '')) {
+        throw new Error(`NOT 16 kHz mono 16-bit with a declared length (${probe.trim().replace(/\n/g, ' ')}): ${flacPath}`);
+    }
     const pcm = execFileSync('ffmpeg', ['-v', 'error', '-i', flacPath, '-f', 's16le', '-acodec', 'pcm_s16le', '-'],
         { maxBuffer: 256 * 1024 * 1024 });
     if (pcm.length !== Number(declaredSamples) * 2) {
