@@ -1,5 +1,5 @@
 'use strict';
-// Sam 1794101214 / 1794101506 / 1794103587: offline controls for the REAL short-window shape. Exercised points come ONLY from the immutable
+// offline controls for the REAL short-window shape. Exercised points come ONLY from the immutable
 // fixture speech windows against the reviewed recording window (the smokeTiming.focusWindowVerdict rule), never from the rail string.
 const test = require('node:test');
 const assert = require('node:assert/strict');

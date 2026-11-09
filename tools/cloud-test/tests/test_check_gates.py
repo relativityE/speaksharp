@@ -154,7 +154,7 @@ class CheckGates(unittest.TestCase):
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G5"], "NOT-READY")
 
     def test_g5_replaces_the_runs_own_counted_reservation_never_another(self):
-        # #1772 review 4446137335 / Jensen 1793644594.204599: at an exact fit ownerCounted already includes THIS request's open reservation.
+        # #1772 review 4446137335 / at an exact fit ownerCounted already includes THIS request's open reservation.
         r, l = approved(self.req, self.ledger)
         sha = "a" * 64
         planned = r["estimate"]["starts"]
@@ -227,7 +227,7 @@ class CheckGates(unittest.TestCase):
         self.assertEqual(self.status(self.ev(r, l, receipt(r)))["G6"], "OWNER-INPUT-OPEN")
 
     def test_g6_owner_confirmation_is_deferred_only_for_the_r10_smoke_occurrence(self):
-        """PO option B (Sam 1794089713/1794089833): deferred only when the sole need is owner confirmation and the request is the R10 smoke
+        """PO option B : deferred only when the sole need is owner confirmation and the request is the R10 smoke
         occurrence (r10_smoke_g6_deferral, checked on the real occurrence in test_r10_post_admission_chain)."""
         r, l = approved(self.req, self.ledger)
         l["gaps"][2]["expectedPass"]["confirmedByOwner"] = False
@@ -288,7 +288,7 @@ if __name__ == "__main__":
 
 
 class NightlyCarriedForwardG7(unittest.TestCase):
-    """G7 through its real consumers (Sam 1793575319.659179, RETURN 1793576198.013729): only QUALIFIED row evidence produced under the
+    """G7 through its real consumers (RETURN ): only QUALIFIED row evidence produced under the
     CURRENT identities clears G7; unqualified, row-empty or incomparable history falls back to the verified bootstrap receipts."""
     REQ = {"priority": "nightly-regression", "harness": {"codeManifestSha256": "3" * 64, "packetManifestSha256": "4" * 64},
            "release": {"backend": {"sha": "6" * 40}}}

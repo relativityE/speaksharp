@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Append-only bookkeeping on the ONE selected state ref (Sam 1793548444.540999, RETURN 1793549143.187519). This module never creates the
+"""Append-only bookkeeping on the ONE selected state ref (RETURN ). This module never creates the
 ref or changes a permission. The independently reviewed R10 root is pinned below; every substituted root still refuses.
 
 The ref's history is a single-parent chain from the pinned, independently reviewed root (an empty canonical ledger). Every commit's tree holds
 exactly ledger.json, and every ledger is its parent's ledger plus EXACTLY ONE closed-schema, content-free event:
 
-  propose  fetch the ref; validate the whole chain from the pinned root through the current head from RAW objects whose bytes hash to their
+  propose fetch the ref; validate the whole chain from the pinned root through the current head from RAW objects whose bytes hash to their
            ids; refuse unless the expected head is on that chain; build the deterministic one-event child of the expected head (identity and
            dates come from the event, so an identical proposal is the identical commit); journal the receipt BEFORE pushing; push with an
            exact expected-old-SHA lease (no '+', so never a rewrite; a lease on a missing ref never creates it); then reconcile against the
            persisted history whatever the push reported. An exact retry of an append that already landed recovers the original receipt; a
            new transition for the same key is a duplicate and refuses.
-  verify   never trusts the receipt JSON: the fixed ref, the validated chain, newSha on it with previousSha its sole parent, the receipted
+  verify never trusts the receipt JSON: the fixed ref, the validated chain, newSha on it with previousSha its sole parent, the receipted
            ledger bytes, exactly the proposed event appended, and its canonical digest.
 
 Git runs with no system/global config, no hooks, no replace objects, no prompts, one allowed transport, against exactly the approved URL
@@ -50,7 +50,7 @@ CAMPAIGN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
 PROVENANCE = re.compile(r"approval:slack-[0-9]{10}\.[0-9]{6}|request-sha256:[0-9a-f]{64}|evidence-sha256:[0-9a-f]{64}")
 UTC = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
-# J1 (Sam 1793580621.313599): the job's ephemeral token, consumed ONLY by the one leased https push, as a per-process config entry scoped to
+# J1 : the job's ephemeral token, consumed ONLY by the one leased https push, as a per-process config entry scoped to
 # the approved URL. Never an argument, never written to any git config, never seen by fetch or any other git call (_git inherits no env).
 PUSH_TOKEN_ENV = "CT_STATE_PUSH_TOKEN"
 # Opaque (GitHub: installation tokens, including Actions GITHUB_TOKEN, are ~520 characters since 2026-10-02 and must not be pattern-matched):

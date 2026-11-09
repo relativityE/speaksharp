@@ -1,5 +1,5 @@
-"""Sam 1794144841: draft-adapters/oracles/index.cjs required oracles/smoke-saved-focus.cjs, but the reviewed-step manifest did not list it,
-so its bytes were never verified at the step boundary. Every relative require() reachable from a reviewed step (transitively, inside the
+"""draft-adapters/oracles/index.cjs required oracles/smoke-saved-focus.cjs, but the reviewed-step manifest did not list it,
+so its bytes were never verified at the step boundary. Every relative require reachable from a reviewed step (transitively, inside the
 packet) must be a listed dependency of that step with its exact sha256; a missing or drifted entry fails here."""
 import hashlib
 import json
@@ -15,7 +15,7 @@ REQUIRE = re.compile(r"""require\(\s*(?:path\.join\(__dirname,\s*)?['"](\.{1,2}/
 
 
 def relative_requires(rel):
-    """Packet-relative files reached by literal relative require() calls from `rel`, transitively."""
+    """Packet-relative files reached by literal relative require calls from `rel`, transitively."""
     seen, todo = set(), [rel]
     while todo:
         cur = todo.pop()

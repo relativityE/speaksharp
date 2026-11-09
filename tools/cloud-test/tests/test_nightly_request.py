@@ -1,4 +1,4 @@
-"""The GitHub nightly regression's one immutable request per scheduled occurrence (Sam 1793553158.013909, RETURN 1793553793.785919), offline
+"""The GitHub nightly regression's one immutable request per scheduled occurrence (RETURN ), offline
 only. Every approval, template and budget here is SYNTHETIC test data supplied through test-only overrides; the production anchors stay unset and
 the committed recurring-approval.json stays NOT APPROVED, so production derivation refuses."""
 import copy
@@ -263,7 +263,7 @@ class Derivation(unittest.TestCase):
         raw = derive()
         self.assertEqual(N.check_fit(raw, SLOT + timedelta(minutes=1), CFG, WF), 304)  # 15 setup + 304 live + 10 collect = 329 of 330 minutes
         refused(self, "nightly-run-would-outlast-window", N.check_fit, raw, SLOT + timedelta(minutes=1, seconds=1), CFG, WF)
-        # Sam 1793554593.723039: a 360-minute nightly window covers the maximum 30-minute trigger delay; it stays anchored to the slot.
+        # a 360-minute nightly window covers the maximum 30-minute trigger delay; it stays anchored to the slot.
         self.assertEqual(N.NIGHTLY_MAX_WINDOW_MINUTES, 360)
         self.assertEqual(CFG["modes"]["full"]["limits"]["maxWindowMinutes"], 330, "the package config (and manual runs) are unchanged")
         wide = derive(ap=approval(perRunCaps={"windowMinutes": 360}))
@@ -315,7 +315,7 @@ class Derivation(unittest.TestCase):
 
 
 class NightlyChecks(unittest.TestCase):
-    """The two nightly-only checks layered on #1772's derivation (Sam 1793617478.811419)."""
+    """The two nightly-only checks layered on #1772's derivation ."""
     def test_the_estimate_split_is_the_accepted_budgets_and_the_template_rows_own(self):
         q = json.loads(derive())["estimate"]["requests"]
         self.assertEqual((q["planned"], q["cleanupReserve"], q["pooledSlack"], q["runCap"]), (3610, 150, 550, 4310))

@@ -1,4 +1,4 @@
-"""The no-network egress readiness preflight (Sam 1794156633 / 1794156711 / 1794156723): before any credential-bearing or production prerequisite
+"""The no-network egress readiness preflight : before any credential-bearing or production prerequisite
 step, the live job checks the env-proxy requirement exactly as the guard will see it after execute_run.sh run_stage (uppercase-only forwarding),
 records closed booleans and a closed reason (never values, never a reachability claim), retains the receipt even on refusal, and an early
 failure at that step settles through the EXISTING unexecuted accounting path as `none` (measured runner minutes, zero product counters)."""
@@ -41,7 +41,7 @@ class Verdict(unittest.TestCase):
                     self.assertNotIn(leak, json.dumps(v))
 
     def test_proxy_syntax_has_parity_with_the_guards_url_parser(self):
-        """Sam 1794159106: the receipt must not report ready for a proxy the guard's `new URL` rejects (an out-of-range port)."""
+        """the receipt must not report ready for a proxy the guard's `new URL` rejects (an out-of-range port)."""
         samples = ["http://proxy.example:3128", "https://proxy.example", "http://proxy.example:65535", "http://proxy.example:65536",
                    "http://proxy.invalid:99999", "http://proxy.example:0", "http://user:pw@proxy.example:8080/", "http://[::1]:3128",
                    "ftp://proxy.example", "not a url", "http://", "proxy.example:3128",
@@ -125,7 +125,7 @@ class WorkflowPlacement(unittest.TestCase):
         self.assertEqual(names[i - 2:i], ["Run actions/checkout@v6", "Start the restrictive loopback CONNECT egress service (PO-approved; no secret)"])
         step = self.steps[i]
         self.assertNotIn("secrets.", json.dumps(step))
-        # its only env is the PO-approved loopback service URL, a step output (Sam 1794168880: never $GITHUB_ENV)
+        # its only env is the PO-approved loopback service URL, a step output (never $GITHUB_ENV)
         self.assertEqual(step.get("env"), {"HTTPS_PROXY": "${{ steps.egress-proxy.outputs.url }}"})
         self.assertIn("egress_preflight.py", step["run"])
         credential = [n for _job, n in U.credential_steps(self.text)]
@@ -134,7 +134,7 @@ class WorkflowPlacement(unittest.TestCase):
         self.assertNotIn(names[i], credential)
         keep = self.steps[i + 1]
         self.assertEqual((keep["if"], keep["uses"], keep["with"]["path"]), ("always()", "actions/upload-artifact@v4", "${{ runner.temp }}/egress-preflight.json"))
-        # the PO's one-day artifact rule (Sam 1794158685.923749)
+        # the PO's one-day artifact rule
         self.assertEqual((keep["with"]["retention-days"], keep["with"]["if-no-files-found"]), (1, "error"))
 
 

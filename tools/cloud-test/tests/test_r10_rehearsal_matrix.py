@@ -1,18 +1,18 @@
-"""R10 next-attempt rehearsal matrix (Sam 1793966360.466289 / 1793966999.201219; Bezos N1).
+"""R10 next-attempt rehearsal matrix (the reviewer N1).
 
 Production-shaped and OFFLINE: synthetic inputs, no credential, no network. For each failure shape it drives the REAL pieces end to end:
   * the workflow: the actual cloud-test-live.yml job `needs`/`if` and live-step `if` expressions, evaluated per shape with GitHub's implicit
-    success() and cancellation semantics (which steps run, which settle path exists);
-  * execute_run.sh's real run_stage() under `env -i` with the failure injected at that stage boundary (the stage trace it writes);
+    success and cancellation semantics (which steps run, which settle path exists);
+  * execute_run.sh's real run_stage under `env -i` with the failure injected at that stage boundary (the stage trace it writes);
   * the real collector (collect_run_record.py, execute_run.sh's collect arguments), settle_input.py and manual_reservation.settle;
   * the real timing projection (init_run_inputs.run_timing_export) and the next dispatch's evidence recovery (unexecuted_attempt_evidence).
 It proves the OFFLINE contract only. Real sign-in, hosted-runner behaviour and the actual fifteen case outcomes remain live uncertainties
 and are never marked passed here. Run as a script to print the matrix.
 
-Scope, stated plainly (Sam 1793968041.040299): these are COMPONENT controls. The workflow rows show condition ELIGIBILITY (which steps
+Scope, stated plainly : these are COMPONENT controls. The workflow rows show condition ELIGIBILITY (which steps
 and jobs GitHub would schedule), not that collection, upload or settlement actually completed; a real job timeout or runner loss is not
 exercised (a killed runner may upload nothing, leaving the reservation held for recovery or an owner disposition). run_stage is driven with
-a substituted command, not execute_run.sh's full stage dispatch; the launcher path through build() is covered separately by
+a substituted command, not execute_run.sh's full stage dispatch; the launcher path through build is covered separately by
 test_init_run_inputs.ProducerScope.through_execute_run. Failed-checkout table durability is NOT demonstrated (without a checkout no
 projection script exists).
 """
@@ -46,7 +46,7 @@ RESERVED = {"type": "reserve", "campaignId": "R10-REHEARSAL", "runId": RUN_ID, "
 
 # ---------------------------------------------------------------- workflow expressions (the actual YAML strings)
 def gh_eval(expr, ctx):
-    """Evaluate one GitHub `if:` expression of this workflow. Supported exactly: always(), cancelled(), success(), !, &&, ||, ==, !=, string
+    """Evaluate one GitHub `if:` expression of this workflow. Supported exactly: always, cancelled, success, !, &&, ||, ==, !=, string
     and boolean literals, github.*, needs.<job>.result, steps.<id>.outcome. Anything else raises (no silent truthiness)."""
     e = expr.strip()
     if e.startswith("${{") and e.endswith("}}"):
@@ -65,7 +65,7 @@ def gh_eval(expr, ctx):
           "G": lambda k: ctx["github"][k], "CANCELLED": ctx["cancelled"], "SUCCESS": not ctx["failed"] and not ctx["cancelled"],
           "FAILURE": ctx["failed"], "True": True, "False": False, "__builtins__": {}}
     value = bool(eval(e, ns))  # noqa: S307 - the translated grammar above is closed
-    if not status:                                    # GitHub's implicit success() when no status function is named
+    if not status:                                    # GitHub's implicit success when no status function is named
         value = value and not ctx["failed"] and not ctx["cancelled"]
     return value
 
@@ -277,7 +277,7 @@ class RehearsalMatrix(unittest.TestCase):
             self.assertTrue(recovery(self.doc, outcomes, result).startswith(want), (fail, recovery(self.doc, outcomes, result)))
         # a cancelled or timed-out run is settled in-run when its settle input exists (collect and journal-settle run on cancellation,
         # test_workflow_shapes_follow_the_actual_yaml_conditions); when it does not, the reservation stayed open and recovery refused it,
-        # blocking every later dispatch (Sam 1794100293). Next-dispatch recovery now settles it at the FULL held caps, never as no-usage; an
+        # blocking every later dispatch . Next-dispatch recovery now settles it at the FULL held caps, never as no-usage; an
         # in-run settle leaves no open reserve, so the two never both apply.
         outcomes, result = simulate_live(self.steps, cancel_at=run)
         got = recovery(self.doc, outcomes, result)

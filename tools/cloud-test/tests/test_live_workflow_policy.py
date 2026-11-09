@@ -1,4 +1,4 @@
-"""Policy tests for .github/workflows/cloud-test-live.yml (Sam 1793471205.454429 / 1793471318.770139 / 1793471406.529969 / 1793538100.358869):
+"""Policy tests for .github/workflows/cloud-test-live.yml :
 manual only, one active run, no re-run attempt, isolated latest-record jobs without live credentials, credentials only from `secrets`, nothing
 installed or downloaded, a committed request selected by path, the job and run-step time bounds, every run-stage name supplied, and PASS only
 through the real binding verifier followed by qualification of every selected row."""
@@ -71,7 +71,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertTrue(os.path.isfile(scope), "record-begin must carry the scope one_off_grant reads")
 
     def test_a_scheduled_run_is_gated_before_any_record_secret_or_live_job_and_no_cron_is_registered(self):
-        # Sam 1793553158.013909: the cron stays a proposed artifact; nothing here is registered.
+        # the cron stays a proposed artifact; nothing here is registered.
         on = self.doc.get("on", self.doc.get(True))
         self.assertNotIn("schedule", on)
         with open(os.path.join(ROOT, "config", "nightly", "schedule.proposed.yml"), encoding="utf-8") as f:
@@ -127,7 +127,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
                                       "needs.nightly-gate.result == 'success' && needs.nightly-gate.outputs.admitted == 'true')) }}")
         self.assertIn('[ "$GITHUB_EVENT_NAME" = schedule ] && [ "$GATE_RESULT" = success ] && [ "$ADMITTED" = true ] || '
                       '{ echo "BLOCKED_SETUP: nightly-not-admitted"; exit 78; }', begin["steps"][0]["run"])
-        # Every later job, including the always() record job, runs only after record-begin succeeded.
+        # Every later job, including the always record job, runs only after record-begin succeeded.
         self.assertEqual(self.jobs["live"]["needs"], ["record-begin", "journal-reserve"])  # J1: a scheduled run waits for its journal reserve
         self.assertEqual(self.jobs["record-complete"]["if"], "always() && needs.record-begin.result == 'success'")
         # Manual and nightly share ONE serialized group; an active run is never cancelled.
@@ -202,7 +202,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(self.jobs["live"]["needs"], ["record-begin", "journal-reserve"])  # J1: a scheduled run waits for its journal reserve
 
     def test_secret_values_come_only_from_secrets_and_account_identifiers_only_from_the_private_bundle(self):
-        # Sam 1793544453.003099: passwords, tokens and keys are Secrets; account emails and ids travel only in CLOUD_TEST_LIVE_ACCOUNTS.
+        # passwords, tokens and keys are Secrets; account emails and ids travel only in CLOUD_TEST_LIVE_ACCOUNTS.
         for name in ("THROWAWAY_TEST_PASSWORD", "SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY", "POSTHOG_PROJECT_ID", "SUPABASE_ANON_KEY"):
             self.assertNotRegex(self.text, r"vars\.%s\b" % name, name)
         self.assertNotRegex(self.text, r"vars\.[A-Z_]*(_EMAIL|_ACCOUNT_ID)\b")
@@ -211,14 +211,14 @@ class LiveWorkflowPolicy(unittest.TestCase):
         # A value derived from a Secret by an expression is not masked by Actions: the bundle is never parsed in a workflow expression.
         self.assertNotRegex(self.text, r"fromJSON\(\s*secrets\.")
         self.assertIn("THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}", self.text)
-        # Case15 (Sam 1793554938.870679): the maintained-read-only role's password reaches the run step from its own Secret; its email
+        # Case15 : the maintained-read-only role's password reaches the run step from its own Secret; its email
         # comes only from the private bundle, like THROWAWAY's.
         self.assertEqual(self.text.count("FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}"), 2)  # run step and the prerequisite preflight
         self.assertNotIn("FREE_TEST_EMAIL: ${{", self.text)
         self.assertNotIn("throwaway-email-not-secret", self.text)
 
     def test_live_credentials_read_exactly_the_existing_repository_secrets(self):
-        # PO decision (Sam 1793647229.528719): the existing repository Secrets are the single stored source, referenced by name; the
+        # PO decision : the existing repository Secrets are the single stored source, referenced by name; the
         # credential-bearing job stays bound to the protected environment on protected main.
         protected = {
             "CLOUD_TEST_LIVE_ACCOUNTS",
@@ -234,7 +234,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(self.jobs["live"]["environment"], "trusted-main-credentials")
 
     def test_the_record_jobs_bind_the_exact_issue_and_comment(self):
-        # select at begin, the begin readback after its write (Sam 1794147839), select before the terminal write, and the readback
+        # select at begin, the begin readback after its write , select before the terminal write, and the readback
         # verification after it: all bound to the one tracking issue
         self.assertEqual(self.text.count('--issue-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE"'), 4)
         self.assertIn('--comment-id "$COMMENT_ID"', self.text)
@@ -519,7 +519,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
     def test_handoffs_are_short_lived_and_closed_observation_and_timing_projections_are_retained(self):
         up = [s for s in self.jobs["live"]["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
         self.assertEqual(len(up), 6)  # two short-lived job handoffs, the egress preflight and proxy receipts, two closed projections
-        # PO's one-day rule for repository artifacts (Sam 1794158685.923749 / 1794160532.932219): EVERY live-job upload is kept ONE day
+        # PO's one-day rule for repository artifacts : EVERY live-job upload is kept ONE day
         self.assertEqual(sorted(u["with"]["retention-days"] for u in up), [1] * 6)
         short = [u for u in up if u["with"]["retention-days"] == 1]
         self.assertEqual(sorted(u["with"]["path"].rsplit("/", 1)[-1] for u in short),
@@ -540,7 +540,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         run_step = next(s for s in self.jobs["live"]["steps"] if s.get("name", "").startswith("Stage runner (run)"))
         self.assertEqual(run_step["id"], "run")
         # A cancelled or timed-out run step is not `skipped`: collection still runs and records the run INCOMPLETE, and journal-settle runs
-        # always() after a successful reserve, so the reservation is settled in-run (Bezos N1, Sam 1793965423.927829).
+        # always after a successful reserve, so the reservation is settled in-run (the reviewer N1).
         self.assertTrue(self.jobs["journal-settle"]["if"].startswith("${{ always() && "))
         for name in ("Collect, verify the binding, qualify every selected row, and project the closed record",
                      "Project the linked content-safe first observations", "Retain the linked first observations for the next run"):
@@ -548,7 +548,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertEqual(step["if"], "always() && steps.init.outcome == 'success' && steps.run.outcome != 'skipped'", name)
         settle = next(u for u in up if u["with"]["path"].endswith("settle-input.json"))
         self.assertEqual(settle["if"], "always()")
-        # Sam 1793580806.654369: the public artifact is the closed projection, never the collector's run record; journal-settle validates it
+        # the public artifact is the closed projection, never the collector's run record; journal-settle validates it
         project = next(st for st in self.jobs["live"]["steps"] if "settle_input.py project" in st.get("run", ""))
         self.assertIn('--record "$CT_OUT/run-record.json"', project["run"])
         self.assertFalse(any(u["with"]["path"].endswith("run-record.json") for u in up))
@@ -556,7 +556,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertLess(settle_run.index("settle_input.py validate"), settle_run.index("reservations.py journal-settle"))
         self.assertLess(settle_run.index("settle_input.py validate"), settle_run.index("manual_reservation.py settle"))
         manual_settle = settle_run[settle_run.index("manual_reservation.py settle"):settle_run.index("exit 0", settle_run.index("manual_reservation.py settle"))]
-        self.assertIn('--settle-input "$SETTLE"', manual_settle)  # its evidence is the embedded record digest (RETURN 1793645360.787039 #3)
+        self.assertIn('--settle-input "$SETTLE"', manual_settle)  # its evidence is the embedded record digest (RETURN #3)
         self.assertNotIn("--record", manual_settle)
 
     def test_the_dispatch_names_a_committed_template_and_materializes_one_exact_occurrence_from_the_workflow_start(self):
@@ -628,7 +628,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         uploads = [s for s in self.jobs["record-complete"]["steps"] if s.get("uses") == "actions/upload-artifact@v4"]
         self.assertEqual(len(uploads), 1)
         self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/completion")
-        # Owner rule (Sam 1794162379): repository artifacts are kept one day, the attestation included. An expired or missing attestation
+        # Owner rule : repository artifacts are kept one day, the attestation included. An expired or missing attestation
         # no longer blocks the next run: record-begin retires that pending candidate as `completion-unverified` (never folded or upgraded).
         self.assertEqual(uploads[0]["with"]["retention-days"], 1)
         self.assertIn('cp "$receipt" "$RUNNER_TEMP/completion/settle-receipt.json"', complete["run"])
@@ -647,12 +647,12 @@ class LiveWorkflowPolicy(unittest.TestCase):
         absent = run.index('[ "$?" -eq 1 ] || exit 78', branch)
         self.assertLess(run.index('reconcile --previous "$RUNNER_TEMP/previous.md"'), absent)
         self.assertLess(absent, run.index('retire-unattested --previous "$RUNNER_TEMP/previous.md"'))
-        # Sam 1794163556: terminal run/jobs and the validated reserve -> settle come before the listing can retire anything
+        # terminal run/jobs and the validated reserve -> settle come before the listing can retire anything
         self.assertLess(absent, run.index('settled_attempt_evidence.py collect-pending --run "$RUNNER_TEMP/pending-run.json"'))
         self.assertLess(run.index('collect-pending'), run.index('retire-unattested --previous'))
         self.assertIn('--evidence "$RUNNER_TEMP/pending-evidence.json"', run[run.index('retire-unattested --previous'):])
         self.assertNotIn('"completion-artifact-missing-or-ambiguous"', run)
-        # Sam 1794163062: an API failure stops the step (never read as "no artifact"): the listing call is unguarded under set -euo pipefail,
+        # an API failure stops the step (never read as "no artifact"): the listing call is unguarded under set -euo pipefail,
         # it paginates and slurps every page, and its exit status is not consumed by a pipe or an `||`
         self.assertTrue(run.lstrip().startswith("set -euo pipefail"))
         listing = next(l for l in run.splitlines() if "actions/runs/$pending_run_id/artifacts" in l).strip()
@@ -711,7 +711,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("if", check, "a failed window check stops the job before admission")
 
     def test_one_execution_deadline_reaches_plan_construction_from_init_output_only(self):
-        """Sam 1794071539 (design a): the stage runner builds the plan with the init step's execution_deadline output (never $GITHUB_ENV, never
+        """(design a): the stage runner builds the plan with the init step's execution_deadline output (never $GITHUB_ENV, never
         recomputed); the run step carries no second deadline of its own."""
         steps = self.jobs["live"]["steps"]
         stage = next(s for s in steps if s.get("name", "").startswith("Stage runner (install-tools"))
@@ -731,7 +731,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertIn('--tested-sha "$TESTED_SHA"', collect)
 
     def test_the_admitted_continuity_checkpoint_is_placed_byte_checked_immediately_before_plan_construction(self):
-        # Increment I (Sam 1793566031.065709): the bytes prepare admitted, digest-checked from init's step output, are the reconciliation
+        # Increment I : the bytes prepare admitted, digest-checked from init's step output, are the reconciliation
         # the stage runner's plan construction reads; placed once, never overwritten, right before the setup stages.
         steps = self.jobs["live"]["steps"]
         init = next(i for i, s in enumerate(steps) if s.get("id") == "init")
@@ -792,7 +792,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
         for needle in ("secrets.", "sudo", "vars.", "https_proxy", "NO_PROXY", "HTTP_PROXY=", "GITHUB_ENV"):
             self.assertNotIn(needle, start["run"], needle)
         self.assertIn('echo "url=http://127.0.0.1:$port" >> "$GITHUB_OUTPUT"', start["run"])
-        # Sam 1794168880: never global. Exactly the egress preflight and the run stage receive it, as step-level env; no other step,
+        # never global. Exactly the egress preflight and the run stage receive it, as step-level env; no other step,
         # job-level env or $GITHUB_ENV write mentions HTTPS_PROXY, so setup, git, gh and artifact uploads never route through it.
         url = "${{ steps.egress-proxy.outputs.url }}"
         users = [s.get("name") for s in steps if url in json.dumps(s)]
@@ -812,9 +812,9 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertEqual(names[-1], "Remove the private run inputs")
 
     def test_an_early_refusal_before_init_leaves_every_always_step_safe_without_ct_out(self):
-        """Run 42516864915 (Sam 1794167544): the egress preflight refused before init exported CT_OUT, and the always() settle-input
+        """Run 42516864915 : the egress preflight refused before init exported CT_OUT, and the always settle-input
         projection died `CT_OUT: unbound variable` under set -u. Executed here exactly as GitHub runs it (bash -e, the step's own set -euo
-        pipefail) with CT_OUT unset: it must exit 0 and project nothing. Every always()-only step must guard its first CT_OUT reference."""
+        pipefail) with CT_OUT unset: it must exit 0 and project nothing. Every always-only step must guard its first CT_OUT reference."""
         steps = self.jobs["live"]["steps"]
         step = next(s for s in steps if s.get("name", "").startswith("Project the closed settle input"))
         with tempfile.TemporaryDirectory() as d:
@@ -843,7 +843,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
     def test_the_egress_stop_signals_only_its_own_service_and_reports_a_missing_receipt(self):
         stop = next(s for s in self.jobs["live"]["steps"] if s.get("name") == "Stop the egress service and keep its content-safe receipt")["run"]
-        # CI run 42525622410 (Sam 1794174331): an explicit pipefail guard, and no pipeline at all in this step
+        # CI run 42525622410 : an explicit pipefail guard, and no pipeline at all in this step
         self.assertTrue(stop.lstrip().startswith("set -euo pipefail"))
         self.assertNotRegex(stop, r"\|\s*grep")
         self.assertIn('[[ "$cmdline" == *egress_connect_proxy.cjs* ]]', stop)
@@ -853,14 +853,14 @@ class LiveWorkflowPolicy(unittest.TestCase):
         self.assertNotIn("|| true", stop)
 
     def test_every_artifact_this_workflow_uploads_is_kept_one_day(self):
-        """Owner, Nov 7: "We only want repository artifacts stored for 1 day" (Sam 1794162379: no attestation exception)."""
+        """Owner, Nov 7: "We only want repository artifacts stored for 1 day" (no attestation exception)."""
         uploads = [(job, s) for job, j in self.jobs.items() for s in j["steps"] if "upload-artifact" in str(s.get("uses", ""))]
         self.assertGreaterEqual(len(uploads), 7)
         for job, s in uploads:
             self.assertEqual(s["with"].get("retention-days"), 1, (job, s.get("name")))
 
     def test_the_ownership_recovery_runs_between_the_run_stage_and_collect_with_no_secret(self):
-        """Sam 1794161531: SIGKILL skips the run stage's traps; recovery returns the trees only after every stage process stops."""
+        """SIGKILL skips the run stage's traps; recovery returns the trees only after every stage process stops."""
         steps = self.jobs["live"]["steps"]
         i = next(k for k, s in enumerate(steps) if "execute_run.sh recover-ownership" in s.get("run", ""))
         step = steps[i]
@@ -902,7 +902,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
                             for j in self.jobs.values() for s in j["steps"] if "REQUEST_SHA256" in (s.get("env") or {})), written)
 
     def test_j1_journal_jobs_hold_the_only_write_permission_and_confine_the_token(self):
-        # J1 (PO approval recorded 1793578273.517019): contents: write only in the two journal jobs, which serve scheduled runs and, since
+        # J1 (PO approval recorded ): contents: write only in the two journal jobs, which serve scheduled runs and, since
         # #1772 review 4446137323, manual dispatches; never a PR, fork or other event.
         jobs = self.jobs
         for name in ("journal-reserve", "journal-settle"):
@@ -921,7 +921,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
             self.assertLess(writers[0]["run"].index("manual_reservation.py"), writers[0]["run"].index("reservations.py journal-"))
         self.assertEqual(self.text.count("CT_STATE_PUSH_TOKEN"), 2, "the token reaches only the two writer steps")
         self.assertEqual(jobs["live"]["permissions"], {"contents": "read"})
-        # Case 10 (Sam 1793580806.654369): the observation reserve and settle run in the write jobs; the live job only observes, read-only
+        # Case 10 : the observation reserve and settle run in the write jobs; the live job only observes, read-only
         self.assertIn("case10_observation.py reserve", writers_of(jobs, "journal-reserve"))
         self.assertIn("case10_observation.py settle", writers_of(jobs, "journal-settle"))
         live_runs = " ".join(st.get("run", "") for st in jobs["live"]["steps"])
@@ -940,7 +940,7 @@ class LiveWorkflowPolicy(unittest.TestCase):
 
 
 class Case10ObserveCredentials(unittest.TestCase):
-    """Sam 1793582780.014609: the observe step's credential environment. Scheduled runs only, from Secrets, on the one step that already
+    """the observe step's credential environment. Scheduled runs only, from Secrets, on the one step that already
     holds the private bundle, under names nothing else reads; the reader subprocess receives them by explicit hand-off only."""
     def test_the_case10_credentials_reach_only_the_init_step_on_scheduled_runs(self):
         import yaml
@@ -956,7 +956,7 @@ class Case10ObserveCredentials(unittest.TestCase):
         self.assertIn("case10_observation.py observe", init["run"])
 
     def children(self, event):
-        """Sam 1793584373.385389, behavioural: the REAL init script, with python3 and base64 shadowed by shell functions that record the
+        """, behavioural: the REAL init script, with python3 and base64 shadowed by shell functions that record the
         environment each child would receive (exported variables only), then the real base64 runs."""
         import base64
         import shutil
@@ -1032,7 +1032,7 @@ class ManualPathNeverRunsOnSchedule(unittest.TestCase):
             self.assertEqual(next(st for st in jobs[name]["steps"] if "CT_STATE_PUSH_TOKEN" in (st.get("env") or {}))["env"]["MANUAL_REQUEST"],
                              "${{ inputs.request }}")
         self.assertIn("--admitted-sha256", writers_of(jobs, "journal-reserve"))
-        # RETURN 1793645360.787039: the approval is admitted by the writer before the append (#2), the writer never uses the workflow
+        # RETURN : the approval is admitted by the writer before the append (#2), the writer never uses the workflow
         # checkout as its transport repository (#1), and the continuity inputs are the ones init_run_inputs reads (addendum).
         self.assertIn('--facts "$RUNNER_TEMP/manual-facts.json"', writers_of(jobs, "journal-reserve"))
         import init_run_inputs as I
@@ -1068,13 +1068,13 @@ class UnexecutedAttemptRecovery(unittest.TestCase):
                                         "retire-unexecuted", "unreserved-candidate", " begin --previous", "verify-predecessor", "gh api --method PATCH")]
         self.assertEqual(order, sorted(order), "journal-keyed evidence, retirements, then begin, the predecessor re-read and the one PATCH")
         self.assertEqual(run.count("gh api --method PATCH"), 1)
-        # Sam 1793881260.206739: the settle evidence is collected whenever the journal still holds the pinned reserve open, NOT only when the
+        # the settle evidence is collected whenever the journal still holds the pinned reserve open, NOT only when the
         # record still names that attempt, so an interruption between the retirement and the settle is recovered by the next dispatch
         probe = run[run.index("unexecuted_sha256=''"):run.index("unexecuted-candidate")]
         self.assertIn('[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]', probe, "a manual dispatch only")
         self.assertNotIn("previous.md", probe, "the probe does not consult the record")
         self.assertIn('actions/runs/$open_run/jobs?per_page=100', probe)
-        # Sam 1793881491.714239: any reserved attempt; its credential steps come from ITS OWN workflow at its head, fetched without a credential
+        # any reserved attempt; its credential steps come from ITS OWN workflow at its head, fetched without a credential
         self.assertIn('git show "$open_head:.github/workflows/cloud-test-live.yml" > "$RUNNER_TEMP/unexecuted-workflow.yml"', probe)
         self.assertIn('--workflow "$RUNNER_TEMP/unexecuted-workflow.yml"', probe)
         block = run[run.index("unexecuted-candidate") - 160:run.index(" begin --previous")]
@@ -1093,7 +1093,7 @@ class UnexecutedAttemptRecovery(unittest.TestCase):
         self.assertLess(run.index("unexecuted-candidate"), run.index("unreserved-candidate"))
 
     def test_a_settled_unpublished_attempt_is_retired_after_the_unexecuted_path_and_before_the_never_reserved_path(self):
-        """Run 42483030590 (Sam 1794144135 / 1794145971): reserved, settled, record not publishable. Retired only when the closed
+        """Run 42483030590 : reserved, settled, record not publishable. Retired only when the closed
         settled-attempt evidence is collected AND the record names that attempt; a refusal falls through, so the never-reserved path below
         (which refuses a run the journal names) still decides and the run stays fail-closed. No re-settlement: journal-reserve is untouched."""
         run = self.begin()
@@ -1109,7 +1109,7 @@ class UnexecutedAttemptRecovery(unittest.TestCase):
         self.assertIn('mv "$RUNNER_TEMP/retired-settled.md" "$RUNNER_TEMP/previous.md"', block)
         self.assertIn("retired_unreserved=1", block, "bound to its predecessor before the one PATCH")
         self.assertEqual(run.count("gh api --method PATCH"), 1)
-        # Sam 1794147839: the begin PATCH/POST is followed by a persisted readback of exactly the rendered body
+        # the begin PATCH/POST is followed by a persisted readback of exactly the rendered body
         publish = run.index("gh api --method PATCH")
         readback = run.index('"$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/begin-readback.json"')
         self.assertLess(publish, readback)
@@ -1213,7 +1213,7 @@ if __name__ == "__main__":
 
 
 class TimingStepExecution(unittest.TestCase):
-    """Sam 1793931423.224679: execute the ACTUAL `run:` text of the timing step, with the environment the job would give it."""
+    """execute the ACTUAL `run:` text of the timing step, with the environment the job would give it."""
 
     def setUp(self):
         import yaml  # noqa: PLC0415 - the policy tests already require it

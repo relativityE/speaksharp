@@ -1,5 +1,5 @@
 'use strict';
-// Sam 1794109947: shared identity boundaries through the REAL runCampaign, the REAL identity-check (runIdentity, private identity ledger,
+// shared identity boundaries through the REAL runCampaign, the REAL identity-check (runIdentity, private identity ledger,
 // fake curl transport only: no product traffic), the REAL campaign request ledger (Ledger.initialize / tryReserve / integritySnapshot) bound to
 // the admitted identity, and case results carrying run-guarded's explicit cleanup evidence. A monotonic clock is injected.
 const test = require('node:test');
@@ -18,7 +18,7 @@ const body = sha => '<html><script>window.__APP_RELEASE__ = {"sha":"' + sha + '"
 const POSITIVE = { schema: 'speaksharp.cloud-test.case-cleanup-evidence.v1', ownedProcessesRemaining: 0, launchCleanupFailure: false,
   mediaCleanupFailure: false, stopError: false, browserCloseError: false, guardClosed: true, cleanupIncomplete: false };
 
-// The verified reservation binding build_plan writes (reservation_binding.py shape); shared plans require it (Sam 1794114759).
+// The verified reservation binding build_plan writes (reservation_binding.py shape); shared plans require it .
 function reservation(cap, over = {}) {
   const requestSha256 = '1'.repeat(64);
   const rb = { schema: 'speaksharp.cloud-test.reservation-binding.v1', campaignId: 'UNIT-NOT-A-RUN', runId: '42500000001', attempt: 1, requestSha256,

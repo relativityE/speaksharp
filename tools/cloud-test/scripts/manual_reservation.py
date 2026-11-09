@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Manual-dispatch reservation integration (Sam 1793556225.890759, RETURN 1793556820.561729): the reserve / settle / release events a MANUAL
+"""Manual-dispatch reservation integration (RETURN ): the reserve / settle / release events a MANUAL
 (non-nightly) run would append to the state-ref journal, so the accepted rollup counts it. The independently reviewed R10 root, bootstrap and
 fresh-period scope are pinned below. Nightly runs keep their own path (reservations.py); this module refuses them.
 
-  reserve   identity {campaignId: the request runId, runId: GITHUB_RUN_ID, attempt 1}, `request-sha256:` provenance. The allocation is the
+  reserve identity {campaignId: the request runId, runId: GITHUB_RUN_ID, attempt 1}, `request-sha256:` provenance. The allocation is the
             ADMITTED request's caps (reservations.caps_of_request on exactly the admitted bytes), with `requests` holding G5's request CHARGE:
             the run cap PLUS the identity reads (check_gates.py G5 charges both against the request ceiling), so an open reservation counts
             exactly what G5 would charge. An unknown cap refuses, never 0. Admission needs every G5 dimension within the headroom of the
             accepted rollup recomputed at the same chain head the reserve is appended on.
-  settle    closes the reservation from the collector's run-record BYTES: their digest is the `evidence-sha256:` provenance, and their
+  settle closes the reservation from the collector's run-record BYTES: their digest is the `evidence-sha256:` provenance, and their
             execution identity and admitted request must be the reservation's. The campaign request count excludes identity GETs, so the
             measured request charge is requests + identityReads exactly once while identityReads remains separately reported. If either
             half is unknown, requests settle at the reserved cap. Any unmeasured dimension keeps its reserved cap (never under-counted);
@@ -19,13 +19,13 @@ fresh-period scope are pinned below. Nightly runs keep their own path (reservati
             runner minutes; its digest is the `evidence-sha256:` provenance and the evidence's own terminal time is `atUtc`, so the settle's
             journal commit is a deterministic function of the evidence. It appends only when the freshly validated journal is exactly the evidence's
             head (genesis plus that one reserve, no settle or release); an already-appended identical settle is a no-op.
-  release   returns exactly the reservation, under an owner approval reference, only for a run that never started. The integrated path
+  release returns exactly the reservation, under an owner approval reference, only for a run that never started. The integrated path
             refuses every release until a verifier of never-started evidence exists (`started=False` alone is not evidence).
-  execute   the integrated path: accepted scope BYTES (pinned digest, not a nonempty approvalRef), the chain verified from the accepted root,
+  execute the integrated path: accepted scope BYTES (pinned digest, not a nonempty approvalRef), the chain verified from the accepted root,
             the rollup recomputed at that head, the reserve AND the settle inside the approved period BEFORE they are appended (a late
             settle is refused and the reservation stays held until an explicit cross-period disposition), and settle finding its
             reservation ON the chain; then the writer's journaled propose.
-  CLI       refuses `manual-reservation-not-activated` before reading any input unless the writer root, accepted bootstrap and accepted
+  CLI refuses `manual-reservation-not-activated` before reading any input unless the writer root, accepted bootstrap and accepted
             scope remain pinned to the same journal.
 Exit 78 on every refusal; no value is printed.
 """
@@ -235,13 +235,13 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
                   "manual-unexecuted-journal-moved")
         else:
             _need(command == "settle", "manual-reservation-command")
-            # Sam 1793557361.926929: a late settle is refused before the append; the reservation stays held (counted at its caps) until an
+            # a late settle is refused before the append; the reservation stays held (counted at its caps) until an
             # explicit cross-period disposition.
             _in_period(scope, inputs["atUtc"], "manual-settle-outside-period")
             reserved = _reserved_on_chain(chain, inputs["campaignId"], inputs["runId"])
             usage, evidence = usage_from_record(inputs["record"], reserved)
             if inputs.get("settleInput"):
-                # #1772 RETURN 1793645360.787039 #3: the closed settle input carries the run record's own digest; that, validated, is the
+                # #1772 RETURN #3: the closed settle input carries the run record's own digest; that, validated, is the
                 # evidence, never the digest of the projection.
                 import settle_input
                 try:
@@ -272,7 +272,7 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
             expected = head
             if command == "reserve":
                 rollup = accounting_rollup.receive(inputs["bootstrap"], scope, chain, pins.get("accepted_sha256"), pins.get("accepted_root"))
-                # #1772 RETURN 1793645360.787039 #2: the authenticated action approval is admitted against THIS checkpoint (the head the
+                # #1772 RETURN #2: the authenticated action approval is admitted against THIS checkpoint (the head the
                 # reserve is appended on) before anything is written, so a stale or invalid approval consumes no cap and leaves no reservation.
                 admit_action_approval(inputs.get("facts"), inputs["request"], inputs["admittedSha256"],
                                       accounting_rollup.checkpoint_bytes(rollup), source_repo, chain)
@@ -287,7 +287,7 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
 
 
 def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint, source_repo=None, chain=None):
-    """#1772 RETURN 1793645360.787039 #2: the dispatched facts' action approval, admitted by the SAME check prepare applies
+    """#1772 RETURN #2: the dispatched facts' action approval, admitted by the SAME check prepare applies
     (init_run_inputs.check_action_approval) against the checkpoint bytes the reserve will be appended on. Refuses before any write."""
     import init_run_inputs as I
     try:
@@ -308,7 +308,7 @@ def admit_action_approval(facts_raw, request_raw, admitted_sha256, checkpoint, s
 
 
 def _isolated_repo():
-    """#1772 RETURN 1793645360.787039 #1: a fresh `git init` transport repository with only Git's defaults (state_ref_writer.check_repo),
+    """#1772 RETURN #1: a fresh `git init` transport repository with only Git's defaults (state_ref_writer.check_repo),
     never the workflow checkout, whose remotes and config the writer correctly refuses."""
     import subprocess
     import tempfile

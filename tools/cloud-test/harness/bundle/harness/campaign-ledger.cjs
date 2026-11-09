@@ -48,14 +48,14 @@ class Ledger{
    return state.reservations===0&&entries.length===0?0:null;
   }catch{return null;}
  }
- // Sam 1794109947: an integrity-checked, read-only snapshot bound to the ADMITTED ledger (admission binding.campaignLedgerIdentity), for
+ // an integrity-checked, read-only snapshot bound to the ADMITTED ledger (admission binding.campaignLedgerIdentity), for
  // shared identity boundaries. Unlike readUsedTotal it compares the expected instance, creation anchor and caps digest (a coherent replacement
  // ledger at the same count has another instance/anchor), refuses while any process still holds the ledger lock (a surviving producer), and
  // verifies the whole journal chain against the state bytes. Two equal snapshots mean no reservation in between. Never throws: {ok:false,reason}.
  static integritySnapshot(file,expected){
   file=path.resolve(file);const lock=file+'.lock',token=crypto.randomBytes(24).toString('hex');
   if(!plain(expected)||typeof expected.instanceId!=='string'||!/^[0-9a-f]{64}$/.test(expected.creationAnchorSha256||'')||!/^[0-9a-f]{64}$/.test(expected.capsSha256||''))return {ok:false,reason:'ledger-expected-identity-missing'};
-  // Sam 1794111937: the read holds the ledger lock through the SAME exclusive-create ownership protocol every writer uses, so a writer cannot
+  // the read holds the ledger lock through the SAME exclusive-create ownership protocol every writer uses, so a writer cannot
   // acquire it mid-read (it gets EEXIST and fails closed); an existing lock is never stolen (ledger-held), and only this token is released.
   try{exclusive(lock,JSON.stringify({pid:process.pid,token,reader:'integrity-snapshot'}));}catch(e){return {ok:false,reason:e&&e.code==='EEXIST'?'ledger-held':'ledger-lock-unavailable'};}
   let lockStamp=null;

@@ -1,5 +1,5 @@
 'use strict';
-// R10 A6 (Sam 1793996137): a stopped R0 qualification records WHERE it stopped, content-free.
+// R10 A6 : a stopped R0 qualification records WHERE it stopped, content-free.
 // Offline injected failures for every lifecycle phase, plus secret/URL-bearing negative controls.
 const test = require('node:test');
 const assert = require('node:assert/strict');

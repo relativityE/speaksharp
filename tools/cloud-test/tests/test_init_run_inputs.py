@@ -1,4 +1,4 @@
-"""GitHub live caller inputs (Sam 1793538100.358869, 1793538322.008999; RETURNs of b0100ad8 and 3e0279d6): a committed request in the ONE
+"""GitHub live caller inputs (RETURNs of b0100ad8 and 3e0279d6): a committed request in the ONE
 reviewed location, its live/approval/window/source bindings, request-only lineage or a fully bound older-release diagnostic, complete-case
 sampling, per-run and time ceilings (cumulative caps stay G5's), one account role bound to credential names, account ID and history, the
 builder's real facts schema, the producer scope composed from the request and accepted by the real bootstrap, fail-closed continuity, and
@@ -214,7 +214,7 @@ class CaseTimingExportTests(unittest.TestCase):
     BIND = {"runId": "42142985744", "runAttempt": "1", "headSha": "7" * 40, "workflowStartUtc": "2026-11-06T01:18:48Z"}
 
     def test_a_run_that_never_started_is_affirmatively_not_run_for_every_selected_case_and_says_where_setup_stopped(self):
-        # Run 42142985744 (Bezos; Sam 1793929175.395989): setup stopped before the run stage and no per-case table or timing survived.
+        # Run 42142985744 (the reviewer): setup stopped before the run stage and no per-case table or timing survived.
         trace = os.path.join(self.cases, "stage-trace.tsv")
         with open(trace, "w", encoding="utf-8") as f:
             f.write("install-tools\t2026-11-06T01:24:52Z\t2026-11-06T01:24:53Z\t0\nbuild-plan\t2026-11-06T01:24:53Z\t2026-11-06T01:24:53Z\t78\n")
@@ -237,7 +237,7 @@ class CaseTimingExportTests(unittest.TestCase):
             I.run_timing_export(self.cases, self.results, ["AHT-01"], os.path.join(self.cases, "started.txt"), trace, self.BIND)
 
     def test_started_without_case_results_is_unknown_never_not_run(self):
-        # Sam 1793931423.224679 / 1793932085.542759: started.txt precedes admission, so a missing result does not prove a case never ran.
+        # started.txt precedes admission, so a missing result does not prove a case never ran.
         started = os.path.join(self.cases, "started.txt")
         with open(started, "w", encoding="utf-8") as f:
             f.write("2026-11-06T01:30:00Z\n")
@@ -271,7 +271,7 @@ class CaseTimingExportTests(unittest.TestCase):
                 f.write(bad)
             with self.assertRaisesRegex(I.Refused, "stage-trace"):
                 I.run_timing_export(self.cases, self.results, ["AHT-01"], started, trace, bind)
-        # Sam 1793933116.625009: out-of-order times refuse instead of yielding a negative or misleading duration
+        # out-of-order times refuse instead of yielding a negative or misleading duration
         with open(trace, "w", encoding="utf-8") as f:
             f.write("run\t2026-11-03T15:59:00Z\t2026-11-03T16:01:00Z\t0\n")
         with self.assertRaisesRegex(I.Refused, "case-timing-out-of-order"):           # run stage before the workflow started
@@ -300,7 +300,7 @@ class CaseTimingExportTests(unittest.TestCase):
         return out, {c["caseId"]: c for c in out["cases"]}
 
     def test_corrupt_or_ambiguous_top_level_results_credit_nothing_and_still_yield_the_table(self):
-        # Sam 1793967113.871439 / 1793968108.194389: a corrupt results file must not erase the table nor credit any result
+        # a corrupt results file must not erase the table nor credit any result
         for content, reason in (("{not json", "case-results-unreadable"), ('{"cases": [null]}', "case-results-shape"),
                                 ('{"cases": [{"result": "NOT RUN"}]}', "case-results-shape"), ('[]', "case-results-shape")):
             with self.subTest(content):
@@ -313,7 +313,7 @@ class CaseTimingExportTests(unittest.TestCase):
                 self.assertTrue(all(by[c]["durationMs"] is None for c in ("AHT-01", "AHT-02")))
 
     def test_one_bad_case_is_isolated_to_its_own_unknown_row(self):
-        # Bezos B3-B9 / Sam 1793968108.194389: a wrong digest, reversed times, an over-limit duration, an unbound receipt, a malformed
+        # the reviewer B3-B9 / a wrong digest, reversed times, an over-limit duration, an unbound receipt, a malformed
         # summary or a duplicate row makes ONLY that row UNKNOWN with null measurements; the valid peer keeps its verified timing
         def mutate(change):
             self.fixture()
@@ -527,7 +527,7 @@ class Ceilings(unittest.TestCase):
 
 
 class CumulativeCapsAreG5s(unittest.TestCase):
-    """G5 (check_gates.py 131-170) is the authority for the CUMULATIVE caps (Sam RETURN 3e0279d6). The caller holds no second formula; this
+    """G5 (check_gates.py 131-170) is the authority for the CUMULATIVE caps (the reviewer RETURN 3e0279d6). The caller holds no second formula; this
     drives the REAL gate evaluator at its exact boundary with nonzero reconciled prior usage."""
 
     def setUp(self):
@@ -562,7 +562,7 @@ class CumulativeCapsAreG5s(unittest.TestCase):
 
 
 class Lineage(unittest.TestCase):
-    """Workflow source vs tested release (Sam RETURNs b0100ad8 #4 and 3e0279d6 #1)."""
+    """Workflow source vs tested release (the reviewer RETURNs b0100ad8 #4 and 3e0279d6 #1)."""
 
     def setUp(self):
         self.repo = GitRepo()
@@ -603,7 +603,7 @@ class Lineage(unittest.TestCase):
 
 
 class Account(unittest.TestCase):
-    """Jensen's I1'/I2' contract (Sam 1793554938.870679 Case15): every selected role bound to its own credential names, its own account id
+    """the CLI developer's I1'/I2' contract (Case15): every selected role bound to its own credential names, its own account id
     from the private bundle and its own history; an all-15 run is 14 existing-disposable + 1 maintained-read-only."""
     FREE_ID = "22222222-2222-4222-8222-222222222222"
 
@@ -701,7 +701,7 @@ class Facts(unittest.TestCase):
 
 class ProducerScope(unittest.TestCase):
     """The producer scope is composed from the COMMITTED request and accepted by the REAL authenticated_job_bootstrap.validateBindings
-    against the builder environment the REAL run_env.py derives from the same request (Sam RETURN 3e0279d6 #4)."""
+    against the builder environment the REAL run_env.py derives from the same request (the reviewer RETURN 3e0279d6 #4)."""
 
     LIMITS = {"maxDeliveries": 4, "maxSupabaseRequests": 32, "maxTelemetryReads": 2}
 
@@ -787,8 +787,8 @@ class ProducerScope(unittest.TestCase):
         self.assertEqual(self.bind(s)[0], "BOUND")
 
     def through_execute_run(self, origin):
-        """Sam 1793930461.440399: the PRODUCTION path, not a direct call. The real execute_run.sh functions build(), ensure_account_bindings(),
-        plan_env_file() and run_stage() (env -i, then `. plan-env.txt`) run the real binding resolver, the real run_env.py and the real
+        """the PRODUCTION path, not a direct call. The real execute_run.sh functions build, ensure_account_bindings,
+        plan_env_file and run_stage (env -i, then `. plan-env.txt`) run the real binding resolver, the real run_env.py and the real
         bootstrap CLI, which invokes the real plan builder. Returns (returncode, stderr, plan-env text)."""
         script = open(os.path.join(ROOT, "scripts", "execute_run.sh"), encoding="utf-8").read()
         fns = "".join(re.search(r"(?ms)^%s\(\) \{.*?^\}\n" % n, script).group(0) for n in ("run_stage", "ensure_account_bindings", "plan_env_file", "build"))
@@ -856,7 +856,7 @@ class ProducerScope(unittest.TestCase):
         self.assertNotEqual(self.deadline, w["endUtc"])
 
     def test_a_plan_deadline_other_than_the_scope_deadline_is_refused_by_the_real_bootstrap(self):
-        """Sam 1794071539: admission, producer and campaign bind ONE value. A plan built with any other deadline (the occurrence end, as
+        """admission, producer and campaign bind ONE value. A plan built with any other deadline (the occurrence end, as
         before) cannot pair with the scope: the real bootstrap refuses it."""
         out, err = self.bind(self.scope(), plan_deadline=self.req["window"]["endUtc"])
         self.assertNotEqual(out, "BOUND")
@@ -1039,7 +1039,7 @@ class Qualify(unittest.TestCase):
         return req
 
     def ids(self, request_file, catalog=None):
-        """identities() shape over a synthetic catalog whose per-case sets are exactly this fixture's required assertions."""
+        """identities shape over a synthetic catalog whose per-case sets are exactly this fixture's required assertions."""
         return {"requestSha256": self.sha(request_file), "request": J(request_file), "catalogSha256": "c" * 64,
                 "catalog": catalog or {c: ["%s-a" % c.lower(), "%s-b" % c.lower()] for c in I.ALL_CASES}}
 
@@ -1170,7 +1170,7 @@ class Qualify(unittest.TestCase):
         self.write_results()
 
     def test_the_r10_selected_aht01_smoke_qualifies_projects_and_publishes_with_fifteen_display_rows(self):
-        """Sam 1794149771.844269: a SUCCESSFUL selected-AHT-01 smoke must not become another unpublishable record. The real verifier, qualifier,
+        """a SUCCESSFUL selected-AHT-01 smoke must not become another unpublishable record. The real verifier, qualifier,
         collector, projection and latest-record publisher compose: only AHT-01's own smoke assertions qualify; the display keeps fifteen rows
         with fourteen NOT SELECTED; the record completes as smoke, outside acceptance history."""
         self.CAMPAIGN = I.R10_ONE_OFF_RUN_ID
@@ -1211,7 +1211,7 @@ class Qualify(unittest.TestCase):
         refused(self, "plan-not-an-all-fifteen-smoke-plan", self.qualify, selected=["AHT-01"], mode="smoke")
 
     def test_incomplete_smoke_keeps_its_source_depth_and_never_becomes_acceptance_history(self):
-        """The real frozen verifier/qualifier/project/pending/readback/complete path for Sam's incomplete-smoke RETURN."""
+        """The real frozen verifier/qualifier/project/pending/readback/complete path for the reviewer's incomplete-smoke RETURN."""
         self.make_smoke()
         self.write_case("AHT-15", [("a", "PASS"), ("b", "NOT RUN")], "NOT RUN")
         request = self.request(mode="smoke")
@@ -1257,7 +1257,7 @@ class Qualify(unittest.TestCase):
         self.assertEqual(accepted["history"]["rows"]["AHT-05"]["last"]["runId"], "125")
 
     def test_a_request_substituted_after_admission_keeping_the_five_checked_fields_never_qualifies(self):
-        # Sam 1793548687.416409: the five execution-identity checks (runId, selection, tested release, mode, harness CODE pin) do not bind the
+        # the five execution-identity checks (runId, selection, tested release, mode, harness CODE pin) do not bind the
         # request blob. Substitute window, approval and budget fields after admission while preserving those five exactly.
         record = self.collect(live_request(list(self.SELECTED), runId="C1"))
         request_file = os.path.join(self.d, "admitted.json")
@@ -1287,7 +1287,7 @@ class Qualify(unittest.TestCase):
         self.assertEqual(I.project(record, "123", 1, "c" * 40, SHA, q, q["requestSha256"], prov_of(q))["outcome"], "passed", "the same bytes still bind")
 
     def test_a_complete_authenticated_fail_baseline_is_full_and_failed(self):
-        # Sam 1793547120.015339: every required row executed (PASS or FAIL) is full coverage; FAILs make the outcome failed, never unqualified.
+        # every required row executed (PASS or FAIL) is full coverage; FAILs make the outcome failed, never unqualified.
         self.make_full()
         self.write_case("AHT-03", [("a", "PASS"), ("b", "FAIL")], "FAIL")
         self.write_case("AHT-12", [("a", "FAIL"), ("b", "FAIL")], "FAIL")
@@ -1328,7 +1328,7 @@ class Qualify(unittest.TestCase):
 
     def test_required_assertions_must_be_exactly_the_catalog_set(self):
         # Remove a required assertion from AHT-09's config and refresh the plan's config digest: every hash stays coherent, the case can
-        # even PASS, but it no longer covers the catalog (Sam RETURN 546429c4 #1).
+        # even PASS, but it no longer covers the catalog (the reviewer RETURN 546429c4 #1).
         config = os.path.join(self.d, "cfg", "AHT-09.json")
         put(config, {"caseId": "AHT-09", "requiredAssertions": ["aht-09-a"]})
         plan = J(self.plan)
@@ -1488,7 +1488,7 @@ class Qualify(unittest.TestCase):
 
 
 class Project(unittest.TestCase):
-    """The real collector keeps all 15 rows; qualification binds to THIS record's case-results digest and releases (Sam RETURN 3e0279d6 #3)."""
+    """The real collector keeps all 15 rows; qualification binds to THIS record's case-results digest and releases (the reviewer RETURN 3e0279d6 #3)."""
 
     def record(self):
         rows = [{"case": c, "result": "PASS" if c in ("AHT-05", "AHT-09") else "NOT RUN", "reason": None if c in ("AHT-05", "AHT-09") else "Not selected",
@@ -1657,7 +1657,7 @@ def bundle_with(throwaway_id):
 
 
 class ExecutionProvenance(unittest.TestCase):
-    """The I4' receiver against Jensen's producer shapes at 75b47b2c, with every expectation derived from a COMPLETE frozen plan: the
+    """The I4' receiver against the CLI developer's producer shapes at 75b47b2c, with every expectation derived from a COMPLETE frozen plan: the
     build-plan consumption receipt, the nightly reservation's request consumption, each case's execution receipt and runtime-start file, and
     the collector's executionProvenance. Includes A-admitted / B-consumed-at-runtime / A-restored with reserve and collector reporting A."""
     A, B = "a" * 64, "b" * 64
@@ -1872,7 +1872,7 @@ class ProvenanceFromFiles(unittest.TestCase):
 
 
 class NightlyMode(unittest.TestCase):
-    """Sam 1793557964.186059: a scheduled run admits exactly the bytes the nightly gate derived and admitted (its request_b64 beside
+    """a scheduled run admits exactly the bytes the nightly gate derived and admitted (its request_b64 beside
     request_sha256), never a committed file; a nightly-regression request is admitted only that way."""
     def setUp(self):
         from test_nightly_request import SHA as NSHA, SLOT as NSLOT, derive as nightly_derive
@@ -1997,7 +1997,7 @@ import state_ref_writer as W  # noqa: E402
 
 
 class ContinuityCheckpoint(Journal):
-    """Increment I (Sam 1793566031.065709): the continuity checkpoint is the accepted rollup over the verified journal, bound to the admitted
+    """Increment I : the continuity checkpoint is the accepted rollup over the verified journal, bound to the admitted
     request, written as the exact bytes the stage runner consumes before plan construction. Synthetic inputs and test-only pins only."""
 
     APPROVAL = FIXTURE_APPROVAL
@@ -2147,7 +2147,7 @@ class ContinuityCheckpoint(Journal):
         self.refused("continuity-run-identity-exceeds-period", req=nightly)  # 126 - 100 = 26 left < 32
 
     def test_prepare_admits_only_the_supplied_envelope_and_the_real_builder_binding_accepts_the_placed_bytes(self):
-        # RETURN 1793567352.685309 #1: prepare -> placement -> the real case_start_caps.bind_inputs, with substitution refusals.
+        # RETURN #1: prepare -> placement -> the real case_start_caps.bind_inputs, with substitution refusals.
         import contextlib
         import io
         import case_start_caps as CS
@@ -2322,7 +2322,7 @@ process.exitCode = result.exitCode;
         self.assertEqual(str(e.exception), "action-digests")
 
     def test_prepare_outputs_drive_the_real_builder_through_phase_two_and_its_consumption_receipt(self):
-        # Sam 1793567840.781019 / 1793568078.292469: the positive control continues from prepare and the placed bytes through the actual
+        # the positive control continues from prepare and the placed bytes through the actual
         # build_plan entry point (phase 1, then phase 2) to its bound outputs, with complete admitted facts; synthetic, no browser/network.
         import contextlib
         import io
@@ -2436,7 +2436,7 @@ process.exitCode = result.exitCode;
 
 
 class StandingEnvelope(Journal):
-    """Option A (Sam 1793568947.054419), design only: a nightly occurrence's action envelope is DERIVED under the explicit grant in the pinned
+    """Option A , design only: a nightly occurrence's action envelope is DERIVED under the explicit grant in the pinned
     recurring approval. Every approval, grant, pin and checkpoint here is SYNTHETIC, supplied through test-only overrides; the production pin
     stays unset, so production derivation refuses."""
     GRANT = {"scope": "per-occurrence-start-take", "cases": I.ALL_CASES, "grantRef": "SYNTHETIC-NOT-A-GRANT"}
@@ -2537,7 +2537,7 @@ class StandingEnvelope(Journal):
         return (self.req["runId"], run, 1, hashlib.sha256(self.req_raw).hexdigest())
 
     def test_an_exact_fit_already_reserved_request_is_admitted_against_its_held_allocation(self):
-        # Sam RETURN 1793625480.539669: the rollup charges the open reserve; admission must not demand the same headroom a second time.
+        # the reviewer RETURN : the rollup charges the open reserve; admission must not demand the same headroom a second time.
         rc0 = json.loads(self.checkpoint())
         need = self.need()
         filler = {k: rc0["currentHeadroom"][k] - need[k] for k in I.STANDING_PERIOD_DIMENSIONS}
@@ -2551,7 +2551,7 @@ class StandingEnvelope(Journal):
         refused(self, "continuity-run-identity-exceeds-period", self.derive, prior=I.reserved_occurrences(self.chain(), self.own()))
 
     def test_a_released_own_reserve_holds_nothing(self):
-        # Jensen's review of 7ab42417: a release returns the allocation exactly like a settle; it must not still count as held.
+        # the CLI developer's review of 7ab42417: a release returns the allocation exactly like a settle; it must not still count as held.
         need = self.need()
         self.reserve_on_chain(allocation=dict(need, coachingRequests=0, runnerMinutes=0))
         self.assertIsNotNone(I.own_held_allocation(self.chain(), self.own()))
@@ -2586,7 +2586,7 @@ class StandingEnvelope(Journal):
                 prior=I.reserved_occurrences(self.chain(), self.own()), own=self.own())
 
     def test_this_executions_own_open_reserve_is_not_a_replay_but_any_other_reserve_is(self):
-        # Sam RETURN 1793624502.797169 #2: journal-reserve appends THIS run's reserve before prepare; it must not reject itself.
+        # the reviewer RETURN #2: journal-reserve appends THIS run's reserve before prepare; it must not reject itself.
         own = (self.req["runId"], "101", 1, hashlib.sha256(self.req_raw).hexdigest())
         self.reserve_on_chain()
         prior = I.reserved_occurrences(self.chain(), own)
@@ -2655,7 +2655,7 @@ class StandingEnvelope(Journal):
             CS.bind_inputs(dict(bp, BP_REQUEST_SHA256=hashlib.sha256(nxt).hexdigest()), {"actionApproval": envelope})
 
     def test_composed_nightly_occurrence_runs_gate_reserve_observation_prepare_and_both_builder_phases(self):
-        # Sam 1793572531.612979: ONE composed all-15 synthetic control. Real: nightly derive, the observation's accepted reserve on the journal,
+        # ONE composed all-15 synthetic control. Real: nightly derive, the observation's accepted reserve on the journal,
         # its settle, prepare (continuity checkpoint, standing envelope, Case 10 admission), run_env, and build_plan phase 1 and 2 in-process,
         # to the consumption receipt. Explicit test-only substitutions, nothing else: the approval/facts/continuity pins, the trusted reader
         # identity, the synthetic packet scaffold, producer descriptor and PDF-parser file. Admission and accounting are not stubbed.
@@ -2670,7 +2670,7 @@ class StandingEnvelope(Journal):
         from test_nightly_request import derive as nightly_derive
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         slot = now - timedelta(minutes=1)
-        # The 360-minute nightly window (Sam 1793554593.723039) holds setup + live + collect from an admission a few seconds after the slot.
+        # The 360-minute nightly window holds setup + live + collect from an admission a few seconds after the slot.
         approval_raw = self.nightly_approval(startTakeGrant=self.GRANT, perRunCaps={"windowMinutes": 360})
         bundle = json.loads(bundle_with(ACCOUNT_ID))
         maintained = bundle["accounts"]["maintained-read-only"]["accountId"]
@@ -2841,7 +2841,7 @@ class StandingEnvelope(Journal):
                 refused(self, "action-approval-standing-" + code, self.derive, **kw)
 
     def test_the_checkpoint_period_and_every_period_ceiling_must_be_the_standing_approvals_own(self):
-        # RETURN 1793570165.380389: a different accounting scope can never extend the standing grant.
+        # RETURN : a different accounting scope can never extend the standing grant.
         self.assertTrue(self.derive())
         ceilings = {"requests": 132000, "protectedReserveRequests": 300, "identityReads": 960, "starts": 1260, "takes": 1200}
         for label, over in (("period starts later", {"periodStartUtc": "2026-11-02T00:00:00Z"}),
@@ -2901,7 +2901,7 @@ class StandingEnvelope(Journal):
 
         # Granted and pinned, nothing supplied: derived for this occurrence; the result equals the envelope an approver would have supplied.
         self.assertEqual(prepare(facts(), self.pin)["facts"]["actionApproval"], supplied)
-        # Sam 1794114759: a nightly (unshared) run binds no reservation; only a manual run's own verified reserve does
+        # a nightly (unshared) run binds no reservation; only a manual run's own verified reserve does
         self.assertIsNone(prepare(facts(), self.pin)["reservationBinding"])
         # D1(a): a supplied nightly envelope always refuses (no fallback); the production pin unset refuses derivation by name.
         refused(self, "nightly-action-approval-must-be-derived", prepare, facts(actionApproval=supplied), self.pin)
@@ -2919,7 +2919,7 @@ class StandingEnvelope(Journal):
 
 
 class Case10Bound(unittest.TestCase):
-    """Sam 1793567664.474339 item 2: prepare admits the Case 10 projection only through the builder's own validator; synthetic only."""
+    """item 2: prepare admits the Case 10 projection only through the builder's own validator; synthetic only."""
     ENTRIES = {"existing-disposable": {"accountId": ACCOUNT_ID}}
 
     def record(self, req, **over):
@@ -2962,7 +2962,7 @@ class Case10Bound(unittest.TestCase):
 
 
 class JournalReservationRecord(unittest.TestCase):
-    """I4' on the journal (RETURN 1793572741.370569): a nightly run's reservation record is the journal's own reserve event."""
+    """I4' on the journal (RETURN ): a nightly run's reservation record is the journal's own reserve event."""
     def snapshot(self, *events):
         return {"schema": "speaksharp.cloud-test.journal-snapshot.v1", "headSha": "a" * 40, "events": list(events)}
 
@@ -2981,7 +2981,7 @@ class JournalReservationRecord(unittest.TestCase):
 
 
 class Case10ObservationAdmission(unittest.TestCase):
-    """Design A in prepare (Sam 1793570217.800529): a nightly AHT-10 row pinning an observationContract admits only the placed fresh
+    """Design A in prepare : a nightly AHT-10 row pinning an observationContract admits only the placed fresh
     observation, through the builder's own validator, for this request digest, run and time; synthetic reader trusted by test override only."""
     ENTRIES = {"existing-disposable": {"accountId": ACCOUNT_ID}}
 
@@ -3031,7 +3031,7 @@ class WindowAtAdmission(unittest.TestCase):
 
 
 class LiveAccountsBundle(unittest.TestCase):
-    # Cross-language golden fixture (Sam RETURN 89949827; Jensen 1793552377.273939): the synthetic "valid" vector's exact canonical file bytes
+    # Cross-language golden fixture (the reviewer RETURN 89949827): the synthetic "valid" vector's exact canonical file bytes
     # and their digest. The resolver side pins the same two literals, so caller and resolver agree byte for byte.
     GOLDEN_BYTES = (b'{"accounts":{"existing-disposable":{"accountId":"11111111-1111-4111-8111-111111111111",'
                     b'"email":"throwaway.synthetic@example.invalid"},"maintained-read-only":{"accountId":"22222222-2222-4222-8222-222222222222",'
@@ -3053,7 +3053,7 @@ class LiveAccountsBundle(unittest.TestCase):
                 refused(self, code, I.parse_live_accounts_bundle, raw)
 
     def test_the_origin_is_one_full_string_match_with_no_url_parser(self):
-        # Sam 1793564538.998609: the caller imports no network-capable module, and the origin is matched in full, bound to the project.
+        # the caller imports no network-capable module, and the origin is matched in full, bound to the project.
         with open(os.path.join(ROOT, "scripts", "init_run_inputs.py"), encoding="utf-8") as f:
             self.assertNotRegex(f.read(), r"(?m)^\s*(import|from)\s+(socket|urllib|http|requests|ssl)\b")
         for url in ("https://%s.supabase.co:0443" % PROJECT, "https://%s.supabase.co:" % PROJECT, "https://%s.supabase.co\n" % PROJECT,
@@ -3065,7 +3065,7 @@ class LiveAccountsBundle(unittest.TestCase):
         for ref in (PROJECT + ".supabase.co", "a.c", "", None):
             with self.subTest(ref=ref):
                 self.assertFalse(I.is_project_origin("https://%s.supabase.co" % ref, ref))
-        # Sam RETURN 1793565233.209949: a newline-terminated reference paired with its URL, and Unicode case-folding (long s).
+        # the reviewer RETURN : a newline-terminated reference paired with its URL, and Unicode case-folding (long s).
         self.assertFalse(I.is_project_origin("https://%s\n.supabase.co" % PROJECT, PROJECT + "\n"))
         for url in ("https://%s.\u017fupabase.co" % PROJECT, "https://%s.supabase.\u0441o" % PROJECT, "https://%s.\u017fUPABASE.CO" % PROJECT):
             with self.subTest(url=url):
@@ -3083,7 +3083,7 @@ class LiveAccountsBundle(unittest.TestCase):
     def test_role_truth_project_binding_and_each_role_returns_only_its_own_entry(self):
         b = I.parse_live_accounts_bundle(bundle_with(ACCOUNT_ID))
         self.assertEqual(I.role_account(b, "existing-disposable", SUPABASE_URL_OK)["accountId"], ACCOUNT_ID)
-        # Case15 (Sam 1793554938.870679): maintained-read-only returns its OWN entry, never THROWAWAY's; whether it may run at all is the
+        # Case15 : maintained-read-only returns its OWN entry, never THROWAWAY's; whether it may run at all is the
         # run-stage allowlist's decision in account_bindings (refused today: Account.test_an_all_fifteen_selection_binds_fourteen_plus_one...).
         self.assertEqual(I.role_account(b, "maintained-read-only", SUPABASE_URL_OK)["accountId"], "22222222-2222-4222-8222-222222222222")
         refused(self, "account-role-not-in-bundle", I.role_account, b, "other-role", SUPABASE_URL_OK)
@@ -3131,7 +3131,7 @@ if __name__ == "__main__":
 
 
 class CaseDiagnosticTests(unittest.TestCase):
-    """Run 42483030590 (Sam 1794144841): each bound timing row carries a CLOSED, content-free cause: the guard stop code from the
+    """Run 42483030590 : each bound timing row carries a CLOSED, content-free cause: the guard stop code from the
     digest-verified summary, the receipt exit code, the first non-passing catalog assertion id; early guard exits without a summary are
     classified from the exit code; nothing free-text, injected or unlisted is ever projected."""
     BIND = {"runId": "42483030590", "runAttempt": "1", "headSha": "2" * 40, "workflowStartUtc": "2026-11-08T13:02:28Z"}
@@ -3204,7 +3204,7 @@ class CaseDiagnosticTests(unittest.TestCase):
 
 
 class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
-    """Sam 1794145916 / 1794146991: a driver that caught an early error records FAIL and returns normally (guard `completed`, exit 0); its
+    """a driver that caught an early error records FAIL and returns normally (guard `completed`, exit 0); its
     content-safe interruption evidence names the cause ONLY when bound to this case and its retained receipt, through the reviewed
     vocabularies. Format-valid injected values are dropped, mismatched or ambiguous refs are `unknown`, malformed shapes never raise."""
     DOC = {"contentSafe": True, "caseId": "AHT-01", "kind": "interruption-diagnostic", "stage": "start-press", "step": "owner-bound",
@@ -3251,7 +3251,7 @@ class DriverInterruptionDiagnosticTests(CaseDiagnosticTests):
             self.assertNotIn(leak, text)
 
     def test_the_document_must_be_this_cases_own(self):
-        got, _ = self.project(dict(self.DOC, caseId="AHT-15"))          # Sam's repro: an AHT-15 document under AHT-01
+        got, _ = self.project(dict(self.DOC, caseId="AHT-15"))          # the reviewer's repro: an AHT-15 document under AHT-01
         self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})
         got, _ = self.project(dict(self.DOC, caseId=["AHT-01"]))
         self.assertEqual(got, {"stage": "unknown", "step": None, "error": None, "trail": []})

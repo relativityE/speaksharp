@@ -1,5 +1,5 @@
 'use strict';
-// R10 A6 (Sam 1793984441): qualification checks the bound browser copy the wrapper actually launches, never Playwright's own download.
+// R10 A6 : qualification checks the bound browser copy the wrapper actually launches, never Playwright's own download.
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');

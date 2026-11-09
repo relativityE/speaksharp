@@ -1,6 +1,6 @@
-"""Inputs and qualification of the GitHub live caller (Sam 1793538100.358869, 1793538322.008999). Offline; never prints a value or identifier.
+"""Inputs and qualification of the GitHub live caller . Offline; never prints a value or identifier.
 
-prepare   selects a COMMITTED, reviewed run request by repository path (never generated, never a test fixture or template, byte-identical to the
+prepare selects a COMMITTED, reviewed run request by repository path (never generated, never a test fixture or template, byte-identical to the
           tested commit), refuses a synthetic or Claude-runtime request, binds its tested release to this source by request-only lineage
           (or an explicit approved older-release diagnostic), its approval and window, checks per-run request, identity, paid and TIME
           ceilings (sum of the selected cases' caseMaxMs plus admission, inter-case, cleanup, setup and collect reserves, inside the job
@@ -8,14 +8,14 @@ prepare   selects a COMMITTED, reviewed run request by repository path (never ge
           the bounded facts input into the builder's real facts schema, and only then checks the CUMULATIVE request and identity caps against
           the verified continuity checkpoint's prior usage and reservations. It writes CT_* bindings for
           execute_run.sh; it computes nothing that the stage runner or gates own.
-qualify   after collect: freezes EVERY verifier input into a new private snapshot, runs the REAL verify_run_binding on the snapshot only
+qualify after collect: freezes EVERY verifier input into a new private snapshot, runs the REAL verify_run_binding on the snapshot only
           (exit 0, fresh output, zero failures), and then, separately and from the same frozen bytes, the builder's 15-row denominator with
           every selected case dispatched and every required assertion PASS exactly once. Its result is bound to the campaign, release and
           plan/results digests. Verifier success alone is never PASS.
-project   run-record.json -> the closed latest record the publisher accepts; statuses and counts only. `passed` also needs the qualify
+project run-record.json -> the closed latest record the publisher accepts; statuses and counts only. `passed` also needs the qualify
           output for exactly the recorded cases (passed as --qualification); without it the record is `failed` with code not-qualified.
 
-Continuity (Sam 1793538322.008999; Increment I, Sam 1793566031.065709): the cumulative checkpoint is the ACCEPTED ROLLUP
+Continuity (Increment I): the cumulative checkpoint is the ACCEPTED ROLLUP
 (accounting_rollup.receive) of the committed, content-free accepted bootstrap and approved period scope (each pinned by digest) over the
 state-ref journal verified from its reviewed root, bound to the admitted request's approval reference and every applicable cumulative
 ceiling. prepare writes its canonical bytes privately (reconciliation.json) and publishes their digest as a step output; those bytes are
@@ -45,22 +45,22 @@ import reservation_binding as RB  # noqa: E402  (the one schema; consumers verif
 RUNTIME = "GitHub Actions SpeakSharp"
 PRODUCER_CASES = {"AHT-01", "AHT-02", "AHT-03", "AHT-07", "AHT-08"}
 SMOKE_OCCURRENCE_WINDOW_MINUTES = 100
-# The single active one-off grant (Sam 1794145532 / 1794145971 / 1794148674 / 1794149071): ONE attempt of the R10 smoke campaign over an
+# The single active one-off grant : ONE attempt of the R10 smoke campaign over an
 # explicitly selected case subset. The all-15 grant (R10-3b040043-one-off-grant.json, e501e203) was consumed by run 42483030590 and stays
-# in the tree as history only. The grant names `selectedCases`; the request (Sam-owned bytes) must be the SEMANTIC subset of the committed
+# in the tree as history only. The grant names `selectedCases`; the request (the reviewer-owned bytes) must be the SEMANTIC subset of the committed
 # all-15 template for exactly those cases with the caps re-derived here (subset_estimate) -- never defaulted to fifteen. Until the reviewed
 # grant bytes are pinned, every one-off admission refuses `one-off-grant-not-the-reviewed-bytes`.
 ONE_OFF_GRANT_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01-grant.json"
-ONE_OFF_GRANT_SHA256 = "6345d92b111a8ff864d397819036a2ff52e7b98e6ca4e533fcf178dc26be2ba2"   # the AHT-01 grant, opaque approval codes and role token
+ONE_OFF_GRANT_SHA256 = "690b2619772a9ac3b4719477b76ca0a788d99804a4d9dc796d2bed8c41f55d8a"   # the AHT-01 grant, opaque approval codes and role token
 ONE_OFF_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-aht01.json"
 ONE_OFF_BASE_TEMPLATE_PATH = "tools/cloud-test/config/runs/R10-3b040043-all15.json"
-ONE_OFF_BASE_TEMPLATE_SHA256 = "a5f17fc0563534b80e7e8a3b168d184b4fa53f64a165d106ef7282778062bc3f"
+ONE_OFF_BASE_TEMPLATE_SHA256 = "ee3e1a2591ab1f0c60209cccb3cc2ea1d0b890208e9bfbcbfa208eab2fec2015"
 R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 ONE_OFF_GRANT_STATUSES = {"APPROVED", "AWAITING_OWNER_DECISION"}
 ONE_OFF_GRANT_KEYS = {"schema", "status", "approvalRef", "scopeApprovalRef", "approvedBy", "runId", "attempt", "requestTemplateSha256",
                       "testedSha", "backendSha", "periodScopeSha256", "preReserveStateHead", "notBeforeUtc", "expiresUtc",
                       "limits", "olderReleaseDiagnostic", "selectedCases"}
-# Sam 1794175603 / 1794175926, PO go-ahead 2026-11-08: two exact closed shapes. A window extended past the originally approved expiry must
+# , PO go-ahead 2026-11-08: two exact closed shapes. A window extended past the originally approved expiry must
 # name the actual source of the new timing as `windowSourceRef` (provenance only, no timezone asserted; it is never read as the approval,
 # which stays `approvalRef`). The original window carries none.
 ONE_OFF_APPROVED_EXPIRES_UTC = "2026-11-09T00:00:00Z"
@@ -87,7 +87,7 @@ def publishable(doc, depth=0):
     if isinstance(doc, list):
         return all(publishable(v, depth + 1) for v in doc)
     return True
-# The time envelope is NOT resized from estimates (Sam 1794149071): the reviewed 100-minute occurrence and 60-minute live ceiling stay.
+# The time envelope is NOT resized from estimates : the reviewed 100-minute occurrence and 60-minute live ceiling stay.
 ONE_OFF_WINDOW = {"endToEndMinutes": 100, "liveMinutes": 60}
 CALLER_AUTHORITY_FIELDS = {"occurrenceApproval", "actionApproval", "olderReleaseDiagnostic"}
 
@@ -110,7 +110,7 @@ def subset_estimate(base, selected, budget_model, smoke_catalog):
     (full_coverage_budget.compute): per-case ceiling = harness_ceiling(plannedRequests, allowancePct); cleanup = cleanupReservePerCase per
     selected case; run cap = ceilings + cleanup; identity reads = 2 per case + 2; Starts = takes = the selected startPressCaps; coaching cap =
     ceil(takes x (100 + coachingRetryAllowancePct)%); runner minutes kept from the template (never resized from estimates). Takes are the
-    smoke catalog's per-case minimumTakes, never assumed equal to Starts (AHT-11 is 3 Starts / 1 take; Sam 1794150370.890329)."""
+    smoke catalog's per-case minimumTakes, never assumed equal to Starts (AHT-11 is 3 Starts / 1 take)."""
     rows = {r.get("case"): r for r in base.get("selection") or [] if isinstance(r, dict)}
     _need(all(c in rows for c in selected), "one-off-subset-case")
     planned = [rows[c]["plannedRequests"] for c in selected]
@@ -195,7 +195,7 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
           "one-off-grant-shape")
     extended = grant.get("expiresUtc") != ONE_OFF_APPROVED_EXPIRES_UTC
     _need(_ref(grant.get(ONE_OFF_WINDOW_SOURCE_KEY)) if extended else ONE_OFF_WINDOW_SOURCE_KEY not in grant, "one-off-grant-window-source")
-    # Sam 1794070407: a grant whose proposed scope grew past its recorded owner decision is committed AWAITING_OWNER_DECISION and cannot
+    # a grant whose proposed scope grew past its recorded owner decision is committed AWAITING_OWNER_DECISION and cannot
     # admit a dispatch; only a reviewed change pinning the owner's new decision sets APPROVED (and re-pins ONE_OFF_GRANT_SHA256).
     _need(grant.get("status") == "APPROVED", "one-off-grant-not-approved")
     _need(publishable(grant), "one-off-grant-not-publishable")
@@ -256,7 +256,7 @@ def one_off_grant(repo, template=None, initiation=None, reconciliation_bytes=Non
 
 # The grant's single attempt must reach the cases. An attempt that stopped in setup before any product request (R10 runs 41933223835 and
 # 41960376782) is reserved and then settled from evidence with zero product usage, which moves the journal head without consuming the grant.
-# Past the pinned head, a checkpoint is admitted only when (Sam 1793874766.615719) the verified chain the checkpoint was computed on adds,
+# Past the pinned head, a checkpoint is admitted only when the verified chain the checkpoint was computed on adds,
 # after that pinned head, nothing but complete reserve -> settle pairs of one attempt each whose settle carries zero on all five product
 # counters (runner minutes stay counted), and the accepted rollup agrees: rooted at that head, no open reservation, no product or unknown
 # usage in the period. A release, an executed attempt, an open reservation or any doubt refuses, so the grant still authorizes exactly one
@@ -355,9 +355,8 @@ def materialize_smoke_occurrence(template, initiation, approval_ref, scope_appro
 
     The 100-minute occurrence is the bounded end-to-end workflow envelope:
     5 minutes to record, 3 to reserve, the 85-minute live-job bound
-    (15 setup + 60 live + 10 collect; PO 60-minute signal run, Sam
-    1794073342.879639), and 5 for the parallel settle/record completion jobs,
-    with two minutes of structural slack.  It is not a measured runtime.  The
+    (15 setup + 60 live + 10 collect; PO 60-minute signal run), and 5 for the parallel settle/record completion jobs,
+    with two minutes of structural slack. It is not a measured runtime. The
     caller must subsequently authorize these exact occurrence/release bytes
     and bind the ordinary action-approval envelope.
     """
@@ -412,11 +411,11 @@ def select_manual_occurrence(repo, template_rel, occurrence_file, occurrence_sha
     expected = materialize_authoritative_smoke_occurrence(repo, template, workflow_start_utc)
     _need(occurrence == expected, "manual-occurrence-not-the-template-materialization")
     return occurrence_file, hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest(), raw, template_blob
-# NIGHTLY facts (Elon 1793560137.871769, pending Sam's content/pin decision): a scheduled run has no operator facts input, so its facts are
+# NIGHTLY facts (pending the reviewer's content/pin decision): a scheduled run has no operator facts input, so its facts are
 # the committed file below, admitted only when its bytes hash to the reviewed pin. None today: every nightly prepare refuses.
 NIGHTLY_FACTS_PATH = "tools/cloud-test/config/nightly/facts.json"
 NIGHTLY_FACTS_SHA256 = None
-# Option A (Sam 1793568947.054419, design only): the owner's recurring approval may carry an explicit per-occurrence Start/take grant, from
+# Option A (design only): the owner's recurring approval may carry an explicit per-occurrence Start/take grant, from
 # which a nightly occurrence's action envelope is DERIVED. Its bytes are admitted only when they hash to this reviewed pin. None today: every
 # derivation refuses, so the mechanics stay inactive until an actual owner grant and accepted inputs exist.
 RECURRING_APPROVAL_PATH = "tools/cloud-test/config/recurring-approval.json"
@@ -429,14 +428,14 @@ ALL_CASES = ["AHT-%02d" % n for n in range(1, 16)]
 ROLE = {**{c: "existing-disposable" for c in ALL_CASES[:14]}, "AHT-15": "maintained-read-only"}
 ROLE_CREDENTIALS = {"existing-disposable": {"email": "THROWAWAY_TEST_EMAIL", "password": "THROWAWAY_TEST_PASSWORD"},
                     "maintained-read-only": {"email": "FREE_TEST_EMAIL", "password": "FREE_TEST_PASSWORD"}}
-# The private CLOUD_TEST_LIVE_ACCOUNTS bundle (Sam 1793544453.003099): configuration only (emails and account ids, never a password or
+# The private CLOUD_TEST_LIVE_ACCOUNTS bundle : configuration only (emails and account ids, never a password or
 # token), validated exactly as scripts/verify-test-users.mjs does, in the same order and with the same codes (shared vectors).
 BUNDLE_ROLES = ("existing-disposable", "maintained-read-only")
 BUNDLE_LIMIT = 4096
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 UUID_V4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 PROJECT_REF = re.compile(r"^[a-z0-9]{20}$")
-# One explicit shared email contract (Sam 1793545693.919369): printable ASCII without space or "@" on both sides of exactly one "@", at
+# One explicit shared email contract : printable ASCII without space or "@" on both sides of exactly one "@", at
 # most 254 characters; CONTROL stays for the environment-file writer.
 EMAIL_ASCII = re.compile(r"^[\x21-\x3f\x41-\x7e]+@[\x21-\x3f\x41-\x7e]+$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -453,7 +452,7 @@ FACT_OPTIONAL = {"producerReviewReference", "providerEvidenceReferences", "backe
 # occurrence digest.
 ACTION_APPROVAL_SCHEMA = "speaksharp.case-start-approval.v1"
 ACTION_APPROVAL_KEYS = {"schema", "requestSha256", "reconciliationSha256", "approvalRef", "approvedBy", "selectionApprovalRef"}
-# The ONE reviewed location for live run requests (Sam RETURN 3e0279d6 finding 1); nothing else counts as request-only lineage.
+# The ONE reviewed location for live run requests (the reviewer RETURN 3e0279d6 finding 1); nothing else counts as request-only lineage.
 REQUEST_DIR = "tools/cloud-test/config/runs/"
 TEMPLATE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates", "run-request.template.json")
 # Beyond the template: the live/synthetic marker, the runtime, the producer scope limits, and full mode's owner-approved omissions
@@ -466,7 +465,7 @@ SCOPE_MAX_WINDOW_SECONDS = 21600
 SETUP_RESERVE_MINUTES = 15
 COLLECT_RESERVE_MINUTES = 10
 HOSTED_JOB_CAP_MINUTES = 360
-# Sam 1794070353/1794071539 (design a): ONE execution deadline, computed once at init and bound unchanged as the plan's deadlineAt (BP_T1),
+# (design a): ONE execution deadline, computed once at init and bound unchanged as the plan's deadlineAt (BP_T1),
 # the guard policy's deadline, admission's approvedDeadlineAt and the producer scope's deadlineAt. The workflow kills the run step at
 # step start + live minutes; init runs before that step starts, so init time + live minutes is never later than the kill. The stage's own
 # post-campaign exit (ownership return) keeps this reserve; the campaign's cleanup reserve is subtracted once, by campaign-core, not here.
@@ -528,7 +527,7 @@ def select_request(repo, rel, source_sha):
 
 
 def nightly_request(path, gate_sha256, run_id, source_sha):
-    """NIGHTLY mode (Sam 1793557964.186059): the request is exactly the bytes the credential-free nightly gate derived and admitted, delivered
+    """NIGHTLY mode : the request is exactly the bytes the credential-free nightly gate derived and admitted, delivered
     as its step outputs (request_b64 beside request_sha256), never a committed file. Read ONCE from a regular private file; their digest must
     be the gate's; they must be a nightly-regression request for THIS run (attempt 1) testing exactly this source. Returns (path, blob, raw)."""
     _need(isinstance(gate_sha256, str) and SHA64.match(gate_sha256) is not None, "nightly-gate-digest")
@@ -753,7 +752,7 @@ def parse_live_accounts_bundle(raw):
 
 
 def canonical_bundle_bytes(bundle):
-    """The VALIDATED minimum binding document as the exact file bytes both runtimes agree on (Jensen 1793552377.273939): UTF-8 JSON with
+    """The VALIDATED minimum binding document as the exact file bytes both runtimes agree on : UTF-8 JSON with
     keys sorted at every level, "," and ":" separators, no whitespace, then exactly one LF. Every value is ASCII by validation, so Python
     and a sorted-key JS stringify match. live_accounts_sha256 is the lowercase SHA-256 of exactly these bytes."""
     doc = {"version": 1, "projectRef": bundle["projectRef"], "accounts": bundle["accounts"]}
@@ -787,7 +786,7 @@ def mask_commands(values):
 def is_project_origin(url, project_ref):
     """The approved Supabase project origin, exactly: https://<projectRef>.supabase.co (a trailing "/" and the default port are the same
     origin; scheme and host compare case-insensitively, as URL origins do). One full-string match bound to THIS project's reference, with
-    literal dots and no URL parser (Sam 1793564538.998609): HTTP, any userinfo or "@", another port, another or suffixed domain, any path,
+    literal dots and no URL parser : HTTP, any userinfo or "@", another port, another or suffixed domain, any path,
     query or fragment, trailing junk, and anything else refuse."""
     # fullmatch, not match: `$` alone admits a final newline. ASCII case-folding only: Unicode folding would accept "\u017fupabase.co".
     if not isinstance(url, str) or not isinstance(project_ref, str) or not PROJECT_REF.fullmatch(project_ref):
@@ -813,7 +812,7 @@ def write_env_file(path, mapping):
 
 
 def account_bindings(cfg, cases, facts_accounts, bundle, first_observation_run=None):
-    """Every role the selection needs (Jensen's I1'/I2' contract: AHT-01..14 existing-disposable, AHT-15 maintained-read-only, so an all-15 run
+    """Every role the selection needs (the CLI developer's I1'/I2' contract: AHT-01..14 existing-disposable, AHT-15 maintained-read-only, so an all-15 run
     is 14+1), each bound to its own credential NAMES, its account ID from the private bundle (checked by digest against the approved binding)
     and its history reference. A role's names must be ones the run stage actually receives (config credentials.runEnvironment.stages.run);
     values are never renamed into another role's names. Returns one binding per role, sorted by role."""
@@ -913,10 +912,10 @@ def state_chain(root):
 
 
 def check_case10_bound(req, facts, cases, entries, request_sha256=None, run_id=None, now=None, observation=None):
-    """Sam 1793567664.474339 item 2: the Case 10 request-bound projection the builder consumes is admitted only when the builder's own
+    """item 2: the Case 10 request-bound projection the builder consumes is admitted only when the builder's own
     validator (case_start_caps.case10_execution_bound: shape, schema, run/source/account binding, evidence reference, the request row's
     requestBoundSha256 over the exact record bytes, and the unchanged 240 allowance) accepts it for the admitted request and the Case 10
-    role's account. A row pinning an observationContract (design A, Sam 1793570217.800529) takes only the fresh `observation` record,
+    role's account. A row pinning an observationContract (design A) takes only the fresh `observation` record,
     admitted for this request digest, run and time. A record supplied when Case 10 needs none refuses. Returns the bound report, or None."""
     import case_start_caps as CS
     account = entries[ROLE["AHT-10"]]["accountId"] if "AHT-10" in cases else ""
@@ -944,7 +943,7 @@ def read_case10_observation(path):
 
 
 def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
-    """RETURN 1793567352.685309 #1: the builder's Start/take action approval, as SUPPLIED in the facts by its approver, admitted only when it
+    """RETURN #1: the builder's Start/take action approval, as SUPPLIED in the facts by its approver, admitted only when it
     names exactly the admitted request bytes, exactly the continuity checkpoint bytes, and the request's own approval and selection
     references. The real consumer (case_start_caps.bind_inputs) checks the same envelope again against the bytes it reads."""
     _need(isinstance(approval, dict) and set(approval) == ACTION_APPROVAL_KEYS and approval["schema"] == ACTION_APPROVAL_SCHEMA,
@@ -959,8 +958,8 @@ def check_action_approval(approval, request_sha256, reconciliation_bytes, req):
 
 
 def reserved_occurrences(chain, own=None):
-    """Campaign ids already reserved on the verified state-ref chain (the same journal the continuity checkpoint received). Sam RETURN
-    1793624502.797169 #2: `own` = (campaignId, runId, attempt, requestSha256) of THIS execution. journal-reserve appends its reserve before the
+    """Campaign ids already reserved on the verified state-ref chain (the same journal the continuity checkpoint received). the reviewer RETURN
+     #2: `own` = (campaignId, runId, attempt, requestSha256) of THIS execution. journal-reserve appends its reserve before the
     live job prepares, so that one verified, still-open reserve (exact campaign, run, attempt and request digest) is not a replay. Any other
     reserve of the occurrence (another run, another attempt, another request, or this reserve once settled) still makes it replayed."""
     events = chain[-1][1]
@@ -976,7 +975,7 @@ def _is_own_open(e, events, own):
 
 
 def _own_open(events, own):
-    """This execution's own open reserves; more than one is ambiguous and refuses (Jensen's review of 7ab42417) rather than falling back."""
+    """This execution's own open reserves; more than one is ambiguous and refuses (the CLI developer's review of 7ab42417) rather than falling back."""
     found = [e for e in events if _is_own_open(e, events, own)]
     _need(len(found) <= 1, "action-approval-own-reserve-ambiguous")
     return found
@@ -997,7 +996,7 @@ def manual_approval_chain(chain, own):
 
 
 def reservation_binding_doc(chain, own, reconciliation_bytes, harness_source_sha, tested_sha):
-    """Sam 1794113504 / 1794114759: the authoritative reservation a manual run executes under, derived from the SAME validated state-ref chain
+    """the authoritative reservation a manual run executes under, derived from the SAME validated state-ref chain
     prepare read (reviewed root -> head) and the EXACT manual own tuple (campaign, run, attempt, admitted request digest) manual_approval_chain
     admitted: the head must add exactly this run's one open own reserve to its parent, and that parent must be the reconciliation checkpoint's
     head (an independently produced, byte-checked artifact). Three distinct heads are recorded: the harness/workflow source, the tested served
@@ -1020,7 +1019,7 @@ def reservation_binding_doc(chain, own, reconciliation_bytes, harness_source_sha
 
 
 def own_held_allocation(chain, own):
-    """Sam RETURN 1793625480.539669: the allocation THIS execution's verified, still-open reserve holds (None when there is none). The rollup
+    """the reviewer RETURN : the allocation THIS execution's verified, still-open reserve holds (None when there is none). The rollup
     already charges an open reserve against period headroom, so an admitted run is checked against what it holds, never charged twice."""
     held = _own_open(chain[-1][1], own)
     return dict(held[0]["allocation"]) if held else None
@@ -1049,7 +1048,7 @@ def standing_grant_in_force(repo, pin=None):
 
 
 def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, cases, cfg, now, attempt, prior, pin=None, held=None):
-    """Option A (Sam 1793568947.054419): a nightly occurrence's action envelope, DERIVED only under the owner's explicit standing grant in the
+    """Option A : a nightly occurrence's action envelope, DERIVED only under the owner's explicit standing grant in the
     pinned recurring approval, never from data equality alone. The approval, attempt, occurrence (and its replay), cases, window, per-run
     and period limits and references are all checked BEFORE the envelope exists; the unchanged check_action_approval then admits it, and
     case_start_caps.bind_inputs re-checks it against the bytes it reads. `pin` is TEST-ONLY."""
@@ -1092,7 +1091,7 @@ def standing_envelope(repo, req, request_sha256, reconciliation_bytes, scope, ca
           and _int(est.get("identityReads")) and est["identityReads"] <= caps["identityReads"]
           and _int(est.get("starts")) and est["starts"] <= caps["starts"] and _int(est.get("takes")) and est["takes"] <= caps["takes"],
           "action-approval-standing-per-run")
-    # RETURN 1793570165.380389: the verified checkpoint's accounting period and every period ceiling are the standing approval's own, and
+    # RETURN : the verified checkpoint's accounting period and every period ceiling are the standing approval's own, and
     # the remaining headroom in each dimension still holds this run, so a different accounting scope can never extend the standing grant.
     rc = json.loads(reconciliation_bytes)
     _need(lim.get("cumulativeCeilingRequests") == period["requests"] and isinstance(scope, dict)
@@ -1118,7 +1117,7 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
     """Return the exact builder envelope for this occurrence.
 
     Manual dispatches retain the approver-supplied, byte-bound envelope. Scheduled executions must not carry a reusable envelope in their
-    pinned facts. D1(a) (Sam 1793622282.584849): a nightly envelope is derived ONLY through `standing` (standing_envelope), which checks the
+    pinned facts. D1(a) : a nightly envelope is derived ONLY through `standing` (standing_envelope), which checks the
     pinned standing grant, attempt, occurrence and replay, cases, window, per-run limits, period headroom and references BEFORE the envelope
     exists; the derived envelope is the request/reconciliation-bound one, and the ordinary checker validates it for both routes.
     """
@@ -1157,7 +1156,7 @@ def occurrence_action_approval(facts, request_sha256, reconciliation_bytes, req,
 def checkpoint_and_scope(repo, req, pins=None, chain_reader=None, own=None):
     """The continuity checkpoint: the canonical bytes of the accepted rollup, bound to this request, with the accepted period scope they were
     received under (the standing derivation binds its period), or a continuity-* refusal. `pins` and
-    `chain_reader` are TEST-ONLY overrides; production uses continuity_pins() (all None today) and the real state-ref journal."""
+    `chain_reader` are TEST-ONLY overrides; production uses continuity_pins (all None today) and the real state-ref journal."""
     pins = continuity_pins() if pins is None else pins
     _need(pins.get("accepted_sha256") is not None and pins.get("accepted_root") is not None, "continuity-rollup-not-accepted")
     _need(pins.get("reviewed_root") is not None and pins["reviewed_root"] == pins["accepted_root"], "continuity-state-root-not-pinned")
@@ -1176,7 +1175,7 @@ def checkpoint_and_scope(repo, req, pins=None, chain_reader=None, own=None):
         raise Refused("continuity-" + str(e))
     lim = req.get("approvedLimits") or {}
     _need(isinstance(lim.get("approvalRef"), str) and scope["approvalRef"] == lim["approvalRef"], "continuity-approval-not-the-request")
-    # Sam RETURN 1793567352.685309 #2: the whole execution window lies inside the accepted period (no future or expired period admits it).
+    # the reviewer RETURN #2: the whole execution window lies inside the accepted period (no future or expired period admits it).
     window = req.get("window") or {}
     _need(_utc(scope["periodStartUtc"]) <= _utc(window.get("startUtc")) and _utc(window.get("endUtc")) <= _utc(scope["periodEndUtc"]),
           "continuity-window-outside-period")
@@ -1280,7 +1279,7 @@ def prepare(x, now):
         builder_facts = dict(builder_facts, case10Observation=observation)  # the builder re-admits it (case10_execution_bound)
     scope = compose_scope(req, builder_facts, entries["existing-disposable"]["accountId"] if route == "github-producer" else account_id, cases, route,
                           deadline)
-    # Sam 1794114759: a MANUAL run's binding comes from its exact verified own reserve (never own=None); a nightly run binds none (unshared).
+    # a MANUAL run's binding comes from its exact verified own reserve (never own=None); a nightly run binds none (unshared).
     reservation_binding = None
     if manual_occurrence:
         _need(bool(chains), "reservation-binding-chain-unread")
@@ -1369,8 +1368,7 @@ def identities(request_path, config_path, admitted_sha256):
 
 def projection_catalog(request_raw, request_sha256, config_path, qualification=None):
     """The assertion catalog the projection builds row verdicts from: the PINNED catalog of the admitted request's depth (smoke ->
-    smoke-assertion-catalog, otherwise the full catalog), digest-checked exactly as identities() does for qualification (Sam
-    1794154232.587839: the CLI hardcoded the full catalog, so a smoke run's 15-row AHT-01 verdict was built against 20 full rows and the
+    smoke-assertion-catalog, otherwise the full catalog), digest-checked exactly as identities does for qualification (the CLI hardcoded the full catalog, so a smoke run's 15-row AHT-01 verdict was built against 20 full rows and the
     publisher refused row-verdicts). The request must be the admitted bytes; a qualification, when present, must name the same catalog."""
     _need(isinstance(request_raw, bytes) and hashlib.sha256(request_raw).hexdigest() == request_sha256, "request-not-the-admitted-bytes")
     mode = json.loads(request_raw).get("coverageMode")
@@ -1387,7 +1385,7 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     """Freeze every verifier input, run the REAL verifier on the frozen snapshot only (fresh --out, exit 0, zero failures for exactly the
     frozen plan and results), then decide from the same frozen bytes: the builder's 15-row denominator with the dispatch subset in
     plan.selection, every selected case dispatched with a case result consistent with its rows, every required assertion present exactly
-    once, and every evidence digest and summary matching the frozen bytes. EXECUTION and OUTCOME are separate (Sam 1793547120.015339):
+    once, and every evidence digest and summary matching the frozen bytes. EXECUTION and OUTCOME are separate :
     coverage is full/batch only when every selected required row was executed (PASS or FAIL), otherwise incomplete; the outcome is passed
     only when every one is PASS. A FAIL never weakens a binding check. The result binds the campaign, releases, plan/results digests,
     request, assertion catalog and harness CODE manifest."""
@@ -1410,7 +1408,7 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
     checks = verification.get("checks")
     _need(isinstance(checks, list) and checks and verification.get("failed") == 0 and all(c.get("result") == "PASS" for c in checks), "binding-verification-failed")
     plan, results = json.loads(original_plan), json.loads(frozen["case-results.json"])
-    # The committed request is THIS campaign's: its runId, selection, tested release, mode and harness CODE pin are what ran (Sam RETURN
+    # The committed request is THIS campaign's: its runId, selection, tested release, mode and harness CODE pin are what ran (the reviewer RETURN
     # 546429c4 #2). A substituted request refuses before any row is read.
     req = ids["request"]
     _need(req.get("runId") == plan.get("campaignId"), "request-campaign-mismatch")
@@ -1488,7 +1486,7 @@ def qualify(plan_path, case_results_path, cases_dir, selected, approval, code_ma
             "notRunRows": counts["NOT RUN"]}
 
 
-# I4' receiving contract, bound to Jensen's producers at 75b47b2c (Sam 1793550229.086469 / 1793554840.089039). Every request reader records
+# I4' receiving contract, bound to the CLI developer's producers at 75b47b2c . Every request reader records
 # the digest of the ONE buffer it hashed, parsed and compared with the admitted digest before any effect:
 #   build-plan     plan/cfg/build-plan-consumption.json: {consumer, campaignId, runId, attempt, requestSha256, planSha256, sourceSha, ...}
 #   reservation    the reserve ledger event's requestConsumption (nightly-regression requests only; reservations.py refuses others)
@@ -1502,7 +1500,7 @@ EXECUTION_KEYS = {"campaignId", "runId", "attempt", "caseId", "requestSha256", "
 
 def required_readers(priority):
     """Nightly runs reserve before any spend, so their reservation record is required. A manual run has no reservation record until the
-    manual/accepted-rollup reservation design lands (Sam 1793554840.089039); then it becomes required here too."""
+    manual/accepted-rollup reservation design lands ; then it becomes required here too."""
     return ("reservation", "build-plan", "collector") if priority == "nightly-regression" else ("build-plan", "collector")
 
 
@@ -1656,7 +1654,7 @@ MAX_CASE_CODES = 8
 
 
 def diagnostic_codes(diag):
-    """Closed per-case codes for the published record from one closed case diagnostic (Sam 1794156291: published-report propagation):
+    """Closed per-case codes for the published record from one closed case diagnostic (published-report propagation):
     a non-normal guard stop, the driver stage at interruption, a guard-refused navigation (guard-refused-<deny>|cap-<cap>|other),
     the exact net error, each guard upstream reason, and an absent egress proxy under env-proxy. Built only from the closed vocabularies above; at most MAX_CASE_CODES."""
     if not isinstance(diag, dict):
@@ -1697,7 +1695,7 @@ def project(run_record, run_id, attempt, source_sha, tested_sha, qualification=N
     _need(isinstance(tested_sha, str) and LR.SHA40.match(tested_sha) and rel.get("testedSha") == tested_sha, "run-record-for-another-release")
     q = qualification if isinstance(qualification, dict) else {}
     if run_record.get("result") == "INCOMPLETE":
-        q = {}                                   # Bezos N1: an incomplete record can never be qualified, whatever is supplied
+        q = {}                                   # the reviewer N1: an incomplete record can never be qualified, whatever is supplied
     campaign = run_record.get("runId")
     qualified = (q.get("qualified") is True and isinstance(campaign, str) and campaign.strip() and q.get("campaignId") == campaign and
                  q.get("caseResultsSha256") == (run_record.get("artifactDigests") or {}).get("case-results.json") and
@@ -1949,10 +1947,10 @@ def _unknown_row(case_id, reason):
 TS = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z")
 
 
-# Run 42483030590 (Sam 1794144841): every case FAILED in ~1.1 s and the public timing table could not say why. Each bound row now carries a
+# Run 42483030590 : every case FAILED in ~1.1 s and the public timing table could not say why. Each bound row now carries a
 # CLOSED, content-free diagnostic: the guard's stop code (from the digest-verified summary, mapped into this enumeration), its exit code,
 # and the first non-passing assertion id when that id is a reviewed catalog id. A guard that exited before writing a summary (usage exit 2,
-# setup refusal 78 before stop(), a crash) is classified from the receipt's exit code; anything else is "unknown". No raw stderr,
+# setup refusal 78 before stop, a crash) is classified from the receipt's exit code; anything else is "unknown". No raw stderr,
 # free-text reason, path or credential is ever projected.
 STOP_CODES = {"completed", "deadline", "allowance-exhausted", "parent-lost", "sandbox-check-failed", "step-error", "guard-fatal"}
 STOP_PREFIXED = {"fatal:uncaughtException": "fatal-uncaught-exception", "fatal:unhandledRejection": "fatal-unhandled-rejection",
@@ -1978,7 +1976,7 @@ def _catalog_assertion_ids():
     return ids
 
 
-# Closed vocabularies only (Sam 1794146991): a value outside these exact reviewed sets is `other` or dropped, never echoed. A format regex
+# Closed vocabularies only : a value outside these exact reviewed sets is `other` or dropped, never echoed. A format regex
 # is not a vocabulary: `password-huntertwo` and `secret.token` are format-valid. DRIVER_STAGES is the driver's own STAGES set
 # (harness/draft-adapters/browser-actions.cjs); DRIVER_TEST_IDS the exact data-testid values the reviewed adapters address;
 # DRIVER_APIS the Playwright calls they make. tests/test_init_run_inputs.py pins all three to those sources.
@@ -2006,7 +2004,7 @@ DRIVER_APIS = frozenset({
     "locator.isEnabled", "locator.evaluate", "locator.focus", "locator.hover", "locator.scrollIntoViewIfNeeded", "locator.count",
     "locator.boundingBox", "locator.dispatchEvent", "locator.pressSequentially"})
 # The exact Chromium net error (browser-actions.cjs NET_ERRORS) and the guard's closed upstream reasons (guard-proxy.cjs UPSTREAM_REASONS),
-# Sam 1794154809: run 42496837188's page.goto network-error and the guard's upstream-error carried neither. Pinned to those sources by test.
+# run 42496837188's page.goto network-error and the guard's upstream-error carried neither. Pinned to those sources by test.
 DRIVER_NET_ERRORS = frozenset({
     "ERR_HTTP_RESPONSE_CODE_FAILURE", "ERR_CONNECTION_REFUSED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_TIMED_OUT",
     "ERR_TIMED_OUT", "ERR_NAME_NOT_RESOLVED", "ERR_INTERNET_DISCONNECTED", "ERR_ADDRESS_UNREACHABLE", "ERR_PROXY_CONNECTION_FAILED",
@@ -2072,7 +2070,7 @@ def _bound_file(case_dir, name):
 
 
 def driver_interruption(case_dir, case_id, row, receipt, allowed_ids):
-    """Sam 1794145916 / 1794146991: the driver catches early page/observer/navigation/login errors, records an owner-bound FAIL and returns
+    """the driver catches early page/observer/navigation/login errors, records an owner-bound FAIL and returns
     normally, so the guard's stop code can be `completed`. Its content-safe interruption evidence (source-adapters retainInterruptionEvidence)
     is projected only when BOUND to this case and its retained receipt: the row names exactly one interruption ref, `<case>-interruption.json`
     for this case; the case's `case-result.json` hashes to the receipt's caseResultSha256 and lists that ref in evidenceDigests with the file's
@@ -2140,7 +2138,7 @@ def guard_upstream(summary_doc):
 
 def case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir=None):
     """{stopCode, exitCode, firstNonPassingAssertion, driverInterruption} from closed sources only. Never raises: a malformed input yields
-    UNKNOWN for THIS row's diagnostic only, never the loss of the whole artifact (Sam 1794146991)."""
+    UNKNOWN for THIS row's diagnostic only, never the loss of the whole artifact ."""
     try:
         return _case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir)
     except Exception:  # noqa: BLE001  (display-only projection; any malformed shape is UNKNOWN, never a crash)
@@ -2179,7 +2177,7 @@ def _case_diagnostic(case_id, row, receipt, summary_doc, allowed_ids, case_dir):
 
 
 def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
-    """Per-case isolated display rows (Sam 1793967113.871439 / 1793968108.194389 / 1793968197.126469; Bezos B3-B9). Never raises on input:
+    """Per-case isolated display rows (the reviewer B3-B9). Never raises on input:
     corrupt or ambiguous TOP-LEVEL results make every selected row UNKNOWN (nothing credited); a malformed, unbound or unverifiable CASE makes
     only that row UNKNOWN with null measurements and a closed reason, keeping valid peers. A verdict survives only when its row is
     well-formed and its receipt is bound to this run and case; a timing only when its summary digest, times and duration all verify.
@@ -2248,13 +2246,13 @@ def isolated_case_rows(cases_dir, case_results_file, selected, run_id):
 
 
 def run_timing_export(cases_dir, case_results_file, selected, started_file, trace_file, binding):
-    """The one-page table's data, ALWAYS (Bezos concept, Sam 1793929175.395989 / 1793931423.224679 / 1793932085.542759 / 1793932174.880109).
+    """The one-page table's data, ALWAYS (the reviewer concept).
     Every one of the fifteen cases has a row bound to this run, attempt and head:
-      NOT SELECTED   - not in this run's selection;
-      NOT RUN        - selected, with AFFIRMATIVE evidence it never ran: no started.txt, which the run stage writes before admission and
+      NOT SELECTED - not in this run's selection;
+      NOT RUN - selected, with AFFIRMATIVE evidence it never ran: no started.txt, which the run stage writes before admission and
                        before any case;
-      UNKNOWN        - selected, the run stage started, but no case results exist: a case may have run, so nothing is claimed;
-      PASS/FAIL/...  - from the digest-bound case results, exactly as case_timing_export projects them.
+      UNKNOWN - selected, the run stage started, but no case results exist: a case may have run, so nothing is claimed;
+      PASS/FAIL/... - from the digest-bound case results, exactly as case_timing_export projects them.
     Plus the measured stages (content-free trace), the stage where setup stopped, and the workflow-start and run-start times, so queue,
     setup and run time are preserved. Content-free throughout."""
     _need(isinstance(binding, dict) and re.fullmatch(r"[1-9][0-9]{0,19}", str(binding.get("runId") or "")) is not None
@@ -2290,7 +2288,7 @@ def run_timing_export(cases_dir, case_results_file, selected, started_file, trac
                       **({"diagnostic": row["diagnostic"]} if "diagnostic" in row else {})})
     stages = stage_trace_rows(trace_file)
     wstart = binding.get("workflowStartUtc") or None
-    # Out-of-order times are refused, never reported as a negative or misleading duration (Sam 1793933116.625009): the run stage cannot
+    # Out-of-order times are refused, never reported as a negative or misleading duration : the run stage cannot
     # start before the workflow, no traced stage can start before the workflow, and traced stages are appended in time order.
     if wstart:
         _need(started_at is None or _utc(started_at) >= _utc(wstart), "case-timing-out-of-order")

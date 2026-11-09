@@ -24,7 +24,7 @@ from test_case_start_caps import SyntheticBuilder
 # The retained campaigns are read only by the historical-audit suite (tests/legacy_audit/audit_full_coverage.py).
 RECEIPTS = synthetic_history().receipts
 
-# Independent expected budget for that history (Sam 1793402195: never taken from the function under test), written from inputs.v1.json and
+# Independent expected budget for that history (never taken from the function under test), written from inputs.v1.json and
 # the config's budget model (allowance 125%, cleanup 10 per case, pooled slack 15%, uplift cap 3.0):
 #   fixed overhead = max(R4C 20+30+10, R5 20+40+10) = 70; variable work = max(R4C 60+40+10, R5 50+40+10) = 110
 #   R5 executed every row except AHT-05 (1 row of 10; R4C half = 5) and AHT-12 (6 of 8: rows 2 and 3 not run; R4C half = 4), so only those two
@@ -48,12 +48,12 @@ def catalog():
 
 
 def r7():
-    """The tracked SYNTHETIC, unapproved full-request fixture (tests/fixtures/full-request.json, resolved by J()); not the private R7 request."""
+    """The tracked SYNTHETIC, unapproved full-request fixture (tests/fixtures/full-request.json, resolved by J); not the private R7 request."""
     return J("config", "runs", "R7-full-coverage-proposal.json")
 
 
 def full_request():
-    """r7() carrying the independently EXPECTED budget above: only the budget fields change; selection, gaps, caps and every other field stay."""
+    """r7 carrying the independently EXPECTED budget above: only the budget fields change; selection, gaps, caps and every other field stay."""
     req = r7()
     req["estimate"]["requests"].update({k: EXPECTED[k] for k in ("planned", "cleanupReserve", "pooledSlack", "runCap")})
     req["estimate"]["window"].update(EXPECTED["window"])
@@ -174,7 +174,7 @@ class DerivedBudget(unittest.TestCase):
         self.assertEqual({p["case"]: p["ceiling"] for p in self.b["perCase"]}, {c: {290: 370, 220: 280, 180: 230}[e] for c, e in EST.items()})  # 125% rule
 
     def test_the_budget_carrying_request_is_still_an_unapproved_proposal(self):
-        # Sam 1793403415: full_request() changes only budget fields; it stays a proposal with no approval and no omission.
+        # full_request changes only budget fields; it stays a proposal with no approval and no omission.
         r = full_request()
         self.assertTrue(r["proposal"])
         self.assertTrue(all(v is None for v in r["approvedLimits"].values()))

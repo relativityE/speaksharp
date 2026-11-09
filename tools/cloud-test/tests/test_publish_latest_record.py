@@ -1,4 +1,4 @@
-"""The one latest-run record (Sam 1793471205.454429): selection never takes a foreign comment, the previous completed record survives until a
+"""The one latest-run record : selection never takes a foreign comment, the previous completed record survives until a
 terminal replacement of the same attempt, an interrupted attempt blocks the next run, and only the closed record shape is ever rendered."""
 import copy
 import json
@@ -242,7 +242,7 @@ class ClosedShape(unittest.TestCase):
 
 
 class CarryForward(unittest.TestCase):
-    """G7 durable carry-forward (Sam 1793573813.598689): per-case last executed verdict and last-known-good across every completed night,
+    """G7 durable carry-forward : per-case last executed verdict and last-known-good across every completed night,
     bound to occurrences, ordered, replay- and predecessor-safe, size-bounded and closed; NOT RUN never erases prior evidence."""
     def night(self, state, run_id, ended, cases):
         st = P.begin(state, run_id, 1, SHA, "2026-11-0%sT03:00:00Z" % ended[9])
@@ -544,7 +544,7 @@ class RetireUnreserved(unittest.TestCase):
         self.assertEqual([r["runId"] for r in interrupted["retiredAttempts"]], [RUN])
 
     def test_any_incomplete_run_is_a_candidate_but_retires_only_on_its_own_evidence_and_begin_refuses_until_then(self):
-        # Sam 1793881260.206739: a later run interrupted before its reserve must be retirable too. Being a candidate proves nothing.
+        # a later run interrupted before its reserve must be retirable too. Being a candidate proves nothing.
         others = {"another run id": stuck_state(run_id="41933223836"), "another source sha": stuck_state(source="c" * 40)}
         for name, state in others.items():
             self.assertEqual(P.unreserved_candidate(state), state["inProgress"]["runId"], name)
@@ -567,7 +567,7 @@ class RetireUnreserved(unittest.TestCase):
                 retire(stuck_state(), ev)
 
     def test_an_interrupted_later_run_that_never_reserved_is_retired_at_any_journal_head(self):
-        # Sam 1793881260.206739: the dispatch after 41960376782 can fail before the old settle (journal still at its open reserve) or after it
+        # the dispatch after 41960376782 can fail before the old settle (journal still at its open reserve) or after it
         # but before its own reserve (journal at the settle). Either way its record is incomplete and it never reserved: it is retired and
         # the next run begins. History, latestCompleted and earlier retired entries come back unchanged.
         y, ysrc = "41999999998", "b" * 40
@@ -610,7 +610,7 @@ class RetireUnreserved(unittest.TestCase):
                     retire(stuck_state(), evidence(jobs=jobs_with(prefix, status=status)))
 
     def test_the_freshly_validated_journal_must_name_no_event_of_the_run(self):
-        # at any head (Sam 1793881260.206739); other runs' events, such as an earlier settle, are not this run's reservation
+        # at any head ; other runs' events, such as an earlier settle, are not this run's reservation
         moved = "e" * 40
         for journal in ({"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": []}, {"rootSha": W.REVIEWED_ROOT, "headSha": moved, "runIds": ["999"]},
                         {"rootSha": W.REVIEWED_ROOT, "headSha": W.REVIEWED_ROOT, "runIds": []}):
@@ -1022,7 +1022,7 @@ def artifact_row(run_id="42483030590", expired=False, aid=7, name=P.COMPLETION_A
 
 
 class CompletionUnverified(unittest.TestCase):
-    """Sam 1794162379 / 1794163062 / 1794163556: the attestation is kept one day; a pending completion whose run has no unexpired attestation
+    """the attestation is kept one day; a pending completion whose run has no unexpired attestation
     retires as `completion-unverified` only on the run's terminal run/jobs and its validated reserve -> settle, AND a complete listing. The
     candidate is not folded, no attestation is recreated, no result is upgraded and nothing is re-settled. The run/jobs/journal are run
     42483030590's real ones (tests/fixtures/settled); the pending record over them is synthetic."""

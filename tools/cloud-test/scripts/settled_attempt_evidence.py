@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Evidence that a RESERVED attempt was SETTLED but left no publishable record (run 42483030590; Sam 1794144135, 1794145971, 1794147839).
+"""Evidence that a RESERVED attempt was SETTLED but left no publishable record (run 42483030590).
 
 The run reserved, its live job completed with failure, its settle job appended the settle, but collection refused the record
 (`run-record-not-publishable:row-verdicts`), so the latest record stays `incomplete` with no completion candidate and every later `begin`
 refuses `previous-attempt-unreconciled`. Neither existing retirement fits: the run reserved (not `never-reserved`) and is settled (not an
 open reserve). This proves a SETTLED attempt only; it does not assert that any case or driver executed. `collect` is the authority: it
 reads GitHub's run and jobs and freshly validates the journal from the pinned root, binding
-  identity  the record's in-progress run, attempt and head;
-  run       completed, conclusion `failure`;
-  jobs      every job of that run/attempt/head completed; the record-begin, reserve, live, settle and record-complete jobs exactly once each,
+  identity the record's in-progress run, attempt and head;
+  run completed, conclusion `failure`;
+  jobs every job of that run/attempt/head completed; the record-begin, reserve, live, settle and record-complete jobs exactly once each,
             all `success` but the live job (`failure`);
-  journal   EXACTLY one reserve and one settle for this run, the settle commit the direct child of the reserve commit, the settle's
+  journal EXACTLY one reserve and one settle for this run, the settle commit the direct child of the reserve commit, the settle's
             `evidence-sha256:` provenance and its allocation copied unchanged.
 `check` is structural validation of such a document only, not an independent authentication of supplied JSON. It retires history only:
 no re-settlement, no amount change, no case result, no fictional completion. Anything else refuses (exit 78)."""
@@ -97,7 +97,7 @@ def build_evidence(run, jobs_doc, chain, root_sha, collected_utc, jobs_spec=JOBS
             "collectedUtc": collected_utc}
 
 
-# Sam 1794163556: a pending completion whose attestation expired may be retired only on terminal and settlement evidence, never on an empty
+# a pending completion whose attestation expired may be retired only on terminal and settlement evidence, never on an empty
 # artifact listing alone. Same authority as above (GitHub's run and jobs, the freshly validated journal from the pinned root), for a run
 # that PUBLISHED a pending candidate: completed `success` or `failure`; record-begin, reserve and settle `success`; the live job `success` or
 # `failure`; record-complete `success` or `failure` (its PATCH already stored the candidate); EXACTLY one reserve and the directly following

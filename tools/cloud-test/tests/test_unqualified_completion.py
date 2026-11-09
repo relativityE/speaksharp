@@ -1,4 +1,4 @@
-"""Run 42423408284's pending completion through the EXISTING byte path (Sam 1794096339). Fixtures are REAL, unmodified: the public
+"""Run 42423408284's pending completion through the EXISTING byte path . Fixtures are REAL, unmodified: the public
 latest-record comment 6644906621 (GitHub server updated_at) and that run's completion artifact 13595275179 files, created 2026-11-07T23:12:13Z.
 
 The record is unqualified (admission PASS, campaign refused before its first case, all 15 NOT RUN, code not-qualified), so the projection

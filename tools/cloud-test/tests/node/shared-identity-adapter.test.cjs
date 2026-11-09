@@ -1,5 +1,5 @@
 'use strict';
-// Sam 1794111937 integration limit: the shared-boundary inputs through the ACTUAL campaign-runner adapter (createAdapter), not hand-built io.
+// integration limit: the shared-boundary inputs through the ACTUAL campaign-runner adapter (createAdapter), not hand-built io.
 // Only the child-process runner is injected (as campaign-adapter.test.cjs does): admission writes the admitted ledger identity it really
 // initializes, identity-check runs the REAL runIdentity in-process with a fake curl transport, and the case command writes run-guarded's
 // summary. The cleanup record's field set is read from run-guarded.cjs and campaign-runner.cjs SOURCE, so producer and consumer cannot drift.

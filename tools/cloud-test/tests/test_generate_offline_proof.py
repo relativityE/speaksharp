@@ -1,4 +1,4 @@
-"""The in-job proof generator propagates every failure (Sam 1793385574): a truncated or failing suite, an incomplete plan-control run, any
+"""The in-job proof generator propagates every failure : a truncated or failing suite, an incomplete plan-control run, any
 mutation refusal or uncaught control, or a proof that is not PASS means no accepted proof and a failing job. A pre-existing output is refused."""
 import hashlib
 import json
@@ -11,7 +11,7 @@ import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-import generate_offline_proof as G  # noqa: E402  (pure until main(); the network guard loads only there)
+import generate_offline_proof as G  # noqa: E402 (pure until main; the network guard loads only there)
 import offline_proof  # noqa: E402
 
 PLAN = offline_proof.PLAN_CONTROLS
@@ -121,7 +121,7 @@ class Verdict(unittest.TestCase):
             self.assertTrue(any("not caught" in p for p in problems(mutations=dict(good()["mutations"], **{CONTROLS[1]: bad}))), bad)
 
     def test_the_named_egress_service_suite_must_run_with_its_exact_count_and_pass(self):
-        """Sam 1794171572: an explicit single-file inclusion with stable per-file identity; missing, a different count, a SKIP or a
+        """an explicit single-file inclusion with stable per-file identity; missing, a different count, a SKIP or a
         failure refuses the proof."""
         name = "service:tests/egress-connect-proxy.test.cjs"
         counts = {"tests/egress-connect-proxy.test.cjs": 3}

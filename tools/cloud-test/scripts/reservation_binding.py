@@ -1,9 +1,9 @@
-"""The reservation binding a manual run executes under (Sam 1794113504 / 1794114759): produced ONCE by init_run_inputs.prepare from the
+"""The reservation binding a manual run executes under : produced ONCE by init_run_inputs.prepare from the
 validated state-ref chain and the exact manual own reserve, written privately (0600, O_EXCL), with its digest exported through the init step's
 environment file. Consumers (run_env.py, harness-adapter/build_plan.py) check the digest, the shape, and the fields they CAN bind to independent inputs: the
 admitted request digest, the campaign, the execution run id and attempt, the reconciliation checkpoint's head, the tested release and the
-harness source. They CANNOT prove the allocation or reserve-event digests: a private replacement keeping the real parent passes here (Sam
-RETURN 1794116817). That authority is reservation_runtime_check, which recomputes them from the authenticated journal in the run stage.
+harness source. They CANNOT prove the allocation or reserve-event digests: a private replacement keeping the real parent passes here (the reviewer
+RETURN ). That authority is reservation_runtime_check, which recomputes them from the authenticated journal in the run stage.
 Offline; never touches the network or the journal."""
 import hashlib
 import json
@@ -58,7 +58,7 @@ def verify(path, expected_sha256, *, request_sha256, campaign_id, run_id, attemp
     _need(isinstance(doc["runId"], str) and RUN.match(doc["runId"]) and doc["runId"] == str(run_id) and doc["attempt"] == attempt
           and type(doc["attempt"]) is int, "reservation-binding-execution")
     _need(doc["reconciliationHeadSha"] == reconciliation_head, "reservation-binding-journal")
-    # Sam RETURN 1794116817: these are bound to independent inputs when the caller has them; the allocation itself is proven only by
+    # the reviewer RETURN : these are bound to independent inputs when the caller has them; the allocation itself is proven only by
     # reservation_runtime_check against the authenticated journal (a copied parent/head with an altered allocation passes this function).
     if tested_sha is not None:
         _need(doc["testedSha"] == tested_sha, "reservation-binding-tested-release")

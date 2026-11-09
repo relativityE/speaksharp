@@ -68,7 +68,7 @@ def live_smoke_request():
 
 ROOT_HEAD = "92d6ebf902351750c368d7d513116c6b1f19f80c"
 COMMITTED_GRANT = json.loads((ROOT / "config/runs/R10-3b040043-aht01-grant.json").read_text())
-# The active one-off: one attempt of the R10 smoke campaign over the grant's explicit selectedCases (Sam 1794149353.956719).
+# The active one-off: one attempt of the R10 smoke campaign over the grant's explicit selectedCases .
 ONE_OFF_TEMPLATE = "config/runs/R10-3b040043-aht01.json"
 # The committed grant is APPROVED under the PO's pinned decision; the contract tests serve the same document as the reviewed bytes, so a
 # later status change cannot silently alter what they exercise (ApprovalPin covers the committed status itself).
@@ -93,7 +93,7 @@ def root_pinned_grant():
 
 class ApprovalPin(unittest.TestCase):
     def test_the_committed_grant_pins_the_po_decision_and_an_awaiting_grant_refuses_every_dispatch_path(self):
-        """Sam 1794070407/1794072158/1794073342, re-pinned for one run under 1794126096: the committed grant is APPROVED only under the PO's
+        """, re-pinned for one run under : the committed grant is APPROVED only under the PO's
         verified relays (historically scope 2158 for the
         capacity and next run, grant 3342 for the 60-minute signal run); an AWAITING_OWNER_DECISION grant, even in reviewed bytes, refuses."""
         self.assertEqual((COMMITTED_GRANT["status"], COMMITTED_GRANT["approvalRef"], COMMITTED_GRANT["scopeApprovalRef"]),
@@ -218,7 +218,7 @@ class ShortSmokeContract(unittest.TestCase):
         self.assertEqual((COMMITTED_GRANT["notBeforeUtc"], COMMITTED_GRANT["preReserveStateHead"], COMMITTED_GRANT["scopeApprovalRef"],
                           COMMITTED_GRANT["requestTemplateSha256"], COMMITTED_GRANT["testedSha"], COMMITTED_GRANT["backendSha"]),
                          ("2026-11-08T15:36:22Z", "19a9251d0df19e6ffee87a312c2efc49eb793cf5", "approval-3663a9c1434cbbe4ae96624b47c24126",
-                          "3a509b79e66b7eeac1d8742c3f9fceed0e824138e719b4c806ba519676689d48", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+                          "863548813271b3e1d20e64c49198596463236096cf501ec29d281a00b1124bba", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
                           "c32319f9121d4fef64dc48bb40fae5464dc6b65a"))
         repo = str(ROOT.parents[1])
         grant_path = os.path.join(repo, init.ONE_OFF_GRANT_PATH)
@@ -253,8 +253,8 @@ class ShortSmokeContract(unittest.TestCase):
         occurrence_raw = json.dumps(occurrence, sort_keys=True).encode()
         request_sha = hashlib.sha256(occurrence_raw).hexdigest()
         scope = json.loads((ROOT / "config/aggregate/period-scope.json").read_text())
-        # The committed grant is pinned at the journal head after run 42318728005's capped settle (Sam's verified ChatGPT receipt slack:1794063978.986369).
-        # The re-issued AHT-01 grant is pinned at the journal head after run 42494152179's capped settle (Sam 1794151891.299109).
+        # The committed grant is pinned at the journal head after run 42318728005's capped settle (the reviewer's verified ChatGPT receipt ).
+        # The re-issued AHT-01 grant is pinned at the journal head after run 42494152179's capped settle .
         self.assertEqual(COMMITTED_GRANT["preReserveStateHead"], "19a9251d0df19e6ffee87a312c2efc49eb793cf5")
         checkpoint = json.dumps({
             "headSha": COMMITTED_GRANT["preReserveStateHead"],
@@ -290,7 +290,7 @@ class ShortSmokeContract(unittest.TestCase):
     def test_one_off_grant_survives_only_zero_usage_setup_failure_settles_past_its_pinned_head(self):
         """R10 runs 41933223835 and 41960376782 stopped in setup. A setup failure that reserved is settled from evidence with zero product
         usage, which moves the journal head. Past its pinned head the grant admits only a verified chain of complete reserve -> settle pairs
-        with zero on all five product counters (runner minutes counted) whose accepted rollup agrees (Sam 1793874766.615719); prepare excludes
+        with zero on all five product counters (runner minutes counted) whose accepted rollup agrees ; prepare excludes
         the current run's own reserve. A release, an executed or open attempt, a missing chain or any doubt still refuses."""
         with root_pinned_grant():
             repo = str(ROOT.parents[1])
@@ -423,7 +423,7 @@ class ShortSmokeContract(unittest.TestCase):
                                  "approval-bcde5476311b392d618839dd2ae6b2f0")
                 self.assertEqual(prepared["facts"]["actionApproval"]["approvalRef"],
                                  "approval-3663a9c1434cbbe4ae96624b47c24126")
-                # Sam 1794114759: the manual R10 flow emits the binding from ITS verified own reserve at the real head (never own=None)
+                # the manual R10 flow emits the binding from ITS verified own reserve at the real head (never own=None)
                 b = prepared["reservationBinding"]
                 self.assertEqual((b["campaignId"], b["runId"], b["attempt"], b["requestSha256"]), (template["runId"], run_id, 1, request_sha))
                 self.assertEqual((b["journalHeadSha"], b["reconciliationHeadSha"], b["journalRootSha"]), (chain[-1][0], chain[-2][0], root))

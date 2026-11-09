@@ -1,4 +1,4 @@
-"""Sam 1794113504 / 1794114759: authoritative reservation -> generated plan binding, through the REAL functions.
+"""authoritative reservation -> generated plan binding, through the REAL functions.
 
 Producer: init_run_inputs.reservation_binding_doc on the PRESERVED REAL state-ref journal (run 42423408284's actual reserve at the head over
 its actual parent, committed in tests/fixtures/completion-42423408284/journal-tail.json) with the exact manual own tuple. Transport: the private
@@ -198,7 +198,7 @@ def plan_for(b, **over):
 
 
 class RuntimeAuthority(unittest.TestCase):
-    """Sam RETURN 1794116817 / 1794117662: allocation, root and reconciliation parent are recomputed from ONE authenticated chain read."""
+    """the reviewer RETURN / : allocation, root and reconciliation parent are recomputed from ONE authenticated chain read."""
     REQUEST = json.loads(OCCURRENCE)
 
     def check(self, plan, view=VIEW, source=HARNESS, head=HARNESS, recon=NODES[0][0]):
@@ -301,7 +301,7 @@ def _execute_run_command(sub):
 
 
 class AcceptanceCommand(unittest.TestCase):
-    """MOCKED TRANSPORT (Sam 1794117648): the REAL main() with the exact flags execute_run.sh passes; the one authenticated chain read is an
+    """MOCKED TRANSPORT : the REAL main with the exact flags execute_run.sh passes; the one authenticated chain read is an
     in-process unittest.mock patch of check_gates.authenticated_state_chain plus check_gates' existing module-level JOURNAL_ROOT (neither is
     CLI- or environment-selectable; no production seam). This proves the comparisons, NOT the fetch. Every refusal is exit 78."""
 
@@ -404,7 +404,7 @@ class RunStageWiring(unittest.TestCase):
         runner = sh.index('campaign-runner.cjs" --plan "$planfile"', pre)
         producer = sh.index('with-authenticated-evidence.cjs" --scope', pre)
         self.assertTrue(recv < check < pre < min(runner, producer))
-        # Sam 1794117662: one plan version: both checks and campaign-runner take the retained build-time digest $psha
+        # one plan version: both checks and campaign-runner take the retained build-time digest $psha
         for sub in ("check-plan", "pre-start"):
             argv = _execute_run_command(sub)
             self.assertEqual(argv[argv.index("--plan-sha256") + 1], "$psha")

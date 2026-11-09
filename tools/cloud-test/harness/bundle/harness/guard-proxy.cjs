@@ -15,7 +15,7 @@
 // Caps are reserved and written to the ledger BEFORE a request is forwarded. A reservation is never
 // refunded, so in-flight, timed-out, cancelled and ambiguous requests all count. Concurrency is
 // bounded; waiting beyond queueWaitMs is a denial. Per-request deadline, campaign deadline and
-// close() cancellation abort in-flight upstream work and record the outcome.
+// close cancellation abort in-flight upstream work and record the outcome.
 //
 // One-shot faults (request-lost / response-lost) for the reviewed save-recovery cases are applied
 // here, at the same boundary, so they are counted and correlated in the same log.
@@ -102,7 +102,7 @@ function noProxy(host) {
   return list.some((e) => e === host || (e.startsWith('.') && host.endsWith(e)) || (e.startsWith('*.') && host.endsWith(e.slice(1))));
 }
 
-// Closed upstream-failure reasons (Sam 1794154809): a reason, never a message, host, port or proxy value. Unknown errors are `other`.
+// Closed upstream-failure reasons : a reason, never a message, host, port or proxy value. Unknown errors are `other`.
 const UPSTREAM_REASONS = new Set(['proxy-not-configured', 'proxy-invalid', 'proxy-connect-status', 'test-only-trust', 'no-test-override', 'aborted',
   'dns', 'connect-refused', 'timeout', 'reset', 'tls', 'other']);
 function withReason(error, reason) { error.upstreamReason = reason; return error; }

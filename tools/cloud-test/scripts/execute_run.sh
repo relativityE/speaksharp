@@ -12,10 +12,10 @@
 set -euo pipefail
 STAGE="${1:-}"
 blocked() { echo "BLOCKED_SETUP: $*" >&2; exit 78; }
-# Sam 1794066886: a privileged recursive ownership change accepts only canonical roots: absolute, no trailing slash, an existing
+# a privileged recursive ownership change accepts only canonical roots: absolute, no trailing slash, an existing
 # directory whose realpath is itself (so no component, including the last, is a symlink).
 canonical_dir() { case "$1" in /*/|/) return 1 ;; /*) ;; *) return 1 ;; esac; [ -d "$1" ] && [ ! -L "$1" ] && [ "$(realpath "$1")" = "$1" ]; }
-# Sam 1794161531: the run stage's TERM/INT traps cannot run on SIGKILL (nor after an ignored TERM is followed by KILL), so the run-owned
+# the run stage's TERM/INT traps cannot run on SIGKILL (nor after an ignored TERM is followed by KILL), so the run-owned
 # trees can stay root-owned. Internal second half of `recover-ownership`, entered only through sudo: return exactly the canonical run-owned
 # trees, and only once run_stage_quiescence.py finds no stage process left (bounded wait, fail closed, no signal sent). Trees the stage
 # already returned are left alone. Ownership only: no mode, ACL or other tree is touched.
@@ -39,7 +39,7 @@ if [ "$STAGE" = recover-as-root ]; then
   echo "run-owned trees returned to the job user after the run stage stopped"
   exit 0
 fi
-# Internal second half of the elevated run stage (see below), entered only through sudo. Sam 1794066566/1794066358 corrections: taking
+# Internal second half of the elevated run stage (see below), entered only through sudo. corrections: taking
 # ownership of the run-owned trees must stop the stage when it fails, and returning it must be reported (and fail the stage) when it fails.
 if [ "$STAGE" = run-as-root ]; then
   [ "$(id -u)" = 0 ] && [ "$#" -eq 4 ] || blocked "run-as-root is internal to the elevated run stage"
@@ -65,7 +65,7 @@ if [ "$STAGE" = run-as-root ]; then
   if ! give_back; then [ "$rc" -ne 0 ] || rc=78; fi
   exit "$rc"
 fi
-# The job-user entry of the ownership recovery above (workflow step after the run stage, always()); only when the run stage was elevated.
+# The job-user entry of the ownership recovery above (workflow step after the run stage, always); only when the run stage was elevated.
 if [ "$STAGE" = recover-ownership ]; then
   [ "${CT_RUN_STAGE_AS_ROOT:-}" = 1 ] && [ "$(id -u)" != 0 ] || blocked "recover-ownership follows only an elevated run stage, as the job user"
   [ -n "${CT_OUT:-}" ] || blocked "CT_OUT is required to recover the run-owned trees"
@@ -163,8 +163,8 @@ run_stage() {
       export "${e[@]}"
       exec "$@"
     ) || rc=$?
-    # Content-free stage timing (Bezos M2 / run 42142985744): stage, start and end UTC, exit code; never a value, path or argument.
-    # Scope (Sam 1793931423.224679): the WRAPPED command only. A refusal raised before it (stage-environment checks, BLOCKED_SETUP)
+    # Content-free stage timing (the reviewer M2 / run 42142985744): stage, start and end UTC, exit code; never a value, path or argument.
+    # Scope : the WRAPPED command only. A refusal raised before it (stage-environment checks, BLOCKED_SETUP)
     # leaves no row, and steps outside this script are not traced; the timing table states this (init_run_inputs.TRACE_SCOPE).
     [ -z "${OUT:-}" ] || [ ! -d "${OUT:-}" ] || printf '%s\t%s\t%s\t%s\n' "$stage" "$t0" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" >> "$OUT/stage-trace.tsv"
     return "$rc"
@@ -221,7 +221,7 @@ require_runtime_inputs() {
 
 plan_env_file() {
   [ -f "$OUT/reconciliation.json" ] || blocked "reconciliation.json is required before plan construction"
-  # The run's one execution deadline (init step output; Sam 1794071539): plan, guard policy, admission and producer scope all bind it.
+  # The run's one execution deadline (init step output): plan, guard policy, admission and producer scope all bind it.
   [ -n "${CT_EXECUTION_DEADLINE:-}" ] || blocked "CT_EXECUTION_DEADLINE (the run's one execution deadline) is required"
   python3 -I "$ROOT/scripts/run_env.py" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
     --reconciliation "$OUT/reconciliation.json" --execution-deadline "$CT_EXECUTION_DEADLINE" --out "$OUT/plan-env.txt" \
@@ -337,8 +337,8 @@ case "$STAGE" in
       echo "retained history and plan accepted; current release gates require the genuine admission identity"
       exit 0
     elif [ "$priority" = nightly-regression ]; then
-      # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN 1793572741.370569), not a file ledger;
-      # both gate routes below consume this one snapshot (Sam 1793589877.215059)
+      # G11 reads the verified state-ref journal the run's reservation is appended to (RETURN ), not a file ledger;
+      # both gate routes below consume this one snapshot
       run_stage gate-and-validate python3 -I "$ROOT/scripts/reservations.py" journal-snapshot --out "$OUT/journal-snapshot.json"
       RES_IN="$OUT/journal-snapshot.json"
     fi
@@ -423,7 +423,7 @@ case "$STAGE" in
       admission_dir="$OUT/plan/run/admission"
       admission_file="$admission_dir/admission-receipt.json"
       admission_config="$(python3 -I "$ROOT/scripts/cfg_get.py" "$planfile" admissionConfigFile)" || blocked "campaign admission config cannot be read"
-      # R10 run 42318728005 (A6 S12 ENOENT; Sam 1794012265.884079): in the elevated run stage, create-only prepare the plan's own approved
+      # R10 run 42318728005 (A6 S12 ENOENT): in the elevated run stage, create-only prepare the plan's own approved
       # private-media parent, which media-private.cjs requires to already exist root-owned 0711. Before admission; never modifies a node.
       if [ "$(id -u)" = 0 ]; then
         media_parent="$(python3 -I "$ROOT/scripts/cfg_get.py" "$admission_config" privateMediaParent)" || blocked "admission privateMediaParent cannot be read"
@@ -455,7 +455,7 @@ case "$STAGE" in
         --request "$REQ" --config "$CFG" --out-dir "$accepted" --journal-snapshot "$RES_IN" \
         --occurrence-reconciliation "$OUT/reconciliation.json" --occurrence-release-verification "$OUT/release-verification.json"
       cmp -s "$accepted/reconciliation.json" "$OUT/reconciliation.json" || blocked "retained receiver and builder do not share the same accepted rollup"
-      # Sam RETURN 1794116817: the plan's reservation binding is recomputed from the receiver-authenticated events, never trusted as written.
+      # the reviewer RETURN : the plan's reservation binding is recomputed from the receiver-authenticated events, never trusted as written.
       run_stage gate-and-validate python3 -I "$ROOT/scripts/reservation_runtime_check.py" check-plan --plan "$planfile" --plan-sha256 "$psha" \
         --journal-snapshot "$RES_IN" --reconciliation "$OUT/reconciliation.json" --request "$REQ" --request-sha256 "$CT_REQUEST_SHA256" \
         --source-sha "${CT_SOURCE_SHA:-}" --run-id "${GITHUB_RUN_ID:-}" --attempt "${GITHUB_RUN_ATTEMPT:-}" --repo "$REPO"

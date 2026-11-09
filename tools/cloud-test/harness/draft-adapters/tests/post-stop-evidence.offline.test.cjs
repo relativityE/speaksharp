@@ -81,7 +81,7 @@ test('false full Focus verdict still fails the partial case',async()=>{
 test('wrong reopened transcript stays FAIL after independent coaching failure',async()=>{
  const f=await execute('AHT-01',{coaching502:true,wrongReopen:true});assert.equal(f.recorded.find(r=>r.id==='review-reopen')?.result,'FAIL');assert.equal(f.recorded.find(r=>r.id==='grounded-coaching')?.result,'FAIL');
 });
-// Sam 1794165220: coaching failure isolation. A begin (observer arming) throw and a capture that never settles must each leave the take,
+// coaching failure isolation. A begin (observer arming) throw and a capture that never settles must each leave the take,
 // save, reopen and PDF checks running with their real verdicts, and record grounded-coaching once, truthfully; no repeat is attempted.
 for(const caseId of ['AHT-01','AHT-02','AHT-03'])test(caseId+' coaching begin throw: one Start, independent rows keep real verdicts, grounded NOT RUN',async()=>{
  const f=await execute(caseId,{coachingBeginThrows:true});

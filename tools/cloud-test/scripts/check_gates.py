@@ -102,7 +102,7 @@ def manual_occurrence(req):
 
 
 def r10_smoke_g6_deferral(req):
-    """PO option B (Sam 1794089713/1794089833): G6's owner confirmation is deferred for exactly the R10 smoke occurrence."""
+    """PO option B : G6's owner confirmation is deferred for exactly the R10 smoke occurrence."""
     return isinstance(req, dict) and req.get("priority") == "journey-smoke" and manual_occurrence(req)
 
 
@@ -129,7 +129,7 @@ def authenticated_parent_transition(parent_head, current_head, current_events):
 
 
 def admitted_snapshot(reservations, req, request_sha256, execution_run_id=None):
-    """(chain, problems) for a state-ref journal snapshot (Sam 1793592133.133339 / 1793592813.582869): (None, []) when the reservations are
+    """(chain, problems) for a state-ref journal snapshot : (None, []) when the reservations are
     not a snapshot. Admitted only when (1) every event passes state_ref_writer.validate_event and the ledger folds; (2) its head AND its
     ledger are exactly the approved state ref as authenticated now through the producer's own boundary (authenticated_chain), so a
     well-formed but fabricated, reduced or stale ledger never counts; and (3) it holds THIS execution's open reserve: the request's campaign,
@@ -213,7 +213,7 @@ def recurring_gate(req, cfg, base, index, now, reservations=None, approval_path=
 
 
 def nightly_history_gate(req, prior_state):
-    """G7 for a nightly run (Sam 1793573813.598689): from the third night the comparison basis is the carried-forward history in the verified
+    """G7 for a nightly run : from the third night the comparison basis is the carried-forward history in the verified
     latest record (two or more occurrences); it must verify (closed shape, order, bounds, row/occurrence bindings) or G7 is NOT READY. Nights
     one and two (fewer occurrences) return None, so the committed bootstrap receipts are verified instead. Never applies to other runs."""
     if req.get("priority") != "nightly-regression" or prior_state is None:
@@ -335,7 +335,7 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
             need.append("window %.0f min is shorter than the worst case %d min of the full-coverage budget; a case cut by the clock makes the run not a full live run (record window.acceptedShortWindowRisk with the owner's reference to accept that risk)" % (mins, wm))
     if rc and not owner_missing and not recurring:
         rq = (est.get("requests") or {})
-        # #1772 review 4446137335 (Jensen 1793644594.204599): this request's own open reservation is already in the reconciled usage, so it
+        # #1772 review 4446137335 : this request's own open reservation is already in the reconciled usage, so it
         # is replaced by the plan here exactly as in reconcile_caps; another request's reservation still counts in full. Review 4447628949:
         # all four dimensions, so its held requests (run cap + identity charge) and identity reads are not charged a second time either.
         try:
@@ -382,7 +382,7 @@ def evaluate(req, cfg, ledger, wf, validation, offline_checks, receipt, base, st
             need.append("%s expected PASS not yet confirmed by the owner" % gid)
     only_owner = need and all("confirmed by the owner" in n for n in need)
     if only_owner and r10_smoke_g6_deferral(req):
-        # PO (Sam 1794089713/1794089833), option B: for exactly the R10 smoke occurrence, the owner's confirmation of the targeted gaps'
+        # PO , option B: for exactly the R10 smoke occurrence, the owner's confirmation of the targeted gaps'
         # already-defined expected PASS is DEFERRED, not blocking. Every gap stays open and the run is never full acceptance; incomplete or
         # late definitions still block, and the unconfirmed gaps stay listed.
         G.append(gate("G6", DEFERRED, "R10 smoke: owner confirmation of expected PASS deferred; no gap closes and the run is not full acceptance",

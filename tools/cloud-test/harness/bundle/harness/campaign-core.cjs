@@ -4,12 +4,12 @@ const {summarizeAssertions}=require('./case-results.cjs');
 const IDS=Object.freeze(Array.from({length:15},(_,i)=>'AHT-'+String(i+1).padStart(2,'0')));
 const IDENTITY_MAX_MS=25000;
 const requiredIdentityCap=(caseCount=IDS.length,shared=false)=>shared?caseCount+3:1+2*caseCount+1; // A7 + before/after each case + final; shared: A7 + first before + one after per case + final
-// Sam 1794109947: shared identity boundaries (opt-in plan.sharedIdentityBoundaries). Case N's after-read may serve as case N+1's before-read only
+// shared identity boundaries (opt-in plan.sharedIdentityBoundaries). Case N's after-read may serve as case N+1's before-read only
 // while it is fresh by the MONOTONIC clock, its receipt is bound to this plan's target and served release, case N left POSITIVE cleanup evidence,
 // and an integrity-checked snapshot of the ADMITTED request ledger is unchanged since that read. A stale read is benign (a fresh before-read);
 // an unreadable/replaced/held ledger, a changed ledger or missing/negative cleanup evidence is UNSAFE and stops: a GET does not repair them.
 const IDENTITY_REUSE_MAX_AGE_MS=25000;
-// Sam 1794071417: one timing model for the case-admission gate, matching what the adapter actually grants. Every adapter command is
+// one timing model for the case-admission gate, matching what the adapter actually grants. Every adapter command is
 // supervised (admission.cjs supervisedCommand): after its timeout it gets SIGTERM, SIGKILL after one grace and is abandoned after two, so
 // its worst case is timeout + 2*grace, grace = min(5 s, cleanupReserveMs/2). The adapter gives a case maxMs + cleanupReserveMs (its own
 // teardown) and keeps cleanupReserveMs before the deadline for every command; post-case and campaign-end identity need 25 s + that reserve.
@@ -92,7 +92,7 @@ function validateCampaignPlan(p) {
  const sharedIds=p?.sharedIdentityBoundaries===true;
  if(!Number.isSafeInteger(p?.identityCap)||p.identityCap<requiredIdentityCap(nSelected,sharedIds))errors.push('identityCap must cover admission + before/after each selected case + final (minimum '+requiredIdentityCap(nSelected,sharedIds)+' for '+nSelected+' cases)');
  if(p?.identityReserved!==undefined&&(!Number.isSafeInteger(p.identityReserved)||!Number.isSafeInteger(p?.identityCap)||p.identityReserved<p.identityCap))errors.push('identityReserved (the durable reservation) must be an integer covering identityCap (the configured maximum)');
- // Sam 1794114759: shared boundaries need the reservation the plan builder verified against independent inputs (no default); a present
+ // shared boundaries need the reservation the plan builder verified against independent inputs (no default); a present
  // binding must name exactly this plan's campaign, admitted request and execution, and carry exactly identityReserved.
  const rb=p?.reservationBinding;
  if(sharedIds&&(rb===undefined||p.identityReserved===undefined))errors.push('shared identity boundaries need the verified reservation binding and identityReserved (no default)');

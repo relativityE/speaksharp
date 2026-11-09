@@ -1,5 +1,5 @@
 """Run 42483030590 RESERVED, its live job completed with failure, and it was SETTLED, but its record was not publishable, so the latest
-record stayed `incomplete` and every later `begin` refused (Sam 1794144135, 1794145971). Real data: GitHub's run and jobs JSON for that run
+record stayed `incomplete` and every later `begin` refused . Real data: GitHub's run and jobs JSON for that run
 (trimmed to the fields used, tests/fixtures/settled), the journal's real reserve 96605dd and settle 2e68640, and the stored record before.
 It retires as `settled-unpublished` history (case execution is not asserted) bound to that exact pair: no re-settlement, no amount change, no case result. Every negative
 control changes one fact and must refuse."""

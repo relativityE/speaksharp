@@ -58,7 +58,7 @@ test('canonical classification: every textual form of a forbidden address refuse
     '0:0:0:0:0:0:0:1', '0000:0000:0000:0000:0000:0000:0000:0001', '::0', '64:ff9b::808:808', '64:ff9b:1::1', '2002:7f00:1::', '2002:5db8:d822::1',
     '2001:0:1::', '2001:db8::1', '2001:0DB8::1', '100::1', 'FE80::1', 'febf::1', 'fec0::1', 'FC00::1', 'fdff::1', 'ff02::1', 'FF0E::1',
     '::ffff:192.168.0.1', '::ffff:100.64.0.1', '::ffff:198.18.0.1', '1:2:3', 'gggg::1', '1::2::3', '::ffff:256.1.1.1',
-    // Sam 1794169935: reserved / non-public inside or outside 2000::/3
+    // reserved / non-public inside or outside 2000::/3
     '2001:2::1', '2001:10::1', '2001:20::1', '3fff::1', '4000::1', '2001:1ff:ffff::1', '3fff:fff::1', '1000::1', '8000::1', 'e000::1'];
   for (const a of forbidden) assert.equal(P.forbiddenAddress(a), true, a);
   for (const a of ['2606:4700::6810:1', '2600:1f18::1', '::ffff:5db8:d822', '::ffff:93.184.216.34', '2a06:98c1:3120::3', '2001:200::1',
@@ -209,7 +209,7 @@ test('compatibility: the REAL guard upstreamSocket (env-proxy) reaches a TLS ser
     assert.equal(sock.authorized, true, 'the guard verified the certificate end to end');
     // a host the service refuses surfaces in the guard as its closed proxy-connect-status reason
     await assert.rejects(upstreamSocket(policy, 'other.example.com', new AbortController().signal), (e) => /CONNECT 403/.test(e.message));
-    // Sam 1794169935: verification failures are real failures through the service. (1) wrong host: the service tunnels an ALLOWED host
+    // verification failures are real failures through the service. (1) wrong host: the service tunnels an ALLOWED host
     // to a server whose certificate names another host; (2) untrusted: the same server without the test CA. Both reject, no bytes.
     const wrong = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=elsewhere.example.org',
       '-addext', 'subjectAltName=DNS:elsewhere.example.org', '-keyout', path.join(d, 'wkey.pem'), '-out', path.join(d, 'wcert.pem')], { encoding: 'utf8' });

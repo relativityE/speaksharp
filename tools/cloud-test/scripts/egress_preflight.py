@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-network egress readiness before any production prerequisite request (Sam 1794156633 / 1794156723).
+"""No-network egress readiness before any production prerequisite request .
 
 The production guard policy requires `upstream.mode: env-proxy` (guard-proxy.cjs, no direct fallback): every upstream connection must go
 through the environment's HTTPS proxy, and a host matched by NO_PROXY would be refused. execute_run.sh run_stage forwards only the UPPERCASE
@@ -7,10 +7,10 @@ HTTPS_PROXY / HTTP_PROXY / NO_PROXY into the stage environment, so a lowercase-o
 AHT-01 and failed at page.goto with a guard upstream-error; this check fails closed BEFORE any credential-bearing step instead.
 
 It reads the environment exactly as the guard will see it after that boundary and records presence/syntax only:
-  ready      true only when the policy is env-proxy and the forwarded HTTPS_PROXY is set, parses as an http(s) proxy URL, and the forwarded
+  ready true only when the policy is env-proxy and the forwarded HTTPS_PROXY is set, parses as an http(s) proxy URL, and the forwarded
              NO_PROXY matches no policy host (or when the policy is not env-proxy);
-  reason     ready | proxy-not-configured | proxy-lowercase-only | proxy-invalid | no-proxy-matches-policy-host;
-  booleans   proxyConfigured, proxyValid, lowercaseOnly, noProxyMatched (syntax and presence only: NOT a reachability claim).
+  reason ready | proxy-not-configured | proxy-lowercase-only | proxy-invalid | no-proxy-matches-policy-host;
+  booleans proxyConfigured, proxyValid, lowercaseOnly, noProxyMatched (syntax and presence only: NOT a reachability claim).
 Never a proxy value, host, port or credential. The receipt is written in every case (bound to the run, attempt and source SHA); exit 0 when
 ready, 78 otherwise. No network, no policy, TLS or transport change."""
 import argparse
@@ -33,7 +33,7 @@ RUNTIME = "GitHub Actions SpeakSharp"
 
 
 def reviewed_policy_sha256(manifest_path=CODE_MANIFEST):
-    """The policy's digest as the reviewed harness CODE manifest pins it (Sam 1794157364), or None."""
+    """The policy's digest as the reviewed harness CODE manifest pins it , or None."""
     try:
         with open(manifest_path, encoding="utf-8") as f:
             for line in f:
@@ -46,7 +46,7 @@ def reviewed_policy_sha256(manifest_path=CODE_MANIFEST):
 
 
 def no_proxy_matches(no_proxy, host):
-    """guard-proxy.cjs noProxy(): exact host, a '.suffix' entry, or a '*.suffix' entry."""
+    """guard-proxy.cjs noProxy: exact host, a '.suffix' entry, or a '*.suffix' entry."""
     entries = [e.strip() for e in (no_proxy or "").split(",") if e.strip()]
     return any(e == host or (e.startswith(".") and host.endswith(e)) or (e.startswith("*.") and host.endswith(e[1:])) for e in entries)
 
@@ -56,7 +56,7 @@ PROXY_URL = re.compile(r"https?://(?:[^@/\s]*@)?(?:\[([0-9A-Fa-f:.]+)\]|[A-Za-z0
 
 
 def valid_proxy(value):
-    """Guard parity (Sam 1794159106 / 1794160532): the guard's WHATWG `new URL` rejects a port outside 0..65535 and a bracketed
+    """Guard parity : the guard's WHATWG `new URL` rejects a port outside 0..65535 and a bracketed
     host that is not a valid IPv6 address (e.g. `[1:2:3]`), so this does too."""
     import ipaddress
     m = PROXY_URL.fullmatch(value) if isinstance(value, str) else None
@@ -106,7 +106,7 @@ def main(argv):
     a.add_argument("--code-manifest", default=CODE_MANIFEST)
     x = a.parse_args(argv[1:])
     from datetime import datetime, timezone
-    # Sam 1794157364: bound to the observation time, runtime, run, attempt, job and source, and to the REVIEWED policy digest.
+    # bound to the observation time, runtime, run, attempt, job and source, and to the REVIEWED policy digest.
     binding = {"observedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                "runtime": RUNTIME if os.environ.get("GITHUB_ACTIONS") == "true" else "other",
                "runId": x.run_id if re.fullmatch(r"[1-9][0-9]{0,19}", x.run_id or "") else None,

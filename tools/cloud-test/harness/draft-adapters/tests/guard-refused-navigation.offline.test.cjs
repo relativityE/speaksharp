@@ -57,7 +57,7 @@ test('a product network error without the guard header still throws the original
   await assert.rejects(ui.trackedGoto(page, 'https://app.example/x', 'route-other', {}), (e) => e.code === undefined && /ERR_HTTP_RESPONSE_CODE_FAILURE/.test(e.message));
 });
 
-// Sam 1794177810 RETURN: (1) the subtype must persist in the exported case artifact, code-owned; (2) every part of it is a closed enum.
+// RETURN: (1) the subtype must persist in the exported case artifact, code-owned; (2) every part of it is a closed enum.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

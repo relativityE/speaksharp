@@ -126,7 +126,7 @@ test('real recorder finishes an interrupted case without mutating the earlier PA
  assert.equal(JSON.parse(fs.readFileSync(path.join(dir,interruptionRef))).stage,'save-wait');
 });
 
-// Sam 1794154809 / 1794156291: an ordered, closed navigation/sign-in trail rides in the interruption evidence and survives the evidence
+// an ordered, closed navigation/sign-in trail rides in the interruption evidence and survives the evidence
 // sanitizer intact; no URL, query, credential or message text; bounded; unknown events and routes never appear.
 test('the navigation trail is ordered, closed, bounded and survives the evidence sanitizer without any URL or token', async () => {
  const {sanitizeEvidence}=require('../../bundle/harness/evidence-sanitizer.cjs');

@@ -21,12 +21,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from _common import ROOT, load, dump, now_utc  # noqa: E402
 
-# Current-run checks only (PO 2026-10-30, Sam 1793400946): this suite needs no retained campaign history and none of its checks is ever
+# Current-run checks only (PO 2026-10-30): this suite needs no retained campaign history and none of its checks is ever
 # N/A. The audits of the retained campaigns (history index, sealed receipts, case costs, catalog rows of the compared runs) run only in
 # scripts/run_legacy_audit.py, which never earns current-execution credit.
 CHECKS = ("package-unit-tests", "report-builder-tests", "reservation-ledger-verified", "catalog-history-additive", "harness-verified",
           "assertion-catalog-matches-harness", "config-matches-workflow", "offline-proof-index")
-# The harness corrections an offline proof must cover, exactly (Sam 1793379188); held equal to offline_proof.py's CORR by test.
+# The harness corrections an offline proof must cover, exactly ; held equal to offline_proof.py's CORR by test.
 PROOF_CORRECTIONS = ("diagnostic-codes", "duplicate-markers", "contradictory-observations", "request-latency", "failure-path-evidence",
                      "effective-speech-stimulus", "selected-case-execution", "run-identity-binding", "outcome-classes")
 
@@ -56,7 +56,7 @@ def proof_problem(proof, pinned):
     return None
 
 
-# ---------- Structured per-test results (Sam 1793406369, 1793406609, 1793406980) ----------
+# ---------- Structured per-test results ----------
 # Each suite runs in its existing child process through unittest's own discovery and text runner, so the job log and the count line
 # are unittest's. The result class additionally keeps one record per test id from the result callbacks, never from text.
 SUITE_DIRS = {"package-unit-tests": ("tests",), "report-builder-tests": ("report", "tests")}
@@ -161,7 +161,7 @@ def suite_check(name, env):
     return check
 
 
-# ---------- Identity of what was tested (Sam 1793406369, 1793406980, 1793407393) ----------
+# ---------- Identity of what was tested ----------
 # The reviewed file set is hashed from the checkout's bytes; nothing is taken from a passed SHA. Excluded trees are pruned by path before descent and
 # never entered; a symlink inside the included tree is never followed and makes the identity INCOMPLETE. Unexpected files are counted by category only.
 SOURCE_SUFFIXES = (".py", ".sh", ".js", ".cjs", ".mjs", ".ts", ".yml", ".yaml")
@@ -186,7 +186,7 @@ def _linked(rel):
 
 
 def _regular(rel):
-    """True when the path is a regular file reached through no symlink (Sam 1793410354: preflight before any content read)."""
+    """True when the path is a regular file reached through no symlink (preflight before any content read)."""
     try:
         return not _linked(rel) and stat.S_ISREG(os.lstat(os.path.join(ROOT, rel)).st_mode)
     except OSError:
@@ -208,7 +208,7 @@ def _incomplete(codes, symlinks=0, missing=(), scan_errors=0):
 
 def file_set_identity():
     # Both manifests are preflighted before either is read: a linked or non-regular spec or PACKET manifest makes the identity INCOMPLETE without
-    # reading its content, so a link to matching bytes can never stand in for the reviewed file (Sam 1793410354).
+    # reading its content, so a link to matching bytes can never stand in for the reviewed file .
     for rel in (SPEC_PATH, PACKET_PATH):
         if _linked(rel):
             return _incomplete(["SYMLINK"], symlinks=1)
@@ -324,7 +324,7 @@ def environment():
 
 
 def git_diagnostic():
-    """Whole-repository tree and package cleanliness: diagnostic only, never required for a match (Sam 1793406369 point 2); null without git."""
+    """Whole-repository tree and package cleanliness: diagnostic only, never required for a match (point 2); null without git."""
     def git(*args):
         r = subprocess.run(["git", "-C", ROOT, *args], capture_output=True, text=True, timeout=30)
         return r.stdout.strip() if r.returncode == 0 else None
@@ -479,7 +479,7 @@ def main():
               "audited by scripts/run_legacy_audit.py", file=sys.stderr)
         return 2
     # The offline proof is the file the workflow supplies through CT_PROOF_FILE: its freshness is the workflow's (a fresh-directory generator writing
-    # that exact path earlier in the same job, Sam 1793405248); this runner only reports the source it was given and never substitutes a retained file.
+    # that exact path earlier in the same job); this runner only reports the source it was given and never substitutes a retained file.
     proof_file = os.environ.get("CT_PROOF_FILE") or None
     checks = []
     env = {**os.environ}
@@ -499,7 +499,7 @@ def main():
         return cfg["workflowVersion"] == wf["version"], "config %s workflow %s" % (cfg["workflowVersion"], wf["version"])
 
     def proof_index():
-        # The proof must bind the harness the config pins (Sam 1793378783); a retained proof file is never substituted.
+        # The proof must bind the harness the config pins ; a retained proof file is never substituted.
         pinned = cfg["harness"]["expectedCodeManifestSha256"]
         if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{64}", pinned):
             return False, "the pinned harness manifest is not a sha256"

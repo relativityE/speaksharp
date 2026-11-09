@@ -137,7 +137,7 @@ class WorkflowPolicy(unittest.TestCase):
 
 
 class EgressDiagnosticMode(unittest.TestCase):
-    """Sam 1794164253: the smallest diagnostic-only mode in the CURRENT cloud-test.yml (not the preserved fixture): skip the control plane,
+    """the smallest diagnostic-only mode in the CURRENT cloud-test.yml (not the preserved fixture): skip the control plane,
     check out the dispatched ref without persisted credentials, run only the no-network egress preflight, retain its closed receipt one day,
     stop. No secret, variable, reservation, sysctl, browser, install or product request."""
     @classmethod

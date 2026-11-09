@@ -589,7 +589,7 @@ def read_binding_inputs(env, argv):
                 'stepRoot': PACKET, 'stepManifestFile': f'{PRIVATE}/cfg/reviewed-steps.json', 'stepManifestSha256': idx['stepsSha256'],
                 'campaignLedger': adm['campaignLedger'], 'identityLedger': adm['identityLedger'], 'runRoot': f'{PRIVATE}/run',
                 'identityCap': IDENT_CAP, 'deadlineAt': T1, 'cleanupReserveMs': CLEANUP_MS, 'requirementMappings': [], 'cases': rows}
-        # Sam 1794114759: the reservation this run holds, from its private digest-bound binding, re-verified HERE against independent inputs
+        # the reservation this run holds, from its private digest-bound binding, re-verified HERE against independent inputs
         # (the admitted request digest, this campaign, the attested execution run and attempt, the digest-verified reconciliation head) and
         # the configured maximum; the plan never takes a reserved number from anywhere else. Absent -> unshared plans only (no default).
         if env.get('BP_RESERVATION_BINDING_FILE') or env.get('BP_RESERVATION_BINDING_SHA256'):

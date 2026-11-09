@@ -3,7 +3,7 @@
 R10 run 42318728005 stopped in A6 at S12 (fake microphone) with ENOENT: media-private.cjs (createPrivateMedia, cross-UID branch) requires
 the plan's `privateMediaParent` to ALREADY exist as a root-owned, canonical, non-symlink directory that is not group/other writable and
 is traversable by UID/GID 65534, and it never creates it. Nothing provisioned it on the hosted runner. This prepares exactly that
-directory, as Sam 1794012265.884079 specified:
+directory, as specified:
 
   * the parent is the retained plan's own `privateMediaParent`, and it must equal the expected value (CT_MEDIA_PARENT or the default the
     plan builder used), so a different directory is never prepared;

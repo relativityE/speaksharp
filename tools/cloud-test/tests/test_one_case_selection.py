@@ -1,5 +1,5 @@
-"""The R10 one-case attempt (Sam 1794145971 / 1794148674 / 1794149071 / 1794149353): the pinned grant names an explicit `selectedCases`
-(["AHT-01"]); the Sam-owned request must be the SEMANTIC subset of the committed all-15 template for exactly those cases, with every cap
+"""The R10 one-case attempt : the pinned grant names an explicit `selectedCases`
+(["AHT-01"]); the the reviewer-owned request must be the SEMANTIC subset of the committed all-15 template for exactly those cases, with every cap
 re-derived from the template's own rows and the reviewed budget model (450 + 4 identity, 2 Starts, 2 takes, 3 coaching, runner 60). A
 changed selection, order, estimate, cap, release or harness pin refuses; a smoke subset is admitted ONLY for the R10 campaign."""
 import copy
@@ -58,7 +58,7 @@ class Derivation(unittest.TestCase):
         rows = {r["case"]: r for r in BASE["selection"]}
         ceil = lambda v: ((v * 125 + 99) // 100 + 9) // 10 * 10  # noqa: E731
         self.assertEqual(d["requests"]["runCap"], ceil(rows["AHT-01"]["plannedRequests"]) + ceil(rows["AHT-11"]["plannedRequests"]) + 20)
-        # takes come from the smoke catalog, never from Starts: AHT-11 is 3 Starts / 1 take (Sam 1794150370.890329)
+        # takes come from the smoke catalog, never from Starts: AHT-11 is 3 Starts / 1 take
         self.assertEqual((SMOKE_CATALOG["cases"]["AHT-11"]["minimumTakes"], SMOKE_CATALOG["cases"]["AHT-01"]["minimumTakes"]), (1, 2))
         self.assertEqual((d["identityReads"], d["starts"], d["takes"]), (6, 2 + 3, 2 + 1))
         self.assertEqual(d["coachingCap"], 4)     # ceil(3 x 1.25)
@@ -167,7 +167,7 @@ class SmokeSubsetOnlyForTheR10Campaign(unittest.TestCase):
 
 
 class RealRequestValidator(unittest.TestCase):
-    """Sam 1794150385.056519: the REAL validate_run_request.validate, as pipeline.py runs it, on the committed AHT-01 occurrence, the committed
+    """the REAL validate_run_request.validate, as pipeline.py runs it, on the committed AHT-01 occurrence, the committed
     config, gap ledger and workflow. The R10 one-off subset is admitted exactly as the pinned grant selects it; ordinary smoke and full
     validation still require all fifteen."""
     SUBSET_ERROR = "a full or smoke run selects all 15 journeys, AHT-01..AHT-15, exactly once; a subset is a partial run"
@@ -220,7 +220,7 @@ class RealRequestValidator(unittest.TestCase):
 
 
 class NotTargetedContract(unittest.TestCase):
-    """Run 42494152179 (Sam 1794151710.472899 / 1794151891.299109): the admitted one-case request carried notTargeted as bare gap ids; the
+    """Run 42494152179 : the admitted one-case request carried notTargeted as bare gap ids; the
     run reserved, passed admission, browser guard and identity, then the live report crashed (workflow_report: string indices). The
     run-request contract is a list of {gap, why}; the shape is now refused BEFORE the reserve (record-begin occurrence-check) and by the
     validator, and the corrected request passes the real pipeline and report."""
@@ -284,7 +284,7 @@ class NotTargetedContract(unittest.TestCase):
 
 
 class ProjectionCatalog(unittest.TestCase):
-    """Sam 1794154232.587839: the CLI `project` hardcoded the FULL assertion catalog (AHT-01 = 20 rows) even for smoke (15), so run
+    """the CLI `project` hardcoded the FULL assertion catalog (AHT-01 = 20 rows) even for smoke (15), so run
     42496837188's selected AHT-01 record was refused `row-verdicts`. The projection now builds row verdicts from the pinned catalog of the
     admitted request's depth, digest-checked; the publisher's count checks are unchanged."""
     SMOKE_IDS = None
@@ -302,7 +302,7 @@ class ProjectionCatalog(unittest.TestCase):
         ids = SMOKE_CATALOG["cases"]["AHT-01"]["requiredAssertions"]
         self.assertEqual(len(ids), 15)
         self.assertEqual(len(load("config/assertion-catalog.json")["cases"]["AHT-01"]["requiredAssertions"]), 20)
-        verdicts = ["PASS", "PASS", "FAIL"] + ["NOT RUN"] * 12          # Sam's exact 2 PASS / 1 FAIL / 12 NOT RUN shape
+        verdicts = ["PASS", "PASS", "FAIL"] + ["NOT RUN"] * 12          # the reviewer's exact 2 PASS / 1 FAIL / 12 NOT RUN shape
         self.case_results = json.dumps({"cases": [{"caseId": "AHT-01", "assertions": [{"id": a, "result": r} for a, r in zip(ids, verdicts)]}]}).encode()
         cr_sha = hashlib.sha256(self.case_results).hexdigest()
         T, H, P = "a" * 40, "b" * 64, "c" * 64
@@ -369,9 +369,9 @@ class ProjectionCatalog(unittest.TestCase):
 
 
 class PublishedDiagnosticCodes(ProjectionCatalog):
-    """Sam 1794156291: the closed diagnostic reaches the PUBLISHED record as per-case codes (stage, exact net error, guard upstream reason,
+    """the closed diagnostic reaches the PUBLISHED record as per-case codes (stage, exact net error, guard upstream reason,
     absent egress proxy), from the same digest-verified projection as the case-timings table; never on a NOT SELECTED row; at most 8."""
-    # SYNTHETIC EXTENSION of run 42496837188 (Sam 1794157364): its real retained diagnostic had stage idle, step owner-bound and api
+    # SYNTHETIC EXTENSION of run 42496837188 : its real retained diagnostic had stage idle, step owner-bound and api
     # page.goto/kind network-error, but NOT the exact net error or the guard's proxyConfigured=false/upstream reason, which that run's
     # code did not record. Those fields are synthetic here and prove only the projection, not the historical cause.
     SYNTHETIC_EXTENSION_OF_42496837188 = {"stopCode": "completed", "exitCode": 0, "firstNonPassingAssertion": {"id": "owner-bound", "result": "FAIL"},

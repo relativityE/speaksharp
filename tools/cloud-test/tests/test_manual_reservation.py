@@ -1,4 +1,4 @@
-"""Manual-dispatch reservation integration (Sam 1793556225.890759, RETURN 1793556820.561729), offline, with EXPLICIT SYNTHETIC inputs only:
+"""Manual-dispatch reservation integration (RETURN ), offline, with EXPLICIT SYNTHETIC inputs only:
 the synthetic full-coverage request fixture, a synthetic bootstrap and period scope accepted through test-only pins, synthetic run-record
 bytes, and the real state-ref writer on a temporary bare repository. Reserve -> counted by the rollup as G5 would charge it -> settle from
 verified record bytes; headroom boundary, staleness, admission, scope, period, identity and replay negatives."""
@@ -91,7 +91,7 @@ class ManualReservation(Journal):
         return i
 
     def test_the_writer_admits_the_action_approval_before_any_append(self):
-        # #1772 RETURN 1793645360.787039 #2 (broken before: the reserve was appended with no approval check, so an invalid or stale approval
+        # #1772 RETURN #2 (broken before: the reserve was appended with no approval check, so an invalid or stale approval
         # consumed caps and left an open reservation). Every refusal leaves the journal head unchanged.
         before = self.head()
         stale = self.facts()
@@ -115,7 +115,7 @@ class ManualReservation(Journal):
         self.assertNotEqual(self.head(), moved)
 
     def test_the_writer_never_uses_a_configured_checkout_as_its_transport(self):
-        # #1772 RETURN 1793645360.787039 #1: the workflow checkout has remotes and config, which the writer refuses (unsafe-git-config);
+        # #1772 RETURN #1: the workflow checkout has remotes and config, which the writer refuses (unsafe-git-config);
         # without --repo the CLI uses a fresh `git init` repository that passes the same check.
         hostile = os.path.join(self.d, "checkout-like")
         subprocess.run(["git", "init", "-q", hostile], check=True)
@@ -128,7 +128,7 @@ class ManualReservation(Journal):
         self.assertEqual(os.listdir(os.path.dirname(isolated)).count(os.path.basename(isolated)), 1)
 
     def test_a_settle_from_the_closed_input_keeps_the_run_records_own_digest_as_evidence(self):
-        # #1772 RETURN 1793645360.787039 #3 (broken before: the evidence became the projection's digest, losing the run record's provenance)
+        # #1772 RETURN #3 (broken before: the evidence became the projection's digest, losing the run record's provenance)
         import settle_input
         self.execute("reserve", self.reserve_inputs(), "r")
         projection = settle_input.project(self.record())
@@ -401,7 +401,7 @@ class ManualReservation(Journal):
         self.execute("settle", dict(late, atUtc="2026-12-01T23:59:59Z"), "s4")
         self.assertEqual(self.receive()["outstandingReservations"], 0)
 
-    # ---- settle-unexecuted: a reserved attempt whose live job failed in setup (the real run 41960376782; any such run, Sam 1793881491.714239) ----
+    # ---- settle-unexecuted: a reserved attempt whose live job failed in setup (the real run 41960376782; any such run) ----
     UNEXEC_RUN = "41960376782"
 
     def unexec(self, scope_bytes=None):

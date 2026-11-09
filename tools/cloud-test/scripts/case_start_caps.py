@@ -25,7 +25,7 @@ MINIMAL_MINIMA = dict(zip(CASE_IDS, (2, 1, 1, 1, 1, 1, 1, 0, 1, 1, 3, 1, 1, 1, 0
 MODES = {("partial", "minimal"): "minimal", ("partial", "full"): "selected-full", ("smoke", "smoke"): "smoke", ("full", "full"): "full"}
 RUNTIMES = ("Claude SpeakSharp R4", "GitHub Actions SpeakSharp")
 # The one campaign whose smoke run may select a subset: its admission binds the pinned one-off grant's exact selectedCases
-# (init_run_inputs.one_off_grant; Sam 1794148674).
+# (init_run_inputs.one_off_grant).
 R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 
 

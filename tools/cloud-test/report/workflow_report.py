@@ -6,7 +6,7 @@ only; writes a NEW directory. Every table value is DERIVED from sealed receipts,
 Usage: workflow_report.py --request R.json --ledger-derived LD.json --release-verification RV.json --reconciliation RC.json --gates G.json --spend S.json
           --offline-proof P.json --workflow W.json --comparison C_prior.json [--latest-comparison C_latest.json] --summary SUMMARY.json [--run-record RR.json]
           [--bindings B1.json B2.json] --labels R4C R5 --out NEW_DIR [--generated-at ISO]
-Outputs: REPORT.html, report.json, validation.json, MANIFEST.json (sha256 of every output and of the input copies under inputs/).
+Outputs: REPORT.html, report.json, validation.json, MANIFEST.json (sha256 of every output and of the input copies under inputs).
 Exit 1 when the report fails validation (word limit, order, vocabulary, a gap CLOSED without proof, a dollar figure without a source, secrets pattern)."""
 import argparse
 import hashlib
@@ -452,7 +452,7 @@ def render(rep, wf):
         A("<p class='small'><b>Counters are frozen through %s</b> (as of %s); a later run's actual usage is added once, never counted inside the frozen figure.%s</p>" % (esc(rc["freeze"]["throughRun"]), esc(rc["freeze"]["asOfUtc"]),
           (" <b>This run, added once:</b> %s requests and %s identity reads on top of %s and %s, giving %s and %s after the run." % (sp["countedOnce"]["thisRunActual"]["requests"], sp["countedOnce"]["thisRunActual"]["identityReads"], sp["countedOnce"]["frozenBefore"]["requests"], sp["countedOnce"]["frozenBefore"]["identityReads"], sp["countedOnce"]["afterRun"]["requests"], sp["countedOnce"]["afterRun"]["identityReads"])) if sp.get("countedOnce") else ""))
     A("<p class='small'>Ceilings now: %s requests with a %s protected reserve, %s identity reads, %s Starts, %s takes. Headroom now: %s requests, %s identity reads. %s</p></section>" % (rc["ceilings"]["requests"], rc["ceilings"]["protectedReserveRequests"], rc["ceilings"]["identityReads"], rc["ceilings"]["starts"], rc["ceilings"]["takes"], rc["currentHeadroom"]["requests"], rc["currentHeadroom"]["identityReads"],
-       # Sam 1794089816: on the accepted-rollup path every counter comes from the verified journal, not owner statements or sealed ledgers
+       # on the accepted-rollup path every counter comes from the verified journal, not owner statements or sealed ledgers
        "All five counters come from the verified state-ref journal." if "runs" not in rc and isinstance(rc.get("period"), dict)
        else "Starts and takes are owner-stated; the sealed ledgers do not carry them."))
     # areas

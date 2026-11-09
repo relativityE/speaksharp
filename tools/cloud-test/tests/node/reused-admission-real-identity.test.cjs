@@ -1,5 +1,5 @@
 'use strict';
-// R10 run 42423408284 (Sam 1794093342): admission PASSED and GO, then the campaign refused in ~0.2 s. The A7 identityReceipt admission keeps
+// R10 run 42423408284 : admission PASSED and GO, then the campaign refused in ~0.2 s. The A7 identityReceipt admission keeps
 // is identity-check.cjs's PRINTED object, which lacked the ledger's reservation and endedAt; campaign reuse (validateReusedAdmission)
 // requires both, so a real admission could never be reused. The adapter test fabricated those fields, which is how this was missed.
 // Here the receipt comes from the REAL identity-check (fake transport only, no network) and goes through the REAL reuse validator.

@@ -89,14 +89,14 @@ function verifyQualification(receipt,{codeManifestSha256,startedAt,endedBy,evide
   const capabilities=verifyCapabilityReceipt(receipt,{expectedSelection,ownerApprovalReference,requiredCapability,verifyEvidence});
   return {result:'PASS',checks:QUALIFICATION_CHECKS.length,codeManifestSha256,...capabilities};
 }
-// R10 A6 (Sam 1793996137): only a strictly re-validated, closed-set, content-free stop location may enter the receipt.
-// R10 run 42386714252 (Sam 1794066358): A7's helper stderr was discarded, so a no-receipt stop could not be located. Keep only its exit
+// R10 A6 : only a strictly re-validated, closed-set, content-free stop location may enter the receipt.
+// R10 run 42386714252 : A7's helper stderr was discarded, so a no-receipt stop could not be located. Keep only its exit
 // status and a closed, content-free class of its stderr (never the text: it can carry paths or URLs); unknown text is `other`.
 const IDENTITY_HELPER_CLASSES=[['private-ownership',/private directory required|private file required/],['ledger-lock',/EEXIST/],
  ['ledger-state',/identity ledger corrupt|campaign binding changed|lock ownership changed|unknown or completed reservation|ledger closed/],
  ['not-authorized',/NOT AUTHORIZED/],['binding',/identity binding requires|expected SHA must be|ledger and integer cap required|arguments require explicit values|unknown or repeated argument/],
  ['filesystem',/ENOENT|EACCES|EPERM/]];
-// Sam 1794067689: the supervisor (admission.cjs supervisedCommand) reports its own stops as `reason`; only its closed reasons are kept.
+// the supervisor (admission.cjs supervisedCommand) reports its own stops as `reason`; only its closed reasons are kept.
 const SUPERVISOR_STOPS=['command-deadline','signal:SIGTERM','signal:SIGINT','signal:SIGHUP','parent-lost','command-output-limit','owned-descendants-remain','spawn-error','admission-cancelled'];
 function identityHelperDiagnostic(r){const text=String((r&&r.stderr)||'');const hit=IDENTITY_HELPER_CLASSES.find(([,re])=>re.test(text));const reason=r&&r.reason;
  return {exitCode:Number.isSafeInteger(r&&r.status)?r.status:null,timedOut:reason==='command-deadline',supervisorStop:SUPERVISOR_STOPS.includes(reason)?reason:(reason?'other':null),

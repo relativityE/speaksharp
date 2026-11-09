@@ -1,11 +1,11 @@
-"""The closed settle input the read-only live job hands to journal-settle (Sam 1793580806.654369), in place of the collector's full run record.
+"""The closed settle input the read-only live job hands to journal-settle , in place of the collector's full run record.
 
 The repository is public, so the hand-off artifact carries only what settling needs, all of it content-free: the run record's campaign and
 execution identity (campaign, GitHub run, attempt, admitted request digest), its measured G5 spend counts, the full record's digest as
 evidence, and the Case 10 observation record's digest (or null). No case result, account, row, transcript, credential or path. Both sides
 apply the same closed validation: `project` in the live job, `validate` in journal-settle before any use. The settle event is computed by
 manual_reservation.usage_from_record, which reads exactly these fields, so the settled usage is the same as from the full record.
-Usage: settle_input.py project --record RUN_RECORD --out OUT [--case10-observation RECORD] | validate --input IN    exit 78 on refusal.
+Usage: settle_input.py project --record RUN_RECORD --out OUT [--case10-observation RECORD] | validate --input IN exit 78 on refusal.
 """
 import argparse
 import hashlib

@@ -1,11 +1,11 @@
-"""Sam 1794118744: the composed test-only local-Git increment for the run stage's reservation runtime check. MOCKED TRANSPORT, NOT LIVE PROOF.
+"""the composed test-only local-Git increment for the run stage's reservation runtime check. MOCKED TRANSPORT, NOT LIVE PROOF.
 
 What is real: the exact shell text of execute_run.sh (route selection, PYENV, run_stage with its env -i / allowlist sanitization, the retained
 plan-digest check, the check-plan and pre-start command lines, the runner branch), bash expansion of those lines, `python3 -I`, the unmodified
 reservation_runtime_check / check_gates / state_ref_writer functions, a real `git fetch` and validate_chain over real Git objects.
 
 What is substituted, only here: (1) a PRIVATE TEMPORARY COPY of tools/cloud-test/scripts whose state_ref_writer.py differs from production in
-exactly two constants, APPROVED_URL (an absolute path of a temporary bare repository; _transport accepts an absolute path, not file://) and
+exactly two constants, APPROVED_URL (an absolute path of a temporary bare repository; _transport accepts an absolute path, not file:/) and
 REVIEWED_ROOT; the test proves every other byte equal and the production file unchanged. (2) The journal: FIXTURE COMMITS, built here with
 state_ref_writer's own deterministic child construction from the PRESERVED ledger bytes of run 42423408284 (tests/fixtures/
 completion-42423408284/journal-tail.json). Their ids are NOT the original production commits; root, parent and head are derived from these

@@ -1,4 +1,4 @@
-"""Accepted-rollup receiving mode (Sam 1793553421.029269), offline: a SYNTHETIC bootstrap accepted through test-only pins, and the real
+"""Accepted-rollup receiving mode , offline: a SYNTHETIC bootstrap accepted through test-only pins, and the real
 state-ref writer on a temporary bare repository. Anchor, period, predecessor and replay negatives; unresolved usage is never zeroed."""
 import copy
 import hashlib
@@ -343,7 +343,7 @@ class Rollup(Journal):
             refused(self, "rollup-unresolved", R.parse_bootstrap, raw)
 
     def test_a_github_run_id_is_only_a_locator_for_an_unresolved_item(self):
-        # Sam 1793556731.837039: the six later R9 runs are located by run id, never accepted; their usage stays null.
+        # the six later R9 runs are located by run id, never accepted; their usage stays null.
         runs = ("41071743003", "41115876890", "41134025368", "41231659142", "41322870182", "41325698722")
         located = [{"kind": "diagnostic", "ref": "gha-run:" + r, "disposition": "UNRESOLVED", "usage": None} for r in runs]
         self.assertEqual([i["ref"] for i in R.parse_bootstrap(bootstrap(unresolved=located))["unresolved"]], ["gha-run:" + r for r in runs])

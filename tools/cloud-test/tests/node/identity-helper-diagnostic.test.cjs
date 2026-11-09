@@ -1,5 +1,5 @@
 'use strict';
-// R10 run 42386714252 (Sam 1794066358): when A7's identity helper returns no JSON receipt, admission keeps only its exit status and a
+// R10 run 42386714252 : when A7's identity helper returns no JSON receipt, admission keeps only its exit status and a
 // closed, content-free stderr class. Real helper output is classified exactly; secret/URL-bearing text never survives.
 const test = require('node:test');
 const assert = require('node:assert/strict');

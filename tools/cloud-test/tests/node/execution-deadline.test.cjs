@@ -1,5 +1,5 @@
 'use strict';
-// Sam 1794071417/1794071539 (design a): plan.deadlineAt is the run's ONE execution deadline. The case-admission gate uses the same worst-case
+// (design a): plan.deadlineAt is the run's ONE execution deadline. The case-admission gate uses the same worst-case
 // model the adapter grants (supervised command = timeout + 2*grace; case = maxMs + cleanup; every command keeps the cleanup reserve), so a
 // case admitted at the exact boundary still gets its after-case and campaign-end identity reads. A slow run reports late cases NOT RUN.
 // The simulated adapter below applies campaign-runner's own timeout rule; no live traffic.

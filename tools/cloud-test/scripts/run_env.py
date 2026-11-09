@@ -3,7 +3,7 @@
 The names follow the harness plan builder (build_private_*.py): BP_CAMPAIGN, BP_T0/BP_T1, BP_TOTAL, BP_CLEANUP, BP_IDENT, BP_SELECT, BP_GATES, BP_EST,
 BP_SELECT_REF, BP_SELECT_REASON, BP_BACKEND_*. Credentials are NOT written here; the workflow supplies them at the build and run steps only.
 BP_T1 is the run's ONE execution deadline (init_run_inputs.execution_deadline, passed unchanged as an init step output), never the
-occurrence end: it must lie inside the occurrence, and a missing or malformed value refuses (Sam 1794070353/1794071539).
+occurrence end: it must lie inside the occurrence, and a missing or malformed value refuses .
 Usage: run_env.py --request R.json --request-sha256 SHA --reconciliation RC.json --execution-deadline YYYY-MM-DDTHH:MM:SSZ --out env.txt"""
 import argparse
 import hashlib
@@ -65,7 +65,7 @@ def main():
     a.add_argument("--reconciliation", required=True)
     a.add_argument("--execution-deadline", required=True)
     a.add_argument("--out", required=True)
-    # Sam 1794114759: the manual run's reservation binding, by its private file and digest only (never a bare number), with the execution
+    # the manual run's reservation binding, by its private file and digest only (never a bare number), with the execution
     # identity it must name ("<run id>.<attempt>", CT_EXECUTION_RUN_ID).
     a.add_argument("--reservation-binding")
     a.add_argument("--reservation-binding-sha256")
@@ -142,7 +142,7 @@ def main():
     # binding resolver was given (VITE_SUPABASE_URL, execute_run.sh ensure_account_bindings), never a default.
     origin = os.environ.get("VITE_SUPABASE_URL", "")
     if origin:
-        # Normalised like the resolver's projectOrigin(): https, no credentials, default port only, no path beyond "/", lower-case host.
+        # Normalised like the resolver's projectOrigin: https, no credentials, default port only, no path beyond "/", lower-case host.
         # (A regex, not urllib: this control-plane script stays outside the network-import boundary.)
         m = re.fullmatch(r"https://([A-Za-z0-9]{20}\.[Ss][Uu][Pp][Aa][Bb][Aa][Ss][Ee]\.[Cc][Oo])(?::443)?/?", origin)
         if not m:

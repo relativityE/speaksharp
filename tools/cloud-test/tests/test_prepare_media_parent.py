@@ -1,5 +1,5 @@
 """R10 run 42318728005: A6 stopped at S12 with ENOENT; the approved private-media parent was never provisioned. Offline proof for the
-create-only preparer (Sam 1794012265.884079). Production binds owner UID 0 and trusted root "/"; these tests bind the test user's UID and a
+create-only preparer . Production binds owner UID 0 and trusted root "/"; these tests bind the test user's UID and a
 fresh temporary directory, whose own ancestors are outside the test's control."""
 import os
 import stat

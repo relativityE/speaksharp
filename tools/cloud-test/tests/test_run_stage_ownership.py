@@ -1,7 +1,7 @@
 """R10 run 42386714252: A6 passed, then A7 stopped with "identity receipt unavailable" in 74 ms. identity-core's IdentityLedger requires its
 ledger directory (the job-user-created $CT_OUT/plan/ledgers) to be owned by the reading process, and the run stage runs as root. The
 elevated run stage now enters `run-as-root`, which takes ownership of exactly its run-owned private trees, runs the stage, and returns them.
-Sam 1794066566/1794066358: a failed take must stop the stage; a failed return must be reported and fail it. Behaviour is exercised
+a failed take must stop the stage; a failed return must be reported and fail it. Behaviour is exercised
 offline with `id`/`chown` shims (the privileged path itself runs on the runner); the stage it launches stops at its first config check."""
 import os
 import shutil
@@ -147,7 +147,7 @@ class FakeProc:
 
 
 class Quiescence(unittest.TestCase):
-    """Sam 1794161531: the recovery may return the trees only after every run-stage process has stopped; anything unreadable counts."""
+    """the recovery may return the trees only after every run-stage process has stopped; anything unreadable counts."""
     def setUp(self):
         self.d = os.path.realpath(tempfile.mkdtemp(prefix="quiescence-"))
         self.addCleanup(subprocess.run, ["chmod", "-R", "u+rwx", self.d])

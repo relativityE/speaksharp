@@ -1,5 +1,5 @@
 'use strict';
-// PO-approved restrictive egress for the live job (2026-11-08, "approve the local proxy"; assessment Elon 19:10Z, Sam 1794164750).
+// PO-approved restrictive egress for the live job (2026-11-08, "approve the local proxy"; assessment the app developer 19:10Z).
 //
 // The reviewed production guard policy is `upstream.mode: env-proxy`: the guard reaches every allowed host only through an HTTP CONNECT
 // proxy named by HTTPS_PROXY, then runs TLS end to end itself (servername = host, default CA verification; guard-proxy.cjs upstreamSocket).
@@ -64,7 +64,7 @@ function v6Bytes(text) {
 
 function forbiddenAddress(address) {
   // Every address a policy host must never resolve to (SSRF / DNS-rebinding defence), on the CANONICAL bytes, never on text prefixes
-  // (Sam 1794168880: ::ffff:7f00:1 is 127.0.0.1). Fail closed on anything unparsable.
+  // (::ffff:7f00:1 is 127.0.0.1). Fail closed on anything unparsable.
   if (typeof address !== 'string') return true;
   if (net.isIPv4(address)) { const b = v4Bytes(address); return !b || v4Forbidden(b); }
   const b = v6Bytes(address);
@@ -72,7 +72,7 @@ function forbiddenAddress(address) {
   const zero = (from, to) => b.slice(from, to).every((x) => x === 0);
   if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) return v4Forbidden(b.slice(12));           // ::ffff:0:0/96  IPv4-mapped
   if (zero(0, 12)) return true;                                                                     // ::/96 incl. ::, ::1, IPv4-compatible
-  // Public rule (Sam 1794169935): only global unicast 2000::/3, minus the IETF special-purpose blocks inside it. Everything outside
+  // Public rule : only global unicast 2000::/3, minus the IETF special-purpose blocks inside it. Everything outside
   // 2000::/3 (NAT64 64:ff9b::/32, discard 100::/64, ULA, link/site-local, multicast, 4000::/2, ...) refuses by construction.
   if ((b[0] & 0xe0) !== 0x20) return true;                                                          // not 2000::/3
   if (b[0] === 0x20 && b[1] === 0x01 && b[2] <= 0x01) return true;                                  // 2001::/23 IETF protocol assignments
@@ -132,7 +132,7 @@ function createProxy({ hosts, lookup = dns.promises.lookup, connect = net.connec
     client.once('end', () => { gone = true; });
     let answers, dnsTimer;
     try {
-      // Sam 1794168880: the lookup is bounded, and nothing connects after the client went away or shutdown began during it.
+      // the lookup is bounded, and nothing connects after the client went away or shutdown began during it.
       answers = await Promise.race([lookup(host, { all: true, verbatim: true }),
         new Promise((_, reject) => { dnsTimer = setTimeout(() => reject(new Error("dns-timeout")), limits.dnsTimeoutMs); })]);
     } catch { clearTimeout(dnsTimer); sockets.delete(client); return deny(client, "dns-failed", 502); }

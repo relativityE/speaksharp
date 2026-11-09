@@ -1,5 +1,5 @@
 """R10 run 42406851270 (PO: a run rejected before it ran anything must never block the next one). Its live job was rejected by the credential
-environment's protection rules and completed `failure` with NO steps. Two barriers made that block the next dispatch (Sam 1794082329: a pre-run failure, no claimed reason, no extra fetch):
+environment's protection rules and completed `failure` with NO steps. Two barriers made that block the next dispatch (a pre-run failure, no claimed reason, no extra fetch):
   1. unexecuted_attempt_evidence required at least one live step and a failed one, so the next record-begin refused (unexecuted-failed-step);
   2. the one-off grant tolerated zero-usage setup-failure settles only when pinned at the journal ROOT, and this grant is pinned at a later
      head (e7450f70) already carrying earlier runs' usage, so it refused (one-off-grant-checkpoint).
@@ -46,7 +46,7 @@ def build(run=None, jobs=None):
 
 
 class PreRunFailure(unittest.TestCase):
-    """Sam 1794082329: a pre-run failure is an explicitly empty step list plus the no-runner fields of exactly this run's own job; no
+    """a pre-run failure is an explicitly empty step list plus the no-runner fields of exactly this run's own job; no
     rejection reason is claimed and nothing beyond GitHub's run and jobs JSON is fetched."""
 
     def refused(self, code, fn, *a):
@@ -101,7 +101,7 @@ class PreRunFailure(unittest.TestCase):
         jobs = load("jobs-42406851270.json")
         self.live(jobs)["conclusion"] = "success"
         self.refused("unexecuted-job-live", build, None, jobs)
-        for conclusion in ("cancelled", "timed_out"):                    # Sam 1794100293: settled at the reserved caps, never as this zero-usage path
+        for conclusion in ("cancelled", "timed_out"):                    # settled at the reserved caps, never as this zero-usage path
             jobs = load("jobs-42406851270.json")
             self.live(jobs)["conclusion"] = conclusion
             self.assertEqual(build(None, jobs)["accounting"], "terminated-capped")

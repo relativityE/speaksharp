@@ -1,5 +1,5 @@
 'use strict';
-// Sam 1794100227 (finding 1): AHT-07's one-take smoke path skipped the association check, so a report stored once but bound to NO session
+// (finding 1): AHT-07's one-take smoke path skipped the association check, so a report stored once but bound to NO session
 // or to ANOTHER session still passed feedback-stored-once. The one take is now bound: the persisted sessionSha256 (from the server projection
 // already read for feedback-stored-once) must equal sha(selected take). No second take, read or request is added.
 const test = require('node:test');

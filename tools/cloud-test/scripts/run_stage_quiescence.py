@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Has every process of the elevated run stage stopped? (Sam 1794161531: bounded ownership recovery only after all children stop.)
+"""Has every process of the elevated run stage stopped? (bounded ownership recovery only after all children stop.)
 
 execute_run.sh run-as-root returns the run-owned trees to the job user from its TERM/INT traps and on normal exit. A trap cannot run on
 SIGKILL, and a TERM the stage ignores is followed by KILL, so the trees can stay root-owned while later job steps run as the job user.

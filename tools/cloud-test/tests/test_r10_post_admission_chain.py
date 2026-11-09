@@ -1,4 +1,4 @@
-"""R10 post-A7 chain (PO: no more discoveries; Sam: prove the whole path). A composed offline rehearsal of the manual run stage after admission
+"""R10 post-A7 chain (PO: no more discoveries; the reviewer: prove the whole path). A composed offline rehearsal of the manual run stage after admission
 A7, on the real manifest, configuration, R10 occurrence and journal, found three defects no run had reached:
   1. the occurrence receiver (and the manual parent-transition rule and G7's v2 binding) admitted only nightly/full-coverage priorities, so the
      R10 journey-smoke occurrence refused with aggregate-occurrence-priority right after A7;
@@ -18,7 +18,7 @@ import check_gates as C
 import init_run_inputs as I
 import spend_report as S
 
-# the active one-off: the AHT-01 selected smoke occurrence of the R10 campaign (Sam 1794149353.956719)
+# the active one-off: the AHT-01 selected smoke occurrence of the R10 campaign
 with open(os.path.join(ROOT, "config", "runs", "R10-3b040043-aht01.json"), encoding="utf-8") as _f:
     TEMPLATE = json.load(_f)
 with open(os.path.join(ROOT, "config", "test-config.v1.json"), encoding="utf-8") as _f:

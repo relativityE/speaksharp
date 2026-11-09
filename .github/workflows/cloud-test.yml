@@ -8,7 +8,7 @@ name: Cloud Test control plane (manual, secret-free)
 #   mode=preflight (default): evaluates every gate for the request and builds the report with Latest = PENDING.
 #   mode=report: after a run's receipts were sealed into config/history/receipts/<latest_label>/ (and pinned in the config), compares Latest against the
 #                previous run automatically and derives gap status, spend and the summary from that evidence.
-#   mode=egress-diagnostic (Sam 1794164253): skips the control plane entirely and runs ONLY the no-network egress readiness preflight on the
+# mode=egress-diagnostic : skips the control plane entirely and runs ONLY the no-network egress readiness preflight on the
 #                live job's runner image, retaining its closed, content-free receipt for one day. No credential, reservation, sysctl, browser,
 #                dependency install or product request. It diagnoses the current runner configuration only: not an AHT-01 pass, not the
 #                historical failure, and no transport-policy change.
@@ -71,7 +71,7 @@ jobs:
           python3 -I - <<'PY'
           import os, re, sys
           p, mode, lab = os.environ["RUN_REQUEST"], os.environ["MODE"], os.environ["LATEST_LABEL"]
-          # Explicit fixture selection (Sam 1793404770): any other or real/private request is refused, never reinterpreted.
+          # Explicit fixture selection : any other or real/private request is refused, never reinterpreted.
           if p != "tools/cloud-test/tests/fixtures/partial-request.json":
               sys.exit("run_request must be the synthetic fixture tools/cloud-test/tests/fixtures/partial-request.json")
           if mode == "report" and not re.fullmatch(r"[A-Za-z0-9._-]{1,32}", lab):
@@ -131,7 +131,7 @@ jobs:
       - name: Record job end (usage account)
         run: python3 -I tools/cloud-test/scripts/record_timing.py end --job control-plane --dir "$RUNNER_TEMP/timings"
       # The real pipeline over a labelled SYNTHETIC sealed history and the selected synthetic request fixture, with this job's own offline proof:
-      # current-code qualification of the control plane (Sam 1793404770), never campaign evidence and never live credit.
+      # current-code qualification of the control plane , never campaign evidence and never live credit.
       - name: Build the synthetic sealed history for the control-plane pipeline (labelled fixtures, no live credit)
         env:
           RUN_REQUEST: ${{ inputs.run_request }}
@@ -162,13 +162,13 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: cloud-test-control-plane
-          # Minimal exposure (PO 2026-10-30, Sam RETURN 1793371883): names, statuses and counts only. Browser identity, the
+          # Minimal exposure (PO 2026-10-30, the reviewer RETURN ): names, statuses and counts only. Browser identity, the
           # attestation and timings stay on the runner.
           path: ${{ runner.temp }}/offline-checks-summary.json
           retention-days: 14
           if-no-files-found: error
 
-  # Sam 1794164253: the smallest diagnostic of the live runner's egress configuration. Exactly the live job's preflight step (same script,
+  # the smallest diagnostic of the live runner's egress configuration. Exactly the live job's preflight step (same script,
   # same closed receipt), on the live job's runner image, and nothing else; the job stops after the receipt is retained.
   egress-diagnostic:
     name: Egress readiness diagnostic only (no secrets, no network, no product traffic)

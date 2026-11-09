@@ -1,4 +1,4 @@
-"""Sam 1794100293: a reserved run that is CANCELLED or TIMED OUT leaves no settle input, so its reservation stays open, and the failure-only
+"""a reserved run that is CANCELLED or TIMED OUT leaves no settle input, so its reservation stays open, and the failure-only
 unexecuted rules refused it (unexecuted-run-not-failed / unexecuted-job-live), blocking every later dispatch. It now settles conservatively as
 `terminated-capped`: every product counter at the held allocation (unknown usage charged in full, never inferred zero) plus the live job's
 measured runner minutes, and the record retires the `cancelled` (or `incomplete`) attempt with that reason.
@@ -84,7 +84,7 @@ class TerminatedCapped(unittest.TestCase):
 
 
 def during_cases(live_steps_cancel_at="Stage runner (run), bounded to the selected cases' live minutes"):
-    """A cancellation DURING the cases: setup steps succeeded, the run stage started and was cancelled, later always() steps ran."""
+    """A cancellation DURING the cases: setup steps succeeded, the run stage started and was cancelled, later always steps ran."""
     run, jobs = shaped("cancelled", "cancelled")
     names = ["Set up job", "Generate the exact-head browser-bound proof and offline checks", "Prove the selected accounts' bounded first-use prerequisites",
              "Select the committed request and bind this run's inputs", "Stage runner (install-tools, plans, stimulus preflight, gates)",
@@ -98,7 +98,7 @@ def during_cases(live_steps_cancel_at="Stage runner (run), bounded to the select
 
 
 class TerminatedControls(unittest.TestCase):
-    """Sam 1794101506: a distinct conservative path, never a permissive one."""
+    """a distinct conservative path, never a permissive one."""
 
     def refused(self, code, run, jobs, events=None):
         with self.assertRaises(U.Refused) as e:
@@ -168,7 +168,7 @@ if __name__ == "__main__":
 
 
 class LiveStepBounds(unittest.TestCase):
-    """Sam 1794100293: setup/proof steps relied on the job timeout, so one stalled step could consume the usable window. Every live-job step
+    """setup/proof steps relied on the job timeout, so one stalled step could consume the usable window. Every live-job step
     now has its own bound (about 2-3x its measured duration on run 42423408284, floor 2 minutes; the run stage keeps its live-minutes bound).
     A step that exceeds its bound FAILS (not cancels) the job at that step, so the unexecuted-attempt evidence names it as the failed step:
     the precise receipt, classified by the existing failure rules."""
@@ -191,7 +191,7 @@ class LiveStepBounds(unittest.TestCase):
 
 
 class ComposedRecovery(unittest.TestCase):
-    """Sam 1794102706: the composed paths, not the parts."""
+    """the composed paths, not the parts."""
 
     def test_begin_then_killed_final_publisher_then_terminal_recovery_then_next_begin(self):
         state = P.begin(P.parse_body(""), RUN_ID, 1, HEAD, "2026-11-07T19:34:10Z")      # record-begin published `running`

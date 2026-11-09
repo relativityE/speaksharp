@@ -1,4 +1,4 @@
-"""Sam 1794070353/1794071417/1794071539, design (a): one execution deadline per run. init computes it once (init time + live minutes - the
+""", design (a): one execution deadline per run. init computes it once (init time + live minutes - the
 stage exit reserve, never past the occurrence end); the plan (BP_T1), guard policy, admission and producer scope all bind that value; the
 window check immediately before the run step refuses a deadline later than the step's kill. Missing or malformed input refuses.
 Real workflow timing is run 42386714252 (Actions job steps): occurrence 15:30:36Z-16:50:36Z, init 15:37:42Z, run step 15:39:02Z, 40 live minutes.

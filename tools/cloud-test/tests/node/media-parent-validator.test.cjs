@@ -1,5 +1,5 @@
 'use strict';
-// R10 run 42318728005 (Sam 1794012265.884079): the parent prepare_media_parent.py creates (root-owned 0711) must pass the EXISTING
+// R10 run 42318728005 : the parent prepare_media_parent.py creates (root-owned 0711) must pass the EXISTING
 // media-private.cjs cross-UID parent check unchanged, and the shapes the preparer refuses must also be refused by that validator.
 // Offline: the reviewed adapter seam reports the root owner the hosted runner would have; every mode/type bit is the real file's.
 const test = require('node:test');
@@ -17,7 +17,7 @@ function validate(parent) {
     getuid: () => 0, getgid: () => 0,
     fs: { ...fs, lstatSync: (p, ...r) => (p === parent ? asRoot(fs.lstatSync(p, ...r)) : fs.lstatSync(p, ...r)) },
   };
-  // Sam 1794013516: past an accepted parent the validator's NEXT step is lstat of the source, which must be exactly this synthetic path's
+  // past an accepted parent the validator's NEXT step is lstat of the source, which must be exactly this synthetic path's
   // ENOENT; any other error (or none) is not evidence of acceptance.
   const source = path.join(path.dirname(parent), 'no-such-source.wav');
   try {

@@ -157,7 +157,7 @@ def receive_occurrence(request, request_raw, occurrence):
     """#1772 Code finding 4446324167: the occurrence envelope of a recurring request, derived only from the AUTHENTICATED journal: the supplied
     snapshot is admitted only when its head and events are exactly the approved state ref as authenticated now, through the same boundary
     G11 uses (check_gates.authenticated_chain: a fresh fetch into a private repository and whole-chain validation from the reviewed root;
-    Jensen RETURN 1793647288.547869), so a well-shaped fabricated, reduced or stale snapshot never yields an envelope or a receipt. That
+    the CLI developer RETURN ), so a well-shaped fabricated, reduced or stale snapshot never yields an envelope or a receipt. That
     journal must hold exactly one open reserve of THIS request (campaign and admitted request digest). A nightly reconciliation is at the
     reserved head; a manual reconciliation is the authenticated parent that immediately precedes this run's own final reserve. Returns
     (envelope, occurrence runtime bytes)."""

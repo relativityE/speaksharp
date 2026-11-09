@@ -6,27 +6,27 @@ name: Cloud Test live journeys (manual, GitHub-hosted)
 # pinned Playwright and PDF parser from tools/cloud-test/runner/package-lock.json (a clean lockfile install with lifecycle scripts disabled,
 # ephemeral runner only), which execute_run's existing-only setup re-verifies under CT_EXISTING_DEPENDENCY_ROOT.
 # init_run_inputs.py prepare selects the committed request and binds approval, window, ceilings, account and facts; it refuses until the
-# verified continuity checkpoint contract exists (Sam 1793538322.008999). PASS needs verify_run_binding AND every selected required row PASS.
+# verified continuity checkpoint contract exists . PASS needs verify_run_binding AND every selected required row PASS.
 #
-# Selected design (Sam 1793471205.454429 / 1793471318.770139 / 1793471406.529969):
+# Selected design :
 #  - one active run (concurrency below); a re-run attempt is refused, because an earlier attempt's consumed state cannot be carried and is never reset;
 #  - the ONE latest record is a bot-owned issue comment updated in place by the isolated record-* jobs, which hold no live credential and only
 #    `issues: write`; the previous completed record stays until a terminal replacement is written, and an interrupted attempt blocks the next run;
 #  - passwords, tokens and keys come only from the `secrets` context. Account emails and ids come only from the private
-#    CLOUD_TEST_LIVE_ACCOUNTS Secret (Sam 1793544453.003099): init_run_inputs.py masks the whole bundle and every extracted value before
+# CLOUD_TEST_LIVE_ACCOUNTS Secret : init_run_inputs.py masks the whole bundle and every extracted value before
 #    any output, then exports each selected role's email under that role's own name (AHT-01..14 THROWAWAY_TEST_EMAIL, AHT-15
 #    FREE_TEST_EMAIL) through a safe env-file writer, so later step headers show it masked; it is never written to the record or artifacts.
 #    Each role's password comes only from its own Secret; the runner gives every case child only its own role's pair (14+1);
 #  - no evidence payload, transcript, account identifier or row content leaves the live job; only the closed latest record does.
 #
-# NIGHTLY (Sam 1793553158.013909 / 1793553275.772209): source only. No `schedule:` trigger is registered here; the proposed cron lives in
+# NIGHTLY : source only. No `schedule:` trigger is registered here; the proposed cron lives in
 # tools/cloud-test/config/nightly/schedule.proposed.yml. A scheduled run would first pass the credential-free nightly-gate job (switch,
-# attempt 1, activated state-ref writer, valid standing approval); record-begin, and through it every later job including the always()
+# attempt 1, activated state-ref writer, valid standing approval); record-begin, and through it every later job including the always
 # record job, runs only when that gate admitted it, so an inactive nightly holds no secret, makes no live effect or reservation write and
 # never overwrites the latest record. Manual and nightly share the ONE serialized concurrency group below (cancel-in-progress: false).
 #
-# The selected record container is PR #1763's conversation (Sam
-# 1793472499.701439); before every update the record jobs verify the comment's
+# The selected record container is PR #1763's conversation (the reviewer
+# ); before every update the record jobs verify the comment's
 # issue, author, marker and id.
 on:
   workflow_dispatch:
@@ -197,7 +197,7 @@ jobs:
           if python3 -I -c 'import json,re,sys; b=open(sys.argv[1],encoding="utf-8").read(); m=re.findall(r"```json\n(.*?)\n```",b,re.S); raise SystemExit(0 if m and json.loads(m[0]).get("pendingCompletion") else 1)' "$RUNNER_TEMP/previous.md"; then
             pending_run_id="$(python3 -I -c 'import json,re,sys; b=open(sys.argv[1],encoding="utf-8").read(); m=re.findall(r"```json\n(.*?)\n```",b,re.S); print(json.loads(m[0])["pendingCompletion"]["record"]["runId"])' "$RUNNER_TEMP/previous.md")"
             gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$pending_run_id/artifacts" > "$RUNNER_TEMP/prior-artifact-pages.json"
-            # Sam 1794162379: the attestation is kept one day (owner rule), so it can be gone by the next admitted run. Exactly one unexpired
+            # the attestation is kept one day (owner rule), so it can be gone by the next admitted run. Exactly one unexpired
             # artifact of that run reconciles as before; none retires the pending candidate as `completion-unverified` history (not folded,
             # nothing recreated, no result upgraded); more than one, or a listing that is not that run's, refuses.
             if python3 -I "$P" completion-artifact --previous "$RUNNER_TEMP/previous.md" --artifact-pages "$RUNNER_TEMP/prior-artifact-pages.json" \
@@ -215,7 +215,7 @@ jobs:
               mv "$RUNNER_TEMP/reconciled.md" "$RUNNER_TEMP/previous.md"
             else
               [ "$?" -eq 1 ] || exit 78
-              # Sam 1794163556: a listing alone is not terminal or settlement evidence. The run's terminal run and jobs and the freshly
+              # a listing alone is not terminal or settlement evidence. The run's terminal run and jobs and the freshly
               # validated journal's one reserve -> settle are collected first (no credential beyond this job's read token); then the listing.
               gh api "repos/$GITHUB_REPOSITORY/actions/runs/$pending_run_id" > "$RUNNER_TEMP/pending-run.json"
               gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$pending_run_id/jobs?per_page=100" > "$RUNNER_TEMP/pending-jobs.json"
@@ -227,7 +227,7 @@ jobs:
               retired_unreserved=1
             fi
           fi
-          # Sam 1793881260.206739 / 1793881491.714239: a reserved attempt that stopped in setup is settled from evidence keyed on the JOURNAL, not
+          # a reserved attempt that stopped in setup is settled from evidence keyed on the JOURNAL, not
           # the record. Whenever the freshly validated chain ends with an open reserve, that run's closed evidence is collected here (GitHub's run
           # and jobs with steps, and its own workflow at its head, fetched by commit SHA from the public origin, no credential) and handed to journal-reserve,
           # which settles it before any new reserve, whatever the record shows. If that run did execute, the evidence refuses and nothing
@@ -256,7 +256,7 @@ jobs:
             mv "$RUNNER_TEMP/retired-unexecuted.md" "$RUNNER_TEMP/previous.md"
             retired_unreserved=1
           fi
-          # Sam 1794144135 / 1794145971 / 1794147839 (run 42483030590): an attempt that reserved and was SETTLED, but whose record was not publishable,
+          # (run 42483030590): an attempt that reserved and was SETTLED, but whose record was not publishable,
           # stays `incomplete` with no completion artifact. It is retired as `settled-unpublished` history only on closed evidence: GitHub reports
           # the run failed with record-begin, reserve, settle and record-complete succeeded and the live job failed, and the freshly validated
           # journal holds exactly its one reserve and the directly following settle. It asserts a settlement, not case execution. Nothing is
@@ -307,7 +307,7 @@ jobs:
           else
             id="$(gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$TRACKING_ISSUE/comments" -F "body=@$RUNNER_TEMP/body.md" --jq .id)"
           fi
-          # Persisted readback (Sam 1794147839): the stored record must be exactly the body just rendered and parse to the same state. This
+          # Persisted readback : the stored record must be exactly the body just rendered and parse to the same state. This
           # verifies what was persisted; it is not atomic exclusion (see above).
           gh api "repos/$GITHUB_REPOSITORY/issues/comments/$id" --jq '[.]' > "$RUNNER_TEMP/begin-readback.json"
           python3 -I "$P" verify --previous "$RUNNER_TEMP/body.md" --comments "$RUNNER_TEMP/begin-readback.json" \
@@ -319,7 +319,7 @@ jobs:
   journal-reserve:
     name: Reserve the run on the state-ref journal (the one push before the run)
     needs: record-begin
-    # J1 (PO approval recorded 1793578273.517019, scope 1793578116.842849): only this reviewed workflow on protected main, never a PR or fork.
+    # J1 (PO approval recorded , scope ): only this reviewed workflow on protected main, never a PR or fork.
     # #1772 review 4446137323: a manual dispatch reserves here too, so the credentialed live job stays contents: read and never sees the token.
     if: ${{ !cancelled() && ((github.ref == 'refs/heads/main' && github.ref_protected == true) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/elon/r10-preflight-traffic-class')) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.record-begin.result == 'success' }}
     runs-on: ubuntu-latest
@@ -386,7 +386,7 @@ jobs:
             --request-sha256 "$NIGHTLY_REQUEST_SHA256" --execution-run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --approval tools/cloud-test/config/recurring-approval.json --repo "$GITHUB_WORKSPACE" \
             --journal "$RUNNER_TEMP/reserve-journal" --out "$RUNNER_TEMP/reserve-receipt.json"
-          # Case 10 design A: the observation's own read budget is reserved here, never in the read-only live job (Sam 1793580806.654369).
+          # Case 10 design A: the observation's own read budget is reserved here, never in the read-only live job .
           # Nothing when the request pins no observation contract; refuses until a trusted reader and the activated writer exist.
           python3 -I tools/cloud-test/scripts/case10_observation.py reserve --request "$RUNNER_TEMP/nightly-request.json" \
             --request-sha256 "$NIGHTLY_REQUEST_SHA256" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --repo "$GITHUB_WORKSPACE"
@@ -400,7 +400,7 @@ jobs:
     # reviewed Chrome >=156 baseline without a download or install.
     runs-on: ubuntu-26.04
     environment: trusted-main-credentials
-    # PO decision (Sam 1793647229.528719): the existing repository Secrets are the single stored source, read by reference here; nothing is
+    # PO decision : the existing repository Secrets are the single stored source, read by reference here; nothing is
     # duplicated, regenerated or copied. Protected main, the protected environment's rules, this job's read-only permission and the
     # isolated writer jobs are unchanged.
     # Manual R10 smoke watchdog: 15 minutes setup + 40 minutes live ceiling + 10 minutes collection/settlement. These are admission bounds,
@@ -413,7 +413,7 @@ jobs:
       CT_CONFIG: tools/cloud-test/config/test-config.v1.json
       CT_SOURCE_SHA: ${{ github.sha }}
       CT_EXECUTION_RUN_ID: ${{ github.run_id }}.${{ github.run_attempt }}
-      # B4 (Akin's direct approval via Sam 1793543299.974409): the pinned runner dependencies come from the reviewed lockfile on this
+      # B4 (the owner's direct approval via ): the pinned runner dependencies come from the reviewed lockfile on this
       # ephemeral runner only; execute_run's existing-only setup then re-verifies the Playwright version and the pdf.mjs/package pins.
       CT_EXISTING_DEPENDENCY_ROOT: ${{ github.workspace }}/tools/cloud-test/runner
       # Source-only receiver wiring. The manifest and accepted digests are intentionally absent/unaccepted; the receiver refuses before
@@ -439,7 +439,7 @@ jobs:
       # (diagnostic run 42513876201: proxy-not-configured). scripts/egress_connect_proxy.cjs serves CONNECT on 127.0.0.1 only, as the job
       # user, for exactly the CODE-pinned policy hosts on :443, refusing IP literals, other ports, plain HTTP and private/loopback/metadata
       # DNS answers; the guard keeps end-to-end TLS. No secret, sudo, permission, policy, upstream.mode or TLS change. The URL is a step
-      # OUTPUT, never $GITHUB_ENV (Sam 1794168880): only the egress preflight and the run stage get HTTPS_PROXY (uppercase, the only form
+      # OUTPUT, never $GITHUB_ENV : only the egress preflight and the run stage get HTTPS_PROXY (uppercase, the only form
       # run_stage forwards); setup, git, gh and artifact uploads never see it, and nothing points at the service after it stops.
       - name: Start the restrictive loopback CONNECT egress service (PO-approved; no secret)
         id: egress-proxy
@@ -455,7 +455,7 @@ jobs:
           port="$(tr -dc 0-9 < "$d/port")"
           [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || { echo "BLOCKED_SETUP: egress-proxy-port"; exit 78; }
           echo "url=http://127.0.0.1:$port" >> "$GITHUB_OUTPUT"
-      # Sam 1794156633 / 1794156723: no-network egress readiness BEFORE any credential-bearing or production prerequisite step. The guard's
+      # no-network egress readiness BEFORE any credential-bearing or production prerequisite step. The guard's
       # production policy requires env-proxy; run_stage forwards only uppercase HTTPS_PROXY/NO_PROXY. Presence and syntax only, never values;
       # the closed receipt is retained even on refusal (exit 78). No secrets in this step.
       - name: Egress readiness preflight (no network; closed receipt)
@@ -582,14 +582,14 @@ jobs:
           MANUAL_WORKFLOW_START_UTC: ${{ needs.record-begin.outputs.manual_workflow_start_utc }}
           CLOUD_TEST_LIVE_ACCOUNTS: ${{ secrets.CLOUD_TEST_LIVE_ACCOUNTS }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          # Case 10 observation (Sam 1793582780.014609): the AHT-10 role's password and the project's anon key, scheduled runs only. The
+          # Case 10 observation : the AHT-10 role's password and the project's anon key, scheduled runs only. The
           # observe step hands them, with the bundle's account id and email, to case10_reader's own subprocess and to nothing else.
           CT_CASE10_PASSWORD: ${{ github.event_name == 'schedule' && secrets.THROWAWAY_TEST_PASSWORD || '' }}
           CT_CASE10_ANON_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_ANON_KEY || '' }}
           JOB_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && '85' || '340' }}
         run: |
           set -euo pipefail
-          # Sam 1793584373.385389: the Case 10 reader's credentials reach ONLY the observe child. They move into unexported shell variables at
+          # the Case 10 reader's credentials reach ONLY the observe child. They move into unexported shell variables at
           # once, so no other child of this step (base64, prepare) inherits them, and are discarded right after the observation.
           C10_PASSWORD="${CT_CASE10_PASSWORD-}"; C10_ANON_KEY="${CT_CASE10_ANON_KEY-}"; unset CT_CASE10_PASSWORD CT_CASE10_ANON_KEY
           printf '%s' "$PRIOR_STATE" > "$RUNNER_TEMP/prior-state.json"
@@ -598,7 +598,7 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = schedule ]; then
             (umask 077; printf '%s' "$NIGHTLY_REQUEST_B64" | base64 -d > "$RUNNER_TEMP/nightly-request.json")
             SRC=(--nightly-request-file "$RUNNER_TEMP/nightly-request.json" --nightly-request-sha256 "$NIGHTLY_REQUEST_SHA256")
-            # Case 10 design A (Sam 1793570217.800529): a fresh current-state observation for the gate's request. Read-only: it reads only
+            # Case 10 design A : a fresh current-state observation for the gate's request. Read-only: it reads only
             # when the verified journal already holds the open reserve journal-reserve appended, and never pushes. Inactive: the step refuses
             # until a trusted reader and the activated writer exist, and writes nothing when the request pins no observation contract; prepare
             # and the builder then re-admit the record it placed.
@@ -643,7 +643,7 @@ jobs:
             echo "CT_CHECKOUT=$tested"
             echo "CT_EXISTING_PDFJS_DIR=$tested/node_modules/pdfjs-dist"
           } >> "$GITHUB_ENV"
-      # Increment I (Sam 1793566031.065709): the continuity checkpoint prepare admitted becomes the stage runner's reconciliation.json, the
+      # Increment I : the continuity checkpoint prepare admitted becomes the stage runner's reconciliation.json, the
       # exact bytes plan construction consumes (run_env --reconciliation). Copied once, never overwritten, and refused unless both the
       # private source and the placed copy hash to init's reconciliation_sha256 step output.
       # PO 2026-11-06 (working release first): admission A3 requires `pnpm --version` in the tested checkout with corepack's network off;
@@ -718,7 +718,7 @@ jobs:
           # Producer keys only for the same-job producer route; execute_run.sh refuses them on any other route.
           SUPABASE_SERVICE_ROLE_KEY: ${{ steps.init.outputs.route == 'github-producer' && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
           POSTHOG_PERSONAL_API_KEY: ${{ steps.init.outputs.route == 'github-producer' && secrets.POSTHOG_PERSONAL_API_KEY || '' }}
-          # The producer's non-secret project identifier (Sam 1793567412.564949), stored as a repository Secret; producer route only, and
+          # The producer's non-secret project identifier , stored as a repository Secret; producer route only, and
           # the producer still refuses TELEMETRY_CAPABILITY_UNAVAILABLE without it.
           POSTHOG_PROJECT_ID: ${{ steps.init.outputs.route == 'github-producer' && secrets.POSTHOG_PROJECT_ID || '' }}
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
@@ -727,7 +727,7 @@ jobs:
           # the PO-approved loopback egress service (step output; this step and the egress preflight only)
           HTTPS_PROXY: ${{ steps.egress-proxy.outputs.url }}
         run: bash tools/cloud-test/scripts/execute_run.sh run
-      # Sam 1794161531: the run stage returns its trees from TERM/INT traps and on exit, which SIGKILL (or an ignored TERM then KILL) skips.
+      # the run stage returns its trees from TERM/INT traps and on exit, which SIGKILL (or an ignored TERM then KILL) skips.
       # No secret; returns only the canonical run-owned trees, only after no run-stage process remains (bounded, fail closed, no signal).
       - name: Return the run-owned trees once every run-stage process has stopped (only if the stage could not)
         timeout-minutes: 3
@@ -795,7 +795,7 @@ jobs:
           if-no-files-found: error
       - name: Project content-free per-case timing telemetry
         timeout-minutes: 3
-        # ALWAYS, including a proof, preflight or init failure (Sam 1793931423.224679): every one of the fifteen cases gets a row bound to
+        # ALWAYS, including a proof, preflight or init failure : every one of the fifteen cases gets a row bound to
         # this run, attempt and head. NOT RUN needs affirmative evidence (no started.txt); started without case results is UNKNOWN.
         if: always()
         env:
@@ -835,7 +835,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          # Run 42516864915 (Sam 1794167544): an early refusal (egress preflight) stops before init sets CT_OUT; under set -u the bare
+          # Run 42516864915 : an early refusal (egress preflight) stops before init sets CT_OUT; under set -u the bare
           # reference failed `unbound variable`. No CT_OUT means no run record: nothing to project, the reservation stays open and counted.
           if [ -z "${CT_OUT:-}" ] || [ ! -f "$CT_OUT/run-record.json" ]; then echo "no run record: the reservation stays open and counted"; exit 0; fi
           mkdir -p "$CT_OUT/settle"
@@ -1096,7 +1096,7 @@ jobs:
         with:
           name: cloud-test-completion-attestation
           path: ${{ runner.temp }}/completion
-          # The immutable counterpart of the durable pending record, kept one day (owner rule, Sam 1794162379). The next admitted run
+          # The immutable counterpart of the durable pending record, kept one day (owner rule). The next admitted run
           # reconciles these exact bytes; once expired, record-begin retires the pending candidate as `completion-unverified`, never a result.
           retention-days: 1
           if-no-files-found: ignore

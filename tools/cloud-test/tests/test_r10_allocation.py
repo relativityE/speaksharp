@@ -1,6 +1,6 @@
-"""Sam 1794070407: allocation-at-all-ceilings and insufficient-cap regressions for the sized R10 occurrence. The occurrence is materialized
+"""allocation-at-all-ceilings and insufficient-cap regressions for the sized R10 occurrence. The occurrence is materialized
 from the COMMITTED template (no grant authority needed: explicit synthetic references), its reservation is computed by the real
-manual_reservation.manual_request, and admitted by the real reserve() against a synthetic journal whose headroom is set to exactly that
+manual_reservation.manual_request, and admitted by the real reserve against a synthetic journal whose headroom is set to exactly that
 allocation in every G5 dimension at once. One short in any single dimension refuses; an approved run cap below the sized estimate refuses."""
 import copy
 import hashlib
@@ -12,7 +12,7 @@ import init_run_inputs as I
 import manual_reservation as M
 from test_accounting_rollup import Journal, scope
 
-# the active one-off: the AHT-01 selected smoke occurrence of the R10 campaign (Sam 1794149353.956719)
+# the active one-off: the AHT-01 selected smoke occurrence of the R10 campaign
 with open(os.path.join(ROOT, "config", "runs", "R10-3b040043-aht01.json"), encoding="utf-8") as _f:
     TEMPLATE = json.load(_f)
 RUN = "42400000001"

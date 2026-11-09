@@ -14,7 +14,7 @@ const {summarizeAssertions}=require(P+'/bundle/harness/case-results.cjs');
 const {sanitizeEvidence}=require(P+'/bundle/harness/evidence-sanitizer.cjs');
 const Pn='pending',Pa='partial',Cv='covered';
 const frozen=(timeline,extra={})=>({frozen:true,samples:60,unreadable:0,timeline,multiMarker:[],...extra});
-// Run 42472935773 (Sam 1794135354): AHT-02/03 smoke now ends with the reviewed smoke-focus-readback row (8ab282b8). The fake run's oracle map
+// Run 42472935773 : AHT-02/03 smoke now ends with the reviewed smoke-focus-readback row (8ab282b8). The fake run's oracle map
 // had no smokeFocusReadback, so the hook threw and the case was interrupted. The smoke runs below compose the ACTUAL oracles from
 // oracles/index.cjs (createOracles: the existing focusEvidence 'begin' brief capture and smokeFocusReadback, never a PASS stub) over an
 // owner-read page holding exact-session fixtures for the fake run's one saved take ('t1'), reopened on the tested release's canonical

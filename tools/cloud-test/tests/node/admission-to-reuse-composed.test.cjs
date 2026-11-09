@@ -1,7 +1,7 @@
 'use strict';
-// Sam 1794094302/1794094792: through the ACTUAL admission and the ACTUAL reused admit(). runAdmission runs with the reviewed admission
+// through the ACTUAL admission and the ACTUAL reused admit. runAdmission runs with the reviewed admission
 // selftest fixture (loaded from that file, unchanged) except one thing: its A7 identity command is the REAL identity-check helper (fake
-// curl transport only, real private ledger). The saved admission receipt then goes to the REAL campaign-runner adapter's admit() as a
+// curl transport only, real private ledger). The saved admission receipt then goes to the REAL campaign-runner adapter's admit as a
 // reused, hash-bound admission. Controls: wrong reservation, missing completion time, changed binding, changed bytes.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -39,7 +39,7 @@ async function admitted(t) {
   f.io.command = async (cmd, argv, opts) => {
     if (!argv[0].endsWith('identity-check.cjs')) return fixtureCommand(cmd, argv, opts);
     const at = k => argv[argv.indexOf(k) + 1];
-    // the REAL helper's runIdentity, exactly the binding admission passes; only curl is a fake transport. Its stdout is what main() prints.
+    // the REAL helper's runIdentity, exactly the binding admission passes; only curl is a fake transport. Its stdout is what main prints.
     const r = runIdentity({ ledger: at('--ledger'), binding: { url: at('--url'), expectedSha: at('--expect-sha'), cap: Number(at('--cap')), phase: at('--phase') } },
       (_c, a) => { fs.writeFileSync(a[a.indexOf('--output') + 1], body); return { status: 0, stdout: '200 0 ' + Buffer.byteLength(body) }; });
     return { status: r.exitCode, stdout: JSON.stringify(r.receipt) + '\n' };

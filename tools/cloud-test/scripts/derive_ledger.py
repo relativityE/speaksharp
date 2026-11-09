@@ -94,7 +94,7 @@ UNOBSERVABLE = "UNOBSERVABLE"
 
 
 def accepted_history(cmp, labels):
-    """Receipt-free mode (option A, Sam 1793616419.679859 / 1793616663.425479): the per-row verdicts of the two configured baseline runs, read
+    """Receipt-free mode (option A): the per-row verdicts of the two configured baseline runs, read
     only from the verified accepted comparison (the receiver already checked its bytes). No raw evidence is carried, so no evidence ref exists."""
     prev, cur = ((cmp.get(k) or {}).get("label") for k in ("previous", "current")) if isinstance(cmp, dict) else (None, None)
     rows = cmp.get("rows") if isinstance(cmp, dict) else None

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Mutation controls for the offline proof. Each control breaks one harness correction in a TEMP COPY (the pinned harness bytes are never
-written) and must turn the correction's OWN tests red (Sam 1793383008): a control counts as caught only when at least one of its named tests
+written) and must turn the correction's OWN tests red : a control counts as caught only when at least one of its named tests
 fails, the mutated run has the same test count as the unmutated baseline (so the module still loaded) and that baseline passes. An anchor
 that does not occur exactly once is refused, never reported as caught.
 
@@ -67,7 +67,7 @@ class TapError(Exception):
 
 
 def parse_tap(stdout, returncode):
-    """Top-level TAP results with status and failure kind (Sam 1793384458): PASS, FAIL, SKIP or TODO per title, and whether a FAIL is an
+    """Top-level TAP results with status and failure kind : PASS, FAIL, SKIP or TODO per title, and whether a FAIL is an
     assertion failure (code ERR_ASSERTION) rather than a runtime exception or load error. Raises TapError when the run cannot be judged."""
     tests, summary, current = [], {}, None
     for line in stdout.splitlines():
@@ -121,7 +121,7 @@ def judge(baseline, mutated, kills):
         raise TapError("baseline is not a clean pass")
     if [(t.get("file"), t["title"]) for t in mutated] != [(t.get("file"), t["title"]) for t in baseline]:
         return {"fail": 0, "failedTests": [], "tests": len(mutated), "reason": "test inventory changed"}
-    # Any SKIP, TODO or non-assertion failure ANYWHERE in the mutated run makes it an invalid execution (Sam 1793385225), never a kill.
+    # Any SKIP, TODO or non-assertion failure ANYWHERE in the mutated run makes it an invalid execution , never a kill.
     invalid = [t["title"] for t in mutated if t["status"] in ("SKIP", "TODO") or (t["status"] == "FAIL" and not t["assertion"])]
     if invalid:
         return {"fail": 0, "failedTests": [], "tests": len(mutated), "reason": "invalid companion execution: %d skipped, todo or runtime-error tests" % len(invalid)}

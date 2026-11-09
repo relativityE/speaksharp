@@ -1,5 +1,5 @@
 'use strict';
-// Sam 1794103612: the composed path with mocked dependencies, through the REAL oracles (createOracles): the existing focusEvidence 'begin'
+// the composed path with mocked dependencies, through the REAL oracles (createOracles): the existing focusEvidence 'begin'
 // captures the expected brief (the one objective_brief read, reused) -> the smoke window's rail statuses -> the page saveReopen left on the
 // reloaded exact-session detail -> 3 owner-scoped reads -> the window-bound verdict -> the oracle result the smoke-focus-readback row records.
 // Only the browser page is mocked: owner REST reads are answered from in-memory tables by URL, exactly as createOwnerDb issues them.
@@ -11,7 +11,7 @@ const DA = path.join(__dirname, '..', '..', 'harness', 'draft-adapters');
 const { createOracles } = require(path.join(DA, 'oracles', 'index.cjs'));
 const { execFileSync } = require('node:child_process');
 
-// Sam 1794104563: the reopened page's route is DERIVED from the tested release's own source lines (committed verbatim with their blob ids),
+// the reopened page's route is DERIVED from the tested release's own source lines (committed verbatim with their blob ids),
 // never invented: AnalyticsDashboard.tsx's open-session-detail link (the one ui.reopen clicks) and App.tsx's canonical /progress route.
 const ROUTES = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'tested-release-reopen-route-5a7bf6a1.json'), 'utf8'));
 const DASH = ROUTES.files['frontend/src/components/AnalyticsDashboard.tsx'].lines;

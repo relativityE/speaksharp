@@ -60,7 +60,7 @@ def main():
     req = consume_request(x.request, x.request_sha256)
     if x.attempt != 1 or not x.execution_run_id.isdecimal():
         sys.exit("BLOCKED_SETUP: collector execution identity differs")
-    # Bezos N1 / Sam 1793965423.927829: the run stage started (started.txt precedes admission and every case) but its aggregate case results
+    # the reviewer N1 / the run stage started (started.txt precedes admission and every case) but its aggregate case results
     # are missing or do not verify. That is an INCOMPLETE run, never NOT RUN: every row UNKNOWN, every spend count unmeasured (null, so the
     # settle holds the reserved caps, never zero), any bound per-case receipts kept as digests only, and it can never qualify as passed.
     reason = None
@@ -93,7 +93,7 @@ CASE_ID = re.compile(r"AHT-(?:0[1-9]|1[0-5])")
 
 
 def valid_case_results(cr, campaign_id):
-    """Explicit schema check before anything reads the aggregate results (Sam 1793967113.871439): every shape complete_record touches.
+    """Explicit schema check before anything reads the aggregate results : every shape complete_record touches.
     Anything else is INCOMPLETE (case-results-invalid), never an exception that leaves no record."""
     if not (isinstance(cr, dict) and cr.get("campaignId") == campaign_id and isinstance(cr.get("cases"), list)):
         return False

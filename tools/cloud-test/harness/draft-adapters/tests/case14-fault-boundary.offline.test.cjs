@@ -1,5 +1,5 @@
 'use strict';
-// Case 14 (R5 dossier; Sam's selected boundary 1793469167.805339) — the REAL AHT-14 adapter branch and the REAL
+// Case 14 (R5 dossier; the reviewer's selected boundary ) — the REAL AHT-14 adapter branch and the REAL
 // browser-actions Start/Retry selection, driven against a scripted fake page and guard. No browser, account or network.
 // Reused, not repeated here: the guard's own prefix/offline/restore mechanics (selftest S14, S14b) and fault matching
 // (download-fault.test.cjs). These controls cover what those cannot: the adapter's verdicts at the browser boundary.
@@ -36,7 +36,7 @@ function fakeWorld(s,events){
   const next=status==='download-required'?'mic-download':['error','init-failed'].includes(status)?'mic-retry':status==='ready'?'mic-start':'none';if(!(s.hideRetry&&next==='mic-retry'))visible.add(next);};
  const clicks={
   // As guard-proxy.cjs does: the matched request binds the correlator (391–393); after the prefix write the receipt
-  // comes from received() before offline (473). Either refusal leaves the fault unfired and harness-limited.
+  // comes from received before offline (473). Either refusal leaves the fault unfired and harness-limited.
   async 'mic-download'(){
    if(s.fires!==false){modelRequests++;const f=faults[0];
     // A guard without a browser-prefix observer still fires (guard-proxy.cjs 473–476) and its summary omits the receipt (598).
@@ -45,7 +45,7 @@ function fakeWorld(s,events){
     deliver(s.cdp??ESTABLISHED_CDP);
     if(s.closePrefix)prefix.close();
     try{
-     // bind() and received() register their waiter synchronously, so events delivered after the call arrive while it is pending.
+     // bind and received register their waiter synchronously, so events delivered after the call arrive while it is pending.
      const pendingBind=prefix.bind(f.id,{timeoutMs:25});
      if(s.duringBind){s.journal?.push({kind:'test-bind-pending',waiters:prefix.listenerCount('change')});deliver(s.duringBind);}
      const binding=await pendingBind;
@@ -104,7 +104,7 @@ async function runWithFacts(s){
    capabilities:{credentials:{email:'synthetic@example.invalid',password:'synthetic-only'},oracles:{},
     recordStartPress:async({control})=>{events.push('press:'+control);if(control==='mic-start')saved=true;},
     writeEvidence:async(n,v)=>{if(v?.assertion){if(facts.has(v.assertion))throw new Error('second evidence write for '+v.assertion);facts.set(v.assertion,v.facts);}return n;},
-    // Like case-results.cjs, a changed duplicate is refused; any duplicate at all fails row() below.
+    // Like case-results.cjs, a changed duplicate is refused; any duplicate at all fails row below.
     recordAssertion:async r=>{const old=recorded.find(x=>x.id===r.id);if(old&&JSON.stringify(old)!==JSON.stringify(r))throw new Error('changed duplicate assertion '+r.id);recorded.push(r);}}});
   const row=id=>{const all=recorded.filter(r=>r.id===id);assert.ok(all.length<=1,'exactly one recorded row for '+id+', got '+all.length);if(all[0])assert.equal(new Set(all[0].evidenceRefs).size,all[0].evidenceRefs.length,'no repeated evidence ref for '+id);return all[0];};
   return {result,events,row,facts:id=>facts.get(id),presses:events.filter(e=>e.startsWith('press:')).map(e=>e.slice(6))};
@@ -197,7 +197,7 @@ for(const [name,overlay] of [['not observed',{observed:false}],['received after 
   for(const id of ['download-failure-truthful','deliberate-recovery-saved','review-reopen'])assert.equal(f.row(id)?.result,'NOT RUN',id);
  });
 
-// (g) Events that arrive WHILE bind() or received() is pending. The marker proves exactly one waiter was registered before delivery.
+// (g) Events that arrive WHILE bind or received is pending. The marker proves exactly one waiter was registered before delivery.
 const LATE=[req('r1'),resp('r1'),data('r1')];
 test('Case14 (g) real correlator: the request arrives during bind() and the bytes during received(): PASS, in journal order',async()=>{
  const journal=[];const f=await runWithFacts({journal,cdp:[],duringBind:[LATE[0]],duringReceived:LATE.slice(1)});

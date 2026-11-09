@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Runtime authority for the plan's reservation binding (Sam RETURN 1794116817; 1794117109; 1794117662).
+"""Runtime authority for the plan's reservation binding (the reviewer RETURN ;).
 
 reservation_binding.verify (run_env / build_plan) proves a private file's bytes and its reconciliation parent, NOT that its allocation came
 from the journal: a copied parent/head with an altered allocation passes it. This check, in the run stage, recomputes the authority from ONE
 authenticated read of the whole state-ref chain through the existing approved path (check_gates.authenticated_state_chain: a fresh fetch of
 the approved remote, validated from the reviewed root actually used) instead of trusting the binding or any reloaded file:
 
-  check-plan  after the occurrence receiver: the receiver's snapshot file must EQUAL the authenticated head and events; the binding's
+  check-plan after the occurrence receiver: the receiver's snapshot file must EQUAL the authenticated head and events; the binding's
               journalRootSha must equal the reviewed root the chain was validated from; reconciliationHeadSha must equal BOTH the accepted
               reconciliation checkpoint's headSha and the authenticated parent of the head (head = parent + exactly this run's reserve);
               this run's own reserve (provenance = the admitted request digest, campaign = the request's runId, run/attempt = GitHub's job
               fields) must be OPEN and the LAST event; journal head, canonical event digest, allocation digest and identityReads must EQUAL
               the authenticated values and the plan's identityReserved; tested release == the verified request's; harness source ==
               CT_SOURCE_SHA == the HARNESS checkout HEAD.
-  pre-start   immediately before the campaign starts: a fresh authenticated read; the same root, parent, head and the same FULL own reserve.
+  pre-start immediately before the campaign starts: a fresh authenticated read; the same root, parent, head and the same FULL own reserve.
 
 Both commands verify the plan's bytes against --plan-sha256, the digest campaign-runner is also given, so every check applies to the same plan.
 Preparation-time authority (prepare) and runtime freshness (receiver, check-plan, pre-start) are distinct. A race after pre-start and during
@@ -52,7 +52,7 @@ def authenticated_view(chain, reviewed_root):
 
 
 def authenticated_snapshot(snapshot_file_doc, view):
-    """Sam 1794117109: never trust a reloaded snapshot file: it must EQUAL the authenticated head and events (the receiver's own rule)."""
+    """never trust a reloaded snapshot file: it must EQUAL the authenticated head and events (the receiver's own rule)."""
     _need(isinstance(snapshot_file_doc, dict) and snapshot_file_doc.get("headSha") == view["head"] and snapshot_file_doc.get("events") == view["events"],
           "runtime-snapshot-not-authenticated")
     return view
@@ -71,7 +71,7 @@ def own_last_open_reserve(events, campaign_id, run_id, attempt, request_sha256):
 
 
 def _same_journal_and_reserve(b, view, run_id, attempt, request_sha256, identity_reserved):
-    """Sam 1794117662: root and reconciliation parent are compared too, not only head and reserve."""
+    """root and reconciliation parent are compared too, not only head and reserve."""
     _need(b["journalRootSha"] == view["root"], "runtime-binding-journal-root")
     _need(b["reconciliationHeadSha"] == view["parentHead"] and view["parentEvents"] == view["events"][:-1], "runtime-binding-reconciliation")
     _need(b["journalHeadSha"] == view["head"], "runtime-binding-journal-head")
@@ -142,7 +142,7 @@ def main(argv):
         plan_raw, plan = _load(x.plan)
         if plan.get("reservationBinding") is None and plan.get("sharedIdentityBoundaries") is not True:
             return 0                                   # unshared, unbound plans (nightly and every existing plan) are unchanged
-        # Sam 1794117662: the SAME plan bytes campaign-runner is given (its --plan-sha256), so every check applies to one version of the file
+        # the SAME plan bytes campaign-runner is given (its --plan-sha256), so every check applies to one version of the file
         _need(isinstance(x.plan_sha256, str) and hashlib.sha256(plan_raw).hexdigest() == x.plan_sha256, "runtime-plan-digest")
         _need(bool(x.request_sha256 and x.run_id and x.attempt and x.attempt.isdigit()), "runtime-inputs")
         attempt = int(x.attempt)

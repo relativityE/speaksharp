@@ -47,7 +47,7 @@ test('reservation crossing the request deadline stays spent and sends no readbac
 });
 test('offline transport cannot substitute into a live policy',async t=>{let calls=0;const h=readbackHarness(t,async()=>{calls++;});h.o.policy.testOnly=false;await assert.rejects(Guard.prototype.readbackRequest.call(h.o,{url:'https://a.test/rows',boundHost:'a.test'}),/unavailable/);assert.equal(calls,0);});
 
-// Sam 1794154809 / 1794155156: closed guard upstream reasons and proxy-configuration booleans (never values) so a run proves its own
+// closed guard upstream reasons and proxy-configuration booleans (never values) so a run proves its own
 // egress configuration. Run 42496837188's AHT-01 failed at page.goto with a guard upstream-error that carried no reason.
 const { upstreamReason, proxyConfig, upstreamSocket, UPSTREAM_REASONS } = require('../harness/guard-proxy.cjs');
 

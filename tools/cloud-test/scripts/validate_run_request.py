@@ -68,8 +68,7 @@ R10_ONE_OFF_RUN_ID = "R10-3b040043-smoke15"
 
 
 def r10_selected_subset(req):
-    """The pinned one-off grant's explicit selectedCases when this request is the R10 one-off campaign; None otherwise (Sam
-    1794150385.056519). The grant is read from its reviewed location and admitted only when its bytes hash to the reviewed pin
+    """The pinned one-off grant's explicit selectedCases when this request is the R10 one-off campaign; None otherwise . The grant is read from its reviewed location and admitted only when its bytes hash to the reviewed pin
     (init_run_inputs.ONE_OFF_GRANT_SHA256); its selection must be explicit, unique and in catalog order. Nothing is defaulted."""
     if not isinstance(req, dict) or req.get("runId") != R10_ONE_OFF_RUN_ID:
         return None
@@ -147,7 +146,7 @@ def validate(req, cfg, ledger, wf, rv, rc, budget=None, request_sha256=None):
         E("a full-coverage run evaluates every tracked gap: targetedGaps must be exactly %s" % sorted(gaps))
     # notTargeted is the run-request contract's list of {gap, why} (templates/run-request.template.json), rendered by the report as the
     # reason each tracked gap is left out on purpose. A bare id or any other shape crashed the live report after admission (run
-    # 42494152179, Sam 1794151710.472899), so it is refused here, before anything runs.
+    # 42494152179), so it is refused here, before anything runs.
     nt = req.get("notTargeted", [])
     if not isinstance(nt, list) or not all(isinstance(n, dict) and set(n) == {"gap", "why"} and isinstance(n["gap"], str)
                                            and isinstance(n["why"], str) and len(n["why"].strip()) >= 10 for n in nt):

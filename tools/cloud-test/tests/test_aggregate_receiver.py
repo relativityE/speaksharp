@@ -487,7 +487,7 @@ class RecurringOccurrenceEnvelope(unittest.TestCase):
 
 
 class OccurrenceEnvelopeOnARealStateRef(unittest.TestCase):
-    """Jensen RETURN 1793647288.547869: the receiver authenticates the occurrence snapshot itself, through G11's own boundary
+    """the CLI developer RETURN : the receiver authenticates the occurrence snapshot itself, through G11's own boundary
     (check_gates.authenticated_chain: a fresh fetch of the approved ref and whole-chain validation), before any accepted bytes or receipt.
     A REAL state ref (the writer tests' local bare repository) carries two occurrences; well-shaped fabricated, reduced, stale and
     unauthenticated snapshots never produce a receipt."""

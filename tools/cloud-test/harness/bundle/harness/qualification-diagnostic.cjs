@@ -1,5 +1,5 @@
 'use strict';
-// R10 A6 diagnosis (Sam 1793996137): when the R0 qualification stops, record WHERE it stopped as closed,
+// R10 A6 diagnosis : when the R0 qualification stops, record WHERE it stopped as closed,
 // content-free identifiers only. Never an exception message, stack, command, URL, stdout or private file.
 // Every emitted value is either a member of a closed set below, a bounded integer, or a source-literal
 // check ID that must match CHECK_ID. Admission re-validates the file before it enters the receipt.
@@ -27,7 +27,7 @@ const SIGNATURES = Object.freeze([
   ['use-guarded-context', /use the guarded context/],
 ]);
 const SIGNATURE_KEYS = Object.freeze(SIGNATURES.map(([k]) => k));
-// Sam 1793998673: membership, not syntax. Guard runs are the exact withGuard IDs in selftest.cjs and
+// membership, not syntax. Guard runs are the exact withGuard IDs in selftest.cjs and
 // feedback-controls.cjs (pinned to source by tests/node/qualification-diagnostic.test.cjs); the three
 // loop-built feedback families are recorded by family only. Check IDs reduce to a known group: the
 // S-section prefix, or the guard run that prefixes its reconcile/no-leak checks. Nothing else survives.

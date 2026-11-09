@@ -110,7 +110,7 @@ class CollectorPreservesOriginalExecutionProvenance(unittest.TestCase):
         document["cases"][0]["executionReceipt"]["requestSha256"] = "0" * 64
         wjson(paths["caseResults"], document)
         result = self.run_collector(paths)
-        # Bezos N1 / Sam 1793965423.927829: a receipt from another request credits nothing; the run is recorded INCOMPLETE (named reason,
+        # the reviewer N1 / a receipt from another request credits nothing; the run is recorded INCOMPLETE (named reason,
         # every row UNKNOWN, every count unmeasured so the settle holds the caps), never with its results.
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("INCOMPLETE run record: runtime-receipt-differs", result.stderr)
@@ -123,7 +123,7 @@ class CollectorPreservesOriginalExecutionProvenance(unittest.TestCase):
 
 
 class IncompleteRunRecord(CollectorPreservesOriginalExecutionProvenance):
-    """Bezos N1 / Sam 1793965423.927829 acceptance controls: a run that STARTED but left no verified aggregate results is recorded INCOMPLETE,
+    """the reviewer N1 / acceptance controls: a run that STARTED but left no verified aggregate results is recorded INCOMPLETE,
     never NOT RUN and never passed; every row is UNKNOWN; every count is unmeasured so the settle holds the reserved caps; bound per-case
     receipts survive as digests only."""
 
@@ -182,7 +182,7 @@ class IncompleteRunRecord(CollectorPreservesOriginalExecutionProvenance):
                 self.assert_incomplete(rec, "case-results-invalid")
 
     def test_malformed_nested_shapes_are_incomplete_never_an_exception(self):
-        # Sam 1793967113.871439: cases=[null], a NOT RUN case without caseId and assertions=[null] each aborted the collector
+        # cases=[null], a NOT RUN case without caseId and assertions=[null] each aborted the collector
         for name, cases in (("null case", [None]), ("no caseId", [{"result": "NOT RUN"}]),
                             ("null assertion", [{"caseId": "AHT-01", "result": "NOT RUN", "assertions": [None]}]),
                             ("non-int count", [{"caseId": "AHT-01", "result": "NOT RUN", "requestsUsed": "7"}]),

@@ -21,7 +21,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 HARNESS = os.path.join(ROOT, "harness")
-# Sam 1794171572: the PO-approved loopback CONNECT egress service's controls are part of this proof, named explicitly (never a glob over
+# the PO-approved loopback CONNECT egress service's controls are part of this proof, named explicitly (never a glob over
 # tests/, so no unrelated top-level suite enters the claim), each with its exact expected test count: a missing file, a different count,
 # any SKIP or failure refuses the proof. Paths are relative to ROOT; the suite identity is "service:<path>".
 SERVICE_TEST_COUNTS = {"tests/egress-connect-proxy.test.cjs": 10}
@@ -76,7 +76,7 @@ def title_report(suites, inventory):
 
 def run_problems(suites, plan_run, mutations, refusals, expected_controls, proof_run, proof, plan_inventory, service_counts=None,
                  title_inventory=None):
-    """Every reason this run cannot yield an accepted proof (Sam 1793385574); empty means accept. Pure: inputs are completed results.
+    """Every reason this run cannot yield an accepted proof ; empty means accept. Pure: inputs are completed results.
     suites: {name: (returncode, tap_text)}; plan_run: (returncode, stdout); proof_run: returncode of offline_proof.py;
     title_inventory: the reviewed {suite: [title]} every run test must resolve through (None only in legacy unit fixtures)."""
     sys.path.insert(0, HERE)
@@ -164,7 +164,7 @@ def main():
     plan = os.path.join(work, "plan")
     prep.build(plan, HARNESS, phases=("phase1", "phase2"), stimulus_receipt=receipt, browser_identity=browser_receipt)
 
-    # One node process and one TAP file per test file (Sam 1793390819): a test's identity is file + title, so equal titles in two packet
+    # One node process and one TAP file per test file : a test's identity is file + title, so equal titles in two packet
     # files are two tests. Proof test files run one at a time (serially), as the original suite requires.
     packet_tests = sorted(glob.glob(os.path.join(HARNESS, "draft-adapters", "tests", "*.test.cjs")) + glob.glob(os.path.join(HARNESS, "bundle", "selftest", "*.test.cjs"))
                           + glob.glob(os.path.join(HARNESS, "bundle", "qualification", "*.test.cjs")))

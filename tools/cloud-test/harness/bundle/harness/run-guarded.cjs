@@ -75,7 +75,7 @@ async function stop(reason, code) {
     const attempts=require('./final-attempts.cjs').finalAttemptViolations(res.guard);if(attempts.completion)res.completionAttemptsViolation=true;if(attempts.feedback)res.feedbackAttemptsViolation=true;if(attempts.unsafe)res.exitCode=3;
     if(actionBudget){try{res.actionBudget=actionBudget.summary();if(res.actionBudget.exceeded)res.exitCode=3;}catch{res.actionBudgetIntegrityFailure=true;res.exitCode=3;}}
     if(left.length && res.exitCode===0)res.exitCode=3;
-    // Sam 1794109947: positive cleanup evidence, every field ALWAYS present and computed here, after every cleanup step above ran. The failure
+    // positive cleanup evidence, every field ALWAYS present and computed here, after every cleanup step above ran. The failure
     // flags above are set only when they occur, so their absence alone is not proof; a shared identity boundary reuses a read only on this record.
     res.cleanupEvidence = { schema: 'speaksharp.cloud-test.case-cleanup-evidence.v1', ownedProcessesRemaining: left.length,
       launchCleanupFailure: res.launchCleanupFailure === true, mediaCleanupFailure: res.mediaCleanupFailure === true,
