@@ -158,7 +158,13 @@ export function parseModelPackage(input: unknown): ModelPackage {
         // Code review of 403e2cda (P2): an inert package carries only model data. Local assets are copied into the served
         // tree on the application origin, so an HTML/SVG/XML document (or any unknown type) could execute script there.
         // Executable runtime files are admitted only through the reviewed-runtime rules below.
-        if (!INERT_PACKAGE_ASSET.test(f.path) && !EXECUTABLE_PACKAGE_ASSET.test(f.path)) refuse('UNSUPPORTED_PACKAGE_ASSET_TYPE');
+        // The importer names the served file from the URL, not the path (independent review of 54a8afb6), so the served name
+        // must pass the same type rule, and a local asset is served under its own file name on every engine.
+        const servedName = url.pathname.split('/').pop() ?? '';
+        if (![f.path, servedName].every(name => INERT_PACKAGE_ASSET.test(name) || EXECUTABLE_PACKAGE_ASSET.test(name))) {
+            refuse('UNSUPPORTED_PACKAGE_ASSET_TYPE');
+        }
+        if (!f.url.startsWith('https://') && servedName !== f.path.split('/').pop()) refuse('PACKAGE_ASSET_NAME_MISMATCH');
         paths.add(f.path); urls.add(f.url);
     }
     if (p.engine === 'transformers-js' && (!p.assets.servedFrom || p.assets.servedFrom !== '/models/' + p.execution.localModelId

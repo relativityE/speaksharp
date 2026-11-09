@@ -270,10 +270,10 @@ describe('the importer refuses active documents in an inert model package', () =
                 execution: { ...base.execution, localModelId }, assets: { servedFrom: `/models/${localModelId}`, files },
                 license: 'MIT (fixture declaration; synthetic bytes)' };
             await expect(sealModelPackage(draft as never)).rejects.toThrow('UNSUPPORTED_PACKAGE_ASSET_TYPE');
-            // A descriptor sealed elsewhere is refused by the importer's own verification before any copy.
-            writeFileSync(join(directory, 'package.json'), JSON.stringify({ ...draft, packageDigest: 'f'.repeat(64), assetDigest: 'f'.repeat(64) }));
+            // The importer seals an unsealed descriptor itself; it refuses on the asset type, before any copy.
+            writeFileSync(join(directory, 'package.json'), JSON.stringify(draft));
             const root = projectRoot();
-            await expect(importModelPackage(root, join(directory, 'package.json'))).rejects.toThrow();
+            await expect(importModelPackage(root, join(directory, 'package.json'))).rejects.toThrow('UNSUPPORTED_PACKAGE_ASSET_TYPE');
             expect(existsSync(join(root, 'frontend/public/models', localModelId))).toBe(false);
         });
     }
@@ -283,6 +283,53 @@ describe('the importer refuses active documents in an inert model package', () =
             engine: base.engine, runtime: base.runtime, model: { ...base.model, device: 'wasm' },
             execution: { ...base.execution, localModelId }, assets: { servedFrom: `/models/${localModelId}`, files },
             license: 'MIT (fixture declaration; synthetic bytes)' } as never)).resolves.toMatchObject({ id: 'fixture:inert-extra' });
+    });
+});
+
+/**
+ * Independent review of 54a8afb6 (P2): the importer names the served file from the asset URL, and only Whisper required the
+ * URL to match the path, so a Parakeet or Granite asset declared as model data could be served under an .html (or .js)
+ * name. The served name must now pass the type rule and equal the path's file name for every local asset.
+ */
+describe('a local asset is served under its own, inert file name on every engine', () => {
+    function runtimeBytes(engine: 'parakeet' | 'granite', path: string) {
+        return engine === 'parakeet' ? readFileSync(join(repo, 'frontend/public/models/parakeet-runtime/1.4.4-ort1.24.1', path.split('/').pop()!)) : null;
+    }
+    for (const engine of ['parakeet', 'granite'] as const) {
+        for (const [label, served] of [['an .html URL', '.html'], ['a .js URL', '.js']] as const) {
+            it(`${engine}: a model-data path served under ${label} is refused at sealing`, async () => {
+                const base = CANDIDATES[engine === 'parakeet' ? 'parakeet:tdt-v3:int8' : 'granite:turboctc-q4f16'];
+                const target = base.assets.files!.findIndex(file => /\.(?:json|txt)$/.test(file.path));
+                const files = base.assets.files!.map((file, index) => {
+                    const executable = /\.(?:[cm]?js|wasm)$/i.test(file.path);
+                    const name = index === target ? file.path.replace(/\.[a-z]+$/, served) : file.path;
+                    return executable ? { path: file.path, url: `/models/fixture-${engine}/${file.path}`, bytes: file.bytes, sha256: file.sha256 }
+                        : { path: file.path, url: `/models/fixture-${engine}/${name}`, bytes: 10, sha256: 'a'.repeat(64) };
+                });
+                await expect(sealModelPackage({ schemaVersion: 1, kind: 'speaksharp-model-package', id: `fixture:served-${engine}`,
+                    engine: base.engine, runtime: base.runtime, model: base.model, execution: structuredClone(base.execution),
+                    assets: { files }, license: 'MIT (fixture declaration; synthetic bytes)' } as never))
+                    .rejects.toThrow(served === '.html' ? 'UNSUPPORTED_PACKAGE_ASSET_TYPE' : 'PACKAGE_ASSET_NAME_MISMATCH');
+            });
+        }
+    }
+    it('parakeet end to end: an importer given a vocab.txt served as vocab.html refuses and writes nothing', async () => {
+        const base = CANDIDATES['parakeet:tdt-v3:int8'];
+        const directory = realpathSync(mkdtempSync(join(tmpdir(), 'parakeet-served-')));
+        roots.push(directory);
+        const files = base.assets.files!.map(file => {
+            const bytes = /\.(?:[cm]?js|wasm)$/i.test(file.path) ? runtimeBytes('parakeet', file.path)!
+                : Buffer.from(file.path === 'vocab.txt' ? '<html><body><script>alert(document.domain)</script></body></html>' : `synthetic ${file.path}`);
+            writeFileSync(join(directory, file.path), bytes);
+            const url = `/models/fixture-parakeet-served/${file.path === 'vocab.txt' ? 'vocab.html' : file.path}`;
+            return { path: file.path, url, bytes: bytes.length, sha256: sha(bytes) };
+        });
+        writeFileSync(join(directory, 'package.json'), JSON.stringify({ schemaVersion: 1, kind: 'speaksharp-model-package',
+            id: 'fixture:parakeet-served', engine: base.engine, runtime: base.runtime, model: base.model,
+            execution: structuredClone(base.execution), assets: { files }, license: 'MIT (fixture declaration; synthetic bytes)' }));
+        const root = projectRoot();
+        await expect(importModelPackage(root, join(directory, 'package.json'))).rejects.toThrow('UNSUPPORTED_PACKAGE_ASSET_TYPE');
+        expect(existsSync(join(root, 'frontend/public/models/fixture-parakeet-served'))).toBe(false);
     });
 });
 
