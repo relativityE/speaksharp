@@ -371,10 +371,13 @@ for(const [signal,number] of [['SIGTERM',15],['SIGINT',2],['SIGHUP',1]])process.
     check('S6.upstream-error-logged', 'upstream-error logged with sent:false', ue && ue.outcome === 'upstream-error' && ue.sent === false, ue);
     reconcile('S6c', r.glog, r.mark, ['a.test']);
   }
-  r = await withGuard('campaign-deadline', policy({ requestTimeoutMs: 30000, deadlineAt: new Date(Date.now() + 9000).toISOString() }), async ({ page }) => {
+  // The deadline is fixed when the guard starts, before the browser launches and navigates: 20 s leaves a slow hosted launch room to have
+  // /hang in flight before it, and the wait is measured from the deadline itself, not from when /hang was sent.
+  const campaignDeadlineMs = Date.now() + 20000;
+  r = await withGuard('campaign-deadline', policy({ requestTimeoutMs: 30000, deadlineAt: new Date(campaignDeadlineMs).toISOString() }), async ({ page }) => {
     await nav(page, 'https://a.test/page');
     const hang = evalFetch(page, '/hang');
-    await sleep(Math.max(0, 9500 - 0));
+    await sleep(Math.max(0, campaignDeadlineMs + 500 - Date.now()));
     const okBefore = FX.logs.a.read().filter((e) => e.path === '/ok').length;
     const x = await evalFetch(page, '/ok');
     const okAfter = FX.logs.a.read().filter((e) => e.path === '/ok').length;

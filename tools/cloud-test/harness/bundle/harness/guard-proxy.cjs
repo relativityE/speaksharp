@@ -407,7 +407,10 @@ class Guard {
     };
     rec.finish = finish;requestRecord=rec;
     const remaining = Math.min(requestStarted + this.policy.requestTimeoutMs, this.deadline) - Date.now();
-    const deadline = () => { ac.abort(); finish('deadline'); if (!res.headersSent) { res.writeHead(504, { 'x-ss-harness-deny': 'deadline' }); res.end(); } else res.destroy(); };
+    // When the campaign deadline, not this request's own timeout, is what ends it, it ends exactly as the campaign timer ends it (cancelled,
+    // reason campaign-deadline, guard closing): both timers are due at the same instant and their order is event-loop timing (R10 A6 S6).
+    const campaignBound = this.deadline <= requestStarted + this.policy.requestTimeoutMs;
+    const deadline = () => { if (campaignBound) { this.cancelAll('campaign-deadline'); if (rec.outcome) return; } ac.abort(); finish('deadline'); if (!res.headersSent) { res.writeHead(504, { 'x-ss-harness-deny': 'deadline' }); res.end(); } else res.destroy(); };
     if(remaining <= 0) { deadline(); return; }
     rec.timer = setTimeout(this.guardCallback(deadline,'request-deadline'), remaining);
     this.watch(res,'close', () => { if (!res.writableFinished && !rec.outcome && !rec.intentionalOffline) { ac.abort(); finish('client-aborted'); } });
