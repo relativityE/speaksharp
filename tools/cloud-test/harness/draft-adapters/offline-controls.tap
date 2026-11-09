@@ -1,0 +1,2884 @@
+TAP version 13
+# Subtest: typed exact invalid credential rejection {}
+ok 1 - typed exact invalid credential rejection {}
+  ---
+  duration_ms: 3.727247
+  type: 'test'
+  ...
+# Subtest: typed exact invalid credential rejection {"body":{"error_code":"invalid_credentials"}}
+ok 2 - typed exact invalid credential rejection {"body":{"error_code":"invalid_credentials"}}
+  ---
+  duration_ms: 0.536406
+  type: 'test'
+  ...
+# Subtest: successful password response never reads its token body outside browser
+ok 3 - successful password response never reads its token body outside browser
+  ---
+  duration_ms: 0.355724
+  type: 'test'
+  ...
+# Subtest: noncredential status 401 is inconclusive not bad-password claim
+ok 4 - noncredential status 401 is inconclusive not bad-password claim
+  ---
+  duration_ms: 0.71279
+  type: 'test'
+  ...
+# Subtest: noncredential status 403 is inconclusive not bad-password claim
+ok 5 - noncredential status 403 is inconclusive not bad-password claim
+  ---
+  duration_ms: 0.431518
+  type: 'test'
+  ...
+# Subtest: noncredential status 429 is inconclusive not bad-password claim
+ok 6 - noncredential status 429 is inconclusive not bad-password claim
+  ---
+  duration_ms: 0.3
+  type: 'test'
+  ...
+# Subtest: noncredential status 500 is inconclusive not bad-password claim
+ok 7 - noncredential status 500 is inconclusive not bad-password claim
+  ---
+  duration_ms: 0.322374
+  type: 'test'
+  ...
+# Subtest: noncredential status 503 is inconclusive not bad-password claim
+ok 8 - noncredential status 503 is inconclusive not bad-password claim
+  ---
+  duration_ms: 1.564929
+  type: 'test'
+  ...
+# Subtest: unrecognized400 error cannot be called invalid credentials
+ok 9 - unrecognized400 error cannot be called invalid credentials
+  ---
+  duration_ms: 0.592319
+  type: 'test'
+  ...
+# Subtest: later duplicate password grant invalidates otherwise observed200
+ok 10 - later duplicate password grant invalidates otherwise observed200
+  ---
+  duration_ms: 0.418058
+  type: 'test'
+  ...
+# Subtest: unrelated origin/frame/password refresh does not bind
+ok 11 - unrelated origin/frame/password refresh does not bind
+  ---
+  duration_ms: 9.406965
+  type: 'test'
+  ...
+# Subtest: one rejected form submit stops before landing and never retries or leaks input
+ok 12 - one rejected form submit stops before landing and never retries or leaks input
+  ---
+  duration_ms: 1.525461
+  type: 'test'
+  ...
+# Subtest: counter reserves BEFORE mic-start and denied press makes no click
+ok 13 - counter reserves BEFORE mic-start and denied press makes no click
+  ---
+  duration_ms: 1.163197
+  type: 'test'
+  ...
+# Subtest: counter reserves BEFORE mic-download and denied press makes no click
+ok 14 - counter reserves BEFORE mic-download and denied press makes no click
+  ---
+  duration_ms: 0.150786
+  type: 'test'
+  ...
+# Subtest: counter reserves BEFORE mic-retry and denied press makes no click
+ok 15 - counter reserves BEFORE mic-retry and denied press makes no click
+  ---
+  duration_ms: 0.141252
+  type: 'test'
+  ...
+# Subtest: counter reserves BEFORE verdict-practice-again and denied press makes no click
+ok 16 - counter reserves BEFORE verdict-practice-again and denied press makes no click
+  ---
+  duration_ms: 0.151568
+  type: 'test'
+  ...
+# Subtest: counter reserves BEFORE focus-points-retry and denied press makes no click
+ok 17 - counter reserves BEFORE focus-points-retry and denied press makes no click
+  ---
+  duration_ms: 0.127592
+  type: 'test'
+  ...
+# Subtest: unknown control or unbound page cannot be pressed
+ok 18 - unknown control or unbound page cannot be pressed
+  ---
+  duration_ms: 0.194031
+  type: 'test'
+  ...
+# Subtest: shared per-case ledger counts across multiple owned pages and Stop is not a Start
+ok 19 - shared per-case ledger counts across multiple owned pages and Stop is not a Start
+  ---
+  duration_ms: 0.315864
+  type: 'test'
+  ...
+# Subtest: every case exports correct Start cap separately from recording/create cap
+ok 20 - every case exports correct Start cap separately from recording/create cap
+  ---
+  duration_ms: 16.984782
+  type: 'test'
+  ...
+# Subtest: source flow has no uncovered direct click on known Start testIDs
+ok 21 - source flow has no uncovered direct click on known Start testIDs
+  ---
+  duration_ms: 0.528193
+  type: 'test'
+  ...
+# Subtest: rapid cap rejection is propagated, not manufactured as gate FAIL
+ok 22 - rapid cap rejection is propagated, not manufactured as gate FAIL
+  ---
+  duration_ms: 1.149647
+  type: 'test'
+  ...
+# Subtest: return history cannot pass missing usable own completed witness []
+ok 23 - return history cannot pass missing usable own completed witness []
+  ---
+  duration_ms: 0.192869
+  type: 'test'
+  ...
+# Subtest: return history cannot pass missing usable own completed witness [{"id":"owned-take","status":"active","transcriptState":"available","transcriptLength":11,"transcriptSha256":"36014e1efee9202b909d251131ebaf7b25d6195843f50cdc5332add705cef3ca"}]
+ok 24 - return history cannot pass missing usable own completed witness [{"id":"owned-take","status":"active","transcriptState":"available","transcriptLength":11,"transcriptSha256":"36014e1efee9202b909d251131ebaf7b25d6195843f50cdc5332add705cef3ca"}]
+  ---
+  duration_ms: 0.110385
+  type: 'test'
+  ...
+# Subtest: return history cannot pass missing usable own completed witness [{"id":"owned-take","status":"completed","transcriptState":"expired","transcriptLength":11,"transcriptSha256":"36014e1efee9202b909d251131ebaf7b25d6195843f50cdc5332add705cef3ca"}]
+ok 25 - return history cannot pass missing usable own completed witness [{"id":"owned-take","status":"completed","transcriptState":"expired","transcriptLength":11,"transcriptSha256":"36014e1efee9202b909d251131ebaf7b25d6195843f50cdc5332add705cef3ca"}]
+  ---
+  duration_ms: 0.108873
+  type: 'test'
+  ...
+# Subtest: return history cannot pass missing usable own completed witness [{"id":"owned-take","status":"completed","transcriptState":"available","transcriptLength":0,"transcriptSha256":"36014e1efee9202b909d251131ebaf7b25d6195843f50cdc5332add705cef3ca"}]
+ok 26 - return history cannot pass missing usable own completed witness [{"id":"owned-take","status":"completed","transcriptState":"available","transcriptLength":0,"transcriptSha256":"36014e1efee9202b909d251131ebaf7b25d6195843f50cdc5332add705cef3ca"}]
+  ---
+  duration_ms: 0.074151
+  type: 'test'
+  ...
+# Subtest: readonly history identity includes exact state/digest not only count
+ok 27 - readonly history identity includes exact state/digest not only count
+  ---
+  duration_ms: 0.250926
+  type: 'test'
+  ...
+# Subtest: exact source deep-link comparison /progress/owned-take?g04=1\#history
+ok 28 - exact source deep-link comparison /progress/owned-take?g04=1\#history
+  ---
+  duration_ms: 0.18598
+  type: 'test'
+  ...
+# Subtest: exact source deep-link comparison /progress/other?g04=1\#history
+ok 29 - exact source deep-link comparison /progress/other?g04=1\#history
+  ---
+  duration_ms: 0.312128
+  type: 'test'
+  ...
+# Subtest: exact source deep-link comparison /progress/owned-take?g04=2\#history
+ok 30 - exact source deep-link comparison /progress/owned-take?g04=2\#history
+  ---
+  duration_ms: 0.080771
+  type: 'test'
+  ...
+# Subtest: exact source deep-link comparison /progress/owned-take?g04=1\#other
+ok 31 - exact source deep-link comparison /progress/owned-take?g04=1\#other
+  ---
+  duration_ms: 0.075353
+  type: 'test'
+  ...
+# Subtest: exact source deep-link comparison /progress/owned-take
+ok 32 - exact source deep-link comparison /progress/owned-take
+  ---
+  duration_ms: 0.163926
+  type: 'test'
+  ...
+# Subtest: route readiness waits URL then app visible marker
+ok 33 - route readiness waits URL then app visible marker
+  ---
+  duration_ms: 0.308493
+  type: 'test'
+  ...
+# Subtest: AHT09 samples mic only after leave URL/ready and waits return ready before noResume
+ok 34 - AHT09 samples mic only after leave URL/ready and waits return ready before noResume
+  ---
+  duration_ms: 0.294101
+  type: 'test'
+  ...
+# Subtest: browser readback and rendered digest follow source outer trim, preserving internal whitespace
+ok 35 - browser readback and rendered digest follow source outer trim, preserving internal whitespace
+  ---
+  duration_ms: 20.181508
+  type: 'test'
+  ...
+# Subtest: typed auth and Start-cap failures return closed campaign signals and NOT RUN rows
+ok 36 - typed auth and Start-cap failures return closed campaign signals and NOT RUN rows
+  ---
+  duration_ms: 0.551548
+  type: 'test'
+  ...
+# Subtest: actual return helper opens legacy URL then authenticates to exact route and proves rendered own digest
+ok 37 - actual return helper opens legacy URL then authenticates to exact route and proves rendered own digest
+  ---
+  duration_ms: 0.989786
+  type: 'test'
+  ...
+# Subtest: actual return helper rejects {"wrongHash":true}
+ok 38 - actual return helper rejects {"wrongHash":true}
+  ---
+  duration_ms: 0.231908
+  type: 'test'
+  ...
+# Subtest: actual return helper rejects {"wrongDigest":true}
+ok 39 - actual return helper rejects {"wrongDigest":true}
+  ---
+  duration_ms: 0.155043
+  type: 'test'
+  ...
+# Subtest: actual return helper rejects {"owner":true}
+ok 40 - actual return helper rejects {"owner":true}
+  ---
+  duration_ms: 0.096936
+  type: 'test'
+  ...
+# Subtest: actual return helper rejects {"micLost":true}
+ok 41 - actual return helper rejects {"micLost":true}
+  ---
+  duration_ms: 0.115714
+  type: 'test'
+  ...
+# Subtest: Focus restored transcript view digest has the same source trim parity
+ok 42 - Focus restored transcript view digest has the same source trim parity
+  ---
+  duration_ms: 0.255003
+  type: 'test'
+  ...
+# Subtest: A independent authority captured before B and never reread after B; B input-only witness defers producer
+ok 43 - A independent authority captured before B and never reread after B; B input-only witness defers producer
+  ---
+  duration_ms: 10.595209
+  type: 'test'
+  ...
+# Subtest: aborted input-only capture starts no read/page/producer
+ok 44 - aborted input-only capture starts no read/page/producer
+  ---
+  duration_ms: 1.180453
+  type: 'test'
+  ...
+# Subtest: late saved-input result after disposal cannot open page or request producer
+ok 45 - late saved-input result after disposal cannot open page or request producer
+  ---
+  duration_ms: 0.77965
+  type: 'test'
+  ...
+# Subtest: B input-only branch does not settle provider, render or open detail page
+ok 46 - B input-only branch does not settle provider, render or open detail page
+  ---
+  duration_ms: 1.176066
+  type: 'test'
+  ...
+# Subtest: persistence alone cannot release authority; passive ready same-take witness is awaited
+ok 47 - persistence alone cannot release authority; passive ready same-take witness is awaited
+  ---
+  duration_ms: 3.000385
+  type: 'test'
+  ...
+# Subtest: source terminal error returns without regeneration or retry
+ok 48 - source terminal error returns without regeneration or retry
+  ---
+  duration_ms: 0.282994
+  type: 'test'
+  ...
+# Subtest: source terminal blocked returns without regeneration or retry
+ok 49 - source terminal blocked returns without regeneration or retry
+  ---
+  duration_ms: 0.222544
+  type: 'test'
+  ...
+# Subtest: wrong-take ready does not satisfy A readiness
+ok 50 - wrong-take ready does not satisfy A readiness
+  ---
+  duration_ms: 0.51316
+  type: 'test'
+  ...
+# Subtest: empty pair does not release authority
+ok 51 - empty pair does not release authority
+  ---
+  duration_ms: 0.476296
+  type: 'test'
+  ...
+# Subtest: cancel during pending sample never returns ready
+ok 52 - cancel during pending sample never returns ready
+  ---
+  duration_ms: 1.962897
+  type: 'test'
+  ...
+# Subtest: already cancelled begins no browser observation
+ok 53 - already cancelled begins no browser observation
+  ---
+  duration_ms: 0.345228
+  type: 'test'
+  ...
+# Subtest: readiness rejects invalid bound 0
+ok 54 - readiness rejects invalid bound 0
+  ---
+  duration_ms: 0.483115
+  type: 'test'
+  ...
+# Subtest: readiness rejects invalid bound -1
+ok 55 - readiness rejects invalid bound -1
+  ---
+  duration_ms: 0.201572
+  type: 'test'
+  ...
+# Subtest: readiness rejects invalid bound Infinity
+ok 56 - readiness rejects invalid bound Infinity
+  ---
+  duration_ms: 0.192689
+  type: 'test'
+  ...
+# Subtest: readiness rejects invalid bound 180001
+ok 57 - readiness rejects invalid bound 180001
+  ---
+  duration_ms: 0.088282
+  type: 'test'
+  ...
+# Subtest: never-resolving browser read is bounded and never starts another read or producer
+ok 58 - never-resolving browser read is bounded and never starts another read or producer
+  ---
+  duration_ms: 16.817842
+  type: 'test'
+  ...
+# Subtest: cancellation while browser read is pending is bounded without a new action
+ok 59 - cancellation while browser read is pending is bounded without a new action
+  ---
+  duration_ms: 27.163792
+  type: 'test'
+  ...
+# Subtest: late ready after read deadline cannot release authority
+ok 60 - late ready after read deadline cannot release authority
+  ---
+  duration_ms: 5.47437
+  type: 'test'
+  ...
+# Subtest: source repeat permits honest fenced finishing-up wait
+ok 61 - source repeat permits honest fenced finishing-up wait
+  ---
+  duration_ms: 2.418522
+  type: 'test'
+  ...
+# Subtest: source repeat rejects {"enabledWhileHolding":true}
+ok 62 - source repeat rejects {"enabledWhileHolding":true}
+  ---
+  duration_ms: 0.440291
+  type: 'test'
+  ...
+# Subtest: source repeat rejects {"afterActionEnabledMs":null}
+ok 63 - source repeat rejects {"afterActionEnabledMs":null}
+  ---
+  duration_ms: 0.155032
+  type: 'test'
+  ...
+# Subtest: source repeat rejects {"afterActionEnabledMs":15000}
+ok 64 - source repeat rejects {"afterActionEnabledMs":15000}
+  ---
+  duration_ms: 0.133431
+  type: 'test'
+  ...
+# Subtest: source repeat rejects {"afterStartMs":null}
+ok 65 - source repeat rejects {"afterStartMs":null}
+  ---
+  duration_ms: 0.192119
+  type: 'test'
+  ...
+# Subtest: source repeat rejects {"afterStartMs":15000}
+ok 66 - source repeat rejects {"afterStartMs":15000}
+  ---
+  duration_ms: 0.185729
+  type: 'test'
+  ...
+# Subtest: same pending set requires exact order not set membership
+ok 67 - same pending set requires exact order not set membership
+  ---
+  duration_ms: 0.684538
+  type: 'test'
+  ...
+# Subtest: source New Set and Edit require independent durable 3/3
+ok 68 - source New Set and Edit require independent durable 3/3
+  ---
+  duration_ms: 3.155297
+  type: 'test'
+  ...
+# Subtest: source New Set rejects x=>x.newSetBlank=false
+ok 69 - source New Set rejects x=>x.newSetBlank=false
+  ---
+  duration_ms: 2.463815
+  type: 'test'
+  ...
+# Subtest: source New Set rejects x=>x.briefB=x.briefA
+ok 70 - source New Set rejects x=>x.briefB=x.briefA
+  ---
+  duration_ms: 0.342755
+  type: 'test'
+  ...
+# Subtest: source New Set rejects x=>x.takeBId=x.takeAId
+ok 71 - source New Set rejects x=>x.takeBId=x.takeAId
+  ---
+  duration_ms: 0.163415
+  type: 'test'
+  ...
+# Subtest: source New Set rejects x=>x.takeAVerdictsAfter=['p1:not_detected']
+ok 72 - source New Set rejects x=>x.takeAVerdictsAfter=['p1:not_detected']
+  ---
+  duration_ms: 0.119169
+  type: 'test'
+  ...
+# Subtest: source Edit rejects x=>x.editSeeded=false
+ok 73 - source Edit rejects x=>x.editSeeded=false
+  ---
+  duration_ms: 0.254232
+  type: 'test'
+  ...
+# Subtest: source Edit rejects x=>x.railLabelsMatchEdit=false
+ok 74 - source Edit rejects x=>x.railLabelsMatchEdit=false
+  ---
+  duration_ms: 0.156355
+  type: 'test'
+  ...
+# Subtest: source Edit rejects x=>x.railOrdered[2].status='missing'
+ok 75 - source Edit rejects x=>x.railOrdered[2].status='missing'
+  ---
+  duration_ms: 0.126881
+  type: 'test'
+  ...
+# Subtest: source Edit rejects x=>x.takeBSavedOrdered[2].label='unspoken'
+ok 76 - source Edit rejects x=>x.takeBSavedOrdered[2].label='unspoken'
+  ---
+  duration_ms: 0.145308
+  type: 'test'
+  ...
+# Subtest: source Edit rejects x=>x.takeBSavedOrdered[2].verdict='not_detected'
+ok 77 - source Edit rejects x=>x.takeBSavedOrdered[2].verdict='not_detected'
+  ---
+  duration_ms: 2.48075
+  type: 'test'
+  ...
+# Subtest: source Edit rejects x=>x.takeBSavedOrdered.reverse()
+ok 78 - source Edit rejects x=>x.takeBSavedOrdered.reverse()
+  ---
+  duration_ms: 0.259595
+  type: 'test'
+  ...
+# Subtest: blank setup checks every point and goal/topic
+ok 79 - blank setup checks every point and goal/topic
+  ---
+  duration_ms: 0.301242
+  type: 'test'
+  ...
+# Subtest: three spoken indices derive from covered reference not labels alone
+ok 80 - three spoken indices derive from covered reference not labels alone
+  ---
+  duration_ms: 1.013832
+  type: 'test'
+  ...
+# Subtest: timing plan uses source full, short, edit and seven-second repeat
+ok 81 - timing plan uses source full, short, edit and seven-second repeat
+  ---
+  duration_ms: 0.280882
+  type: 'test'
+  ...
+# Subtest: full Focus preflight counts seven actual Start attempts: 0
+ok 82 - full Focus preflight counts seven actual Start attempts: 0
+  ---
+  duration_ms: 0.743787
+  type: 'test'
+  ...
+# Subtest: full Focus preflight counts seven actual Start attempts: 4
+ok 83 - full Focus preflight counts seven actual Start attempts: 4
+  ---
+  duration_ms: 0.11332
+  type: 'test'
+  ...
+# Subtest: full Focus preflight counts seven actual Start attempts: 6
+ok 84 - full Focus preflight counts seven actual Start attempts: 6
+  ---
+  duration_ms: 0.171017
+  type: 'test'
+  ...
+# Subtest: source-derived approved New Set inputs cannot silently change
+ok 85 - source-derived approved New Set inputs cannot silently change
+  ---
+  duration_ms: 0.223215
+  type: 'test'
+  ...
+# Subtest: short Focus rejects reference that cannot isolate point one
+ok 86 - short Focus rejects reference that cannot isolate point one
+  ---
+  duration_ms: 0.208543
+  type: 'test'
+  ...
+# Subtest: AHT-01 assertion denominator cannot omit requested repeat probes
+ok 87 - AHT-01 assertion denominator cannot omit requested repeat probes
+  ---
+  duration_ms: 0.231888
+  type: 'test'
+  ...
+# Subtest: AHT-02 assertion denominator cannot omit requested repeat probes
+ok 88 - AHT-02 assertion denominator cannot omit requested repeat probes
+  ---
+  duration_ms: 0.082534
+  type: 'test'
+  ...
+# Subtest: AHT-03 assertion denominator cannot omit requested repeat probes
+ok 89 - AHT-03 assertion denominator cannot omit requested repeat probes
+  ---
+  duration_ms: 0.076685
+  type: 'test'
+  ...
+# Subtest: full Focus denominator contains both switch directions and retained edit source rows
+ok 90 - full Focus denominator contains both switch directions and retained edit source rows
+  ---
+  duration_ms: 0.160301
+  type: 'test'
+  ...
+# Subtest: rapid probe executes review click and exactly one Stop without fixture delay
+ok 91 - rapid probe executes review click and exactly one Stop without fixture delay
+  ---
+  duration_ms: 1.492201
+  type: 'test'
+  ...
+# Subtest: rapid observed gate violation stays FAIL even microphone later off
+ok 92 - rapid observed gate violation stays FAIL even microphone later off
+  ---
+  duration_ms: 0.360902
+  type: 'test'
+  ...
+# Subtest: rapid lost gate samples are NOT RUN not clean PASS
+ok 93 - rapid lost gate samples are NOT RUN not clean PASS
+  ---
+  duration_ms: 0.590346
+  type: 'test'
+  ...
+# Subtest: rapid unreadable mic is NOT RUN not zero
+ok 94 - rapid unreadable mic is NOT RUN not zero
+  ---
+  duration_ms: 0.357557
+  type: 'test'
+  ...
+# Subtest: rapid failed Stop is FAIL and not automatically retried
+ok 95 - rapid failed Stop is FAIL and not automatically retried
+  ---
+  duration_ms: 0.428263
+  type: 'test'
+  ...
+# Subtest: next-Start uses fresh route, Start, immediate Stop
+ok 96 - next-Start uses fresh route, Start, immediate Stop
+  ---
+  duration_ms: 0.480611
+  type: 'test'
+  ...
+# Subtest: next-Start finishing-up shown is FAIL independently of stopped tracks
+ok 97 - next-Start finishing-up shown is FAIL independently of stopped tracks
+  ---
+  duration_ms: 0.203716
+  type: 'test'
+  ...
+# Subtest: extended Focus helper executes both products, short take, New Set, cancel, edit, scored take in source order
+ok 98 - extended Focus helper executes both products, short take, New Set, cancel, edit, scored take in source order
+  ---
+  duration_ms: 7.746132
+  type: 'test'
+  ...
+# Subtest: stale coaching fails before short Focus payload
+ok 99 - stale coaching fails before short Focus payload
+  ---
+  duration_ms: 0.776817
+  type: 'test'
+  ...
+# Subtest: missing independently recognized marker remains NOT RUN
+ok 100 - missing independently recognized marker remains NOT RUN
+  ---
+  duration_ms: 1.027142
+  type: 'test'
+  ...
+# Subtest: nonblank goal fails New Set before edited take
+ok 101 - nonblank goal fails New Set before edited take
+  ---
+  duration_ms: 6.231616
+  type: 'test'
+  ...
+# Subtest: cancel mutation fails before edited take
+ok 102 - cancel mutation fails before edited take
+  ---
+  duration_ms: 1.726282
+  type: 'test'
+  ...
+# Subtest: old Focus durable verdict mutation preserves FAIL even new edit scored 3/3
+ok 103 - old Focus durable verdict mutation preserves FAIL even new edit scored 3/3
+  ---
+  duration_ms: 2.393314
+  type: 'test'
+  ...
+# Subtest: driver source schedules rapid before producer wait and extended switch before New Set
+ok 104 - driver source schedules rapid before producer wait and extended switch before New Set
+  ---
+  duration_ms: 0.366581
+  type: 'test'
+  ...
+# Subtest: source Back/reload validates both rendered reviews and immediate track read
+ok 105 - source Back/reload validates both rendered reviews and immediate track read
+  ---
+  duration_ms: 0.249775
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"leftForProgress":false}
+ok 106 - source Back/reload rejects {"leftForProgress":false}
+  ---
+  duration_ms: 0.11996
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"restoredAfterBack":false}
+ok 107 - source Back/reload rejects {"restoredAfterBack":false}
+  ---
+  duration_ms: 0.059579
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"liveMicTracksAfterBack":null}
+ok 108 - source Back/reload rejects {"liveMicTracksAfterBack":null}
+  ---
+  duration_ms: 0.053751
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"liveMicTracksAfterBack":1}
+ok 109 - source Back/reload rejects {"liveMicTracksAfterBack":1}
+  ---
+  duration_ms: 0.044577
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"restoredAfterReload":false}
+ok 110 - source Back/reload rejects {"restoredAfterReload":false}
+  ---
+  duration_ms: 0.053701
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"sameSessionAfterReload":false}
+ok 111 - source Back/reload rejects {"sameSessionAfterReload":false}
+  ---
+  duration_ms: 0.064587
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"idleRecorderShown":true}
+ok 112 - source Back/reload rejects {"idleRecorderShown":true}
+  ---
+  duration_ms: 0.097687
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"liveMicTracks":1}
+ok 113 - source Back/reload rejects {"liveMicTracks":1}
+  ---
+  duration_ms: 0.10649
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"transcriptMatchesSaved":false}
+ok 114 - source Back/reload rejects {"transcriptMatchesSaved":false}
+  ---
+  duration_ms: 0.114862
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"reviewAfterBack":"missing"}
+ok 115 - source Back/reload rejects {"reviewAfterBack":"missing"}
+  ---
+  duration_ms: 0.117517
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"reviewAfterReload":"not_available"}
+ok 116 - source Back/reload rejects {"reviewAfterReload":"not_available"}
+  ---
+  duration_ms: 0.064807
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"verdictsAfter":[]}
+ok 117 - source Back/reload rejects {"verdictsAfter":[]}
+  ---
+  duration_ms: 0.050837
+  type: 'test'
+  ...
+# Subtest: source Back/reload rejects {"coachingRequestsAfter":2}
+ok 118 - source Back/reload rejects {"coachingRequestsAfter":2}
+  ---
+  duration_ms: 0.05346
+  type: 'test'
+  ...
+# Subtest: every exported driver take cap matches shared reviewed denominator
+ok 119 - every exported driver take cap matches shared reviewed denominator
+  ---
+  duration_ms: 4.920468
+  type: 'test'
+  ...
+# Subtest: every requested crosswalk assertion is mandatory in every mapped case
+ok 120 - every requested crosswalk assertion is mandatory in every mapped case
+  ---
+  duration_ms: 0.309264
+  type: 'test'
+  ...
+# Subtest: save-fault calls bind actual Start before speaking and retry proof before next take
+ok 121 - save-fault calls bind actual Start before speaking and retry proof before next take
+  ---
+  duration_ms: 0.297006
+  type: 'test'
+  ...
+# Subtest: completion receipt denominator includes final observation beyond injected fault
+ok 122 - completion receipt denominator includes final observation beyond injected fault
+  ---
+  duration_ms: 0.283456
+  type: 'test'
+  ...
+# Subtest: rapid delayed sampler cannot postpone Stop or create a clean zero
+ok 123 - rapid delayed sampler cannot postpone Stop or create a clean zero
+  ---
+  duration_ms: 0.621993
+  type: 'test'
+  ...
+# Subtest: next delayed sampler cannot postpone Stop or create a clean zero
+ok 124 - next delayed sampler cannot postpone Stop or create a clean zero
+  ---
+  duration_ms: 0.253361
+  type: 'test'
+  ...
+# Subtest: rapid timing evidence includes all source slots and honest missing warmup
+ok 125 - rapid timing evidence includes all source slots and honest missing warmup
+  ---
+  duration_ms: 0.487202
+  type: 'test'
+  ...
+# Subtest: B capture is passive before probes and actual completed probe rows are mandatory
+ok 126 - B capture is passive before probes and actual completed probe rows are mandatory
+  ---
+  duration_ms: 0.481422
+  type: 'test'
+  ...
+# Subtest: actual contracts JSON matches wrappers, mandatory rows and both take-cap fields
+ok 127 - actual contracts JSON matches wrappers, mandatory rows and both take-cap fields
+  ---
+  duration_ms: 4.604765
+  type: 'test'
+  ...
+# Subtest: passive B capture aborts/disposes and freezes before page teardown
+ok 128 - passive B capture aborts/disposes and freezes before page teardown
+  ---
+  duration_ms: 0.343837
+  type: 'test'
+  ...
+# Subtest: required missing technical implementations block pure preflight before browser or credentials
+ok 129 - required missing technical implementations block pure preflight before browser or credentials
+  ---
+  duration_ms: 0.333912
+  type: 'test'
+  ...
+# Subtest: finite human/admin/matrix extras are distinct, NOT RUN and never labelled optional
+ok 130 - finite human/admin/matrix extras are distinct, NOT RUN and never labelled optional
+  ---
+  duration_ms: 0.281292
+  type: 'test'
+  ...
+# Subtest: complete capability/budget source preflight accepts configuration without effects
+ok 131 - complete capability/budget source preflight accepts configuration without effects
+  ---
+  duration_ms: 1.743668
+  type: 'test'
+  ...
+# Subtest: missing feedbackFaultConfiguration blocks before any UI or write effect
+ok 132 - missing feedbackFaultConfiguration blocks before any UI or write effect
+  ---
+  duration_ms: 0.822955
+  type: 'test'
+  ...
+# Subtest: missing armFeedbackFault blocks before any UI or write effect
+ok 133 - missing armFeedbackFault blocks before any UI or write effect
+  ---
+  duration_ms: 0.500171
+  type: 'test'
+  ...
+# Subtest: missing armFeedbackObservation blocks before any UI or write effect
+ok 134 - missing armFeedbackObservation blocks before any UI or write effect
+  ---
+  duration_ms: 0.293781
+  type: 'test'
+  ...
+# Subtest: missing markFeedbackRetry blocks before any UI or write effect
+ok 135 - missing markFeedbackRetry blocks before any UI or write effect
+  ---
+  duration_ms: 0.224076
+  type: 'test'
+  ...
+# Subtest: missing feedbackFaultSummary blocks before any UI or write effect
+ok 136 - missing feedbackFaultSummary blocks before any UI or write effect
+  ---
+  duration_ms: 0.235444
+  type: 'test'
+  ...
+# Subtest: missing feedbackExpectedOperation blocks before any UI or write effect
+ok 137 - missing feedbackExpectedOperation blocks before any UI or write effect
+  ---
+  duration_ms: 0.17345
+  type: 'test'
+  ...
+# Subtest: missing compareFeedbackRows blocks before any UI or write effect
+ok 138 - missing compareFeedbackRows blocks before any UI or write effect
+  ---
+  duration_ms: 0.174942
+  type: 'test'
+  ...
+# Subtest: preflight refuses insufficient/retargeted feedbackAttemptCap
+ok 139 - preflight refuses insufficient/retargeted feedbackAttemptCap
+  ---
+  duration_ms: 0.301312
+  type: 'test'
+  ...
+# Subtest: preflight refuses insufficient/retargeted feedbackNewReportCap
+ok 140 - preflight refuses insufficient/retargeted feedbackNewReportCap
+  ---
+  duration_ms: 0.42646
+  type: 'test'
+  ...
+# Subtest: preflight refuses insufficient/retargeted feedbackAttemptCap
+ok 141 - preflight refuses insufficient/retargeted feedbackAttemptCap
+  ---
+  duration_ms: 0.218948
+  type: 'test'
+  ...
+# Subtest: preflight refuses insufficient/retargeted sourceSha
+ok 142 - preflight refuses insufficient/retargeted sourceSha
+  ---
+  duration_ms: 0.248543
+  type: 'test'
+  ...
+# Subtest: preflight refuses insufficient/retargeted servedSha
+ok 143 - preflight refuses insufficient/retargeted servedSha
+  ---
+  duration_ms: 0.114632
+  type: 'test'
+  ...
+# Subtest: preflight refuses insufficient/retargeted targetUrl
+ok 144 - preflight refuses insufficient/retargeted targetUrl
+  ---
+  duration_ms: 0.108523
+  type: 'test'
+  ...
+# Subtest: transport-before-send truthful preserved form positive fixture
+ok 145 - transport-before-send truthful preserved form positive fixture
+  ---
+  duration_ms: 0.328123
+  type: 'test'
+  ...
+# Subtest: synthetic-42501 truthful preserved form positive fixture
+ok 146 - synthetic-42501 truthful preserved form positive fixture
+  ---
+  duration_ms: 0.098748
+  type: 'test'
+  ...
+# Subtest: stored-response-lost truthful preserved form positive fixture
+ok 147 - stored-response-lost truthful preserved form positive fixture
+  ---
+  duration_ms: 0.083576
+  type: 'test'
+  ...
+# Subtest: preserved form rejects error
+ok 148 - preserved form rejects error
+  ---
+  duration_ms: 0.206761
+  type: 'test'
+  ...
+# Subtest: preserved form rejects dialogVisible
+ok 149 - preserved form rejects dialogVisible
+  ---
+  duration_ms: 0.090265
+  type: 'test'
+  ...
+# Subtest: preserved form rejects description
+ok 150 - preserved form rejects description
+  ---
+  duration_ms: 0.103716
+  type: 'test'
+  ...
+# Subtest: preserved form rejects typeChecked
+ok 151 - preserved form rejects typeChecked
+  ---
+  duration_ms: 0.087041
+  type: 'test'
+  ...
+# Subtest: preserved form rejects sessionId
+ok 152 - preserved form rejects sessionId
+  ---
+  duration_ms: 0.085859
+  type: 'test'
+  ...
+# Subtest: preserved form rejects freshSuccessCount
+ok 153 - preserved form rejects freshSuccessCount
+  ---
+  duration_ms: 0.162204
+  type: 'test'
+  ...
+# Subtest: preserved form rejects submitEnabled
+ok 154 - preserved form rejects submitEnabled
+  ---
+  duration_ms: 0.101553
+  type: 'test'
+  ...
+# Subtest: synthetic rejection requires exactly one service error: 0
+ok 155 - synthetic rejection requires exactly one service error: 0
+  ---
+  duration_ms: 0.120541
+  type: 'test'
+  ...
+# Subtest: synthetic rejection requires exactly one service error: 2
+ok 156 - synthetic rejection requires exactly one service error: 2
+  ---
+  duration_ms: 0.063856
+  type: 'test'
+  ...
+# Subtest: synthetic rejection requires exactly one service error: 3
+ok 157 - synthetic rejection requires exactly one service error: 3
+  ---
+  duration_ms: 0.060842
+  type: 'test'
+  ...
+# Subtest: unique final row cannot erase missing fault or hidden initial resend
+ok 158 - unique final row cannot erase missing fault or hidden initial resend
+  ---
+  duration_ms: 0.144086
+  type: 'test'
+  ...
+# Subtest: exact local source four-event sequence is not mislabeled vendor receipt
+ok 159 - exact local source four-event sequence is not mislabeled vendor receipt
+  ---
+  duration_ms: 0.636606
+  type: 'test'
+  ...
+# Subtest: missing/blind local telemetry is NOT RUN, not zero events or successful delivery
+ok 160 - missing/blind local telemetry is NOT RUN, not zero events or successful delivery
+  ---
+  duration_ms: 0.192309
+  type: 'test'
+  ...
+# Subtest: local sequence rejects fields
+ok 161 - local sequence rejects fields
+  ---
+  duration_ms: 0.250106
+  type: 'test'
+  ...
+# Subtest: local sequence rejects fields
+ok 162 - local sequence rejects fields
+  ---
+  duration_ms: 0.183505
+  type: 'test'
+  ...
+# Subtest: local sequence rejects releaseSha
+ok 163 - local sequence rejects releaseSha
+  ---
+  duration_ms: 0.088202
+  type: 'test'
+  ...
+# Subtest: local sequence rejects bootId
+ok 164 - local sequence rejects bootId
+  ---
+  duration_ms: 0.068002
+  type: 'test'
+  ...
+# Subtest: local sequence rejects journeyId
+ok 165 - local sequence rejects journeyId
+  ---
+  duration_ms: 0.131087
+  type: 'test'
+  ...
+# Subtest: local sequence rejects trafficType
+ok 166 - local sequence rejects trafficType
+  ---
+  duration_ms: 0.296335
+  type: 'test'
+  ...
+# Subtest: duplicate send/event remains FAIL, not a >= expected-count pass
+ok 167 - duplicate send/event remains FAIL, not a >= expected-count pass
+  ---
+  duration_ms: 0.111187
+  type: 'test'
+  ...
+# Subtest: final mandatory observation proves six controlled and one actual normal attempt plus final durable draft
+ok 168 - final mandatory observation proves six controlled and one actual normal attempt plus final durable draft
+  ---
+  duration_ms: 0.674993
+  type: 'test'
+  ...
+# Subtest: late duplicate cannot be downgraded to missing evidence
+ok 169 - late duplicate cannot be downgraded to missing evidence
+  ---
+  duration_ms: 0.281843
+  type: 'test'
+  ...
+# Subtest: read-only privilege/schema probe has exact own projection and zero-row limit, never claims RLS correctness
+ok 170 - read-only privilege/schema probe has exact own projection and zero-row limit, never claims RLS correctness
+  ---
+  duration_ms: 0.477787
+  type: 'test'
+  ...
+# Subtest: unavailable or malformed privilege probe blocks before takes: null
+ok 171 - unavailable or malformed privilege probe blocks before takes: null
+  ---
+  duration_ms: 0.257968
+  type: 'test'
+  ...
+# Subtest: unavailable or malformed privilege probe blocks before takes: {}
+ok 172 - unavailable or malformed privilege probe blocks before takes: {}
+  ---
+  duration_ms: 0.238959
+  type: 'test'
+  ...
+# Subtest: unavailable or malformed privilege probe blocks before takes: {"available":false}
+ok 173 - unavailable or malformed privilege probe blocks before takes: {"available":false}
+  ---
+  duration_ms: 0.245949
+  type: 'test'
+  ...
+# Subtest: unavailable or malformed privilege probe blocks before takes: {"available":"true"}
+ok 174 - unavailable or malformed privilege probe blocks before takes: {"available":"true"}
+  ---
+  duration_ms: 0.369565
+  type: 'test'
+  ...
+# Subtest: finalize preserves missing proof as NOT RUN: feedback-body-unavailable
+ok 175 - finalize preserves missing proof as NOT RUN: feedback-body-unavailable
+  ---
+  duration_ms: 0.288213
+  type: 'test'
+  ...
+# Subtest: finalize preserves missing proof as NOT RUN: feedback-response-incomplete
+ok 176 - finalize preserves missing proof as NOT RUN: feedback-response-incomplete
+  ---
+  duration_ms: 0.119409
+  type: 'test'
+  ...
+# Subtest: finalize preserves missing proof as NOT RUN: feedback-durable-readback-unproved
+ok 177 - finalize preserves missing proof as NOT RUN: feedback-durable-readback-unproved
+  ---
+  duration_ms: 0.184787
+  type: 'test'
+  ...
+# Subtest: normal acknowledged feedback requires two correlated source events, not one
+ok 178 - normal acknowledged feedback requires two correlated source events, not one
+  ---
+  duration_ms: 2.754636
+  type: 'test'
+  ...
+# Subtest: controlled failure and explicit Retry preserve four events and failure count
+ok 179 - controlled failure and explicit Retry preserve four events and failure count
+  ---
+  duration_ms: 0.247231
+  type: 'test'
+  ...
+# Subtest: sent proof rejects outcome belongs to another seq
+ok 180 - sent proof rejects outcome belongs to another seq
+  ---
+  duration_ms: 0.344838
+  type: 'test'
+  ...
+# Subtest: sent proof rejects duplicate attempted
+ok 181 - sent proof rejects duplicate attempted
+  ---
+  duration_ms: 0.257747
+  type: 'test'
+  ...
+# Subtest: sent proof rejects unexpected failure
+ok 182 - sent proof rejects unexpected failure
+  ---
+  duration_ms: 0.222263
+  type: 'test'
+  ...
+# Subtest: sent proof rejects wrong boot
+ok 183 - sent proof rejects wrong boot
+  ---
+  duration_ms: 0.2866
+  type: 'test'
+  ...
+# Subtest: sent proof rejects wrong journey
+ok 184 - sent proof rejects wrong journey
+  ---
+  duration_ms: 0.217586
+  type: 'test'
+  ...
+# Subtest: sent proof rejects wrong release
+ok 185 - sent proof rejects wrong release
+  ---
+  duration_ms: 0.192659
+  type: 'test'
+  ...
+# Subtest: sent proof rejects wrong traffic
+ok 186 - sent proof rejects wrong traffic
+  ---
+  duration_ms: 0.218729
+  type: 'test'
+  ...
+# Subtest: sent proof rejects outcome before attempt FIFO
+ok 187 - sent proof rejects outcome before attempt FIFO
+  ---
+  duration_ms: 0.503967
+  type: 'test'
+  ...
+# Subtest: sent proof rejects unbound sequence
+ok 188 - sent proof rejects unbound sequence
+  ---
+  duration_ms: 0.174793
+  type: 'test'
+  ...
+# Subtest: late extra sent event is FAIL even if a batch is opaque
+ok 189 - late extra sent event is FAIL even if a batch is opaque
+  ---
+  duration_ms: 0.149174
+  type: 'test'
+  ...
+# Subtest: blind beacon prevents exact sent count PASS
+ok 190 - blind beacon prevents exact sent count PASS
+  ---
+  duration_ms: 0.181633
+  type: 'test'
+  ...
+# Subtest: cross-batch producer order survives arrival reversal
+ok 191 - cross-batch producer order survives arrival reversal
+  ---
+  duration_ms: 0.312138
+  type: 'test'
+  ...
+# Subtest: cross-batch missing producer time stays HOLD not receipt-time ordering
+ok 192 - cross-batch missing producer time stays HOLD not receipt-time ordering
+  ---
+  duration_ms: 0.165128
+  type: 'test'
+  ...
+# Subtest: cross-batch reversed actual producer order fails
+ok 193 - cross-batch reversed actual producer order fails
+  ---
+  duration_ms: 0.14014
+  type: 'test'
+  ...
+# Subtest: reused FIFO positions cannot establish causal sequence
+ok 194 - reused FIFO positions cannot establish causal sequence
+  ---
+  duration_ms: 1.034113
+  type: 'test'
+  ...
+# Subtest: empty/unsupported event contract cannot manufacture a result
+ok 195 - empty/unsupported event contract cannot manufacture a result
+  ---
+  duration_ms: 0.204848
+  type: 'test'
+  ...
+# Subtest: actual passive adapter retains only closed submit correlation fields and producer timestamp
+ok 196 - actual passive adapter retains only closed submit correlation fields and producer timestamp
+  ---
+  duration_ms: 1.210017
+  type: 'test'
+  ...
+# Subtest: real producer summary qualifies correlated stage without invented feedback singleton field
+ok 197 - real producer summary qualifies correlated stage without invented feedback singleton field
+  ---
+  duration_ms: 0.445639
+  type: 'test'
+  ...
+# Subtest: invented feedback count cannot substitute for real boot control
+ok 198 - invented feedback count cannot substitute for real boot control
+  ---
+  duration_ms: 0.173761
+  type: 'test'
+  ...
+# Subtest: normal received stage must retain observed storage failure, never waive it as expected
+ok 199 - normal received stage must retain observed storage failure, never waive it as expected
+  ---
+  duration_ms: 0.120972
+  type: 'test'
+  ...
+# Subtest: unresolved received pair remains HOLD
+ok 200 - unresolved received pair remains HOLD
+  ---
+  duration_ms: 0.135793
+  type: 'test'
+  ...
+# Subtest: cross-batch equal producer timestamp cannot manufacture attempted-before-outcome
+ok 201 - cross-batch equal producer timestamp cannot manufacture attempted-before-outcome
+  ---
+  duration_ms: 0.120571
+  type: 'test'
+  ...
+# Subtest: pair2 before pair1 cannot prove failure then deliberate Retry
+ok 202 - pair2 before pair1 cannot prove failure then deliberate Retry
+  ---
+  duration_ms: 0.21364
+  type: 'test'
+  ...
+# Subtest: received success requires source stage correlation and boot-control count, not invented feedback singleton
+ok 203 - received success requires source stage correlation and boot-control count, not invented feedback singleton
+  ---
+  duration_ms: 2.480755
+  type: 'test'
+  ...
+# Subtest: received rejects release_sha "wrong"
+ok 204 - received rejects release_sha "wrong"
+  ---
+  duration_ms: 0.275674
+  type: 'test'
+  ...
+# Subtest: received rejects journey_id "other"
+ok 205 - received rejects journey_id "other"
+  ---
+  duration_ms: 0.124257
+  type: 'test'
+  ...
+# Subtest: received rejects boot_id "other"
+ok 206 - received rejects boot_id "other"
+  ---
+  duration_ms: 0.154342
+  type: 'test'
+  ...
+# Subtest: received rejects identity_bound false
+ok 207 - received rejects identity_bound false
+  ---
+  duration_ms: 0.174492
+  type: 'test'
+  ...
+# Subtest: received rejects verdict "FAIL"
+ok 208 - received rejects verdict "FAIL"
+  ---
+  duration_ms: 0.122554
+  type: 'test'
+  ...
+# Subtest: received rejects verdict "HOLD"
+ok 209 - received rejects verdict "HOLD"
+  ---
+  duration_ms: 0.136154
+  type: 'test'
+  ...
+# Subtest: received rejects duplicate_families ["feedback_submit"]
+ok 210 - received rejects duplicate_families ["feedback_submit"]
+  ---
+  duration_ms: 0.130617
+  type: 'test'
+  ...
+# Subtest: received rejects delivery_failures ["server"]
+ok 211 - received rejects delivery_failures ["server"]
+  ---
+  duration_ms: 0.130816
+  type: 'test'
+  ...
+# Subtest: received rejects received_counts {"telemetry_positive_control":0}
+ok 212 - received rejects received_counts {"telemetry_positive_control":0}
+  ---
+  duration_ms: 0.221242
+  type: 'test'
+  ...
+# Subtest: received rejects missing ["feedback_submit"]
+ok 213 - received rejects missing ["feedback_submit"]
+  ---
+  duration_ms: 0.180031
+  type: 'test'
+  ...
+# Subtest: received rejects stages_declared []
+ok 214 - received rejects stages_declared []
+  ---
+  duration_ms: 0.101462
+  type: 'test'
+  ...
+# Subtest: producer provenance valid current-role fixture
+ok 215 - producer provenance valid current-role fixture
+  ---
+  duration_ms: 0.780011
+  type: 'test'
+  ...
+# Subtest: provenance refuses artifactSha256
+ok 216 - provenance refuses artifactSha256
+  ---
+  duration_ms: 0.127151
+  type: 'test'
+  ...
+# Subtest: provenance refuses requestSha256
+ok 217 - provenance refuses requestSha256
+  ---
+  duration_ms: 0.079149
+  type: 'test'
+  ...
+# Subtest: provenance refuses verified
+ok 218 - provenance refuses verified
+  ---
+  duration_ms: 0.123446
+  type: 'test'
+  ...
+# Subtest: provenance refuses sourceSha
+ok 219 - provenance refuses sourceSha
+  ---
+  duration_ms: 0.091778
+  type: 'test'
+  ...
+# Subtest: provenance refuses servedSha
+ok 220 - provenance refuses servedSha
+  ---
+  duration_ms: 0.089054
+  type: 'test'
+  ...
+# Subtest: provenance refuses campaignId
+ok 221 - provenance refuses campaignId
+  ---
+  duration_ms: 0.107761
+  type: 'test'
+  ...
+# Subtest: provenance refuses caseId
+ok 222 - provenance refuses caseId
+  ---
+  duration_ms: 1.972311
+  type: 'test'
+  ...
+# Subtest: provenance refuses bindingName
+ok 223 - provenance refuses bindingName
+  ---
+  duration_ms: 0.167672
+  type: 'test'
+  ...
+# Subtest: provenance refuses producedAt
+ok 224 - provenance refuses producedAt
+  ---
+  duration_ms: 0.0797
+  type: 'test'
+  ...
+# Subtest: no session malformed is FAIL not absent
+ok 225 - no session malformed is FAIL not absent
+  ---
+  duration_ms: 0.128193
+  type: 'test'
+  ...
+# Subtest: older diagnostic must exclude observed newer
+ok 226 - older diagnostic must exclude observed newer
+  ---
+  duration_ms: 0.14606
+  type: 'test'
+  ...
+# Subtest: missing newer request stays HOLD
+ok 227 - missing newer request stays HOLD
+  ---
+  duration_ms: 0.105799
+  type: 'test'
+  ...
+# Subtest: borrowed newer diagnostic fails
+ok 228 - borrowed newer diagnostic fails
+  ---
+  duration_ms: 0.065047
+  type: 'test'
+  ...
+# Subtest: marker complete allowed interval passes
+ok 229 - marker complete allowed interval passes
+  ---
+  duration_ms: 0.400622
+  type: 'test'
+  ...
+# Subtest: marker straddling boundary holds
+ok 230 - marker straddling boundary holds
+  ---
+  duration_ms: 0.098067
+  type: 'test'
+  ...
+# Subtest: marker definitely early fails
+ok 231 - marker definitely early fails
+  ---
+  duration_ms: 0.150276
+  type: 'test'
+  ...
+# Subtest: missing microphone acquisition is not zero
+ok 232 - missing microphone acquisition is not zero
+  ---
+  duration_ms: 0.157997
+  type: 'test'
+  ...
+# Subtest: two acquisitions cannot bind one take
+ok 233 - two acquisitions cannot bind one take
+  ---
+  duration_ms: 0.074702
+  type: 'test'
+  ...
+# Subtest: Focus binds actual labels/order/evidence/visible ordinals
+ok 234 - Focus binds actual labels/order/evidence/visible ordinals
+  ---
+  duration_ms: 0.90549
+  type: 'test'
+  ...
+# Subtest: Focus identity negative x=>x.savedBriefId='other'
+ok 235 - Focus identity negative x=>x.savedBriefId='other'
+  ---
+  duration_ms: 0.121472
+  type: 'test'
+  ...
+# Subtest: Focus identity negative x=>x.savedPoints[0].label='borrowed'
+ok 236 - Focus identity negative x=>x.savedPoints[0].label='borrowed'
+  ---
+  duration_ms: 0.135944
+  type: 'test'
+  ...
+# Subtest: Focus identity negative x=>x.evidence.push(x.evidence[0])
+ok 237 - Focus identity negative x=>x.evidence.push(x.evidence[0])
+  ---
+  duration_ms: 0.178278
+  type: 'test'
+  ...
+# Subtest: Focus identity negative x=>x.visibleEvidence=['Detected: point 2.','Not detected: point 1.']
+ok 238 - Focus identity negative x=>x.visibleEvidence=['Detected: point 2.','Not detected: point 1.']
+  ---
+  duration_ms: 0.282084
+  type: 'test'
+  ...
+# Subtest: continuous refused window positive
+ok 239 - continuous refused window positive
+  ---
+  duration_ms: 0.256656
+  type: 'test'
+  ...
+# Subtest: lease window rejects x=>x.a.boundaryUncertain=true
+ok 240 - lease window rejects x=>x.a.boundaryUncertain=true
+  ---
+  duration_ms: 0.07329
+  type: 'test'
+  ...
+# Subtest: lease window rejects x=>x.b.token=null
+ok 241 - lease window rejects x=>x.b.token=null
+  ---
+  duration_ms: 0.047842
+  type: 'test'
+  ...
+# Subtest: lease window rejects x=>x.modelRequests=1
+ok 242 - lease window rejects x=>x.modelRequests=1
+  ---
+  duration_ms: 0.10703
+  type: 'test'
+  ...
+# Subtest: lease window rejects x=>x.b.micAcquisitionsSinceOpen=1
+ok 243 - lease window rejects x=>x.b.micAcquisitionsSinceOpen=1
+  ---
+  duration_ms: 0.108643
+  type: 'test'
+  ...
+# Subtest: lease window rejects x=>x.a.runtimeTransitions.push('IDLE')
+ok 244 - lease window rejects x=>x.a.runtimeTransitions.push('IDLE')
+  ---
+  duration_ms: 0.138278
+  type: 'test'
+  ...
+# Subtest: lease window rejects x=>x.a.tracksStoppedSinceOpen=1
+ok 245 - lease window rejects x=>x.a.tracksStoppedSinceOpen=1
+  ---
+  duration_ms: 0.075153
+  type: 'test'
+  ...
+# Subtest: A/B/C immutable displaced fence positive
+ok 246 - A/B/C immutable displaced fence positive
+  ---
+  duration_ms: 0.574813
+  type: 'test'
+  ...
+# Subtest: recovery rejects x=>x.afterSave.rows.complete=false
+ok 247 - recovery rejects x=>x.afterSave.rows.complete=false
+  ---
+  duration_ms: 0.263215
+  type: 'test'
+  ...
+# Subtest: recovery rejects x=>x.afterSave.rows.value[0].recording_fenced_at=null
+ok 248 - recovery rejects x=>x.afterSave.rows.value[0].recording_fenced_at=null
+  ---
+  duration_ms: 0.17264
+  type: 'test'
+  ...
+# Subtest: recovery rejects x=>x.afterSave.rows.value.push(x.afterSave.rows.value[0])
+ok 249 - recovery rejects x=>x.afterSave.rows.value.push(x.afterSave.rows.value[0])
+  ---
+  duration_ms: 0.137227
+  type: 'test'
+  ...
+# Subtest: recovery rejects x=>x.savedSessionId.value='old'
+ok 250 - recovery rejects x=>x.savedSessionId.value='old'
+  ---
+  duration_ms: 0.109374
+  type: 'test'
+  ...
+# Subtest: recovery rejects x=>x.afterSave.authority={state:'unavailable'}
+ok 251 - recovery rejects x=>x.afterSave.authority={state:'unavailable'}
+  ---
+  duration_ms: 0.09339
+  type: 'test'
+  ...
+# Subtest: recovery rejects x=>x.successor.leaseId='lease-a'
+ok 252 - recovery rejects x=>x.successor.leaseId='lease-a'
+  ---
+  duration_ms: 0.13353
+  type: 'test'
+  ...
+# Subtest: passive creation binds request lease not arbitrary response
+ok 253 - passive creation binds request lease not arbitrary response
+  ---
+  duration_ms: 21.913143
+  type: 'test'
+  ...
+# Subtest: coaching canonical digest ignores JSON insertion order
+ok 254 - coaching canonical digest ignores JSON insertion order
+  ---
+  duration_ms: 7.585088
+  type: 'test'
+  ...
+# Subtest: unchanged evidence never proves coaching difference
+ok 255 - unchanged evidence never proves coaching difference
+  ---
+  duration_ms: 0.540692
+  type: 'test'
+  ...
+# Subtest: different evidence identical advice fails
+ok 256 - different evidence identical advice fails
+  ---
+  duration_ms: 0.320241
+  type: 'test'
+  ...
+# Subtest: PDF parsed text canonicalization handles split runs
+ok 257 - PDF parsed text canonicalization handles split runs
+  ---
+  duration_ms: 1.437047
+  type: 'test'
+  ...
+# Subtest: passive decoded send is only event payload
+ok 258 - passive decoded send is only event payload
+  ---
+  duration_ms: 1.18575
+  type: 'test'
+  ...
+# Subtest: opaque send cannot stand in for received
+ok 259 - opaque send cannot stand in for received
+  ---
+  duration_ms: 2.259272
+  type: 'test'
+  ...
+# Subtest: owner query rejects privileged table without browser effect
+ok 260 - owner query rejects privileged table without browser effect
+  ---
+  duration_ms: 1.749137
+  type: 'test'
+  ...
+# Subtest: owner query rejects RPC and changed owner without effect
+ok 261 - owner query rejects RPC and changed owner without effect
+  ---
+  duration_ms: 3.016038
+  type: 'test'
+  ...
+# Subtest: owner query token stays inside fake page and exact GET
+ok 262 - owner query token stays inside fake page and exact GET
+  ---
+  duration_ms: 5.653249
+  type: 'test'
+  ...
+# Subtest: AHT-1 missing binding stops before any browser
+ok 263 - AHT-1 missing binding stops before any browser
+  ---
+  duration_ms: 23.969787
+  type: 'test'
+  ...
+# Subtest: AHT-2 missing binding stops before any browser
+ok 264 - AHT-2 missing binding stops before any browser
+  ---
+  duration_ms: 1.229306
+  type: 'test'
+  ...
+# Subtest: AHT-3 missing binding stops before any browser
+ok 265 - AHT-3 missing binding stops before any browser
+  ---
+  duration_ms: 3.813907
+  type: 'test'
+  ...
+# Subtest: AHT-4 missing binding stops before any browser
+ok 266 - AHT-4 missing binding stops before any browser
+  ---
+  duration_ms: 0.377016
+  type: 'test'
+  ...
+# Subtest: AHT-5 missing binding stops before any browser
+ok 267 - AHT-5 missing binding stops before any browser
+  ---
+  duration_ms: 1.022865
+  type: 'test'
+  ...
+# Subtest: AHT-6 missing binding stops before any browser
+ok 268 - AHT-6 missing binding stops before any browser
+  ---
+  duration_ms: 0.770296
+  type: 'test'
+  ...
+# Subtest: AHT-7 missing binding stops before any browser
+ok 269 - AHT-7 missing binding stops before any browser
+  ---
+  duration_ms: 0.309785
+  type: 'test'
+  ...
+# Subtest: AHT-8 missing binding stops before any browser
+ok 270 - AHT-8 missing binding stops before any browser
+  ---
+  duration_ms: 0.306541
+  type: 'test'
+  ...
+# Subtest: AHT-9 missing binding stops before any browser
+ok 271 - AHT-9 missing binding stops before any browser
+  ---
+  duration_ms: 0.295604
+  type: 'test'
+  ...
+# Subtest: AHT-10 missing binding stops before any browser
+ok 272 - AHT-10 missing binding stops before any browser
+  ---
+  duration_ms: 0.364116
+  type: 'test'
+  ...
+# Subtest: AHT-11 missing binding stops before any browser
+ok 273 - AHT-11 missing binding stops before any browser
+  ---
+  duration_ms: 0.430927
+  type: 'test'
+  ...
+# Subtest: AHT-12 missing binding stops before any browser
+ok 274 - AHT-12 missing binding stops before any browser
+  ---
+  duration_ms: 0.968815
+  type: 'test'
+  ...
+# Subtest: AHT-13 missing binding stops before any browser
+ok 275 - AHT-13 missing binding stops before any browser
+  ---
+  duration_ms: 1.253893
+  type: 'test'
+  ...
+# Subtest: AHT-14 missing binding stops before any browser
+ok 276 - AHT-14 missing binding stops before any browser
+  ---
+  duration_ms: 0.439891
+  type: 'test'
+  ...
+# Subtest: AHT-15 missing binding stops before any browser
+ok 277 - AHT-15 missing binding stops before any browser
+  ---
+  duration_ms: 0.27988
+  type: 'test'
+  ...
+# Subtest: Open Mic source band is 8–10 measured words and distinct ready pair passes
+ok 278 - Open Mic source band is 8–10 measured words and distinct ready pair passes
+  ---
+  duration_ms: 3.28332
+  type: 'test'
+  ...
+# Subtest: Open Mic out-of-band is source quality measurement, never standalone failure: 14
+ok 279 - Open Mic out-of-band is source quality measurement, never standalone failure: 14
+  ---
+  duration_ms: 0.32648
+  type: 'test'
+  ...
+# Subtest: Open Mic out-of-band is source quality measurement, never standalone failure: 62
+ok 280 - Open Mic out-of-band is source quality measurement, never standalone failure: 62
+  ---
+  duration_ms: 0.177897
+  type: 'test'
+  ...
+# Subtest: normalized repeated advice fails distinctness: Pause here.
+ok 281 - normalized repeated advice fails distinctness: Pause here.
+  ---
+  duration_ms: 5.753785
+  type: 'test'
+  ...
+# Subtest: normalized repeated advice fails distinctness:  PAUSE   HERE!!! 
+ok 282 - normalized repeated advice fails distinctness:  PAUSE   HERE!!! 
+  ---
+  duration_ms: 0.349404
+  type: 'test'
+  ...
+# Subtest: normalized repeated advice fails distinctness: pause here?
+ok 283 - normalized repeated advice fails distinctness: pause here?
+  ---
+  duration_ms: 0.162674
+  type: 'test'
+  ...
+# Subtest: unavailable pair remains NOT RUN, never successful coaching: null
+ok 284 - unavailable pair remains NOT RUN, never successful coaching: null
+  ---
+  duration_ms: 1.144819
+  type: 'test'
+  ...
+# Subtest: unavailable pair remains NOT RUN, never successful coaching: {"state":"error","well":"x","next":"y"}
+ok 285 - unavailable pair remains NOT RUN, never successful coaching: {"state":"error","well":"x","next":"y"}
+  ---
+  duration_ms: 0.234623
+  type: 'test'
+  ...
+# Subtest: unavailable pair remains NOT RUN, never successful coaching: {"state":"blocked","well":"x","next":"y"}
+ok 286 - unavailable pair remains NOT RUN, never successful coaching: {"state":"blocked","well":"x","next":"y"}
+  ---
+  duration_ms: 0.142434
+  type: 'test'
+  ...
+# Subtest: unavailable pair remains NOT RUN, never successful coaching: {"state":"ready","well":"","next":"y"}
+ok 287 - unavailable pair remains NOT RUN, never successful coaching: {"state":"ready","well":"","next":"y"}
+  ---
+  duration_ms: 0.15308
+  type: 'test'
+  ...
+# Subtest: unavailable pair remains NOT RUN, never successful coaching: {"state":"ready","well":"x","next":null}
+ok 288 - unavailable pair remains NOT RUN, never successful coaching: {"state":"ready","well":"x","next":null}
+  ---
+  duration_ms: 0.076955
+  type: 'test'
+  ...
+# Subtest: coaching text never escapes result facts
+ok 289 - coaching text never escapes result facts
+  ---
+  duration_ms: 0.153631
+  type: 'test'
+  ...
+# Subtest: exact-source pace parser 1 min
+ok 290 - exact-source pace parser 1 min
+  ---
+  duration_ms: 0.773862
+  type: 'test'
+  ...
+# Subtest: exact-source pace parser  1 MIN 
+ok 291 - exact-source pace parser  1 MIN 
+  ---
+  duration_ms: 0.141583
+  type: 'test'
+  ...
+# Subtest: exact-source pace parser 0.5 min
+ok 292 - exact-source pace parser 0.5 min
+  ---
+  duration_ms: 0.082965
+  type: 'test'
+  ...
+# Subtest: exact-source pace parser 1.5 min
+ok 293 - exact-source pace parser 1.5 min
+  ---
+  duration_ms: 0.066479
+  type: 'test'
+  ...
+# Subtest: exact-source pace parser 1:00
+ok 294 - exact-source pace parser 1:00
+  ---
+  duration_ms: 0.06663
+  type: 'test'
+  ...
+# Subtest: exact-source pace parser NaN min
+ok 295 - exact-source pace parser NaN min
+  ---
+  duration_ms: 0.096945
+  type: 'test'
+  ...
+# Subtest: exact-source pace parser 0 min
+ok 296 - exact-source pace parser 0 min
+  ---
+  duration_ms: 0.076074
+  type: 'test'
+  ...
+# Subtest: exact-source pace parser 60
+ok 297 - exact-source pace parser 60
+  ---
+  duration_ms: 0.052729
+  type: 'test'
+  ...
+# Subtest: pace observation {"shown":true,"text":"1 min"}
+ok 298 - pace observation {"shown":true,"text":"1 min"}
+  ---
+  duration_ms: 0.13937
+  type: 'test'
+  ...
+# Subtest: pace observation {"shown":true,"text":"1.5 min"}
+ok 299 - pace observation {"shown":true,"text":"1.5 min"}
+  ---
+  duration_ms: 0.075183
+  type: 'test'
+  ...
+# Subtest: pace observation {"shown":false,"text":null}
+ok 300 - pace observation {"shown":false,"text":null}
+  ---
+  duration_ms: 0.065368
+  type: 'test'
+  ...
+# Subtest: pace observation null
+ok 301 - pace observation null
+  ---
+  duration_ms: 0.065889
+  type: 'test'
+  ...
+# Subtest: before Focus emits every exact pending/legend source row
+ok 302 - before Focus emits every exact pending/legend source row
+  ---
+  duration_ms: 0.33283
+  type: 'test'
+  ...
+# Subtest: before Focus rejects focus-rail-legendo=>o.legend='Detected'
+ok 303 - before Focus rejects focus-rail-legendo=>o.legend='Detected'
+  ---
+  duration_ms: 0.152098
+  type: 'test'
+  ...
+# Subtest: before Focus rejects focus-pending-labelledo=>o.rows[0].text='label'
+ok 304 - before Focus rejects focus-pending-labelledo=>o.rows[0].text='label'
+  ---
+  duration_ms: 0.160931
+  type: 'test'
+  ...
+# Subtest: before Focus rejects focus-rail-beforeo=>o.rows[0].status='covered'
+ok 305 - before Focus rejects focus-rail-beforeo=>o.rows[0].status='covered'
+  ---
+  duration_ms: 0.116825
+  type: 'test'
+  ...
+# Subtest: before Focus rejects focus-pending-labelledo=>o.rows[0]=null
+ok 306 - before Focus rejects focus-pending-labelledo=>o.rows[0]=null
+  ---
+  duration_ms: 0.14048
+  type: 'test'
+  ...
+# Subtest: unreadable before rail cannot pass empty arrays
+ok 307 - unreadable before rail cannot pass empty arrays
+  ---
+  duration_ms: 0.258368
+  type: 'test'
+  ...
+# Subtest: live progression and no red are independent source rows
+ok 308 - live progression and no red are independent source rows
+  ---
+  duration_ms: 0.250316
+  type: 'test'
+  ...
+# Subtest: live control {"nextSequence":[0]}
+ok 309 - live control {"nextSequence":[0]}
+  ---
+  duration_ms: 0.303445
+  type: 'test'
+  ...
+# Subtest: live control {"redBeforeStop":1}
+ok 310 - live control {"redBeforeStop":1}
+  ---
+  duration_ms: 0.120991
+  type: 'test'
+  ...
+# Subtest: live control {"unreadable":1}
+ok 311 - live control {"unreadable":1}
+  ---
+  duration_ms: 0.088913
+  type: 'test'
+  ...
+# Subtest: live control {"samples":0}
+ok 312 - live control {"samples":0}
+  ---
+  duration_ms: 0.136145
+  type: 'test'
+  ...
+# Subtest: live control {"frozen":false}
+ok 313 - live control {"frozen":false}
+  ---
+  duration_ms: 0.089935
+  type: 'test'
+  ...
+# Subtest: partial counts detected; measured average equals elapsed/detected, not guide
+ok 314 - partial counts detected; measured average equals elapsed/detected, not guide
+  ---
+  duration_ms: 0.491769
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-not-detected-explainedo=>o.rows[2].explained=false
+ok 315 - after Focus rejects focus-not-detected-explainedo=>o.rows[2].explained=false
+  ---
+  duration_ms: 0.188182
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-coverage-counto=>o.covered='1'
+ok 316 - after Focus rejects focus-coverage-counto=>o.covered='1'
+  ---
+  duration_ms: 0.187762
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-coverage-counto=>o.total='/3'
+ok 317 - after Focus rejects focus-coverage-counto=>o.total='/3'
+  ---
+  duration_ms: 0.164998
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-average-per-pointo=>o.average='1:00'
+ok 318 - after Focus rejects focus-average-per-pointo=>o.average='1:00'
+  ---
+  duration_ms: 0.130756
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-average-per-pointo=>o.average='0:30'
+ok 319 - after Focus rejects focus-average-per-pointo=>o.average='0:30'
+  ---
+  duration_ms: 0.184547
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-average-per-pointo=>o.average=null
+ok 320 - after Focus rejects focus-average-per-pointo=>o.average=null
+  ---
+  duration_ms: 0.168233
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-final-rail-colours-wordso=>o.rows[0].bg=roles.red
+ok 321 - after Focus rejects focus-final-rail-colours-wordso=>o.rows[0].bg=roles.red
+  ---
+  duration_ms: 0.36659
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-final-rail-colours-wordso=>o.rows[1].text='Detected'
+ok 322 - after Focus rejects focus-final-rail-colours-wordso=>o.rows[1].text='Detected'
+  ---
+  duration_ms: 0.185869
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-final-rail-colours-wordso=>o.rows[3].kind='pending'
+ok 323 - after Focus rejects focus-final-rail-colours-wordso=>o.rows[3].kind='pending'
+  ---
+  duration_ms: 0.685239
+  type: 'test'
+  ...
+# Subtest: after Focus rejects focus-final-rail-colours-wordso=>o.rows[3]=null
+ok 324 - after Focus rejects focus-final-rail-colours-wordso=>o.rows[3]=null
+  ---
+  duration_ms: 0.171338
+  type: 'test'
+  ...
+# Subtest: average source ±4 second boundary 0:21
+ok 325 - average source ±4 second boundary 0:21
+  ---
+  duration_ms: 0.209124
+  type: 'test'
+  ...
+# Subtest: average source ±4 second boundary 0:29
+ok 326 - average source ±4 second boundary 0:29
+  ---
+  duration_ms: 0.081062
+  type: 'test'
+  ...
+# Subtest: unknown elapsed and unreadable rail are NOT RUN, not fabricated averages
+ok 327 - unknown elapsed and unreadable rail are NOT RUN, not fabricated averages
+  ---
+  duration_ms: 0.181623
+  type: 'test'
+  ...
+# Subtest: group cannot PASS missing or duplicate required rows; FAIL survives later unknown
+ok 328 - group cannot PASS missing or duplicate required rows; FAIL survives later unknown
+  ---
+  duration_ms: 0.235473
+  type: 'test'
+  ...
+# Subtest: browser live sampler uses actual node sequence, freezes before final red, and rejects reuse
+ok 329 - browser live sampler uses actual node sequence, freezes before final red, and rejects reuse
+  ---
+  duration_ms: 7.726351
+  type: 'test'
+  ...
+# Subtest: live sampler records actual pre-Stop red as FAIL
+ok 330 - live sampler records actual pre-Stop red as FAIL
+  ---
+  duration_ms: 1.868736
+  type: 'test'
+  ...
+# Subtest: setup callback observes pace after input but BEFORE submit and new session
+ok 331 - setup callback observes pace after input but BEFORE submit and new session
+  ---
+  duration_ms: 0.534683
+  type: 'test'
+  ...
+# Subtest: driver freezes live presentation before Stop and emits failures only after Stop/save
+ok 332 - driver freezes live presentation before Stop and emits failures only after Stop/save
+  ---
+  duration_ms: 0.371308
+  type: 'test'
+  ...
+# Subtest: new exact-source rows are mandatory in affected contracts and implementation groups not silently waived
+ok 333 - new exact-source rows are mandatory in affected contracts and implementation groups not silently waived
+  ---
+  duration_ms: 13.202603
+  type: 'test'
+  ...
+# Subtest: page-side observation bound rejects rather than hanging or manufacturing zero
+ok 334 - page-side observation bound rejects rather than hanging or manufacturing zero
+  ---
+  duration_ms: 27.504759
+  type: 'test'
+  ...
+# Subtest: legitimate sixty-second average is not rejected merely for matching guide
+ok 335 - legitimate sixty-second average is not rejected merely for matching guide
+  ---
+  duration_ms: 0.19328
+  type: 'test'
+  ...
+# Subtest: Open Mic browser helper accepts exact alternate next heading without leaking phrases
+ok 336 - Open Mic browser helper accepts exact alternate next heading without leaking phrases
+  ---
+  duration_ms: 0.551418
+  type: 'test'
+  ...
+# Subtest: Open Mic browser read failure retains unknown instead of false-ready PASS
+ok 337 - Open Mic browser read failure retains unknown instead of false-ready PASS
+  ---
+  duration_ms: 0.188373
+  type: 'test'
+  ...
+# Subtest: actual visual-read callback maps page CSS roles and visible source legend/labels
+ok 338 - actual visual-read callback maps page CSS roles and visible source legend/labels
+  ---
+  duration_ms: 1.433332
+  type: 'test'
+  ...
+# Subtest: actual after helper reads selectors and rendered marker roles, not expected config echo
+ok 339 - actual after helper reads selectors and rendered marker roles, not expected config echo
+  ---
+  duration_ms: 6.142082
+  type: 'test'
+  ...
+# Subtest: actual visible missing legend fails independently of pending statuses
+ok 340 - actual visible missing legend fails independently of pending statuses
+  ---
+  duration_ms: 0.924217
+  type: 'test'
+  ...
+# Subtest: post-Stop visual read failure does not manufacture all-missing or clean pass
+ok 341 - post-Stop visual read failure does not manufacture all-missing or clean pass
+  ---
+  duration_ms: 0.20024
+  type: 'test'
+  ...
+# Subtest: AHT07 integration isolates final event source on new guarded page and finalizes after receipt
+ok 342 - AHT07 integration isolates final event source on new guarded page and finalizes after receipt
+  ---
+  duration_ms: 1.574304
+  type: 'test'
+  ...
+# Subtest: AHT07 seventh normal submit is bound immediately before click and final row is rechecked
+ok 343 - AHT07 seventh normal submit is bound immediately before click and final row is rechecked
+  ---
+  duration_ms: 0.218879
+  type: 'test'
+  ...
+# Subtest: AHT07 exact own empty readback probe occurs after login but before first microphone grant/take
+ok 344 - AHT07 exact own empty readback probe occurs after login but before first microphone grant/take
+  ---
+  duration_ms: 5.352808
+  type: 'test'
+  ...
+# Subtest: G03 separately exact d100 qualified; no final-release or main70e alias
+ok 345 - G03 separately exact d100 qualified; no final-release or main70e alias
+  ---
+  duration_ms: 3.149929
+  type: 'test'
+  ...
+# Subtest: exact source precision filler_rate 3 2
+ok 346 - exact source precision filler_rate 3 2
+  ---
+  duration_ms: 0.620291
+  type: 'test'
+  ...
+# Subtest: exact source precision pace 120 130
+ok 347 - exact source precision pace 120 130
+  ---
+  duration_ms: 0.159068
+  type: 'test'
+  ...
+# Subtest: exact source precision clear_delivery 80 80.2
+ok 348 - exact source precision clear_delivery 80 80.2
+  ---
+  duration_ms: 0.725069
+  type: 'test'
+  ...
+# Subtest: exact source precision filler_rate 0.3 0.2997002997002997
+ok 349 - exact source precision filler_rate 0.3 0.2997002997002997
+  ---
+  duration_ms: 0.388293
+  type: 'test'
+  ...
+# Subtest: exact source precision clear_delivery 1 1.00000001
+ok 350 - exact source precision clear_delivery 1 1.00000001
+  ---
+  duration_ms: 0.24638
+  type: 'test'
+  ...
+# Subtest: exact source precision filler_rate 0 0
+ok 351 - exact source precision filler_rate 0 0
+  ---
+  duration_ms: 1.466051
+  type: 'test'
+  ...
+# Subtest: persisted source value, linked next evaluation, and stored units used instead of target or history
+ok 352 - persisted source value, linked next evaluation, and stored units used instead of target or history
+  ---
+  duration_ms: 2.285311
+  type: 'test'
+  ...
+# Subtest: persisted metric pace
+ok 353 - persisted metric pace
+  ---
+  duration_ms: 0.674002
+  type: 'test'
+  ...
+# Subtest: persisted metric clear_delivery
+ok 354 - persisted metric clear_delivery
+  ---
+  duration_ms: 0.522083
+  type: 'test'
+  ...
+# Subtest: persisted metric filler_rate
+ok 355 - persisted metric filler_rate
+  ---
+  duration_ms: 0.732239
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL Filler rate: 2.0 → 3.0 % of words (original session → linked repeat).
+ok 356 - wrong or missing rendered values FAIL Filler rate: 2.0 → 3.0 % of words (original session → linked repeat).
+  ---
+  duration_ms: 0.348543
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL Filler rate: 3.0 → 2.0 wpm (original session → linked repeat).
+ok 357 - wrong or missing rendered values FAIL Filler rate: 3.0 → 2.0 wpm (original session → linked repeat).
+  ---
+  duration_ms: 0.398198
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL Filler rate: 3 → 2 % of words (original session → linked repeat).
+ok 358 - wrong or missing rendered values FAIL Filler rate: 3 → 2 % of words (original session → linked repeat).
+  ---
+  duration_ms: 0.256806
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL Filler rate: 3.0 → 99.0 % of words (original session → linked repeat).
+ok 359 - wrong or missing rendered values FAIL Filler rate: 3.0 → 99.0 % of words (original session → linked repeat).
+  ---
+  duration_ms: 0.248463
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL The original and repeat values for this comparison are not available.
+ok 360 - wrong or missing rendered values FAIL The original and repeat values for this comparison are not available.
+  ---
+  duration_ms: 0.440882
+  type: 'test'
+  ...
+# Subtest: wrong or missing rendered values FAIL 
+ok 361 - wrong or missing rendered values FAIL 
+  ---
+  duration_ms: 0.309314
+  type: 'test'
+  ...
+# Subtest: observed numeric contradiction {"count":0}
+ok 362 - observed numeric contradiction {"count":0}
+  ---
+  duration_ms: 0.282924
+  type: 'test'
+  ...
+# Subtest: observed numeric contradiction {"count":2}
+ok 363 - observed numeric contradiction {"count":2}
+  ---
+  duration_ms: 0.386551
+  type: 'test'
+  ...
+# Subtest: observed numeric contradiction {"visible":false}
+ok 364 - observed numeric contradiction {"visible":false}
+  ---
+  duration_ms: 0.234813
+  type: 'test'
+  ...
+# Subtest: observed numeric contradiction {"pathMatches":false}
+ok 365 - observed numeric contradiction {"pathMatches":false}
+  ---
+  duration_ms: 0.226339
+  type: 'test'
+  ...
+# Subtest: unknown observation NOT RUN {"readable":false}
+ok 366 - unknown observation NOT RUN {"readable":false}
+  ---
+  duration_ms: 0.544467
+  type: 'test'
+  ...
+# Subtest: unknown observation NOT RUN {"settled":false}
+ok 367 - unknown observation NOT RUN {"settled":false}
+  ---
+  duration_ms: 0.18006
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendations{"user_id":"other"}
+ok 368 - wrong persisted binding FAIL progress_recommendations{"user_id":"other"}
+  ---
+  duration_ms: 0.234642
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendation_attempts{"user_id":"other"}
+ok 369 - wrong persisted binding FAIL progress_recommendation_attempts{"user_id":"other"}
+  ---
+  duration_ms: 0.126029
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendation_attempts{"practice_session_id":"old"}
+ok 370 - wrong persisted binding FAIL progress_recommendation_attempts{"practice_session_id":"old"}
+  ---
+  duration_ms: 0.140341
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendation_attempts{"id":"other-attempt"}
+ok 371 - wrong persisted binding FAIL progress_recommendation_attempts{"id":"other-attempt"}
+  ---
+  duration_ms: 0.199229
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL progress_recommendation_attempts{"next_comparable_session_id":"old"}
+ok 372 - wrong persisted binding FAIL progress_recommendation_attempts{"next_comparable_session_id":"old"}
+  ---
+  duration_ms: 0.126049
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL session_progress_evaluations{"user_id":"other"}
+ok 373 - wrong persisted binding FAIL session_progress_evaluations{"user_id":"other"}
+  ---
+  duration_ms: 0.178579
+  type: 'test'
+  ...
+# Subtest: wrong persisted binding FAIL session_progress_evaluations{"user_id":"other"}
+ok 374 - wrong persisted binding FAIL session_progress_evaluations{"user_id":"other"}
+  ---
+  duration_ms: 0.162253
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"target_metric":"constructor"}
+ok 375 - source unavailable cannot become numeric PASS progress_recommendations{"target_metric":"constructor"}
+  ---
+  duration_ms: 2.429888
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"target_direction":"unknown"}
+ok 376 - source unavailable cannot become numeric PASS progress_recommendations{"target_direction":"unknown"}
+  ---
+  duration_ms: 0.465469
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"target_value":null}
+ok 377 - source unavailable cannot become numeric PASS progress_recommendations{"target_value":null}
+  ---
+  duration_ms: 0.194322
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"target_units":""}
+ok 378 - source unavailable cannot become numeric PASS progress_recommendations{"target_units":""}
+  ---
+  duration_ms: 0.154652
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"shown_text":""}
+ok 379 - source unavailable cannot become numeric PASS progress_recommendations{"shown_text":""}
+  ---
+  duration_ms: 0.201853
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"source_metric_value":null}
+ok 380 - source unavailable cannot become numeric PASS progress_recommendations{"source_metric_value":null}
+  ---
+  duration_ms: 0.195884
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendations{"source_metric_value":null}
+ok 381 - source unavailable cannot become numeric PASS progress_recommendations{"source_metric_value":null}
+  ---
+  duration_ms: 0.12657
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendation_attempts{"lifecycle":"pending","outcome":null}
+ok 382 - source unavailable cannot become numeric PASS progress_recommendation_attempts{"lifecycle":"pending","outcome":null}
+  ---
+  duration_ms: 0.10649
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendation_attempts{"outcome":"not_comparable"}
+ok 383 - source unavailable cannot become numeric PASS progress_recommendation_attempts{"outcome":"not_comparable"}
+  ---
+  duration_ms: 0.101553
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS progress_recommendation_attempts{"accepted_at":"invalid"}
+ok 384 - source unavailable cannot become numeric PASS progress_recommendation_attempts{"accepted_at":"invalid"}
+  ---
+  duration_ms: 0.112058
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"eligible":false}
+ok 385 - source unavailable cannot become numeric PASS session_progress_evaluations{"eligible":false}
+  ---
+  duration_ms: 0.120571
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"eligible":false}
+ok 386 - source unavailable cannot become numeric PASS session_progress_evaluations{"eligible":false}
+  ---
+  duration_ms: 0.138167
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"cohort_key":"other"}
+ok 387 - source unavailable cannot become numeric PASS session_progress_evaluations{"cohort_key":"other"}
+  ---
+  duration_ms: 0.265759
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":null}
+ok 388 - source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":null}
+  ---
+  duration_ms: 0.161984
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":-1}
+ok 389 - source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":-1}
+  ---
+  duration_ms: 0.142965
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":1.1}
+ok 390 - source unavailable cannot become numeric PASS session_progress_evaluations{"filler_count":1.1}
+  ---
+  duration_ms: 0.135213
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"word_count":0}
+ok 391 - source unavailable cannot become numeric PASS session_progress_evaluations{"word_count":0}
+  ---
+  duration_ms: 0.138568
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"clarity_raw":null}
+ok 392 - source unavailable cannot become numeric PASS session_progress_evaluations{"clarity_raw":null}
+  ---
+  duration_ms: 0.180841
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"wpm":null}
+ok 393 - source unavailable cannot become numeric PASS session_progress_evaluations{"wpm":null}
+  ---
+  duration_ms: 0.139469
+  type: 'test'
+  ...
+# Subtest: source unavailable cannot become numeric PASS session_progress_evaluations{"error_marker_count":null}
+ok 394 - source unavailable cannot become numeric PASS session_progress_evaluations{"error_marker_count":null}
+  ---
+  duration_ms: 0.15361
+  type: 'test'
+  ...
+# Subtest: missing persisted progress_recommendations NOT RUN
+ok 395 - missing persisted progress_recommendations NOT RUN
+  ---
+  duration_ms: 0.141903
+  type: 'test'
+  ...
+# Subtest: missing persisted progress_recommendation_attempts NOT RUN
+ok 396 - missing persisted progress_recommendation_attempts NOT RUN
+  ---
+  duration_ms: 0.097577
+  type: 'test'
+  ...
+# Subtest: missing persisted session_progress_evaluations NOT RUN
+ok 397 - missing persisted session_progress_evaluations NOT RUN
+  ---
+  duration_ms: 0.103576
+  type: 'test'
+  ...
+# Subtest: denied progress_recommendations no fallback
+ok 398 - denied progress_recommendations no fallback
+  ---
+  duration_ms: 0.34654
+  type: 'test'
+  ...
+# Subtest: denied progress_recommendation_attempts no fallback
+ok 399 - denied progress_recommendation_attempts no fallback
+  ---
+  duration_ms: 0.130206
+  type: 'test'
+  ...
+# Subtest: denied session_progress_evaluations no fallback
+ok 400 - denied session_progress_evaluations no fallback
+  ---
+  duration_ms: 0.134622
+  type: 'test'
+  ...
+# Subtest: newer unrelated attempt cannot borrow earlier numbers
+ok 401 - newer unrelated attempt cannot borrow earlier numbers
+  ---
+  duration_ms: 0.255173
+  type: 'test'
+  ...
+# Subtest: tied latest attempts cannot invent order
+ok 402 - tied latest attempts cannot invent order
+  ---
+  duration_ms: 0.21978
+  type: 'test'
+  ...
+# Subtest: source extraction provenance hashes and exact declarations remain bound
+ok 403 - source extraction provenance hashes and exact declarations remain bound
+  ---
+  duration_ms: 2.376058
+  type: 'test'
+  ...
+# Subtest: all three same-target contracts require numeric row and hard source preflight
+ok 404 - all three same-target contracts require numeric row and hard source preflight
+  ---
+  duration_ms: 13.741043
+  type: 'test'
+  ...
+# Subtest: own-account whitelist includes only actual persisted numeric fields and excludes prototype tables
+ok 405 - own-account whitelist includes only actual persisted numeric fields and excludes prototype tables
+  ---
+  duration_ms: 0.290657
+  type: 'test'
+  ...
+# Subtest: output never exposes expected numeric values, rendered text, session IDs or target text
+ok 406 - output never exposes expected numeric values, rendered text, session IDs or target text
+  ---
+  duration_ms: 0.400932
+  type: 'test'
+  ...
+# Subtest: browser observation uses actual selector and does not write/read via native transport
+ok 407 - browser observation uses actual selector and does not write/read via native transport
+  ---
+  duration_ms: 0.65272
+  type: 'test'
+  ...
+# Subtest: browser read exception cannot manufacture missing-selector FAIL or PASS
+ok 408 - browser read exception cannot manufacture missing-selector FAIL or PASS
+  ---
+  duration_ms: 0.354723
+  type: 'test'
+  ...
+# Subtest: numeric source snapshot survives page close and FAIL is sticky in original oracle
+ok 409 - numeric source snapshot survives page close and FAIL is sticky in original oracle
+  ---
+  duration_ms: 0.211627
+  type: 'test'
+  ...
+# Subtest: actual source confirms completed attempt uses same bound practice and next-comparable session
+ok 410 - actual source confirms completed attempt uses same bound practice and next-comparable session
+  ---
+  duration_ms: 0.423576
+  type: 'test'
+  ...
+# Subtest: explicit lawful expiry after independently captured A and actual B target is not false FAIL
+ok 411 - explicit lawful expiry after independently captured A and actual B target is not false FAIL
+  ---
+  duration_ms: 1.997569
+  type: 'test'
+  ...
+# Subtest: retention does not waive missing authority
+ok 412 - retention does not waive missing authority
+  ---
+  duration_ms: 0.220812
+  type: 'test'
+  ...
+# Subtest: retention does not waive wrong authority owner
+ok 413 - retention does not waive wrong authority owner
+  ---
+  duration_ms: 0.296004
+  type: 'test'
+  ...
+# Subtest: retention does not waive wrong authority take
+ok 414 - retention does not waive wrong authority take
+  ---
+  duration_ms: 0.202965
+  type: 'test'
+  ...
+# Subtest: retention does not waive changed retained target
+ok 415 - retention does not waive changed retained target
+  ---
+  duration_ms: 0.395004
+  type: 'test'
+  ...
+# Subtest: retention does not waive missing without expiry
+ok 416 - retention does not waive missing without expiry
+  ---
+  duration_ms: 0.212729
+  type: 'test'
+  ...
+# Subtest: retention does not waive uncompleted expiry
+ok 417 - retention does not waive uncompleted expiry
+  ---
+  duration_ms: 0.194262
+  type: 'test'
+  ...
+# Subtest: retention does not waive wrong product
+ok 418 - retention does not waive wrong product
+  ---
+  duration_ms: 0.743036
+  type: 'test'
+  ...
+# Subtest: retention does not waive unobserved B target
+ok 419 - retention does not waive unobserved B target
+  ---
+  duration_ms: 0.237167
+  type: 'test'
+  ...
+# Subtest: all eleven completion arguments agree with exactly one own saved row
+ok 420 - all eleven completion arguments agree with exactly one own saved row
+  ---
+  duration_ms: 5.06203
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing id cannot prove durable save
+ok 421 - saved row mismatch/missing id cannot prove durable save
+  ---
+  duration_ms: 0.522214
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing user_id cannot prove durable save
+ok 422 - saved row mismatch/missing user_id cannot prove durable save
+  ---
+  duration_ms: 0.269094
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing status cannot prove durable save
+ok 423 - saved row mismatch/missing status cannot prove durable save
+  ---
+  duration_ms: 0.233631
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing idempotency_key cannot prove durable save
+ok 424 - saved row mismatch/missing idempotency_key cannot prove durable save
+  ---
+  duration_ms: 0.264077
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing lease_id cannot prove durable save
+ok 425 - saved row mismatch/missing lease_id cannot prove durable save
+  ---
+  duration_ms: 0.228763
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing duration cannot prove durable save
+ok 426 - saved row mismatch/missing duration cannot prove durable save
+  ---
+  duration_ms: 0.351007
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing status_reason cannot prove durable save
+ok 427 - saved row mismatch/missing status_reason cannot prove durable save
+  ---
+  duration_ms: 0.181502
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing total_words cannot prove durable save
+ok 428 - saved row mismatch/missing total_words cannot prove durable save
+  ---
+  duration_ms: 0.225759
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing clarity_score cannot prove durable save
+ok 429 - saved row mismatch/missing clarity_score cannot prove durable save
+  ---
+  duration_ms: 0.336615
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing wpm cannot prove durable save
+ok 430 - saved row mismatch/missing wpm cannot prove durable save
+  ---
+  duration_ms: 0.191278
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing filler_counts cannot prove durable save
+ok 431 - saved row mismatch/missing filler_counts cannot prove durable save
+  ---
+  duration_ms: 0.157046
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing pause_metrics cannot prove durable save
+ok 432 - saved row mismatch/missing pause_metrics cannot prove durable save
+  ---
+  duration_ms: 0.139379
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing next_action_signal cannot prove durable save
+ok 433 - saved row mismatch/missing next_action_signal cannot prove durable save
+  ---
+  duration_ms: 0.134743
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing transcript cannot prove durable save
+ok 434 - saved row mismatch/missing transcript cannot prove durable save
+  ---
+  duration_ms: 0.170366
+  type: 'test'
+  ...
+# Subtest: saved row mismatch/missing transcript_state cannot prove durable save
+ok 435 - saved row mismatch/missing transcript_state cannot prove durable save
+  ---
+  duration_ms: 0.111287
+  type: 'test'
+  ...
+# Subtest: saved mismatch user_id is not a successful readback
+ok 436 - saved mismatch user_id is not a successful readback
+  ---
+  duration_ms: 0.192139
+  type: 'test'
+  ...
+# Subtest: saved mismatch id is not a successful readback
+ok 437 - saved mismatch id is not a successful readback
+  ---
+  duration_ms: 0.120331
+  type: 'test'
+  ...
+# Subtest: saved mismatch status is not a successful readback
+ok 438 - saved mismatch status is not a successful readback
+  ---
+  duration_ms: 0.131928
+  type: 'test'
+  ...
+# Subtest: saved mismatch idempotency_key is not a successful readback
+ok 439 - saved mismatch idempotency_key is not a successful readback
+  ---
+  duration_ms: 0.118859
+  type: 'test'
+  ...
+# Subtest: saved mismatch lease_id is not a successful readback
+ok 440 - saved mismatch lease_id is not a successful readback
+  ---
+  duration_ms: 0.201582
+  type: 'test'
+  ...
+# Subtest: saved mismatch duration is not a successful readback
+ok 441 - saved mismatch duration is not a successful readback
+  ---
+  duration_ms: 0.138838
+  type: 'test'
+  ...
+# Subtest: saved mismatch status_reason is not a successful readback
+ok 442 - saved mismatch status_reason is not a successful readback
+  ---
+  duration_ms: 0.141082
+  type: 'test'
+  ...
+# Subtest: saved mismatch total_words is not a successful readback
+ok 443 - saved mismatch total_words is not a successful readback
+  ---
+  duration_ms: 0.128082
+  type: 'test'
+  ...
+# Subtest: saved mismatch clarity_score is not a successful readback
+ok 444 - saved mismatch clarity_score is not a successful readback
+  ---
+  duration_ms: 0.150556
+  type: 'test'
+  ...
+# Subtest: saved mismatch wpm is not a successful readback
+ok 445 - saved mismatch wpm is not a successful readback
+  ---
+  duration_ms: 0.209084
+  type: 'test'
+  ...
+# Subtest: saved mismatch filler_counts is not a successful readback
+ok 446 - saved mismatch filler_counts is not a successful readback
+  ---
+  duration_ms: 0.137456
+  type: 'test'
+  ...
+# Subtest: saved mismatch pause_metrics is not a successful readback
+ok 447 - saved mismatch pause_metrics is not a successful readback
+  ---
+  duration_ms: 0.21349
+  type: 'test'
+  ...
+# Subtest: saved mismatch next_action_signal is not a successful readback
+ok 448 - saved mismatch next_action_signal is not a successful readback
+  ---
+  duration_ms: 0.154572
+  type: 'test'
+  ...
+# Subtest: saved mismatch transcript is not a successful readback
+ok 449 - saved mismatch transcript is not a successful readback
+  ---
+  duration_ms: 0.156235
+  type: 'test'
+  ...
+# Subtest: saved mismatch transcript_state is not a successful readback
+ok 450 - saved mismatch transcript_state is not a successful readback
+  ---
+  duration_ms: 0.160101
+  type: 'test'
+  ...
+# Subtest: missing and duplicate rows do not prove exactly once
+ok 451 - missing and duplicate rows do not prove exactly once
+  ---
+  duration_ms: 0.241563
+  type: 'test'
+  ...
+# Subtest: SQL null means unchanged against observed pre-Stop baseline, never fabricated zero
+ok 452 - SQL null means unchanged against observed pre-Stop baseline, never fabricated zero
+  ---
+  duration_ms: 0.321823
+  type: 'test'
+  ...
+# Subtest: SQL duration clamp is exact
+ok 453 - SQL duration clamp is exact
+  ---
+  duration_ms: 1.759562
+  type: 'test'
+  ...
+# Subtest: extra or missing completion arguments do not qualify a different operation
+ok 454 - extra or missing completion arguments do not qualify a different operation
+  ---
+  duration_ms: 0.259139
+  type: 'test'
+  ...
+# Subtest: negative HTTP 401 never becomes durable-save success
+ok 455 - negative HTTP 401 never becomes durable-save success
+  ---
+  duration_ms: 0.308323
+  type: 'test'
+  ...
+# Subtest: negative HTTP 403 never becomes durable-save success
+ok 456 - negative HTTP 403 never becomes durable-save success
+  ---
+  duration_ms: 0.107892
+  type: 'test'
+  ...
+# Subtest: negative HTTP 404 never becomes durable-save success
+ok 457 - negative HTTP 404 never becomes durable-save success
+  ---
+  duration_ms: 0.100571
+  type: 'test'
+  ...
+# Subtest: negative HTTP 409 never becomes durable-save success
+ok 458 - negative HTTP 409 never becomes durable-save success
+  ---
+  duration_ms: 0.098628
+  type: 'test'
+  ...
+# Subtest: negative HTTP 500 never becomes durable-save success
+ok 459 - negative HTTP 500 never becomes durable-save success
+  ---
+  duration_ms: 0.111468
+  type: 'test'
+  ...
+# Subtest: negative HTTP 503 never becomes durable-save success
+ok 460 - negative HTTP 503 never becomes durable-save success
+  ---
+  duration_ms: 0.096565
+  type: 'test'
+  ...
+# Subtest: dynamic oracle is branded and binds exact source/owner/session once only
+ok 461 - dynamic oracle is branded and binds exact source/owner/session once only
+  ---
+  duration_ms: 5.53407
+  type: 'test'
+  ...
+# Subtest: dynamic oracle refuses retarget/override ownerId
+ok 462 - dynamic oracle refuses retarget/override ownerId
+  ---
+  duration_ms: 2.09785
+  type: 'test'
+  ...
+# Subtest: dynamic oracle refuses retarget/override sourceSha
+ok 463 - dynamic oracle refuses retarget/override sourceSha
+  ---
+  duration_ms: 2.022006
+  type: 'test'
+  ...
+# Subtest: dynamic oracle refuses retarget/override url
+ok 464 - dynamic oracle refuses retarget/override url
+  ---
+  duration_ms: 2.552904
+  type: 'test'
+  ...
+# Subtest: dynamic oracle refuses retarget/override columns
+ok 465 - dynamic oracle refuses retarget/override columns
+  ---
+  duration_ms: 2.780485
+  type: 'test'
+  ...
+# Subtest: dynamic oracle refuses retarget/override baselineRow
+ok 466 - dynamic oracle refuses retarget/override baselineRow
+  ---
+  duration_ms: 2.714726
+  type: 'test'
+  ...
+# Subtest: dynamic oracle refuses retarget/override baselineRow
+ok 467 - dynamic oracle refuses retarget/override baselineRow
+  ---
+  duration_ms: 2.72408
+  type: 'test'
+  ...
+# Subtest: factory captures configuration defensively instead of trusting later mutations
+ok 468 - factory captures configuration defensively instead of trusting later mutations
+  ---
+  duration_ms: 1.523748
+  type: 'test'
+  ...
+# Subtest: passive Start binding installs exact own-session oracle before Stop, without guessing payload
+ok 469 - passive Start binding installs exact own-session oracle before Stop, without guessing payload
+  ---
+  duration_ms: 22.371051
+  type: 'test'
+  ...
+# Subtest: full captured completion/readback proof compares original payload over exactly one counted GET
+ok 470 - full captured completion/readback proof compares original payload over exactly one counted GET
+  ---
+  duration_ms: 5.894811
+  type: 'test'
+  ...
+# Subtest: request-lost Retry save checks the same captured payload and own new session
+ok 471 - request-lost Retry save checks the same captured payload and own new session
+  ---
+  duration_ms: 3.521237
+  type: 'test'
+  ...
+# Subtest: cloned armed metadata and not-yet-fired operation cannot authorize Retry proof
+ok 472 - cloned armed metadata and not-yet-fired operation cannot authorize Retry proof
+  ---
+  duration_ms: 5.614921
+  type: 'test'
+  ...
+# Subtest: before-Stop binding rejects wrong-owner
+ok 473 - before-Stop binding rejects wrong-owner
+  ---
+  duration_ms: 3.63651
+  type: 'test'
+  ...
+# Subtest: before-Stop binding rejects wrong-lease
+ok 474 - before-Stop binding rejects wrong-lease
+  ---
+  duration_ms: 3.118934
+  type: 'test'
+  ...
+# Subtest: before-Stop binding rejects duplicate
+ok 475 - before-Stop binding rejects duplicate
+  ---
+  duration_ms: 1.810698
+  type: 'test'
+  ...
+# Subtest: before-Stop binding rejects existing-session
+ok 476 - before-Stop binding rejects existing-session
+  ---
+  duration_ms: 1.082856
+  type: 'test'
+  ...
+# Subtest: before-Stop binding rejects not-recording
+ok 477 - before-Stop binding rejects not-recording
+  ---
+  duration_ms: 3.320266
+  type: 'test'
+  ...
+# Subtest: before-Stop binding rejects row-mismatch
+ok 478 - before-Stop binding rejects row-mismatch
+  ---
+  duration_ms: 1.211419
+  type: 'test'
+  ...
+# Subtest: capture cannot be cloned, reused, moved between pages or retargeted
+ok 479 - capture cannot be cloned, reused, moved between pages or retargeted
+  ---
+  duration_ms: 5.94093
+  type: 'test'
+  ...
+1..479
+# tests 479
+# suites 0
+# pass 479
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 402.175374

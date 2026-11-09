@@ -8,9 +8,11 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
-  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
+  PROOF_CASES_TEST,REAL_BROWSER_TEST,nativeBrowserBinding,proofCasesBinding,phaseProofCasesBinding,validatePhaseProofCases,generatedProofCases} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
-import {testEnvironment,executionContext,sourceIdentity,executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {testEnvironment,executionContext,sourceIdentity,executionRoute,changedEvidencePaths} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {execFileSync} from 'node:child_process';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -22,8 +24,8 @@ test('bounded native routes retain explicit planner/protocol and fixture-only cl
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
-  assert.equal(contracts.length,6);
-  assert.equal(contracts.filter(item=>item.runner==='node-test').length,5);
+  assert.equal(contracts.length,7);
+  assert.equal(contracts.filter(item=>item.runner==='node-test').length,6);
   for(const item of NATIVE_HELPERS) {
     assert.equal(nativeTestRoute(item.file,root).consumer,item.consumer);
     assert.match(nativeTestRoute(item.file,root).claim,/NOT RUN/);
@@ -69,6 +71,11 @@ test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS
   assert.match(helper.claim,/fake browser objects in node:vm; browser\/audio\/model NOT RUN/);
   assert.equal(nativeTestRoute(helper.file,root).runner,'node-test-helper');
   assert.equal(nativeTestRoute('tests/live/helpers/otherAudioStream.ts',root),null);
+  const selected=selectNativeContracts(root,[helper.file]);
+  assert.equal(selected[0].runner,'node-test');
+  assert.ok(nativeCommand({...selected[0],runtime:{runner:'node-test',execPath:process.execPath}}).includes('--experimental-strip-types'));
+  assert.equal(nativeCommand({testFile:helper.consumer,helpers:[],runtime:{runner:'node-test',execPath:process.execPath}})
+    .includes('--experimental-strip-types'),false);
   const names=helper.callables;
   assert.deepEqual(names,['injectAlignedFixtureAudio','resetFixtureAudioToStart','getFixtureGetUserMediaCalls']);
   const f=fixture();
@@ -79,6 +86,7 @@ test('actual typed fixture-audio helper and checked-in consumer bind stripped-TS
     f.contract.testFile=helper.consumer;
     f.contract.helpers=[helper.file];
     const phase=f.run();
+    assert.ok(phase.binding.command.includes('--experimental-strip-types'),'typed helper execution must work at the supported Node 22.12 floor');
     assert.ok(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract}).counts.assertions>0);
     assert.deepEqual(validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),[helper.file]);
     // Witness of the hosted runtime's executed bytes: the module range ends exactly after Node's sourceURL suffix.
@@ -212,6 +220,30 @@ test('INSTALLED Node reporter observes actual collection/assertion/drain and rej
     }
   }finally{f.clean();}
 });
+
+test('real-browser native phase binds and forwards only the exact executable identity',()=>{
+  const f=fixture(),chrome=path.join(f.dir,'installed-chrome');
+  fs.writeFileSync(chrome,'synthetic reviewed browser bytes');fs.chmodSync(chrome,0o700);
+  const environment={...testEnvironment(f.dir,null,''),CT_CHROME:chrome};
+  f.contract.testFile=REAL_BROWSER_TEST;
+  f.write(REAL_BROWSER_TEST,`const test=require('node:test'),assert=require('node:assert/strict');
+    test('bound browser reaches the exact consumer',()=>assert.equal(process.env.CT_CHROME,${JSON.stringify(chrome)}));`);
+  try {
+    const expected={path:chrome,sha256:hash(fs.readFileSync(chrome))};
+    assert.deepEqual(nativeBrowserBinding(f.contract,environment),expected);
+    let phase;
+    try {phase=produceNativePhase({root:f.dir,cwd:f.dir,contract:f.contract,provenance,inputSha256,runId,
+      sourceCopyCommit:'e'.repeat(40),environment,drain:drainOwnedPhase});}
+    catch(error){assert.fail(`${error.message}: ${JSON.stringify(error.diagnostics)}`);}
+    assert.deepEqual(phase.binding.browser,expected);
+    assert.equal(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract,environment}).counts.assertions,1);
+    const changed=structuredClone(phase);changed.binding.browser.sha256='0'.repeat(64);
+    assert.throws(()=>validateNativePhase(changed,{root:f.dir,provenance,inputSha256,runId,contract:f.contract,environment}),/browser binding/);
+    fs.writeFileSync(chrome,'changed browser bytes');
+    assert.throws(()=>validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract,environment}),/browser binding/);
+    assert.throws(()=>nativeBrowserBinding(f.contract,{}),/bound CT_CHROME/);
+  } finally {f.clean();}
+});
 for(const [name,source] of [
   ['zero',"import 'node:test';"],
   ['skipped',"import test from 'node:test'; test.skip('skipped actual assertion',()=>{});"],
@@ -281,7 +313,7 @@ test('frozen source refuses global, aliased and imported setters even while all 
     assert.equal(validateSyntheticSource(f.dir,entry).files[entry],hash(fs.readFileSync(path.join(root,entry))));
   }finally{f.clean();}
 });
-test('reviewed coaching error source admits exactly its ten pinned inputs and refuses drift in every input',()=>{
+test('reviewed coaching source admits exactly its pinned inputs (handler, providers, evaluator prompt and set) and refuses drift in every input',()=>{
   const f=fixture(),entry='backend/supabase/functions/get-ai-suggestions/index.test.ts';
   const files=[...new Set([...dependencyPaths(root,entry),'package.json','pnpm-lock.yaml',
     'backend/supabase/functions/deno.json','backend/supabase/functions/deno.lock'])];
@@ -289,8 +321,10 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
   fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
-    assert.equal(admitted.id,'coaching-errors-cors-compatible');
-    assert.equal(Object.keys(admitted.files).length,10);
+    assert.equal(admitted.id,'coaching-llm-evaluator-parity');
+    assert.equal(Object.keys(admitted.files).length,16);
+    for(const added of ['evaluation/prompt.ts','evaluation/transcripts.json'])
+      assert.ok(files.includes(`backend/supabase/functions/get-ai-suggestions/${added}`),added);
     assert.deepEqual(Object.keys(admitted.files).sort(),files.sort());
     for(const file of files) {
       const original=fs.readFileSync(path.join(root,file));
@@ -299,7 +333,7 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
       assert.throws(()=>validateSyntheticSource(f.dir,entry),/Synthetic-key test\/import profile/,file);
       f.write(file,original);
     }
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-errors-cors-compatible');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-llm-evaluator-parity');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
@@ -356,6 +390,7 @@ test('SQL execution witness binds both actual consumed sources and both sides of
 test('full-evidence provisions Deno on its own runner; the Edge job is not its runtime',()=>{
   const require=createRequire(path.join(root,'package.json')),yaml=require('yaml');
   const workflow=yaml.parse(fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8'));
+  assert.equal(workflow.jobs['full-evidence']['runs-on'],'ubuntu-26.04');
   const steps=workflow.jobs['full-evidence'].steps;
   assert.equal(steps.filter(step=>step.uses==='denoland/setup-deno@v2'&&step.with?.['deno-version']==='v2.x').length,1);
   assert.ok(steps.findIndex(step=>step.uses==='denoland/setup-deno@v2')<steps.findIndex(step=>step.name==='Generate qualified software quality evidence'));
@@ -604,4 +639,138 @@ test('batch reconciliation requires every batch once with exactly its contracts'
     assert.throws(()=>reconcileExecutionBatches([],[],'native'),/batch inventory/);
     assert.doesNotThrow(()=>reconcileExecutionBatches([{batch:executionBatchIdentity([],0),tests:[]}],[],'native'));
   } finally {f.clean();}
+});
+
+test('r15 proof control requires an exact phase-owned 15-case inventory',()=>{
+  const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'proof-cases-'))),cases=path.join(directory,'cases');
+  fs.mkdirSync(cases);
+  for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
+  const contract={testFile:PROOF_CASES_TEST},generator=path.join(directory,'generator.py'),request=path.join(directory,'request.json');
+  fs.writeFileSync(generator,'reviewed generator v1');fs.writeFileSync(request,'reviewed request v1');
+  const files=Array.from({length:15},(_,n)=>{const name=`AHT-${String(n+1).padStart(2,'0')}.json`;
+    return {name,sha256:hash(fs.readFileSync(path.join(cases,name)))};});
+  const generate=()=>({sources:[{file:'generator.py',sha256:hash(fs.readFileSync(generator))},
+    {file:'request.json',sha256:hash(fs.readFileSync(request))}],files}),options={generate},environment={CT_PROOF_CASES_DIR:directory};
+  try {
+    const binding=proofCasesBinding(contract,environment,directory,options);
+    assert.equal(binding.files.length,15);assert.equal(binding.directory,directory);
+    const phase=phaseProofCasesBinding(contract,environment,randomUUID(),directory,options);
+    assert.equal(phase.files.length,15);assert.equal(phase.sourceDirectory,directory);assert.notEqual(phase.directory,directory);
+    assert.deepEqual(validatePhaseProofCases(contract,phase,directory,environment,options),phase);
+    fs.writeFileSync(path.join(phase.directory,'cases','AHT-01.json'),'changed');
+    assert.throws(()=>validatePhaseProofCases(contract,phase,directory,environment,options),/differ/);
+    fs.writeFileSync(path.join(phase.directory,'cases','AHT-01.json'),fs.readFileSync(path.join(cases,'AHT-01.json')));
+    fs.writeFileSync(generator,'stale generator');
+    assert.throws(()=>validatePhaseProofCases(contract,phase,directory,environment,options),/binding/);
+    fs.writeFileSync(generator,'reviewed generator v1');fs.writeFileSync(request,'substituted request');
+    assert.throws(()=>validatePhaseProofCases(contract,phase,directory,environment,options),/binding/);
+    fs.writeFileSync(request,'reviewed request v1');
+    fs.rmSync(phase.directory,{recursive:true,force:true});
+    assert.equal(proofCasesBinding({testFile:'tools/cloud-test/tests/other.test.cjs'},{}),null);
+    assert.throws(()=>proofCasesBinding(contract,{}),/CT_PROOF_CASES_DIR/);
+    fs.writeFileSync(path.join(cases,'unexpected.json'),'{}');
+    assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/inventory/);
+    fs.rmSync(path.join(cases,'unexpected.json'));
+    fs.writeFileSync(path.join(cases,'AHT-02.json'),'arbitrary caller source');
+    assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/independent generation/);
+    fs.writeFileSync(path.join(cases,'AHT-02.json'),JSON.stringify({caseId:2}));
+    const first=path.join(cases,'AHT-01.json'),outside=path.join(directory,'outside.json');
+    fs.renameSync(first,outside);fs.symlinkSync(outside,first);
+    assert.throws(()=>proofCasesBinding(contract,environment,directory,options),/Aliased proof-case/);
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+test('default proof generation owns both children and deletes inputs only after verified drains',()=>{
+  const calls=[];let retained;
+  const children={
+    run(command,options) {
+      calls.push({command,options});
+      if(calls.length===1)return {result:{status:0,signal:null,error:null,stderr:'',stdout:JSON.stringify({
+        path:command[0],version:'3.12.0',sha256:hash(fs.readFileSync(command[0]))})}};
+      const output=command[command.indexOf('--out')+1],cases=path.join(output,'cases');fs.mkdirSync(cases,{recursive:true});
+      for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
+      return {result:{status:0,signal:null,error:null,stdout:'',stderr:''}};
+    },
+    assertDrained(directory){retained=directory;assert.ok(fs.existsSync(directory));},
+  };
+  const result=generatedProofCases(root,{CT_EXISTING_PDFJS_DIR:root},{children});
+  assert.equal(result.files.length,15);assert.equal(calls.length,2);
+  assert.ok(calls.every(call=>call.options.detached===true&&call.options.killSignal==='SIGKILL'));
+  assert.ok(calls.every(call=>call.command.includes('-B')));
+  assert.ok(result.command.includes('-B'));
+  assert.ok(!fs.existsSync(retained),'verified proof-generation inputs are removed after both drains');
+});
+
+test('proof generation ignores Python bytecode churn but binds reviewed source changes',()=>{
+  const copy=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'proof-generation-sources-')));
+  const write=(file,bytes='reviewed source')=>{const target=path.join(copy,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,bytes);};
+  for(const file of ['tools/cloud-test/scripts/proof_prep_cases.py','tools/cloud-test/scripts/install_pdfjs.py',
+    'tools/cloud-test/scripts/_netguard.py','tools/cloud-test/scripts/run_env.py','tools/cloud-test/config/test-config.v1.json',
+    'tools/cloud-test/tests/fixtures/full-request.json','tools/cloud-test/tests/fixtures/plan-facts.PLACEHOLDER.json',
+    'tools/cloud-test/harness/reviewed.py','tools/cloud-test/harness-adapter/reviewed.py'])write(file);
+  const generate=()=>{
+    let call=0;
+    const children={
+      run(command) {
+        if(call++===0)return {result:{status:0,signal:null,error:null,stderr:'',stdout:JSON.stringify({
+          path:command[0],version:'3.12.0',sha256:hash(fs.readFileSync(command[0]))})}};
+        const output=command[command.indexOf('--out')+1],cases=path.join(output,'cases');fs.mkdirSync(cases,{recursive:true});
+        for(let n=1;n<=15;n++)fs.writeFileSync(path.join(cases,`AHT-${String(n).padStart(2,'0')}.json`),JSON.stringify({caseId:n}));
+        return {result:{status:0,signal:null,error:null,stdout:'',stderr:''}};
+      },
+      assertDrained(){},
+    };
+    return generatedProofCases(copy,{CT_EXISTING_PDFJS_DIR:copy},{children});
+  };
+  try {
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','bound source inside cache directory');
+    const initial=generate();
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.cpython-312.pyc','first cache bytes');
+    const cached=generate();
+    assert.deepEqual(cached.sources,initial.sources);
+    assert.equal(cached.sources.some(item=>item.file.endsWith('/__pycache__/reviewed.py')),true);
+    assert.equal(cached.sources.some(item=>item.file.endsWith('.pyc')),false);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.cpython-312.pyc','changed cache bytes');
+    assert.deepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','changed bound source inside cache directory');
+    assert.notDeepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness-adapter/__pycache__/reviewed.py','bound source inside cache directory');
+    write('tools/cloud-test/harness-adapter/reviewed.py','changed reviewed source');
+    assert.notDeepEqual(generate().sources,initial.sources);
+    write('tools/cloud-test/harness/new-reviewed.py','added reviewed source');
+    assert.notDeepEqual(generate().sources,initial.sources);
+  } finally {fs.rmSync(copy,{recursive:true,force:true});}
+});
+
+test('proof-generation timeout with an undrained descendant retains its owned inputs',()=>{
+  const children=nativeChildTracker(()=>{throw new Error('controlled descendant remains');},{spawn:()=>({
+    pid:987654,status:null,signal:'SIGKILL',error:Object.assign(new Error('controlled timeout'),{code:'ETIMEDOUT'}),stdout:'',stderr:''})});
+  let retained;
+  try {
+    assert.throws(()=>generatedProofCases(root,{CT_EXISTING_PDFJS_DIR:root},{children,identityTimeoutMs:1}),error=>{
+      retained=error.retainedCopy;assert.match(error.message,/cleanup unverified/);return true;
+    });
+    assert.ok(retained&&fs.existsSync(retained),'unverified descendant ownership must retain the generated-input directory');
+  } finally {if(retained)fs.rmSync(retained,{recursive:true,force:true});}
+});
+
+test('a script-only change to a registered native helper outside tests/ selects its consumer through the real changed-evidence filter',()=>{
+  // #1787: the route was registered, but changedEvidencePaths dropped tools/cloud-test/scripts/*.cjs before routing, so CI never saw it.
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'native-helper-diff-'));
+  try {
+    const git=(...args)=>execFileSync('git',['-C',dir,'-c','user.name=t','-c','user.email=t@example.invalid',...args],{encoding:'utf8'}).trim();
+    const helper='tools/cloud-test/scripts/prerequisite_preflight.cjs',plain='tools/cloud-test/scripts/other_script.cjs';
+    git('init','-q');
+    for(const file of [helper,plain]){fs.mkdirSync(path.join(dir,path.dirname(file)),{recursive:true});fs.writeFileSync(path.join(dir,file),'one\n');}
+    git('add','-A');git('commit','-q','-m','base');const base=git('rev-parse','HEAD');
+    for(const file of [helper,plain])fs.writeFileSync(path.join(dir,file),'two\n');
+    git('commit','-q','-am','script-only change');
+    const files=changedEvidencePaths(dir,base);
+    assert.deepEqual(files,[helper],'only the registered helper becomes evidence input');
+    const [contract,...rest]=selectNativeContracts(root,files);
+    assert.equal(rest.length,0);
+    assert.equal(contract.testFile,'tools/cloud-test/tests/prerequisite-preflight.test.cjs');
+    assert.deepEqual(contract.helpers,[helper]);
+    assert.equal(executionRoute(helper,root).runner,'node-test-helper');
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });

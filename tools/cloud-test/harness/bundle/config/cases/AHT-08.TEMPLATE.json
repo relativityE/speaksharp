@@ -1,0 +1,62 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "caseId": "AHT-08",
+  "campaignId": null,
+  "sourceSha": null,
+  "servedSha": null,
+  "targetUrl": "https://speaksharp-public.vercel.app",
+  "requiredAssertions": [
+    "owner-bound",
+    "fresh-acknowledgment",
+    "feedback-stored-once",
+    "no-session-association",
+    "no-coaching-association",
+    "received-feedback-proof",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+  ],
+  "credentialVars": {
+    "email": "THROWAWAY_TEST_EMAIL",
+    "password": "THROWAWAY_TEST_PASSWORD"
+  },
+  "account": {
+    "id": null,
+    "mode": "existing-disposable",
+    "preprovisionReceipt": null,
+    "analyticsExclusionReceipt": null,
+    "dispositionReceipt": null,
+    "effectiveFeatureAccessApproved": null
+  },
+  "readback": {
+    "origin": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+    "projectRef": "yxlapjuovrsvjswkwnrk",
+    "anonKey": null,
+    "schemaSha256": null,
+    "ownerReadApproved": null,
+    "rlsReadQualificationReceipt": null
+  },
+  "observerSourceReviewed": null,
+  "observerQualificationReceipt": null,
+  "takeCap": null,
+  "startPressCap": null,
+  "_minimumTakeCap": 0,
+  "_minimumStartPressCap": 0,
+  "oracleBindings": {
+    "feedbackReceived": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    },
+    "feedbackAssociation": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    }
+  },
+  "privateEvidenceProducers": {
+    "feedback-received": null,
+    "feedback-association": null
+  },
+  "_feedbackAssociationSource": "Existing trusted-runner owner+observed draft-key server read, content-free projection. No browser user_issue_reports SELECT or new grant. Actual authenticated delivery unbound."
+}

@@ -1,0 +1,275 @@
+import React, { useEffect, useState } from 'react';
+import { NavLink, useParams } from 'react-router-dom';
+import { PRODUCT_LABEL, shortDate } from '@/lib/displayFormat';
+import { useQueryClient } from '@tanstack/react-query';
+import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
+import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
+import { useAnalytics } from '../hooks/useAnalytics';
+import { getSupabaseClient } from '@/lib/supabaseClient';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
+import logger from '../lib/logger';
+import { toast } from '@/lib/toast';
+import { useUserProfile } from '@/hooks/useUserProfile';
+import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionTiers';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
+import { Button } from '@/components/ui/button';
+import { Mic, BarChart } from 'lucide-react';
+import { useReadinessStore } from '@/stores/useReadinessStore';
+import {
+    buildCheckoutBody,
+    trackCheckoutStarted,
+    trackConversionCtaClicked,
+    trackConversionCtaViewed,
+    type ConversionSource,
+} from '@/services/conversionFunnel';
+
+
+/**
+ * AnalyticsPage is the CONTAINER component for the analytics feature.
+ *
+ * ARCHITECTURE NOTE (Gap Analysis 2025-12-22):
+ * This component follows the Container/Presentational pattern:
+ * - It fetches ALL data (via useAnalytics, useUserProfile)
+ * - It passes ALL data as props to AnalyticsDashboard (PRESENTATIONAL)
+ * - AnalyticsDashboard does NOT fetch its own data
+ *
+ * @see AnalyticsDashboard.tsx - Presentational component that receives data via props
+ */
+
+// --- Sub-components ---
+
+// --- Sub-components ---
+
+const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading: boolean; onUpgrade: () => void }> = ({ isPro, sessionId, upgradeLoading, onUpgrade }) => {
+
+    // Different heading and description based on whether viewing a specific session
+    const isSessionView = !!sessionId;
+
+    // Only surface/track the upgrade CTA when payments are live — otherwise it is a dead/no-op button.
+    const showUpgrade = !isSessionView && !isPro && arePaymentsEnabled();
+
+    useEffect(() => {
+        if (showUpgrade) {
+            trackConversionCtaViewed({ source: 'analytics_overview_banner', plan: 'pro' });
+        }
+    }, [showUpgrade]);
+
+    // #1258 D5: on the overview the dashboard's ink header leads; an empty wrapper would only add a top gap.
+    if (!isSessionView && !showUpgrade) return null;
+
+    return (
+        <div className="mb-8">
+            {/* #1258 D5 (Rev 2 §5.1): on the overview the dashboard's ink ProgressHeader owns the h1; the session view
+                keeps its own heading here. */}
+            {isSessionView && (
+                <>
+                    <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">Session Analysis</h1>
+                    {/* Solid role, not foreground/70: this copy sits on the surface-session ground, where the blended
+                        value measures 3.93:1 (CI run 35033614218). surface-session-text measures 7.11:1 there. */}
+                    <p className="mb-4 text-sm font-medium text-muted-foreground sm:text-base">A detailed breakdown of your recent practice session.</p>
+                </>
+            )}
+
+            {/* Plan Banner — upgrade CTA only when payments are live (no dead/no-op button) */}
+            {showUpgrade && (
+                <div
+                    className="w-full flex flex-col gap-3 rounded-lg border border-l-4 border-border border-l-primary bg-card px-4 py-4 text-left surface-shadow sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="rounded-lg bg-primary/15 p-2">
+                            <Mic className="w-5 h-5 text-signature-text" />
+                        </div>
+                        <div className="text-left">
+                            <span className="font-bold block text-base">Turn practice into progress</span>
+                            <span className="text-sm font-medium text-foreground/70 sm:inline">
+                                The complete product — full history and coaching included — is free for 30 days, then $10/month to continue. Private transcription is on-device for everyone.
+                            </span>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onUpgrade}
+                        disabled={upgradeLoading}
+                        className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:w-auto"
+                        data-testid="analytics-page-upgrade-button"
+                    >
+                        {upgradeLoading ? 'Starting checkout...' : 'Upgrade to Pro'}
+                    </button>
+                </div>
+            )}
+            {/* #G4 chunk 3: the "Pro active" status pill is removed — entitlement is not a headline the
+                analytics page needs to shout, and it competed with the page's actual job (progress). */}
+        </div>
+    );
+};
+
+/** The app's default tab title — the one `frontend/index.html` ships (AnalyticsPage tests hold the two equal). */
+const APP_DOCUMENT_TITLE = 'SpeakSharp - Private Practice. Public Impact!';
+
+const AuthenticatedAnalyticsView: React.FC = () => {
+    const { sessionId } = useParams<{ sessionId: string }>();
+    const queryClient = useQueryClient();
+    const { sessionHistory, allTime, firstSessionAt, loading, error } = useAnalytics();
+    const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
+    const { data: usageLimit } = useUsageLimit();
+    const [upgradeLoading, setUpgradeLoading] = useState(false);
+
+    const { setReady } = useReadinessStore();
+
+    // #1258 punch list §1.5: "Your progress · SpeakSharp", or "{Product} · {date} · Progress · SpeakSharp" for one saved
+    // session. Product comes from the persisted `session.product`, never the title; an unknown (legacy) product is omitted.
+    // #1573 Codex P2 4222571897: this page is the app's only document.title writer, so it never leaves a session's product
+    // and date behind — a neutral title while the requested row is unavailable, and the app title once Progress is left.
+    const titledSession = sessionId ? sessionHistory?.find((s) => s.id === sessionId) : undefined;
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        if (!sessionId) { document.title = 'Your progress · SpeakSharp'; return; }
+        if (!titledSession) { document.title = 'Progress · SpeakSharp'; return; }
+        const product = titledSession.product ? PRODUCT_LABEL[titledSession.product] : null;
+        document.title = [product, shortDate(titledSession.created_at), 'Progress', 'SpeakSharp'].filter(Boolean).join(' · ');
+    }, [sessionId, titledSession]);
+    useEffect(() => () => {
+        if (typeof document !== 'undefined') document.title = APP_DOCUMENT_TITLE;
+    }, []);
+
+    // Signal to E2E tests when session data has finished loading OR failing
+    useEffect(() => {
+        if (!loading && !isProfileLoading) {
+            setReady('analytics');
+        }
+    }, [loading, isProfileLoading, setReady]);
+
+    useEffect(() => {
+        if (sessionId) return;
+        const sessionJustPersisted =
+            typeof document !== 'undefined'
+            && document.documentElement.getAttribute('data-session-persisted') === 'true';
+        if (!sessionJustPersisted) return;
+
+        void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
+        void queryClient.invalidateQueries({ queryKey: ['analyticsSummary'] });
+    }, [queryClient, sessionId]);
+
+    const handleUpgrade = async (source: ConversionSource = 'analytics_overview_banner') => {
+        if (upgradeLoading) return;
+        if (!arePaymentsEnabled()) return; // payments not configured — no broken checkout
+        setUpgradeLoading(true);
+
+        try {
+            trackConversionCtaClicked({ source, plan: 'pro' });
+            trackCheckoutStarted({ source, plan: 'pro' });
+            const supabase = getSupabaseClient();
+            if (!supabase) throw new Error("Supabase client not available");
+            const { data, error } = await supabase.functions.invoke('stripe-checkout', {
+                body: buildCheckoutBody('pro', source),
+            });
+            if (error) throw error;
+            if (data?.checkoutUrl) {
+                window.location.href = data.checkoutUrl;
+            } else {
+                throw new Error("No checkout URL returned");
+            }
+        } catch (err: unknown) {
+            logger.error({ err }, 'Error creating Stripe checkout session:');
+            toast.error('Unable to start upgrade process. Please try again or contact support.');
+            setUpgradeLoading(false);
+        }
+    };
+
+    const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
+    const isProUser = isPro(effectiveSubscriptionStatus);
+
+    const handleRetryAnalytics = () => {
+        void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
+        void queryClient.invalidateQueries({ queryKey: ['analyticsSummary'] });
+        void queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+    };
+
+    // #891 (review): reset handler for the Analytics render-crash boundary. It must REMOVE the cached
+    // analytics data, not just invalidate it — invalidate keeps the stale/bad data served while a
+    // refetch runs, so resetting the boundary would immediately re-render the dashboard against the same
+    // data that just threw and re-trip the boundary. removeQueries clears it -> the dashboard re-renders
+    // against undefined (its loading/empty state, which does not throw) and the active hooks refetch fresh.
+    const handleAnalyticsBoundaryReset = () => {
+        queryClient.removeQueries({ queryKey: ['sessionHistory'] });
+        queryClient.removeQueries({ queryKey: ['sessionCount'] });
+        queryClient.removeQueries({ queryKey: ['analyticsSummary'] });
+    };
+
+    // Show loading state while fetching data
+    // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E
+    const isLoading = loading || isProfileLoading;
+
+    // Show error state if either query failed.
+    // #1472 (Code P2 r4372161385): the overview keeps a complete all-time aggregate through a recent-history failure — the
+    // dashboard receives the history error and shows the totals with its "recent sessions can't load" warning. A profile
+    // failure, a session-detail failure and an unavailable or loading aggregate still fail as the whole page.
+    const historyErrorKeepsTotals = !!error && !sessionId && allTime.status === 'complete';
+    if (profileError || (error && !historyErrorKeepsTotals)) {
+        logger.error({ err: error || profileError }, '[AnalyticsPage] Failed to load analytics');
+        return (
+            <div className="text-center py-24">
+                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
+                <p className="mb-6 font-medium text-foreground/70">
+                    We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.
+                </p>
+                <Button onClick={handleRetryAnalytics}>
+                    Retry Analytics
+                </Button>
+            </div>
+        );
+    }
+
+    // Show "Session Not Found" if viewing a specific session that doesn't exist
+    const sessionExists = sessionId ? sessionHistory.some(s => s.id === sessionId) : true;
+    if (sessionId && !sessionExists && !loading && !error) {
+        return (
+            <div className="text-center py-24">
+                <h2 className="text-2xl font-semibold mb-4" data-testid="session-not-found-heading">Session Not Found</h2>
+                <p className="mb-6 font-medium text-foreground/70">We couldn't find the session you're looking for.</p>
+                <Button asChild>
+                    <NavLink to="/progress"><BarChart className="mr-2 h-4 w-4" /> View Dashboard</NavLink>
+                </Button>
+            </div>
+        );
+    }
+    return (
+        <div>
+            <PageHeader isPro={isProUser} sessionId={sessionId} upgradeLoading={upgradeLoading} onUpgrade={() => { void handleUpgrade('analytics_overview_banner'); }} />
+            {/* #891 Analytics-crash containment: a render throw in the dashboard (or a chart choking on
+                one bad session's data) previously bubbled to the app-level boundary — a full-page "Oops"
+                dead-end that ALSO didn't reach Sentry. Scope it: LocalErrorBoundary reports to Sentry +
+                PostHog (COMPONENT_CRASH) and shows a recoverable "Try Again" instead of the dead-end. The
+                real root-cause fix follows once the captured stack lands. */}
+            <LocalErrorBoundary componentName="Analytics" isolationKey="analytics" onReset={handleAnalyticsBoundaryReset}>
+                <AnalyticsDashboard
+                    profile={profile || null}
+                    isProUser={isProUser}
+                    sessionHistory={sessionHistory || []}
+                    allTime={allTime}
+                    firstSessionAt={firstSessionAt}
+                    loading={isLoading}
+                    error={error || null}
+                    onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}
+                    sessionId={sessionId}
+                />
+            </LocalErrorBoundary>
+        </div>
+    );
+};
+
+// --- Main Component ---
+
+export const AnalyticsPage: React.FC = () => {
+    return (
+        <div className="min-h-screen bg-background pt-20">
+            <div className="max-w-7xl mx-auto px-6 py-8">
+                <AuthenticatedAnalyticsView />
+            </div>
+        </div>
+    );
+};
+
+export default AnalyticsPage;

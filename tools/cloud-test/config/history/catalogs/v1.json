@@ -1,0 +1,305 @@
+{
+ "schema": "speaksharp.cloud-test.assertion-catalog.v1",
+ "derived": true,
+ "source": "harness/draft-adapters/contracts.json (hash-verified by verify_harness.py), cross-checked against the sealed receipts of every compared run",
+ "contractsSha256": "e1d274b9f790a6599dd8a8d657610a735bae4560ae3ad38ec5a9d190b1fef93c",
+ "totalAssertions": 204,
+ "minimumStarts": 39,
+ "minimumTakes": 31,
+ "cases": {
+  "AHT-01": {
+   "requiredAssertions": [
+    "owner-bound",
+    "fresh-first-session",
+    "saved-once",
+    "grounded-coaching",
+    "review-reopen",
+    "pdf-owner-take",
+    "same-target-repeat",
+    "analytics-repeat-opens-product",
+    "rapid-repeat-gate",
+    "rapid-repeat-release",
+    "next-start",
+    "next-start-release",
+    "probe-save-isolation",
+    "same-target-numeric",
+    "open-mic-review-presentation",
+    "open-mic-coaching-length",
+    "open-mic-coaching-distinct",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 4,
+   "minimumStarts": 4
+  },
+  "AHT-02": {
+   "requiredAssertions": [
+    "owner-bound",
+    "focus-final",
+    "focus-live-durable",
+    "saved-once",
+    "grounded-coaching",
+    "review-reopen",
+    "same-target-repeat",
+    "focus-edit-cancel-save",
+    "focus-new-set",
+    "open-mic-isolation",
+    "focus-back-reload",
+    "analytics-repeat-opens-product",
+    "rapid-repeat-gate",
+    "rapid-repeat-release",
+    "next-start",
+    "next-start-release",
+    "probe-save-isolation",
+    "same-target-numeric",
+    "focus-switch-isolation",
+    "focus-presentation-contract",
+    "focus-pace-guide",
+    "focus-rail-before",
+    "focus-rail-legend",
+    "focus-pending-labelled",
+    "focus-next-point-marked",
+    "focus-no-red-before-stop",
+    "focus-not-detected-explained",
+    "focus-coverage-count",
+    "focus-average-per-point",
+    "focus-final-rail-colours-words",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 7,
+   "minimumStarts": 7
+  },
+  "AHT-03": {
+   "requiredAssertions": [
+    "owner-bound",
+    "focus-final",
+    "focus-live-durable",
+    "saved-once",
+    "grounded-coaching",
+    "review-reopen",
+    "same-target-repeat",
+    "analytics-repeat-opens-product",
+    "rapid-repeat-gate",
+    "rapid-repeat-release",
+    "next-start",
+    "next-start-release",
+    "probe-save-isolation",
+    "same-target-numeric",
+    "focus-back-reload",
+    "focus-presentation-contract",
+    "focus-pace-guide",
+    "focus-rail-before",
+    "focus-rail-legend",
+    "focus-pending-labelled",
+    "focus-next-point-marked",
+    "focus-no-red-before-stop",
+    "focus-not-detected-explained",
+    "focus-coverage-count",
+    "focus-average-per-point",
+    "focus-final-rail-colours-words",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 4,
+   "minimumStarts": 4
+  },
+  "AHT-04": {
+   "requiredAssertions": [
+    "owner-bound",
+    "cold-pending-observed",
+    "pending-leave-no-mic",
+    "pending-leave-no-session",
+    "return-no-resume",
+    "deliberate-recovery-saved",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 1,
+   "minimumStarts": 2
+  },
+  "AHT-05": {
+   "requiredAssertions": [
+    "owner-bound",
+    "fault-exercised",
+    "recovery-truthful",
+    "retry-saved-once",
+    "review-reopen",
+    "next-take-isolated",
+    "completion-attempts",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 2,
+   "minimumStarts": 2
+  },
+  "AHT-06": {
+   "requiredAssertions": [
+    "owner-bound",
+    "fault-exercised",
+    "recovery-truthful",
+    "retry-saved-once",
+    "review-reopen",
+    "next-take-isolated",
+    "completion-attempts",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 2,
+   "minimumStarts": 2
+  },
+  "AHT-07": {
+   "requiredAssertions": [
+    "owner-bound",
+    "fresh-acknowledgment",
+    "feedback-stored-once",
+    "older-take-association",
+    "older-coaching-association",
+    "received-feedback-proof",
+    "feedback-failure-retry-form",
+    "feedback-transport-form-retry",
+    "feedback-rejection-form-retry",
+    "feedback-response-lost-form-retry",
+    "feedback-attempts",
+    "feedback-readback-preflight",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 2,
+   "minimumStarts": 2
+  },
+  "AHT-08": {
+   "requiredAssertions": [
+    "owner-bound",
+    "fresh-acknowledgment",
+    "feedback-stored-once",
+    "no-session-association",
+    "no-coaching-association",
+    "received-feedback-proof",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 0,
+   "minimumStarts": 0
+  },
+  "AHT-09": {
+   "requiredAssertions": [
+    "owner-bound",
+    "recording-before-leave",
+    "leave-released",
+    "return-no-resume",
+    "recovery-truthful",
+    "left-take-saved-once",
+    "next-take-isolated",
+    "lease-fenced",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed",
+    "navigation-ready"
+   ],
+   "minimumTakes": 2,
+   "minimumStarts": 3
+  },
+  "AHT-10": {
+   "requiredAssertions": [
+    "owner-bound",
+    "recording-before-leave",
+    "leave-released",
+    "return-no-resume",
+    "recovery-truthful",
+    "next-take-isolated",
+    "lease-fenced",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 2,
+   "minimumStarts": 3
+  },
+  "AHT-11": {
+   "requiredAssertions": [
+    "owner-bound",
+    "same-browser-refused",
+    "independent-context-refused",
+    "lease-before-model-window",
+    "takeover-fences-old-owner",
+    "two-takes-isolated",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 2,
+   "minimumStarts": 4
+  },
+  "AHT-12": {
+   "requiredAssertions": [
+    "owner-bound",
+    "press-bound-denial",
+    "denial-truthful-no-mic",
+    "allowed-recovery-saved",
+    "review-reopen",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 1,
+   "minimumStarts": 2
+  },
+  "AHT-13": {
+   "requiredAssertions": [
+    "owner-bound",
+    "download-fault-exercised",
+    "download-failure-truthful",
+    "deliberate-recovery-saved",
+    "review-reopen",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 1,
+   "minimumStarts": 2
+  },
+  "AHT-14": {
+   "requiredAssertions": [
+    "owner-bound",
+    "download-fault-exercised",
+    "download-failure-truthful",
+    "deliberate-recovery-saved",
+    "review-reopen",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+   ],
+   "minimumTakes": 1,
+   "minimumStarts": 2
+  },
+  "AHT-15": {
+   "requiredAssertions": [
+    "owner-bound",
+    "history-preserved",
+    "switches-mic-off",
+    "signed-out",
+    "return-owner-preserved",
+    "no-recording-or-session-write",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed",
+    "return-entry-mic-off",
+    "deep-link-exact-return",
+    "deep-link-rendered-own-detail",
+    "deep-link-mic-off",
+    "return-signed-out"
+   ],
+   "minimumTakes": 0,
+   "minimumStarts": 0
+  }
+ }
+}

@@ -1,0 +1,8 @@
+{
+  "_status": "UNBOUND: no arbitrary Node step may execute. Reviewer must examine all native networking, subprocesses, dynamic imports, transitive/package dependencies and effects; hashes are not an OS sandbox.",
+  "version": 1,
+  "scope": "trusted-reviewed-node-not-sandbox",
+  "reviewer": null,
+  "reviewedAt": null,
+  "steps": []
+}

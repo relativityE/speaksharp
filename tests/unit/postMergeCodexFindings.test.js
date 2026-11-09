@@ -121,6 +121,10 @@ describe('#1430 fix-forward `3991325303` — executable control files are substa
       'tsconfig.json',
       'playwright.config.ts',
       'frontend/tailwind.config.js',
+      'tools/cloud-test/harness-adapter/build_plan.py',
+      'tools/cloud-test/harness/bundle/harness/campaign-core.cjs',
+      'tools/cloud-test/report/workflow_report.py',
+      'tools/cloud-test/scripts/verify_release.py',
     ]) {
       expect({ path, substantive: isSubstantiveImplementationFile(path) }).toEqual({ path, substantive: true });
     }
@@ -139,6 +143,12 @@ describe('#1430 fix-forward `3991325303` — executable control files are substa
     for (const path of [
       '.github/PULL_REQUEST_TEMPLATE.md', 'docs/findings/final-release-qualification.md',
       'tests/unit/finalReleaseQualification.test.js', 'frontend/src/components/__tests__/Navigation.component.test.tsx',
+      'tools/cloud-test/config/test-config.v1.json',
+      'tools/cloud-test/tests/test_release_gate.py',
+      'tools/cloud-test/tests/fixtures/full-request.json',
+      'tools/cloud-test/scripts/fixtures/example.py',
+      'tools/cloud-test/report/fixture/example.cjs',
+      'tools/cloud-test/harness/PACKET-MANIFEST.sha256',
     ]) {
       expect({ path, substantive: isSubstantiveImplementationFile(path) }).toEqual({ path, substantive: false });
     }

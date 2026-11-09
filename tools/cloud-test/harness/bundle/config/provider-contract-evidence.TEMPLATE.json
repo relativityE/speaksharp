@@ -1,0 +1,14 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "kind": "reviewed-provider-attempt-zero-cost-scope-evidence",
+  "sourceSha": null,
+  "ownerScopeReference": null,
+  "reviewer": null,
+  "reviewedAt": null,
+  "evidenceReferences": [],
+  "measuredProviderAttempts": "UNKNOWN",
+  "measuredProviderCostUsd": "UNKNOWN",
+  "costCeilingUsd": 0,
+  "zeroCostAdmissibility": null,
+  "_rule": "Bind actual existing provider/account contract and explicit reviewer disposition for the finite $0 scope. A null/UNKNOWN record cannot establish cost eligibility; no paid checkout, subscription or new producer credential authorized. Admission binds bytes, not independent financial verification."
+}

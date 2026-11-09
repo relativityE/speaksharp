@@ -49,6 +49,11 @@ interface CdpRequestWillBeSent {
 }
 interface CdpFrameNavigated { frame: { id: string; parentId?: string; loaderId: string } }
 interface CdpLifecycleEvent { frameId: string; loaderId: string; name: string; timestamp: number }
+interface CdpPausedRequest {
+    requestId: string;
+    networkId?: string;
+    request: CdpRequestWillBeSent['request'];
+}
 
 const POSTHOG_HOST = /posthog\.com$/i;
 
@@ -90,10 +95,18 @@ export class DocumentProvenance {
      * stated `init` after the commit and after the page's first requests left those requests ambiguous for good.
      */
     private readonly awaitingStart = new Map<string, Set<string>>();
+    private pendingContinuations = 0;
 
     /** Whether everything this page sent can be attributed: a live source that was never lost. */
     get proven(): boolean {
-        return this.live && !this.lost;
+        return this.live && !this.lost && this.pendingContinuations === 0;
+    }
+
+    /** Terminal acceptance cannot outrun a continuation the browser has not acknowledged. */
+    beginContinuation(): void { this.pendingContinuations += 1; }
+    settleContinuation(ok: boolean): void {
+        this.pendingContinuations -= 1;
+        if (!ok || this.ended) this.onSourceGone(false);
     }
 
     /** Decoded requests whose document is not proven (waiting, conflicted, or never joinable). */
@@ -167,7 +180,7 @@ export class DocumentProvenance {
 
     /** The source is gone. A closed page ends it normally; otherwise provenance is lost. Unjoined requests stay unattributed. */
     onSourceGone(pageClosed: boolean): void {
-        if (pageClosed) this.ended = true;
+        if (pageClosed) { this.ended = true; if (this.pendingContinuations > 0) this.lost = true; }
         else this.lost = true;
         for (const refs of this.refs.values()) for (const ref of refs) if (!ref.resolved) ref.ambiguous = true;
     }
@@ -216,27 +229,63 @@ export async function trackDocuments(page: Page, cdp: DocumentCdpSession): Promi
     const closed = () => { try { return page.isClosed(); } catch { return false; } };
     cdp.on('Page.frameNavigated', ((e: CdpFrameNavigated) => { if (!e.frame.parentId) provenance.onCommitted(e.frame.loaderId, e.frame.id); }) as never);
     cdp.on('Page.lifecycleEvent', ((e: CdpLifecycleEvent) => { if (e.name === 'init') provenance.onInit(e.loaderId, e.frameId, e.timestamp); }) as never);
+    // Chromium 143's Network.getRequestPostData corrupts binary Blob payloads.
+    // Fetch exposes exact postDataEntries bytes and a browser-native networkId.
+    // Freeze the loader/clock on Network's event, never when a paused body arrives.
+    const networkPosts = new Map<string, { url: string; record: BrowserRecord; inlineKey?: string }>();
+    const pausedPosts = new Map<string, { url: string; body: Buffer }>();
+    const seenNetwork = new Set<string>(), seenPaused = new Set<string>();
+    const pair = (id: string) => {
+        const network = networkPosts.get(id), paused = pausedPosts.get(id);
+        if (!network || !paused) return;
+        networkPosts.delete(id); pausedPosts.delete(id);
+        if (network.url !== paused.url) { provenance.onSourceGone(false); return; }
+        if (network.inlineKey) {
+            if (network.inlineKey !== keyOf(paused.url, paused.body)) provenance.onSourceGone(false);
+        } else provenance.onRecord(network.url, paused.body, network.record);
+    };
     cdp.on('Network.requestWillBeSent', ((e: CdpRequestWillBeSent) => {
         provenance.onClock(e.timestamp, e.wallTime);
         if (!isPosthogPost(e.request.url, e.request.method)) return;
-        const record = provenance.classify(e.loaderId);
-        const inline = bodyOf(e.request.postDataEntries);
-        if (inline.length > 0) { provenance.onRecord(e.request.url, inline, record); return; }
-        if (!e.request.hasPostData) return;
-        // A body the browser did not inline is fetched; a failed fetch leaves the decoded request unattributed (HOLD).
-        void cdp.send('Network.getRequestPostData', { requestId: e.requestId }).then((r) => {
-            const { postData, base64Encoded } = r as { postData?: string; base64Encoded?: boolean };
-            if (postData) provenance.onRecord(e.request.url, Buffer.from(postData, base64Encoded ? 'base64' : 'utf8'), record);
-        }, () => undefined);
+        const record = provenance.classify(e.loaderId), inline = bodyOf(e.request.postDataEntries);
+        if (inline.length) provenance.onRecord(e.request.url, inline, record);
+        if (seenNetwork.has(e.requestId)) { if (!inline.length) provenance.onSourceGone(false); return; }
+        seenNetwork.add(e.requestId);
+        networkPosts.set(e.requestId, { url: e.request.url, record, ...(inline.length ? { inlineKey: keyOf(e.request.url, inline) } : {}) });
+        pair(e.requestId);
+    }) as never);
+    cdp.on('Fetch.requestPaused', ((e: CdpPausedRequest) => {
+        provenance.beginContinuation();
+        try {
+            if (!isPosthogPost(e.request.url, e.request.method) || !e.networkId) return;
+            if (seenPaused.has(e.networkId)) { provenance.onSourceGone(false); return; }
+            seenPaused.add(e.networkId);
+            const body = bodyOf(e.request.postDataEntries);
+            if (!body.length) return; // No exact bytes: remains unattributed, never a guessed body.
+            pausedPosts.set(e.networkId, { url: e.request.url, body });
+            pair(e.networkId);
+        } finally {
+            // Do not fulfill, rewrite headers/body or retry. Cooperates with Playwright's own route handler.
+            try {
+                void cdp.send('Fetch.continueRequest', { requestId: e.requestId }).then(
+                    () => provenance.settleContinuation(true), () => provenance.settleContinuation(false),
+                );
+            } catch { provenance.settleContinuation(false); }
+        }
     }) as never);
     cdp.on('Inspector.detached', (() => provenance.onSourceGone(closed())) as never);
     cdp.on('Inspector.targetCrashed', (() => provenance.onSourceGone(false)) as never);
     page.on('crash', () => provenance.onSourceGone(false));
+    page.on('close', () => provenance.onSourceGone(true));
     try {
         await cdp.send('Inspector.enable');
         await cdp.send('Page.enable');
         await cdp.send('Page.setLifecycleEventsEnabled', { enabled: true });
         await cdp.send('Network.enable');
+        await cdp.send('Fetch.enable', { patterns: [
+            { urlPattern: '*://*.posthog.com/*', requestStage: 'Request' },
+            { urlPattern: '*://posthog.com/*', requestStage: 'Request' },
+        ] });
         const tree = await cdp.send('Page.getFrameTree') as { frameTree?: { frame?: { id?: string; loaderId?: string } } };
         const frame = tree.frameTree?.frame;
         if (frame?.id) provenance.setMainFrame(frame.id);

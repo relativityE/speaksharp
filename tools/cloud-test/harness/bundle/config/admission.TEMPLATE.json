@@ -1,0 +1,74 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "sourceSha": null,
+  "sourceTree": null,
+  "lockSha256": null,
+  "checkoutDir": null,
+  "lighthouseCli": null,
+  "requiredCredentialVars": [
+    "THROWAWAY_TEST_EMAIL",
+    "THROWAWAY_TEST_PASSWORD",
+    "VITE_SUPABASE_URL",
+    "VITE_SUPABASE_ANON_KEY"
+  ],
+  "forbiddenVars": [
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SECRET_KEY",
+    "STRIPE_SECRET_KEY",
+    "NODE_TLS_REJECT_UNAUTHORIZED"
+  ],
+  "publishableKeyVar": "VITE_SUPABASE_ANON_KEY",
+  "supabaseUrlVar": "VITE_SUPABASE_URL",
+  "expectedSupabaseHost": "yxlapjuovrsvjswkwnrk.supabase.co",
+  "identityUrl": "https://speaksharp-public.vercel.app/",
+  "expectedServedSha": null,
+  "identityCap": null,
+  "identityLedger": null,
+  "runtime": "Claude SpeakSharp R4",
+  "securityApprovalFile": null,
+  "runtimeQualificationReceipt": null,
+  "reviewedStepManifest": null,
+  "reviewedStepManifestSha256": null,
+  "approvedStartAt": null,
+  "approvedDeadlineAt": null,
+  "policyFile": null,
+  "costCeilingUsd": 0,
+  "accountSelection": null,
+  "providerAttemptContractEvidence": null,
+  "credentialAlternatives": [
+    [
+      "THROWAWAY_TEST_EMAIL",
+      "THROWAWAY_TEST_PASSWORD"
+    ],
+    [
+      "FREE_TEST_EMAIL",
+      "FREE_TEST_PASSWORD"
+    ],
+    [
+      "PRO_TEST_EMAIL",
+      "PRO_TEST_PASSWORD"
+    ]
+  ],
+  "entitlementRule": "Prefer existing throwaway credentials. New signup is user-described 30-day full-feature/effective Pro even if displayed tier is Free; verify effective access, never exclude AI solely on tier label. Actual paid checkout remains separate and NOT AUTHORIZED at $0.",
+  "runtimePolicy": "record-and-qualify-current",
+  "_runtimePolicy": "Owner accepts installed compatibility variant. Admission records actual tuple and same-runtime safety qualification; historical versions are not mandatory.",
+  "campaignId": null,
+  "campaignLedger": null,
+  "policySha256": null,
+  "securityApprovalSha256": null,
+  "reviewedStepRoot": null,
+  "qualificationStepManifest": null,
+  "qualificationStepManifestSha256": null,
+  "privateMediaParent": null,
+  "runtimeAttestationFile": null,
+  "runtimeAttestationSha256": null,
+  "browserIdentityFile": null,
+  "browserIdentitySha256": null,
+  "ownerApprovalReference": null,
+  "qualificationMaxMs": null,
+  "cleanupReserveMs": null,
+  "lighthouseSelection": null,
+  "_lighthouseSelection": "Final owner choice required: required or not-selected. No choice supplied/approved here. Not-selected omits ONLY Lighthouse-specific qualification and forbids Lighthouse dispatch.",
+  "_qualificationSizing": "qualificationMaxMs >=1200000 (20min), cleanupReserveMs >=60000, plus setup/discovery,32 identity probes and sum(all15 case maxMs)",
+  "_accountRole": "FREE_TEST/PRO_TEST names are shared fixtures in source AGENTS; never relabel as disposable. Each actual account needs reviewed role/disposition. First invalid_credentials rejection stops campaign."
+}

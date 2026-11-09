@@ -7,12 +7,14 @@ import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
   changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase,
-  registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness} from '../../scripts/lib/testExecutionEvidence.mjs';
+  registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness,
+  vitestExecutionTimeoutMs} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths,runVitestExecution,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {HELPER_CONTRACTS} from '../../scripts/lib/helperExecutionEvidence.mjs';
 import {executionBatchIdentity} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+import {PYTHON_INPUT_CONTRACTS} from '../../scripts/lib/pythonTestExecutionEvidence.mjs';
 const framework=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const {test:registerTest}=framework;
 const fixtureConsumer=registeredFixture('tests/fixtures/efficacy/service-level-evidence.adfeab34.yml');
@@ -71,6 +73,17 @@ test('routes approved source contracts separately from actual live execution',()
   assert.equal(executionRoute('tests/live/unregistered-helper.ts',root),null);
   assert.equal(executionRoute('tests/fixtures/unconsumed.json',root),null);
   assert.equal(executionRoute('tests/live/unregistered.live.spec.ts',root).runner,'playwright-live');
+});
+test('routes the selected cloud package inputs only through their bounded Python consumers',()=>{
+  for(const contract of PYTHON_INPUT_CONTRACTS) {
+    assert.deepEqual(executionRoute(contract.inputFile,root),
+      {runner:'python-unittest-input',consumer:contract.testFile,applicable:true});
+  }
+  assert.equal(executionRoute('tools/cloud-test/tests/fixtures/unregistered.json',root),null);
+  const document=executionRoute('tests/live/helpers/rwtDocumentIdentity.ts',root);
+  assert.equal(document.runner,'vitest-helper');
+  assert.equal(document.consumer,'tests/unit/rwtWatchdog1593.test.ts');
+  assert.equal(document.applicable,true);
 });
 test('deduplicates bound helper consumers within eight phases and batches a ninth instead of dropping it',()=>{
   // A planner fixture represents the receiving shape, not a claim that future
@@ -312,12 +325,16 @@ test('consumer rejects a stale otherwise-green output before trusting coverage c
 });
 
 test('explicit child environment excludes host secrets, loaders, proxies and package hooks',()=>{
-  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quality-env-'));
+  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'quality-env-')));
   try {
-    const env=testEnvironment(dir,{phaseId:'synthetic'},path.join(dir,'raw.json'));
+    const proofCases=path.join(dir,'proof-cases'),pdfjs=path.join(dir,'pdfjs');fs.mkdirSync(proofCases);fs.mkdirSync(pdfjs);
+    const env=testEnvironment(dir,{phaseId:'synthetic'},path.join(dir,'raw.json'),{
+      CT_PROOF_CASES_DIR:proofCases,CT_EXISTING_PDFJS_DIR:pdfjs,GITHUB_TOKEN:'not-forwarded',NODE_OPTIONS:'--import=bad'});
     for (const key of ['GITHUB_TOKEN','SUPABASE_SERVICE_ROLE_KEY','NODE_OPTIONS','NODE_PATH','HTTP_PROXY','HTTPS_PROXY','npm_config_registry']) assert.equal(Object.hasOwn(env,key),false);
     assert.equal(env.NODE_ENV,'test');assert.equal(env.VITE_SUPABASE_ANON_KEY,'test-anon-key');
     assert.equal(env.HOME,path.join(dir,'.efficacy-home'));
+    assert.equal(env.CT_PROOF_CASES_DIR,proofCases);assert.equal(env.CT_EXISTING_PDFJS_DIR,pdfjs);
+    assert.throws(()=>testEnvironment(dir,null,'',{CT_EXISTING_PDFJS_DIR:path.join(dir,'missing')}),/Invalid CT_EXISTING_PDFJS_DIR/);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -459,7 +476,7 @@ function executionFixture(installed=false) {
   const dir=canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(),'quality-vitest-execution-')));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),bytes);};
   for(const file of ['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
-    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
+    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
     'scripts/lib/softwareQualityEvidenceQualification.mjs',...dependencyPaths(root,contract.testFile)]) {
     write(file,fs.readFileSync(path.join(root,file)));
   }
@@ -929,7 +946,8 @@ test('execution-only consumer binds actual source, runtime, command and controll
       .split('\0').filter(Boolean).sort().map(name=>[name,hash(fs.readFileSync(path.join(dir,name)))]);
     const inputSha256=hash(JSON.stringify(entries));const cwd=path.join(dir,'isolated');
     const binding={runId:randomUUID(),phaseId:randomUUID(),phase:'execution',provenance:expected,cwd,
-      testFile:path.join(cwd,file),inputSha256,repoLockSha256:hash(fs.readFileSync(path.join(dir,'pnpm-lock.yaml'))),runtime:runtimeIdentity(dir)};
+      testFile:path.join(cwd,file),inputSha256,repoLockSha256:hash(fs.readFileSync(path.join(dir,'pnpm-lock.yaml'))),runtime:runtimeIdentity(dir),
+      timeoutMs:vitestExecutionTimeoutMs(file)};
     binding.command=[canonicalPath(process.execPath),path.join(cwd,'node_modules/vitest/vitest.mjs'),'run','--config','frontend/vitest.config.mjs',
       '--coverage.enabled=false','--retry=0','--reporter=json','--reporter=./scripts/efficacy-reporter.mjs',`--outputFile=${path.join(cwd,'efficacy-report.json')}`,file];
     const tasks=[{id:'file',parentId:null,type:'suite',mode:'run',result:{state:'pass',hooks:{},errors:[]}},
@@ -957,6 +975,7 @@ test('execution-only consumer binds actual source, runtime, command and controll
       [r=>{r.tests[0].phase.binding.provenance={...expected,runAttempt:'2'};},/provenance/],
       [r=>{r.tests[0].phase.binding.inputSha256=hash('wrong source');},/phase\/source\/runtime/],
       [r=>{r.tests[0].phase.binding.runtime.node='wrong';},/phase\/source\/runtime/],
+      [r=>{r.tests[0].phase.binding.timeoutMs=999_999;},/phase\/source\/runtime/],
       [r=>{r.tests[0].phase.binding.command[3]='--testNamePattern=other';},/command\/collection/],
       [r=>{r.tests[0].phase.envelope.finished.files[0].tasks[1].mode='skip';},/setup\/hook\/suite/],
       [r=>{r.tests[0].phase.execution.status=1;},/process failed/],
@@ -966,6 +985,11 @@ test('execution-only consumer binds actual source, runtime, command and controll
     const paths=[file,'tests/e2e/other.spec.ts','backend/supabase/functions/other/index_test.ts','tests/db/account-closure-full-chain.sql'];
     assert.deepEqual(executionCoverage(paths,{root:dir,base,expected,execution:receipt}).rows.map(row=>row.status),['EXECUTED','NOT RUN','NOT RUN','NOT RUN']);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('only the measured telemetry readback contract receives the bounded 100-second execution ceiling',()=>{
+  assert.equal(vitestExecutionTimeoutMs('tests/unit/telemetryReadbackQualifierHarness1539.test.ts'),100_000);
+  assert.equal(vitestExecutionTimeoutMs('tests/unit/another-contract.test.ts'),60_000);
 });
 
 // Hosted CI always runs these; local opt-in requires installed Vitest, with no fallback.
@@ -1093,7 +1117,7 @@ test('CI-invoked writer fails incomplete coverage and succeeds after valid evide
     assert.ok(command,'exercise the writer command actually invoked by CI');
     const files=['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
       'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs',
-      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs','scripts/lib/pythonTestExecutionEvidence.mjs','scripts/lib/python-unittest-reporter.py','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
       ...dependencyPaths(root,contract.testFile)];
     for (const file of files) {
       fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});
@@ -1154,10 +1178,9 @@ test('Python unittest modules are inventoried and routed NOT RUN; none is omitte
     // Every test_*.py is an evidence path, including outside tests/; ordinary scripts stay out.
     for(const file of Object.keys(python).filter(file=>/\/test_[^/]+\.py$/.test(file)))assert.ok(inventory.includes(file),file);
     assert.ok(!inventory.includes('tools/cloud-test/scripts/verify_harness.py'));
-    // Package modules have a runner but no approved runtime: routed, unavailable, never executed.
+    // Package modules have an approved, independently validated Python receipt route.
     for(const file of ['tools/cloud-test/tests/test_full_plan.py','tools/cloud-test/report/tests/test_run_report.py']) {
-      assert.deepEqual(executionRoute(file,f.dir),{runner:'python-unittest',consumer:file,applicable:false,
-        unavailableReason:'NOT RUN: no approved Python runtime binding'});
+      assert.deepEqual(executionRoute(file,f.dir),{runner:'python-unittest',consumer:file,applicable:true});
     }
     // Outside the reviewed package there is no runner at all: UNCOVERED, not routed.
     assert.equal(executionRoute('tests/unit/test_outside_package.py',f.dir),null);

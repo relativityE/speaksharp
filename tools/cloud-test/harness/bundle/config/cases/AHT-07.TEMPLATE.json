@@ -1,0 +1,83 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "caseId": "AHT-07",
+  "campaignId": null,
+  "sourceSha": null,
+  "servedSha": null,
+  "targetUrl": "https://speaksharp-public.vercel.app",
+  "requiredAssertions": [
+    "owner-bound",
+    "fresh-acknowledgment",
+    "feedback-stored-once",
+    "older-take-association",
+    "older-coaching-association",
+    "received-feedback-proof",
+    "feedback-failure-retry-form",
+    "feedback-transport-form-retry",
+    "feedback-rejection-form-retry",
+    "feedback-response-lost-form-retry",
+    "feedback-attempts",
+    "feedback-readback-preflight",
+    "start-press-budget",
+    "no-cloud-stt",
+    "owned-pages-closed"
+  ],
+  "credentialVars": {
+    "email": "THROWAWAY_TEST_EMAIL",
+    "password": "THROWAWAY_TEST_PASSWORD"
+  },
+  "account": {
+    "id": null,
+    "mode": "existing-disposable",
+    "preprovisionReceipt": null,
+    "analyticsExclusionReceipt": null,
+    "dispositionReceipt": null,
+    "effectiveFeatureAccessApproved": null
+  },
+  "readback": {
+    "origin": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+    "projectRef": "yxlapjuovrsvjswkwnrk",
+    "anonKey": null,
+    "schemaSha256": null,
+    "ownerReadApproved": null,
+    "rlsReadQualificationReceipt": null
+  },
+  "observerSourceReviewed": null,
+  "observerQualificationReceipt": null,
+  "takeCap": null,
+  "startPressCap": null,
+  "_minimumTakeCap": 2,
+  "_minimumStartPressCap": 2,
+  "oracleBindings": {
+    "feedbackReceived": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    },
+    "coachingAssociation": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    },
+    "feedbackAssociation": {
+      "module": "draft-adapters/oracles/index.cjs",
+      "sha256": null,
+      "reviewReceipt": null
+    }
+  },
+  "fixture": {
+    "name": null,
+    "sha256": null,
+    "launchSha256": null,
+    "speechDurationMs": null
+  },
+  "privateEvidenceProducers": {
+    "feedback-received": null,
+    "feedback-association": null
+  },
+  "feedbackAttemptCap": null,
+  "feedbackNewReportCap": null,
+  "_feedbackMinimumAttemptCap": 7,
+  "_feedbackMinimumNewReportCap": 4,
+  "_feedbackAssociationSource": "Existing trusted-runner owner+observed draft-key server read, content-free projection. No browser user_issue_reports SELECT or new grant. Actual authenticated delivery unbound."
+}

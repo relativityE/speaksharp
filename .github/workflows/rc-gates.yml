@@ -36,6 +36,10 @@ on:
         description: 'DIAGNOSTIC ONLY — restrict the single spec to tests matching this title (used with diagnostic_dast_spec).'
         required: false
         default: ''
+      diagnostic_release_sha:
+        description: 'Closed RWT single-test diagnostic ONLY: exact deployed ancestor SHA; product/live-test/dependency bytes must match workflow source. Empty preserves existing binding.'
+        required: false
+        default: ''
       comparison_cell:
         description: 'COMPARISON ONLY (gate comparison-authorization, or the #1437 diagnostic) — the ONE cell (candidate/journey) this run authorizes; none = no authorization. The nonce is minted inside this run; no key or second workflow exists.'
         required: false
@@ -126,13 +130,24 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Validate bounded RWT release selection
+        env:
+          DIAGNOSTIC_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
+          DIAGNOSTIC_RELEASE: ${{ github.event.inputs.diagnostic_release_sha }}
+          DIAGNOSTIC_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
+          SELECTED_GATE: ${{ github.event.inputs.gate }}
+          COMPARISON_CELL: ${{ github.event.inputs.comparison_cell }}
+          PAID_LAUNCH: ${{ github.event.inputs.paid_launch }}
+        run: node tools/cloud-test/scripts/validate_rwt_release_binding.cjs
       - uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
       - name: Classify Gate 3 evidence target
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
-          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+          EXPECTED_RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
           EVIDENCE_SCOPE: ${{ github.event.inputs.diagnostic_dast_spec == '' && 'canonical-production' || 'diagnostic' }}
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
         run: node scripts/rc-evidence-target-preflight.mjs
@@ -306,7 +321,7 @@ jobs:
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
-          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+          EXPECTED_RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
           EVIDENCE_SCOPE: diagnostic
           EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
@@ -370,7 +385,7 @@ jobs:
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
-          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_SHA: ${{ github.event.inputs.diagnostic_release_sha || github.sha }}
           # The first-download receipt (only a measured cold network download passes) is required PER BINDING, of the one
           # binding the receipt marks `firstDownload` (#1532 Codex P1 r4124290575): a repeat take in the post-reload journey
           # loads the model from cache by construction, and a feedback/PDF-only journey acquires nothing. Each binding also names
@@ -448,10 +463,10 @@ jobs:
             rm -f "$verdicts" "$coaching_result"
           done
           exit $status
-      # RWT receipts, readback outputs and human worksheets are content-free by construction (verdicts, counts, durations, ids,
-      # observation names; the suites fail a receipt that carries point text, topic, email or a credential). The worksheet is
-      # the run-bound input `pnpm rwt:finalize` requires (#1532 Codex P2 r4120338762). Only these are uploaded — never test-results/ as a
-      # whole, which could hold a downloaded PDF or a page snapshot of transcript or coaching text.
+      # Preserve the existing content-free RWT receipts, readback outputs and bound human worksheet.
+      # rwt:finalize requires the worksheet; all four paths below retain their existing narrow scope.
+      # The broad diagnostic uploader explicitly excludes RWT: no PDF, trace or page report upload.
+      # A crash before writing any receipt deliberately fails this upload too; absence is not PASS.
       - name: Upload RWT receipts (content-free)
         if: ${{ always() && startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
         uses: actions/upload-artifact@v4
@@ -463,7 +478,7 @@ jobs:
             test-results/rwt/*.human-worksheet.md
             test-results/rwt/*.readback-verdicts.json
           retention-days: 14
-          if-no-files-found: warn
+          if-no-files-found: error
       # Content-free: repository, run, actor, release, origin, cell, document and nonce. Never a credential or content.
       - name: Upload model-comparison authorization (content-free)
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' && github.event.inputs.comparison_cell != 'none' }}
@@ -514,7 +529,7 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
       - name: Upload ineligible diagnostic Gate 3 artifacts
-        if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
+        if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' && !startsWith(github.event.inputs.diagnostic_dast_spec, 'tests/live/rwt-') }}
         uses: actions/upload-artifact@v4
         with:
           name: gate-3-dast-diagnostic-ineligible-${{ github.sha }}

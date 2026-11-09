@@ -1,0 +1,17 @@
+{
+  "sourceSha": "70e194a4422dd7b6a13ed542134941d1eaa9ea87",
+  "source": "tests/live/helpers/returningSignInAttempt.ts",
+  "sha256": "9176bb71de8f877e9d919c4b0d60482ed8f26529089252063daada39026af44a",
+  "gitBlobSha1": "acb58b0fb28f7deed47645cc4a6847d7831fd7f3",
+  "selectedDeclarations": [
+    "nonEmpty",
+    "record",
+    "inconclusive",
+    "API_VERSION_REGEX",
+    "API_VERSION_2024_01_01",
+    "wireErrorCode",
+    "classifyTokenResponse",
+    "deepLinkLanding"
+  ],
+  "adaptation": "Auth runtime reads only400error JSON, never successful token bodies; source rejection classifier and exact URL comparison preserved."
+}

@@ -1,0 +1,13 @@
+{
+  "_status": "UNBOUND OPERATOR TEMPLATE. Nulls must be filled from actual reviewed source/evidence/owner scope; this file grants no execution or approval.",
+  "manifestFile": null,
+  "expectedManifestSha256": null,
+  "stepRoot": null,
+  "oracleFile": null,
+  "sourceId": null,
+  "dynamicSessionBinding": {
+    "host": "yxlapjuovrsvjswkwnrk.supabase.co",
+    "ownerId": null,
+    "sourceSha": null
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "scope": "Historical supplied r15 pin identity only; NOT current receiving bytes or run approval",
+  "expectedCodeManifestSha256": "7dae348f5edd30aba633b0e68627cb4de3a164558602586f3883bfabda3e48d8",
+  "expectedPacketManifestSha256": "d636cc261a59832abfc5d81dce9c155867355542973b064086eccea45c9a8d6d"
+}

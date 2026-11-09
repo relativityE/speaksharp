@@ -1,0 +1,6 @@
+# PROPOSED ARTIFACT ONLY (Sam 1793553158.013909): not a workflow file and not registered with GitHub. Merging a `schedule:` entry into
+# .github/workflows/cloud-test-live.yml would create scheduled invocations even when every job skips, so activation is a separate,
+# explicitly selected change that copies this trigger into the workflow. nightly_request.py derives the occurrence slot from this cron.
+on:
+  schedule:
+    - cron: '0 3 * * *'

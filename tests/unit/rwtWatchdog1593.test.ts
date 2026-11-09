@@ -1036,10 +1036,11 @@ describe('#1662 RETURN on 46ebed0f — transfer-only download stall', () => {
 describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request provenance; incomplete provenance never PASSes', () => {
     const quiet = { log: () => undefined, label: 'case' };
     class FakeCdp extends EventEmitter {
-        postData: (requestId: string) => Promise<unknown> = () => Promise.reject(new Error('no body'));
-        async send(method: string, params?: { requestId?: string }): Promise<unknown> {
+        pausedBody: (requestId: string) => Promise<unknown> = () => Promise.reject(new Error('no body'));
+        continuation: () => Promise<unknown> = async () => ({});
+        async send(method: string): Promise<unknown> {
             if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main', loaderId: 'L0' } } };
-            if (method === 'Network.getRequestPostData') return this.postData(params?.requestId ?? '');
+            if (method === 'Fetch.continueRequest') return this.continuation();
             return {};
         }
     }
@@ -1080,8 +1081,14 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
             const pw = () => this.page.emit('request', { url: () => url, method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
                 postDataBuffer: () => body, response: () => Promise.resolve({ status: () => 200 }), failure: () => null });
             const inline = o.inline !== false;
-            const cdp = () => this.cdp.emit('Network.requestWillBeSent', { requestId: id, loaderId, timestamp: this.mono, wallTime: this.mono + this.offsetS,
-                request: { url, method: 'POST', hasPostData: true, ...(inline ? { postDataEntries: [{ bytes: body.toString('base64') }] } : {}) } });
+            const cdp = () => {
+                this.cdp.emit('Network.requestWillBeSent', { requestId: id, loaderId, timestamp: this.mono, wallTime: this.mono + this.offsetS,
+                    request: { url, method: 'POST', hasPostData: true, ...(inline ? { postDataEntries: [{ bytes: body.toString('base64') }] } : {}) } });
+                const pause = (bytes: string) => this.cdp.emit('Fetch.requestPaused', { requestId: 'fetch-' + id, networkId: id,
+                    request: { url, method: 'POST', postDataEntries: [{ bytes }] } });
+                if (inline) pause(body.toString('base64'));
+                else void this.cdp.pausedBody(id).then((r) => pause((r as { bytes?: string }).bytes ?? ''), () => pause(''));
+            };
             const order = o.order ?? 'pw-first';
             if (order !== 'cdp-only') { if (order === 'cdp-first') { cdp(); pw(); } else pw(); }
             if (order === 'pw-first') cdp();
@@ -1119,6 +1126,49 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
         b.send('L1', [saved('boot-1', b.wallMs())], { order: 'cdp-first' });
         expect(await w.tick()).toBeNull();
         expect(await recordRows(w)).toEqual([expect.objectContaining({ verdict: 'PASS', evidence: expect.objectContaining({ unattributedRequests: 0, provenanceConflicts: 0, unprovenPages: 0 }) })]);
+    });
+
+    it('pending browser continuation at terminal recording is HOLD, not a clean receipt', async () => {
+        const { b, w } = await setup();
+        b.send('L1', [saved('boot-1', b.wallMs())]); await flush();
+        let done!: (v: unknown) => void;
+        b.cdp.continuation = () => new Promise((r) => { done = r; });
+        b.send('L1', [step('boot-1', b.wallMs())]);
+        const rows = await recordRows(w);
+        expect(rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unprovenPages: 1 }) })]);
+        done({}); await flush();
+        expect(rows[0].verdict).toBe('HOLD'); // no late rewrite of the terminal receipt
+    });
+
+    it('acknowledged browser continuation before terminal recording is eligible for PASS', async () => {
+        const { b, w } = await setup();
+        let done!: (v: unknown) => void;
+        b.cdp.continuation = () => new Promise((r) => { done = r; });
+        b.send('L1', [saved('boot-1', b.wallMs())]);
+        done({}); await flush();
+        expect(await recordRows(w)).toEqual([expect.objectContaining({ verdict: 'PASS' })]);
+    });
+
+    it('a rejection after terminal recording keeps the already-HOLD receipt and source unproven', async () => {
+        const { b, w } = await setup();
+        let reject!: (v: unknown) => void;
+        b.cdp.continuation = () => new Promise((_r, j) => { reject = j; });
+        b.send('L1', [saved('boot-1', b.wallMs())]);
+        const rows = await recordRows(w);
+        expect(rows[0].verdict).toBe('HOLD');
+        reject(new Error('synthetic delayed continuation failure')); await flush();
+        expect(documentTrackerOf(b.page as never).proven).toBe(false);
+        expect(rows[0].verdict).toBe('HOLD');
+    });
+
+    it('teardown while continuation is pending cannot yield a late clean terminal result', async () => {
+        const { b, w } = await setup();
+        let done!: (v: unknown) => void;
+        b.cdp.continuation = () => new Promise((r) => { done = r; });
+        b.send('L1', [saved('boot-1', b.wallMs())]);
+        b.page.closed = true; b.page.emit('close');
+        done({}); await flush();
+        expect(await recordRows(w)).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unprovenPages: 1 }) })]);
     });
 
     for (const viaB of [false, true]) {
@@ -1191,12 +1241,12 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
         expect(await recordRows(w)).toEqual([expect.objectContaining({ verdict: 'HOLD' })]);
     });
 
-    it('gate C: a body the browser did not inline is fetched and joins; a refused fetch stays unattributed (HOLD)', async () => {
+    it('gate C: a Blob body from the exact Fetch pause joins; missing paused bytes stay unattributed (HOLD)', async () => {
         const ok = await setup();
-        ok.b.cdp.postData = async () => ({ postData: '' });
+        ok.b.cdp.pausedBody = async () => ({ bytes: '' });
         ok.b.commit('L2');
         const sent = ok.b.send('L2', [saveFailed('boot-2', ok.b.wallMs())], { inline: false, order: 'pw-only' });
-        ok.b.cdp.postData = async () => ({ postData: sent.body.toString('base64'), base64Encoded: true });
+        ok.b.cdp.pausedBody = async () => ({ bytes: sent.body.toString('base64') });
         sent.cdp();
         await flush();
         expect(await ok.w.tick()).toMatchObject({ kind: 'save_failed' });
@@ -1208,28 +1258,28 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
         expect(await recordRows(refused.w)).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unattributedRequests: 1 }) })]);
     });
 
-    it('a81f #1: a body fetched AFTER the next commit keeps the origin the browser reported — the current fatal trips', async () => {
+    it('a81f #1: a paused body delivered AFTER the next commit keeps the origin the browser reported — the current fatal trips', async () => {
         const { b, w } = await setup();
         let release!: (v: unknown) => void;
-        b.cdp.postData = () => new Promise((r) => { release = r; });
+        b.cdp.pausedBody = () => new Promise((r) => { release = r; });
         const sent = b.send('L1', [saveFailed('boot-1', b.wallMs())], { inline: false }); // L1 is current when it is sent
         b.commit('L2'); // the next document commits while the bytes are being fetched
-        release({ postData: sent.body.toString('base64'), base64Encoded: true });
+        release({ bytes: sent.body.toString('base64') });
         await flush();
         expect(await w.tick(), 'sent by the then-current L1: not replaced').toMatchObject({ kind: 'save_failed' });
     });
 
-    it('45c5: a browser clock-pair change while a body is fetched cannot move the document start — the new-boot fatal trips', async () => {
+    it('45c5: a browser clock-pair change while a paused body is delivered cannot move the document start — the new-boot fatal trips', async () => {
         const { b, w } = await setup();
         const start = b.wallMs();
         b.commit('L2');
         let release!: (v: unknown) => void;
-        b.cdp.postData = () => new Promise((r) => { release = r; });
+        b.cdp.pausedBody = () => new Promise((r) => { release = r; });
         const sent = b.send('L2', [saveFailed('boot-2', start + 3)], { inline: false });
         // Another request reports a monotonic/wall pairing 20 ms later before the body arrives.
         b.cdp.emit('Network.requestWillBeSent', { requestId: 'other', loaderId: 'L2', timestamp: 6_000, wallTime: 6_000 + (Date.now() - 500) / 1000 - 5_000 + 0.02,
             request: { url: 'https://app.test/other.js', method: 'GET' } });
-        release({ postData: sent.body.toString('base64'), base64Encoded: true });
+        release({ bytes: sent.body.toString('base64') });
         await flush();
         expect(await w.tick(), 'the request-time mapping is the one that counts').toMatchObject({ kind: 'save_failed' });
     });

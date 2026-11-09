@@ -1,0 +1,51 @@
+{
+  "sourceSha": "70e194a4422dd7b6a13ed542134941d1eaa9ea87",
+  "method": "TypeScript AST declaration extraction/transpile; no repository execution",
+  "retrievedPaceSource": "https://github.com/relativityE/speaksharp/blob/70e194a4422dd7b6a13ed542134941d1eaa9ea87/tests/live/helpers/rwtPaceGuide.ts",
+  "sources": {
+    "tests/live/helpers/rwtJourney.ts": {
+      "sha256": "2c44541ecb5f9846f2ede45a6f1aca2b8f181d2a34855eab6053ce5a8e34a168",
+      "gitBlobSha1": "5600ad4b1cf2cc9f5e9b5456427db727733d3f5e",
+      "declarations": [
+        "countWords",
+        "normalisePhraseText"
+      ]
+    },
+    "tests/live/rwt-open-mic-first-session.live.spec.ts": {
+      "sha256": "ecf5710f1a3da1eef203e058dd935c07de39bfecb23bcdb8607615d246217024",
+      "gitBlobSha1": "d9dfd8481acf76329765898e8aed652869392f91",
+      "declarations": [
+        "COACHING_WORD_TARGET",
+        "COACHING_WORD_TARGET_MIN",
+        "WELL_HEADINGS",
+        "NEXT_HEADINGS",
+        "samePhrase"
+      ]
+    },
+    "tests/live/helpers/rwtFocusPointsJourney.ts": {
+      "sha256": "ec9a0f72ca4781f0415ccaab77e206eab7ef0ed11bf558d655d458b60a8430bd",
+      "gitBlobSha1": "353fe49d766818306f54b8f24559635085c4b5d4",
+      "declarations": [
+        "GUIDE_SECONDS",
+        "AVERAGE_TOLERANCE_SECONDS",
+        "parseClock"
+      ]
+    },
+    "tests/live/helpers/rwtPaceGuide.ts": {
+      "sha256": "88891647748c382ae3c08ce78b6e3aab6fcbb96dc4e0c609d38ac66568c2b8d9",
+      "gitBlobSha1": "501c757fc39c1bb982ed1a67facfd9af590726c1",
+      "declarations": [
+        "PACE_GUIDE_DEFAULT_SECONDS",
+        "parsePaceGuideSeconds"
+      ]
+    },
+    "tests/live/helpers/coachingExternal.ts": {
+      "sha256": "97c6963227a41edac9b84ad700819103611bb750f22792c3ca74c3c2dc5ef81b",
+      "gitBlobSha1": "a01042f3ee0742a3980872c301cd2df1a46b9386",
+      "reviewedOnly": [
+        "successDependentRow: absent success stays unexercised; never invent EXTERNAL authority"
+      ],
+      "url": "https://github.com/relativityE/speaksharp/blob/70e194a4422dd7b6a13ed542134941d1eaa9ea87/tests/live/helpers/coachingExternal.ts"
+    }
+  }
+}

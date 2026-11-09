@@ -8,11 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
 import { executionContext, testEnvironment, pilotAffectedByPaths,
-  executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness, selectExecutionContracts } from './lib/testExecutionEvidence.mjs';
+  executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness, selectExecutionContracts,
+  vitestExecutionTimeoutMs } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
 import {sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
 import {selectNativeContracts,produceNativePhase,nativeChildTracker,sqlSourceBinding,validateSqlWitness,
   NATIVE_BATCH_SIZE,executionBatchIdentity} from './lib/nativeTestExecutionEvidence.mjs';
+import {producePythonReceipt} from './lib/pythonTestExecutionEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
@@ -143,6 +145,12 @@ export function runNativeExecution(options = {}) {
   return runTestEfficacy({...options,executionOnly:true,nativeOnly:true});
 }
 
+export function runPythonExecution({root=process.cwd(),base=process.env.TEST_EFFICACY_BASE,provenance,batch=0}={}) {
+  root=canonicalPath(root);
+  provenance??=executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+  return producePythonReceipt({root,base:base||null,provenance,files:executionRequiredFiles(root,base),batch,drain:drainOwnedPhase});
+}
+
 // Moved beside its independent validator; re-exported so existing callers keep one selection.
 export {selectExecutionContracts};
 
@@ -230,6 +238,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         provenance, sourceCopyCommit,
         command, cwd: temporary, testFile: canonicalPath(path.join(temporary, contract.testFile)),
         inputSha256: hash(JSON.stringify(inputHashes)), repoLockSha256, runtime,
+        ...(executionOnly ? {timeoutMs: vitestExecutionTimeoutMs(contract.testFile)} : {}),
         ...(contract.helper ? {coverageDirectory, helper: {helperFile: contract.helperFile, testFile: contract.testFile,
           sourceBinding: helperSourceBinding(temporary, contract)}} : {})};
       if(contract.fixtureFile) binding.fixture={fixtureFile:contract.fixtureFile,testFile:contract.testFile,
@@ -244,7 +253,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       if(contract.fixtureFile) environment.TEST_EFFICACY_SERVICE_CALLER_FIXTURE='1';
       ownedGroupsDrained=false;
       const result = spawnSync(command[0], command.slice(1),
-      { cwd: temporary, timeout: 60000, killSignal: 'SIGKILL', detached: process.platform !== 'win32',
+      { cwd: temporary, timeout: binding.timeoutMs ?? 60_000, killSignal: 'SIGKILL', detached: process.platform !== 'win32',
         maxBuffer: 8 * 1024 * 1024,
         env: environment });
       diagnostics={status:result.status,signal:result.signal,error:result.error?.code || null,
@@ -320,7 +329,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         const inputHashes=before.entries.filter(([,digest])=>digest!=='deleted').map(([file])=>
           [file,hash(fs.readFileSync(path.join(temporary,file)))]);
         const phase=produceNativePhase({root,cwd:temporary,contract,provenance,sourceCopyCommit,runId:receipt.runId,
-          inputSha256:hash(JSON.stringify(inputHashes)),environment:testEnvironment(temporary,null,''),
+          inputSha256:hash(JSON.stringify(inputHashes)),environment:{...testEnvironment(temporary,null,''),
+            ...(process.env.CT_CHROME?{CT_CHROME:process.env.CT_CHROME}:{})},
           children:nativeChildren});
         for(const [file,digest] of inputHashes)if(hash(fs.readFileSync(path.join(temporary,file)))!==digest)throw new Error(`Input changed during native execution: ${file}`);
         receipt.tests.push({testFile:contract.testFile,testSha256:hash(fs.readFileSync(path.join(root,contract.testFile))),phase});

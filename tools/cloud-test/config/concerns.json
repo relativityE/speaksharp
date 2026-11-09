@@ -1,0 +1,90 @@
+{
+  "schema": "speaksharp.cloud-test.concerns.v1",
+  "sourceRefs": [
+    "#1488",
+    "#1757"
+  ],
+  "note": "Remaining concerns of #1488 and #1757, observed ALONGSIDE the existing journeys from the evidence the approved harness already records (guard logs, step logs, case results, receipts). No new campaign, no new stimulus, no new product traffic, $0. A concern is reported as OBSERVED CLEAN, OBSERVED PROBLEM or NOT OBSERVABLE per sub-observation; the concern's verdict is PROBLEM if any sub-observation is a problem, else NOT OBSERVABLE if any could not be observed, else CLEAN. Missing visibility is not proof of safety and is not a product failure. The text of the PRs is not part of this package: the concerns below are those named in the Product Owner's addendum.",
+  "telemetryHostPatterns": [
+    "*.sentry.io",
+    "*.ingest.sentry.io",
+    "*.posthog.com",
+    "posthog.com"
+  ],
+  "sentinels": {
+    "fixtureManifest": "harness/draft-adapters/oracles/pure/fixture-manifest.json",
+    "fixtureFields": [
+      "topic",
+      "points"
+    ],
+    "extra": [],
+    "minLength": 12
+  },
+  "secretPatterns": {
+    "jwt": "eyJ[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{10,}",
+    "provider-key": "sk_(live|test)_[A-Za-z0-9]{8,}",
+    "bearer": "[Bb]earer\\s+[A-Za-z0-9._-]{20,}",
+    "email": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
+  },
+  "textFieldNames": [
+    "transcript",
+    "rawTranscript",
+    "transcriptText",
+    "utterance",
+    "spokenText"
+  ],
+  "textFieldMinLength": 40,
+  "maxScanBytes": 5242880,
+  "concerns": [
+    {
+      "id": "CON-1",
+      "title": "Results are bound to the actual deployed SHA",
+      "brief": "Every identity read before and after each journey, and at the end, must MATCH the tested SHA, and the results' own source and served SHA must be it.",
+      "reproduction": [
+        "Run any journey under the approved harness (execute_run.sh stages build-plan to collect) so identity reads are taken before and after it.",
+        "Run scripts/check_coverage.py on the sealed case-results.json: deployedVersionBinding lists every receipt checked and every mismatch.",
+        "Compare the served SHA in each identityBefore/identityAfter receipt with release.testedSha of the request."
+      ]
+    },
+    {
+      "id": "CON-2",
+      "title": "Worker cleanup and outbound requests after termination",
+      "brief": "After a journey's step completes and its browser is terminated: no owned process remains, no request starts after termination, and worker cleanup is observable.",
+      "reproduction": [
+        "Run the journey under the approved harness; its step.log records 'step completed' and 'stop ... remaining N'.",
+        "In guard.jsonl, list request events whose time minus ms (their start) is later than 'step completed': those started after termination. Requests that started earlier and finished within milliseconds were in flight at termination.",
+        "Service-worker and web-worker lifetimes are not visible to the guard (only worker and audioworklet script loads are): see the NOT OBSERVABLE sub-observation."
+      ]
+    },
+    {
+      "id": "CON-3",
+      "title": "Native-form, EventSource and telemetry traffic carries no unexpected payload",
+      "brief": "Native form submissions, EventSource streams and telemetry requests must not carry unexpected payloads.",
+      "reproduction": [
+        "Run the journey under the approved harness; guard.jsonl records every request (method, destination type, navigation flag, rule, status, bytes) and every refused connection by host.",
+        "Native form submission = a navigation (nav true, destination document) with a method other than GET or HEAD.",
+        "Request bodies, request headers and response content types are not recorded, so payload content and EventSource streams cannot be inspected from the guard log; telemetry hosts are refused by the guard policy before any TLS exchange."
+      ]
+    },
+    {
+      "id": "CON-4",
+      "title": "Logs and reports retain no raw test sentinels, transcripts or sensitive payloads",
+      "brief": "The sealed receipts, logs and generated reports must not contain the raw stimulus sentinels (focus topic and points), transcript text fields, tokens, provider keys or e-mail addresses.",
+      "reproduction": [
+        "Run scripts/derive_concerns.py on the sealed run: it scans every retained file of the run (and the control-plane outputs) for the sentinel texts of the fixture manifest, secret patterns and transcript-like text fields.",
+        "A finding is reported as file, sha256, pattern id and count; the matched text itself is never written to any output.",
+        "Re-run the scan on the generated report directory with scripts/derive_concerns.py --scan-dir <report dir> to check the outputs too."
+      ]
+    },
+    {
+      "id": "CON-5",
+      "title": "Protections do not disrupt legitimate telemetry or normal user journeys",
+      "brief": "Whether the protections of #1488 and #1757 disturb legitimate telemetry or the normal journeys.",
+      "reproduction": [
+        "Run the full journeys under the approved harness and compare each journey's verdicts with the last known good run (scripts/select_baselines.py, scripts/derive_alerts.py).",
+        "Count telemetry connection attempts per journey in guard.jsonl (kind connect, telemetry hosts) in this run and the previous run.",
+        "The harness refuses telemetry hosts by policy, so whether telemetry would be accepted by its provider cannot be observed from this harness."
+      ]
+    }
+  ]
+}
