@@ -11,14 +11,14 @@ import {
 import { normalizeOfficialTrackA } from '../normalization/officialNormalizer';
 
 const tok = (text: string) => normalizeOfficialTrackA(text);
-const audio = (seed: string, sampleCount = 16_000) => ({ sha256: seed.repeat(64).slice(0, 64), sampleRateHz: 16_000, sampleCount });
+const audio = (seed: string, sampleCount = 16_000) => ({ pcmSha256: seed.repeat(64).slice(0, 64), sampleRateHz: 16_000, sampleCount });
 const speech = (id: string, reference: string, seed = 'a'): PlannedClip => ({ id, kind: 'speech', reference, audio: audio(seed) });
 const saved = (clip: PlannedClip, transcript: string): ClipOutcome =>
-    ({ status: 'saved', transcript, playedAudioSha256: clip.audio.sha256, playedSampleCount: clip.audio.sampleCount });
+    ({ status: 'saved', transcript, playedPcmSha256: clip.audio.pcmSha256, playedSampleCount: clip.audio.sampleCount });
 
 describe('Q4 repetition-loop rule (frozen in STT_RELIABILITY_SCORING.loop)', () => {
-    it('is the declared rule: n-grams 1–8, at least 2 excess repeats over the reference, at least 6 excess tokens', () => {
-        expect(STT_RELIABILITY_SCORING.loop).toEqual({ minN: 1, maxN: 8, minExcessRepeats: 2, minExcessSpanTokens: 6 });
+    it('is the declared rule: n-grams 1–40, at least 2 excess repeats over the reference, at least 6 excess tokens', () => {
+        expect(STT_RELIABILITY_SCORING.loop).toEqual({ minN: 1, maxN: 40, minExcessRepeats: 2, minExcessSpanTokens: 6 });
     });
     it('does not flag normal recognition errors (substitutions and deletions)', () => {
         expect(findRepetitionLoops(tok('the quick brown fox jumps over the lazy dog'), tok('the quick brown box jumped over lazy dog'))).toEqual([]);
@@ -57,7 +57,9 @@ describe('alignment-based checks (Q2 opening, Q3 trailing, Q5 invented prefix)',
         const cut = scoreReliabilityCorpus([clip], { c1: saved(clip, 'thank you so early nightfall the yellow lamps would light') }).clips[0];
         expect(cut.openingWordKept).toBe(false);
         expect(cut.trailingWordKept).toBe(false);
-        expect(cut.inventedPrefixTokens).toBeGreaterThanOrEqual(STT_RELIABILITY_SCORING.inventedPrefixMinTokens);
+        // "thank you so" for "after" is ambiguous (a substitution plus insertions), so it is not counted as an
+        // invented prefix under the most favourable lowest-cost alignment. The lost opening word still fails the gate.
+        expect(cut.inventedPrefixTokens).toBeLessThan(STT_RELIABILITY_SCORING.inventedPrefixMinTokens);
     });
     it('scores the saved transcript as saved: a loop raises WER through insertions, nothing is trimmed', () => {
         const clip = speech('c1', 'thank you for listening');
@@ -134,9 +136,13 @@ describe('frozen counting rules', () => {
         ['an empty plan', [], {}, 'empty_plan'],
         ['a speech clip with no reference', [speech('a', '')], {}, 'missing_reference'],
         ['a silence clip carrying a reference', [{ ...silence, reference: 'hello' }], {}, 'reference_on_silence_clip'],
-        ['an invalid audio binding', [{ ...a, audio: { sha256: 'x', sampleRateHz: 16_000, sampleCount: 1 } }], {}, 'invalid_audio_binding'],
+        ['an invalid audio binding', [{ ...a, audio: { pcmSha256: 'x', sampleRateHz: 16_000, sampleCount: 1 } }], {}, 'invalid_audio_binding'],
         ['a duplicate clip id', [a, { ...b, id: 'a' }], {}, 'duplicate_clip_id'],
         ['an outcome for an unplanned clip', [a], { z: saved(a, 'x') }, 'unplanned_outcome'],
+        ['an unrecognised clip kind', [{ ...a, kind: 'Speech' }], {}, 'invalid_clip_kind'],
+        ['a malformed outcome object', [a], { a: {} }, 'invalid_outcome'],
+        ['an outcome with an unknown status', [a], { a: { status: 'timeout' } }, 'invalid_outcome'],
+        ['a saved outcome with no transcript', [a], { a: { status: 'saved', playedPcmSha256: a.audio.pcmSha256, playedSampleCount: 16_000 } }, 'invalid_outcome'],
         ['played audio that is not the planned audio', [a], { a: { ...saved(a, 'apple'), playedSampleCount: 15_999 } }, 'played_audio_mismatch'],
     ] as const)('refuses %s with no numbers at all', (_label, plan, outcomes, reason) => {
         const report = scoreReliabilityCorpus(plan as unknown as PlannedClip[], outcomes as unknown as Record<string, ClipOutcome>);
@@ -175,5 +181,27 @@ describe('filler-preserving checks: filler-stripped WER alone cannot show these'
         const silence: PlannedClip = { id: 's', kind: 'silence', reference: '', audio: audio('c') };
         const report = scoreReliabilityCorpus([silence], { s: saved(silence, 'um') });
         expect(report.clips[0].silenceClean).toBe(false);
+    });
+});
+
+describe('independent review of the first scorer draft', () => {
+    it('sees a sentence-length loop (12 words repeated 5 times), which an 8-token limit could not', () => {
+        const sentence = 'the quick brown fox jumps over the lazy dog near the river';
+        const loops = findRepetitionLoops(tok(sentence), tok(Array(5).fill(sentence).join(' ')));
+        expect(loops.some(l => l.n === 12 && l.hypothesisRepeats === 5)).toBe(true);
+    });
+    it('a doubled opening phrase is not an invented prefix, and a doubled opening word does not count as lost', () => {
+        const doubled = speech('d', 'hello there my friends we begin');
+        const r1 = scoreReliabilityCorpus([doubled], { d: saved(doubled, 'hello there hello there my friends we begin') });
+        expect(r1.clips[0].inventedPrefixTokens).toBe(0);
+        expect(r1.qualityGate.reasons).not.toContain('d:invented_prefix');
+        const go = speech('g', 'go go we said');
+        const r2 = scoreReliabilityCorpus([go], { g: saved(go, 'go we said') });
+        expect(r2.clips[0].openingWordKept).toBe(true);
+    });
+    it('a real invented prefix is still caught', () => {
+        const clip = speech('p', 'we begin the reading now');
+        const r = scoreReliabilityCorpus([clip], { p: saved(clip, 'thank you we begin the reading now') });
+        expect(r.clips[0].inventedPrefixTokens).toBe(2);
     });
 });

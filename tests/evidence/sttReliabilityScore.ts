@@ -28,9 +28,14 @@ export const STT_RELIABILITY_SCORING = Object.freeze({
     /** Q1: the internal target for controlled fixtures (STT.md §6). It applies to the pooled figure, not to each clip. */
     pooledWerTarget: 0.10,
     loop: Object.freeze({
-        /** Tandem repeats of every n-gram size from 1 to 8 tokens are examined. */
+        /**
+         * Tandem repeats of every n-gram size from 1 to 40 tokens are examined. Whisper's typical loop repeats a
+         * whole sentence or segment, often longer than 8 words, so a small maxN cannot see it (independent review
+         * of the first draft, which used 8). Only TANDEM (back-to-back) repeats count. A phrase repeated with other
+         * words between the copies is not a loop under this rule, and the report says so.
+         */
         minN: 1,
-        maxN: 8,
+        maxN: 40,
         /**
          * A repeat counts as a loop only when the hypothesis repeats an n-gram consecutively at least
          * `minExcessRepeats` MORE times than the reference ever repeats that same n-gram consecutively,
@@ -55,8 +60,8 @@ export interface PlannedClip {
     kind: ClipKind;
     /** The reference text. It is empty for silence clips, and required for speech clips. */
     reference: string;
-    /** Binding to the exact audio that was played. */
-    audio: { sha256: string; sampleRateHz: number; sampleCount: number };
+    /** Binding to the exact audio that was played: the PCM digest, not the WAV file digest (headers differ between writers). */
+    audio: { pcmSha256: string; sampleRateHz: number; sampleCount: number };
 }
 
 /**
@@ -64,7 +69,7 @@ export interface PlannedClip {
  * failure, not a skipped clip.
  */
 export type ClipOutcome =
-    | { status: 'saved'; transcript: string; playedAudioSha256: string; playedSampleCount: number }
+    | { status: 'saved'; transcript: string; playedPcmSha256: string; playedSampleCount: number }
     | { status: 'finalize_failed'; detail?: string }
     | { status: 'save_failed'; detail?: string }
     | { status: 'not_run'; detail?: string };
@@ -76,6 +81,8 @@ export type InputInvalidReason =
     | 'invalid_audio_binding'
     | 'played_audio_mismatch'
     | 'duplicate_clip_id'
+    | 'invalid_clip_kind'
+    | 'invalid_outcome'
     | 'unplanned_outcome'
     | 'empty_plan';
 
@@ -149,6 +156,17 @@ export function alignTokens(ref: readonly string[], hyp: readonly string[]): Op[
     return ops.reverse();
 }
 
+/**
+ * The same lowest-cost alignment, but with insertions and deletions pushed toward the END. Among equally cheap
+ * alignments, this one has the fewest leading insertions and keeps the opening word whenever any lowest-cost
+ * alignment does. Q2 and Q5 use it; Q3 uses alignTokens, which pushes edits toward the START. So each check
+ * gets the most favourable lowest-cost alignment for the boundary it judges, and a doubled phrase is never
+ * mistaken for an invented prefix.
+ */
+export function alignTokensPreferringEarlyMatches(ref: readonly string[], hyp: readonly string[]): Op[] {
+    return alignTokens([...ref].reverse(), [...hyp].reverse()).reverse();
+}
+
 /** The longest run of consecutive copies of each n-gram, keyed by the n-gram text. */
 function maxTandemRepeats(tokens: readonly string[], n: number): Map<string, number> {
     const best = new Map<string, number>();
@@ -179,8 +197,19 @@ export function findRepetitionLoops(referenceTokens: readonly string[], hypothes
     return findings;
 }
 
+const OUTCOME_STATUSES = new Set(['saved', 'finalize_failed', 'save_failed', 'not_run']);
+
+/** An outcome the runner produced must be one of the four named shapes. Anything else is invalid input, never a score. */
+function validOutcome(outcome: unknown): boolean {
+    if (!outcome || typeof outcome !== 'object') return false;
+    const o = outcome as Record<string, unknown>;
+    if (typeof o.status !== 'string' || !OUTCOME_STATUSES.has(o.status)) return false;
+    if (o.status !== 'saved') return true;
+    return typeof o.transcript === 'string' && typeof o.playedPcmSha256 === 'string' && Number.isSafeInteger(o.playedSampleCount);
+}
+
 function validBinding(audio: PlannedClip['audio'] | undefined): boolean {
-    return !!audio && /^[0-9a-f]{64}$/.test(audio.sha256) && audio.sampleRateHz === 16_000
+    return !!audio && /^[0-9a-f]{64}$/.test(audio.pcmSha256) && audio.sampleRateHz === 16_000
         && Number.isSafeInteger(audio.sampleCount) && audio.sampleCount > 0;
 }
 
@@ -197,11 +226,15 @@ function scoreClip(clip: PlannedClip, outcome: ClipOutcome | undefined): ClipSco
     }
     const hypCheckTokens = normalizeOfficialTrackB(outcome.transcript);
     if (clip.kind === 'silence') return { ...base, silenceClean: hypCheckTokens.length === 0, loops: findRepetitionLoops([], hypCheckTokens) };
+    // Empty means no tokens at all after Track B normalization. A filler-only transcript ("um uh") is not empty:
+    // it is scored, as 100% deletions on Track A, and it fails the gate through WER and the boundary checks.
     if (hypCheckTokens.length === 0) return { ...base, reliabilityFailure: 'empty_transcript' };
     const row = wordErrorRate(clip.reference, outcome.transcript, { track: 'track_a' });
-    const ops = alignTokens(refCheckTokens, hypCheckTokens);
-    const refOps = ops.filter(op => op !== 'ins');
-    const leadingInsertions = ops.findIndex(op => op !== 'ins');
+    const early = alignTokensPreferringEarlyMatches(refCheckTokens, hypCheckTokens);
+    const late = alignTokens(refCheckTokens, hypCheckTokens);
+    const earlyRefOps = early.filter(op => op !== 'ins');
+    const lateRefOps = late.filter(op => op !== 'ins');
+    const leadingInsertions = early.findIndex(op => op !== 'ins');
     return {
         ...base,
         wer: row.wer,
@@ -209,8 +242,8 @@ function scoreClip(clip: PlannedClip, outcome: ClipOutcome | undefined): ClipSco
         substitutions: row.substitutions,
         deletions: row.deletions,
         insertions: row.insertions,
-        openingWordKept: refOps[0] === 'match',
-        trailingWordKept: refOps[refOps.length - 1] === 'match',
+        openingWordKept: earlyRefOps[0] === 'match',
+        trailingWordKept: lateRefOps[lateRefOps.length - 1] === 'match',
         loops: findRepetitionLoops(refCheckTokens, hypCheckTokens),
         inventedPrefixTokens: leadingInsertions === -1 ? hypCheckTokens.length : leadingInsertions,
     };
@@ -233,13 +266,15 @@ export function scoreReliabilityCorpus(plan: readonly PlannedClip[], outcomes: R
     for (const clip of plan) {
         if (ids.has(clip.id)) return empty('duplicate_clip_id', clip.id);
         ids.add(clip.id);
+        if (clip.kind !== 'speech' && clip.kind !== 'silence') return empty('invalid_clip_kind', clip.id);
         if (!validBinding(clip.audio)) return empty('invalid_audio_binding', clip.id);
         const words = normalizeOfficialTrackA(clip.reference ?? '').length;
         if (clip.kind === 'speech' && words === 0) return empty('missing_reference', clip.id);
         if (clip.kind === 'silence' && words > 0) return empty('reference_on_silence_clip', clip.id);
         const outcome = outcomes[clip.id];
+        if (outcome !== undefined && !validOutcome(outcome)) return empty('invalid_outcome', clip.id);
         if (outcome?.status === 'saved'
-            && (outcome.playedAudioSha256 !== clip.audio.sha256 || outcome.playedSampleCount !== clip.audio.sampleCount)) {
+            && (outcome.playedPcmSha256 !== clip.audio.pcmSha256 || outcome.playedSampleCount !== clip.audio.sampleCount)) {
             return empty('played_audio_mismatch', clip.id);
         }
     }
