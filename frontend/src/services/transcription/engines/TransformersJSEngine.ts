@@ -249,7 +249,7 @@ export class TransformersJSEngine extends STTEngine {
     }
 
     protected override async onInit(): Promise<Result<void, Error>> {
-        // Sam's review of 12552563: a teardown that lands while loadModel runs (for example one queued from the 100% progress
+        // Release review of 12552563: a teardown that lands while loadModel runs (for example one queued from the 100% progress
         // callback) owns the engine; this lifetime never reports ready afterwards.
         const generation = this.lifecycleGeneration;
         const result = await this.loadModel(ENV.isE2E);
@@ -285,7 +285,7 @@ export class TransformersJSEngine extends STTEngine {
         try {
             if (this.shouldUseWorker()) {
                 await this.initWorker(isMock);
-                // Elon's review of c1585147: a worker attempt superseded while it started reports nothing ready.
+                // App-developer review of c1585147: a worker attempt superseded while it started reports nothing ready.
                 if (superseded()) return cancelled();
                 if (options.onModelLoadProgress) {
                     options.onModelLoadProgress(100);
@@ -365,7 +365,7 @@ export class TransformersJSEngine extends STTEngine {
             // tiny.en fallback), not a hardcoded model — mirrors the worker path.
             const localModelId = this.resolvedModel().localId;
             const loadStart = performance.now();
-            // Elon/Sam review of 38253831: pipeline() cannot be aborted, so a load that completes after a destroy/terminate
+            // Release and app-developer reviews of 38253831: pipeline() cannot be aborted, so a load that completes after a destroy/terminate
             // is disposed below instead of being published.
             let loaded: Pipeline;
             try {
@@ -508,13 +508,15 @@ export class TransformersJSEngine extends STTEngine {
         this.activeLoadRequestId = null;
         this.runtimeEvidence = null;
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Destroying engine resources...');
-        // Elon's review of 12552563: release the published main-thread pipeline, not only the reference to it. A failed dispose is
+        // App-developer review of 12552563: release the published main-thread pipeline, not only the reference to it. A failed dispose is
         // logged and never fails the teardown (the reference is gone either way).
         const published = this.transcriber as { dispose?: () => Promise<unknown> } | null;
         this.transcriber = null;
         if (published) {
             // A decode or warm-up still running on it keeps the session until it settles; teardown does not wait for it.
             const inFlight = [...this.mainThreadRuns];
+            // Release review of 403e2cda: this lifetime's runs leave with it, so a later lifetime's dispose never waits for them.
+            this.mainThreadRuns.clear();
             const release = async () => {
                 await Promise.allSettled(inFlight);
                 try {

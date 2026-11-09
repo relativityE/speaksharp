@@ -25,7 +25,7 @@ const descriptorText = (pkg: ModelPackage) => JSON.stringify(pkg, null, 2) + '\n
 const packageKey = (file: string) => './model-packages/' + file;
 
 /**
- * Elon/Sam review of 38253831: under Node, `CANDIDATES` holds the built-ins only (the package glob is a Vite feature), so a
+ * Release and app-developer reviews of 38253831: under Node, `CANDIDATES` holds the built-ins only (the package glob is a Vite feature), so a
  * check against it missed a package that reuses an already imported package's cache directory. The bundle admits the
  * descriptors in path order and refuses the later one, which is the previously imported package when the new file sorts
  * first. Before any write, run the product's own admission over the existing descriptors with and without the new one:
@@ -44,7 +44,7 @@ async function refuseCatalogueConflict(root: string, pkg: ModelPackage) {
         try { present = (JSON.parse(existing[ownKey]) as { packageDigest?: unknown }).packageDigest; } catch { present = undefined; }
         if (present !== pkg.packageDigest) throw Error('PACKAGE_DUPLICATE_ID');
     }
-    // Elon's review of c1585147: admit the exact bytes the importer writes (the size limit is on the raw text).
+    // App-developer review of c1585147: admit the exact bytes the importer writes (the size limit is on the raw text).
     const proposed: Record<string, string> = { ...existing, [ownKey]: descriptorText(pkg) };
     const ordered = Object.fromEntries(Object.keys(proposed).sort().map(key => [key, proposed[key]]));
     const today = admitPackageDescriptors(existing, modelPackage).imported;

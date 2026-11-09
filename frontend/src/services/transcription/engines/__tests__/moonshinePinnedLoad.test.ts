@@ -137,7 +137,7 @@ describe('a pin mismatch stops before READY and leaves nothing behind', () => {
     });
 
     it('CASUALTY: a runtime arch the installed runtime does not declare refuses before a single asset is fetched', async () => {
-        // Sam 1793621992.411029: the arch was resolved only after fetchVerifiedAssets, so an admitted but unsupported name downloaded every
+        // Release review: the arch was resolved only after fetchVerifiedAssets, so an admitted but unsupported name downloaded every
         // weight before failing. Remove the medium member from the installed enum: init must fail with ZERO fetches.
         const lib = await import('@moonshine-ai/moonshine-wasm') as unknown as { ModelArch: Record<string, unknown> };
         const saved = lib.ModelArch.MediumStreaming;

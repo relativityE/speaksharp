@@ -21,8 +21,8 @@ Preserved source checkpoints: original `88f78edb414a990fd38168aaef5d376b2fe3606c
 (tree `af25c76272cf4e446ed8be9415e5d660a9b8791f`); measurement successor
 `f98509c45e41d5780c19d239a948e82cbda15c9a` (tree `65e7d87eeb5faa8a6a97bbd4bd1e5c20bdf36e57`);
 package work `2326a0e40fbe617df64024b5965588d962c99632` (tree `6e5e4981bb9e570b53ff32e876539c56159a9885`).
-This task owned the evaluator/package and comparison changes. Jensen's preserved fixture
-harness and the receiving native precision correction were preserved; Elon's cloud packet
+This task owned the evaluator/package and comparison changes. The CLI developer's preserved fixture
+harness and the receiving native precision correction were preserved; the app developer's cloud packet
 was not edited. [Complete changed-file map](changed-files.txt) and
 [pre-packaging source hashes](source-inventory.json) cover all essential source.
 

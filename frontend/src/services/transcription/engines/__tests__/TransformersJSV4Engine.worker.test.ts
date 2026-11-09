@@ -405,7 +405,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
         await engine.destroy();
     });
 
-    // Elon/Sam review of 38253831 (P2): the main-thread pipeline() cannot be aborted, so a destroy during the load let it
+    // Release and app-developer reviews of 38253831 (P2): the main-thread pipeline() cannot be aborted, so a destroy during the load let it
     // publish itself afterwards, undisposed, possibly over the transcriber of the lifetime that followed.
     it('a main-thread pipeline completing after teardown is disposed and never replaces the successor', async () => {
         (globalThis as { Worker?: unknown }).Worker = undefined;
@@ -489,7 +489,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
         await engine.destroy();
     });
 
-    // Sam's review of 12552563 (P2): onInit called onReady after `await loadModel()` without a lifetime check, so a teardown queued
+    // Release review of 12552563 (P2): onInit called onReady after `await loadModel()` without a lifetime check, so a teardown queued
     // from the 100% progress callback let a terminated engine report ready. Every engine, path and teardown kind, with the teardown
     // both queued (as reproduced) and synchronous inside the callback.
     describe('no ready after a teardown started from the 100% progress callback', () => {
@@ -533,7 +533,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
         }
     });
 
-    // Sam's review of c1585147: two races the post-pipeline fence alone missed, on both engines.
+    // Release review of c1585147: two races the post-pipeline fence alone missed, on both engines.
     // (1) A teardown inside the earlier `import(...)` await let the stale attempt capture the NEW generation, pass the
     //     fence and publish over the successor. (2) A stale load failing late ran the shared failure cleanup, tearing
     //     down state the successor owned. The attempt's generation is now captured at loadModel entry.
@@ -591,7 +591,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 const state = engine as unknown as { transcriber: unknown; runtimeEvidence: unknown; activeLoadRequestId: unknown; pendingWorkerRequests: Map<number, unknown> } & Record<string, unknown>;
                 const evidence = { marker: 'successor' };
                 state.runtimeEvidence = evidence;
-                // Elon's review of c1585147: the successor's verified-fetch hook (v2 restorePackageFetch, v4 restoreAssetFetch).
+                // App-developer review of c1585147: the successor's verified-fetch hook (v2 restorePackageFetch, v4 restoreAssetFetch).
                 const hookField = name === 'v2' ? 'restorePackageFetch' : 'restoreAssetFetch';
                 const successorHook = vi.fn();
                 state[hookField] = successorHook;
@@ -613,7 +613,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 await engine.destroy();
             });
 
-            // Elon's review of c1585147: a worker attempt superseded while its worker started must not report ready.
+            // App-developer review of c1585147: a worker attempt superseded while its worker started must not report ready.
             it(`${name}: a worker start-up that completes after teardown reports nothing ready`, async () => {
                 const onReady = vi.fn();
                 const onModelLoadProgress = vi.fn();
@@ -694,7 +694,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 expect(onReady).not.toHaveBeenCalled();
             });
 
-            // Elon's review of 12552563 (P3): teardown released the published main-thread pipeline by dropping the reference only.
+            // App-developer review of 12552563 (P3): teardown released the published main-thread pipeline by dropping the reference only.
             it(`${name}: teardown disposes the published main-thread pipeline, and a failing dispose does not fail teardown`, async () => {
                 const { TransformersJSEngine } = await import('../TransformersJSEngine');
                 const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
@@ -738,6 +738,30 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 await vi.waitFor(() => expect(decoding.dispose).toHaveBeenCalledTimes(1));
             });
 
+            // Release review of 403e2cda (P3): the in-flight set outlived the teardown that captured it, so a later lifetime's
+            // dispose also waited for the earlier lifetime's still-running decode.
+            it(`${name}: a hung decode from an earlier lifetime never delays a later lifetime's dispose`, async () => {
+                const { TransformersJSEngine } = await import('../TransformersJSEngine');
+                const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+                const Ctor = (name === 'v2' ? TransformersJSEngine : TransformersJSV4Engine) as unknown as new (o: unknown) => Engine & { transcribe(a: Float32Array): Promise<{ isOk: boolean }> };
+                const engine = new Ctor({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+                const hung = Object.assign(vi.fn()
+                    .mockResolvedValueOnce({ text: '' })            // warm-up
+                    .mockImplementationOnce(() => new Promise(() => undefined)), // a decode that never settles
+                { dispose: vi.fn(async () => undefined) });
+                mock.mockResolvedValueOnce(hung);
+                expect((await engine.init()).isOk).toBe(true);
+                void engine.transcribe(new Float32Array(16000));
+                await vi.waitFor(() => expect(hung).toHaveBeenCalledTimes(2));
+                await engine.destroy();                             // A's dispose waits for its hung decode (by design)
+                const idle = pipe();
+                mock.mockResolvedValueOnce(idle);
+                expect((await engine.init()).isOk).toBe(true);
+                await engine.destroy();                             // B is idle: disposed during its own teardown
+                expect(idle.dispose).toHaveBeenCalledTimes(1);
+                expect(hung.dispose).not.toHaveBeenCalled();
+            });
+
             it(`${name}: teardown during warm-up disposes the pipeline only after the warm-up settles`, async () => {
                 const { TransformersJSEngine } = await import('../TransformersJSEngine');
                 const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
@@ -755,7 +779,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
                 await vi.waitFor(() => expect(warming.dispose).toHaveBeenCalledTimes(1));
             });
 
-            // Elon's review of c1585147: a teardown during the post-publish warm-up.
+            // App-developer review of c1585147: a teardown during the post-publish warm-up.
             it(`${name}: a teardown during warm-up leaves nothing ready for the attempt that follows`, async () => {
                 const onReady = vi.fn();
                 const { TransformersJSEngine } = await import('../TransformersJSEngine');

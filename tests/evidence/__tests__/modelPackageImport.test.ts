@@ -1,6 +1,6 @@
 // #1760 Increment A: the package importer and adoption staging, driven through the real command functions.
 // Codex (7819b055): Moonshine packages must use https upstream pins, but the importer accepted only /models/
-// URLs, so no Moonshine package could ever import. Sam/Bezos finding B: an adoption row with any 64-hex
+// URLs, so no Moonshine package could ever import. Review finding B: an adoption row with any 64-hex
 // evidence hash could make a package the production default; staging now writes an inert proposal.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createHash, webcrypto } from 'node:crypto';
@@ -151,7 +151,7 @@ describe('the evaluator verifies exactly the packages the importer admits (Codex
 });
 
 /**
- * Elon/Sam review of 38253831 (P2): the importer checked collisions only against `CANDIDATES`, which under Node holds the
+ * Release and app-developer reviews of 38253831 (P2): the importer checked collisions only against `CANDIDATES`, which under Node holds the
  * built-ins alone, so a second package reusing an already imported package's cache directory (`localModelId`) was imported
  * too; the bundle's admission then refused one of them, and when the new file sorts first, the previously admitted one.
  * The importer now runs the product's own admission over the existing descriptors plus the new one before any write.
@@ -201,7 +201,7 @@ describe('the importer refuses a package that collides with an already imported 
             .rejects.toThrow('PACKAGE_IDENTITY_COLLISION');
         for (const [name, digest] of Object.entries(servedBefore)) expect(sha(readFileSync(join(served, name)))).toBe(digest);
     });
-    // Elon's review of c1585147 (P3): the bundle's 1 MiB limit applies to the descriptor text it loads, which is the
+    // App-developer review of c1585147 (P3): the bundle's 1 MiB limit applies to the descriptor text it loads, which is the
     // pretty-printed file the importer writes. Admission checked the compact form, so a descriptor just under the limit
     // compact but over it pretty was imported and then refused by the product.
     it('admits the exact descriptor text it writes, so a file the bundle would refuse as too large is never imported', async () => {

@@ -840,7 +840,7 @@ describe('PrivateSTT (Routing Logic)', () => {
             if (teardown.status === 'rejected') pstt = null; // its teardown failed by design; afterEach must not replay it
         });
 
-        it('Sam r7 adjacent #1: init B waits for pending A retirement and acquires nothing if that release fails', async () => {
+        it('Release review r7 adjacent #1: init B waits for pending A retirement and acquires nothing if that release fails', async () => {
             const { PrivateSTT } = await import('../PrivateSTT');
             pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
             const initA = pstt.init();
