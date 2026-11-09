@@ -54,6 +54,8 @@ def main():
     a.add_argument("--execution-run-id", required=True)
     a.add_argument("--attempt", type=int, required=True)
     a.add_argument("--cases-dir", help="run/cases: Starts and takes are counted from each case's action-reservations.jsonl")
+    a.add_argument("--admission-receipt", help="run/admission/admission-receipt.json: proves a stop before the identity read (P1-4)")
+    a.add_argument("--prerequisite-receipt", help="the prerequisite preflight's content-free receipt: its closed request charge (P1-4)")
     a.add_argument("--started-utc")
     a.add_argument("--ended-utc")
     x = a.parse_args()
@@ -80,7 +82,8 @@ def main():
             reason = str(refused)            # a forged or unbound receipt credits nothing: the run is recorded INCOMPLETE, never its results
     if reason is not None:
         out = incomplete_record(x, req, reason)
-        print("INCOMPLETE run record: %s (no result is credited; every count settles at the reserved caps)" % reason, file=sys.stderr)
+        print("INCOMPLETE run record: %s (no result is credited; %s)" % (reason, "spend MEASURED before the identity read"
+              if out["spend"].get("identityReads") == 0 else "every count settles at the reserved caps"), file=sys.stderr)
     dump(out, x.out)
     print("run record written:", out["runId"], "cases", len(out["cases"]))
 
@@ -133,6 +136,54 @@ def bound_case_receipts(cases_dir):
     return found
 
 
+ADMISSION_STAGES = ("A0.config", "A1.bundle", "A2.source", "A3.tools", "A4.credentials", "A5.browser", "A6.guard-selftest", "A7.identity")
+PREFLIGHT_CHARGES = {"auth": 2, "signedIn": 8, "total": 10}
+
+
+def _regular_json(path):
+    if not (isinstance(path, str) and path and os.path.isfile(path) and not os.path.islink(path)):
+        return None
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(1 << 20)
+        return json.loads(raw)
+    except (OSError, ValueError):
+        return None
+
+
+def pre_identity_spend(admission_receipt, prerequisite_receipt, cases_dir):
+    """Consultant P1-4: the MEASURED spend of a run whose admission stopped before its identity read, or None (settle at the caps).
+
+    Closed evidence, all required: the admission receipt (the harness's own, written before every step and after each) shows a blocked step
+    in A0-A6, every later step (A7.identity included) NOT_RUN, productionTrafficSent the integer 0 and identityDispatch NOT_RUN; no case
+    directory exists (cases run only after ADMISSION PASS). Product traffic before admission is only the prerequisite preflight, whose
+    receipt states its exact closed charge. Then identity reads, Starts and takes are 0 and requests are that charge. Anything missing,
+    malformed or ambiguous returns None."""
+    rec = _regular_json(admission_receipt)
+    if not isinstance(rec, dict) or rec.get("result") != "BLOCKED_SETUP":
+        return None
+    if type(rec.get("productionTrafficSent")) is not int or rec["productionTrafficSent"] != 0 or rec.get("identityDispatch") != "NOT_RUN":
+        return None
+    steps = rec.get("steps")
+    if not (isinstance(steps, list) and [s.get("id") if isinstance(s, dict) else None for s in steps] == list(ADMISSION_STAGES)):
+        return None
+    results = [s.get("result") for s in steps]
+    blocked = [i for i, r in enumerate(results) if r == "BLOCKED"]
+    if len(blocked) != 1 or blocked[0] >= ADMISSION_STAGES.index("A7.identity"):
+        return None
+    if any(r != "PASS" for r in results[:blocked[0]]) or any(r != "NOT_RUN" for r in results[blocked[0] + 1:]):
+        return None
+    if isinstance(cases_dir, str) and os.path.lexists(cases_dir):
+        return None
+    pre = _regular_json(prerequisite_receipt)
+    if not (isinstance(pre, dict) and pre.get("schema") == "speaksharp.cloud-test.prerequisite-preflight.v1"
+            and type(pre.get("mutationCount")) is int and pre["mutationCount"] == 0 and pre.get("charges") == PREFLIGHT_CHARGES):
+        return None
+    return {"requests": PREFLIGHT_CHARGES["total"], "byCategory": {"preflight": PREFLIGHT_CHARGES["total"]}, "identityReads": 0, "starts": 0,
+            "takes": 0, "source": "MEASURED: admission stopped at %s before its identity read (productionTrafficSent 0, identityDispatch NOT_RUN, "
+                                   "no case directory); requests are the prerequisite preflight's closed charge" % ADMISSION_STAGES[blocked[0]]}
+
+
 def incomplete_record(x, req, reason):
     gs, wf = load(x.gate_status) if os.path.isfile(x.gate_status) else {}, load(x.workflow)
     selected = [r.get("case") for r in req.get("selection") or [] if isinstance(r, dict)]
@@ -146,8 +197,9 @@ def incomplete_record(x, req, reason):
         "startedUtc": x.started_utc, "endedUtc": x.ended_utc, "gateDecisionAtLaunch": gs.get("decision"),
         "release": {"testedSha": req["release"]["testedSha"], "servedShaAtAdmission": None, "finalIdentity": None},
         "harness": req["harness"], "runner": load(x.runner_json),
-        "spend": {"requests": None, "byCategory": {}, "identityReads": None, "starts": None, "takes": None,
-                  "source": "INCOMPLETE run (%s): no verified aggregate results, so every count is unmeasured (null) and settles at the reserved caps" % reason},
+        "spend": pre_identity_spend(getattr(x, "admission_receipt", None), getattr(x, "prerequisite_receipt", None), x.cases_dir)
+                 or {"requests": None, "byCategory": {}, "identityReads": None, "starts": None, "takes": None,
+                     "source": "INCOMPLETE run (%s): no verified aggregate results, so every count is unmeasured (null) and settles at the reserved caps" % reason},
         "paidActions": "unknown", "safetyStopped": None, "result": "INCOMPLETE", "incompleteReason": reason, "cases": cases,
         "boundCaseReceipts": bound_case_receipts(x.cases_dir),
         "executionProvenance": {"consumer": "collector", "campaignId": req["runId"], "runId": x.execution_run_id, "attempt": 1,

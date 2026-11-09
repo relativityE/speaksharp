@@ -162,6 +162,10 @@ def usage_from_record(record_raw, reserved):
         usage["requests"] = None
     else:
         usage["requests"] += usage["identityReads"]
+    # Consultant P1-4: a coaching call follows a saved take, so measured zero Starts AND zero takes bound coaching at zero. Coaching is
+    # otherwise unmeasured here and stays at the reserved cap.
+    if usage["starts"] == 0 and usage["takes"] == 0 and type(usage["starts"]) is int and type(usage["takes"]) is int:
+        usage["coachingRequests"] = 0
     return usage, hashlib.sha256(record_raw).hexdigest()
 
 

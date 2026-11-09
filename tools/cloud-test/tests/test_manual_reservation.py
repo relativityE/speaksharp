@@ -173,6 +173,18 @@ class ManualReservation(Journal):
             self.assertEqual(M.settle(e, unmeasured, EVIDENCE, AT)["allocation"]["requests"], 4342,
                              "either unknown component keeps the full reserved G5 request charge")
 
+    def test_measured_zero_starts_and_takes_bound_coaching_at_zero_and_nothing_else(self):
+        """Consultant P1-4: a run measured at 0 Starts and 0 takes made no coaching call; any other measurement keeps coaching at the cap."""
+        e = self.reserved()
+        usage, _ = M.usage_from_record(self.record(requests=10, identityReads=0, starts=0, takes=0), e)
+        self.assertEqual(usage, {"requests": 10, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": None})
+        settled = M.settle(e, usage, EVIDENCE, AT)["allocation"]
+        self.assertEqual((settled["coachingRequests"], settled["runnerMinutes"]), (0, ALLOCATION["runnerMinutes"]))
+        for kept in ({"starts": 1, "takes": 0}, {"starts": 0, "takes": 1}, {"starts": None, "takes": 0}, {"starts": 0, "takes": None}):
+            with self.subTest(kept):
+                u, _ = M.usage_from_record(self.record(requests=10, identityReads=0, **kept), e)
+                self.assertIsNone(u["coachingRequests"])
+
     def test_headroom_is_recomputed_at_the_proposed_head(self):
         self.refused("manual-reservation-exceeds-headroom", M.reserve, self.req, self.sha, RUN, self.receive(scope(carryover="historical")), self.head(), AT)
         stale = self.receive()
