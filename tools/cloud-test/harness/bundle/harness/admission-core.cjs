@@ -8,6 +8,8 @@ const runtimeSelection=require('./runtime-selection.cjs');
 const {validateDiagnostic}=require('./qualification-diagnostic.cjs');
 const QUALIFICATION_CHECKS=['sandboxProcesses','defaultDenyAllBrowserMechanisms','independentFixtureReconciliation','redirectChains','nativeNodeScopeReview','durableOperationFaults','errorStatusNegativeControl','privateMediaLifecycle','deadlinesCancellationAndCleanup','modelDownloadFaults','cumulativeCapsLedgerAndLocks','environmentProxyDns','feedbackOperationFaults'];
 const PAIRS={throwaway:['THROWAWAY_TEST_EMAIL','THROWAWAY_TEST_PASSWORD'],free:['FREE_TEST_EMAIL','FREE_TEST_PASSWORD'],pro:['PRO_TEST_EMAIL','PRO_TEST_PASSWORD']};
+// The route probe's per-host closed results: ok, or a guard upstream reason (guard-proxy.cjs UPSTREAM_REASONS).
+const ROUTE_RESULTS=new Set(['ok','proxy-not-configured','proxy-invalid','proxy-connect-status','test-only-trust','no-test-override','aborted','dns','connect-refused','timeout','reset','tls','other']);
 const STAGES=['A0.config','A1.bundle','A2.source','A3.tools','A4.credentials','A5.browser','A6.guard-selftest','A7.identity'];
 const BASE_POLICY_HOSTS=['speaksharp-public.vercel.app','yxlapjuovrsvjswkwnrk.supabase.co'];
 const TELEMETRY_POLICY_HOSTS=['us-assets.i.posthog.com','us.i.posthog.com'];
@@ -141,6 +143,16 @@ async function runAdmission(options,io){
       if(io.verifyCode(B).result!=='PASS'||io.hashFile(path.join(B,'CODE.sha256'))!==codeHash||io.hashFile(c.policyFile)!==c.policySha256)throw new Error('helper/policy bytes changed during qualification');
       for(const [args,expected]of [[['rev-parse','--verify','HEAD'],c.sourceSha],[['rev-parse','--verify','HEAD^{tree}'],c.sourceTree],[['status','--porcelain'],'']]){const r=await command('git',['-C',c.checkoutDir,...args]);if(r.status!==0||String(r.stdout||'').trim()!==expected)throw new Error('source changed during qualification');}
       if(io.hashFile(path.join(c.checkoutDir,'pnpm-lock.yaml'))!==c.lockSha256)throw new Error('source lock changed during qualification');
+      // Consultant P0-2: before any identity dispatch, prove the route a case uses. One TLS handshake per production policy host through the
+      // guard's own upstreamSocket() and the real environment; nothing is written to an application. A failed route stops here with
+      // identityDispatch NOT_RUN and productionTrafficSent 0.
+      const probe=await recordedCommand('A7.route-probe',io.nodeExecutable,[path.join(B,'harness/route-probe.cjs'),'--policy',c.policyFile],{timeout:60000});
+      let routed;try{routed=JSON.parse(String(probe.stdout||'').trim().split('\n').pop());}catch{routed=null;}
+      const hostResults=Array.isArray(routed?.hosts)?routed.hosts.filter(h=>h&&ROUTE_RESULTS.has(h.result)).map(h=>h.result):[];
+      receipt.routeProbe={schema:'speaksharp.cloud-test.route-probe.v1',result:routed?.schema==='speaksharp.cloud-test.route-probe.v1'&&routed?.result==='PASS'&&probe.status===0?'PASS':'BLOCKED',hostCount:hostResults.length,results:[...new Set(hostResults)].sort()};
+      await save();
+      if(receipt.routeProbe.result!=='PASS'||!hostResults.length||hostResults.some(r=>r!=='ok'))throw new Error('route probe failed before the identity read: '+(receipt.routeProbe.results.filter(r=>r!=='ok').join(',')||'no-result'));
+      if(remaining(25000)<25000)throw new Error('insufficient approved time for bounded identity GET plus cleanup');
       receipt.identityDispatch='ATTEMPTED_OR_AMBIGUOUS';receipt.productionTrafficSent='UNKNOWN_PENDING_IDENTITY_RECEIPT';await save();
       const r=await command(io.nodeExecutable,[path.join(B,'harness/identity-check.cjs'),'--authorize-identity-read','true','--url',c.identityUrl,'--expect-sha',c.expectedServedSha,'--ledger',c.identityLedger,'--cap',String(c.identityCap),'--phase','admission'],{timeout:25000});
       let id;try{id=JSON.parse(String(r.stdout||'').trim().split('\n').pop());}catch{receipt.identityHelperDiagnostic=identityHelperDiagnostic(r);await save();throw new Error('identity receipt unavailable; outcome ambiguous; no automatic retry');}receipt.identityReceipt=id;

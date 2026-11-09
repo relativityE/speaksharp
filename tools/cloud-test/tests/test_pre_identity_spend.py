@@ -48,7 +48,7 @@ class PreIdentitySpend(unittest.TestCase):
                                     self.write("pre.json", pre) if pre is not None else None, self.cases)
 
     def test_a_stop_before_the_identity_read_is_measured_and_settles_as_a_setup_failure(self):
-        for stage in STAGES[:-1]:
+        for stage in STAGES:            # A7 included: blocked before its dispatch (identityDispatch NOT_RUN), e.g. the route probe
             with self.subTest(stage):
                 s = self.spend(admission(stage))
                 self.assertEqual({k: s[k] for k in ("requests", "identityReads", "starts", "takes")},
@@ -82,7 +82,8 @@ class PreIdentitySpend(unittest.TestCase):
         reordered = admission()
         reordered["steps"] = list(reversed(reordered["steps"]))
         bad = {
-            "identity stage blocked": admission("A7.identity"),
+            "A7 blocked after its dispatch": admission("A7.identity", identityDispatch="ATTEMPTED_OR_AMBIGUOUS",
+                                                       productionTrafficSent="UNKNOWN_PENDING_IDENTITY_RECEIPT"),
             "identity attempted": admission(identityDispatch="ATTEMPTED_OR_AMBIGUOUS"),
             "traffic pending": admission(productionTrafficSent="UNKNOWN_PENDING_IDENTITY_RECEIPT"),
             "traffic sent": admission(productionTrafficSent=1),

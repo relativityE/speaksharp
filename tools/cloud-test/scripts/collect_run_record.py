@@ -154,8 +154,9 @@ def _regular_json(path):
 def pre_identity_spend(admission_receipt, prerequisite_receipt, cases_dir):
     """Consultant P1-4: the MEASURED spend of a run whose admission stopped before its identity read, or None (settle at the caps).
 
-    Closed evidence, all required: the admission receipt (the harness's own, written before every step and after each) shows a blocked step
-    in A0-A6, every later step (A7.identity included) NOT_RUN, productionTrafficSent the integer 0 and identityDispatch NOT_RUN; no case
+    Closed evidence, all required: the admission receipt (the harness's own, written before every step and after each) shows one blocked
+    step in A0-A7, every earlier step PASS and every later one NOT_RUN, productionTrafficSent the integer 0 and identityDispatch NOT_RUN (set
+    to ATTEMPTED before the identity helper is ever invoked, so a block inside A7 before that is still pre-identity); no case
     directory exists (cases run only after ADMISSION PASS). Product traffic before admission is only the prerequisite preflight, whose
     receipt states its exact closed charge. Then identity reads, Starts and takes are 0 and requests are that charge. Anything missing,
     malformed or ambiguous returns None."""
@@ -169,7 +170,9 @@ def pre_identity_spend(admission_receipt, prerequisite_receipt, cases_dir):
         return None
     results = [s.get("result") for s in steps]
     blocked = [i for i, r in enumerate(results) if r == "BLOCKED"]
-    if len(blocked) != 1 or blocked[0] >= ADMISSION_STAGES.index("A7.identity"):
+    # A7 itself may block before its dispatch (source re-checks, the P0-2 route probe): identityDispatch NOT_RUN above proves the helper
+    # was never invoked, so no identity read happened.
+    if len(blocked) != 1:
         return None
     if any(r != "PASS" for r in results[:blocked[0]]) or any(r != "NOT_RUN" for r in results[blocked[0] + 1:]):
         return None
