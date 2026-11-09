@@ -25,7 +25,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyArchive } from './verify-archive.mjs';
@@ -33,22 +33,38 @@ import { verifyArchive } from './verify-archive.mjs';
 export const SAMPLE_RATE_HZ = 16_000;
 export const MAX_TAKE_SECONDS = 600;
 
-/** Planned long-form clips: an upper bound, and a minimum share of it that the clip must reach. */
+/**
+ * Planned long-form clips: an upper bound, and a minimum share of it that the clip must reach. They are
+ * allocated LONGEST FIRST, so a long chapter is never used up by a shorter target.
+ */
 export const LONG_FORM_TARGETS = Object.freeze([
-    { id: 'rel-02m', maxSeconds: 120, minSeconds: 108 },
-    { id: 'rel-05m', maxSeconds: 300, minSeconds: 270 },
     { id: 'rel-10m', maxSeconds: 590, minSeconds: 540 },
+    { id: 'rel-05m', maxSeconds: 300, minSeconds: 270 },
+    { id: 'rel-02m', maxSeconds: 120, minSeconds: 108 },
 ]);
+
+/** Chapters already in the committed corpus. long-01 is cut from this one, so reusing it would score the same speech twice. */
+export const RESERVED_CHAPTERS = Object.freeze(['1089/134686']);
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
-/** Lossless FLAC → 16 kHz mono s16le PCM. It refuses any input that is not already 16 kHz mono. */
+/**
+ * Lossless FLAC → 16 kHz mono s16le PCM. It refuses any input that is not already 16 kHz, mono and 16-bit, and
+ * checks the decoded sample count against the stream's own count (ffprobe duration_ts, from the FLAC STREAMINFO).
+ * That is an independent source, so a decode that drops or pads samples is caught.
+ */
 export function decodeFlacToPcm(flacPath) {
     const probe = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'a:0',
-        '-show_entries', 'stream=sample_rate,channels', '-of', 'csv=p=0', flacPath], { encoding: 'utf8' }).trim();
-    if (probe !== `${SAMPLE_RATE_HZ},1`) throw new Error(`NOT 16 kHz mono (${probe}): ${flacPath}`);
-    return execFileSync('ffmpeg', ['-v', 'error', '-i', flacPath, '-f', 's16le', '-acodec', 'pcm_s16le', '-'],
+        '-show_entries', 'stream=sample_rate,channels,bits_per_raw_sample,duration_ts', '-of', 'csv=p=0', flacPath],
+    { encoding: 'utf8' }).trim();
+    const [rate, channels, bits, declaredSamples] = probe.split(',');
+    if (`${rate},${channels},${bits}` !== `${SAMPLE_RATE_HZ},1,16`) throw new Error(`NOT 16 kHz mono 16-bit (${probe}): ${flacPath}`);
+    const pcm = execFileSync('ffmpeg', ['-v', 'error', '-i', flacPath, '-f', 's16le', '-acodec', 'pcm_s16le', '-'],
         { maxBuffer: 256 * 1024 * 1024 });
+    if (pcm.length !== Number(declaredSamples) * 2) {
+        throw new Error(`decoded ${pcm.length / 2} samples but the stream declares ${declaredSamples}: ${flacPath}`);
+    }
+    return pcm;
 }
 
 export function wavFromPcm(pcm) {
@@ -83,7 +99,7 @@ export function buildFromChapter(chapterDir, maxSeconds) {
         const pcm = decodeFlacToPcm(utt.flac);
         const uttSamples = pcm.length / 2;
         if ((samples + uttSamples) / SAMPLE_RATE_HZ > maxSeconds) break;
-        parts.push({ ...utt, pcm, sampleCount: uttSamples });
+        parts.push({ ...utt, pcm, sampleCount: uttSamples, flacSha256: sha256(readFileSync(utt.flac)) });
         samples += uttSamples;
     }
     return { parts, sampleCount: samples };
@@ -99,12 +115,13 @@ export function clipRecord(id, wavRelativePath, wav, parts, corpusRoot) {
         audio: {
             // The PCM digest is the played-audio identity: file digests also cover header bytes that differ
             // between WAV writers (the committed long-01.wav carries an extra ffmpeg header chunk; its PCM is identical).
-            path: wavRelativePath, sha256: sha256(wav), pcmSha256: sha256(wav.subarray(44)), sampleRateHz: SAMPLE_RATE_HZ, sampleCount,
+            path: wavRelativePath, fileSha256: sha256(wav), pcmSha256: sha256(wav.subarray(44)), sampleRateHz: SAMPLE_RATE_HZ, sampleCount,
             durationSeconds: sampleCount / SAMPLE_RATE_HZ,
         },
         source: {
             chapter: relative(corpusRoot, join(parts[0].flac, '..')),
-            utterances: parts.map(p => ({ id: p.id, sampleCount: p.sampleCount })),
+            // Each source FLAC's digest binds the clip to the files actually read from the extracted tree.
+            utterances: parts.map(p => ({ id: p.id, sampleCount: p.sampleCount, flacSha256: p.flacSha256 })),
         },
     };
 }
@@ -116,24 +133,30 @@ async function main([corpusArg, outArg]) {
     const verdict = await verifyArchive({ path: archive, name: 'test-clean.tar.gz', mode: 'pinned' });
     if (!verdict.ok || !verdict.pinnedSha256Checked) throw new Error(`test-clean.tar.gz failed pinned verification: ${verdict.reason ?? 'pin not checked'}`);
     const setDir = join(corpusRoot, 'LibriSpeech', 'test-clean');
-    if (!statSync(setDir).isDirectory()) throw new Error(`${setDir} missing: run fetch-librispeech.sh first`);
+    if (!existsSync(setDir)) throw new Error(`${setDir} missing: run fetch-librispeech.sh first`);
     mkdirSync(outDir, { recursive: true });
 
     const clips = [];
-    const used = new Set();
+    const used = new Set(RESERVED_CHAPTERS.map(chapter => join(setDir, chapter)));
     for (const target of LONG_FORM_TARGETS) {
         // The first chapter, in sorted order, not already used, that can reach the target: deterministic, never "any".
         let built = null;
+        let longEnoughButUsed = 0;
         for (const chapterDir of chapters(setDir)) {
-            if (used.has(chapterDir)) continue;
             const candidate = buildFromChapter(chapterDir, target.maxSeconds);
-            if (candidate.sampleCount / SAMPLE_RATE_HZ >= target.minSeconds) { built = { chapterDir, ...candidate }; break; }
+            if (candidate.sampleCount / SAMPLE_RATE_HZ < target.minSeconds) continue;
+            if (used.has(chapterDir)) { longEnoughButUsed++; continue; }
+            built = { chapterDir, ...candidate };
+            break;
         }
         if (!built) {
-            // Recorded, never dropped: a planned clip that could not be built honestly stays in the manifest.
+            // Recorded, never dropped: a planned clip that could not be built honestly stays in the manifest, with
+            // the true reason.
             clips.push({ id: target.id, kind: 'speech', status: 'NOT_BUILT',
-                reason: `no single test-clean chapter reaches ${target.minSeconds} s; a labelled same-speaker, same-book `
-                    + 'multi-chapter join needs a release-review decision on its source' });
+                reason: longEnoughButUsed > 0
+                    ? `the ${longEnoughButUsed} test-clean chapter(s) reaching ${target.minSeconds} s are already used`
+                    : `no single test-clean chapter reaches ${target.minSeconds} s; a labelled same-speaker, same-book `
+                        + 'multi-chapter join needs a release-review decision on its source' });
             continue;
         }
         used.add(built.chapterDir);
