@@ -128,8 +128,23 @@ class RecordingResult(unittest.TextTestResult):
             self._outcome(subtest, "error", "errors")
 
 
+def _planned_ids(suite):
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            yield from _planned_ids(item)
+        elif item is not None:
+            yield item.id()
+
+
 class RecordingRunner(unittest.TextTestRunner):
     resultclass = RecordingResult
+
+    def run(self, test):
+        # Every discovered test id, captured BEFORE the run (a suite releases its tests as it runs them).
+        planned = list(_planned_ids(test))
+        result = super().run(test)
+        result.planned = planned
+        return result
 
 
 def suite_child(start, results_path):
@@ -138,7 +153,9 @@ def suite_child(start, results_path):
     program = unittest.main(module=None, argv=["python -m unittest", "discover", "-s", start, "-p", "test_*.py"], testRunner=RecordingRunner, exit=False)
     result = program.result
     try:
+        # `planned`: every discovered test id, so a test a failed class/module fixture never let run is reported NOT RUN by name.
         dump({"schema": "speaksharp.cloud-test.suite-results.v1", "tests": list(result.records.values()), "fixtures": result.fixtures,
+              "planned": list(getattr(result, "planned", [])),
               "callbackCounts": result.callbacks}, results_path)
     except (OSError, TypeError, ValueError) as error:
         print("SUITE_RESULTS_WRITE_FAILED: " + type(error).__name__, file=sys.stderr)
@@ -413,6 +430,16 @@ def test_lines(check):
                 lines.append("TEST ERROR %s %s [fixture]" % (check["id"], m.group(1)))
             else:
                 unprintable += 1
+    # Every discovered test that never started (a failed setUpClass/setUpModule skips its methods) is named NOT RUN.
+    recorded = {t.get("id") for t in results.get("tests") or [] if isinstance(t, dict)}
+    for test_id in results.get("planned") or []:
+        if test_id in recorded:
+            continue
+        recorded.add(test_id)
+        if isinstance(test_id, str) and TEST_ID.fullmatch(test_id):
+            lines.append("TEST NOT RUN %s %s" % (check["id"], test_id))
+        else:
+            unprintable += 1
     if unprintable:
         lines.append("TEST UNPRINTABLE %s %d test(s) with an unprintable identifier" % (check["id"], unprintable))
     return lines

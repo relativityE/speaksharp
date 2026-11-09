@@ -81,7 +81,9 @@ class FailedTestLines(unittest.TestCase):
             "TEST FAIL package-unit-tests test_sample.Sample.test_fails_with_a_secret_message",
             "TEST PASS package-unit-tests test_sample.Sample.test_passes",
             "TEST FAIL package-unit-tests test_sample.Sample.test_subtest_fails",
-            "TEST ERROR package-unit-tests test_sample.BrokenFixture [fixture]"])
+            "TEST ERROR package-unit-tests test_sample.BrokenFixture [fixture]",
+            "TEST NOT RUN package-unit-tests test_sample.BrokenFixture.test_never_runs"])
+        self.assertIn("test_sample.BrokenFixture.test_never_runs", results["planned"])
         text = "\n".join(lines)
         for leak in ("token=abc", "/opt/ci-work", "hunter2", "secret-param", "fixture secret", "Traceback"):
             self.assertNotIn(leak, text)
