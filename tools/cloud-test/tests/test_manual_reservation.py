@@ -278,7 +278,27 @@ class ManualReservation(Journal):
         self.assertFalse(os.path.exists(os.path.join(self.d, "c1", "journal.json")))
         real = self.execute("reserve", self.reserve_inputs(), "r1")
         self.assertEqual(real, would, "the check predicts the real reserve's event exactly")
-        self.assertIsNone(check(dict(self.reserve_inputs(), runId="41400000077"), "c2"), "an open reserve defers to the dispatch's own recovery")
+        # Codex P1 on 655d229b: an open reserve is not a bare deferral (that blocked recovery) and not unvalidated success; the admission
+        # runs on the chain as it will stand after this dispatch's own recovery settles the open attempt.
+        seen = []
+        real_admit = M.admit_action_approval
+        before_open = self.head()
+
+        def capture(facts, request, sha, checkpoint, source_repo=None, chain=None):
+            seen.append((json.loads(checkpoint), chain[-1][1][-1]))
+        with mock.patch.object(M, "admit_action_approval", capture):
+            post = check(dict(self.reserve_inputs(), runId="41400000077"), "c2")
+        self.assertEqual((post["type"], post["runId"]), ("reserve", "41400000077"))
+        checkpoint, last = seen[0]
+        self.assertEqual((checkpoint["outstandingReservations"], checkpoint["headSha"]), (0, M.RECOVERY_HYPOTHESIS_SHA))
+        self.assertEqual((last["type"], last["runId"], last["allocation"]["requests"], last["allocation"]["identityReads"]),
+                         ("settle", RUN, 0, 0), "the hypothetical recovery is the zero-usage settle-unexecuted form")
+        self.assertEqual(last["allocation"]["runnerMinutes"], ALLOCATION["runnerMinutes"], "runner minutes taken at the reserved cap")
+        self.assertEqual(self.head(), before_open, "the post-recovery check writes nothing")
+        with mock.patch.object(M, "admit_action_approval", lambda *a, **k: (_ for _ in ()).throw(M.Refused("manual-action-approval-checkpoint"))):
+            self.refused("manual-action-approval-checkpoint", check, dict(self.reserve_inputs(), runId="41400000078"), "c2b")
+        self.assertEqual(self.head(), before_open, "nothing is written either way")
+        self.assertIs(M.admit_action_approval, real_admit)
         settle = {"campaignId": "R7-full-coverage", "runId": RUN, "record": self.record(), "scope": self.scope, "atUtc": AT}
         self.execute("settle", settle, "s1")
         self.refused("manual-reservation-outside-period", check, dict(self.reserve_inputs(), atUtc="2099-01-01T00:00:00Z"), "c3")
@@ -286,8 +306,8 @@ class ManualReservation(Journal):
             M.execute("settle", settle, self.repo, self.remote, self.root, os.path.join(self.d, "j"), os.path.join(self.d, "o"),
                       self.all_pins, self.remote, dry_run=True)
 
-    def test_a_deferred_reserve_check_is_a_refusal_at_the_cli(self):
-        """Review of 50647108: the CLI never reports a deferred check (open reserve, nothing evaluated) as success."""
+    def test_an_unevaluated_reserve_check_is_a_refusal_at_the_cli(self):
+        """Review of 50647108: the CLI never reports a check that evaluated nothing as success."""
         d = os.path.join(self.d, "cli")
         os.mkdir(d)
         paths = {}
@@ -298,7 +318,7 @@ class ManualReservation(Journal):
         argv = ["manual_reservation.py", "reserve-check", "--journal", os.path.join(d, "j"), "--out", os.path.join(d, "o"), "--request",
                 paths["req"], "--admitted-sha256", self.sha, "--run-id", RUN, "--facts", paths["facts"], "--bootstrap", paths["boot"],
                 "--scope", paths["scope"]]
-        for returned, code in ((None, 78), ({"type": "reserve"}, 0)):
+        for returned, code in ((None, 78), ({"type": "reserve"}, 0)):   # None: nothing evaluated, never success
             with self.subTest(returned=returned), mock.patch.object(M, "activated", lambda: True), \
                     mock.patch.object(M, "execute", lambda *a, **k: returned), mock.patch.object(M, "_isolated_repo", lambda: d):
                 self.assertEqual(M.main(argv), code)

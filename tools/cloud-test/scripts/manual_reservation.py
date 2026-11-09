@@ -218,12 +218,16 @@ def _in_period(scope, at_utc, code):
     _need(accounting_rollup._utc(scope["periodStartUtc"]) <= accounting_rollup._utc(at_utc) < accounting_rollup._utc(scope["periodEndUtc"]), code)
 
 
+# The in-memory head of the hypothetical post-recovery chain reserve-check evaluates; never a real commit, never written anywhere.
+RECOVERY_HYPOTHESIS_SHA = "f" * 40
+
+
 def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=state_ref_writer.APPROVED_URL, source_repo=None, dry_run=False):
     """One manual transition on the state ref; returns the appended event. `pins` holds the accepted bootstrap digest, its root and the
     accepted scope digest; `root` must be that accepted root, so the journal appended to is the one the rollup reads.
     dry_run (reserve only; consultant P2-3): every read and every admission check of the reserve at the current head, and NO append. It
-    returns the event that would be appended, or None when the journal ends with an open reserve (no admission is evaluated then; the CLI
-    treats that as a refusal, never as success)."""
+    returns the event that would be appended. When the journal ends with an open reserve, the admission is evaluated on the chain as it
+    will stand after this dispatch's own recovery settles that attempt (see below)."""
     _need(root is not None and root == pins.get("accepted_root"), "manual-reservation-root-mismatch")
     _need(command != "release", "manual-release-never-started-unverified")
     _need(not dry_run or command == "reserve", "manual-reservation-command")
@@ -231,7 +235,17 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
         head = state_ref_writer.fetch_head(repo, url, approved_url)
         chain = state_ref_writer.validate_chain(repo, head, root)
         if dry_run and chain[-1][1] and chain[-1][1][-1].get("type") == "reserve":
-            return None
+            # Codex P1 on 655d229b (review of 50647108, alternative 2): an open reserve is recovered by THIS dispatch (record-begin collects
+            # the unexecuted evidence, journal-reserve appends settle-unexecuted), so refusing here would make that recovery unreachable.
+            # Prove admissibility AFTER that recovery instead, read-only: append to an in-memory copy of the chain the settle the recovery
+            # writes (settle-unexecuted: zero product usage; runner minutes taken at the reserved cap, the most conservative value) and run
+            # the same admission on it. Nothing is written; the real recovery and the real reserve re-validate everything afterwards.
+            held = chain[-1][1][-1]
+            zero = {k: 0 for k in CATS}
+            zero["runnerMinutes"] = None
+            hypothetical = settle(held, zero, "0" * 64, inputs["atUtc"])
+            chain = chain + [(RECOVERY_HYPOTHESIS_SHA, chain[-1][1] + [hypothetical], b"")]
+            head = RECOVERY_HYPOTHESIS_SHA
         scope = accepted_scope(inputs["scope"], pins.get("accepted_scope_sha256"))
         if command == "reserve":
             _in_period(scope, inputs["atUtc"], "manual-reservation-outside-period")
@@ -380,10 +394,8 @@ def main(argv):
         event = execute(x.command, inputs, x.repo or _isolated_repo(), state_ref_writer.APPROVED_URL, state_ref_writer.REVIEWED_ROOT, x.journal,
                         x.out, pins, source_repo=x.source_repo, dry_run=dry_run)
         if dry_run:
-            # Review of 50647108: a deferred check proves nothing about this dispatch's own scope, request, action or window, so it is not
-            # success. The dispatch stops before any record mutation; an open reservation is recovered first through its own path
-            # (settle-unexecuted from its closed evidence), and the dispatch is then repeated.
-            _need(event is not None, "reserve-check-deferred-open-reservation")
+            # Review of 50647108: never a bare deferral; every check is evaluated (on the post-recovery chain when an attempt is open).
+            _need(event is not None, "reserve-check-not-evaluated")
             print("reserve-check: admissible at the current journal head (nothing written)")
         return 0
     except Refused as e:
