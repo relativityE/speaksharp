@@ -125,6 +125,214 @@ class RunAsRoot(unittest.TestCase):
         self.assertEqual((p.returncode, calls), (78, []))
 
 
+GIT_SHIM = r"""#!/usr/bin/env python3
+import os, sys, time
+a = sys.argv[1:]
+store = os.environ["GITSTORE"]
+with open(os.environ["GITLOG"], "a") as f:
+    f.write("git " + " ".join(a) + " |sudo=" + os.environ.get("SUDO_UID", "") + "\n")
+entries = open(store).read().splitlines() if os.path.exists(store) else []
+def save(e):
+    open(store, "w").write("".join(x + "\n" for x in e))
+if a[:2] == ["config", "--system"]:
+    r = a[2:]
+    if r[:2] == ["--fixed-value", "--get-all"]:
+        sys.exit(0 if r[3] in entries else 1)
+    if r[0] == "--add":
+        if os.environ.get("GIT_FAIL") == "add": sys.exit(1)
+        save(entries + [r[2]]); sys.exit(0)
+    if r[:2] == ["--fixed-value", "--unset-all"]:
+        if os.environ.get("GIT_FAIL") == "unset": sys.exit(1)
+        kept = [x for x in entries if x != r[3]]; save(kept); sys.exit(0 if len(kept) < len(entries) else 5)
+if a[0] == "-C" and a[2:] == ["rev-parse", "--show-toplevel"]:
+    if os.environ.get("GIT_SLOW"): time.sleep(5)
+    if a[1] in entries:
+        print(os.environ.get("TOPLEVEL") or a[1]); sys.exit(0)
+    sys.stderr.write("fatal: detected dubious ownership\n"); sys.exit(128)
+sys.exit(2)
+"""
+
+
+class RunAsRootTrustsOnlyTheTestedCheckout(unittest.TestCase):
+    """#1797 review, Codex P1 4518078436: admission's A2.source runs `git -C <tested checkout>` as root without SUDO_UID, so a job-user-owned
+    checkout is "dubious ownership" unless it is trusted. run-as-root trusts exactly the verified checkout for the stage and removes that
+    trust on every exit it controls. Offline: `id`/`chown`/`git` shims, one ordered log. The real root/runner control is below."""
+    def setUp(self):
+        self.d = os.path.realpath(tempfile.mkdtemp(prefix="run-as-root-trust-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", self.d])
+        self.bin = os.path.join(self.d, "bin"); os.mkdir(self.bin)
+        self.log = os.path.join(self.d, "calls.log")
+        self.store = os.path.join(self.d, "system-gitconfig")
+        self.out = os.path.join(self.d, "out"); os.mkdir(self.out, 0o700)
+        self.inputs = os.path.join(self.d, "run-inputs"); os.mkdir(self.inputs, 0o700)
+        self.co = os.path.join(self.d, "tested-release"); os.mkdir(self.co)
+        self.owner = "%d:%d" % (os.getuid(), os.getgid())
+        for name, body in (("id", '#!/bin/sh\n[ "$1" = -u ] && echo 0 && exit 0\n[ "$1" = -g ] && echo 0 && exit 0\nexec /usr/bin/id "$@"\n'),
+                           ("chown", '#!/bin/sh\necho "chown $*" >> "%s"\n[ -n "$FAIL_ON" ] && [ "$2" = "$FAIL_ON" ] && exit 1\nexit 0\n' % self.log),
+                           ("git", GIT_SHIM)):
+            Path(self.bin, name).write_text(body); os.chmod(os.path.join(self.bin, name), stat.S_IRWXU)
+
+    def env(self, **kw):
+        e = {"PATH": self.bin + ":/usr/bin:/bin", "HOME": self.d, "GITLOG": self.log, "GITSTORE": self.store, "SUDO_UID": "1001"}
+        e.update(kw)
+        return e
+
+    def env_file(self, checkout):
+        f = os.path.join(self.d, "env")
+        Path(f).write_text("export CT_OUT=%s\n" % self.out + ("export CT_CHECKOUT=%s\n" % checkout if checkout is not None else ""))
+        return f
+
+    def run_as_root(self, checkout="default", **kw):
+        f = self.env_file(self.co if checkout == "default" else checkout)
+        p = subprocess.run(["bash", str(SCRIPT), "run-as-root", f, self.owner, self.inputs], capture_output=True, text=True, env=self.env(**kw))
+        return p, (Path(self.log).read_text().splitlines() if os.path.exists(self.log) else [])
+
+    def take(self):
+        return "chown -R 0:0 %s %s" % (self.out, self.inputs)
+
+    def give(self):
+        return "chown -R %s %s %s" % (self.owner, self.out, self.inputs)
+
+    def test_the_verified_checkout_is_trusted_for_the_stage_without_sudo_uid_and_removed_after(self):
+        p, calls = self.run_as_root()
+        self.assertIn(RUN_STARTED, p.stderr)
+        self.assertEqual(p.returncode, 78)
+        self.assertEqual(calls, [self.take(),
+                                 "git config --system --fixed-value --get-all safe.directory %s |sudo=" % self.co,
+                                 "git config --system --add safe.directory %s |sudo=" % self.co,
+                                 "git -C %s rev-parse --show-toplevel |sudo=" % self.co,
+                                 "git config --system --fixed-value --unset-all safe.directory %s |sudo=" % self.co,
+                                 self.give()])
+        self.assertEqual(Path(self.store).read_text(), "")      # nothing left behind
+
+    def test_without_a_tested_checkout_nothing_is_trusted(self):
+        p, calls = self.run_as_root(checkout=None)
+        self.assertIn(RUN_STARTED, p.stderr)
+        self.assertEqual(calls, [self.take(), self.give()])
+
+    def test_an_already_listed_exact_entry_is_neither_added_nor_removed(self):
+        Path(self.store).write_text("/elsewhere\n%s\n" % self.co)
+        p, calls = self.run_as_root()
+        self.assertIn(RUN_STARTED, p.stderr)
+        self.assertEqual([c for c in calls if " --add " in c or "--unset-all" in c], [])
+        self.assertEqual(Path(self.store).read_text(), "/elsewhere\n%s\n" % self.co)
+
+    def test_other_entries_are_untouched(self):
+        Path(self.store).write_text("/elsewhere\n")
+        p, calls = self.run_as_root()
+        self.assertIn(RUN_STARTED, p.stderr)
+        self.assertEqual(Path(self.store).read_text(), "/elsewhere\n")
+
+    def test_a_non_canonical_or_foreign_checkout_refuses_before_any_ownership_or_trust_change(self):
+        link = os.path.join(self.d, "co-link"); os.symlink(self.co, link)
+        for name, path in {"symlink": link, "trailing slash": self.co + "/", "relative": "tested-release",
+                           "dot-dot": self.d + "/out/../tested-release", "absent": os.path.join(self.d, "absent")}.items():
+            with self.subTest(name):
+                os.path.exists(self.log) and os.remove(self.log)
+                p, calls = self.run_as_root(checkout=path)
+                self.assertEqual((p.returncode, calls), (78, []))
+                self.assertIn("the tested checkout must be a canonical directory with no symlink component", p.stderr)
+        os.path.exists(self.log) and os.remove(self.log)
+        self.owner = "%d:%d" % (os.getuid() + 1, os.getgid())
+        p, calls = self.run_as_root()
+        self.assertEqual((p.returncode, calls), (78, []))
+        self.assertIn("the tested checkout is not owned by the job user", p.stderr)
+
+    def test_a_checkout_git_does_not_accept_as_that_root_stops_the_stage_and_restores(self):
+        p, calls = self.run_as_root(TOPLEVEL=os.path.join(self.d, "other"))
+        self.assertEqual(p.returncode, 78)
+        self.assertNotIn(RUN_STARTED, p.stderr)
+        self.assertIn("the tested checkout is not a work tree root git accepts; the stage did not run", p.stderr)
+        self.assertEqual(calls[-2:], ["git config --system --fixed-value --unset-all safe.directory %s |sudo=" % self.co, self.give()])
+        self.assertEqual(Path(self.store).read_text(), "")
+
+    def test_a_failed_trust_stops_the_stage_and_still_returns_the_trees(self):
+        p, calls = self.run_as_root(GIT_FAIL="add")
+        self.assertEqual(p.returncode, 78)
+        self.assertNotIn(RUN_STARTED, p.stderr)
+        self.assertIn("the tested checkout could not be trusted for the root run stage; the stage did not run", p.stderr)
+        self.assertEqual(calls[-1], self.give())
+        self.assertFalse([c for c in calls if "--unset-all" in c])
+
+    def test_a_failed_trust_removal_is_reported_and_fails_the_stage_after_the_trees_return(self):
+        p, calls = self.run_as_root(GIT_FAIL="unset")
+        self.assertIn(RUN_STARTED, p.stderr)
+        self.assertIn("the tested checkout's trust could not be removed", p.stderr)
+        self.assertEqual(p.returncode, 78)
+        self.assertEqual(calls[-1], self.give())
+
+    def test_term_while_trusted_removes_the_trust_and_returns_the_trees(self):
+        f = self.env_file(self.co)
+        p = subprocess.Popen(["bash", str(SCRIPT), "run-as-root", f, self.owner, self.inputs], env=self.env(GIT_SLOW="1"),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        deadline = time.time() + 5
+        while time.time() < deadline and not (os.path.exists(self.log) and "rev-parse" in Path(self.log).read_text()):
+            time.sleep(0.05)
+        p.send_signal(signal.SIGTERM)
+        _, err = p.communicate(timeout=20)
+        self.assertEqual(p.returncode, 143)
+        self.assertNotIn(RUN_STARTED, err)
+        calls = Path(self.log).read_text().splitlines()
+        self.assertEqual(calls[-2:], ["git config --system --fixed-value --unset-all safe.directory %s |sudo=" % self.co, self.give()])
+        self.assertEqual(Path(self.store).read_text(), "")
+
+
+@unittest.skipUnless(ROOT_PREFIX is not None and shutil.which("git"), "needs Linux root (or the hosted runner's sudo -n) and git")
+class RealRootAdmissionGit(unittest.TestCase):
+    """The root/runner regression control on the hosted runner: a job-user-owned LINKED worktree (as the workflow's tested-release
+    checkout), root git with an admission-like environment (no SUDO_UID), inside the real elevated stage. A shim `python3` first on the
+    stage's PATH runs exactly that git command when the stage reads its config, then stops the stage."""
+    def setUp(self):
+        self.d = os.path.realpath(tempfile.mkdtemp(prefix="run-as-root-git-"))
+        self.addCleanup(subprocess.run, ROOT_PREFIX + ["rm", "-rf", self.d])
+        g = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "init.defaultBranch=main"]
+        self.repo = os.path.join(self.d, "workspace"); self.wt = os.path.join(self.d, "tested-release")
+        subprocess.run(g + ["init", "-q", self.repo], check=True)
+        Path(self.repo, "f").write_text("x\n")
+        subprocess.run(g + ["-C", self.repo, "add", "f"], check=True)
+        subprocess.run(g + ["-C", self.repo, "commit", "-qm", "c"], check=True)
+        subprocess.run(g + ["-C", self.repo, "worktree", "add", "-q", "--detach", self.wt, "HEAD"], check=True)
+        self.head = subprocess.run(["git", "-C", self.wt, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        self.out = os.path.join(self.d, "out"); os.mkdir(self.out, 0o700)
+        self.inputs = os.path.join(self.d, "run-inputs"); os.mkdir(self.inputs, 0o700)
+        self.bin = os.path.join(self.d, "bin"); os.mkdir(self.bin)
+        Path(self.bin, "python3").write_text('#!/bin/sh\nenv -i PATH=/usr/bin:/bin HOME="$HOME" git -C "$CT_CHECKOUT" rev-parse HEAD > "$CT_OUT/probe" 2>&1\n'
+                                             'echo "rc=$?" >> "$CT_OUT/probe"\nexit 78\n')
+        os.chmod(os.path.join(self.bin, "python3"), 0o755)
+        os.chmod(self.d, 0o755)
+        self.cfg = os.path.join(self.d, "config.json"); Path(self.cfg).write_text("{}")
+
+    def system_entries(self):
+        p = subprocess.run(ROOT_PREFIX + ["env", "-i", "PATH=/usr/bin:/bin", "git", "config", "--system", "--get-all", "safe.directory"],
+                           capture_output=True, text=True)
+        return p.stdout.splitlines()
+
+    def root_git(self, *cfg):
+        args = []
+        for c in cfg:
+            args += ["-c", c]
+        return subprocess.run(ROOT_PREFIX + ["env", "-i", "PATH=/usr/bin:/bin", "git"] + args + ["-C", self.wt, "rev-parse", "HEAD"],
+                              capture_output=True, text=True)
+
+    def test_root_git_without_sudo_uid_needs_exactly_this_trust_and_the_stage_provides_it(self):
+        # Controls: with every inherited trust reset, root git refuses the job user's worktree; trusting exactly its path admits it.
+        refused = self.root_git("safe.directory=")
+        self.assertEqual(refused.returncode, 128, refused.stderr)
+        self.assertIn("dubious ownership", refused.stderr)
+        self.assertEqual(self.root_git("safe.directory=", "safe.directory=" + self.wt).stdout.strip(), self.head)
+        before = self.system_entries()
+        envfile = os.path.join(self.d, "env")
+        Path(envfile).write_text("export PATH=%s:/usr/bin:/bin\nexport HOME=%s\nexport CT_OUT=%s\nexport CT_CHECKOUT=%s\nexport CT_CONFIG=%s\n"
+                                 % (self.bin, self.d, self.out, self.wt, self.cfg))
+        p = subprocess.run(ROOT_PREFIX + ["bash", str(SCRIPT), "run-as-root", envfile, "%d:%d" % (os.getuid(), os.getgid()), self.inputs],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 78, p.stderr)
+        self.assertIn("CT_CONFIG cannot be read", p.stderr)          # the real stage ran up to the probe
+        self.assertEqual(Path(self.out, "probe").read_text(), "%s\nrc=0\n" % self.head)
+        self.assertEqual(self.system_entries(), before)              # the trust is removed after the stage
+        self.assertEqual(os.stat(self.out).st_uid, os.getuid())     # and the run-owned trees came back
+
+
 QUIESCENCE = ROOT / "scripts/run_stage_quiescence.py"
 
 
