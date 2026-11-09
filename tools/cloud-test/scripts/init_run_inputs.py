@@ -1672,7 +1672,7 @@ def diagnostic_codes(diag):
         return []
     out = []
     stop = diag.get("stopCode")
-    if isinstance(stop, str) and stop not in ("completed", "unknown"):
+    if isinstance(stop, str) and stop not in ("completed", "unknown") and stop in CASE_STOP_CODES:
         out.append("stop-" + stop)
     di = diag.get("driverInterruption") if isinstance(diag.get("driverInterruption"), dict) else {}
     if isinstance(di.get("stage"), str) and di["stage"] in DRIVER_STAGES:
@@ -2321,6 +2321,19 @@ def run_timing_export(cases_dir, case_results_file, selected, started_file, trac
 
 
 
+# The case diagnostic's closed stop codes (case_diagnostic: the summary's reason, its prefixed forms, or the exit-code classes).
+CASE_STOP_CODES = frozenset(STOP_CODES) | frozenset(STOP_PREFIXED.values()) | {"other", "guard-usage-refused", "guard-refused-before-start",
+                                                                               "guard-exited-without-summary"}
+# Review of 7e07474b (public sink revalidation): every code the case-log may print, derived from the closed vocabularies themselves.
+CASE_LOG_CODES = frozenset(
+    {"stop-" + c for c in CASE_STOP_CODES if c not in ("completed", "unknown")} | {"stage-" + s for s in DRIVER_STAGES}
+    | {"guard-refused-" + r[len(GUARD_STOP_PREFIX):].replace(":", "-") for r in GUARD_STOP_REASONS}
+    | {"net-" + e.lower().replace("_", "-") for e in DRIVER_NET_ERRORS} | {"upstream-" + r for r in GUARD_UPSTREAM_REASONS}
+    | {"egress-proxy-absent"})
+# The only evidence classes the timing projection writes (run_timing_export / isolated_case_rows / _unknown_row literals).
+CASE_LOG_EVIDENCE = frozenset({"bound-case-receipt", "not-in-selection", "run-stage-never-started", "started-without-case-results",
+                               "case-results-unreadable", "case-results-shape", "duplicate-case", "case-row-missing", "case-result-invalid",
+                               "harness-not-run", "missing-receipt", "receipt-not-bound", "summary-digest", "case-timing-invalid"})
 CASE_LOG_RESULTS = ("PASS", "FAIL", "NOT RUN", "UNKNOWN", "NOT SELECTED", "BLOCKED", "BLOCKED_SETUP", "INCOMPLETE", "HARNESS_LIMITED")
 CASE_LOG_ASSERTION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,79}")
 
@@ -2333,20 +2346,25 @@ def case_log_lines(timings):
           "case-log-input")
     stopped = timings.get("stoppedAtStage")
     stopped = stopped if stopped is None or stopped in STAGE_NAMES else "other"
+    allowed = _catalog_assertion_ids()
     lines = ["RUN outcome=%s stoppedAtStage=%s" % (_closed(timings.get("outcome"), ("not-started", "started-without-results", "results", "results-invalid"), "other"),
                                                    stopped or "none")]
     for row in timings.get("cases") or []:
         if not isinstance(row, dict) or row.get("caseId") not in ALL_AHT or row.get("result") == "NOT SELECTED":
             continue
         diag = row.get("diagnostic") if isinstance(row.get("diagnostic"), dict) else None
-        codes = diagnostic_codes(diag) if diag else []
+        # Revalidated HERE, at the public sink, against the closed catalogs (never only the producer's word): a code outside CASE_LOG_CODES,
+        # an assertion id outside the reviewed catalogs or an evidence class outside CASE_LOG_EVIDENCE prints as other/none.
+        codes = [c if c in CASE_LOG_CODES else "other" for c in (diagnostic_codes(diag) if diag else [])]
+        codes = list(dict.fromkeys(codes))
         first = (diag or {}).get("firstNonPassingAssertion") if diag else None
         first_id = first.get("id") if isinstance(first, dict) and isinstance(first.get("id"), str) else None
         evidence = row.get("evidence")
         parts = ["CASE", row["caseId"], _closed(row.get("result"), CASE_LOG_RESULTS, "other"),
                  "codes=" + (",".join(codes) if codes else "none"),
-                 "first=" + (first_id if first_id and CASE_LOG_ASSERTION.fullmatch(first_id) else "none"),
-                 "evidence=" + (evidence if isinstance(evidence, str) and CASE_CODE.fullmatch(evidence) else "none")]
+                 "first=" + (first_id if first_id and first_id in allowed and CASE_LOG_ASSERTION.fullmatch(first_id) else
+                             ("other" if first_id else "none")),
+                 "evidence=" + (evidence if evidence in CASE_LOG_EVIDENCE else ("other" if evidence else "none"))]
         lines.append(" ".join(parts))
     return lines
 

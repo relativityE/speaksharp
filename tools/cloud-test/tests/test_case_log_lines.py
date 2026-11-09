@@ -26,13 +26,13 @@ def timings(cases, outcome="results", stopped=None):
 class CaseLogLines(unittest.TestCase):
     def test_fail_not_run_and_setup_stop_each_print_their_closed_reason(self):
         fail = {"result": "FAIL", "evidence": "bound-case-receipt", "diagnostic": {
-            "stopCode": "step-error", "exitCode": 1, "firstNonPassingAssertion": {"id": "AHT-01.saved-session", "result": "FAIL"},
+            "stopCode": "step-error", "exitCode": 1, "firstNonPassingAssertion": {"id": "allowed-recovery-saved", "result": "FAIL"},
             "driverInterruption": {"stage": "signin-navigate", "stopReason": "guard-refused-navigation:upstream-error"},
             "guard": {"upstreamMode": "env-proxy", "proxyConfigured": False, "upstreamReasons": {"proxy-not-configured": 1}}}}
         lines = I.case_log_lines(timings({"AHT-01": fail, "AHT-02": {"result": "NOT RUN", "evidence": "run-stage-never-started"}}))
         self.assertEqual(lines[0], "RUN outcome=results stoppedAtStage=none")
         self.assertEqual(lines[1], "CASE AHT-01 FAIL codes=stop-step-error,stage-signin-navigate,guard-refused-upstream-error,"
-                                   "upstream-proxy-not-configured,egress-proxy-absent first=AHT-01.saved-session evidence=bound-case-receipt")
+                                   "upstream-proxy-not-configured,egress-proxy-absent first=allowed-recovery-saved evidence=bound-case-receipt")
         self.assertEqual(lines[2], "CASE AHT-02 NOT RUN codes=none first=none evidence=run-stage-never-started")
         self.assertEqual(len(lines), 3, "NOT SELECTED cases are not printed")
         setup = I.case_log_lines(timings({"AHT-01": {"result": "UNKNOWN", "evidence": "started-without-case-results"}},
@@ -49,7 +49,29 @@ class CaseLogLines(unittest.TestCase):
         self.assertNotIn(SECRET, text)
         self.assertNotIn(RUNNER_PATH, text)
         self.assertEqual(lines, ["RUN outcome=other stoppedAtStage=other",
-                                 "CASE AHT-01 other codes=none first=none evidence=none"])
+                                 "CASE AHT-01 other codes=none first=other evidence=other"])
+
+    def test_format_valid_private_strings_are_revalidated_at_the_public_sink(self):
+        """Review of 7e07474b: values that pass every shape check but are not in a closed catalog (a person's name, an account slug) are
+        never echoed, whichever field carries them."""
+        private = "jane-doe-account"
+        row = {"result": "FAIL", "evidence": private, "diagnostic": {
+            "stopCode": private, "firstNonPassingAssertion": {"id": private, "result": "FAIL"},
+            "driverInterruption": {"stage": private}, "guard": {"upstreamReasons": {private: 1}}}}
+        lines = I.case_log_lines(timings({"AHT-01": row}))
+        self.assertNotIn(private, "\n".join(lines))
+        self.assertEqual(lines[1], "CASE AHT-01 FAIL codes=none first=other evidence=other")
+
+    def test_every_evidence_class_the_producer_writes_is_in_the_sink_catalog(self):
+        import re
+        with open(os.path.join(ROOT, "scripts", "init_run_inputs.py"), encoding="utf-8") as f:
+            src = f.read()
+        written = set(re.findall(r'_unknown_row\(\w+, "([a-z-]+)"\)', src)) | set(re.findall(r'"evidence": "([a-z-]+)"', src))
+        self.assertTrue(written)
+        self.assertEqual(written - I.CASE_LOG_EVIDENCE, set())
+        self.assertNotIn("_unknown_row(c, reason", src.replace("def _unknown_row(case_id, reason)", ""), "every reason is a literal")
+        for code in ("stop-step-error", "stage-signin-navigate", "guard-refused-upstream-error", "upstream-proxy-not-configured", "egress-proxy-absent"):
+            self.assertIn(code, I.CASE_LOG_CODES)
 
     def test_the_cli_prints_the_lines_and_refuses_a_non_timings_document(self):
         with tempfile.TemporaryDirectory() as d:
