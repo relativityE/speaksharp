@@ -19,6 +19,7 @@ export const PYTHON_REPORTER='scripts/lib/python-unittest-reporter.py';
 // or integrity-checks them.  This is deliberately a closed inventory: an
 // unregistered fixture remains UNCOVERED rather than borrowing a nearby suite.
 export const PYTHON_INPUT_CONTRACTS=Object.freeze([
+  {inputFile:'tools/cloud-test/config/required-test-ids.v1.json',testFile:'tools/cloud-test/tests/test_required_test_ids.py'},
   {inputFile:'tools/cloud-test/harness/draft-adapters/source/d100/20260731120000_session_progress_evaluations.sql',testFile:'tools/cloud-test/tests/test_runnable_package.py'},
   {inputFile:'tools/cloud-test/harness/draft-adapters/source/d100/20260731130000_progress_recommendations.sql',testFile:'tools/cloud-test/tests/test_runnable_package.py'},
   {inputFile:'tools/cloud-test/tests/fixtures/accepted-comparison-R5-vs-R4C.json',testFile:'tools/cloud-test/tests/test_pipeline_and_report.py'},
