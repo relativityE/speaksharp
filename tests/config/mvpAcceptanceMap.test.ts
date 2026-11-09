@@ -53,6 +53,19 @@ function violations(document: string): string[] {
   for (const obligation of ['**15 automated practice cases**', '**six human/device records**', '**151 requirements**']) {
     if (!current.includes(obligation)) errors.push(`inventory:${obligation}`);
   }
+  const telemetry = current.slice(current.indexOf('| Retained family |'), current.indexOf('Release operation (10) owns'));
+  for (const family of ['Recording intent and preparation', 'Recording control', 'Focus transition',
+    'Provisional stability', 'Transcript authority', 'Coverage', 'Practice Loop', 'Completion/navigation',
+    'Share feedback', 'Retention truth', 'Runtime downselection', 'Acquisition receipt', 'Observer integrity']) {
+    if (!telemetry.includes(`| ${family} |`)) errors.push(`telemetry-family:${family}`);
+  }
+  const efficacy = current.slice(current.indexOf('| Retained deliverable |'), current.indexOf('Before test retirement'));
+  for (const deliverable of ['Two-product journey and Private STT test inventory', 'User-benefit traceability matrix',
+    'Ground-truth instrumentation map', 'False-green, mock-fidelity and obsolete-test register',
+    'Severity-ranked reproducible coverage-gap register', 'Authoritative RWT/release lanes versus supporting suites',
+    'Bounded follow-ups for accepted gaps']) {
+    if (!efficacy.includes(`| ${deliverable} |`)) errors.push(`efficacy-deliverable:${deliverable}`);
+  }
   const inventoryStart = current.indexOf('### Existing PR inventory to preserve');
   const inventoryEnd = current.indexOf('### 1. One MVP acceptance map');
   const inventory = current.slice(inventoryStart, inventoryEnd);
@@ -61,7 +74,7 @@ function violations(document: string): string[] {
     if (rows.length !== 1 || !rows[0].startsWith(`| ${bucket} |`) || !rows[0].includes(sha)) {
       errors.push(`retained-source:${pr}`);
     }
-    if ((pr === 1760 || pr === 1788) && !rows[0]?.includes('closed unmerged')) {
+    if ((pr === 1760 || pr === 1788) && !rows[0]?.includes('open unmerged')) {
       errors.push(`unmerged-source:${pr}`);
     }
   }
@@ -95,7 +108,9 @@ describe('bounded MVP acceptance-map contract', () => {
     { name: 'short pilot replaces all practice cases', before: '**15 automated practice cases**', after: '**three automated practice cases**', code: 'inventory:**15 automated practice cases**' },
     { name: 'unmeasured release promoted to acceptance', before: '**HOLD.** The release outcome', after: '**PASS.** The release outcome', code: 'release-hold' },
     { name: 'retained source moved to wrong bucket', before: '| 2 | [#1760]', after: '| 3 | [#1760]', code: 'retained-source:1760' },
-    { name: 'unmerged source presented as delivered', before: 'pull/1788), closed unmerged |', after: 'pull/1788), delivered |', code: 'unmerged-source:1788' },
+    { name: 'unmerged source presented as delivered', before: 'pull/1788), open unmerged |', after: 'pull/1788), delivered |', code: 'unmerged-source:1788' },
+    { name: 'received observer evidence dropped', before: '| Observer integrity |', after: '| Unselected telemetry |', code: 'telemetry-family:Observer integrity' },
+    { name: 'false-green register lost', before: '| False-green, mock-fidelity and obsolete-test register |', after: '| Test count summary |', code: 'efficacy-deliverable:False-green, mock-fidelity and obsolete-test register' },
   ];
 
   it.each(faults)('detects $name, then passes on byte-identical restoration', ({ before, after, code }) => {
