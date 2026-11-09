@@ -53,16 +53,51 @@ if [ "$STAGE" = run-as-root ]; then
     canonical_dir "$pin" || blocked "private run inputs must be a canonical directory with no symlink component"
     trees+=("$pin")
   fi
+  # #1797 review (Codex P1 4518078436): admission's A2.source runs `git -C <tested checkout>` as root with an allowlisted environment
+  # (no SUDO_UID), so Git's sudo owner exception does not apply and a job-user-owned checkout is "dubious ownership" (exit 128) unless
+  # the runner image already trusts it. The stage therefore trusts exactly ONE directory: the verified tested checkout (canonical, no
+  # symlink component, owned by the job user, and its own work-tree top level), added to the system config only when not already
+  # listed, checked the way admission will use it, and removed again on every exit this script controls. No wildcard, no other path.
+  checkout="${CT_CHECKOUT:-}"
+  if [ -n "$checkout" ]; then
+    canonical_dir "$checkout" || blocked "the tested checkout must be a canonical directory with no symlink component"
+    [ -z "$(find "$checkout" -maxdepth 0 ! -uid "${owner%%:*}" -print)" ] || blocked "the tested checkout is not owned by the job user"
+  fi
+  rootgit() { env -u SUDO_UID -u SUDO_GID -u SUDO_USER -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_COUNT \
+    -u GIT_CONFIG_PARAMETERS git "$@"; }
+  trusted=""
+  untrust() {
+    [ -n "$trusted" ] || return 0
+    rootgit config --system --fixed-value --unset-all safe.directory "$trusted" \
+      || { echo "BLOCKED_SETUP: the tested checkout's trust could not be removed" >&2; return 1; }
+    trusted=""
+  }
   give_back() { chown -R "$owner" "${trees[@]}" || { echo "BLOCKED_SETUP: run outputs could not be returned to the job user" >&2; return 1; }; }
-  trap 'give_back; exit 143' TERM
-  trap 'give_back; exit 130' INT
+  restore() { local r=0; untrust || r=1; give_back || r=1; return "$r"; }
+  trap 'restore; exit 143' TERM
+  trap 'restore; exit 130' INT
   if ! chown -R 0:0 "${trees[@]}"; then
     echo "BLOCKED_SETUP: run-owned trees could not be taken for the root run stage; the stage did not run" >&2
-    give_back || exit 78
+    restore || exit 78
     exit 78
   fi
+  if [ -n "$checkout" ]; then
+    if ! rootgit config --system --fixed-value --get-all safe.directory "$checkout" > /dev/null; then
+      if ! rootgit config --system --add safe.directory "$checkout"; then
+        echo "BLOCKED_SETUP: the tested checkout could not be trusted for the root run stage; the stage did not run" >&2
+        restore || exit 78
+        exit 78
+      fi
+      trusted="$checkout"
+    fi
+    if [ "$(rootgit -C "$checkout" rev-parse --show-toplevel 2>/dev/null)" != "$checkout" ]; then
+      echo "BLOCKED_SETUP: the tested checkout is not a work tree root git accepts; the stage did not run" >&2
+      restore || exit 78
+      exit 78
+    fi
+  fi
   rc=0; bash "$0" run || rc=$?
-  if ! give_back; then [ "$rc" -ne 0 ] || rc=78; fi
+  if ! restore; then [ "$rc" -ne 0 ] || rc=78; fi
   exit "$rc"
 fi
 # The job-user entry of the ownership recovery above (workflow step after the run stage, always); only when the run stage was elevated.
