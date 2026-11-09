@@ -238,12 +238,24 @@ def execute(command, inputs, repo, url, root, journal, out, pins, approved_url=s
             # Codex P1 on 655d229b (review of 50647108, alternative 2): an open reserve is recovered by THIS dispatch (record-begin collects
             # the unexecuted evidence, journal-reserve appends settle-unexecuted), so refusing here would make that recovery unreachable.
             # Prove admissibility AFTER that recovery instead, read-only: append to an in-memory copy of the chain the settle the recovery
-            # writes (settle-unexecuted: zero product usage; runner minutes taken at the reserved cap, the most conservative value) and run
-            # the same admission on it. Nothing is written; the real recovery and the real reserve re-validate everything afterwards.
+            # will write and run the same admission on it. Nothing is written; the real recovery and the real reserve re-validate everything.
+            #
+            # Review of 2eb03676 (RETURN): the recovery is NOT assumed to be zero usage. A timed-out or executed attempt settles at its
+            # reserved caps. So the hypothetical settle is exactly what the evidence supports: the settle-unexecuted settle computed from
+            # this dispatch's own unexecuted-attempt evidence, only when that evidence validates and is for exactly this open reserve at
+            # this head; otherwise the reserve settled at its caps (every counter unmeasured). Caps is the upper bound of any real settle,
+            # so the check can only be stricter than the real recovery, never more permissive.
             held = chain[-1][1][-1]
-            zero = {k: 0 for k in CATS}
-            zero["runnerMinutes"] = None
-            hypothetical = settle(held, zero, "0" * 64, inputs["atUtc"])
+            hypothetical = None
+            doc = inputs.get("unexecuted")
+            if doc is not None:
+                usage, evidence, at_utc = usage_from_unexecuted(doc, inputs.get("unexecutedSha256"))
+                journal_bind = doc.get("journal") if isinstance(doc, dict) else None
+                _need(isinstance(journal_bind, dict) and journal_bind.get("reserve") == held and journal_bind.get("headSha") == head,
+                      "reserve-check-unexecuted-evidence-not-this-reserve")
+                hypothetical = settle(held, usage, evidence, at_utc)
+            if hypothetical is None:
+                hypothetical = settle(held, {k: None for k in CATS}, "0" * 64, inputs["atUtc"])
             chain = chain + [(RECOVERY_HYPOTHESIS_SHA, chain[-1][1] + [hypothetical], b"")]
             head = RECOVERY_HYPOTHESIS_SHA
         scope = accepted_scope(inputs["scope"], pins.get("accepted_scope_sha256"))
@@ -380,6 +392,10 @@ def main(argv):
         if x.command == "reserve":
             inputs = {"request": _read(x.request), "admittedSha256": x.admitted_sha256, "runId": x.run_id, "bootstrap": _read(x.bootstrap),
                       "scope": _read(x.scope), "facts": _read(x.facts), "atUtc": at}
+            if dry_run and x.unexecuted_evidence:
+                # the open attempt's unexecuted-attempt evidence, collected read-only by the gate step (absent when it refused)
+                _need(bool(x.unexecuted_sha256), "manual-unexecuted-evidence")
+                inputs.update(unexecuted=json.loads(_read(x.unexecuted_evidence)), unexecutedSha256=x.unexecuted_sha256)
         elif x.command == "settle":
             _need(bool(x.record) != bool(x.settle_input), "manual-settle-input-source")
             inputs = {"campaignId": x.campaign_id, "runId": x.run_id, "record": _read(x.record or x.settle_input),
