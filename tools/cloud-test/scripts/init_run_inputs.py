@@ -80,6 +80,8 @@ NOT_PUBLISHABLE = re.compile(
     r"|(?<![0-9])p[0-9]{16}(?![0-9])"                               # a permalink message id (p + seconds and microseconds)
     r"|(?<![0-9.])1[0-9]{9}[.][0-9]{6}(?![0-9])"                    # a chat message timestamp (epoch seconds . microseconds)
     r"|(?<![A-Za-z0-9])[UW]0[A-Z0-9]{8,}(?![A-Za-z0-9])"            # a chat user id
+    r"|(?<![A-Za-z0-9])(?-i:[CDG]0[A-Z0-9]{8,})(?![A-Za-z0-9])"     # a chat channel id; case-sensitive so a hex digest like c0de... passes
+    r"|[a-z0-9._%+-]+@[a-z0-9-]+(?:[.][a-z0-9-]+)*[.][a-z]{2,}(?![a-z0-9])"   # an email address (needs a dotted domain)
     r"|(?<![a-z])(?:akin|sam|sam-i-am|elon|jensen|bezos)(?![a-z])")
 
 

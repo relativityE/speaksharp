@@ -61,6 +61,18 @@ class Publishable(unittest.TestCase):
             with self.subTest(ok):
                 self.assertTrue(I.publishable({"v": ok}))
 
+    def test_channel_ids_and_email_addresses_are_refused_but_digests_and_receipt_tags_pass(self):
+        """Independent review RETURN on df97a877 (P2): a channel id or an email address also names a chat place or a person."""
+        for bad in ("C0C9RE8KNHG", "see channel C0AB12CD34E", "G0ABCDEFGH1", "D0ABCDEFGH1", "someone@example.com",
+                    "first.last+tag@mail.example.co.uk", "mailto:x@y.io"):
+            with self.subTest(bad):
+                self.assertFalse(I.publishable({"facts": {"note": bad}}))
+                self.assertFalse(I.publishable([bad]))
+        for ok in ("c0de7d2713a5e2e4823150c92d2c60ddf41d25b9", "c0ffee1234abcdef", "d0a1b2c3d4e5f6a7b8", "receipt:pre@aaaaaaaaaaaa",
+                   "history:throwaway@r5", "first-observation:existing-disposable@R10-3b040043-smoke15", "C0", "CO9RE8KNHG"):
+            with self.subTest(ok):
+                self.assertTrue(I.publishable({"v": ok}))
+
     def test_the_dispatch_approval_reference_must_be_an_opaque_code(self):
         with open(os.path.join(ROOT, "scripts", "init_run_inputs.py"), encoding="utf-8") as f:
             src = f.read()
