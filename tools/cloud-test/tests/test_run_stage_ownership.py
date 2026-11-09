@@ -4,6 +4,7 @@ elevated run stage now enters `run-as-root`, which takes ownership of exactly it
 Sam 1794066566/1794066358: a failed take must stop the stage; a failed return must be reported and fail it. Behaviour is exercised
 offline with `id`/`chown` shims (the privileged path itself runs on the runner); the stage it launches stops at its first config check."""
 import os
+import shutil
 import signal
 import stat
 import time
@@ -17,6 +18,23 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/execute_run.sh"
 RUN_STARTED = "CT_CONFIG (the reviewed run configuration) is required"     # the real run stage's first refusal: proof it was launched
 
+
+
+def _root_prefix():
+    """How this test process reaches root for the real-/proc control, as the runner's elevated recovery does: already root, or the
+    hosted runner's passwordless `sudo -n` (the CI evidence gate accepts only executed tests, so a non-root CI user must not skip it).
+    None where neither is available (a developer workstation), where the control is skipped."""
+    if not sys.platform.startswith("linux"):
+        return None
+    if os.geteuid() == 0:
+        return []
+    sudo = shutil.which("sudo") or ("/usr/bin/sudo" if os.access("/usr/bin/sudo", os.X_OK) else None)
+    if sudo and subprocess.run([sudo, "-n", "true"], capture_output=True).returncode == 0:
+        return [sudo, "-n"]
+    return None
+
+
+ROOT_PREFIX = _root_prefix()
 
 class RunAsRoot(unittest.TestCase):
     def setUp(self):
@@ -217,7 +235,7 @@ class Quiescence(unittest.TestCase):
         self.assertIn("\nRUNAS=65534\n", (ROOT / "harness/bundle/harness/chrome-wrapper.sh").read_text())
         self.assertIn("BROWSER_UID = 65534", QUIESCENCE.read_text())
 
-    @unittest.skipUnless(sys.platform.startswith("linux") and os.path.isdir("/proc/self/fd") and os.geteuid() == 0,
+    @unittest.skipUnless(sys.platform.startswith("linux") and os.path.isdir("/proc/self/fd") and ROOT_PREFIX is not None,
                          "Linux /proc as root (as on the runner): a non-root reader cannot read other users' descriptors, which counts as remaining")
     def test_on_linux_a_real_killed_parent_leaves_an_orphan_that_blocks_until_it_exits(self):
         """Linux/root regression with the real /proc: SIGKILL the parent shell; its orphaned child still holds the tree; the check waits.
@@ -227,9 +245,9 @@ class Quiescence(unittest.TestCase):
         time.sleep(0.5)
         parent.kill(); parent.wait()                       # the trap-less path: the parent is gone, the orphan keeps its cwd in the tree
         started = time.monotonic()
-        p = subprocess.run([sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--wait-seconds", "1", "--browser-uid", "4242424"], capture_output=True, text=True)
+        p = subprocess.run(ROOT_PREFIX + [sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--wait-seconds", "1", "--browser-uid", "4242424"], capture_output=True, text=True)
         self.assertEqual(p.returncode, 78)
-        p = subprocess.run([sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--wait-seconds", "15", "--browser-uid", "4242424"], capture_output=True, text=True)
+        p = subprocess.run(ROOT_PREFIX + [sys.executable, "-I", str(QUIESCENCE), "--tree", self.tree, "--wait-seconds", "15", "--browser-uid", "4242424"], capture_output=True, text=True)
         self.assertEqual((p.returncode, p.stdout.strip()), (0, "run stage quiescent"))
         self.assertLess(time.monotonic() - started, 20)
 
