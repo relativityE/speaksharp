@@ -366,6 +366,8 @@ const MODEL_FIXTURE_FILES: Readonly<Record<string, string>> = Object.freeze({
     'fixture/ort.wasm': 'application/wasm',
     'fixture/stray.html': 'application/octet-stream',
     'fixture/stray.svg': 'application/octet-stream',
+    // A package folder whose name starts with two dots (release review): inside the guarded directory, not outside it.
+    '..pkg/encoder-model.int8.onnx': 'application/octet-stream',
 });
 
 /**
@@ -470,6 +472,8 @@ describe('model assets are served as non-executable on every serving path (relea
             expect(modelAssetHeaders('/PUBLIC/Models/x/LICENSE', guard)?.['Content-Type']).toBe('text/plain; charset=utf-8');
             expect(modelAssetHeaders('/@fs/srv/app/public/models/x/vocab.txt', guard)?.['Content-Type']).toBe('text/plain; charset=utf-8');
             expect(modelAssetHeaders('/@fs/srv/app/public/models/../models/x/a.ort', guard)?.['Content-Type']).toBe('application/octet-stream');
+            expect(modelAssetHeaders('/public/models/..pkg/encoder-model.int8.onnx', guard)?.['Content-Type']).toBe('application/octet-stream');
+            expect(modelAssetHeaders('/@fs/srv/app/public/models/..pkg/encoder-model.int8.onnx', guard)?.['Content-Type']).toBe('application/octet-stream');
             expect(modelAssetHeaders('/public/favicon.ico', guard)).toBeNull();
             expect(modelAssetHeaders('/@fs/srv/app/src/main.tsx', guard)).toBeNull();
             expect(modelAssetHeaders('/public/models/x/model.onnx')).toBeNull();

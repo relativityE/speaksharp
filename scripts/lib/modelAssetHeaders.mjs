@@ -52,7 +52,11 @@ function headersForModelName(name) {
 function isInside(directory, file) {
     // Compared without case: a case-insensitive file system serves /MODELS/ and /models/ alike.
     const relativePath = path.relative(directory.toLowerCase(), file.toLowerCase());
-    return relativePath !== '' && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+    // Only a real `..` SEGMENT leaves the directory. A name that merely starts with two dots (a package folder
+    // called `..pkg`) is inside it; the earlier `startsWith('..')` test left such folders unguarded on Vite dev's
+    // /public/models/ and /@fs/ routes (release review of 359f7efd..f99627fc).
+    return relativePath !== '' && relativePath !== '..' && !relativePath.startsWith(`..${path.sep}`)
+        && !path.isAbsolute(relativePath);
 }
 
 /**

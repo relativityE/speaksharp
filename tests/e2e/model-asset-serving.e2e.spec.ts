@@ -38,6 +38,8 @@ const MODEL_FIXTURE_FILES: Readonly<Record<string, string>> = Object.freeze({
     'fixture/ort.wasm': 'application/wasm',
     'fixture/stray.html': 'application/octet-stream',
     'fixture/stray.svg': 'application/octet-stream',
+    // A package folder whose name starts with two dots (release review): inside the guarded directory, not outside it.
+    '..pkg/encoder-model.int8.onnx': 'application/octet-stream',
 });
 
 /**
