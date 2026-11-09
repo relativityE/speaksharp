@@ -1,4 +1,4 @@
-"""Manual-dispatch reservation integration (Sam 1793556225.890759, RETURN 1793556820.561729), offline, with EXPLICIT SYNTHETIC inputs only:
+"""Manual-dispatch reservation integration (RETURN ), offline, with EXPLICIT SYNTHETIC inputs only:
 the synthetic full-coverage request fixture, a synthetic bootstrap and period scope accepted through test-only pins, synthetic run-record
 bytes, and the real state-ref writer on a temporary bare repository. Reserve -> counted by the rollup as G5 would charge it -> settle from
 verified record bytes; headroom boundary, staleness, admission, scope, period, identity and replay negatives."""
@@ -38,8 +38,8 @@ class ManualReservation(Journal):
         request = json.loads(read(request_path("R7-full-coverage-proposal.json")))
         request["approvedLimits"]["runCapRequests"] = request["estimate"]["requests"]["runCap"]
         # the request's own approval references, which the action approval must name (init_run_inputs.check_action_approval)
-        request["approvedLimits"].update(approvalRef="slack:1793555433.084449", approvedBy="synthetic-owner")
-        request["selectionApprovalRef"] = "slack:1793555433.084449"
+        request["approvedLimits"].update(approvalRef="slack:1000000002.000002", approvedBy="synthetic-owner")
+        request["selectionApprovalRef"] = "slack:1000000002.000002"
         self.req = json.dumps(request, sort_keys=True).encode()
         self.sha = hashlib.sha256(self.req).hexdigest()
         self.scope = scope_raw()
@@ -91,7 +91,7 @@ class ManualReservation(Journal):
         return i
 
     def test_the_writer_admits_the_action_approval_before_any_append(self):
-        # #1772 RETURN 1793645360.787039 #2 (broken before: the reserve was appended with no approval check, so an invalid or stale approval
+        # #1772 RETURN #2 (broken before: the reserve was appended with no approval check, so an invalid or stale approval
         # consumed caps and left an open reservation). Every refusal leaves the journal head unchanged.
         before = self.head()
         stale = self.facts()
@@ -115,7 +115,7 @@ class ManualReservation(Journal):
         self.assertNotEqual(self.head(), moved)
 
     def test_the_writer_never_uses_a_configured_checkout_as_its_transport(self):
-        # #1772 RETURN 1793645360.787039 #1: the workflow checkout has remotes and config, which the writer refuses (unsafe-git-config);
+        # #1772 RETURN #1: the workflow checkout has remotes and config, which the writer refuses (unsafe-git-config);
         # without --repo the CLI uses a fresh `git init` repository that passes the same check.
         hostile = os.path.join(self.d, "checkout-like")
         subprocess.run(["git", "init", "-q", hostile], check=True)
@@ -128,7 +128,7 @@ class ManualReservation(Journal):
         self.assertEqual(os.listdir(os.path.dirname(isolated)).count(os.path.basename(isolated)), 1)
 
     def test_a_settle_from_the_closed_input_keeps_the_run_records_own_digest_as_evidence(self):
-        # #1772 RETURN 1793645360.787039 #3 (broken before: the evidence became the projection's digest, losing the run record's provenance)
+        # #1772 RETURN #3 (broken before: the evidence became the projection's digest, losing the run record's provenance)
         import settle_input
         self.execute("reserve", self.reserve_inputs(), "r")
         projection = settle_input.project(self.record())
@@ -172,6 +172,28 @@ class ManualReservation(Journal):
             self.assertIsNone(unmeasured["requests"])
             self.assertEqual(M.settle(e, unmeasured, EVIDENCE, AT)["allocation"]["requests"], 4342,
                              "either unknown component keeps the full reserved G5 request charge")
+
+    def test_coaching_settles_at_zero_only_on_the_explicit_verified_pre_identity_zero(self):
+        """Consultant P1-4, narrowed on review of 7e07474b: zero Starts and takes alone never imply zero coaching; only the collector's
+        explicit pre-identity coachingRequests 0, beside zero identity reads, Starts and takes, does. Contradictory evidence refuses."""
+        e = self.reserved()
+        usage, _ = M.usage_from_record(self.record(requests=10, identityReads=0, starts=0, takes=0, coachingRequests=0), e)
+        self.assertEqual(usage, {"requests": 10, "identityReads": 0, "starts": 0, "takes": 0, "coachingRequests": 0, "runnerMinutes": None})
+        settled = M.settle(e, usage, EVIDENCE, AT)["allocation"]
+        self.assertEqual((settled["coachingRequests"], settled["runnerMinutes"]), (0, ALLOCATION["runnerMinutes"]))
+        implied, _ = M.usage_from_record(self.record(requests=10, identityReads=0, starts=0, takes=0), e)
+        self.assertIsNone(implied["coachingRequests"], "no inference from zero Starts and takes")
+        for label, spend in {"three coaching requests": dict(coachingRequests=3), "not an int": dict(coachingRequests="0")}.items():
+            with self.subTest(label):
+                kept, _ = M.usage_from_record(self.record(**dict(requests=10, identityReads=0, starts=0, takes=0), **spend), e)
+                self.assertIsNone(kept["coachingRequests"], "never settled below the cap")
+        for label, spend in {"a coaching count in the categories": dict(coachingRequests=0, byCategory={"coaching": 3}),
+                             "a Start": dict(coachingRequests=0, starts=1), "a take": dict(coachingRequests=0, takes=1),
+                             "an identity read": dict(coachingRequests=0, identityReads=1),
+                             "unmeasured takes": dict(coachingRequests=0, takes=None)}.items():
+            with self.subTest(label):
+                base = dict(requests=10, identityReads=0, starts=0, takes=0)
+                self.refused("manual-settle-usage-contradictory", M.usage_from_record, self.record(**dict(base, **spend)), e)
 
     def test_headroom_is_recomputed_at_the_proposed_head(self):
         self.refused("manual-reservation-exceeds-headroom", M.reserve, self.req, self.sha, RUN, self.receive(scope(carryover="historical")), self.head(), AT)
@@ -239,6 +261,67 @@ class ManualReservation(Journal):
         self.assertEqual((self.receive()["outstandingReservations"], self.receive()["requests"]["conservativeUsed"]), (0, 2930))
         self.refused("manual-reservation-transition-without-open-reservation", self.execute, "settle", settle, "s2")
         self.refused("manual-reservation-not-reserved", self.execute, "settle", dict(settle, runId="41400000009"), "s3")
+
+    def test_reserve_check_admits_exactly_as_reserve_does_and_writes_nothing(self):
+        """Consultant P2-3: the pre-dispatch check runs every read and admission check of the reserve at the current head and appends
+        nothing; it defers when the journal ends with an open reserve (that attempt is recovered first by the dispatch's own path), and
+        it refuses exactly where the reserve would."""
+        def check(inputs, name):
+            d = os.path.join(self.d, name)
+            os.mkdir(d)
+            return M.execute("reserve", inputs, self.repo, self.remote, self.root, os.path.join(d, "journal.json"),
+                             os.path.join(d, "receipt.json"), self.all_pins, self.remote, dry_run=True)
+        before = self.head()
+        would = check(self.reserve_inputs(), "c1")
+        self.assertEqual((would["type"], would["runId"], would["allocation"]), ("reserve", RUN, ALLOCATION))
+        self.assertEqual(self.head(), before, "the check appends nothing")
+        self.assertFalse(os.path.exists(os.path.join(self.d, "c1", "journal.json")))
+        real = self.execute("reserve", self.reserve_inputs(), "r1")
+        self.assertEqual(real, would, "the check predicts the real reserve's event exactly")
+        # Codex P1 on 655d229b: an open reserve is not a bare deferral (that blocked recovery) and not unvalidated success; the admission
+        # runs on the chain as it will stand after this dispatch's own recovery settles the open attempt.
+        seen = []
+        real_admit = M.admit_action_approval
+        before_open = self.head()
+
+        def capture(facts, request, sha, checkpoint, source_repo=None, chain=None):
+            seen.append((json.loads(checkpoint), chain[-1][1][-1]))
+        with mock.patch.object(M, "admit_action_approval", capture):
+            post = check(dict(self.reserve_inputs(), runId="41400000077"), "c2")
+        self.assertEqual((post["type"], post["runId"]), ("reserve", "41400000077"))
+        checkpoint, last = seen[0]
+        self.assertEqual((checkpoint["outstandingReservations"], checkpoint["headSha"]), (0, M.RECOVERY_HYPOTHESIS_SHA))
+        self.assertEqual((last["type"], last["runId"], last["allocation"]["requests"], last["allocation"]["identityReads"]),
+                         ("settle", RUN, 0, 0), "the hypothetical recovery is the zero-usage settle-unexecuted form")
+        self.assertEqual(last["allocation"]["runnerMinutes"], ALLOCATION["runnerMinutes"], "runner minutes taken at the reserved cap")
+        self.assertEqual(self.head(), before_open, "the post-recovery check writes nothing")
+        with mock.patch.object(M, "admit_action_approval", lambda *a, **k: (_ for _ in ()).throw(M.Refused("manual-action-approval-checkpoint"))):
+            self.refused("manual-action-approval-checkpoint", check, dict(self.reserve_inputs(), runId="41400000078"), "c2b")
+        self.assertEqual(self.head(), before_open, "nothing is written either way")
+        self.assertIs(M.admit_action_approval, real_admit)
+        settle = {"campaignId": "R7-full-coverage", "runId": RUN, "record": self.record(), "scope": self.scope, "atUtc": AT}
+        self.execute("settle", settle, "s1")
+        self.refused("manual-reservation-outside-period", check, dict(self.reserve_inputs(), atUtc="2099-01-01T00:00:00Z"), "c3")
+        with self.assertRaises(M.Refused):
+            M.execute("settle", settle, self.repo, self.remote, self.root, os.path.join(self.d, "j"), os.path.join(self.d, "o"),
+                      self.all_pins, self.remote, dry_run=True)
+
+    def test_an_unevaluated_reserve_check_is_a_refusal_at_the_cli(self):
+        """Review of 50647108: the CLI never reports a check that evaluated nothing as success."""
+        d = os.path.join(self.d, "cli")
+        os.mkdir(d)
+        paths = {}
+        for name, data in (("req", self.req), ("facts", b"{}"), ("boot", b"{}"), ("scope", b"{}")):
+            paths[name] = os.path.join(d, name)
+            with open(paths[name], "wb") as f:
+                f.write(data)
+        argv = ["manual_reservation.py", "reserve-check", "--journal", os.path.join(d, "j"), "--out", os.path.join(d, "o"), "--request",
+                paths["req"], "--admitted-sha256", self.sha, "--run-id", RUN, "--facts", paths["facts"], "--bootstrap", paths["boot"],
+                "--scope", paths["scope"]]
+        for returned, code in ((None, 78), ({"type": "reserve"}, 0)):   # None: nothing evaluated, never success
+            with self.subTest(returned=returned), mock.patch.object(M, "activated", lambda: True), \
+                    mock.patch.object(M, "execute", lambda *a, **k: returned), mock.patch.object(M, "_isolated_repo", lambda: d):
+                self.assertEqual(M.main(argv), code)
 
     def test_the_reserve_path_sends_a_current_format_long_token_and_refuses_an_injected_one_before_any_append(self):
         """Run 41933223835 refused manual-reservation-push-token-missing on GitHub's ~520-character GITHUB_TOKEN. Offline, the whole
@@ -401,7 +484,7 @@ class ManualReservation(Journal):
         self.execute("settle", dict(late, atUtc="2026-12-01T23:59:59Z"), "s4")
         self.assertEqual(self.receive()["outstandingReservations"], 0)
 
-    # ---- settle-unexecuted: a reserved attempt whose live job failed in setup (the real run 41960376782; any such run, Sam 1793881491.714239) ----
+    # ---- settle-unexecuted: a reserved attempt whose live job failed in setup (the real run 41960376782; any such run) ----
     UNEXEC_RUN = "41960376782"
 
     def unexec(self, scope_bytes=None):
@@ -498,10 +581,10 @@ class ManualReservation(Journal):
 
     def test_the_release_event_needs_never_started_and_an_approval(self):
         e = self.reserved()
-        self.refused("manual-release-run-started", M.release, e, True, "slack-1793556225.890759", AT)
-        self.refused("manual-release-run-started", M.release, e, None, "slack-1793556225.890759", AT)
+        self.refused("manual-release-run-started", M.release, e, True, "slack-1000000021.000021", AT)
+        self.refused("manual-release-run-started", M.release, e, None, "slack-1000000021.000021", AT)
         self.refused("manual-release-approval", M.release, e, False, "free text", AT)
-        self.assertEqual(M.release(e, False, "slack-1793556225.890759", AT)["allocation"], ALLOCATION)
+        self.assertEqual(M.release(e, False, "slack-1000000021.000021", AT)["allocation"], ALLOCATION)
 
     def test_the_activated_cli_still_refuses_unreadable_inputs(self):
         expected = {
@@ -518,7 +601,7 @@ class ManualReservation(Journal):
                          ("92d6ebf902351750c368d7d513116c6b1f19f80c",
                           "0a3e60271dc703f12cf02684450a9f74bc7f60d5c3f610a86bb9eaddc268f174",
                           "92d6ebf902351750c368d7d513116c6b1f19f80c",
-                          "ee4d3d5ea2c343433ff2b1d7fd36aecdf5ca1438faf0836402d18ac74ddbe397"))
+                          "ab44af95da89cb07e28c6680f0f2e92278574f6c6bd4611dfb15afe60416eff4"))
 
 
 if __name__ == "__main__":

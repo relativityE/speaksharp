@@ -1,5 +1,5 @@
 """The nightly campaign's reserve and settle on the state-ref journal the continuity rollup reads, with G11 over that same journal (RETURN
-1793572741.370569). Offline: a synthetic bare-repository journal, synthetic approvals and records; no reservation file, no network."""
+). Offline: a synthetic bare-repository journal, synthetic approvals and records; no reservation file, no network."""
 import hashlib
 import json
 import os
@@ -92,7 +92,7 @@ class NightlyJournalReservation(Journal):
         self.refused("reservation-not-held", RES.journal_require, self.chain(), self.req["runId"], "123", self.sha)
 
     def test_admission_discounts_the_held_reservation_once_in_all_four_dimensions(self):
-        # #1772 Code finding 4447628949 (Sam 1793653087.495259): journal -> accepted rollup -> validator at an exact fit. The run's own reserve
+        # #1772 Code finding 4447628949 : journal -> accepted rollup -> validator at an exact fit. The run's own reserve
         # is already counted, so admission subtracts its held requests (run cap + identity charge), identity reads, Starts and takes once;
         # another request's reservation and this run's own Case 10 observation reserve stay charged in full.
         import validate_run_request as V
@@ -134,7 +134,7 @@ class NightlyJournalReservation(Journal):
                                "atUtc": "2026-11-02T03:02:00Z"})
             self.assertTrue(admission(), "a global charge is never discounted: %s" % extra)
             self.append_event({"type": "release", "campaignId": "manual-other", "runId": run, "attempt": 1,
-                               "allocation": dict({k: 0 for k in W.CATS}, **extra), "provenance": "approval:slack-1793653087.495259",
+                               "allocation": dict({k: 0 for k in W.CATS}, **extra), "provenance": "approval:slack-1000000007.000007",
                                "atUtc": "2026-11-02T03:03:00Z"})
         self.assertEqual(admission(), [])
         self.append_event({"type": "reserve", "campaignId": self.req["runId"], "runId": "124", "attempt": 1, "allocation": held,
@@ -175,7 +175,7 @@ class NightlyJournalReservation(Journal):
         at = datetime(2026, 11, 2, 3, 1, tzinfo=timezone.utc)
         early = os.path.join(self.d, "snapshot-before-reserve.json")
         self.assertEqual(self.cli("journal-snapshot", out=early), 0)
-        # Sam 1793592133.133339: G11 admits only a snapshot that holds THIS run's open reserve for the admitted request digest
+        # G11 admits only a snapshot that holds THIS run's open reserve for the admitted request digest
         from unittest import mock
         pinned = (mock.patch.object(G, "JOURNAL_URL", self.remote), mock.patch.object(G, "JOURNAL_ROOT", self.root))
         for m in pinned:
@@ -220,13 +220,13 @@ class NightlyJournalReservation(Journal):
 
 
 class SealedUsageNeverHidesAReservation(unittest.TestCase):
-    """Sam 1793574755.351569: an outstanding reservation is suppressed only by usable sealed usage; missing or invalid time stays counted."""
+    """an outstanding reservation is suppressed only by usable sealed usage; missing or invalid time stays counted."""
     CAPS = {"requests": 100, "identityReads": 2, "starts": 3, "takes": 4, "coachingRequests": 5, "runnerMinutes": 6}
 
     def fold(self, entries, approval_over=None):
         from recurring_usage import usage
         ledger = RES.append(RES.empty(), {"event": "reserve", "runId": "nightly-x", "atUtc": "2026-11-02T03:01:00Z", "caps": dict(self.CAPS),
-                                          "requestConsumption": {}, "ref": "slack:1793553158.013909"})
+                                          "requestConsumption": {}, "ref": "slack:1000000008.000008"})
         ap = dict(json.loads(approval()), **(approval_over or {}))
         return usage(ap, {"entries": entries}, ledger, None)
 

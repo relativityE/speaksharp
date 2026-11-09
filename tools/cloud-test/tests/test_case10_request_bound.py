@@ -162,7 +162,7 @@ class ArithmeticOnly(unittest.TestCase):
 
 
 class ObservationVariant(unittest.TestCase):
-    """Design A (Sam 1793570217.800529): a row pinning an observationContract takes ONLY a fresh observation, admitted by
+    """Design A : a row pinning an observationContract takes ONLY a fresh observation, admitted by
     case10_observation for this request digest, run, attempt and time; the legacy record path is unchanged for other rows."""
     def setUp(self):
         import json as _json
@@ -219,7 +219,7 @@ class ObservationVariant(unittest.TestCase):
 
 
 class ObservationAtTheBuilder(unittest.TestCase):
-    """The released build_plan.py call site (Jensen 1793572039.059739) passes the bound request digest, GITHUB_RUN_ID and the builder's own
+    """The released build_plan.py call site passes the bound request digest, GITHUB_RUN_ID and the builder's own
     time, so the REAL phase-1 binding admits an observation-contract row only with a fresh observation for this request and run."""
     ACCOUNT = "00000000-0000-4000-8000-000000000001"
 

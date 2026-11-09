@@ -1,4 +1,4 @@
-"""The GitHub nightly regression's one immutable request per scheduled occurrence (Sam 1793553158.013909, RETURN 1793553793.785919), offline
+"""The GitHub nightly regression's one immutable request per scheduled occurrence (RETURN ), offline
 only. Every approval, template and budget here is SYNTHETIC test data supplied through test-only overrides; the production anchors stay unset and
 the committed recurring-approval.json stays NOT APPROVED, so production derivation refuses."""
 import copy
@@ -35,7 +35,7 @@ OCCURRENCE = "nightly-20261101T0000Z-20261102T0300Z"
 
 def approval(**over):
     """Synthetic standing approval within the package's full-mode limits (6000 requests, 32 identity reads, 330 minutes, 360 runner minutes)."""
-    ap = {"schema": "speaksharp.cloud-test.recurring-approval.v1", "status": "APPROVED", "approvedBy": "owner", "approvalRef": "slack:1793553158.013909",
+    ap = {"schema": "speaksharp.cloud-test.recurring-approval.v1", "status": "APPROVED", "approvedBy": "owner", "approvalRef": "slack:1000000008.000008",
           "approvedAtUtc": "2026-10-31T12:00:00Z", "validFromUtc": "2026-10-31T12:00:00Z", "expiresUtc": "2026-12-15T00:00:00Z",
           "periodStartUtc": "2026-11-01T00:00:00Z", "cadence": {"runsPerPeriod": 30, "period": "30 days"},
           "perRunCaps": {"runCapRequests": 4400, "identityReads": 32, "starts": 42, "takes": 40, "coachingRequests": 15, "windowMinutes": 330,
@@ -225,8 +225,8 @@ class Derivation(unittest.TestCase):
         refused(self, "nightly-need-exceeds-approval", derive, ap=approval(perRunCaps={"githubRunnerMinutes": 358}))
         self.assertTrue(derive(ap=approval(perRunCaps={"githubRunnerMinutes": 359})))
         refused(self, "nightly-workflow-timeouts", derive, wf=WF.replace(
-            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '65' || '340') }}",
-            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '66' || '340') }}"))
+            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '85' || '340') }}",
+            "    timeout-minutes: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '86' || '340') }}"))
 
     def test_the_derived_request_passes_the_ordinary_validator_as_one_contract(self):
         import validate_run_request as V
@@ -263,7 +263,7 @@ class Derivation(unittest.TestCase):
         raw = derive()
         self.assertEqual(N.check_fit(raw, SLOT + timedelta(minutes=1), CFG, WF), 304)  # 15 setup + 304 live + 10 collect = 329 of 330 minutes
         refused(self, "nightly-run-would-outlast-window", N.check_fit, raw, SLOT + timedelta(minutes=1, seconds=1), CFG, WF)
-        # Sam 1793554593.723039: a 360-minute nightly window covers the maximum 30-minute trigger delay; it stays anchored to the slot.
+        # a 360-minute nightly window covers the maximum 30-minute trigger delay; it stays anchored to the slot.
         self.assertEqual(N.NIGHTLY_MAX_WINDOW_MINUTES, 360)
         self.assertEqual(CFG["modes"]["full"]["limits"]["maxWindowMinutes"], 330, "the package config (and manual runs) are unchanged")
         wide = derive(ap=approval(perRunCaps={"windowMinutes": 360}))
@@ -287,7 +287,7 @@ class Derivation(unittest.TestCase):
         pins = {"template_pin": TEMPLATE_PIN, "budget_pin": hashlib.sha256(budget()).hexdigest()}
         refused(self, "nightly-template-not-anchored", N.verify, raw, TEMPLATE + b" ", *args[1:], **pins)
         refused(self, "nightly-budget-not-anchored", N.verify, raw, TEMPLATE, approval(), budget(coaching={"cap": 14}), *args[3:], **pins)
-        refused(self, "nightly-request-not-the-derivation", N.verify, raw, TEMPLATE, approval(approvalRef="slack:1793553999.000001"), *args[2:], **pins)
+        refused(self, "nightly-request-not-the-derivation", N.verify, raw, TEMPLATE, approval(approvalRef="slack:1000000020.000020"), *args[2:], **pins)
         sub = json.loads(raw)
         sub["window"]["endUtc"] = "2026-11-02T23:00:00Z"
         sub["approvedLimits"]["runCapRequests"] = 99999
@@ -315,7 +315,7 @@ class Derivation(unittest.TestCase):
 
 
 class NightlyChecks(unittest.TestCase):
-    """The two nightly-only checks layered on #1772's derivation (Sam 1793617478.811419)."""
+    """The two nightly-only checks layered on #1772's derivation ."""
     def test_the_estimate_split_is_the_accepted_budgets_and_the_template_rows_own(self):
         q = json.loads(derive())["estimate"]["requests"]
         self.assertEqual((q["planned"], q["cleanupReserve"], q["pooledSlack"], q["runCap"]), (3610, 150, 550, 4310))

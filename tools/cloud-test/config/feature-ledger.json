@@ -10,7 +10,7 @@
       "commit": null,
       "review": {
         "outcome": "approved",
-        "reviewedBy": "Sam (independent Codex source review)",
+        "reviewedBy": "independent reviewer (Codex source review)",
         "reviewRef": "codex-source-review:0d1047f31d5ddde09a90081c613a92307df83682:FEAT-R5-OBJECTIVE-PUBLICATION",
         "reviewedAtUtc": "2026-11-03T00:12:29Z"
       },

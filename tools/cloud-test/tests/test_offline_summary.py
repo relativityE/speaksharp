@@ -1,4 +1,4 @@
-"""The public offline summary is exact and fails closed (Sam RETURN 1793373703): names, statuses and counts only."""
+"""The public offline summary is exact and fails closed (the reviewer RETURN ): names, statuses and counts only."""
 import copy
 import json
 from pathlib import Path
@@ -197,7 +197,7 @@ def real_unittest(source):
 
 
 class Delivery(unittest.TestCase):
-    """PO 2026-10-30 via Sam 1793398305: the delivery is the GitHub workflow passing with NO skips. Any skip, error, failure, N/A, missing,
+    """PO 2026-10-30 via the delivery is the GitHub workflow passing with NO skips. Any skip, error, failure, N/A, missing,
     unparseable or empty suite count, or a proof the workflow did not supply, is refused."""
 
     def required(self, suite="package-unit-tests", output=UNITTEST_CLEAN, passed=True):
@@ -251,7 +251,7 @@ class Delivery(unittest.TestCase):
         self.assertNotDelivered(self.required("report-builder-tests", ""), "COUNTS_MISSING:report-builder-tests")
 
     def test_an_ambiguous_or_contradicted_result_is_refused(self):
-        # Sam 1793398852: a valid summary followed by a second (even truncated) summary or a contradictory status is not one
+        # a valid summary followed by a second (even truncated) summary or a contradictory status is not one
         # unambiguous result, and never yields delivery.
         clean = "Ran 9 tests in 1.0s\n\nOK\n"
         for output in (clean + "Ran 10 tests\n", clean + "FAILED (errors=1)\n", clean + "Ran 10 tests in 2.0s\n\nOK\n",
@@ -275,7 +275,7 @@ class Delivery(unittest.TestCase):
 
 
 class Equivalence(unittest.TestCase):
-    """The equivalence contract (Sam 1793406369, 1793406609, 1793406980; file set 1793407393; manifest 1793408198). MATCHED means equal observations of
+    """The equivalence contract (file set ; manifest ). MATCHED means equal observations of
     equal inputs only; each run keeps its own gate. The ten reviewed controls, plus the aggregation and inventory rules."""
 
     def summary(self, mutate=None):
@@ -321,7 +321,7 @@ class Equivalence(unittest.TestCase):
         b = self.summary(lambda d: d["identity"].update(git={"headTree": None, "packageClean": None}))
         cmp = s.compare(self.summary(), b)
         self.assertEqual((cmp["state"], cmp["diagnostics"]), ("MATCHED", {"gitHeadTreeEqual": None}))
-        # Tree equality is a diagnostic for an external check (Sam 1793448573): it is reported, never decisive.
+        # Tree equality is a diagnostic for an external check : it is reported, never decisive.
         b = self.summary(lambda d: d["identity"]["git"].update(headTree="2" * 40))
         cmp = s.compare(self.summary(), b)
         self.assertEqual((cmp["state"], cmp["diagnostics"]), ("MATCHED", {"gitHeadTreeEqual": False}))
@@ -422,7 +422,7 @@ class Equivalence(unittest.TestCase):
         self.assertEqual(s.compare(self.summary(), b)["codes"], ["PINS_UNVERIFIED"])
 
     def test_a_recorded_failure_never_hides_behind_zero_counters_and_a_printed_ok(self):
-        # Sam 1793410315: the per-id record says failure; the callback counters say 0 and the printed line says OK.
+        # the per-id record says failure; the callback counters say 0 and the printed line says OK.
         out = self.summary(lambda d: by_id(d, "package-unit-tests")["results"]["tests"][0].update(outcomes=["failure"]))
         self.assertIn("COUNTS_DISAGREE:package-unit-tests", out["equivalence"]["inventory"]["codes"])
         self.assertIn("UNSUCCESSFUL_OUTCOMES:package-unit-tests", out["deliveryRefusals"])
@@ -437,7 +437,7 @@ class Equivalence(unittest.TestCase):
             unit.update(passed=False, stderr="Ran %d tests in 1.0s\n\nFAILED (failures=1, errors=1)\n" % n)
         out = self.summary(teardown)
         inv = out["equivalence"]["inventory"]
-        self.assertEqual((inv["status"], inv["codes"]), ("COMPLETE", []), "two unsuccessful callbacks are legitimate evidence (Sam 1793410430)")
+        self.assertEqual((inv["status"], inv["codes"]), ("COMPLETE", []), "two unsuccessful callbacks are legitimate evidence")
         row = inv["executed"][[e[0] for e in inv["executed"]].index("package-unit-tests::" + REQUIRED["package-unit-tests"][0])]
         self.assertEqual(row[1:], ["error", {}, {"error": 1, "failure": 1}], "worst outcome first, and the failure is retained")
         self.assertIn("UNSUCCESSFUL_OUTCOMES:package-unit-tests", out["deliveryRefusals"])
@@ -450,7 +450,7 @@ class Equivalence(unittest.TestCase):
             b = self.summary()
             b["equivalence"]["inventory"]["executed"][0][j] = {"failure": value}
             self.assertEqual(s.compare(self.summary(), b)["codes"], ["b:SUMMARY_INVALID"], (j, value))
-        # Sam 1793410731: every count a comparison reads, including the summary-row test counts.
+        # every count a comparison reads, including the summary-row test counts.
         for key, value in (("ran", True), ("failures", -1), ("errors", False), ("skipped", "0"), ("ran", 1.0)):
             b = self.summary()
             by_id(b, "package-unit-tests")["tests"][key] = value
@@ -478,7 +478,7 @@ class Equivalence(unittest.TestCase):
             self.assertFalse(out["delivered"], outcome)
 
     def test_a_valid_failure_map_under_a_success_aggregate_or_clean_counts_is_refused(self):
-        # Sam 1793410909: a positive, well-formed failure map with both digests recomputed must not pass as a clean, delivered row.
+        # a positive, well-formed failure map with both digests recomputed must not pass as a clean, delivered row.
         def forge(flip_aggregate):
             b = self.summary()
             eq = b["equivalence"]
@@ -529,7 +529,7 @@ class Equivalence(unittest.TestCase):
         return b
 
     def test_coverage_is_verified_against_the_comparers_own_manifest(self):
-        # Sam 1793448573 P1: removal, substitution and equally truncated peers, each with every digest recomputed, never pass or MATCH.
+        # P1: removal, substitution and equally truncated peers, each with every digest recomputed, never pass or MATCH.
         removed = self.forge_coverage(lambda ex: ex.pop(3))
         cmp = s.compare(self.summary(), removed)
         self.assertEqual(cmp["state"], "INCOMPLETE")
@@ -546,7 +546,7 @@ class Equivalence(unittest.TestCase):
         self.assertEqual(s.compare(self.summary(), claims)["codes"], ["b:SUMMARY_INVALID"], "COMPLETE with codes is contradictory")
 
     def test_file_set_and_input_state_relationships_hold_or_the_identity_is_refused(self):
-        # Sam 1793448573 P2: contradictory, missing-input and hashless-BOUND shapes.
+        # P2: contradictory, missing-input and hashless-BOUND shapes.
         for mutate in (lambda i: i["fileSet"].update(symlinks=1),
                        lambda i: i["fileSet"].update(scanErrors=2),
                        lambda i: i["fileSet"].update(missing=["scripts/x.py"]),
@@ -565,7 +565,7 @@ class Equivalence(unittest.TestCase):
         self.assertEqual({x["name"] for x in run_offline_checks.external_inputs()}, s.REQUIRED_INPUTS, "the required set is exactly what the runner emits")
 
     def test_a_malformed_nested_identity_is_incomplete_never_an_exception(self):
-        # Sam 1793448573 P3.
+        # P3.
         for bad in ({}, {"fileSet": []}, {"fileSet": {}, "pins": {}}, "identity", ["fileSet"], 7):
             b = self.summary()
             b["equivalence"]["identity"] = bad
@@ -574,7 +574,7 @@ class Equivalence(unittest.TestCase):
             self.assertIn("b:IDENTITY_MALFORMED", cmp["codes"], bad)
 
     def test_a_malformed_manifest_is_classified_never_an_exception(self):
-        # Sam 1793448849: unreadable, non-JSON, wrong-shaped, mixed-type and undecodable manifests are classified on both paths.
+        # unreadable, non-JSON, wrong-shaped, mixed-type and undecodable manifests are classified on both paths.
         import tempfile
         from unittest import mock
         a_good, b_good = self.summary(), self.summary()
@@ -597,7 +597,7 @@ class Equivalence(unittest.TestCase):
         return next(x for x in inputs if x["name"] == name)
 
     def test_external_inputs_keep_the_families_the_runner_emits(self):
-        # Sam 1793449337: relabelled families are refused; equally relabelled peers with recomputed digests never MATCH; valid shapes still pass.
+        # relabelled families are refused; equally relabelled peers with recomputed digests never MATCH; valid shapes still pass.
         relabel = (("override-focus_oracle", dict(state="BOUND", source="env", path=".github/x.yml", sha256="a" * 64)),
                    ("override-focus_oracle", dict(state="UNKNOWN", source="default")),
                    ("override-focus_oracle", dict(state="UNSET", source="env")),
@@ -631,7 +631,7 @@ class Equivalence(unittest.TestCase):
         self.assertEqual(s.compare(a, b)["state"], "UNKNOWN")
 
     def test_the_verdict_fields_are_validated_before_any_sort(self):
-        # Sam 1793449337: wrong containers and mixed elements are classified; valid empty and non-empty refusal lists still compare.
+        # wrong containers and mixed elements are classified; valid empty and non-empty refusal lists still compare.
         for bad in ([1, "x"], ["x", None], "INVENTORY_INCOMPLETE", {"x": 1}, None, 7):
             b = self.summary()
             b["deliveryRefusals"] = bad

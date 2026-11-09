@@ -231,7 +231,7 @@ def original_record_digest(raw, record_digest):
 
 
 def journal_reserve(request_raw, admitted_sha256, github_run_id, attempt, approval, rollup, chain, expected_head, at_utc):
-    """The nightly campaign's reserve event for the state-ref journal (RETURN 1793572741.370569), or a refusal: attempt 1; the accepted
+    """The nightly campaign's reserve event for the state-ref journal (RETURN ), or a refusal: attempt 1; the accepted
     rollup recomputed at exactly `expected_head` (the head it will be appended on) holds G5's charge; and G11's standing-approval limits
     (per run, cadence, period caps) hold over the SAME journal's period usage."""
     import manual_reservation as M

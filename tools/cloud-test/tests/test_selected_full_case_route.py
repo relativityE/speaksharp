@@ -51,7 +51,8 @@ class SelectedFullCaseRoute(unittest.TestCase):
         reconciliation_file.write_text(json.dumps(synthetic_reconciliation()))
         request_sha = hashlib.sha256(request_file.read_bytes()).hexdigest()
         result = subprocess.run([sys.executable, "-I", str(Path(ROOT) / "scripts/run_env.py"), "--request", str(request_file),
-                                 "--request-sha256", request_sha, "--reconciliation", str(reconciliation_file), "--out", str(output)],
+                                 "--request-sha256", request_sha, "--reconciliation", str(reconciliation_file),
+                                 "--execution-deadline", request["window"]["endUtc"], "--out", str(output)],
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         values = {}
@@ -110,6 +111,7 @@ class SelectedFullCaseRoute(unittest.TestCase):
                                                 "observedBinarySha256": hashlib.sha256(browser.read_bytes()).hexdigest()}))
         env = {"PATH": os.environ["PATH"], "HOME": str(root), "CT_CONFIG": str(config_path or (Path(ROOT) / "config/test-config.v1.json")),
                "CT_OUT": str(output), "CT_REQUEST": str(req), "CT_REQUEST_SHA256": request_sha, "CT_CHECKOUT": REPO, "CT_FACTS_FILE": str(facts),
+               "CT_EXECUTION_DEADLINE": json.loads(Path(req).read_text())["window"]["endUtc"],
                "CT_LIVE_ACCOUNTS_FILE": str(accounts), "CT_LIVE_ACCOUNTS_SHA256": hashlib.sha256(accounts.read_bytes()).hexdigest(),
                "CT_PRIVATE_INPUT_DIR": str(root / "run-inputs"), "BP_BROWSER_IDENTITY": str(browser_identity),
                "VITE_SUPABASE_ANON_KEY": "SYNTHETIC-PUBLISHABLE",

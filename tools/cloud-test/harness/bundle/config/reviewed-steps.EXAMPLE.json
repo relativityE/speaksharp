@@ -36,7 +36,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -88,7 +88,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -96,7 +96,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -200,11 +200,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -238,7 +242,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -290,7 +294,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -298,7 +302,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -402,11 +406,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -440,7 +448,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -492,7 +500,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -500,7 +508,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -604,11 +612,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -642,7 +654,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -694,7 +706,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -702,7 +714,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -806,11 +818,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -844,7 +860,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -896,7 +912,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -904,7 +920,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1008,11 +1024,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1046,7 +1066,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1098,7 +1118,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -1106,7 +1126,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1210,11 +1230,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1248,7 +1272,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1300,7 +1324,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -1308,7 +1332,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1412,11 +1436,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1450,7 +1478,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1502,7 +1530,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -1510,7 +1538,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1614,11 +1642,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1652,7 +1684,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1704,7 +1736,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -1712,7 +1744,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -1816,11 +1848,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -1854,7 +1890,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -1906,7 +1942,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -1914,7 +1950,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2018,11 +2054,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2056,7 +2096,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2108,7 +2148,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -2116,7 +2156,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2220,11 +2260,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2258,7 +2302,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2310,7 +2354,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -2318,7 +2362,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2422,11 +2466,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2460,7 +2508,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2512,7 +2560,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -2520,7 +2568,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2624,11 +2672,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2662,7 +2714,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2714,7 +2766,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -2722,7 +2774,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -2826,11 +2878,15 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
@@ -2864,7 +2920,7 @@
         },
         {
           "path": "draft-adapters/browser-actions.cjs",
-          "sha256": "e2954894cca7ba33691756112338cd7900181445475edee66df3eb9957e50b8b"
+          "sha256": "d19c91fa14afbb2f53946e42fad148e8a3434f96eefa29dbdf99b3e177bad676"
         },
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -2916,7 +2972,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -2924,7 +2980,7 @@
         },
         {
           "path": "draft-adapters/oracles/index.cjs",
-          "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4"
+          "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669"
         },
         {
           "path": "draft-adapters/oracles/owner-query.cjs",
@@ -3028,17 +3084,21 @@
         },
         {
           "path": "draft-adapters/source-adapters.cjs",
-          "sha256": "8792fc4747b0d5fa2a7820e24938e0fda696337924af528732d301f5bd836e6f"
+          "sha256": "549a472c77f38b57d15e05ba7a1f19e0853d2207ae8597698f4b8c4cf30adb5c"
         },
         {
           "path": "draft-adapters/source-control-crosswalk.json",
           "sha256": "e820d7a19a6c86fba4592f12f70ebb28c64f2ebb2eb1b5cbeb0cc082edbe361a"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
     {
       "path": "draft-adapters/oracles/index.cjs",
-      "sha256": "9e54cae53dc2e70fc2d0b8165d00f3f28253831f5d3ff8bd39638f8457e174f4",
+      "sha256": "78097644f08adbf1a2772047e793a5dc3ebfc5987530743504e44b3e0beb6669",
       "dependencies": [
         {
           "path": "draft-adapters/browser-observers.cjs",
@@ -3054,7 +3114,7 @@
         },
         {
           "path": "draft-adapters/oracles/feedback-association.cjs",
-          "sha256": "8dc585092ea60b55dd9fc713cdaa641e6253be9b8a400a63d74717268a3bfd16"
+          "sha256": "a021b583cd2c6f1fae88bf5d7c5f5e26df61bb3a65ace478625c3bafbc011d29"
         },
         {
           "path": "draft-adapters/oracles/feedback-sequence.cjs",
@@ -3135,6 +3195,10 @@
         {
           "path": "draft-adapters/progress-numeric.cjs",
           "sha256": "b3b71c207411c3e7ca19207ae89370fd2eb7f7b1ff4b5c078caa85387ce33c50"
+        },
+        {
+          "path": "draft-adapters/oracles/smoke-saved-focus.cjs",
+          "sha256": "f4cfae4a710e4967c77cd407f7fc9f1087bb16b8d55a3b10dc919832d9908b2a"
         }
       ]
     },
