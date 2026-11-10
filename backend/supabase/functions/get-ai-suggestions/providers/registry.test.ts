@@ -32,7 +32,7 @@ Deno.test('the catalogue builds through installed families and refuses a duplica
   assertThrows(() => buildProviders([gemini, gemini]), Error, 'duplicate id');
   assertThrows(() => buildProviders([gemini], {}), Error, 'no installed adapter');
   assertThrows(() => buildProviders([gemini], { 'gemini-generate-content': () => offline }), Error, 'does not match descriptor');
-  assertEquals(GEMINI_API_URL, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent');
+  assertEquals(GEMINI_API_URL, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent');
 });
 
 Deno.test('a missing, non-string, unknown or prototype-named selection resolves to nothing', () => {

@@ -61,7 +61,7 @@ async function withControlFetch<T>(run: () => Promise<T>): Promise<{ value: T; u
     if (!item) throw new Error('control fetch: unknown take');
     const control = INCUMBENT_CONTROLS[item.id];
     if (control.status !== 200) return new Response(JSON.stringify({ error: { status: 'UNAVAILABLE' } }), { status: control.status });
-    const modelVersion = control.modelVersion === undefined ? 'gemini-3.8-flash' : control.modelVersion;
+    const modelVersion = control.modelVersion === undefined ? 'gemini-3.6-flash' : control.modelVersion;
     return new Response(JSON.stringify({
       ...(modelVersion ? { modelVersion } : {}), candidates: [{ content: { parts: [{ text: control.text }] } }], usageMetadata: CONTROL_USAGE,
     }), { status: 200 });
@@ -138,12 +138,12 @@ Deno.test('grounding proxies: exact quotes count, invented quotes and unsupporte
 Deno.test('the incumbent through the REAL Gemini adapter, offline: every outcome class and measure from the synthetic controls', async () => {
   const { value: summary, urls, prompts } = await withControlFetch(() => evaluateProvider(geminiProvider, KEY, SET, 'offline_controls', { runtime: steppedRuntime(50) }));
   assertEquals(urls.length, 8, 'one attempt per take, no retries');
-  assertEquals(urls.every((u) => u.startsWith('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=')), true);
+  assertEquals(urls.every((u) => u.startsWith('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=')), true);
   assertEquals(prompts, SET.items.map(evaluationPrompt), 'the adapter sent exactly the evaluation prompt');
   assertEquals(summary.providerId, 'google_gemini');
   assertEquals(summary.outcomes, { none: 4, invalid_shape: 1, over_character_ceiling: 1, missing_model_version: 1, provider_http_5xx: 1 });
   assertEquals([summary.valid, summary.validRate], [4, 0.5]);
-  assertEquals(summary.modelVersions, ['gemini-3.8-flash']);
+  assertEquals(summary.modelVersions, ['gemini-3.6-flash']);
   // Of the four served: om-01, om-03 and fp-02 are within band; om-02 is a recital.
   assertEquals([summary.withinTargetRate, summary.metricRecitalRate], [0.75, 0.25]);
   assertEquals([summary.quotes, summary.ungroundedQuotes, summary.unsupportedClaimRate, summary.anchoredRate], [2, 1, 0.25, 0.75]);

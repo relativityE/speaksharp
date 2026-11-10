@@ -226,6 +226,20 @@ const coachingProfiles=Object.freeze([
     'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
     'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
     'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
+  // Coaching model back to gemini-3.6-flash (3.8 answers 503 "high demand"): only the contract's model and the test's pinned
+  // model literals change. Every other pin is exactly coaching-local-retirement-1643's; key policy unchanged.
+  {id:'coaching-model-gemini-3-6-flash',files:{...coachingClosure,
+    'package.json':'afaad509e196b4cf0d784a55b47d3f17e51409dcd91d9d7f6a2e341b175eb0ed',
+    'backend/supabase/functions/get-ai-suggestions/index.ts':'a0d5d30397c08440831f1d25022754886bc16cce75e76309014c435a9096196e',
+    'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'ecc8034bd53bd6b3b88dcbb981a6bf29be8c85d08cd031d0483e2d083e10d2a2',
+    [coachingTest]:'6ccd7e9a387aced2745b291ba2ee6dab54feea0196975a0d3d0b36d22e8ccbfc',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'70c3099769cf24ac4faf3b4c191e322e50a0f1b34228a3aa72199a8f06adbe1b',
+    'backend/supabase/functions/get-ai-suggestions/providers/catalog.ts':'59d4a83989239a71085415d9fc3eaa8b3145786db085c8de8abe35cd052eaac1',
+    'backend/supabase/functions/get-ai-suggestions/providers/gemini.ts':'dac0b17ee31b82dcbeaf01b7496013e093246843af56bb7382ae5d40f6f3f963',
+    'backend/supabase/functions/get-ai-suggestions/providers/registry.ts':'e5744505a502ecc525a3604dfa8fa687a03dc18a33b9ef9aa9080d4df12571f7',
+    'backend/supabase/functions/get-ai-suggestions/providers/types.ts':'f401085b1542bc07b514f793e1b557886ab11f72442313e8c85d89823999d0cb',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/prompt.ts':'16d40c6b1500b535bf45e0d1d07699ab509f68879c39586cf8ebd4363c7f92ee',
+    'backend/supabase/functions/get-ai-suggestions/evaluation/transcripts.json':'a4db4fdac8c4e2bd6c113d83c87ed458eac6197d99b1ccc747822bfad52b9a1a'}},
 ]);
 export function nativeDenoPolicy(file) {
   return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:[],
