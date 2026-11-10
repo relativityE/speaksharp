@@ -46,6 +46,7 @@ import { readFeedbackUiState, readPracticeActionState, type PracticeActionState 
 import { activeHumanReflexMs } from './rwtHumanReflex';
 import { resolveProductsTrigger } from './productsMenu';
 import { WATCHED_FIELDS } from './rwtWatchdog';
+import { currentRunBinding, sameRunBinding } from './runBinding';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -363,9 +364,19 @@ export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claim
  * captured UID must belong to exactly the address this run minted, and the signup must have produced its profile.
  * Returns failures, content-free; the caller turns any failure into a hard stop before the journey writes anything else.
  */
+export { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
+
+/**
+ * Identity of the freshly signed-up account (UID ↔ email, run-owned prefix, profile), then — in GitHub Actions — its run binding:
+ * app_metadata.ct_run is written once and read back. A run-owned account is never re-bound: one already carrying another run's
+ * binding is a failure.
+ */
 export async function runOwnedIdentityFailures(
     admin: {
-        auth: { admin: { getUserById: (id: string) => Promise<{ data: { user: { email?: string | null } | null }; error: { code?: string } | null }> } };
+        auth: { admin: {
+            getUserById: (id: string) => Promise<{ data: { user: { email?: string | null; app_metadata?: Record<string, unknown> } | null }; error: { code?: string } | null }>;
+            updateUserById?: (id: string, attrs: { app_metadata: Record<string, unknown> }) => Promise<{ error: { code?: string } | null }>;
+        } };
         from: (table: string) => { select: (cols: string) => { eq: (c: string, v: string) => { maybeSingle: () => Promise<{ data: unknown; error: { code?: string } | null }> } } };
     },
     uid: string,
@@ -379,6 +390,22 @@ export async function runOwnedIdentityFailures(
     const { data: profile, error: pErr } = await admin.from('user_profiles').select('id').eq('id', uid).maybeSingle();
     if (pErr) failures.push(`profile lookup failed (${pErr.code ?? 'unknown'})`);
     else if (!profile) failures.push('signup produced no user profile');
+    const binding = currentRunBinding();
+    if (failures.length === 0 && binding) {
+        const existing = (data?.user?.app_metadata as { ct_run?: unknown } | undefined)?.ct_run;
+        if (existing !== undefined && !sameRunBinding(data?.user?.app_metadata, binding)) {
+            failures.push('the account already carries another run binding');
+        } else if (existing === undefined) {
+            const { error: wErr } = admin.auth.admin.updateUserById
+                ? await admin.auth.admin.updateUserById(uid, { app_metadata: { ct_run: { ...binding } } })
+                : { error: { code: 'no_update' } };
+            if (wErr) failures.push(`run binding could not be written (${wErr.code ?? 'unknown'})`);
+            else {
+                const { data: back, error: rErr } = await admin.auth.admin.getUserById(uid);
+                if (rErr || !sameRunBinding(back?.user?.app_metadata, binding)) failures.push('run binding did not read back');
+            }
+        }
+    }
     return failures;
 }
 

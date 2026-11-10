@@ -25,6 +25,7 @@
 import { appendFileSync } from 'node:fs';
 import { expect } from '@playwright/test';
 import { isNotFoundError, pollForRecoveryUid } from './proofAuthority';
+import { currentRunBinding, sameRunBinding } from './runBinding';
 
 /**
  * Write a MACHINE-READABLE cleanup verdict for the workflow's final `if: always()` step.
@@ -76,7 +77,7 @@ type AdminClient = {
  * therefore needs no pre-delete, but it IS residue-checked below so a regression that reverted that
  * migration would fail this proof rather than silently orphan rows again.
  */
-const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.freeze([
+export const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.freeze([
     { table: 'sessions', column: 'user_id' },
     { table: 'user_profiles', column: 'id' },                       // PK = auth user id
     { table: 'user_goals', column: 'user_id' },
@@ -113,7 +114,7 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
  * Tables whose user_id FK is NOT `ON DELETE CASCADE` and must be cleared BEFORE the auth user is
  * deleted. `user_issue_reports` is deliberately excluded — see the inventory above.
  */
-const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_entitlements']);
+export const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_entitlements']);
 
 /**
  * A residue readback proves zero only when it returned a COUNTED zero. A `{ count: null, error: null }` read is an
@@ -135,6 +136,30 @@ export const RUN_OWNED_PREFIX_RE = /^(private-proof-|retention-proof-|rwt-journe
  *
  * @returns the UID that was cleaned up, or '' when no signup had been attempted.
  */
+/**
+ * The step a failed cleanup stopped at, as a CLOSED code (AHT-01 baseline run 42796353079 recorded only "deletion or residue
+ * readback failed"). Matched against this module's own throw sites; table names only from the fixed inventory above; anything
+ * else, including provider text, is `unknown`. Content-safe for a public log.
+ */
+export function cleanupFailureStep(error: unknown): string {
+    const m = String((error as { message?: unknown } | null)?.message ?? '');
+    const tables = new Set<string>([...RESIDUE_CHECKS.map((c) => c.table), ...PRE_DELETE_TABLES]);
+    const table = (re: RegExp, code: string) => { const t = re.exec(m)?.[1]; return t && tables.has(t) ? `${code}:${t}` : null; };
+    return (/^cleanup getUserById failed/.test(m) && 'get_user')
+        || (/^cleanup recovery listUsers failed/.test(m) && 'recovery_list_users')
+        || (/^cleanup_uid_email_disagreement/.test(m) && 'uid_email_disagreement')
+        || (/^cleanup_refused_non_run_owned_account/.test(m) && 'non_run_owned')
+        || (/^cleanup_run_binding_mismatch/.test(m) && 'run_binding_mismatch')
+        || (/^cleanup requires admin client/.test(m) && 'no_admin')
+        || table(/^cleanup ([a-z_]+) pre-delete failed/, 'pre_delete')
+        || (/^cleanup deleteUser failed/.test(m) && 'delete_user')
+        || ((/^post-delete verify/.test(m) || /auth user must be gone/.test(m)) && 'post_delete_verify')
+        || table(/^cleanup residue query on ([a-z_]+) failed/, 'residue_query')
+        || table(/^cleanup found run-owned residue in ([a-z_]+)/, 'residue_found')
+        || table(/^cleanup residue count on ([a-z_]+) was not a counted integer/, 'residue_unproven')
+        || 'unknown';
+}
+
 export async function cleanupRunOwnedAccount(params: {
     admin: AdminClient | null;
     capturedUid: string;
@@ -184,6 +209,11 @@ export async function cleanupRunOwnedAccount(params: {
     // internally for scoping, they are simply not printed.
     if (foundEmail !== createdEmail.toLowerCase()) throw new Error('cleanup_uid_email_disagreement (fail closed)');
     if (!foundEmail.startsWith(runOwnedPrefix)) throw new Error('cleanup_refused_non_run_owned_account (fail closed)');
+    // PO option C: an account bound to a run (app_metadata.ct_run) is deleted only by that run. An unbound account (local run,
+    // binding never written) keeps the UID/email identity above as its only proof.
+    const ctRun = (got?.user as { app_metadata?: { ct_run?: Record<string, unknown> } } | null | undefined)?.app_metadata?.ct_run;
+    const mine = currentRunBinding();
+    if (ctRun !== undefined && (!mine || !sameRunBinding({ ct_run: ctRun }, mine))) throw new Error('cleanup_run_binding_mismatch (fail closed)');
 
     for (const table of PRE_DELETE_TABLES) {
         const { error: preErr } = await admin.from(table).delete().eq('user_id', capturedUid);
