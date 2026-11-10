@@ -209,6 +209,9 @@ function externalScopeErrors(suite: string, rows: readonly ReceiptRow[]): string
 export const NON_GATING_ROWS: Readonly<Record<string, string>> = Object.freeze({
     'signup-stage telemetry received': 'PO 2026-09-28: pre-claim user-class traffic is report-only and never qualifies',
     'base_q4 primary': 'PO 2026-09-28: v4 base_q4 activation is sequenced after RWT; the pre-v4 RWT may pass without it',
+    // PO 2026-11-10 (AHT-01 decision 3): the synthetic fixture cannot establish a spoken "ah"; real speech needs a private
+    // recording set that does not exist yet. Exempt for now; a FAIL on this row still gates.
+    'filler "ah" vs corpus': 'PO 2026-11-10: the synthetic fixture cannot verify a spoken "ah"; exempt until a real-speech recording set exists',
 });
 const exempt = (r: ReceiptRow) => r.verdict === 'HOLD' && Object.prototype.hasOwnProperty.call(NON_GATING_ROWS, r.step);
 
