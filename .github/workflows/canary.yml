@@ -43,6 +43,11 @@ jobs:
 
   migration-readiness:
     needs: release-binding
+    # The database password is only ever handed to this job on protected main, inside the protected
+    # production-db environment that every other password-using job runs in. A workflow_dispatch from another
+    # branch runs that branch's copy of this file, so without both bindings a pushed branch could read it.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    environment: production-db
     name: read-only runtime migration readiness
     runs-on: ubuntu-latest
     timeout-minutes: 10

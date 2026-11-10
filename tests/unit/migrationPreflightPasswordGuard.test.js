@@ -35,6 +35,10 @@ for(const target of targets) {
       // Outcome 10: the daily canary's read-only readiness check is the ONE selected injection path. It is the
       // existing repository secret by reference, at job level, so the guard above still decides admission.
       assert.equal(job.env.SUPABASE_DB_PASSWORD,'${{ secrets.SUPABASE_DB_PASSWORD }}');
+      // ...and only on protected main, inside the protected environment every other password consumer uses, so a
+      // branch-dispatched copy of this workflow can never receive it.
+      assert.equal(job.if,"${{ github.ref == 'refs/heads/main' }}");
+      assert.equal(job.environment,'production-db');
     } else {
       assert.equal(job.env?.SUPABASE_DB_PASSWORD,undefined,'manual preflight keeps no injection');
     }
