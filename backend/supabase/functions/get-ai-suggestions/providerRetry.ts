@@ -15,7 +15,9 @@
  */
 export const PROVIDER_BUDGET_MS = 45_000;
 export const MIN_ATTEMPT_MS = 10_000;
-export const PROVIDER_ATTEMPT_CAP_MS = 20_000;
+// Give a slow answer time to finish without extending the shared 45 s budget.
+// A full 35 s timeout leaves only the minimum retry window: positive backoff cannot fit.
+export const PROVIDER_ATTEMPT_CAP_MS = 35_000;
 export const MAX_PROVIDER_ATTEMPTS = 3;
 /** Full-jitter cap for the wait AFTER attempt n (index n − 1). */
 export const JITTER_CAP_MS: readonly number[] = [1_000, 2_000];
