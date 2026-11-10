@@ -44,13 +44,13 @@ describe('HarnessParityTap', () => {
         f.press(); f.press(); f.press(); f.press();
         const r = sink();
         tap.noCloudSttRow(r);
-        tap.startPressRow(r, 6);
+        tap.startPressRow(r, { total: 6, perControl: { 'mic-start': 6, 'mic-download': 6, 'mic-retry': 6, 'verdict-practice-again': 6, 'focus-points-retry': 6 } });
         expect(r.rows.map((x) => [x.step, x.verdict])).toEqual([['no Cloud speech-to-text request', 'PASS'], ['Start presses within budget', 'PASS']]);
         f.emit('request', { url: () => 'https://api.AssemblyAI.com/v2/realtime/token', method: () => 'POST' });
         f.press(); f.press(); f.press();
         const r2 = sink();
         tap.noCloudSttRow(r2);
-        tap.startPressRow(r2, 6);
+        tap.startPressRow(r2, { total: 6, perControl: { 'mic-start': 6, 'mic-download': 6, 'mic-retry': 6, 'verdict-practice-again': 6, 'focus-points-retry': 6 } });
         expect(r2.rows.map((x) => x.verdict)).toEqual(['FAIL', 'FAIL']);
         expect(r2.rows[1].evidence).toMatchObject({ startPresses: 7, 'presses:mic-start': 7, leaseAcquisitionsDiagnostic: 0, cap: 6 });
         expect(CLOUD_STT_URL.test('https://streaming.assemblyai.com')).toBe(true);
@@ -77,7 +77,7 @@ describe('HarnessParityTap', () => {
         for (let i = 0; i < 4; i++) { f.press('mic-start'); f.emit('request', lease); }
         for (let i = 0; i < 3; i++) f.press('mic-retry');
         const r = sink();
-        tap.startPressRow(r, 6);
+        tap.startPressRow(r, { total: 6, perControl: { 'mic-start': 6, 'mic-download': 6, 'mic-retry': 6, 'verdict-practice-again': 6, 'focus-points-retry': 6 } });
         expect(r.rows[0]).toMatchObject({ verdict: 'FAIL', evidence: { startPresses: 7, 'presses:mic-start': 4, 'presses:mic-retry': 3, leaseAcquisitionsDiagnostic: 4 } });
         // every control on the list counts; an unknown id never does
         const g = fakeContext();
@@ -111,7 +111,7 @@ describe('HarnessParityTap', () => {
         const tap = new HarnessParityTap();
         await tap.attach(fakeContext().ctx as never);
         const r = sink();
-        tap.startPressRow(r, 6);
+        tap.startPressRow(r, { total: 6, perControl: { 'mic-start': 6, 'mic-download': 6, 'mic-retry': 6, 'verdict-practice-again': 6, 'focus-points-retry': 6 } });
         expect(r.rows[0]).toMatchObject({ verdict: 'FAIL', detail: 'no Start press was observed' });
     });
     it('owned pages: every tracked page is closed; a page that fails to close is a FAIL', async () => {
@@ -154,8 +154,8 @@ describe('probeSaveIsolationRow', () => {
         ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows, error }) }) }) }) });
     it('PASS only when the completed sessions are exactly the journey\'s saved takes', async () => {
         const r = sink();
-        await probeSaveIsolationRow(r, admin([{ id: 'a' }, { id: 'b' }]) as never, 'u', ['a', 'b']);
-        expect(r.rows[0]).toMatchObject({ step: 'probe saves isolated', verdict: 'PASS', evidence: { unexpectedCompleted: 0, missingExpected: 0 } });
+        await probeSaveIsolationRow(r, admin([{ id: 'a' }, { id: 'b' }]) as never, 'u', ['a', 'b'], 2);
+        expect(r.rows[0]).toMatchObject({ step: 'probe saves isolated', verdict: 'PASS', evidence: { completedSessions: 2, designedTakes: 2, missingKnown: 0 } });
     });
     it('CASUALTY: a probe-saved extra session or a missing take FAILs; an unknown take or a failed read HOLDs', async () => {
         const cases: [Array<{ id: string }> | null, unknown, Array<string | null>, string][] = [
@@ -166,7 +166,7 @@ describe('probeSaveIsolationRow', () => {
         ];
         for (const [rows, error, expected, verdict] of cases) {
             const r = sink();
-            await probeSaveIsolationRow(r, admin(rows, error) as never, 'u', expected);
+            await probeSaveIsolationRow(r, admin(rows, error) as never, 'u', expected, 2);
             expect({ expected, v: r.rows[0].verdict }).toEqual({ expected, v: verdict });
         }
     });
@@ -185,8 +185,9 @@ describe('AHT-01 wiring', () => {
         expect([counts > -1, isolation > counts, close > isolation, close < spec.indexOf('const cleanup = new OwnedCleanup(')]).toEqual([true, true, true, true]);
         const block = spec.slice(counts, close);
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
-        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId])');
-        expect(spec).toContain('const AHT01_START_PRESS_CAP: number | null = null;');
+        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], AHT01_DESIGNED_TAKES)');
+        expect(spec).toContain("const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
+        expect(spec).toContain('const AHT01_DESIGNED_TAKES = 4;');
     });
 });
 
@@ -214,5 +215,35 @@ describe('same-target-numeric (the harness\'s own check)', () => {
         expect(spec).toContain("'../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs'");
         expect(spec).toContain('page, db: admin, sourceSessionId: persistedId, repeatSessionId,');
         expect(spec).toContain('caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: capturedUid } },');
+    });
+});
+
+describe('AHT-01 design budgets (review: from the journey design, not a run count)', () => {
+    const BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
+    const tapWith = async (presses: string[]) => { const f = fakeContext(); const tap = new HarnessParityTap(); await tap.attach(f.ctx as never); presses.forEach((p) => f.press(p)); return tap; };
+    it('run 42857325669\'s actual presses (cold first take) and a warm first take both PASS the designed budget', async () => {
+        for (const presses of [['mic-download', 'mic-start', 'verdict-practice-again', 'mic-start'], ['mic-start', 'mic-start', 'verdict-practice-again', 'mic-start']]) {
+            const r = sink();
+            (await tapWith(presses)).startPressRow(r, BUDGET);
+            expect({ presses, v: r.rows[0].verdict }).toEqual({ presses, v: 'PASS' });
+        }
+    });
+    it('CASUALTY: a fifth press, a second Practice again, a second download or any Retry FAILs', async () => {
+        for (const presses of [['mic-download', 'mic-start', 'verdict-practice-again', 'mic-start', 'mic-start'], ['mic-start', 'verdict-practice-again', 'verdict-practice-again', 'mic-start'],
+            ['mic-download', 'mic-download', 'verdict-practice-again', 'mic-start'], ['mic-download', 'mic-retry', 'verdict-practice-again', 'mic-start']]) {
+            const r = sink();
+            (await tapWith(presses)).startPressRow(r, BUDGET);
+            expect({ presses, v: r.rows[0].verdict }).toEqual({ presses, v: 'FAIL' });
+        }
+    });
+    it('isolation: one session per designed take (run 42857325669: 4 of 4) PASSES; a double save, a missing take or a missing captured take FAILs', async () => {
+        const admin = (ids: string[]) => ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: ids.map((id) => ({ id })), error: null }) }) }) }) });
+        const cases: [string[], string][] = [[['first', 'again', 'review', 'next'], 'PASS'], [['first', 'again', 'review', 'next', 'dup'], 'FAIL'], [['first', 'again', 'review'], 'FAIL'],
+            [['x', 'again', 'review', 'next'], 'FAIL']];
+        for (const [ids, verdict] of cases) {
+            const r = sink();
+            await probeSaveIsolationRow(r, admin(ids) as never, 'u', ['first', 'again'], 4);
+            expect({ ids, v: r.rows[0].verdict }).toEqual({ ids, v: verdict });
+        }
     });
 });
