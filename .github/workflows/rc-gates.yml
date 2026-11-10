@@ -52,7 +52,7 @@ on:
           - 'v4:distil:q4/open_mic'
           - 'v4:distil:q4/focus_points'
       rwt_writes_ack:
-        description: "RWT ONLY (tests/live/rwt-*.live.spec.ts) — the exact acknowledgement RWT-DISPOSABLE-ACCOUNT-WRITES. The first-visit suites create, use and delete one disposable Production account per test; the full journeys file one marked feedback report that product policy RETAINS after account deletion. Empty = the suites HOLD before any write. The SAME input also carries the distinct value RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<the exact 40-hex commit this run executes>, accepted ONLY by tests/live/interrupted-run-recovery.live.spec.ts dispatched from the protected default branch (main): a SEPARATE Production-delete authorization that deletes run-owned accounts older than the gate-3 timeout + margin through the fail-closed cleanup (residue 0); a recovery value bound to any other commit fails before credentials; any other value = detect and HOLD only. The journeys refuse that value, so one dispatch never authorizes both."
+        description: "RWT ONLY (tests/live/rwt-*.live.spec.ts) — the exact acknowledgement RWT-DISPOSABLE-ACCOUNT-WRITES. The first-visit suites create, use and delete one disposable Production account per test; the full journeys file one marked feedback report that product policy RETAINS after account deletion. Empty = the suites HOLD before any write. The SAME input also carries the distinct value RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<the exact 40-hex commit this run executes>, accepted ONLY by tests/live/interrupted-run-recovery.live.spec.ts dispatched from the protected default branch (main): a SEPARATE Production-delete authorization that deletes run-owned accounts older than the gate-3 timeout + margin through the fail-closed cleanup (residue 0); a recovery value bound to any other commit fails before credentials; any other value = detect and HOLD only. Appending /run/<GitHub run id> to that delete value scopes it to the ONE account that run minted (exactly one old, unambiguous match, including the example.com fallback address; otherwise nothing is deleted), and RWT-INTERRUPTED-RUN-RECOVERY-DETECT/run/<GitHub run id> only reports whether that account exists. The journeys refuse that value, so one dispatch never authorizes both."
         required: false
         default: ''
       rwt_canary_claim_ack:
@@ -312,7 +312,9 @@ jobs:
           fi
           case "$RECOVERY_ACK" in
             RWT-INTERRUPTED-RUN-RECOVERY-DELETE*)
-              if [ "$RECOVERY_ACK" != "RWT-INTERRUPTED-RUN-RECOVERY-DELETE@$GITHUB_SHA" ]; then
+              # Unscoped, or scoped to ONE interrupted run (/run/<GitHub run id>); the spec re-validates the run id strictly.
+              if [ "$RECOVERY_ACK" != "RWT-INTERRUPTED-RUN-RECOVERY-DELETE@$GITHUB_SHA" ] \
+                && ! printf '%s' "$RECOVERY_ACK" | grep -Eqx "RWT-INTERRUPTED-RUN-RECOVERY-DELETE@$GITHUB_SHA/run/[1-9][0-9]{0,19}"; then
                 echo "::error::HOLD: the recovery delete acknowledgement is not bound to this exact commit"; exit 1
               fi ;;
           esac

@@ -15,6 +15,16 @@ import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount } from './runOwnedCleanup';
 /** The delete acknowledgement, bound to one exact commit: `RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<40-hex sha>`. */
 export const RECOVERY_DELETE_ACK_PREFIX = 'RWT-INTERRUPTED-RUN-RECOVERY-DELETE';
 export const recoveryDeleteAck = (sha: string): string => `${RECOVERY_DELETE_ACK_PREFIX}@${sha}`;
+/**
+ * RUN-SCOPED recovery (one interrupted run's account, PO-approved per run): `<delete ack>/run/<GitHub run id>` deletes at most
+ * the ONE account that run minted, and `RWT-INTERRUPTED-RUN-RECOVERY-DETECT/run/<id>` only reports whether it exists. The run id
+ * in the full generator grammar is the ownership proof, so a run-scoped selection also covers the generators' legacy
+ * `example.com` fallback (used when LIVE_TEST_EMAIL_DOMAIN is unset); an unscoped recovery still never deletes those.
+ */
+export const RECOVERY_DETECT_PREFIX = 'RWT-INTERRUPTED-RUN-RECOVERY-DETECT';
+const RUN_ID_RE = /^[1-9]\d{0,19}$/;
+export const runScopedDeleteAck = (sha: string, runId: string): string => `${recoveryDeleteAck(sha)}/run/${runId}`;
+export const runScopedDetect = (runId: string): string => `${RECOVERY_DETECT_PREFIX}/run/${runId}`;
 /** `gate-3-dast` job timeout plus a safety margin: a younger account may still belong to a live run. */
 export const GATE3_JOB_TIMEOUT_MS = 45 * 60_000;
 export const SAFETY_MARGIN_MS = 30 * 60_000;
@@ -124,12 +134,22 @@ export function selectInterruptedRunAccounts(users: readonly AuthUserLike[], now
  * any rerun, a missing or a malformed attempt is refused, so each recovery needs a fresh dispatch and fresh PO authority.
  */
 export function recoveryAuthority(p: { ref: string; sha: string; head: string; defaultBranch: string; ack: string; attempt: string }):
-    { ok: true; deleteAuthorized: boolean } | { ok: false; reason: string } {
+    { ok: true; deleteAuthorized: boolean; runId?: string } | { ok: false; reason: string } {
     if (p.attempt !== '1') return { ok: false, reason: 'workflow_rerun_attempt_refused' };
     if (!p.defaultBranch) return { ok: false, reason: 'default_branch_unknown' };
     if (p.ref !== `refs/heads/${p.defaultBranch}`) return { ok: false, reason: 'not_default_branch' };
     if (!SHA_RE.test(p.sha)) return { ok: false, reason: 'dispatch_sha_invalid' };
     if (p.head !== p.sha) return { ok: false, reason: 'checkout_head_is_not_dispatch_sha' };
+    if (p.ack.startsWith(RECOVERY_DETECT_PREFIX)) {
+        const runId = p.ack.slice(`${RECOVERY_DETECT_PREFIX}/run/`.length);
+        if (!p.ack.startsWith(`${RECOVERY_DETECT_PREFIX}/run/`) || !RUN_ID_RE.test(runId)) return { ok: false, reason: 'run_scope_malformed' };
+        return { ok: true, deleteAuthorized: false, runId };
+    }
+    if (p.ack.startsWith(`${recoveryDeleteAck(p.sha)}/run/`)) {
+        const runId = p.ack.slice(`${recoveryDeleteAck(p.sha)}/run/`.length);
+        if (!RUN_ID_RE.test(runId)) return { ok: false, reason: 'run_scope_malformed' };
+        return { ok: true, deleteAuthorized: true, runId };
+    }
     if (p.ack.startsWith(RECOVERY_DELETE_ACK_PREFIX) && p.ack !== recoveryDeleteAck(p.sha)) {
         return { ok: false, reason: 'delete_ack_not_bound_to_this_sha' };
     }
@@ -158,8 +178,57 @@ export async function listAuthUsersBounded(admin: AdminLike, perPage = 200, maxP
     return { users, complete: false };
 }
 
-export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED';
-export interface RecoveryReport extends SelectionCounts { status: RecoveryStatus; deleted: number; minAgeMinutes: number }
+export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED'
+    | 'RUN_ACCOUNT_ABSENT' | 'HOLD_RUN_NOT_ELIGIBLE';
+export interface RecoveryReport extends SelectionCounts {
+    status: RecoveryStatus; deleted: number; minAgeMinutes: number; runScope?: string; runMatched?: number; failureReason?: string;
+}
+
+/**
+ * The cleanup's own reason code, content-safe: the text before the first ':' (its throw sites put any database detail after it),
+ * reduced to a closed character set, never carrying an address or a UUID.
+ */
+export function cleanupFailureReason(error: unknown): string {
+    const head = String((error as { message?: unknown } | null)?.message ?? 'unknown').split(':')[0];
+    const safe = head.replace(/[^a-z0-9_ ()-]/gi, '').trim().slice(0, 120);
+    return safe && !/@|[0-9a-f]{8}-[0-9a-f]{4}-/i.test(head) ? safe.replace(/ /g, '_') : 'unknown';
+}
+
+/**
+ * Pure, run-scoped: the listed accounts whose address is the FULL generator grammar for exactly `runId` (`...-<ms>-<runId>`), at
+ * the explicit run-owned domain or the legacy fallback domain. Eligible only when there is exactly one such account and it is
+ * well-formed, old enough and unambiguous across the whole listing; anything else is reported and never deleted.
+ */
+export function selectRunScopedAccount(users: readonly AuthUserLike[], nowMs: number, runId: string, domain: string | null, minAgeMs: number = MIN_AGE_MS):
+    { eligible: RecoveryCandidate[]; counts: SelectionCounts; matched: number } {
+    const counts: SelectionCounts = { scanned: users.length, nonOwned: 0, ownershipUnproven: 0, legacyUnqualified: 0, runOwned: 0, fresh: 0, malformed: 0, ambiguous: 0, eligible: 0 };
+    if (!RUN_ID_RE.test(runId)) return { eligible: [], counts, matched: 0 };
+    const keyCount = (values: string[]) => values.reduce((m, v) => m.set(v, (m.get(v) ?? 0) + 1), new Map<string, number>());
+    const idCounts = keyCount(users.map((u) => (typeof u.id === 'string' ? u.id.toLowerCase() : '')).filter(Boolean));
+    const emailCounts = keyCount(users.map((u) => (typeof u.email === 'string' ? u.email.toLowerCase() : '')).filter(Boolean));
+    const domains = [deletionDomain(domain), LEGACY_FALLBACK_DOMAIN].filter((d): d is string => Boolean(d));
+    const matches: { user: AuthUserLike; email: string; prefix: string }[] = [];
+    for (const user of users) {
+        const email = typeof user.email === 'string' ? user.email.toLowerCase() : '';
+        const at = email.lastIndexOf('@');
+        if (at <= 0 || !email.slice(0, at).endsWith(`-${runId}`)) { counts.nonOwned += 1; continue; }
+        const prefix = domains.map((d) => ownedPrefixOf(email, d)).find(Boolean) ?? null;
+        if (!prefix) { counts.ownershipUnproven += 1; continue; }
+        matches.push({ user, email, prefix });
+    }
+    counts.runOwned = matches.length;
+    const eligible: RecoveryCandidate[] = [];
+    for (const { user, email, prefix } of matches) {
+        const id = typeof user.id === 'string' ? user.id : '';
+        const created = typeof user.created_at === 'string' ? Date.parse(user.created_at) : Number.NaN;
+        if (!UUID_RE.test(id) || !Number.isFinite(created) || created > nowMs) { counts.malformed += 1; continue; }
+        if (nowMs - created < minAgeMs) { counts.fresh += 1; continue; }
+        if ((idCounts.get(id.toLowerCase()) ?? 0) > 1 || (emailCounts.get(email) ?? 0) > 1 || matches.length > 1) { counts.ambiguous += 1; continue; }
+        eligible.push({ id, email, prefix });
+    }
+    counts.eligible = eligible.length;
+    return { eligible, counts, matched: matches.length };
+}
 
 type Cleanup = typeof cleanupRunOwnedAccount;
 
@@ -169,11 +238,12 @@ type Cleanup = typeof cleanupRunOwnedAccount;
  */
 export async function recoverInterruptedRuns(params: {
     admin: AdminLike; nowMs: number; ack: string; sha: string; domain: string | null;
-    cleanup?: Cleanup; minAgeMs?: number; perPage?: number; maxPages?: number;
+    cleanup?: Cleanup; minAgeMs?: number; perPage?: number; maxPages?: number; runId?: string | null;
 }): Promise<RecoveryReport> {
     const minAgeMs = params.minAgeMs ?? MIN_AGE_MS;
     const report = (status: RecoveryStatus, counts: SelectionCounts, deleted = 0): RecoveryReport =>
         ({ status, deleted, minAgeMinutes: Math.round(minAgeMs / 60_000), ...counts });
+    if (params.runId != null) return recoverOneRun({ ...params, runId: params.runId, minAgeMs });
     // No explicit domain still DETECTS and reports (legacy items included); it can never delete.
     const domain = deletionDomain(params.domain);
     const { users, complete } = await listAuthUsersBounded(params.admin, params.perPage, params.maxPages);
@@ -195,9 +265,35 @@ export async function recoverInterruptedRuns(params: {
     return report('RECOVERED', counts, deleted);
 }
 
+/** Run-scoped recovery: report, and delete only the ONE verified account of `runId` under its run-scoped ack bound to `sha`. */
+async function recoverOneRun(params: {
+    admin: AdminLike; nowMs: number; ack: string; sha: string; domain: string | null; runId: string;
+    cleanup?: Cleanup; minAgeMs: number; perPage?: number; maxPages?: number;
+}): Promise<RecoveryReport> {
+    const scoped = (status: RecoveryStatus, counts: SelectionCounts, matched: number, deleted = 0, failureReason?: string): RecoveryReport =>
+        ({ status, deleted, minAgeMinutes: Math.round(params.minAgeMs / 60_000), ...counts, runScope: params.runId, runMatched: matched,
+            ...(failureReason ? { failureReason } : {}) });
+    const { users, complete } = await listAuthUsersBounded(params.admin, params.perPage, params.maxPages);
+    const { eligible, counts, matched } = selectRunScopedAccount(users, params.nowMs, params.runId, params.domain, params.minAgeMs);
+    if (!complete) return scoped('HOLD_INCOMPLETE_LISTING', counts, matched);
+    if (matched === 0) return scoped('RUN_ACCOUNT_ABSENT', counts, matched);
+    if (eligible.length !== 1) return scoped('HOLD_RUN_NOT_ELIGIBLE', counts, matched);
+    if (!SHA_RE.test(params.sha) || params.ack !== runScopedDeleteAck(params.sha, params.runId)) return scoped('HOLD_NO_ACK', counts, matched);
+    const cleanup = params.cleanup ?? cleanupRunOwnedAccount;
+    const [account] = eligible;
+    try {
+        await cleanup({ admin: params.admin as never, capturedUid: account.id, createdEmail: account.email, runOwnedPrefix: account.prefix });
+    } catch (error) {
+        return scoped('FAILED', counts, matched, 0, cleanupFailureReason(error));
+    }
+    return scoped('RECOVERED', counts, matched, 1);
+}
+
 /** The one content-safe line a run prints. */
 export function recoveryReportLine(r: RecoveryReport): string {
     return `RWT_INTERRUPTED_RUN_RECOVERY status=${r.status} scanned=${r.scanned} run_owned=${r.runOwned} `
         + `ownership_unproven=${r.ownershipUnproven} legacy_unqualified=${r.legacyUnqualified} eligible=${r.eligible} fresh=${r.fresh} malformed=${r.malformed} `
-        + `ambiguous=${r.ambiguous} deleted=${r.deleted} min_age_min=${r.minAgeMinutes}`;
+        + `ambiguous=${r.ambiguous} deleted=${r.deleted} min_age_min=${r.minAgeMinutes}`
+        + (r.runScope ? ` run_scope=${r.runScope} run_matched=${r.runMatched ?? 0}` : '')
+        + (r.failureReason ? ` failure_reason=${r.failureReason}` : '');
 }

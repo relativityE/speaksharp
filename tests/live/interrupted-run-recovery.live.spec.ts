@@ -43,6 +43,7 @@ test.describe('RWT interrupted-run recovery (governed)', () => {
         const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
         const report = await recoverInterruptedRuns({
             admin: admin as never, nowMs: Date.now(), ack: authority.deleteAuthorized ? ACK : '', sha, domain: runOwnedDomain(process.env),
+            runId: authority.runId ?? null,
         });
         console.log(recoveryReportLine(report));
         // HOLD states are outcomes, not errors; only a cleanup that could not prove deletion fails the run.

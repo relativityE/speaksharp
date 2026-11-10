@@ -10,8 +10,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
-    MIN_AGE_MS, PROTECTED_DEFAULT_BRANCH, RECOVERY_DELETE_ACK_PREFIX, RWT_JOURNEY_LABELS, deletionDomain, listAuthUsersBounded, ownedPrefixOf, recoverInterruptedRuns,
-    recoveryAuthority, recoveryDeleteAck, recoveryReportLine, runOwnedDomain, selectInterruptedRunAccounts,
+    MIN_AGE_MS, PROTECTED_DEFAULT_BRANCH, RECOVERY_DELETE_ACK_PREFIX, RECOVERY_DETECT_PREFIX, RWT_JOURNEY_LABELS, deletionDomain, listAuthUsersBounded, ownedPrefixOf, recoverInterruptedRuns,
+    recoveryAuthority, recoveryDeleteAck, recoveryReportLine, runOwnedDomain, runScopedDeleteAck, runScopedDetect, selectInterruptedRunAccounts, selectRunScopedAccount, cleanupFailureReason,
     type AdminLike, type AuthUserLike,
 } from '../live/helpers/rwtInterruptedRunRecovery';
 
@@ -322,5 +322,92 @@ describe('recovery', () => {
     it('the recovery spec is not an rwt-* journey spec (no RWT fixture, identity or per-journey telemetry readback)', () => {
         expect(existsSync(resolve(__dirname, '../live/rwt-interrupted-run-recovery.live.spec.ts'))).toBe(false);
         expect(existsSync(resolve(__dirname, '../live/interrupted-run-recovery.live.spec.ts'))).toBe(true);
+    });
+});
+
+describe('run-scoped recovery: ONE interrupted run\'s account, PO-approved per run', () => {
+    const RUN = '42796353079';
+    const mine = (domain = 'example.com') => `rwt-journey-open-mic-1794304007000-${RUN}@${domain}`;
+    const base = { ref: 'refs/heads/main', sha: SHA, head: SHA, defaultBranch: 'main', ack: '', attempt: '1' };
+    const others = () => [user(1, journey(1), old), user(2, journey(2, 'open-mic', 'example.com'), old), user(3, proof('private-proof-', 3), old)];
+
+    it('authority: the run-scoped delete value is bound to this sha; the detect value never deletes; malformed scopes refuse', () => {
+        expect(recoveryAuthority({ ...base, ack: runScopedDeleteAck(SHA, RUN) })).toEqual({ ok: true, deleteAuthorized: true, runId: RUN });
+        expect(recoveryAuthority({ ...base, ack: runScopedDetect(RUN) })).toEqual({ ok: true, deleteAuthorized: false, runId: RUN });
+        expect(recoveryAuthority({ ...base, ack: runScopedDeleteAck(OTHER_SHA, RUN) })).toEqual({ ok: false, reason: 'delete_ack_not_bound_to_this_sha' });
+        for (const ack of [`${ACK}/run/`, `${ACK}/run/0${RUN}`, `${ACK}/run/${RUN}x`, `${ACK}/run/${RUN} `, `${ACK}/run/1/run/2`, `${RECOVERY_DETECT_PREFIX}`,
+            `${RECOVERY_DETECT_PREFIX}/run/`, `${RECOVERY_DETECT_PREFIX}/run/abc`, `${RECOVERY_DETECT_PREFIX}@${SHA}/run/${RUN}`]) {
+            expect({ ack, ok: recoveryAuthority({ ...base, ack }).ok }).toEqual({ ack, ok: false });
+        }
+        // every other gate still applies before the scope is read
+        expect(recoveryAuthority({ ...base, ack: runScopedDeleteAck(SHA, RUN), attempt: '2' })).toEqual({ ok: false, reason: 'workflow_rerun_attempt_refused' });
+        expect(recoveryAuthority({ ...base, ack: runScopedDeleteAck(SHA, RUN), ref: 'refs/heads/feature' })).toEqual({ ok: false, reason: 'not_default_branch' });
+    });
+
+    it('selection takes ONLY the full grammar for exactly this run id, at the explicit domain or the example.com fallback', () => {
+        const users = [...others(), user(9, mine(), old), user(10, `rwt-journey-open-mic-1794304007000-1${RUN}@example.com`, old),
+            user(11, `rwt-journey-alice-${RUN}@example.com`, old), user(12, `rwt-journey-open-mic-1794304007000-${RUN}@evil.example`, old)];
+        const { eligible, matched, counts } = selectRunScopedAccount(users, NOW, RUN, D);
+        expect(eligible.map((e) => e.id)).toEqual([uuid(9)]);
+        expect([matched, counts.ownershipUnproven]).toEqual([1, 2]);
+        expect(selectRunScopedAccount(users, NOW, RUN, null).eligible.map((e) => e.id)).toEqual([uuid(9)]);
+        expect(selectRunScopedAccount([user(9, mine(D), old)], NOW, RUN, D).eligible.map((e) => e.id)).toEqual([uuid(9)]);
+    });
+
+    it('detect reports the one match and deletes nothing; the scoped ack deletes exactly that account; other accounts are untouched', async () => {
+        const detect = fakeAdmin([...others(), user(9, mine(), old)]);
+        const seen = await recover({ admin: detect.admin, cleanup: detect.cleanup, ack: '', runId: RUN });
+        expect([seen.status, seen.runMatched, seen.deleted, detect.cleanup.mock.calls.length]).toEqual(['HOLD_NO_ACK', 1, 0, 0]);
+        const real = fakeAdmin([...others(), user(9, mine(), old)]);
+        const done = await recover({ admin: real.admin, cleanup: real.cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN });
+        expect([done.status, done.deleted, real.cleanup.mock.calls.map(([p]) => [p.capturedUid, p.runOwnedPrefix])]).toEqual(['RECOVERED', 1, [[uuid(9), 'rwt-journey-']]]);
+        const again = await recover({ admin: real.admin, cleanup: real.cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN });
+        expect([again.status, again.runMatched, real.cleanup.mock.calls.length]).toEqual(['RUN_ACCOUNT_ABSENT', 0, 1]);
+    });
+
+    it('CASUALTY: the UNSCOPED ack never deletes the example.com account; a scoped run with the unscoped ack does not delete either', async () => {
+        const a = fakeAdmin([user(9, mine(), old)]);
+        const unscoped = await recover({ admin: a.admin, cleanup: a.cleanup, ack: ACK });
+        expect([unscoped.status, a.cleanup.mock.calls.length]).toEqual(['NOTHING_TO_RECOVER', 0]);
+        const b = fakeAdmin([user(9, mine(), old)]);
+        const mismatched = await recover({ admin: b.admin, cleanup: b.cleanup, ack: ACK, runId: RUN });
+        expect([mismatched.status, b.cleanup.mock.calls.length]).toEqual(['HOLD_NO_ACK', 0]);
+    });
+
+    it('CASUALTY: two matches, a fresh, malformed or duplicated match, or an incomplete listing deletes nothing', async () => {
+        const cases: [string, AuthUserLike[], string][] = [
+            ['two accounts for one run', [user(9, mine(), old), user(10, `rwt-journey-focus-points-1794304007001-${RUN}@example.com`, old)], 'HOLD_RUN_NOT_ELIGIBLE'],
+            ['fresh', [user(9, mine(), fresh)], 'HOLD_RUN_NOT_ELIGIBLE'],
+            ['malformed id', [{ id: 'nope', email: mine(), created_at: old }], 'HOLD_RUN_NOT_ELIGIBLE'],
+            ['duplicate id elsewhere', [user(9, mine(), old), user(9, journey(4), fresh)], 'HOLD_RUN_NOT_ELIGIBLE'],
+        ];
+        for (const [name, users, status] of cases) {
+            const { admin, cleanup } = fakeAdmin(users);
+            const r = await recover({ admin, cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN });
+            expect({ name, s: r.status, calls: cleanup.mock.calls.length }).toEqual({ name, s: status, calls: 0 });
+        }
+        const full = fakeAdmin([user(9, mine(), old), ...others()], 2);
+        const r = await recover({ admin: full.admin, cleanup: full.cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN, perPage: 2, maxPages: 1 });
+        expect([r.status, full.cleanup.mock.calls.length]).toEqual(['HOLD_INCOMPLETE_LISTING', 0]);
+    });
+
+    it('a failed cleanup proof is FAILED (fail closed); the report line stays content-safe and names the scope', async () => {
+        const { admin } = fakeAdmin([user(9, mine(), old)]);
+        const cleanup = vi.fn().mockRejectedValueOnce(new Error('cleanup trial_entitlements pre-delete failed (fail closed): permission denied for x@y.z'));
+        const r = await recover({ admin, cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN });
+        expect([r.status, r.deleted]).toEqual(['FAILED', 0]);
+        const line = recoveryReportLine(r);
+        expect(line).toMatch(new RegExp(`^RWT_INTERRUPTED_RUN_RECOVERY status=FAILED .* run_scope=${RUN} run_matched=1 failure_reason=cleanup_trial_entitlements_pre-delete_failed_\\(fail_closed\\)$`));
+        expect(line).not.toMatch(/@|[0-9a-f]{8}-[0-9a-f]{4}-/i);
+        expect(cleanupFailureReason(new Error(`cleanup ${uuid(1)} failed`))).toBe('unknown');
+        expect(cleanupFailureReason(new Error('a@b.c leaked'))).toBe('unknown');
+        expect(cleanupFailureReason(null)).toBe('unknown');
+    });
+
+    it('the spec passes the authorized run scope; the workflow guard accepts only the scoped form bound to this sha', () => {
+        const spec = readFileSync(resolve(__dirname, '../live/interrupted-run-recovery.live.spec.ts'), 'utf8');
+        expect(spec).toContain('runId: authority.runId ?? null,');
+        const wf = readFileSync(resolve(__dirname, '../../.github/workflows/rc-gates.yml'), 'utf8');
+        expect(wf).toContain('grep -Eqx "RWT-INTERRUPTED-RUN-RECOVERY-DELETE@$GITHUB_SHA/run/[1-9][0-9]{0,19}"');
     });
 });
