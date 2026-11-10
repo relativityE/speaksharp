@@ -105,7 +105,7 @@ let fetchStatusQueue: number[] = [];
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
 /** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
-let geminiModelVersion: string | null = 'gemini-3.8-flash';
+let geminiModelVersion: string | null = 'gemini-3.6-flash';
 let fetchThrows = false;
 let fetchFailuresRemaining = 0;
 let abortAfterBody: AbortController | null = null;
@@ -363,7 +363,7 @@ function resetProvider() {
   capturedProviderRequests.length = 0;
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
-  geminiModelVersion = 'gemini-3.8-flash';
+  geminiModelVersion = 'gemini-3.6-flash';
   fetchThrows = false;
   fetchFailuresRemaining = 0;
   abortAfterBody = null;
@@ -799,7 +799,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // Asserted on the exported constant rather than by reading the file: the edge suite runs without
     // `--allow-read`, and widening the sandbox for every edge test to satisfy one assertion trades a
     // real safety property for a convenience.
-    assertStringIncludes(GEMINI_API_URL, 'gemini-3.8-flash');
+    assertStringIncludes(GEMINI_API_URL, 'gemini-3.6-flash');
     assertEquals(GEMINI_API_URL.includes('-preview'), false);
   });
 
@@ -889,7 +889,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       p_user_id: 'pro-user',
       p_suggestions: suggestionA,
       p_provider: 'google_gemini',
-      p_model: 'gemini-3.8-flash',
+      p_model: 'gemini-3.6-flash',
       p_quota_scope: 'user_utc_day',
       p_quota_utc_date: expectedUtcDate,
       p_quota_limit: 20,
@@ -1060,7 +1060,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       for (const sent of capturedProviderRequests) {
         const url = new URL(sent.url);
         assertEquals(url.origin, APPROVED_GEMINI_ORIGIN);
-        assertEquals(url.pathname, '/v1beta/models/gemini-3.8-flash:generateContent');
+        assertEquals(url.pathname, '/v1beta/models/gemini-3.6-flash:generateContent');
         const config = sent.body.generationConfig as Record<string, unknown>;
         // Literal wire expectation: changing the contract and sender together cannot hide a regression.
         assertEquals(config.thinkingConfig, { thinkingLevel: 'low' });
@@ -1897,7 +1897,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
      * down-selection is exposed to, rather than passing them the way substring and body-search checks did.
      */
     // A lookalike host: a substring check for the approved host SUCCEEDS on it; the origin check refuses.
-    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.8-flash:generateContent';
+    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.6-flash:generateContent';
     assertEquals(lookalike.includes('generativelanguage.googleapis.com'), true);
     assertNotEquals(new URL(lookalike).origin, APPROVED_GEMINI_ORIGIN);
 
