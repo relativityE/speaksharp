@@ -238,6 +238,27 @@ export async function resolvePendingCreate(p: { admin: AccountAdmin; scope: RunS
     return cleanupRunAccount({ admin: p.admin, account: accounts[0], scope: p.scope, cleanup: p.cleanup });
 }
 
+/* ------------------------------------------------------------------ live-accounts bundle ------------------------------------------------------------------ */
+
+/**
+ * The harness's account bundle (init_run_inputs.parse_live_accounts_bundle: {version:1, projectRef, accounts:{existing-disposable,
+ * maintained-read-only}}) with the existing-disposable role REPLACED by this run's fresh account, so the run never falls back to
+ * the shared one. maintained-read-only (AHT-15's history account) is kept as configured. Same project only; null on any mismatch.
+ */
+export function bundleWithRunAccount(raw: string | undefined, account: { uid: string; email: string }, scope: RunScope): string | null {
+    let doc: Record<string, unknown>;
+    try { doc = JSON.parse(raw ?? ''); } catch { return null; }
+    const accounts = doc?.accounts as Record<string, { email?: unknown; accountId?: unknown }> | undefined;
+    const keep = accounts?.['maintained-read-only'];
+    if (doc?.version !== 1 || doc.projectRef !== scope.project || !keep || typeof keep.email !== 'string' || typeof keep.accountId !== 'string'
+        || Object.keys(doc).sort().join() !== 'accounts,projectRef,version' || Object.keys(accounts ?? {}).sort().join() !== 'existing-disposable,maintained-read-only'
+        || keep.email.toLowerCase() === account.email.toLowerCase() || keep.accountId === account.uid) return null;
+    return JSON.stringify({ version: 1, projectRef: scope.project, accounts: {
+        'existing-disposable': { email: account.email, accountId: account.uid },
+        'maintained-read-only': { email: keep.email, accountId: keep.accountId },
+    } });
+}
+
 /* ------------------------------------------------------------------ private record ------------------------------------------------------------------ */
 
 export const RECORD_NAME = 'run-account.json';
@@ -297,7 +318,13 @@ async function main(argv: string[]): Promise<number> {
         writeRecord(dir, { state: 'created', uid: account.uid, email: account.email, scope }, true);
         console.log(`::add-mask::${account.email}`);
         console.log(`::add-mask::${account.password}`);
-        appendFileSync(env, `THROWAWAY_TEST_EMAIL=${account.email}\nTHROWAWAY_TEST_PASSWORD=${account.password}\nCT_PROVISIONED_UID=${account.uid}\n`);
+        console.log(`::add-mask::${account.uid}`);
+        // the harness's bundle with existing-disposable = THIS account (the workflow must not also set the shared account's
+        // CLOUD_TEST_LIVE_ACCOUNTS / THROWAWAY_TEST_* at step level, which would override these)
+        const bundle = bundleWithRunAccount(process.env.CLOUD_TEST_LIVE_ACCOUNTS, account, scope);
+        if (!bundle) { line('create status=failed step=bundle'); return 1; }                  // cleanup still deletes it by the record
+        appendFileSync(env, `THROWAWAY_TEST_EMAIL=${account.email}\nTHROWAWAY_TEST_PASSWORD=${account.password}\nCT_PROVISIONED_UID=${account.uid}\n`
+            + `CLOUD_TEST_LIVE_ACCOUNTS=${bundle}\n`);
         line('create status=created bound=1');
         return 0;
     }

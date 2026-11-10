@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
-    LEGACY_FALLBACK_DOMAIN, RECORD_NAME, RUN_ACCOUNT_PREFIX, cleanupRunAccount, cleanupStep, createRunAccount, findBoundAccounts, privateDirOk, projectRefFrom,
+    LEGACY_FALLBACK_DOMAIN, RECORD_NAME, bundleWithRunAccount, RUN_ACCOUNT_PREFIX, cleanupRunAccount, cleanupStep, createRunAccount, findBoundAccounts, privateDirOk, projectRefFrom,
     readRecord, recoverRunAccount, resolvePendingCreate, runAccountDomain, runAccountEmail, runCompleted, runScopeFrom, sanitizingAdmin, scopeMatch, scrubRecord,
     writeRecord, type AccountAdmin, type RunScope,
 } from '../../tools/cloud-test/scripts/run_account';
@@ -241,5 +241,24 @@ describe('private record and CLI hygiene', () => {
         for (const m of src.matchAll(/writeRecord\(dir, (\{[^}]*\})/g)) expect(m[1]).not.toMatch(/password/);
         for (const m of src.matchAll(/line\(([^;]*)\);/g)) expect(m[1]).not.toMatch(/uid|email|password|message|key/i);
         expect(src.match(/SERVICE_ROLE/g)).toHaveLength(1);
+    });
+});
+
+describe('the harness bundle carries THIS run\'s account (never the shared one)', () => {
+    const KEEP = { email: 'history@example.com', accountId: '1b9c5e2a-1111-4222-8333-444455556666' };
+    const SHARED = { email: 'shared-throwaway@example.com', accountId: '2b9c5e2a-1111-4222-8333-444455556666' };
+    const raw = (over: Record<string, unknown> = {}) => JSON.stringify({ version: 1, projectRef: S.project, accounts: { 'existing-disposable': SHARED, 'maintained-read-only': KEEP }, ...over });
+    it('existing-disposable is replaced by the fresh account; maintained-read-only is kept', () => {
+        const out = JSON.parse(bundleWithRunAccount(raw(), { uid: UID, email: EMAIL }, S) as string);
+        expect(out).toEqual({ version: 1, projectRef: S.project, accounts: { 'existing-disposable': { email: EMAIL, accountId: UID }, 'maintained-read-only': KEEP } });
+        expect(JSON.stringify(out)).not.toContain(SHARED.email);
+    });
+    it('CASUALTY: another project, a malformed or extra-keyed bundle, or a collision with the history account refuses', () => {
+        for (const bad of [raw({ projectRef: 'zzzzzzzzzzzzzzzzzzzz' }), raw({ version: 2 }), raw({ extra: 1 }), 'not json', undefined,
+            JSON.stringify({ version: 1, projectRef: S.project, accounts: { 'existing-disposable': SHARED } })]) {
+            expect(bundleWithRunAccount(bad, { uid: UID, email: EMAIL }, S)).toBeNull();
+        }
+        expect(bundleWithRunAccount(raw(), { uid: KEEP.accountId, email: EMAIL }, S)).toBeNull();
+        expect(bundleWithRunAccount(raw(), { uid: UID, email: KEEP.email }, S)).toBeNull();
     });
 });
