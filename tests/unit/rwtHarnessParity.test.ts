@@ -14,7 +14,7 @@ const sink = () => { const rows: Row[] = []; return { rows, row: (step: string, 
 /** A fake BrowserContext: emits pages and requests, records the exposed binding and the init script. */
 function fakeContext() {
     const handlers: Record<string, Array<(x: unknown) => void>> = {};
-    let binding: ((source: unknown, id: unknown) => void) | null = null;
+    const bindings = new Map<string, (source: unknown, id: unknown) => void>();
     let init: { fn: unknown; arg: unknown } | null = null;
     const page = (closeFails = false) => {
         let closed = false;
@@ -26,11 +26,12 @@ function fakeContext() {
     const ctx = {
         pages: () => [first],
         on: (ev: string, h: (x: unknown) => void) => { (handlers[ev] ??= []).push(h); },
-        exposeBinding: vi.fn(async (_n: string, fn: (source: unknown, id: unknown) => void) => { binding = fn; }),
+        exposeBinding: vi.fn(async (n: string, fn: (source: unknown, id: unknown) => void) => { bindings.set(n, fn); }),
         addInitScript: vi.fn(async (fn: unknown, arg: unknown) => { init = { fn, arg }; }),
     };
     return { ctx, first, page, emit: (ev: string, x: unknown) => (handlers[ev] ?? []).forEach((h) => h(x)),
-        press: (id: unknown = 'mic-start') => binding?.({}, id), init: () => init };
+        press: (id: unknown = 'mic-start') => bindings.get('__rwtStartPress')?.({}, id),
+        persisted: (id: unknown) => bindings.get('__rwtPersisted')?.({}, id), init: () => init };
 }
 
 describe('HarnessParityTap', () => {
@@ -154,8 +155,8 @@ describe('probeSaveIsolationRow', () => {
         ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows, error }) }) }) }) });
     it('PASS only when the completed sessions are exactly the journey\'s saved takes', async () => {
         const r = sink();
-        await probeSaveIsolationRow(r, admin([{ id: 'a' }, { id: 'b' }]) as never, 'u', ['a', 'b'], 2);
-        expect(r.rows[0]).toMatchObject({ step: 'probe saves isolated', verdict: 'PASS', evidence: { completedSessions: 2, designedTakes: 2, missingKnown: 0 } });
+        await probeSaveIsolationRow(r, admin([{ id: 'a' }, { id: 'b' }]) as never, 'u', ['a', 'b'], ['a', 'b'], 2);
+        expect(r.rows[0]).toMatchObject({ step: 'probe saves isolated', verdict: 'PASS', evidence: { completedSessions: 2, designedTakes: 2, unattributed: 0, notCompleted: 0 } });
     });
     it('CASUALTY: a probe-saved extra session or a missing take FAILs; an unknown take or a failed read HOLDs', async () => {
         const cases: [Array<{ id: string }> | null, unknown, Array<string | null>, string][] = [
@@ -166,7 +167,7 @@ describe('probeSaveIsolationRow', () => {
         ];
         for (const [rows, error, expected, verdict] of cases) {
             const r = sink();
-            await probeSaveIsolationRow(r, admin(rows, error) as never, 'u', expected, 2);
+            await probeSaveIsolationRow(r, admin(rows, error) as never, 'u', expected, expected.filter((x): x is string => typeof x === 'string'), 2);
             expect({ expected, v: r.rows[0].verdict }).toEqual({ expected, v: verdict });
         }
     });
@@ -185,7 +186,7 @@ describe('AHT-01 wiring', () => {
         expect([counts > -1, isolation > counts, close > isolation, close < spec.indexOf('const cleanup = new OwnedCleanup(')]).toEqual([true, true, true, true]);
         const block = spec.slice(counts, close);
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
-        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], AHT01_DESIGNED_TAKES)');
+        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.persistedTakeIds, AHT01_DESIGNED_TAKES)');
         expect(spec).toContain("const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
         expect(spec).toContain('const AHT01_DESIGNED_TAKES = 4;');
     });
@@ -236,14 +237,32 @@ describe('AHT-01 design budgets (review: from the journey design, not a run coun
             expect({ presses, v: r.rows[0].verdict }).toEqual({ presses, v: 'FAIL' });
         }
     });
-    it('isolation: one session per designed take (run 42857325669: 4 of 4) PASSES; a double save, a missing take or a missing captured take FAILs', async () => {
+    it('review RETURN on 5e1fa2fd: every take is bound by the id the product reported persisted; exactly that set must be completed', async () => {
+        const U = (n: number) => `0b9c5e2a-1111-4222-8333-44445555666${n}`;
+        const [first, again, review, next, dup] = [U(1), U(2), U(3), U(4), U(5)];
         const admin = (ids: string[]) => ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: ids.map((id) => ({ id })), error: null }) }) }) }) });
-        const cases: [string[], string][] = [[['first', 'again', 'review', 'next'], 'PASS'], [['first', 'again', 'review', 'next', 'dup'], 'FAIL'], [['first', 'again', 'review'], 'FAIL'],
-            [['x', 'again', 'review', 'next'], 'FAIL']];
-        for (const [ids, verdict] of cases) {
+        const cases: [string, string[], string[], string][] = [
+            ['run 42857325669 shape: 4 reported, 4 completed', [first, again, review, next], [first, again, review, next], 'PASS'],
+            ['Sam: a take never saved + a duplicate of the first', [first, again, review, next], [first, again, dup, next], 'FAIL'],
+            ['Sam: the never-saved take is never reported', [first, again, next], [first, again, dup, next], 'HOLD'],
+            ['an extra completed session no take reported', [first, again, review, next], [first, again, review, next, dup], 'FAIL'],
+            ['a reported take not completed', [first, again, review, next], [first, again, review], 'FAIL'],
+            ['five takes reported', [first, again, review, next, dup], [first, again, review, next, dup], 'FAIL'],
+            ['captured takes out of order', [again, first, review, next], [first, again, review, next], 'FAIL'],
+        ];
+        for (const [name, reported, completed, verdict] of cases) {
             const r = sink();
-            await probeSaveIsolationRow(r, admin(ids) as never, 'u', ['first', 'again'], 4);
-            expect({ ids, v: r.rows[0].verdict }).toEqual({ ids, v: verdict });
+            await probeSaveIsolationRow(r, admin(completed) as never, 'u', [first, again], reported, 4);
+            expect({ name, v: r.rows[0].verdict }).toEqual({ name, v: verdict });
         }
     });
+    it('the tap records each persisted take id once, in report order, and ignores malformed ids', async () => {
+        const f = fakeContext();
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        const id = (n: number) => `0b9c5e2a-1111-4222-8333-44445555666${n}`;
+        for (const x of [id(1), id(1), id(2), 'not-a-uuid', 7, null, id(3), id(2), id(4)]) f.persisted(x);
+        expect(tap.persistedTakeIds).toEqual([id(1), id(2), id(3), id(4)]);
+    });
+
 });
