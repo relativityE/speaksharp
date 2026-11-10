@@ -17,6 +17,8 @@ export const CLOUD_STT_URL = /assemblyai/i;
 /** The cloud-test harness's Start controls (draft-adapters/browser-actions.cjs START_CONTROLS), exactly. */
 export const START_CONTROLS = Object.freeze(['mic-start', 'mic-download', 'mic-retry', 'verdict-practice-again', 'focus-points-retry'] as const);
 export type StartControl = typeof START_CONTROLS[number];
+/** A journey's designed Start presses: the total, and the most each control may be pressed (an unlisted control allows none). */
+export interface StartPressBudget { total: number; perControl: Partial<Record<StartControl, number>> }
 export const START_CONTROL = START_CONTROLS.map((id) => `[data-testid="${id}"]`).join(',');
 export const LEASE_ACQUIRE_URL = /\/rest\/v1\/rpc\/acquire_recording_lease(?:\?|$)/;
 
@@ -66,17 +68,19 @@ export class HarnessParityTap {
     }
 
     /**
-     * `cap` is the journey's settled Start-press budget, or null while it is not yet settled from the journey's mapped press total
-     * (then HOLD with the counts). At least one press is required: a journey that never started proves nothing.
+     * `budget` is the journey's DESIGNED Start presses: a total and a maximum per control (a control not listed allows none), or
+     * null while not yet settled (HOLD with the counts). At least one press is required: a journey that never started proves nothing.
      */
-    startPressRow(receipt: RowSink, cap: number | null): void {
+    startPressRow(receipt: RowSink, budget: StartPressBudget | null): void {
         const evidence = { startPresses: this.startPresses, ...Object.fromEntries(Object.entries(this.startPressesByControl).map(([k, v]) => [`presses:${k}`, v])),
-            leaseAcquisitionsDiagnostic: this.leaseAcquisitions, cap };
+            leaseAcquisitionsDiagnostic: this.leaseAcquisitions, cap: budget ? budget.total : null };
         if (this.startPresses === 0) { receipt.row('Start presses within budget', 'FAIL', 'no Start press was observed', evidence); return; }
-        if (cap === null) { receipt.row('Start presses within budget', 'HOLD', 'the journey\'s Start-press cap is not yet settled; presses counted per control', evidence); return; }
-        const ok = this.startPresses <= cap;
+        if (budget === null) { receipt.row('Start presses within budget', 'HOLD', 'the journey\'s Start-press cap is not yet settled; presses counted per control', evidence); return; }
+        const over = START_CONTROLS.filter((c) => this.startPressesByControl[c] > (budget.perControl[c] ?? 0));
+        const ok = this.startPresses <= budget.total && over.length === 0;
         receipt.row('Start presses within budget', ok ? 'PASS' : 'FAIL',
-            ok ? 'every Start press fit the journey\'s budget' : 'the journey pressed Start more often than its budget', evidence);
+            ok ? 'every Start press fit the journey\'s designed budget' : this.startPresses > budget.total ? 'the journey pressed Start more often than designed'
+                : 'a Start control was pressed more often than the journey is designed to press it', { ...evidence, overControls: over.join(',') || null });
     }
 
     /** Close every page the context opened; PASS only when all closed without error. Call last, before account cleanup. */
@@ -106,12 +110,14 @@ type SessionsAdmin = {
 };
 
 /**
- * probe-save-isolation: the account's completed sessions are exactly `expected` (the journey's own saved takes). HOLD when the
- * expected takes are not known or the read fails; FAIL on any other completed session or a missing expected one.
+ * probe-save-isolation, for the original journeys: the account's completed sessions are exactly the journey's DESIGNED recorded
+ * takes — one session per take (`designedTakes`), including every take whose session id the journey captured (`knownTakes`) — and
+ * nothing else. More sessions than designed takes is a FAIL (a double save or a stray save); fewer is a FAIL (a take did not save);
+ * a captured take missing is a FAIL. HOLD when a captured take is unknown or the read fails.
  */
-export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdmin, userId: string, expected: Array<string | null | undefined>): Promise<void> {
-    const want = expected.filter((x): x is string => typeof x === 'string' && x.length > 0);
-    if (!userId || want.length !== expected.length) {
+export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdmin, userId: string, knownTakes: Array<string | null | undefined>, designedTakes: number): Promise<void> {
+    const known = knownTakes.filter((x): x is string => typeof x === 'string' && x.length > 0);
+    if (!userId || known.length !== knownTakes.length || !Number.isInteger(designedTakes) || designedTakes < known.length) {
         receipt.row('probe saves isolated', 'HOLD', 'the journey\'s saved takes are not all known, so isolation cannot be judged');
         return;
     }
@@ -121,13 +127,13 @@ export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdm
         return;
     }
     const ids = new Set(data.map((r) => r.id));
-    const unexpected = [...ids].filter((id) => !want.includes(id)).length;
-    const missing = want.filter((id) => !ids.has(id)).length;
-    const ok = unexpected === 0 && missing === 0;
+    const missingKnown = known.filter((id) => !ids.has(id)).length;
+    const ok = missingKnown === 0 && ids.size === designedTakes;
     receipt.row('probe saves isolated', ok ? 'PASS' : 'FAIL',
-        ok ? 'the account holds exactly the journey\'s saved takes; the probes saved nothing else'
-            : unexpected > 0 ? 'a probe saved a session the journey did not keep' : 'a saved take of the journey is missing',
-        { completedSessions: ids.size, expected: want.length, unexpectedCompleted: unexpected, missingExpected: missing });
+        ok ? 'one completed session per designed take, and nothing else'
+            : missingKnown > 0 ? 'a captured take of the journey is missing'
+                : ids.size > designedTakes ? 'more completed sessions than the journey records takes (a double or stray save)' : 'a recorded take did not save',
+        { completedSessions: ids.size, designedTakes, knownTakes: known.length, missingKnown });
 }
 
 /**

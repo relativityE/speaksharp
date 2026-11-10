@@ -185,10 +185,16 @@ test.use({
 });
 
 /**
- * Harness parity: AHT-01's Start-press cap is NOT yet settled. The full catalog's minimum of 4 Starts and the smoke route's cap of 2
- * describe different journeys; this journey's press total is mapped first (the counts are reported per control), then the cap is set.
+ * Harness parity, from the journey's DESIGN (not a run's count). AHT-01 records four takes, each with one Start press:
+ *   1. the first take — `mic-download` on a cold first use ("Download to start speaking"), otherwise `mic-start`;
+ *   2. the Practice-again pass from Analytics — `mic-start`;
+ *   3. the completed review's Practice again — `verdict-practice-again`;
+ *   4. the next Start — `mic-start`.
+ * So: 4 presses in all; `mic-start` at most 3 (2 when the first take downloads), `mic-download` at most 1, `verdict-practice-again`
+ * at most 1, and no Retry press. One completed session per take: 4.
  */
-const AHT01_START_PRESS_CAP: number | null = null;
+const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;
+const AHT01_DESIGNED_TAKES = 4;
 /** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
 const PARITY_CLOSE_STEP_MS = 60_000;
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
@@ -406,10 +412,10 @@ test.describe('RWT — Open Mic first session @live', () => {
             // its own step so a slow or failed read can never skip it.
             await steps.step('harness parity counts', (alive) => {
                 parity.noCloudSttRow(aliveReceipt(receipt, alive));
-                parity.startPressRow(aliveReceipt(receipt, alive), AHT01_START_PRESS_CAP);
+                parity.startPressRow(aliveReceipt(receipt, alive), AHT01_START_PRESS_BUDGET);
             });
             await steps.step('probe saves isolated', async (alive) => {
-                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId]);
+                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], AHT01_DESIGNED_TAKES);
                 else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
             });
             await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
