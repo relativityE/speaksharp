@@ -129,3 +129,22 @@ export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdm
             : unexpected > 0 ? 'a probe saved a session the journey did not keep' : 'a saved take of the journey is missing',
         { completedSessions: ids.size, expected: want.length, unexpectedCompleted: unexpected, missingExpected: missing });
 }
+
+/**
+ * same-target-numeric (catalog AHT-01..03): the harness's OWN check (tools/cloud-test/harness/draft-adapters/progress-numeric.cjs),
+ * not a copy — it reads the persisted recommendation, the linked repeat attempt and both evaluations, and compares the rendered
+ * `progress-attempt-values` text with the exact formatted before → after values. Its result maps PASS/FAIL/NOT RUN to
+ * PASS/FAIL/HOLD; only its closed reason code and booleans reach the row.
+ */
+export type NumericResult = { result: 'PASS' | 'FAIL' | 'NOT RUN'; facts?: Record<string, unknown> };
+export function numericComparisonRow(receipt: RowSink, r: NumericResult | null): void {
+    const facts = r?.facts ?? {};
+    const reason = typeof facts.reason === 'string' && /^[a-z0-9-]{1,80}$/.test(facts.reason) ? facts.reason : 'unknown';
+    const evidence: Record<string, string | number | boolean | null> = { reason };
+    for (const [k, v] of Object.entries(facts)) if (k !== 'reason' && typeof v === 'boolean') evidence[k] = v;
+    if (!r) { receipt.row('saved and displayed comparison numbers match', 'HOLD', 'the numeric comparison could not be observed', { reason: 'not-observed' }); return; }
+    const verdict = r.result === 'PASS' ? 'PASS' : r.result === 'FAIL' ? 'FAIL' : 'HOLD';
+    receipt.row('saved and displayed comparison numbers match', verdict,
+        verdict === 'PASS' ? 'the displayed before → after values equal the saved values exactly (metric, order, units, precision)'
+            : verdict === 'FAIL' ? 'the displayed comparison does not match the saved values' : 'the numeric comparison was not established', evidence);
+}
