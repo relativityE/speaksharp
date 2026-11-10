@@ -1,7 +1,7 @@
 {
   "schema": "speaksharp.cloud-test.required-test-ids.v1",
-  "sourceHead": "3d38e2177aabf2c3dcc7dca39d2a2910f786e252",
-  "sourceTree": "ef09be00ca1035cda7e209680b42f2e68312587b",
+  "sourceHead": "00207dec71c27077aacec686249932e8c0d0bb7c",
+  "sourceTree": "8f8810732e29d2c359011de7c30f5eb070e1c0c1",
   "provenance": "mechanical inventory regeneration from unittest discovery of the current source for both suites (package-unit-tests and report-builder-tests); no test outcome is inferred",
   "ids": [
     "package-unit-tests::test_accounting_rollup.Rollup.test_a_bound_cannot_understate_or_substitute_the_usage_it_charges",
