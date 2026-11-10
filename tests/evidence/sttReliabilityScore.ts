@@ -33,6 +33,11 @@ export const STT_RELIABILITY_SCORING = Object.freeze({
          * whole sentence or segment, often longer than 8 words, so a small maxN cannot see it (independent review
          * of the first draft, which used 8). Only TANDEM (back-to-back) repeats count. A phrase repeated with other
          * words between the copies is not a loop under this rule, and the report says so.
+         *
+         * LIMIT (release review, maxN 40 accepted): a loop whose repeated unit is longer than 40 tokens is NOT
+         * detected by this rule. Such a loop still adds insertions, so it still raises that clip's WER and the
+         * pooled WER, but it is not reported as a loop. A report that shows no loop therefore means "no tandem loop
+         * of 1 to 40 tokens", never "no loop at all".
          */
         minN: 1,
         maxN: 40,
@@ -58,7 +63,7 @@ export type ClipKind = 'speech' | 'silence';
 export interface PlannedClip {
     id: string;
     kind: ClipKind;
-    /** The reference text. It is empty for silence clips, and required for speech clips. */
+    /** The reference text. It is blank for silence clips (any text, even a filler, is invalid), and required for speech clips. */
     reference: string;
     /** Binding to the exact audio that was played: the PCM digest, not the WAV file digest (headers differ between writers). */
     audio: { pcmSha256: string; sampleRateHz: number; sampleCount: number };
@@ -274,7 +279,9 @@ export function scoreReliabilityCorpus(plan: readonly PlannedClip[], outcomes: R
         if (!validBinding(clip.audio)) return empty('invalid_audio_binding', clip.id);
         const words = normalizeOfficialTrackA(clip.reference ?? '').length;
         if (clip.kind === 'speech' && words === 0) return empty('missing_reference', clip.id);
-        if (clip.kind === 'silence' && words > 0) return empty('reference_on_silence_clip', clip.id);
+        // A silence clip's reference must be blank as written. Counting words after Track A normalization let a
+        // filler-only reference ("um") through, because Track A strips fillers (release review).
+        if (clip.kind === 'silence' && (clip.reference ?? '').trim() !== '') return empty('reference_on_silence_clip', clip.id);
         const outcome = outcomes[clip.id];
         if (outcome !== undefined && !validOutcome(outcome)) return empty('invalid_outcome', clip.id);
         if (outcome?.status === 'saved'

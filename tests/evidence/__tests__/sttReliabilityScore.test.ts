@@ -40,6 +40,13 @@ describe('Q4 repetition-loop rule (frozen in STT_RELIABILITY_SCORING.loop)', () 
         expect(findRepetitionLoops(tok('okay'), tok('okay okay okay okay okay'))).toEqual([]);
         expect(findRepetitionLoops(tok('okay'), tok('okay okay okay okay okay okay okay')).map(l => l.ngram)).toContain('okay');
     });
+    it('documents its limit: a repeated unit of 40 tokens is flagged, one of 41 tokens is not', () => {
+        // Release review accepted maxN 40 with this limit stated. Distinct letter-only words, so no n-gram repeats inside a unit.
+        const unit = (n: number) => Array.from({ length: n }, (_, i) => `w${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}z`);
+        const looped = (n: number) => { const u = unit(n); return [...u, ...u, ...u, ...u]; };
+        expect(findRepetitionLoops(unit(40), looped(40)).some(l => l.n === 40)).toBe(true);
+        expect(findRepetitionLoops(unit(41), looped(41))).toEqual([]);
+    });
     it('flags a loop that exceeds the repeats the reference legitimately contains', () => {
         const loops = findRepetitionLoops(tok('go go go'), tok('go go go go go go go go go go'));
         expect(loops.find(l => l.ngram === 'go')).toMatchObject({ hypothesisRepeats: 10, referenceRepeats: 3, excessSpanTokens: 7 });
@@ -136,6 +143,10 @@ describe('frozen counting rules', () => {
         ['an empty plan', [], {}, 'empty_plan'],
         ['a speech clip with no reference', [speech('a', '')], {}, 'missing_reference'],
         ['a silence clip carrying a reference', [{ ...silence, reference: 'hello' }], {}, 'reference_on_silence_clip'],
+        // Release review: Track A strips fillers, so these once normalized to zero words and passed as empty references.
+        ['a silence clip whose reference is only a filler', [{ ...silence, reference: 'um' }], {}, 'reference_on_silence_clip'],
+        ['a silence clip whose reference is only fillers and punctuation', [{ ...silence, reference: 'Uh, um...' }], {}, 'reference_on_silence_clip'],
+        ['a silence clip whose reference is only punctuation', [{ ...silence, reference: '.' }], {}, 'reference_on_silence_clip'],
         ['an invalid audio binding', [{ ...a, audio: { pcmSha256: 'x', sampleRateHz: 16_000, sampleCount: 1 } }], {}, 'invalid_audio_binding'],
         ['a duplicate clip id', [a, { ...b, id: 'a' }], {}, 'duplicate_clip_id'],
         ['an outcome for an unplanned clip', [a], { z: saved(a, 'x') }, 'unplanned_outcome'],
