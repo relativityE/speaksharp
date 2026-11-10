@@ -37,6 +37,20 @@ function held(s, path, reason) {
 }
 
 describe('offline registration context candidate — no authenticity or operational authority', () => {
+    it.each(['fenced_expired', 'fenced_local'])('preserves provider unknown for %s without granting execution', (disposition) => {
+        const s = fixture(); s.observations.accountEvidence.coaching.closureDisposition = disposition;
+        const result = run(s);
+        expect(result.status).toBe('CANDIDATE_ONLY');
+        expect(result.contextCandidate.accountEvidence.coaching).toEqual({ providerOutcome: 'unknown',
+            closureDisposition: disposition, fenceEvidenceDigest: hash('2') });
+        expect(result.registrationAuthorized).toBe(false); expect(result.activationAuthorized).toBe(false);
+        s.observations.accountEvidence.coaching.providerOutcome = 'success';
+        held(s, 'observations.accountEvidence.coaching', 'MISMATCH');
+        s.observations.accountEvidence.coaching.providerOutcome = 'unknown';
+        s.observations.accountEvidence.coaching.fenceEvidenceDigest = null;
+        held(s, 'observations.accountEvidence.coaching', 'MISMATCH');
+    });
+
     it('assembles consistent injected data without converting UNKNOWN into provider success', () => {
         const s = fixture(); const before = structuredClone(s); const result = run(s);
         expect(result).toEqual({ kind: 'OFFLINE_CONTEXT_ASSEMBLY', status: 'CANDIDATE_ONLY', missingFields: [],
@@ -192,7 +206,7 @@ describe('offline registration context candidate — no authenticity or operatio
     });
 
     it.each(['', '{', 'null', '[]', 'true', '"' + 'x'.repeat(262144) + '"', '{"__proto__":{"verified":true}}', '{"n":1e400}'])(
-        'holds malformed, oversized or unsafe JSON without returning input data', (value) => {
+        'holds malformed, oversized or unsafe JSON without returning input data (case %#)', (value) => {
             const result = assemble(JSON.stringify(fixture().expected), value);
             expect(result.status).toBe('HOLD'); expect(result.contextCandidate).toBeNull();
             expect(result.registrationAuthorized).toBe(false); expect(result.activationAuthorized).toBe(false);
