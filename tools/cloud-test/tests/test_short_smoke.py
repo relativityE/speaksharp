@@ -192,23 +192,26 @@ class ShortSmokeContract(unittest.TestCase):
         # The committed grant's earliest start is exact.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-08T15:36:22Z")
-        # The window is extended so an immediate start is admitted; expiresUtc 20:00Z leaves the latest start at 18:20Z (a 100-minute
-        # occurrence). 00:00Z is only a sample point inside the window.
+        # The window is extended for the run on latest main (PO, 2026-11-10): expiresUtc 2026-11-12T00:00Z leaves the latest start at
+        # 2026-11-11T22:20Z (a 100-minute occurrence). The other times are sample points inside the window.
         init.materialize_authoritative_smoke_occurrence(
             str(ROOT.parents[1]), template, "2026-11-09T00:00:00Z")
         init.materialize_authoritative_smoke_occurrence(
-            str(ROOT.parents[1]), template, "2026-11-09T18:20:00Z")
-        for outside in ("2026-11-08T15:36:21Z", "2026-11-09T18:20:01Z"):
+            str(ROOT.parents[1]), template, "2026-11-10T12:00:00Z")
+        init.materialize_authoritative_smoke_occurrence(
+            str(ROOT.parents[1]), template, "2026-11-11T22:20:00Z")
+        for outside in ("2026-11-08T15:36:21Z", "2026-11-11T22:20:01Z"):
             with self.assertRaisesRegex(init.Refused, "one-off-grant-expired"):
                 init.materialize_authoritative_smoke_occurrence(str(ROOT.parents[1]), template, outside)
 
     def test_an_extended_window_names_its_source_and_never_relabels_the_approval(self):
-        """The committed grant extends the window to 20:00Z (latest start 18:20Z; owner-approved re-issue at journal 39ec9ab2 after run 42615792133) and
+        """The committed grant extends the window to 2026-11-12T00:00Z (latest start 2026-11-11T22:20Z; the owner's direction on 2026-11-10 to run
+        the live test on latest main, after the 20:00Z re-issue at journal 39ec9ab2 expired unused) and
         names the timing's approval source as an opaque windowSourceRef, while approvalRef stays
         the original approval and the selected case and every limit are unchanged.
         An extended window without a well-formed source, or a source on the original window, refuses."""
-        self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-09T20:00:00Z")
-        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "approval-4ac57c91e91e89071ee0d42b05110655")
+        self.assertEqual(COMMITTED_GRANT["expiresUtc"], "2026-11-12T00:00:00Z")
+        self.assertEqual(COMMITTED_GRANT["windowSourceRef"], "approval-fb2fcd4eedc39684b339a8f069bdf3ea")
         self.assertEqual(COMMITTED_GRANT["approvalRef"], "approval-bcde5476311b392d618839dd2ae6b2f0")
         self.assertEqual(init.ONE_OFF_APPROVED_EXPIRES_UTC, "2026-11-09T00:00:00Z")
         # unchanged: the selected case, every limit, the scope, release and journal bindings

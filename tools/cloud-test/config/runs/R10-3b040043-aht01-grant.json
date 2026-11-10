@@ -15,8 +15,8 @@
   "periodScopeSha256": "ab44af95da89cb07e28c6680f0f2e92278574f6c6bd4611dfb15afe60416eff4",
   "preReserveStateHead": "39ec9ab27559662d003ad1a9b8f9b6586f86196f",
   "notBeforeUtc": "2026-11-08T15:36:22Z",
-  "expiresUtc": "2026-11-09T20:00:00Z",
-  "windowSourceRef": "approval-4ac57c91e91e89071ee0d42b05110655",
+  "expiresUtc": "2026-11-12T00:00:00Z",
+  "windowSourceRef": "approval-fb2fcd4eedc39684b339a8f069bdf3ea",
   "limits": {
     "endToEndMinutes": 100,
     "liveMinutes": 60,
