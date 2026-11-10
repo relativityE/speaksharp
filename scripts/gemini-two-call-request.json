@@ -1,0 +1,51 @@
+{
+  "sourceSha": "524c325a95874d31239203dce9ef7893331ca756",
+  "fixtureId": "om-01-team-update",
+  "provenance": "SYNTHETIC. Existing evaluator fixture, no customer data. Exact production prompt builders extracted from pinned source; Open Mic only.",
+  "model": "gemini-3.8-flash",
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "\n      You are an expert public speaking coach. Analyze the following speech transcript and metrics as if the user wants practical coaching they can use in the next practice session.\n      Go beyond delivery metrics. Evaluate the speech content's logical structure, vocabulary variety, sentence variety, transitions, specificity, and audience impact in addition to the delivery signals provided below.\n\n      Coaching rules:\n      - Be specific and evidence-based. Reference short phrases or patterns from the transcript when useful.\n      - Do not invent facts, audience context, or performance details not present in the transcript or metrics.\n      - Prefer concrete rewrites, next-step drills, or \"try saying...\" examples over generic encouragement.\n      - If the transcript is too short for a category, say what additional evidence would make that category measurable.\n      - LENGTH: \"what_worked\" is ONE short phrase and \"what_to_try_next\" is ONE short phrase — about 8-10 words each,\n        one idea per phrase. \"what_to_try_next\" is one concrete thing the speaker can try on the very next take.\n        Ground both in this transcript and the evidence provided below — never generic encouragement. Do not restate a number (\"your pace was 148 words per minute\"); say what to do.\n\n      Transcript:\n      \"Good morning everyone. This week the onboarding team finished the new checklist, and the first three customers used it without calling support. Um, the part that still slows people down is account setup, because the verification email arrives late. So next week we will test sending the code by text message instead. If that works, setup should take about half as long. That's my update.\"\n      \n      Delivery signals:\n      - Words Per Minute (WPM): 142\n      - Filler Words: {\"um\":1}\n    \n\n      Return exactly one JSON object and no surrounding prose or markdown:\n      {\n        \"version\": \"gemini_coaching_v1\",\n        \"what_worked\": \"One specific thing that worked, in about ten words.\",\n        \"what_to_try_next\": \"One concrete step to try on your next take.\"\n      }\n      Do not add keys. Metric recital or reusable generic advice is invalid.\n    "
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "thinkingConfig": {
+        "thinkingLevel": "low"
+      },
+      "responseMimeType": "application/json",
+      "responseSchema": {
+        "type": "OBJECT",
+        "properties": {
+          "version": {
+            "type": "STRING",
+            "enum": [
+              "gemini_coaching_v1"
+            ]
+          },
+          "what_worked": {
+            "type": "STRING",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": ".*\\S.*"
+          },
+          "what_to_try_next": {
+            "type": "STRING",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": ".*\\S.*"
+          }
+        },
+        "required": [
+          "version",
+          "what_worked",
+          "what_to_try_next"
+        ]
+      }
+    }
+  }
+}
