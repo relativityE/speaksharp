@@ -6,20 +6,31 @@ import {
 } from '../../backend/supabase/functions/get-ai-suggestions/providerRetry';
 
 describe('coaching attempt cap inside the shared provider budget', () => {
-    it('allows 35 s per attempt while retaining the 45 s budget and retry limits', () => {
-        expect(PROVIDER_ATTEMPT_CAP_MS).toBe(35_000);
+    it('allows 15 s per attempt while retaining the 45 s budget and retry limits', () => {
+        expect(PROVIDER_ATTEMPT_CAP_MS).toBe(15_000);
         expect(PROVIDER_BUDGET_MS).toBe(45_000);
         expect(MIN_ATTEMPT_MS).toBe(10_000);
         expect(MAX_PROVIDER_ATTEMPTS).toBe(3);
     });
 
-    it.each([[0, 35_000], [10_000, 35_000], [20_500, 24_500], [35_000, 10_000], [45_000, 0], [46_000, 0]])(
+    it.each([[0, 15_000], [10_000, 15_000], [20_500, 15_000], [31_500, 13_500], [35_000, 10_000], [35_001, 9_999], [45_000, 0], [46_000, 0]])(
         'caps an attempt after %i ms at %i ms', (elapsed, expected) => {
             expect(attemptTimeoutMs(elapsed)).toBe(expected);
         },
     );
 
-    it('cannot fit positive backoff after a full 35 s timeout', () => {
+    it('shortens the third timeout after two 15 s timeouts and jitter to the shared budget', () => {
+        expect(planNextAttempt({ attemptsDone: 1, elapsedMs: 15_000, retryAfter: { kind: 'absent' }, random: 0.5 }))
+            .toEqual({ kind: 'wait', ms: 500, source: 'jitter' });
+        expect(planNextAttempt({ attemptsDone: 2, elapsedMs: 30_500, retryAfter: { kind: 'absent' }, random: 0.5 }))
+            .toEqual({ kind: 'wait', ms: 1000, source: 'jitter' });
+        expect(canAdmitAttempt(31_500)).toBe(true);
+        expect(attemptTimeoutMs(31_500)).toBe(13_500);
+        expect(planNextAttempt({ attemptsDone: 3, elapsedMs: 45_000, retryAfter: { kind: 'absent' }, random: 0.5 }))
+            .toEqual({ kind: 'stop', why: 'attempt_cap' });
+    });
+
+    it('still refuses positive backoff when only the minimum retry window remains', () => {
         expect(planNextAttempt({ attemptsDone: 1, elapsedMs: 35_000, retryAfter: { kind: 'absent' }, random: 0.5 }))
             .toEqual({ kind: 'stop', why: 'budget' });
         expect(planNextAttempt({ attemptsDone: 1, elapsedMs: 35_000, retryAfter: { kind: 'valid', ms: 1000 }, random: 0 }))

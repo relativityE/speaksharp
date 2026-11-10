@@ -1190,41 +1190,43 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(body.diagnostics.stopped_over_budget, false, 'the cap, not the budget, ended it');
   });
 
-  await t.step('a 30 s coaching answer succeeds inside the 35 s attempt cap and is persisted once', async () => {
+  await t.step('a 3.6 s coaching answer succeeds inside the 15 s attempt cap and is persisted once', async () => {
     resetProvider();
-    retryClock.providerCallMs = 30_000;
+    retryClock.providerCallMs = 3_600;
     const { response, mock } = await coach();
     assertEquals(response.status, 200);
-    assertEquals(attemptTimeouts, [35_000]);
+    assertEquals(attemptTimeouts, [15_000]);
     assertEquals(fetchCount, 1);
     assertEquals(sleeps, []);
     assertEquals(mock.state.quotaCount, 1);
     assertEquals(mock.state.authorityRpcCount, 1);
   });
 
-  await t.step('a retry after a 20 s failure is shortened to the remaining shared budget', async () => {
+  await t.step('a retry after a 9.5 s failure retains the 15 s cap inside the shared budget', async () => {
     resetProvider();
-    retryClock.providerCallMs = 20_000;
+    retryClock.providerCallMs = 9_500;
     fetchStatusQueue = [503, 200];
     const { response, mock } = await coach();
     assertEquals(response.status, 200);
-    assertEquals(attemptTimeouts, [35_000, 24_500]);
+    assertEquals(attemptTimeouts, [15_000, 15_000]);
     assertEquals(sleeps, [500]);
-    assertEquals(retryClock.mono, 40_500);
+    assertEquals(retryClock.mono, 19_500);
     assertEquals(mock.state.quotaCount, 1);
     assertEquals(mock.state.authorityRpcCount, 1);
   });
 
   for (const random of [0.5, 0]) {
-  await t.step(`a full 35 s timeout with jitter ${random} never extends the 45 s budget`, async () => {
+  await t.step(`15 s timeouts with jitter ${random} shorten the final attempt to the 45 s budget`, async () => {
     resetProvider();
     retryClock.random = random;
+    const timeoutReachedProvider: boolean[] = [];
     const original = globalThis.fetch;
     globalThis.fetch = async (url, init) => {
       if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
         fetchCount++;
         retryClock.mono += attemptTimeouts[attemptTimeouts.length - 1];
         lastAttemptTimeout?.abort(new DOMException('Signal timed out.', 'TimeoutError'));
+        timeoutReachedProvider.push((init as { signal?: AbortSignal } | undefined)?.signal?.aborted === true);
         throw new DOMException('Signal timed out.', 'TimeoutError');
       }
       return original(url, init);
@@ -1232,13 +1234,15 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     try {
       const { response, mock, body } = await coach();
       assertEquals(response.status, 502);
-      assertEquals(fetchCount, random === 0 ? 2 : 1);
-      assertEquals(attemptTimeouts, random === 0 ? [35_000, 10_000] : [35_000]);
-      assertEquals(sleeps, [], 'zero-delay retries do not invoke sleep');
+      assertEquals(fetchCount, 3);
+      assertEquals(timeoutReachedProvider, [true, true, true], 'each timeout aborts the actual provider request');
+      assertEquals(attemptTimeouts, random === 0 ? [15_000, 15_000, 15_000] : [15_000, 15_000, 13_500]);
+      assertEquals(sleeps, random === 0 ? [] : [500, 1000], 'zero-delay retries do not invoke sleep');
       assertEquals(body.reason, 'provider_timeout');
-      assertEquals(body.diagnostics.stopped_over_budget, true);
+      assertEquals(body.diagnostics.stopped_over_budget, false, 'the attempt cap is reached on the final timeout');
       assertEquals(mock.state.quotaCount, 1);
       assertEquals(mock.state.authorityRpcCount, 0);
+      assertEquals(retryClock.mono, 45_000);
       assertEquals(retryClock.mono <= PROVIDER_BUDGET_MS, true, 'no overshoot past the declared budget');
     } finally {
       globalThis.fetch = original;
