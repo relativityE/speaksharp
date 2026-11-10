@@ -139,8 +139,9 @@ let abortDuringFetch: AbortController | null = null;
 let abortDuringSleep: AbortController | null = null;
 /** Each attempt's own timeout, as a controllable signal (no real timers): the latest one can be fired by a test. */
 let lastAttemptTimeout: AbortController | null = null;
+let attemptTimeouts: number[] = [];
 providerRetryHooks.runtime = {
-  timeout: () => { lastAttemptTimeout = new AbortController(); return lastAttemptTimeout.signal; },
+  timeout: (ms) => { attemptTimeouts.push(ms); lastAttemptTimeout = new AbortController(); return lastAttemptTimeout.signal; },
   now: () => retryClock.mono,
   wallNow: () => retryClock.wall,
   random: () => retryClock.random,
@@ -382,6 +383,7 @@ function resetProvider() {
   abortDuringFetch = null;
   abortDuringSleep = null;
   lastAttemptTimeout = null;
+  attemptTimeouts = [];
   Deno.env.set('GEMINI_API_KEY', 'test-key');
 }
 
@@ -1188,29 +1190,61 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(body.diagnostics.stopped_over_budget, false, 'the cap, not the budget, ended it');
   });
 
-  await t.step('option A: two 20 s timeouts leave no room for a third attempt — the budget, not the count, decides', async () => {
+  await t.step('a 30 s coaching answer succeeds inside the 35 s attempt cap and is persisted once', async () => {
+    resetProvider();
+    retryClock.providerCallMs = 30_000;
+    const { response, mock } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(attemptTimeouts, [35_000]);
+    assertEquals(fetchCount, 1);
+    assertEquals(sleeps, []);
+    assertEquals(mock.state.quotaCount, 1);
+    assertEquals(mock.state.authorityRpcCount, 1);
+  });
+
+  await t.step('a retry after a 20 s failure is shortened to the remaining shared budget', async () => {
     resetProvider();
     retryClock.providerCallMs = 20_000;
+    fetchStatusQueue = [503, 200];
+    const { response, mock } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(attemptTimeouts, [35_000, 24_500]);
+    assertEquals(sleeps, [500]);
+    assertEquals(retryClock.mono, 40_500);
+    assertEquals(mock.state.quotaCount, 1);
+    assertEquals(mock.state.authorityRpcCount, 1);
+  });
+
+  for (const random of [0.5, 0]) {
+  await t.step(`a full 35 s timeout with jitter ${random} never extends the 45 s budget`, async () => {
+    resetProvider();
+    retryClock.random = random;
     const original = globalThis.fetch;
     globalThis.fetch = async (url, init) => {
       if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
         fetchCount++;
-        retryClock.mono += retryClock.providerCallMs;
+        retryClock.mono += attemptTimeouts[attemptTimeouts.length - 1];
+        lastAttemptTimeout?.abort(new DOMException('Signal timed out.', 'TimeoutError'));
         throw new DOMException('Signal timed out.', 'TimeoutError');
       }
       return original(url, init);
     };
     try {
-      const { response, body } = await coach();
+      const { response, mock, body } = await coach();
       assertEquals(response.status, 502);
-      assertEquals(fetchCount, 2);
+      assertEquals(fetchCount, random === 0 ? 2 : 1);
+      assertEquals(attemptTimeouts, random === 0 ? [35_000, 10_000] : [35_000]);
+      assertEquals(sleeps, [], 'zero-delay retries do not invoke sleep');
       assertEquals(body.reason, 'provider_timeout');
       assertEquals(body.diagnostics.stopped_over_budget, true);
+      assertEquals(mock.state.quotaCount, 1);
+      assertEquals(mock.state.authorityRpcCount, 0);
       assertEquals(retryClock.mono <= PROVIDER_BUDGET_MS, true, 'no overshoot past the declared budget');
     } finally {
       globalThis.fetch = original;
     }
   });
+  }
 
   await t.step('option A: a caller abort DURING the provider call stops everything and persists nothing', async () => {
     resetProvider();
