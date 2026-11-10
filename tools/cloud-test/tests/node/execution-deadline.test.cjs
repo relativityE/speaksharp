@@ -32,7 +32,7 @@ function adapter(p, clock, spend) {
     identity: async phase => { clock.t += spend('identity', granted(IDENTITY_MAX_MS), S); log.push([phase, clock.t]); assert.ok(clock.t <= D, phase + ' ended after the deadline'); return { result: 'MATCH', servedSha: commit }; },
     caseConfig: async c => ({ caseId: c.id, sourceSha: commit, servedSha: commit, targetUrl: p.targetUrl, requiredAssertions: ['actual'] }),
     runCase: async c => { clock.t += spend('case', granted(c.maxMs + p.cleanupReserveMs), S); log.push([c.id, clock.t]); assert.ok(clock.t <= D, c.id + ' ended after the deadline');
-      return { assertions: [{ id: 'actual', result: 'PASS', detail: 'unit fixture only', evidenceRefs: ['unit.json'] }] }; } };
+      return { assertions: [{ id: 'actual', result: 'PASS', detail: 'unit fixture only', evidenceRefs: ['unit.json'] }], cleanupEvidence: {schema:'speaksharp.cloud-test.case-cleanup-evidence.v1',ownedProcessesRemaining:0,launchCleanupFailure:false,mediaCleanupFailure:false,stopError:false,browserCloseError:false,guardClosed:true,cleanupIncomplete:false} }; } };
 }
 const worst = (kind, granted, S) => granted + S;
 

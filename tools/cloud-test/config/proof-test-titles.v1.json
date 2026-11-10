@@ -1826,7 +1826,7 @@
    "S1 selection validation: owner reference, reason, ids, order permutation and gate ordering are all required",
    "S2 identity cap scales with the selection: 2k+2 reads, so 5 cases need 12 and 11 is refused; the full run still needs 32",
    "S3 a selected run dispatches only the selected cases, in the approved order, with exactly 2k+2 identity reads; unselected cases are notSelected, not dispatched and cost nothing",
-   "S3c one selected case (AHT-01): PASS exits 0 with 14 unselected NOT RUN; a selected non-PASS row, a FAIL or a final identity drift does not",
+   "S3c one selected case (AHT-01): PASS with positive cleanup exits 0 with 14 unselected NOT RUN; missing or non-positive cleanup, a non-PASS row, a FAIL or a final identity drift does not",
    "S3b full campaign consumes the one genuine admission identity and exactly 31 later reads; no second admission dispatch occurs",
    "S4 stimulus gates: when the denial stimulus is not established, AHT-04/13/14 are NOT dispatched and spend no request, identity read or time; the reason names the missing stimulus",
    "S5 gates chain: denial PASS runs AHT-04; AHT-04 pending PASS runs 13 and 14; AHT-04 pending NOT RUN blocks 13 and 14 only",

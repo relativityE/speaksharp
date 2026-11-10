@@ -21,6 +21,9 @@ const caseWorstCaseMs=(plan,c)=>{const s=supervisorSlackMs(plan),C=plan.cleanupR
 // and they are reported as `notSelected` (distinct from omitted-by-design and from NOT RUN for lack of evidence). Without a selection every behaviour is unchanged.
 function selectedOrder(plan){return plan&&plan.selection?plan.selection.order||plan.selection.ids:IDS;}
 function unselectedIds(plan){const s=new Set(selectedOrder(plan));return IDS.filter(id=>!s.has(id));}
+// #1788 review of b85d57c8: the runner's positive cleanup record (campaign-runner cleanupEvidence: no owned process left, launch and media
+// cleanup clean, no stop or browser-close error, guard closed, runner cleanup complete). Anything else, absent included, is not positive.
+function cleanupPositive(ce){return!!ce&&typeof ce==='object'&&ce.ownedProcessesRemaining===0&&ce.launchCleanupFailure===false&&ce.mediaCleanupFailure===false&&ce.stopError===false&&ce.browserCloseError===false&&ce.guardClosed===true&&ce.cleanupIncomplete===false;}
 function validateSelection(p){
  const errors=[],s=p?.selection;if(s===undefined)return Array.isArray(p?.gates)&&p.gates.length?['gates need a valid selection']:errors;
  if(!s||typeof s!=='object'||Array.isArray(s))return ['selection'];
@@ -211,6 +214,10 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
    if(ran.safetyStop===true){invalidate(row,ran.reason||'Guard/cap/ownership/cleanup safety stop');safetyStopped=true;}
    // Later cases run only after the interrupted case's cleanup is positively verified (owned processes gone, media and launch cleanup clean, no other safety condition).
    if(ran.allowanceExhausted===true&&ran.allowanceCleanupVerified!==true&&!safetyStopped){invalidate(row,'Allowance exhaustion: bounded cleanup not verified; campaign stopped');safetyStopped=true;}
+   // #1788 review of b85d57c8: on EVERY boundary, shared or not, a case keeps PASS only with positive cleanup evidence, and without it no later
+   // case starts. (The shared-identity path already refused; the per-case path did not check at all.)
+   row.cleanupVerified=cleanupPositive(ran.cleanupEvidence);
+   if(!row.cleanupVerified&&!safetyStopped){invalidate(row,'Cleanup evidence missing or not positive; this case cannot PASS and later cases do not start');safetyStopped=true;}
    await save();if(safetyStopped)break;
   }
  }catch(e){report.reason=safeReason(e);safetyStopped=true;}
@@ -226,7 +233,7 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
  // NOT RUN/notSelected, and any selected case that is not PASS (missing coaching or cleanup evidence included), a safety stop or a final
  // identity other than MATCH keeps the exit non-zero.
  const chosen=new Set(selectedOrder(plan)),selectedRows=report.cases.filter(c=>chosen.has(c.caseId));
- report.selectedResult=selectedRows.some(c=>c.result==='FAIL')?'FAIL':selectedRows.length>0&&selectedRows.every(c=>c.result==='PASS')&&report.cases.every(c=>chosen.has(c.caseId)||(c.notSelected===true&&c.result==='NOT RUN'))&&!safetyStopped&&report.finalIdentity==='MATCH'?'PASS':'NOT RUN';
+ report.selectedResult=selectedRows.some(c=>c.result==='FAIL')?'FAIL':selectedRows.length>0&&selectedRows.every(c=>c.result==='PASS'&&c.cleanupVerified===true)&&report.cases.every(c=>chosen.has(c.caseId)||(c.notSelected===true&&c.result==='NOT RUN'))&&!safetyStopped&&report.finalIdentity==='MATCH'?'PASS':'NOT RUN';
  report.safetyStopped=safetyStopped;applyRequirementMappings(report,plan);await save();
  return{exitCode:report.selectedResult==='PASS'?0:report.selectedResult==='FAIL'?1:78,report};
 }

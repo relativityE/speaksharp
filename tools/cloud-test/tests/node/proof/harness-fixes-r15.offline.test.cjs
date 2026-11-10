@@ -207,7 +207,7 @@ const SEL=['AHT-12','AHT-04','AHT-13','AHT-14','AHT-03'];
 const selection=(ids=SEL)=>({ids,order:ids,ownerApprovalReference:'owner-chat-approval-ref-1',reason:'targeted run'});
 const gates=()=>[{caseId:'AHT-04',requires:[{caseId:'AHT-12',row:'press-bound-denial',result:'PASS'}]},{caseId:'AHT-13',requires:[{caseId:'AHT-04',row:'cold-pending-observed',result:'PASS'}]},{caseId:'AHT-14',requires:[{caseId:'AHT-04',row:'cold-pending-observed',result:'PASS'}]}];
 function io(rows={}){const calls=[];return{calls,now:()=>NOW,save:async()=>{},preflightCase:async c=>calls.push('check:'+c.id),admit:async()=>{calls.push('admit');return{result:'ADMISSION PASS'};},identity:async phase=>{calls.push('identity:'+phase);return{result:'MATCH',servedSha:commit};},caseConfig:async c=>({caseId:c.id,sourceSha:commit,servedSha:commit,targetUrl:'https://speaksharp-public.vercel.app/',requiredAssertions:['denial','pending','actual']}),
-  runCase:async c=>{calls.push('run:'+c.id);const r=rows[c.id]||{};return{assertions:[{id:'denial',result:r.denial||'PASS',detail:'unit',evidenceRefs:['u.json']},{id:'pending',result:r.pending||'PASS',detail:'unit',evidenceRefs:['u.json']},{id:'actual',result:'PASS',detail:'unit',evidenceRefs:['u.json']}]};}};}
+  runCase:async c=>{calls.push('run:'+c.id);const r=rows[c.id]||{};return{assertions:[{id:'denial',result:r.denial||'PASS',detail:'unit',evidenceRefs:['u.json']},{id:'pending',result:r.pending||'PASS',detail:'unit',evidenceRefs:['u.json']},{id:'actual',result:'PASS',detail:'unit',evidenceRefs:['u.json']}],cleanupEvidence:r.cleanup===undefined?{schema:'speaksharp.cloud-test.case-cleanup-evidence.v1',ownedProcessesRemaining:0,launchCleanupFailure:false,mediaCleanupFailure:false,stopError:false,browserCloseError:false,guardClosed:true,cleanupIncomplete:false}:r.cleanup};}};}
 const gp=()=>plan({selection:selection(),identityCap:12,gates:[{caseId:'AHT-04',requires:[{caseId:'AHT-12',row:'denial',result:'PASS'}]},{caseId:'AHT-13',requires:[{caseId:'AHT-04',row:'pending',result:'PASS'}]},{caseId:'AHT-14',requires:[{caseId:'AHT-04',row:'pending',result:'PASS'}]}]});
 test('S1 selection validation: owner reference, reason, ids, order permutation and gate ordering are all required',()=>{
   const v=p=>core.validateCampaignPlan(p);
@@ -229,7 +229,7 @@ test('S3 a selected run dispatches only the selected cases, in the approved orde
   // #1788 review of 3200d722: every selected case passed, so the selected verdict is PASS and the run exits 0
   assert.equal(r.report.selectedResult,'PASS');assert.equal(r.exitCode,0);
 });
-test('S3c one selected case (AHT-01): PASS exits 0 with 14 unselected NOT RUN; a selected non-PASS row, a FAIL or a final identity drift does not',async()=>{
+test('S3c one selected case (AHT-01): PASS with positive cleanup exits 0 with 14 unselected NOT RUN; missing or non-positive cleanup, a non-PASS row, a FAIL or a final identity drift does not',async()=>{
   const one=()=>plan({selection:selection(['AHT-01']),identityCap:4});
   const x=io(),r=await core.runCampaign(one(),x,{executeR0:true});
   assert.deepEqual(x.calls.filter(s=>s.startsWith('run:')),['run:AHT-01']);
@@ -243,6 +243,22 @@ test('S3c one selected case (AHT-01): PASS exits 0 with 14 unselected NOT RUN; a
   assert.notEqual(nr.report.cases.find(c=>c.caseId==='AHT-01').result,'PASS');assert.equal(nr.report.selectedResult,'NOT RUN');assert.equal(nr.exitCode,78);
   const f=await core.runCampaign(one(),io({'AHT-01':{denial:'FAIL'}}),{executeR0:true});
   assert.equal(f.report.selectedResult,'FAIL');assert.equal(f.exitCode,1);
+  // #1788 review of b85d57c8: a selected case never PASSes without POSITIVE cleanup evidence: absent, or any one field not clean, makes the
+  // case NOT RUN, stops the campaign and exits 78
+  const POS={schema:'speaksharp.cloud-test.case-cleanup-evidence.v1',ownedProcessesRemaining:0,launchCleanupFailure:false,mediaCleanupFailure:false,stopError:false,browserCloseError:false,guardClosed:true,cleanupIncomplete:false};
+  const bad={'absent':null,'not an object':'clean','owned process left':{...POS,ownedProcessesRemaining:1},'unknown process count':{...POS,ownedProcessesRemaining:null},
+    'launch cleanup failed':{...POS,launchCleanupFailure:true},'media cleanup failed':{...POS,mediaCleanupFailure:true},'stop error':{...POS,stopError:true},
+    'browser close error':{...POS,browserCloseError:true},'guard not closed':{...POS,guardClosed:false},'runner cleanup incomplete':{...POS,cleanupIncomplete:true},
+    'flag missing':(({guardClosed,...rest})=>rest)(POS)};
+  for(const [name,ce] of Object.entries(bad)){
+    const b=await core.runCampaign(one(),io({'AHT-01':{cleanup:ce}}),{executeR0:true}),row=b.report.cases.find(c=>c.caseId==='AHT-01');
+    assert.equal(row.result,'NOT RUN',name);assert.equal(row.cleanupVerified,false,name);assert.match(row.reason,/Cleanup evidence missing or not positive/,name);
+    assert.equal(b.report.safetyStopped,true,name);assert.equal(b.report.selectedResult,'NOT RUN',name);assert.equal(b.exitCode,78,name);
+  }
+  // and in a multi-case selection the campaign stops there: no later selected case starts
+  const xs=io({'AHT-12':{cleanup:null}}),rs=await core.runCampaign(gp(),xs,{executeR0:true});
+  assert.deepEqual(xs.calls.filter(s=>s.startsWith('run:')),['run:AHT-12']);assert.equal(rs.exitCode,78);
+  assert.equal(r.report.cases.find(c=>c.caseId==='AHT-01').cleanupVerified,true,'the passing case carried positive cleanup evidence');
   // the campaign-end identity must still MATCH
   const d=io();const id=d.identity;d.identity=async phase=>phase==='campaign-end'?{result:'BLOCKED',servedSha:'c'.repeat(40)}:id(phase);
   const dr=await core.runCampaign(one(),d,{executeR0:true});assert.equal(dr.report.selectedResult,'NOT RUN');assert.equal(dr.exitCode,78);
