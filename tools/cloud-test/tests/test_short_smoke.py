@@ -221,7 +221,7 @@ class ShortSmokeContract(unittest.TestCase):
         self.assertEqual((COMMITTED_GRANT["notBeforeUtc"], COMMITTED_GRANT["preReserveStateHead"], COMMITTED_GRANT["scopeApprovalRef"],
                           COMMITTED_GRANT["requestTemplateSha256"], COMMITTED_GRANT["testedSha"], COMMITTED_GRANT["backendSha"]),
                          ("2026-11-08T15:36:22Z", "39ec9ab27559662d003ad1a9b8f9b6586f86196f", "approval-2c749f7fca826f9e54d962517a702665",
-                          "de68a87fde1d14c3b5f90191bc9cdb9422f9201db2eb227eea42397c25f4ae47", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
+                          "742eb4bd1c28c29b89203eb212387f00d2ae8b11515e8308d601bc3a4d10b6e5", "5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2",
                           "c32319f9121d4fef64dc48bb40fae5464dc6b65a"))
         repo = str(ROOT.parents[1])
         grant_path = os.path.join(repo, init.ONE_OFF_GRANT_PATH)

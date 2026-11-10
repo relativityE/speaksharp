@@ -124,6 +124,18 @@ def _authenticated_view():
     return authenticated_view(check_gates.authenticated_state_chain(), check_gates.JOURNAL_ROOT or W.REVIEWED_ROOT)
 
 
+def read_checkout_head(repo):
+    """HEAD of the harness checkout, read the way the elevated run stage reads it (#1788 review, Codex P1 4520284080): as root with no
+    SUDO_UID, so a job-user-owned checkout is "dubious ownership". Exactly this path is trusted for this ONE git command (command-scope
+    safe.directory is protected configuration); no system or global config is written and no other path is trusted. An unreadable
+    checkout refuses with its own code instead of passing an empty head on."""
+    path = os.path.realpath(repo)
+    p = subprocess.run(["git", "-c", "safe.directory=" + path, "-C", path, "rev-parse", "--verify", "HEAD"], capture_output=True, text=True)
+    head = p.stdout.strip()
+    _need(p.returncode == 0 and len(head) == 40 and all(c in "0123456789abcdef" for c in head), "runtime-binding-harness-checkout-unreadable")
+    return head
+
+
 def _load(path):
     with open(path, "rb") as f:
         raw = f.read()
@@ -154,7 +166,7 @@ def main(argv):
             _, reconciliation = _load(x.reconciliation)
             view = _authenticated_view()
             authenticated_snapshot(snapshot_file, view)
-            head = subprocess.run(["git", "-C", x.repo or ".", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+            head = read_checkout_head(x.repo or ".")
             check_plan(plan, view, request, x.request_sha256, x.run_id, attempt, x.source_sha, head,
                        reconciliation.get("headSha") if isinstance(reconciliation, dict) else None)
         else:

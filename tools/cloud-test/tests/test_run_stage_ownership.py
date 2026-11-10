@@ -332,6 +332,21 @@ class RealRootAdmissionGit(unittest.TestCase):
         self.assertEqual(self.system_entries(), before)              # the trust is removed after the stage
         self.assertEqual(os.stat(self.out).st_uid, os.getuid())     # and the run-owned trees came back
 
+    def test_root_reads_the_job_user_harness_checkout_through_the_runtime_check_without_system_trust(self):
+        # #1788 review, Codex P1 4520284080: the run stage's runtime check reads the HARNESS checkout (job-user-owned, not the tested
+        # checkout trusted above) as root without SUDO_UID. Control: plain root git refuses it; the check's own read admits it.
+        refused = subprocess.run(ROOT_PREFIX + ["env", "-i", "PATH=/usr/bin:/bin", "git", "-c", "safe.directory=", "-C", self.repo, "rev-parse", "HEAD"],
+                                 capture_output=True, text=True)
+        self.assertEqual(refused.returncode, 128, refused.stderr)
+        self.assertIn("dubious ownership", refused.stderr)
+        head = subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        before = self.system_entries()
+        probe = ("import sys; sys.path.insert(0, sys.argv[1]); import reservation_runtime_check as R; print(R.read_checkout_head(sys.argv[2]))")
+        p = subprocess.run(ROOT_PREFIX + ["env", "-i", "PATH=/usr/bin:/bin", "HOME=" + self.d, "python3", "-I", "-c", probe,
+                                          str(ROOT / "scripts"), self.repo], capture_output=True, text=True)
+        self.assertEqual((p.returncode, p.stdout.strip()), (0, head), p.stderr)
+        self.assertEqual(self.system_entries(), before)              # nothing written to the system config
+
 
 QUIESCENCE = ROOT / "scripts/run_stage_quiescence.py"
 

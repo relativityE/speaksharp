@@ -123,6 +123,19 @@ class Composed(unittest.TestCase):
         for name in ("with-authenticated-evidence.cjs", "campaign-runner.cjs"):
             with open(os.path.join(cls.hp, "bundle", "harness", name), "w") as f:
                 f.write(sentinel)
+        # the elevated stage's view of a job-user-owned harness checkout (#1788 review, Codex P1 4520284080): a `git` first on PATH that
+        # refuses `-C <harness checkout>` as "dubious ownership" unless that exact path is trusted for the command; every other call is
+        # the real git. The "unreadable" variant refuses the checkout even when trusted. (Selected by PATH: the stage passes no other env.)
+        cls.shims = {}
+        for mode, trusted_reads in (("owned-by-job-user", True), ("unreadable", False)):
+            b = cls.shims[mode] = os.path.join(cls.d, "git-" + mode)
+            os.mkdir(b)
+            with open(os.path.join(b, "git"), "w") as f:
+                f.write("#!%s\nimport os, sys\na = sys.argv[1:]\nrepo = %r\n"
+                        "if '-C' in a and a[a.index('-C') + 1] == repo and not (%r and 'safe.directory=' + repo in a):\n"
+                        "    sys.stderr.write('fatal: detected dubious ownership in repository\\n'); sys.exit(128)\n"
+                        "os.execv(%r, [%r] + a)\n" % (sys.executable, cls.repo, trusted_reads, shutil.which("git"), "git"))
+            os.chmod(os.path.join(b, "git"), 0o755)
         cls.req = os.path.join(cls.d, "request.json")
         with open(cls.req, "wb") as f:
             f.write(OCCURRENCE)
@@ -151,7 +164,7 @@ class Composed(unittest.TestCase):
         sha, _ = W._child(self.work, self.head, HEAD_EVENTS, event)
         return sha
 
-    def compose(self, binding, *, snapshot=None, receipt_sha=None, source=None, between=None, identity_reserved=None, recon=None):
+    def compose(self, binding, *, snapshot=None, receipt_sha=None, source=None, between=None, identity_reserved=None, recon=None, dubious=None):
         Composed.n += 1
         out = os.path.join(self.d, "out-%d" % self.n)
         os.makedirs(os.path.join(out, "plan", "cfg"))
@@ -181,9 +194,11 @@ class Composed(unittest.TestCase):
                 self.ct, self.repo, os.path.join(ROOT, "config", "test-config.v1.json"), self.hp, out, self.req, res_in),
             'ss_broker_service_role=""; ss_broker_telemetry_key=""',
             seg["blocked"], seg["route"], seg["pyenv"], seg["run_stage"], seg["plan"], seg["check"], hook + seg["pre"], seg["runner"], ""])
-        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": self.d, "CT_OUT": out, "CT_REQUEST": self.req, "CT_REQUEST_SHA256": REQ_SHA,
+        path = os.environ.get("PATH", "/usr/bin:/bin")
+        env = {"HOME": self.d, "CT_OUT": out, "CT_REQUEST": self.req, "CT_REQUEST_SHA256": REQ_SHA,
                "CT_SOURCE_SHA": source or self.harness, "GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "relativityE/speaksharp",
-               "GITHUB_RUN_ID": RUN, "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": self.harness, **GIT_ENV}
+               "GITHUB_RUN_ID": RUN, "GITHUB_RUN_ATTEMPT": "1", "GITHUB_JOB": "live", "GITHUB_SHA": self.harness, **GIT_ENV,
+               "PATH": (self.shims[dubious] + ":" + path) if dubious else path}
         for n in ("FREE_TEST_EMAIL", "FREE_TEST_PASSWORD", "THROWAWAY_TEST_EMAIL", "THROWAWAY_TEST_PASSWORD", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"):
             env[n] = PLACEHOLDER
         p = subprocess.run(["bash", "-c", driver], capture_output=True, text=True, env=env)
@@ -236,6 +251,15 @@ class Composed(unittest.TestCase):
 
     def test_a_forged_same_head_event_refuses(self):
         self.refuses("runtime-binding-reserve-event", dict(self.genuine(), reserveEventSha256="0" * 64))
+
+    def test_a_job_user_owned_harness_checkout_is_read_with_exact_path_trust_and_the_genuine_binding_starts(self):
+        # #1788 review, Codex P1 4520284080: without the per-command trust this exits 78 (runtime-binding-harness-source, empty head)
+        p, started, _ = self.compose(self.genuine(), dubious="owned-by-job-user")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertTrue(started)
+
+    def test_a_harness_checkout_git_cannot_read_refuses_with_its_own_code_before_the_runner(self):
+        self.refuses("runtime-binding-harness-checkout-unreadable", self.genuine(), dubious="unreadable")
 
     def test_a_forged_source_refuses(self):
         self.refuses("runtime-binding-harness-source", self.genuine(), source="0" * 40)
