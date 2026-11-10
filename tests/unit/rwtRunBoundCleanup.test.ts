@@ -6,7 +6,7 @@
  * readback failed").
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { currentRunBinding, sameRunBinding, type RunBinding } from '../live/helpers/runBinding';
+import { currentRunBinding, runBindingState, sameRunBinding, type RunBinding } from '../live/helpers/runBinding';
 import { RESIDUE_CHECKS, PRE_DELETE_TABLES, cleanupFailureStep, cleanupRunOwnedAccount } from '../live/helpers/runOwnedCleanup';
 import { runOwnedIdentityFailures, RWT_ACCOUNT_PREFIX } from '../live/helpers/rwtJourney';
 import { OwnedCleanup } from '../live/helpers/rwtWatchdog';
@@ -42,6 +42,15 @@ describe('the run binding', () => {
             expect(currentRunBinding({ ...ENV, ...bad })).toBeNull();
         }
         expect(sameRunBinding({ ct_run: { ...B } }, B)).toBe(true);
+        // review: a valid Git ref with "+" (or other non-word, non-space characters) binds; it is never mistaken for a local run
+        const plus = { ...ENV, GITHUB_WORKFLOW_REF: 'relativityE/speaksharp/.github/workflows/rc-gates.yml@refs/heads/elon/a+b_c~1' };
+        expect(runBindingState(plus)).toEqual({ binding: { ...B, workflow: plus.GITHUB_WORKFLOW_REF } });
+        expect(runBindingState({ ...ENV, GITHUB_ACTIONS: undefined })).toEqual({ local: true });
+        for (const [bad, error] of [[{ GITHUB_WORKFLOW_REF: 'x' }, 'workflow'], [{ GITHUB_WORKFLOW_REF: `${ENV.GITHUB_WORKFLOW_REF} x` }, 'workflow'],
+            [{ GITHUB_WORKFLOW_REF: `${ENV.GITHUB_WORKFLOW_REF}\u0007` }, 'workflow'], [{ GITHUB_RUN_ID: '0' }, 'run-id'], [{ GITHUB_RUN_ATTEMPT: 'x' }, 'run-attempt'],
+            [{ GITHUB_REPOSITORY: 'x' }, 'repository']] as const) {
+            expect(runBindingState({ ...ENV, ...bad })).toEqual({ error });
+        }
         for (const meta of [{ ct_run: { ...B, runId: '1' } }, { ct_run: { ...B, extra: 1 } }, { ct_run: 'x' }, {}, null]) expect(sameRunBinding(meta, B)).toBe(false);
     });
 
@@ -60,6 +69,11 @@ describe('the run binding', () => {
         expect(await runOwnedIdentityFailures(fake({ ct_run: { ...B, runId: '9' } }).admin as never, UID, EMAIL)).toEqual(['the account already carries another run binding']);
         expect(await runOwnedIdentityFailures(fake({}, { writeError: 'forbidden' }).admin as never, UID, EMAIL)).toEqual(['run binding could not be written (forbidden)']);
         expect(await runOwnedIdentityFailures(fake({}, { dropWrite: true }).admin as never, UID, EMAIL)).toEqual(['run binding did not read back']);
+        vi.unstubAllEnvs();
+        setEnv({ ...ENV, GITHUB_RUN_ID: '0' });                                              // in Actions but unusable: a clear failure
+        const unusable = fake();
+        expect(await runOwnedIdentityFailures(unusable.admin as never, UID, EMAIL)).toEqual(['run binding unavailable in GitHub Actions (run-id)']);
+        expect(unusable.updateUserById).not.toHaveBeenCalled();
         vi.unstubAllEnvs();
         setEnv({ ...ENV, GITHUB_ACTIONS: 'false' });
         const local = fake();

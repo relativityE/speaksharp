@@ -46,7 +46,7 @@ import { readFeedbackUiState, readPracticeActionState, type PracticeActionState 
 import { activeHumanReflexMs } from './rwtHumanReflex';
 import { resolveProductsTrigger } from './productsMenu';
 import { WATCHED_FIELDS } from './rwtWatchdog';
-import { currentRunBinding, sameRunBinding } from './runBinding';
+import { runBindingState, sameRunBinding } from './runBinding';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -364,7 +364,7 @@ export function telemetryClassRows(receipt: RwtReceipt, tap: AnalyticsTap, claim
  * captured UID must belong to exactly the address this run minted, and the signup must have produced its profile.
  * Returns failures, content-free; the caller turns any failure into a hard stop before the journey writes anything else.
  */
-export { currentRunBinding, sameRunBinding, type RunBinding } from './runBinding';
+export { currentRunBinding, runBindingState, sameRunBinding, type RunBinding } from './runBinding';
 
 /**
  * Identity of the freshly signed-up account (UID ↔ email, run-owned prefix, profile), then — in GitHub Actions — its run binding:
@@ -390,7 +390,9 @@ export async function runOwnedIdentityFailures(
     const { data: profile, error: pErr } = await admin.from('user_profiles').select('id').eq('id', uid).maybeSingle();
     if (pErr) failures.push(`profile lookup failed (${pErr.code ?? 'unknown'})`);
     else if (!profile) failures.push('signup produced no user profile');
-    const binding = currentRunBinding();
+    const state = runBindingState();
+    if ('error' in state) failures.push(`run binding unavailable in GitHub Actions (${state.error})`);
+    const binding = 'binding' in state ? state.binding : null;
     if (failures.length === 0 && binding) {
         const existing = (data?.user?.app_metadata as { ct_run?: unknown } | undefined)?.ct_run;
         if (existing !== undefined && !sameRunBinding(data?.user?.app_metadata, binding)) {
