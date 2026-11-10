@@ -199,8 +199,16 @@ class Credentials(unittest.TestCase):
                 self.assertFalse({"SUPABASE_SERVICE_ROLE_KEY", "POSTHOG_PERSONAL_API_KEY"} & set(result.stdout.split()))
                 self.assertNotIn("not-printed-", result.stdout + result.stderr)
 
+    def test_the_run_account_script_reads_the_service_role_only_in_its_cli_and_never_prints_it(self):
+        src = open(os.path.join(ROOT, "scripts", "run_account.ts"), encoding="utf-8").read()
+        self.assertEqual(src.count("SERVICE_ROLE"), 1)
+        self.assertIn("const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';", src[src.index("async function main("):])
+        self.assertNotRegex(src, r"(console\.log|line)\([^)]*\bkey\b")
+
     def test_the_service_role_key_appears_only_where_it_is_forbidden_or_explained(self):
-        allowed = ("config/test-config.v1.json", "config/proof-test-titles.v1.json", "scripts/execute_run.sh", "scripts/pipeline.py", "tests/", "README.md", "WORKFLOW.md", "CHANGELOG.md", "CREDENTIALS.md", "harness/", "report/", "templates/", "NEXT-RUN-PROPOSAL.md", "samples/", "config/history/")
+        # scripts/run_account.ts (stripped-harness fresh account, PO plan step 3 / option C): the service role creates ONE run-bound
+        # account and deletes exactly it, in workflow steps OUTSIDE the run stage; the run stage itself is unchanged (below).
+        allowed = ("config/test-config.v1.json", "config/proof-test-titles.v1.json", "scripts/execute_run.sh", "scripts/pipeline.py", "scripts/run_account.ts", "tests/", "README.md", "WORKFLOW.md", "CHANGELOG.md", "CREDENTIALS.md", "harness/", "report/", "templates/", "NEXT-RUN-PROPOSAL.md", "samples/", "config/history/")
         offenders = []
         for r, _, fs in os.walk(ROOT):
             for fn in fs:

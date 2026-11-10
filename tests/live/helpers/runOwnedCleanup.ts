@@ -76,7 +76,7 @@ type AdminClient = {
  * therefore needs no pre-delete, but it IS residue-checked below so a regression that reverted that
  * migration would fail this proof rather than silently orphan rows again.
  */
-const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.freeze([
+export const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.freeze([
     { table: 'sessions', column: 'user_id' },
     { table: 'user_profiles', column: 'id' },                       // PK = auth user id
     { table: 'user_goals', column: 'user_id' },
@@ -113,7 +113,7 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
  * Tables whose user_id FK is NOT `ON DELETE CASCADE` and must be cleared BEFORE the auth user is
  * deleted. `user_issue_reports` is deliberately excluded — see the inventory above.
  */
-const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_entitlements']);
+export const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_entitlements']);
 
 /**
  * A residue readback proves zero only when it returned a COUNTED zero. A `{ count: null, error: null }` read is an
