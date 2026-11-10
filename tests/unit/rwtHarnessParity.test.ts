@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { CLOUD_STT_URL, HarnessParityTap, LEASE_ACQUIRE_URL, START_CONTROL, START_CONTROLS, probeSaveIsolationRow } from '../live/helpers/rwtHarnessParity';
+import { CLOUD_STT_URL, HarnessParityTap, LEASE_ACQUIRE_URL, START_CONTROL, START_CONTROLS, numericComparisonRow, probeSaveIsolationRow } from '../live/helpers/rwtHarnessParity';
 
 type Row = { step: string; verdict: string; detail: string; evidence?: Record<string, unknown> };
 const sink = () => { const rows: Row[] = []; return { rows, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, unknown>) => rows.push({ step, verdict, detail, evidence }) }; };
@@ -187,5 +187,32 @@ describe('AHT-01 wiring', () => {
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
         expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId])');
         expect(spec).toContain('const AHT01_START_PRESS_CAP: number | null = null;');
+    });
+});
+
+describe('same-target-numeric (the harness\'s own check)', () => {
+    it('maps PASS/FAIL/NOT RUN to PASS/FAIL/HOLD and carries only the closed reason code and booleans', () => {
+        const cases: [Parameters<typeof numericComparisonRow>[1], string][] = [
+            [{ result: 'PASS', facts: { reason: 'persisted-original-to-linked-repeat-values-match', exactPersistedValues: true } }, 'PASS'],
+            [{ result: 'FAIL', facts: { reason: 'rendered-order-value-units-or-precision-mismatch', exactPersistedValues: false } }, 'FAIL'],
+            [{ result: 'NOT RUN', facts: { reason: 'numeric-panel-not-settled' } }, 'HOLD'],
+            [null, 'HOLD'],
+        ];
+        for (const [r, verdict] of cases) {
+            const out = sink();
+            numericComparisonRow(out, r);
+            expect({ r: r?.result ?? null, v: out.rows[0].verdict, step: out.rows[0].step }).toEqual({ r: r?.result ?? null, v: verdict, step: 'saved and displayed comparison numbers match' });
+        }
+        const leak = sink();
+        numericComparisonRow(leak, { result: 'FAIL', facts: { reason: 'Customer Alice 12.5 wpm', text: 'Pace: 140 → 120 wpm', count: 2, ok: true } });
+        expect(leak.rows[0].evidence).toEqual({ reason: 'unknown', ok: true });
+    });
+    it('the Open Mic journey runs the harness module itself, after the repeat-result step, bound to its saved takes', () => {
+        const spec = readFileSync(resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        const step = spec.indexOf("await test.step('saved and displayed comparison numbers match'");
+        expect(step).toBeGreaterThan(spec.indexOf("await test.step('the repeat result names the measured metric'"));
+        expect(spec).toContain("'../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs'");
+        expect(spec).toContain('page, db: admin, sourceSessionId: persistedId, repeatSessionId,');
+        expect(spec).toContain('caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: capturedUid } },');
     });
 });

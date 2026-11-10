@@ -40,7 +40,9 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
-import { HarnessParityTap, probeSaveIsolationRow } from './helpers/rwtHarnessParity';
+import { HarnessParityTap, numericComparisonRow, probeSaveIsolationRow, type NumericResult } from './helpers/rwtHarnessParity';
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { characterCeilingVerdict, fillerAdviceVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
@@ -1075,6 +1077,29 @@ test.describe('RWT — Open Mic first session @live', () => {
                     const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
                     receipt.row(REPEAT_METRIC_ROW, 'HOLD', `the repeat-metric observation failed (${name})`);
                 }
+            });
+
+            // ── same-target-numeric (catalog AHT-01): the harness's own numeric check, run on this journey's saved takes ──────────
+            // Reuses tools/cloud-test/harness/draft-adapters/progress-numeric.cjs (no copy). It is pinned to the served release it was
+            // revalidated against; any other served release makes it NOT RUN (HOLD here), never a pass. No navigation of its own: it reads
+            // the panel the repeat-result step opened (that step navigates only once its server bindings hold); otherwise NOT RUN.
+            await test.step('saved and displayed comparison numbers match', async () => {
+                let result: NumericResult | null = null;
+                try {
+                    if (persistedId && repeatSessionId && capturedUid && admin) {
+                        const served = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null).catch(() => null);
+                        const numeric = createRequire(__filename)(resolve(__dirname, '../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs')) as {
+                            observe: (a: Record<string, unknown>) => Promise<NumericResult>;
+                        };
+                        result = await numeric.observe({
+                            page, db: admin, sourceSessionId: persistedId, repeatSessionId,
+                            caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: capturedUid } },
+                        });
+                    }
+                } catch (e) {
+                    result = (e as { code?: string })?.code === 'NOT_RUN' ? { result: 'NOT RUN', facts: { reason: 'numeric-source-not-run' } } : null;
+                }
+                numericComparisonRow(receipt, result);
             });
         } finally {
             await finish();
