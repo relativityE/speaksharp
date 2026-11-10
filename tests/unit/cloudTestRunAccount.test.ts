@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
     LEGACY_FALLBACK_DOMAIN, RECORD_NAME, bundleWithRunAccount, RUN_ACCOUNT_PREFIX, cleanupRunAccount, cleanupStep, createRunAccount, findBoundAccounts, privateDirOk, projectRefFrom,
-    readRecord, recoverRunAccount, resolvePendingCreate, runAccountDomain, runAccountEmail, runCompleted, runScopeFrom, sanitizingAdmin, scopeMatch, scrubRecord,
+    readRecord, readRecordStrict, recoverRunAccount, findPendingAccount, cleanupFromRecord, runAccountDomain, runAccountEmail, runCompleted, runScopeFrom, sanitizingAdmin, scopeMatch, scrubRecord,
     writeRecord, type AccountAdmin, type RunScope,
 } from '../../tools/cloud-test/scripts/run_account';
 import { PRE_DELETE_TABLES, RESIDUE_CHECKS, cleanupRunOwnedAccount } from '../live/helpers/runOwnedCleanup';
@@ -96,15 +96,14 @@ describe('create', () => {
     });
     it('CASUALTY: create succeeded but the response was lost → the binding finds that ONE account; no second create', async () => {
         const f = fakeAdmin([bound()]);
-        const r = await resolvePendingCreate({ admin: f.admin, scope: S, email: EMAIL, cleanup: cleanupRunOwnedAccount });
-        expect(r).toEqual({ status: 'deleted' });
-        expect([f.auth.admin.createUser.mock.calls.length, f.store.length]).toEqual([0, 0]);
+        expect(await findPendingAccount({ admin: f.admin, scope: S, email: EMAIL })).toEqual({ status: 'found', account: { uid: UID, email: EMAIL } });
+        expect(f.auth.admin.createUser).not.toHaveBeenCalled();
         const none = fakeAdmin([bound(UID, EMAIL, { ...S, runAttempt: '2' })]);
-        expect(await resolvePendingCreate({ admin: none.admin, scope: S, email: EMAIL })).toEqual({ status: 'none_bound', step: 'not_created' });
+        expect(await findPendingAccount({ admin: none.admin, scope: S, email: EMAIL })).toEqual({ status: 'none_bound', step: 'not_created' });
         const twin = fakeAdmin([bound(), bound('0b9c5e2a-1111-4222-8333-444455556667', EMAIL.replace('abababab', 'cdcdcdcd'))]);
-        expect(await resolvePendingCreate({ admin: twin.admin, scope: S, email: EMAIL })).toEqual({ status: 'hold', step: 'duplicate_binding' });
+        expect(await findPendingAccount({ admin: twin.admin, scope: S, email: EMAIL })).toEqual({ status: 'hold', step: 'duplicate_binding' });
         const other = fakeAdmin([bound(UID, EMAIL.replace('abababab', 'cdcdcdcd'))]);
-        expect(await resolvePendingCreate({ admin: other.admin, scope: S, email: EMAIL })).toEqual({ status: 'hold', step: 'reread_email_mismatch' });
+        expect(await findPendingAccount({ admin: other.admin, scope: S, email: EMAIL })).toEqual({ status: 'hold', step: 'reread_email_mismatch' });
     });
 });
 
@@ -260,5 +259,67 @@ describe('the harness bundle carries THIS run\'s account (never the shared one)'
         }
         expect(bundleWithRunAccount(raw(), { uid: KEEP.accountId, email: EMAIL }, S)).toBeNull();
         expect(bundleWithRunAccount(raw(), { uid: UID, email: KEEP.email }, S)).toBeNull();
+    });
+});
+
+describe('record-driven cleanup (review: damaged records and partial-cleanup retries)', () => {
+    const dir = () => { const d = mkdtempSync(join(tmpdir(), 'ct-run-account-rec-')); chmodSync(d, 0o700); return d; };
+    it('a lost create response: the record is marked deleting with the found UID BEFORE deletion, then scrubbed once proven', async () => {
+        const d = dir();
+        writeRecord(d, { state: 'creating', email: EMAIL, scope: S });
+        const f = fakeAdmin([bound()]);
+        const seen: unknown[] = [];
+        const cleanup = vi.fn(async (a: Parameters<typeof cleanupRunOwnedAccount>[0]) => { seen.push(readRecord(d)); return cleanupRunOwnedAccount(a); });
+        expect(await cleanupFromRecord({ admin: f.admin, dir: d, scope: S, cleanup })).toEqual({ status: 'deleted' });
+        expect(seen).toEqual([{ state: 'deleting', uid: UID, email: EMAIL, scope: S }]);
+        expect(readRecordStrict(d)).toEqual({ kind: 'absent' });
+    });
+    it('a never-created account (complete listing, no binding) is not_created and scrubbed; no record = nothing provisioned', async () => {
+        const d = dir();
+        writeRecord(d, { state: 'creating', email: EMAIL, scope: S });
+        expect(await cleanupFromRecord({ admin: fakeAdmin().admin, dir: d, scope: S })).toEqual({ status: 'none_bound', step: 'not_created' });
+        expect(readRecordStrict(d)).toEqual({ kind: 'absent' });
+        expect(await cleanupFromRecord({ admin: fakeAdmin().admin, dir: d, scope: S })).toEqual({ status: 'not_required', step: 'no_record' });
+    });
+    it('CASUALTY (review): a partial cleanup (auth deleted, residue unproven) then a retry stays UNVERIFIED and KEEPS the record', async () => {
+        const d = dir();
+        writeRecord(d, { state: 'created', uid: UID, email: EMAIL, scope: S });
+        const f = fakeAdmin([bound()]);
+        f.residue[RESIDUE_CHECKS[0].table] = null;                                  // auth deletion succeeds, a residue count is unknown
+        const first = await cleanupFromRecord({ admin: f.admin, dir: d, scope: S });
+        expect(first).toEqual({ status: 'failed', step: `residue_unproven:${RESIDUE_CHECKS[0].table}` });
+        expect(f.store).toEqual([]);
+        expect(readRecord(d)).toEqual({ state: 'deleting', uid: UID, email: EMAIL, scope: S });
+        const retry = await cleanupFromRecord({ admin: f.admin, dir: d, scope: S });
+        expect(retry).toEqual({ status: 'unverified', step: 'account_absent' });
+        expect(readRecord(d)).toEqual({ state: 'deleting', uid: UID, email: EMAIL, scope: S });   // never lost, never "clean"
+    });
+    it('CASUALTY (review): lost create response + partial cleanup + retry never becomes not_created/scrubbed', async () => {
+        const d = dir();
+        writeRecord(d, { state: 'creating', email: EMAIL, scope: S });
+        const f = fakeAdmin([bound()]);
+        f.residue[RESIDUE_CHECKS[0].table] = 3;
+        expect((await cleanupFromRecord({ admin: f.admin, dir: d, scope: S })).status).toBe('failed');
+        const retry = await cleanupFromRecord({ admin: f.admin, dir: d, scope: S });
+        expect([retry.status, readRecordStrict(d).kind]).toEqual(['unverified', 'ok']);
+    });
+    it('CASUALTY (review): a damaged record (not JSON, not an object, unknown state, bad uid, no email, a link, other scope) HOLDs', async () => {
+        const cases: [string, (d: string) => void, string][] = [
+            ['not JSON', (d) => writeFileSync(join(d, RECORD_NAME), '{oops', { mode: 0o600 }), 'record_damaged'],
+            ['not an object', (d) => writeFileSync(join(d, RECORD_NAME), '[1]', { mode: 0o600 }), 'record_damaged'],
+            ['unknown state', (d) => writeRecord(d, { state: 'done', uid: UID, email: EMAIL, scope: S }), 'record_damaged'],
+            ['bad uid', (d) => writeRecord(d, { state: 'created', uid: 'x', email: EMAIL, scope: S }), 'record_damaged'],
+            ['no email', (d) => writeRecord(d, { state: 'created', uid: UID, scope: S }), 'record_damaged'],
+            ['other scope', (d) => writeRecord(d, { state: 'created', uid: UID, email: EMAIL, scope: { ...S, runAttempt: '2' } }), 'record_scope_mismatch'],
+            ['extra scope key', (d) => writeRecord(d, { state: 'created', uid: UID, email: EMAIL, scope: { ...S, x: 1 } }), 'record_scope_mismatch'],
+            ['a link', (d) => { writeFileSync(join(d, 'real'), JSON.stringify({ state: 'created', uid: UID, email: EMAIL, scope: S })); symlinkSync(join(d, 'real'), join(d, RECORD_NAME)); }, 'record_damaged'],
+        ];
+        for (const [name, plant, step] of cases) {
+            const d = dir();
+            plant(d);
+            const f = fakeAdmin([bound()]);
+            expect({ name, r: await cleanupFromRecord({ admin: f.admin, dir: d, scope: S }) }).toEqual({ name, r: { status: 'hold', step } });
+            expect(f.auth.admin.deleteUser).not.toHaveBeenCalled();
+        }
     });
 });

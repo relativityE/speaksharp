@@ -229,13 +229,14 @@ export async function recoverRunAccount(p: { admin: AccountAdmin; scope: RunScop
 }
 
 /** After a create whose response or record write was lost: the binding decides, never a second create. */
-export async function resolvePendingCreate(p: { admin: AccountAdmin; scope: RunScope; email: string; cleanup?: Cleanup }): Promise<RecoverResult> {
+export async function findPendingAccount(p: { admin: AccountAdmin; scope: RunScope; email: string }):
+    Promise<{ status: 'found'; account: { uid: string; email: string } } | { status: 'none_bound' | 'hold'; step: string }> {
     const { accounts, malformed, complete } = await findBoundAccounts(p.admin, p.scope);
     if (!complete) return { status: 'hold', step: 'incomplete_listing' };
     if (malformed || accounts.length > 1) return { status: 'hold', step: malformed ? 'malformed_binding' : 'duplicate_binding' };
     if (accounts.length === 0) return { status: 'none_bound', step: 'not_created' };
     if (accounts[0].email !== p.email.toLowerCase()) return { status: 'hold', step: 'reread_email_mismatch' };
-    return cleanupRunAccount({ admin: p.admin, account: accounts[0], scope: p.scope, cleanup: p.cleanup });
+    return { status: 'found', account: accounts[0] };
 }
 
 /* ------------------------------------------------------------------ live-accounts bundle ------------------------------------------------------------------ */
@@ -280,12 +281,59 @@ export function writeRecord(dir: string, record: Record<string, unknown>, replac
     if (replace) renameSync(path, target);
 }
 export function readRecord(dir: string): Record<string, unknown> | null {
+    const r = readRecordStrict(dir);
+    return r.kind === 'ok' ? r.record : null;
+}
+/** absent (never written) is distinct from damaged (unreadable, a link, not JSON, not an object): damaged is never success. */
+export function readRecordStrict(dir: string): { kind: 'absent' } | { kind: 'damaged' } | { kind: 'ok'; record: Record<string, unknown> } {
+    let fd: number;
     try {
-        const fd = openSync(join(dir, RECORD_NAME), constants.O_RDONLY | constants.O_NOFOLLOW);
-        try { return JSON.parse(readFileSync(fd, 'utf8')); } finally { closeSync(fd); }
-    } catch {
-        return null;
+        fd = openSync(join(dir, RECORD_NAME), constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (e) {
+        return (e as { code?: string }).code === 'ENOENT' ? { kind: 'absent' } : { kind: 'damaged' };
     }
+    try {
+        const v: unknown = JSON.parse(readFileSync(fd, 'utf8'));
+        return v && typeof v === 'object' && !Array.isArray(v) ? { kind: 'ok', record: v as Record<string, unknown> } : { kind: 'damaged' };
+    } catch {
+        return { kind: 'damaged' };
+    } finally {
+        closeSync(fd);
+    }
+}
+
+export type RecordCleanup = RecoverResult | { status: 'not_required'; step: string };
+/**
+ * Cleanup driven by the private record. The record is marked `deleting` with the exact UID BEFORE any deletion, and is scrubbed
+ * only after a proven deletion (or a proven never-created account), so a partial cleanup followed by a retry can never lose it:
+ * the retry finds the account absent and stays UNVERIFIED. Absent record = nothing was provisioned; a damaged or out-of-scope
+ * record HOLDs.
+ */
+export async function cleanupFromRecord(p: { admin: AccountAdmin; dir: string; scope: RunScope; cleanup?: Cleanup }): Promise<RecordCleanup> {
+    const read = readRecordStrict(p.dir);
+    if (read.kind === 'absent') return { status: 'not_required', step: 'no_record' };
+    if (read.kind === 'damaged') return { status: 'hold', step: 'record_damaged' };
+    const rec = read.record;
+    const recScope = rec.scope as Record<string, unknown> | undefined;
+    if (!recScope || typeof recScope !== 'object' || Object.keys(recScope).length !== SCOPE_KEYS.length || SCOPE_KEYS.some((k) => recScope[k] !== p.scope[k])) {
+        return { status: 'hold', step: 'record_scope_mismatch' };
+    }
+    if (typeof rec.email !== 'string' || !rec.email) return { status: 'hold', step: 'record_damaged' };
+    let account: { uid: string; email: string };
+    if (rec.state === 'creating') {
+        const found = await findPendingAccount({ admin: sanitizingAdmin(p.admin), scope: p.scope, email: rec.email });
+        if (found.status === 'none_bound') { scrubRecord(p.dir); return found; }
+        if (found.status !== 'found') return found;
+        account = found.account;
+    } else if ((rec.state === 'created' || rec.state === 'deleting') && typeof rec.uid === 'string' && UUID_RE.test(rec.uid)) {
+        account = { uid: rec.uid, email: rec.email };
+    } else {
+        return { status: 'hold', step: 'record_damaged' };
+    }
+    if (rec.state !== 'deleting') writeRecord(p.dir, { state: 'deleting', uid: account.uid, email: account.email, scope: p.scope }, true);
+    const r = await cleanupRunAccount({ admin: p.admin, account, scope: p.scope, cleanup: p.cleanup });
+    if (r.status === 'deleted') scrubRecord(p.dir);
+    return r;
 }
 export function scrubRecord(dir: string): void {
     for (const n of [RECORD_NAME, `${RECORD_NAME}.next`]) { try { unlinkSync(join(dir, n)); } catch { /* absent */ } }
@@ -304,7 +352,7 @@ async function main(argv: string[]): Promise<number> {
     const { createClient } = await import('@supabase/supabase-js');
     const admin = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } }) as unknown as AccountAdmin;
     if (command === 'create') {
-        if (readRecord(dir)) { line('create status=blocked step=already_provisioned'); return 78; }
+        if (readRecordStrict(dir).kind !== 'absent') { line('create status=blocked step=already_provisioned'); return 78; }
         const env = process.env.GITHUB_ENV;
         if (!env) { line('create status=blocked step=github_env'); return 78; }
         const email = runAccountEmail(scope, runAccountDomain(process.env.LIVE_TEST_EMAIL_DOMAIN), Date.now(), randomBytes(4).toString('hex'));
@@ -329,16 +377,9 @@ async function main(argv: string[]): Promise<number> {
         return 0;
     }
     if (command === 'cleanup') {
-        const rec = readRecord(dir);
-        if (!rec) { line('cleanup status=not_required step=no_record'); return 0; }
-        const recScope = rec.scope as RunScope;
-        if (!recScope || SCOPE_KEYS.some((k) => recScope[k] !== scope[k])) { line('cleanup status=hold step=record_scope_mismatch'); return 1; }
-        const r = rec.state === 'created'
-            ? await cleanupRunAccount({ admin, account: { uid: String(rec.uid), email: String(rec.email) }, scope })
-            : await resolvePendingCreate({ admin: sanitizingAdmin(admin), scope, email: String(rec.email) });
-        report('cleanup', r);
-        if (r.status === 'deleted' || r.status === 'none_bound') scrubRecord(dir);
-        return r.status === 'deleted' || r.status === 'none_bound' ? 0 : 1;
+        const r = await cleanupFromRecord({ admin, dir, scope });
+        report('cleanup', r as RecoverResult);
+        return r.status === 'deleted' || r.status === 'none_bound' || r.status === 'not_required' ? 0 : 1;
     }
     if (command === 'recover') {
         let runRecord: unknown = null;
