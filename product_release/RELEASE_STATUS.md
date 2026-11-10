@@ -3,7 +3,7 @@
 **Status:** Authoritative for the bounded 9 November 2026 MVP acceptance map and source snapshot below; earlier dated component snapshots remain history. Release acceptance HOLD.
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-10-28 — specialist source review and current-main receiving; exact-head qualification remains a separate gate.
-**Last Verified:** 2026-11-09 — GitHub main `524c325a95874d31239203dce9ef7893331ca756` and retained source/receiving PRs inspected. #1760 and #1788 are reopened, unmerged, with source received in #1798 and #1797. Device and billing source are received in #1799 and #1800. This is source reconciliation, not a fresh Production read, hosted recovery success or end-to-end acceptance.
+**Last Verified:** 2026-11-10 — consolidation state and retained source inspected. #1760 and #1788 remain open unmerged. #1798/#1799/#1800 are closed duplicates of #1760/#1782/#1795; #1797 retains distinct recovery work pending disposition. #1774 is closed with its branch deleted because its source landed through #1772; operational acceptance remains OPEN. The prior main observation was `524c325a95874d31239203dce9ef7893331ca756`. This is source reconciliation, not a fresh Production read, hosted recovery success or end-to-end acceptance.
 **Applies To:** Current production deployment + RWT/Alpha and MVP/Beta release tracks.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
@@ -147,7 +147,8 @@ Historical owners, old coaching-output shapes and model competitions are not rev
 ### Coordinated transition into ten outcome PRs
 
 **Current developer roster:** Bezos and Elon only. Bezos owns STT reliability
-(outcome 2, #1798); Elon owns practice-journey testing (outcome 5, #1797).
+(outcome 2, surviving #1760; implementation paused); Elon owns practice-journey testing
+(outcome 5, surviving #1788). This map assigns no additional writer.
 Same-target comparison (outcome 4) remains queued until one is free
 and its file ownership is confirmed. Sam coordinates acceptance and handoffs; no
 additional developer assignment is inferred from older dated records below.
@@ -155,10 +156,15 @@ additional developer assignment is inferred from older dated records below.
 All seven legacy PRs are mapped below, not additional or unassigned workstreams.
 #1760 and #1788 were administratively closed and subsequently reopened at the
 Product Owner's direction. Both remain unmerged. Their actual published source is
-received in #1798 and #1797 respectively, not discarded. The Product Owner has
+preserved in their original PRs; #1798 is closed as superseded, while #1797 remains
+open with distinct recovery machinery pending an explicit preserve-or-retire decision.
+The Product Owner has
 authorized merging the original PRs only after applicable qualification; no merge
 has been performed through this transition. Other legacy PRs remain open until
 their complete source, deliverables, findings and owner handoff are verified.
+#1799 and #1800 are closed as duplicates of #1782 and #1795, with their duplicate
+branches deleted. #1774 is closed as already integrated through #1772; its obsolete
+branch is deleted. These administrative closures do not complete customer acceptance.
 Other retained PRs do not create additional active developers or implementation lanes.
 
 The transition is not yet complete. Obtain each writer's exact checkpoint, including unpublished changes,
@@ -167,21 +173,22 @@ work in its existing approved location rather than copying it into a public ledg
 For every old PR, agree and independently verify the receiving checkpoint before closure.
 Preserve unmerged source and do not claim it shipped. Then confirm one writer and one
 numbered outcome PR. Mapping alone does not authorize merging unqualified source.
-Do not delete branches, discard work, transfer operational grants or start overlapping
-implementations. Existing merged PRs remain immutable provenance.
+Delete branches associated with authorized closures only after their source and
+obligations are reconciled. Do not discard unique work, transfer operational grants or
+start overlapping implementations. Existing merged PRs remain immutable provenance.
 
 | New bucket PR | Prior work to receive | Current transition |
 |---|---|---|
 | 1. MVP acceptance map | #1539 and this existing release record | [#1796](https://github.com/relativityE/speaksharp/pull/1796), substantive map and document controls. |
-| 2. Selected speech path | Reopened #1760; retain #1789/#1790/#1794 as explicitly deferred or remaining obligations | [#1798](https://github.com/relativityE/speaksharp/pull/1798) contains the identical f99627fc source; Bezos retains ownership. |
+| 2. Selected speech path | Reopened #1760; retain #1789/#1790/#1794 as explicitly deferred or remaining obligations | [#1760](https://github.com/relativityE/speaksharp/pull/1760) survives; duplicate #1798 is closed. Bezos retains ownership; implementation remains paused. |
 | 3. Useful current coaching | Merged #1773/#1792 evidence, no active PR to restore | Freeze scope and real-session rubric; no speculative provider change. |
 | 4. Same-target outcome | Merged #1548 provenance; preserved local product preparation | Queued until Bezos or Elon is free and ownership is confirmed; no releasable implementation claimed. |
-| 5. Automated practice journeys | Reopened #1788 and its exact all-15 closure contract | [#1797](https://github.com/relativityE/speaksharp/pull/1797) receives the preserved source and later corrections; Elon owns current work. |
-| 6. Supported-device journey | #1782 and retained #1539 human/device obligations | [#1799](https://github.com/relativityE/speaksharp/pull/1799) receives identical 62b7a0d source; final transfer/handoff and actual device proof remain open. |
-| 7. Testable billing | #1795 | [#1800](https://github.com/relativityE/speaksharp/pull/1800) receives identical 5dc8730 source; final handoff and genuine billing acceptance remain open. |
+| 5. Automated practice journeys | Reopened #1788 and its exact all-15 closure contract | [#1788](https://github.com/relativityE/speaksharp/pull/1788) survives; #1797 remains open for explicit disposition of distinct recovery machinery and findings. Elon owns current work; no competing implementation. |
+| 6. Supported-device journey | #1782 and retained #1539 human/device obligations | [#1782](https://github.com/relativityE/speaksharp/pull/1782) survives; duplicate #1799 is closed and its branch deleted. Actual device proof remains open. |
+| 7. Testable billing | #1795 | [#1795](https://github.com/relativityE/speaksharp/pull/1795) survives; duplicate #1800 is closed and its branch deleted. Genuine billing acceptance remains open. |
 | 8. Connect paid access to the same value loop | #1795's PAID-01 extension; dependencies from buckets 4 and 7 and identity controls from bucket 9 | Same paid identity through coaching → linked repeat → comparison → return; no separate implementation underway. |
 | 9. Account/privacy/credentials | #1770 and #1775; retained #1539 controls and PAID-04 identity/credential controls | Both retained PRs map here; reconcile their shared workflow before one successor writer. |
-| 10. One operated release | #1774 and canonical release evidence | Retained checkpoint maps here; receive only its unique delta against current main. |
+| 10. One operated release | #1774 source integrated through merged #1772; canonical release evidence | #1774 is closed as superseded and its branch deleted. No unique unlanded source or new implementation receiver is required. Operational acceptance remains OPEN in this map. |
 
 No placeholder implementation or unearned completion is implied by a planned bucket.
 Each resulting PR must show its actual delivered increment, four-stage contract,
@@ -189,35 +196,38 @@ carried obligations and remaining approvals. Source delivery cannot claim stages
 
 ### Existing PR inventory to preserve
 
-GitHub was read on 9 November 2026. Every retained PR has one primary bucket; dependencies
+Consolidation state was verified on 10 November 2026. The 9 November source snapshots
+below remain immutable provenance, not current-head assertions. Every retained PR has
+one primary bucket; dependencies
 may cross buckets without creating another workstream. These are source identities,
 not release identities. Re-read heads before any review, integration or operation.
 
 | Bucket | Retained PR | Observed head | Remaining acceptance boundary / source owner |
 |---|---|---|---|
-| 2 | [#1760](https://github.com/relativityE/speaksharp/pull/1760), open unmerged | `f99627fc85f2a9f44abe979605402970ea0fec03` | Identical source in #1798. All inline threads now resolved; final source/release qualification and real incumbent speech quality remain separate. |
-| 5 | [#1788](https://github.com/relativityE/speaksharp/pull/1788), open unmerged | Current branch `2eb036766adf1a9fb3e3b618926a3494b84390c2`; earlier closed snapshot `655d229bf7b3d7dfe450a190775ee48c626cf325` | Source received in #1797, followed by recovery corrections. Original returned simulation is not merge-ready; qualify the receiving source and all-15 contract. |
+| 2 | [#1760](https://github.com/relativityE/speaksharp/pull/1760), open unmerged | Historical `f99627fc85f2a9f44abe979605402970ea0fec03`; 10 November head `b504cf85fb22f9128382ed5c1782a8f5431231d3` | Surviving source; duplicate #1798 closed. Final source/release qualification and real incumbent speech quality remain separate; implementation paused. |
+| 5 | [#1788](https://github.com/relativityE/speaksharp/pull/1788), open unmerged | Historical branch `2eb036766adf1a9fb3e3b618926a3494b84390c2`; earlier closed snapshot `655d229bf7b3d7dfe450a190775ee48c626cf325`; 10 November head `bf7c1bcd5246154c41e0874b8928a1663232d653` | Surviving source; #1797 at d9de83ff retains distinct recovery machinery pending explicit disposition. Preserve newer #1788 corrections, unresolved findings and all-15 contract; no whole-branch overwrite. |
 | 6 | [#1782](https://github.com/relativityE/speaksharp/pull/1782) | `62b7a0d044df736cd86c81a50271e8fd565fc646` | Saved-review viewport coverage and three semantic controls; real device/human acceptance remains separate. Existing viewport-test owner. |
 | 7 | [#1795](https://github.com/relativityE/speaksharp/pull/1795) | `5dc87301962252bf599963a86ebb0de6e2336462` | Draft sandbox lifecycle source; isolated entry, cleanup, genuine delivery and final qualification remain open. Sam coordinates billing implementation. |
 | 9 | [#1770](https://github.com/relativityE/speaksharp/pull/1770) | `47b5974f58ff28018b3f4f3737eea43397fdbeda` | Read-only account verifier; shared workflow reconciliation and current qualification. Existing account-verifier owner. |
 | 9 | [#1775](https://github.com/relativityE/speaksharp/pull/1775) | `d08055ca5165d1a1c40fe49f18366f5afad75490` | Trusted-main credential-job source; provisioning, consumer proof and fallback removal remain separately gated. Existing credential-boundary owner. |
-| 10 | [#1774](https://github.com/relativityE/speaksharp/pull/1774) | `54c674ace88f2e22acd1c01a9a5ec2cf533193f2` | Nightly foundation checkpoint; reconcile with landed source and qualify. No active schedule is established. Existing nightly owner. |
+| 10 | [#1774](https://github.com/relativityE/speaksharp/pull/1774), closed superseded, unmerged | `54c674ace88f2e22acd1c01a9a5ec2cf533193f2` | Source integrated through #1772; obsolete branch deleted. No unique unlanded source remains. Operational acceptance stays OPEN; no active schedule is established. |
 
 Merged [#1548](https://github.com/relativityE/speaksharp/pull/1548),
 [#1773](https://github.com/relativityE/speaksharp/pull/1773) and
 [#1792](https://github.com/relativityE/speaksharp/pull/1792) are immutable delivery
 provenance, not extra active PRs. Their unproven outcomes map to buckets 4, 3 and 3
-respectively. No branch is restored or deleted, source discarded, or historical
+respectively. No merged branch is restored, unique source discarded, or historical
 result rewritten by this documentation increment. The observed administrative
 closures above are not evidence of implementation or acceptance. New implementation
 must stay within the ten outcome PRs.
 
-**Verified preservation boundaries.** STT receiver #1798 initially shares exactly
+**Historical preservation boundaries (9 November 2026).** STT receiver #1798 initially shares exactly
 the f99627fc commit with #1760. To reopen the original without closing its receiver,
-#1798 temporarily targets `integration/stt-reliability-receiving-base-20261109`,
+#1798 temporarily targeted `integration/stt-reliability-receiving-base-20261109`,
 created at main `524c325a95874d31239203dce9ef7893331ca756`. This is a temporary
-stack, not a source rebase or qualification bypass; reconcile it back to main with
-the source owner after safe original integration. Do not merge into the temporary base.
+stack, not a source rebase or qualification bypass. That historical transition is
+superseded by closure of duplicate #1798; continue on surviving #1760. Do not merge
+into the temporary base.
 
 For practice-journey testing, the full-tree audit of receiving carry commit
 `fb751383e4998515361bfd1a1840ed5838f7af0e` against legacy `2eb03676` found
@@ -443,13 +453,30 @@ authorized operations owner. **State:** source increments open; broader controls
 ### 10. Assemble and operate one release
 
 **Owner/handoff:** Sam integrates accepted evidence; Product Owner authorizes release;
-named release operator and observation owner execute. **State:** release HOLD; #1774 is
-monitoring groundwork, not an active nightly service.
+named release operator and observation owner execute. **State:** release HOLD; #1774's
+monitoring groundwork is integrated source, not an active nightly service.
+
+**Source disposition verified 10 November 2026:** #1774 head
+`54c674ace88f2e22acd1c01a9a5ec2cf533193f2` is an ancestor of #1772 final head
+`1662b08628fefbefc18f2cf63abffdf6a32e8fe9`. That final head and merged squash
+`5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2` share complete tree
+`a2dfb8eed17b0af867b0bb5d6fd0ab4292ede89c`; main contains the squash. No unique
+unlanded source remains. #1774 was administratively closed unmerged and its obsolete
+branch deleted. A new implementation receiver is not required. Retain its review
+finding provenance and landed corrections; do not merge or restore its stale tree.
+
+**Operational acceptance remains OPEN:** identified-release proof through the approved
+execution route; explicit activation and credential gates for selected operations;
+Case 10 origin/schedule authority if selected; rollback; clean traffic/release baseline;
+raw-to-dashboard reconciliation; alert fire/recovery; received telemetry assurance;
+and broader token-cost rows. Retaining these obligations does not mandate a parallel
+smoke harness or revive an obsolete nightly schedule.
 
 1. **Define:** one release manifest with exact frontend/backend/schema/configuration,
    accepted evidence, open-risk decisions, owner and rollback; select learning measures.
-2. **Close:** reconcile #1774 with current landed work and resolve its checkpoint holds;
-   assemble the smallest complete approved release without adding unrelated lanes.
+2. **Close:** retain #1774's integrated-source disposition and finish the outstanding
+   operational obligations; assemble the smallest complete approved release without
+   adding unrelated lanes.
 3. **Prove:** final-head qualification, actual served identities and applicable evidence
    from buckets 1–9; verify rollback readiness and truthful monitoring/report boundaries.
 4. **Release/learn:** only after separate authorization, deploy/verify, start the approved
