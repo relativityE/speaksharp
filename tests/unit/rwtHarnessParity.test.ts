@@ -14,7 +14,9 @@ const sink = () => { const rows: Row[] = []; return { rows, row: (step: string, 
 /** A fake BrowserContext: emits pages and requests, records the exposed binding and the init script. */
 function fakeContext() {
     const handlers: Record<string, Array<(x: unknown) => void>> = {};
-    const bindings = new Map<string, (source: unknown, id: unknown) => void>();
+    const bindings = new Map<string, (source: unknown, id: unknown, doc: unknown, seq: unknown) => void>();
+    const seqs = new Map<string, number>();
+    const next = (doc: string) => { const n = (seqs.get(doc) ?? 0) + 1; seqs.set(doc, n); return n; };
     let init: { fn: unknown; arg: unknown } | null = null;
     const page = (closeFails = false) => {
         let closed = false;
@@ -26,12 +28,12 @@ function fakeContext() {
     const ctx = {
         pages: () => [first],
         on: (ev: string, h: (x: unknown) => void) => { (handlers[ev] ??= []).push(h); },
-        exposeBinding: vi.fn(async (n: string, fn: (source: unknown, id: unknown) => void) => { bindings.set(n, fn); }),
+        exposeBinding: vi.fn(async (n: string, fn: (source: unknown, id: unknown, doc: unknown, seq: unknown) => void) => { bindings.set(n, fn); }),
         addInitScript: vi.fn(async (fn: unknown, arg: unknown) => { init = { fn, arg }; }),
     };
     return { ctx, first, page, emit: (ev: string, x: unknown) => (handlers[ev] ?? []).forEach((h) => h(x)),
-        press: (id: unknown = 'mic-start') => bindings.get('__rwtStartPress')?.({}, id),
-        persisted: (id: unknown) => bindings.get('__rwtPersisted')?.({}, id), init: () => init };
+        press: (id: unknown = 'mic-start', doc = 'd1') => bindings.get('__rwtStartPress')?.({}, id, doc, next(doc)),
+        persisted: (id: unknown, doc = 'd1') => bindings.get('__rwtPersisted')?.({}, id, doc, next(doc)), init: () => init };
 }
 
 describe('HarnessParityTap', () => {
@@ -155,7 +157,7 @@ describe('probeSaveIsolationRow', () => {
         ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: rows, error }) }) }) }) });
     it('PASS only when the completed sessions are exactly the journey\'s saved takes', async () => {
         const r = sink();
-        await probeSaveIsolationRow(r, admin([{ id: 'a' }, { id: 'b' }]) as never, 'u', ['a', 'b'], ['a', 'b'], 2);
+        await probeSaveIsolationRow(r, admin([{ id: 'a' }, { id: 'b' }]) as never, 'u', ['a', 'b'], { takes: [{ control: 'mic-start' as const, ids: ['a'] }, { control: 'mic-start' as const, ids: ['b'] }], stray: [] }, 2);
         expect(r.rows[0]).toMatchObject({ step: 'probe saves isolated', verdict: 'PASS', evidence: { completedSessions: 2, designedTakes: 2, unattributed: 0, notCompleted: 0 } });
     });
     it('CASUALTY: a probe-saved extra session or a missing take FAILs; an unknown take or a failed read HOLDs', async () => {
@@ -167,7 +169,7 @@ describe('probeSaveIsolationRow', () => {
         ];
         for (const [rows, error, expected, verdict] of cases) {
             const r = sink();
-            await probeSaveIsolationRow(r, admin(rows, error) as never, 'u', expected, expected.filter((x): x is string => typeof x === 'string'), 2);
+            await probeSaveIsolationRow(r, admin(rows, error) as never, 'u', expected, { takes: expected.map((x) => ({ control: 'mic-start' as const, ids: typeof x === 'string' ? [x] : [] })), stray: [] }, 2);
             expect({ expected, v: r.rows[0].verdict }).toEqual({ expected, v: verdict });
         }
     });
@@ -186,7 +188,7 @@ describe('AHT-01 wiring', () => {
         expect([counts > -1, isolation > counts, close > isolation, close < spec.indexOf('const cleanup = new OwnedCleanup(')]).toEqual([true, true, true, true]);
         const block = spec.slice(counts, close);
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
-        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.persistedTakeIds, AHT01_DESIGNED_TAKES)');
+        expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId], parity.takeBindings(), AHT01_DESIGNED_TAKES)');
         expect(spec).toContain("const AHT01_START_PRESS_BUDGET = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'verdict-practice-again': 1 } } as const;");
         expect(spec).toContain('const AHT01_DESIGNED_TAKES = 4;');
     });
@@ -237,32 +239,54 @@ describe('AHT-01 design budgets (review: from the journey design, not a run coun
             expect({ presses, v: r.rows[0].verdict }).toEqual({ presses, v: 'FAIL' });
         }
     });
-    it('review RETURN on 5e1fa2fd: every take is bound by the id the product reported persisted; exactly that set must be completed', async () => {
+    it('review RETURN on 2611cce9: each take is bound to the save written in its own document after its press', async () => {
         const U = (n: number) => `0b9c5e2a-1111-4222-8333-44445555666${n}`;
-        const [first, again, review, next, dup] = [U(1), U(2), U(3), U(4), U(5)];
+        const [A, B, C, D, X] = [U(1), U(2), U(3), U(4), U(5)];
         const admin = (ids: string[]) => ({ from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: ids.map((id) => ({ id })), error: null }) }) }) }) });
-        const cases: [string, string[], string[], string][] = [
-            ['run 42857325669 shape: 4 reported, 4 completed', [first, again, review, next], [first, again, review, next], 'PASS'],
-            ['Sam: a take never saved + a duplicate of the first', [first, again, review, next], [first, again, dup, next], 'FAIL'],
-            ['Sam: the never-saved take is never reported', [first, again, next], [first, again, dup, next], 'HOLD'],
-            ['an extra completed session no take reported', [first, again, review, next], [first, again, review, next, dup], 'FAIL'],
-            ['a reported take not completed', [first, again, review, next], [first, again, review], 'FAIL'],
-            ['five takes reported', [first, again, review, next, dup], [first, again, review, next, dup], 'FAIL'],
-            ['captured takes out of order', [again, first, review, next], [first, again, review, next], 'FAIL'],
+        type Step = ['press', string, string] | ['save', string, string];
+        // the designed AHT-01 shape: first take (doc1), Practice-again take and the review repeat (doc2), next Start (doc3)
+        const shape = (saves: Record<string, string[]>): Step[] => [
+            ['press', 'mic-download', 'doc1'], ...(saves.t1 ?? []).map((id): Step => ['save', id, 'doc1']),
+            ['press', 'mic-start', 'doc2'], ...(saves.t2 ?? []).map((id): Step => ['save', id, 'doc2']),
+            ['press', 'verdict-practice-again', 'doc2'], ...(saves.t3 ?? []).map((id): Step => ['save', id, 'doc2']),
+            ['press', 'mic-start', 'doc3'], ...(saves.t4 ?? []).map((id): Step => ['save', id, 'doc3']),
         ];
-        for (const [name, reported, completed, verdict] of cases) {
+        const cases: [string, Step[], string[], string][] = [
+            ['run 42857325669 shape: four takes, four bound saves', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), [A, B, C, D], 'PASS'],
+            ['Sam: the review repeat saves nothing; the next-Start interval surfaces a stray X and its own D', shape({ t1: [A], t2: [B], t4: [X, D] }), [A, B, X, D], 'HOLD'],
+            ['a second save of one take never stands in for a missing take', shape({ t1: [A], t2: [B, X], t4: [D] }), [A, B, X, D], 'HOLD'],
+            ['a save before any press in its document is a stray', [['save', X, 'doc0'], ...shape({ t1: [A], t2: [B], t3: [C], t4: [D] })], [A, B, C, D, X], 'FAIL'],
+            ['a completed session bound to no take', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), [A, B, C, D, X], 'FAIL'],
+            ['a bound take not completed', shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), [A, B, C], 'FAIL'],
+            ['one id bound to two takes', shape({ t1: [A], t2: [B], t3: [C], t4: [C] }), [A, B, C], 'FAIL'],
+            ['captured takes on the wrong takes', shape({ t1: [B], t2: [A], t3: [C], t4: [D] }), [A, B, C, D], 'FAIL'],
+            ['a fifth take', [...shape({ t1: [A], t2: [B], t3: [C], t4: [D] }), ['press', 'mic-start', 'doc3'], ['save', X, 'doc3']], [A, B, C, D, X], 'FAIL'],
+            ['only three takes started', shape({ t1: [A], t2: [B], t3: [C] }).slice(0, -1), [A, B, C], 'HOLD'],
+        ];
+        for (const [name, steps, completed, verdict] of cases) {
+            const f = fakeContext();
+            const tap = new HarnessParityTap();
+            await tap.attach(f.ctx as never);
+            for (const [kind, v, doc] of steps) { if (kind === 'press') f.press(v, doc); else f.persisted(v, doc); }
             const r = sink();
-            await probeSaveIsolationRow(r, admin(completed) as never, 'u', [first, again], reported, 4);
+            await probeSaveIsolationRow(r, admin(completed) as never, 'u', [A, B], tap.takeBindings(), 4);
             expect({ name, v: r.rows[0].verdict }).toEqual({ name, v: verdict });
         }
     });
-    it('the tap records each persisted take id once, in report order, and ignores malformed ids', async () => {
+    it('attribution does not depend on the order the binding calls arrive (sequence numbers decide)', async () => {
         const f = fakeContext();
         const tap = new HarnessParityTap();
         await tap.attach(f.ctx as never);
-        const id = (n: number) => `0b9c5e2a-1111-4222-8333-44445555666${n}`;
-        for (const x of [id(1), id(1), id(2), 'not-a-uuid', 7, null, id(3), id(2), id(4)]) f.persisted(x);
-        expect(tap.persistedTakeIds).toEqual([id(1), id(2), id(3), id(4)]);
+        const bind = (f.ctx.exposeBinding as unknown as { mock: { calls: [string, (s: unknown, i: unknown, d: unknown, q: unknown) => void][] } }).mock.calls;
+        const press = bind.find(([n]) => n === '__rwtStartPress')![1];
+        const persist = bind.find(([n]) => n === '__rwtPersisted')![1];
+        const id = '0b9c5e2a-1111-4222-8333-444455556661';
+        persist({}, id, 'doc1', 2);                                       // the save's call arrives before the press's call
+        press({}, 'mic-start', 'doc1', 1);
+        expect(tap.takeBindings()).toEqual({ takes: [{ control: 'mic-start', ids: [id] }], stray: [] });
+        persist({}, 'not-a-uuid', 'doc1', 3); press({}, 'unknown-control', 'doc1', 4); press({}, 'mic-start', 'doc1', 1.5);
+        expect(tap.takeBindings().takes).toHaveLength(1);
     });
+
 
 });
