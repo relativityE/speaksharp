@@ -6,6 +6,7 @@ import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
+import {runInNewContext} from 'node:vm';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,SQL_CONTRACTS,nativeTestRoute,selectNativeContracts,executionBatchIdentity,reconcileExecutionBatches,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness,
@@ -19,6 +20,31 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 const provenance={schemaVersion:1,invocation:randomUUID(),source:'github-actions',runId:'901',runAttempt:'2',
   commit:'a'.repeat(40),tree:'b'.repeat(40),snapshotSha256:'c'.repeat(64)};
 const inputSha256='d'.repeat(64),runId=randomUUID();
+
+test('local coaching PostgreSQL resolver supports the Ubuntu26 installed toolchain without widening PATH',()=>{
+  const source=fs.readFileSync(path.join(root,'tests/db/account-coaching-local-fence.realpg.mjs'),'utf8');
+  const start=source.indexOf("  const names = ['initdb', 'pg_ctl', 'psql'];");
+  const end=source.indexOf("  const root = mkdtempSync",start);
+  assert.ok(start>0&&end>start);
+  // Execute the actual resolver, with filesystem observations only replaced. No SQL/process runs.
+  const code=source.slice(start,end)+'\nJSON.stringify(binaries);';
+  const names=['initdb','pg_ctl','psql'],pg=major=>`/usr/lib/postgresql/${major}/bin`;
+  const complete=directory=>names.map(name=>path.join(directory,name));
+  const resolve=(files,PATH='/usr/bin:/bin')=>JSON.parse(runInNewContext(code,{
+    process:{env:{PATH}},delimiter:path.delimiter,isAbsolute:path.isAbsolute,join:path.join,assert,
+    constants:fs.constants,realpathSync:file=>{assert.ok(files.includes(file));return file;},
+    accessSync:(file,mode)=>{assert.equal(mode,fs.constants.X_OK);assert.ok(files.includes(file));},
+  }));
+  for(const major of [18,17,16]) assert.deepEqual(resolve(complete(pg(major))),
+    Object.fromEntries(names.map(name=>[name,path.join(pg(major),name)])));
+  const all=[...complete('/local/pg/bin'),...complete(pg(17)),...complete(pg(18))];
+  assert.equal(resolve(all,'/local/pg/bin:/usr/bin:/bin').initdb,'/local/pg/bin/initdb');
+  assert.equal(resolve(all).initdb,path.join(pg(17),'initdb'));
+  assert.equal(resolve([...complete(pg(18)),path.join(pg(17),'initdb')]).initdb,path.join(pg(18),'initdb'));
+  for(const files of [[],[path.join(pg(18),'initdb'),path.join(pg(17),'pg_ctl'),path.join(pg(16),'psql')],complete('relative')]) {
+    assert.throws(()=>resolve(files,'relative:/usr/bin:/bin'),/installed local PostgreSQL.*unavailable/);
+  }
+});
 
 test('bounded native routes retain explicit planner/protocol and fixture-only claims',()=>{
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),

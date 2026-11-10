@@ -76,7 +76,9 @@ test('#1643 local and stale coaching retirement: native concurrent transactions'
   // No download, inherited connection configuration, or external database fallback.
   const names = ['initdb', 'pg_ctl', 'psql'];
   let binaries;
-  for (const directory of [...(process.env.PATH ?? '').split(delimiter), '/usr/lib/postgresql/17/bin', '/usr/lib/postgresql/16/bin']) {
+  // actions/runner-images ubuntu26/20261101.186 installs PostgreSQL 18 (18.6).
+  // Keep PATH and the existing 17/16 preference; the sanitized lane can find 18 too.
+  for (const directory of [...(process.env.PATH ?? '').split(delimiter), '/usr/lib/postgresql/17/bin', '/usr/lib/postgresql/16/bin', '/usr/lib/postgresql/18/bin']) {
     if (!isAbsolute(directory)) continue;
     try {
       binaries = Object.fromEntries(names.map(name => {
