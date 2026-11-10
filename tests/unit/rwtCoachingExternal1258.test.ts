@@ -503,8 +503,16 @@ describe('Codex P1 r4275387520 — EXTERNAL is a closed claim: only the proved c
     });
     it('the parent may be EXTERNAL only with its own proof (5xx or timeout); each missing proof is named', () => {
         expect(errorsOf(openMic([provedParent('coaching rendered')]))).toBe('');
-        const timeout = { ...provedParent('coaching rendered'), evidence: { ...PROVED_PARENT_EVIDENCE, externalOutcome: 'provider_timeout', failureReason: 'provider_timeout', providerStatus: null } };
-        expect(errorsOf(openMic([timeout]))).toBe('');
+        const timeout = { ...provedParent('coaching rendered'), evidence: { ...PROVED_PARENT_EVIDENCE, externalOutcome: 'provider_timeout', failureReason: 'provider_timeout', providerStatus: 503 } };
+        for (const providerStatus of [429, 500, 503, 599]) {
+            const receipt = openMic([{ ...timeout, evidence: { ...timeout.evidence, providerStatus } }]);
+            expect(errorsOf(receipt)).toBe('');
+        }
+        for (const providerStatus of [null, undefined, 200, 408, 499, 600, 503.5, '503', Number.NaN]) {
+            const receipt = openMic([{ ...timeout, evidence: { ...timeout.evidence, providerStatus } }]);
+            expect(errorsOf(receipt)).toContain('provider timeout lacks an observed integer upstream 5xx/429 status');
+            expect(finalizeReceipt(receipt, parseHumanWorksheet('')).status).toBe('binding_error');
+        }
         expect(errorsOf(openMic([external('coaching rendered')]))).toMatch(/"coaching rendered" is EXTERNAL without its proof: httpStatus is not 502/);
         for (const [key, value] of [
             ['httpStatus', 500], ['failureReason', 'provider_transport'], ['providerStatus', 429], ['providerStatus', 503.5], ['externalOutcome', null],
