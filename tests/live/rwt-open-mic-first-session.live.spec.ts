@@ -184,6 +184,8 @@ test.use({
 
 /** Harness parity: the catalog's AHT-01 minimum is 4 Starts (first take, two Practice-again entries, next Start); 2 presses of headroom. */
 const AHT01_START_PRESS_CAP = 6;
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
 
@@ -395,13 +397,17 @@ test.describe('RWT — Open Mic first session @live', () => {
             tap.detachTransport();
             // Harness parity rows (catalog AHT-01: no-cloud-stt, start-press-budget, probe-save-isolation, owned-pages-closed), before the
             // account is deleted (the isolation read needs it). Budget: the catalog's AHT-01 minimum of 4 Starts plus 2 presses of headroom.
-            await steps.step('harness parity', async () => {
-                parity.noCloudSttRow(receipt);
-                parity.startPressRow(receipt, AHT01_START_PRESS_CAP);
-                if (admin) await probeSaveIsolationRow(receipt, admin as never, capturedUid, [persistedId, repeatSessionId]);
-                else receipt.row('probe saves isolated', 'HOLD', 'no server read is available in this run');
-                await parity.ownedPagesClosedRow(receipt);
+            // Separate bounded steps, rows only while each step is alive (no row after its bound or the seal), and the page close in
+            // its own step so a slow or failed read can never skip it.
+            await steps.step('harness parity counts', (alive) => {
+                parity.noCloudSttRow(aliveReceipt(receipt, alive));
+                parity.startPressRow(aliveReceipt(receipt, alive), AHT01_START_PRESS_CAP);
             });
+            await steps.step('probe saves isolated', async (alive) => {
+                if (admin) await probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId]);
+                else aliveReceipt(receipt, alive).row('probe saves isolated', 'HOLD', 'no server read is available in this run');
+            });
+            await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
             // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product policy
             // (user_issue_reports.user_id is SET NULL on account deletion), so retention is proven only after the account is
             // deleted (#1532 Codex P1 r4105978630).
