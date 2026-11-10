@@ -439,6 +439,27 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         expect(['FAILED', 'FAILED_VISIBLE']).toContain(c.state);
     });
 
+    it('D5: a teardown failure AFTER a successful save never says the transcript was not saved', async () => {
+        // Work point 2, D5 (review): the save completes, then the owner's destroy() rejects. The transcript is
+        // still in the store at the catch, and no Retry Save is held, so the decode-failure copy used to be chosen.
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            Promise.resolve({ transcript: 'A said something', stats: { accuracy: 0.9 }, success: true }),
+        );
+        (c.service as { destroy: ReturnType<typeof vi.fn> }).destroy = vi.fn().mockRejectedValue(new Error('WORKER_TEARDOWN_REFUSED'));
+        vi.mocked(completeSession).mockClear();
+        vi.mocked(completeSession).mockResolvedValue({ success: true } as never);
+
+        await c.stopRecording().catch(() => { /* the owner's failure surfaces to its caller */ });
+
+        expect(vi.mocked(completeSession).mock.calls.some(([, args]) => (args as { status?: string }).status === 'completed'),
+            'the save itself succeeded').toBe(true);
+        expect(useSessionStore.getState().sttStatus).toEqual({
+            type: 'warning',
+            message: 'Your session was saved.',
+            detail: 'The recorder did not shut down cleanly afterwards.',
+        });
+    });
+
     it("CASUALTY D2: a lifecycle successor during the owner's destroy rejection is left untouched", async () => {
         // The other side of D1: if B replaced the lifecycle while destroy was rejecting, the terminal
         // tuple no longer matches and A must contain its own failure.
