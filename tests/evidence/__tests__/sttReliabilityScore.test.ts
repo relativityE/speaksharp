@@ -145,7 +145,11 @@ describe('frozen counting rules', () => {
         ['a silence clip carrying a reference', [{ ...silence, reference: 'hello' }], {}, 'reference_on_silence_clip'],
         // Release review: Track A strips fillers, so these once normalized to zero words and passed as empty references.
         ['a silence clip whose reference is only a filler', [{ ...silence, reference: 'um' }], {}, 'reference_on_silence_clip'],
-        ['a silence clip whose reference is only fillers and punctuation', [{ ...silence, reference: 'Uh, um...' }], {}, 'reference_on_silence_clip'],
+        ['a silence clip whose reference is only fillers and punctuation', [{ ...silence, reference: 'Uh, um.' }], {}, 'reference_on_silence_clip'],
+        ['a silence clip whose reference is not a string', [{ ...silence, reference: 5 }], {}, 'reference_on_silence_clip'],
+        // Track A keeps a lone '.' from '...' as a token, so this once validated as one word and scored WER 0 against '...'.
+        ['a speech clip whose reference is only punctuation', [speech('a', '...')], {}, 'missing_reference'],
+        ['a speech clip whose reference is not a string', [{ ...speech('a', 'x'), reference: 5 }], {}, 'missing_reference'],
         ['a silence clip whose reference is only punctuation', [{ ...silence, reference: '.' }], {}, 'reference_on_silence_clip'],
         ['an invalid audio binding', [{ ...a, audio: { pcmSha256: 'x', sampleRateHz: 16_000, sampleCount: 1 } }], {}, 'invalid_audio_binding'],
         ['a duplicate clip id', [a, { ...b, id: 'a' }], {}, 'duplicate_clip_id'],

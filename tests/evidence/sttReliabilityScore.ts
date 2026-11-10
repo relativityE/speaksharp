@@ -277,11 +277,18 @@ export function scoreReliabilityCorpus(plan: readonly PlannedClip[], outcomes: R
         ids.add(clip.id);
         if (clip.kind !== 'speech' && clip.kind !== 'silence') return empty('invalid_clip_kind', clip.id);
         if (!validBinding(clip.audio)) return empty('invalid_audio_binding', clip.id);
-        const words = normalizeOfficialTrackA(clip.reference ?? '').length;
-        if (clip.kind === 'speech' && words === 0) return empty('missing_reference', clip.id);
-        // A silence clip's reference must be blank as written. Counting words after Track A normalization let a
-        // filler-only reference ("um") through, because Track A strips fillers (release review).
-        if (clip.kind === 'silence' && (clip.reference ?? '').trim() !== '') return empty('reference_on_silence_clip', clip.id);
+        const reference: unknown = clip.reference ?? '';
+        if (clip.kind === 'speech') {
+            // A speech reference needs at least one real word. Track A keeps a lone '.' (from '...') as a token, so
+            // counting tokens let a punctuation-only reference through, and a '...' transcript then scored WER 0.
+            if (typeof reference !== 'string' || !normalizeOfficialTrackA(reference).some(token => /[\p{L}\p{N}]/u.test(token))) {
+                return empty('missing_reference', clip.id);
+            }
+        } else if (typeof reference !== 'string' || reference.trim() !== '') {
+            // A silence clip's reference must be blank as written. Counting words after Track A normalization let a
+            // filler-only reference ("um") through, because Track A strips fillers (release review).
+            return empty('reference_on_silence_clip', clip.id);
+        }
         const outcome = outcomes[clip.id];
         if (outcome !== undefined && !validOutcome(outcome)) return empty('invalid_outcome', clip.id);
         if (outcome?.status === 'saved'
