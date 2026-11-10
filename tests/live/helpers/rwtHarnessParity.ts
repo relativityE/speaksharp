@@ -17,6 +17,8 @@ export const CLOUD_STT_URL = /assemblyai/i;
 /** The cloud-test harness's Start controls (draft-adapters/browser-actions.cjs START_CONTROLS), exactly. */
 export const START_CONTROLS = Object.freeze(['mic-start', 'mic-download', 'mic-retry', 'verdict-practice-again', 'focus-points-retry'] as const);
 export type StartControl = typeof START_CONTROLS[number];
+/** Per take (one per Start press, in press order): its control and the saved ids written in its own interval; plus stray saves. */
+export interface TakeBindings { takes: Array<{ control: StartControl; ids: string[] }>; stray: string[] }
 /** A journey's designed Start presses: the total, and the most each control may be pressed (an unlisted control allows none). */
 export interface StartPressBudget { total: number; perControl: Partial<Record<StartControl, number>> }
 export const START_CONTROL = START_CONTROLS.map((id) => `[data-testid="${id}"]`).join(',');
@@ -29,9 +31,27 @@ export class HarnessParityTap {
     cloudSttSockets = 0;
     readonly startPressesByControl: Record<StartControl, number> = { 'mic-start': 0, 'mic-download': 0, 'mic-retry': 0, 'verdict-practice-again': 0, 'focus-points-retry': 0 };
     leaseAcquisitions = 0;
-    /** Every saved take's session id, in the order the product's pages reported it persisted (`data-session-persisted-id`). */
-    readonly persistedTakeIds: string[] = [];
+    /** Start presses and persisted-id writes, each with its document and that document's own sequence number. */
+    private readonly pressEvents: Array<{ doc: string; seq: number; control: StartControl }> = [];
+    private readonly persistEvents: Array<{ doc: string; seq: number; id: string }> = [];
     private readonly pages = new Set<Page>();
+
+    /**
+     * Each Start press is a take; its saved session is the persisted-id write in the SAME document after that press and before the
+     * next press there. A write with no earlier press in its document is a stray save. Computed when read, so the order in which
+     * the two bindings' calls arrive cannot change an attribution.
+     */
+    takeBindings(): TakeBindings {
+        const takes = this.pressEvents.map((p) => ({ control: p.control, doc: p.doc, seq: p.seq, ids: [] as string[] }));
+        const stray: string[] = [];
+        for (const w of this.persistEvents) {
+            let owner: (typeof takes)[number] | null = null;
+            for (const t of takes) if (t.doc === w.doc && t.seq < w.seq && (!owner || t.seq > owner.seq)) owner = t;
+            if (!owner) { if (!stray.includes(w.id)) stray.push(w.id); continue; }
+            if (!owner.ids.includes(w.id)) owner.ids.push(w.id);
+        }
+        return { takes: takes.map(({ control, ids }) => ({ control, ids })), stray };
+    }
 
     /** Presses of the harness's Start controls, counted directly. */
     get startPresses(): number { return Object.values(this.startPressesByControl).reduce((a, b) => a + b, 0); }
@@ -50,29 +70,34 @@ export class HarnessParityTap {
             if (CLOUD_STT_URL.test(r.url())) this.cloudSttRequests += 1;
             if (r.method() === 'POST' && LEASE_ACQUIRE_URL.test(r.url())) this.leaseAcquisitions += 1;
         });
-        await context.exposeBinding('__rwtStartPress', (_source, id: unknown) => {
-            if (typeof id === 'string' && (START_CONTROLS as readonly string[]).includes(id)) this.startPressesByControl[id as StartControl] += 1;
-        });
-        // Each saved take's id, recorded the moment the page marks it persisted — on every page and across navigations, with no
-        // change to the journey's timing (a rapid repeat cut short by the next Start is still attributed if its save is reported).
-        await context.exposeBinding('__rwtPersisted', (_source, id: unknown) => {
-            if (typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id) && !this.persistedTakeIds.includes(id)) this.persistedTakeIds.push(id);
-        });
-        await context.addInitScript(() => {
-            const report = () => {
-                const el = document.documentElement;
-                const id = el.getAttribute('data-session-persisted-id');
-                if (id && el.getAttribute('data-session-persisted') === 'true') void (window as unknown as { __rwtPersisted?: (i: string) => Promise<void> }).__rwtPersisted?.(id);
-            };
-            new MutationObserver(report).observe(document.documentElement, { attributes: true, attributeFilter: ['data-session-persisted-id', 'data-session-persisted'] });
-            report();
-        });
+        const pressed = (_source: unknown, id: unknown, doc: unknown, seq: unknown) => {
+            if (typeof id !== 'string' || !(START_CONTROLS as readonly string[]).includes(id) || typeof doc !== 'string' || !Number.isInteger(seq)) return;
+            this.startPressesByControl[id as StartControl] += 1;
+            this.pressEvents.push({ doc, seq: seq as number, control: id as StartControl });
+        };
+        const persisted = (_source: unknown, id: unknown, doc: unknown, seq: unknown) => {
+            if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id) || typeof doc !== 'string' || !Number.isInteger(seq)) return;
+            this.persistEvents.push({ doc, seq: seq as number, id });
+        };
+        await context.exposeBinding('__rwtStartPress', pressed);
+        await context.exposeBinding('__rwtPersisted', persisted);
+        // ONE script per document: its id and sequence order both events. It touches no document node while installing (safe before
+        // the parser creates a root). A persisted id is captured at the product's own write (setAttribute on the root, always after
+        // `data-session-persisted="true"`), so a set-then-clear in one turn is never lost; the original write runs first and unchanged.
         await context.addInitScript((selector: string) => {
+            const w = window as unknown as { __rwtStartPress?: (...a: unknown[]) => Promise<void>; __rwtPersisted?: (...a: unknown[]) => Promise<void> };
+            const doc = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+            let seq = 0;
             document.addEventListener('click', (e) => {
                 const t = e.target as Element | null;
                 const control = t && typeof t.closest === 'function' ? t.closest(selector) : null;
-                if (control) void (window as unknown as { __rwtStartPress?: (id: string | null) => Promise<void> }).__rwtStartPress?.(control.getAttribute('data-testid'));
+                if (control) void w.__rwtStartPress?.(control.getAttribute('data-testid'), doc, ++seq);
             }, true);
+            const original = Element.prototype.setAttribute;
+            Element.prototype.setAttribute = function (this: Element, name: string, value: string) {
+                original.call(this, name, value);
+                if (name === 'data-session-persisted-id' && this === document.documentElement) void w.__rwtPersisted?.(String(value), doc, ++seq);
+            };
         }, START_CONTROL);
     }
 
@@ -126,49 +151,45 @@ type SessionsAdmin = {
 };
 
 /**
- * probe-save-isolation, for the original journeys (review RETURN on 5e1fa2fd: bind EVERY take, not two). `reportedTakes` are the
- * session ids the product's pages reported persisted, in order (HarnessParityTap.persistedTakeIds); `capturedTakes` the ids the
- * journey captured itself (first take, Practice-again take), which must be the first reported ones in that order.
- * PASS: exactly `designedTakes` distinct reported ids, the captured ones first, and the account's completed sessions are EXACTLY
- * that set. HOLD: fewer takes reported than designed (a take cannot be attributed), a captured take unknown, or a failed read.
- * FAIL: a completed session no take reported (a double or stray save), a reported take not completed, more reported takes than
- * designed, or the captured takes out of place.
+ * probe-save-isolation, for the original journeys (review RETURNs on 5e1fa2fd and 2611cce9): every designed take is bound to ITS
+ * saved session — the persisted id written in the take's own document after its Start press and before the next press there
+ * (HarnessParityTap.takeBindings). `capturedTakes` are the ids the journey captured itself (first take, Practice-again take).
+ * PASS: exactly `designedTakes` takes, each bound to exactly one id, the ids distinct, the captured ones on their takes, no stray
+ *   save, and the account's completed sessions EXACTLY the bound set.
+ * HOLD: fewer takes than designed, a take with no bound save (missing) or with two (ambiguous — a second save never stands in
+ *   for a missing take), a captured take unknown, or a failed read.
+ * FAIL: a stray save no take started, more takes than designed, one id bound to two takes, a captured take on the wrong take, a
+ *   completed session bound to no take, or a bound take not completed.
  */
 export async function probeSaveIsolationRow(receipt: RowSink, admin: SessionsAdmin, userId: string, capturedTakes: Array<string | null | undefined>,
-    reportedTakes: readonly string[], designedTakes: number): Promise<void> {
+    bindings: TakeBindings, designedTakes: number): Promise<void> {
     const captured = capturedTakes.filter((x): x is string => typeof x === 'string' && x.length > 0);
-    const reported = [...new Set(reportedTakes)];
-    const base = { designedTakes, reportedTakes: reported.length, capturedTakes: captured.length };
-    if (!userId || captured.length !== capturedTakes.length || !Number.isInteger(designedTakes) || designedTakes < 1) {
-        receipt.row('probe saves isolated', 'HOLD', 'a captured take of the journey is unknown, so isolation cannot be judged', base);
-        return;
+    const missing = bindings.takes.filter((t) => t.ids.length === 0).length;
+    const ambiguous = bindings.takes.filter((t) => t.ids.length > 1).length;
+    const base = { designedTakes, takes: bindings.takes.length, missingBindings: missing, ambiguousBindings: ambiguous, straySaves: bindings.stray.length,
+        capturedTakes: captured.length };
+    const row = (v: 'PASS' | 'FAIL' | 'HOLD', d: string, e: Record<string, string | number | boolean | null> = {}) => receipt.row('probe saves isolated', v, d, { ...base, ...e });
+    if (!userId || captured.length !== capturedTakes.length || !Number.isInteger(designedTakes) || designedTakes < captured.length) {
+        return row('HOLD', 'a captured take of the journey is unknown, so isolation cannot be judged');
     }
-    if (reported.length > designedTakes) {
-        receipt.row('probe saves isolated', 'FAIL', 'the product reported more saved takes than the journey records', base);
-        return;
+    if (bindings.stray.length > 0) return row('FAIL', 'a session was saved that no Start press began (a stray save)');
+    if (bindings.takes.length > designedTakes) return row('FAIL', 'the journey started more takes than designed');
+    if (bindings.takes.length < designedTakes) return row('HOLD', 'fewer takes were started than designed, so isolation cannot be judged');
+    if (missing > 0 || ambiguous > 0) {
+        return row('HOLD', missing > 0 ? 'a take has no saved session bound to it' : 'a take has more than one saved session (ambiguous); none stands in for another');
     }
-    if (captured.some((id, k) => reported[k] !== id)) {
-        receipt.row('probe saves isolated', reported.length < captured.length ? 'HOLD' : 'FAIL',
-            reported.length < captured.length ? 'the captured takes were not all reported persisted' : 'the captured takes are not the first saved takes, in order', base);
-        return;
-    }
-    if (reported.length < designedTakes) {
-        receipt.row('probe saves isolated', 'HOLD', 'not every designed take reported its saved session, so a take cannot be attributed', base);
-        return;
-    }
+    const bound = bindings.takes.map((t) => t.ids[0]);
+    if (new Set(bound).size !== bound.length) return row('FAIL', 'one saved session is bound to two takes');
+    if (captured.some((id, k) => bound[k] !== id)) return row('FAIL', 'a captured take\'s session is not the session bound to that take');
     const { data, error } = await admin.from('sessions').select('id').eq('user_id', userId).eq('status', 'completed');
-    if (error || !Array.isArray(data)) {
-        receipt.row('probe saves isolated', 'HOLD', 'the completed-session read failed', { ...base, readFailed: true });
-        return;
-    }
+    if (error || !Array.isArray(data)) return row('HOLD', 'the completed-session read failed', { readFailed: true });
     const completed = new Set(data.map((r) => r.id));
-    const unattributed = [...completed].filter((id) => !reported.includes(id)).length;
-    const notCompleted = reported.filter((id) => !completed.has(id)).length;
+    const unattributed = [...completed].filter((id) => !bound.includes(id)).length;
+    const notCompleted = bound.filter((id) => !completed.has(id)).length;
     const ok = unattributed === 0 && notCompleted === 0;
-    receipt.row('probe saves isolated', ok ? 'PASS' : 'FAIL',
-        ok ? 'every designed take saved exactly one attributed session, and nothing else saved'
-            : unattributed > 0 ? 'a completed session belongs to no take (a double or stray save)' : 'a take reported saved is not completed',
-        { ...base, completedSessions: completed.size, unattributed, notCompleted });
+    return row(ok ? 'PASS' : 'FAIL', ok ? 'every designed take saved exactly one bound session, and nothing else saved'
+        : unattributed > 0 ? 'a completed session is bound to no take (a double or stray save)' : 'a take\'s bound session is not completed',
+    { completedSessions: completed.size, unattributed, notCompleted });
 }
 
 /**
