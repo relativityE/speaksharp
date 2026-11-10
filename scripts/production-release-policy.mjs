@@ -84,8 +84,14 @@ export async function authorizeProductionRelease(input, readGithub) {
     }
 }
 
+// HOLD always fails closed. `reason` only says WHICH hold it is, so an empty binding is never misread as
+// production drift (canary runs from 27 Oct to 10 Nov all held on an EMPTY PRODUCTION_RELEASE_SHA):
+//   binding-missing        the expected SHA is empty or not a full 40-character SHA; production was not read
+//   production-unreadable  production could not be read, or did not carry exactly one release marker
+//   served-mismatch        production serves another release; `observedSha` is that public value
 export async function verifyServedRelease(expectedSha, fetchImpl = globalThis.fetch) {
-    if (!SHA.test(expectedSha ?? '')) return { allowed: false, state: 'HOLD' };
+    if (!SHA.test(expectedSha ?? '')) return { allowed: false, state: 'HOLD', reason: 'binding-missing' };
+    let observed;
     try {
         const response = await fetchImpl(`${CANONICAL_PRODUCTION_ORIGIN}/`, {
             redirect: 'error', signal: AbortSignal.timeout(15_000),
@@ -94,11 +100,16 @@ export async function verifyServedRelease(expectedSha, fetchImpl = globalThis.fe
         if (!response.ok) throw new Error('unavailable');
         const html = await boundedBody(response);
         const markers = [...html.matchAll(/window\.__APP_RELEASE__\s*=/g)];
-        if (markers.length !== 1 || extractDeployedRelease(html) !== expectedSha) throw new Error('unbound');
-        return { allowed: true, state: 'SERVED', releaseSha: expectedSha };
+        if (markers.length !== 1) throw new Error('unbound');
+        observed = extractDeployedRelease(html);
+        if (!observed) throw new Error('unbound');
     } catch {
-        return { allowed: false, state: 'HOLD' };
+        return { allowed: false, state: 'HOLD', reason: 'production-unreadable' };
     }
+    if (observed !== expectedSha) {
+        return { allowed: false, state: 'HOLD', reason: 'served-mismatch', observedSha: observed };
+    }
+    return { allowed: true, state: 'SERVED', releaseSha: expectedSha };
 }
 
 export function inputFromEnvironment(env) {
@@ -124,7 +135,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         : command === 'served' ? await verifyServedRelease(process.env.EXPECTED_RELEASE_SHA)
             : { allowed: false, state: 'HOLD' };
     if (process.env.GITHUB_OUTPUT) {
-        appendFileSync(process.env.GITHUB_OUTPUT, `allowed=${result.allowed}\nrelease_sha=${result.releaseSha ?? ''}\n`);
+        appendFileSync(process.env.GITHUB_OUTPUT, `allowed=${result.allowed}\nrelease_sha=${result.releaseSha ?? ''}\n`
+            + `reason=${result.reason ?? ''}\nobserved_sha=${result.observedSha ?? ''}\n`);
     }
     console.log(JSON.stringify(result));
     // OFF is an explicit no-op, never qualification. HOLD must remain distinguishable from PASS.
