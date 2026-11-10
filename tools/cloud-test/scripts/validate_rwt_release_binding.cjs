@@ -9,6 +9,15 @@ const TEST_PINS=Object.freeze({
  'tests/live/helpers/rwtDocumentIdentity.ts':'25c00c2a7eccd00f0cd0fe2ab3705ba5730049d187c8902e2ddd638c681594f0',
  'tests/unit/rwtWatchdog1593.test.ts':'14fe0f998d9ef1f9b5c3bd7e8d26fc264c980687c7f7eeabf166efbd77fb2162',
  'tests/unit/rwtDocumentBinaryTransport.test.js':'e4722993a0e008cf6ead7fe1e092cdc50f3d8b75df0ff29066f35dd95d2bda80',
+ // AHT-01 on the original Playwright route (PO 2026-11-10): run-bound cleanup and harness-parity checks, test-only.
+ 'tests/live/helpers/runBinding.ts':'04fff3c3dad484fab25b8d3725ad28d896e8f832ace99e37dd6533ceeed6553d',
+ 'tests/live/helpers/runOwnedCleanup.ts':'f91d38925c442b35ef31468ad48254fe28f0e1b3ebdfd2247cda546f787ac1eb',
+ 'tests/live/helpers/rwtHarnessParity.ts':'87d02a48419863d682689f643b2eec2b2bc57257068bbd21a523716f9d459607',
+ 'tests/live/helpers/rwtJourney.ts':'47ca38dc19656233a07eed3152f38cc74e90c8cc12faa809f5fd13bff7c768f1',
+ 'tests/live/helpers/rwtWatchdog.ts':'94f8918412e98d8b1f6535a06c6ee96d24eda2f2da0b35a592816e3e607e7082',
+ 'tests/live/rwt-open-mic-first-session.live.spec.ts':'2ad1ba9a6dc4cf08e561e263bd9ab0b97dfc0c789734184cd056e4bdc409ee74',
+ 'tests/unit/rwtHarnessParity.test.ts':'d57f5b92de4dc8ab46ef21d7054719e34be2726d35a5954ca7901b1e0b1b5b3c',
+ 'tests/unit/rwtRunBoundCleanup.test.ts':'7a62a798a19e8d89e7db8bf02288595bf2ea73ec5ad5aecfcc21e73aea715eac',
 });
 // These two non-product inputs are part of this diagnostic integration itself.
 // Pin their exact reviewed postimages rather than treating every workflow or
