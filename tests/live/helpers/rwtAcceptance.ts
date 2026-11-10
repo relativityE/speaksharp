@@ -133,7 +133,7 @@ const EXTERNAL_SCOPES: Readonly<Record<string, ExternalScope>> = Object.freeze({
 
 /**
  * The parent's own recorded proof, mirroring `coachingParentVerdict`: the Edge 502 carried a provider 5xx (with its
- * integer status) or a provider timeout, from this take's unique exchange; the take was saved; the card settled on
+ * integer status) or a provider timeout with an observed upstream 5xx/429, from this take's unique exchange; the take was saved; the card settled on
  * `error` with the unavailable headline and an enabled Try again. Returns what is missing (empty = proved).
  */
 export function externalParentProofGaps(row: ReceiptRow): string[] {
@@ -146,6 +146,10 @@ export function externalParentProofGaps(row: ReceiptRow): string[] {
         if (typeof ps !== 'number' || !Number.isInteger(ps) || ps < 500 || ps > 599) gaps.push('providerStatus is not an integer 500–599');
     } else if (e.externalOutcome === 'provider_timeout') {
         if (e.failureReason !== 'provider_timeout') gaps.push('failureReason is not provider_timeout');
+        const ps = e.providerStatus;
+        if (typeof ps !== 'number' || !Number.isInteger(ps) || (ps !== 429 && (ps < 500 || ps > 599))) {
+            gaps.push('provider timeout lacks an observed integer upstream 5xx/429 status');
+        }
     } else {
         gaps.push('externalOutcome is not provider_5xx or provider_timeout');
     }
@@ -209,6 +213,9 @@ function externalScopeErrors(suite: string, rows: readonly ReceiptRow[]): string
 export const NON_GATING_ROWS: Readonly<Record<string, string>> = Object.freeze({
     'signup-stage telemetry received': 'PO 2026-09-28: pre-claim user-class traffic is report-only and never qualifies',
     'base_q4 primary': 'PO 2026-09-28: v4 base_q4 activation is sequenced after RWT; the pre-v4 RWT may pass without it',
+    // PO 2026-11-10 (AHT-01 decision 3): the synthetic fixture cannot establish a spoken "ah"; real speech needs a private
+    // recording set that does not exist yet. Exempt for now; a FAIL on this row still gates.
+    'filler "ah" vs corpus': 'PO 2026-11-10: the synthetic fixture cannot verify a spoken "ah"; exempt until a real-speech recording set exists',
 });
 const exempt = (r: ReceiptRow) => r.verdict === 'HOLD' && Object.prototype.hasOwnProperty.call(NON_GATING_ROWS, r.step);
 
