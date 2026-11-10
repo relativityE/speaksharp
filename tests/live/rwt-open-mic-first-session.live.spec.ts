@@ -40,6 +40,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
+import { HarnessParityTap, probeSaveIsolationRow } from './helpers/rwtHarnessParity';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { characterCeilingVerdict, fillerAdviceVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
@@ -181,6 +182,8 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: WEBGPU }) },
 });
 
+/** Harness parity: the catalog's AHT-01 minimum is 4 Starts (first take, two Practice-again entries, next Start); 2 presses of headroom. */
+const AHT01_START_PRESS_CAP = 6;
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
 
@@ -245,6 +248,9 @@ test.describe('RWT — Open Mic first session @live', () => {
         const generations = new CoachingGenerationTap();
         generations.attach(page);
         await installMicAcquisitionCounter(page);
+        // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this journey's context.
+        const parity = new HarnessParityTap();
+        await parity.attach(page.context());
         await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
         const coaching: { status: number | null; requests: number; reason: string | null; reasonRead: Promise<void> | null } = { status: null, requests: 0, reason: null, reasonRead: null };
         page.on('response', (response: Response) => {
@@ -387,6 +393,15 @@ test.describe('RWT — Open Mic first session @live', () => {
             });
             // Idempotent: capture also closes when a row above threw before the rows' own detach.
             tap.detachTransport();
+            // Harness parity rows (catalog AHT-01: no-cloud-stt, start-press-budget, probe-save-isolation, owned-pages-closed), before the
+            // account is deleted (the isolation read needs it). Budget: the catalog's AHT-01 minimum of 4 Starts plus 2 presses of headroom.
+            await steps.step('harness parity', async () => {
+                parity.noCloudSttRow(receipt);
+                parity.startPressRow(receipt, AHT01_START_PRESS_CAP);
+                if (admin) await probeSaveIsolationRow(receipt, admin as never, capturedUid, [persistedId, repeatSessionId]);
+                else receipt.row('probe saves isolated', 'HOLD', 'no server read is available in this run');
+                await parity.ownedPagesClosedRow(receipt);
+            });
             // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product policy
             // (user_issue_reports.user_id is SET NULL on account deletion), so retention is proven only after the account is
             // deleted (#1532 Codex P1 r4105978630).
