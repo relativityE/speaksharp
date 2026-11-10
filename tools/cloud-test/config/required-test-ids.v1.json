@@ -1,7 +1,7 @@
 {
   "schema": "speaksharp.cloud-test.required-test-ids.v1",
-  "sourceHead": "e8ac47071d14d8b65ba54170f721fb5f876e3c9f",
-  "sourceTree": "baa580e6143daa75e1ba096c29b88e1e363dca62",
+  "sourceHead": "d9d2b6a41e09b8890c28fe6f08f28b6cb66e04a8",
+  "sourceTree": "cc60818b943c8850395cc060bc0dd7f1532da844",
   "provenance": "mechanical inventory regeneration from unittest discovery of the current source for both suites (package-unit-tests and report-builder-tests); no test outcome is inferred",
   "ids": [
     "package-unit-tests::test_accounting_rollup.Rollup.test_a_bound_cannot_understate_or_substitute_the_usage_it_charges",
@@ -1119,6 +1119,8 @@
     "package-unit-tests::test_reservation_runtime_composed.Composed.test_a_forged_same_head_allocation_refuses",
     "package-unit-tests::test_reservation_runtime_composed.Composed.test_a_forged_same_head_event_refuses",
     "package-unit-tests::test_reservation_runtime_composed.Composed.test_a_forged_source_refuses",
+    "package-unit-tests::test_reservation_runtime_composed.Composed.test_a_harness_checkout_git_cannot_read_refuses_with_its_own_code_before_the_runner",
+    "package-unit-tests::test_reservation_runtime_composed.Composed.test_a_job_user_owned_harness_checkout_is_read_with_exact_path_trust_and_the_genuine_binding_starts",
     "package-unit-tests::test_reservation_runtime_composed.Composed.test_a_plan_whose_bytes_differ_from_the_retained_digest_never_reaches_either_check",
     "package-unit-tests::test_reservation_runtime_composed.Composed.test_a_reserve_changed_or_closed_after_check_plan_refuses_at_pre_start",
     "package-unit-tests::test_reservation_runtime_composed.Composed.test_a_swapped_snapshot_file_refuses",
@@ -1136,6 +1138,7 @@
     "package-unit-tests::test_run_stage_ownership.Quiescence.test_the_browser_uid_is_the_one_chrome_wrapper_setprivs_to",
     "package-unit-tests::test_run_stage_ownership.Quiescence.test_the_wait_is_bounded_and_returns_as_soon_as_the_stage_stops",
     "package-unit-tests::test_run_stage_ownership.RealRootAdmissionGit.test_root_git_without_sudo_uid_needs_exactly_this_trust_and_the_stage_provides_it",
+    "package-unit-tests::test_run_stage_ownership.RealRootAdmissionGit.test_root_reads_the_job_user_harness_checkout_through_the_runtime_check_without_system_trust",
     "package-unit-tests::test_run_stage_ownership.RecoverAsRoot.test_a_failed_return_is_reported",
     "package-unit-tests::test_run_stage_ownership.RecoverAsRoot.test_a_surviving_stage_process_blocks_the_return_and_nothing_changes",
     "package-unit-tests::test_run_stage_ownership.RecoverAsRoot.test_a_tree_the_stage_left_root_owned_is_returned_only_after_quiescence",
