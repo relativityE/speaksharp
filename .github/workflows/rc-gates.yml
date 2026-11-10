@@ -360,6 +360,8 @@ jobs:
           RWT_CANARY_CLAIM_ACK: ${{ github.event.inputs.rwt_canary_claim_ack }}
           RWT_HUMAN_REFLEX_MS: ${{ github.event.inputs.rwt_human_reflex_ms }}
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
+          # Run-scoped interrupted-run recovery reads GitHub's record of the run it cleans up (workflow token: contents/actions read).
+          RECOVERY_RUN_PROVENANCE_TOKEN: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/interrupted-run-recovery.live.spec.ts' && github.token || '' }}
         run: |
           echo "DIAGNOSTIC_SINGLE_SPEC=true"
           echo "::warning::DIAGNOSTIC single-spec run — NOT a full Gate 3 pass. Release gate stays FAIL until a full Gate 3 run (no diagnostic input) passes."

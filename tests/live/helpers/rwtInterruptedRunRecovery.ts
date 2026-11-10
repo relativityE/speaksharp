@@ -179,7 +179,30 @@ export async function listAuthUsersBounded(admin: AdminLike, perPage = 200, maxP
 }
 
 export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED'
-    | 'RUN_ACCOUNT_ABSENT' | 'HOLD_RUN_NOT_ELIGIBLE';
+    | 'HOLD_RUN_PROVENANCE_MISSING' | 'HOLD_RUN_ABSENT_RESIDUE_UNVERIFIED' | 'HOLD_RUN_NOT_ELIGIBLE';
+
+/** The interrupted run's own window, from GitHub's record of that run: the only evidence that binds an account to it. */
+export interface RunProvenance { startMs: number; endMs: number }
+export const RECOVERY_RUN_WORKFLOW_PATH = '.github/workflows/rc-gates.yml';
+export const RECOVERY_REPOSITORY = 'relativityE/speaksharp';
+/** gate-3-dast's job timeout plus a margin: a longer window cannot be one gate-3 journey run. */
+export const MAX_RUN_WINDOW_MS = GATE3_JOB_TIMEOUT_MS + 15 * 60_000;
+
+/**
+ * Pure: the window of `runId` from GitHub's run record (GET /repos/{repo}/actions/runs/{id}), or null unless it is exactly
+ * that run, of rc-gates in this repository, dispatched, completed, first attempt, with a bounded, well-formed window.
+ */
+export function runProvenanceFrom(run: unknown, runId: string): RunProvenance | null {
+    if (!run || typeof run !== 'object' || !RUN_ID_RE.test(runId)) return null;
+    const r = run as Record<string, unknown>;
+    const repo = (r.repository as { full_name?: unknown } | undefined)?.full_name;
+    if (String(r.id) !== runId || r.path !== RECOVERY_RUN_WORKFLOW_PATH || repo !== RECOVERY_REPOSITORY) return null;
+    if (r.event !== 'workflow_dispatch' || r.status !== 'completed' || r.run_attempt !== 1) return null;
+    const startMs = typeof r.run_started_at === 'string' ? Date.parse(r.run_started_at) : Number.NaN;
+    const endMs = typeof r.updated_at === 'string' ? Date.parse(r.updated_at) : Number.NaN;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs || endMs - startMs > MAX_RUN_WINDOW_MS) return null;
+    return { startMs, endMs };
+}
 export interface RecoveryReport extends SelectionCounts {
     status: RecoveryStatus; deleted: number; minAgeMinutes: number; runScope?: string; runMatched?: number; failureReason?: string;
 }
@@ -199,8 +222,8 @@ export function cleanupFailureReason(error: unknown): string {
  * the explicit run-owned domain or the legacy fallback domain. Eligible only when there is exactly one such account and it is
  * well-formed, old enough and unambiguous across the whole listing; anything else is reported and never deleted.
  */
-export function selectRunScopedAccount(users: readonly AuthUserLike[], nowMs: number, runId: string, domain: string | null, minAgeMs: number = MIN_AGE_MS):
-    { eligible: RecoveryCandidate[]; counts: SelectionCounts; matched: number } {
+export function selectRunScopedAccount(users: readonly AuthUserLike[], nowMs: number, runId: string, domain: string | null,
+    provenance: RunProvenance, minAgeMs: number = MIN_AGE_MS): { eligible: RecoveryCandidate[]; counts: SelectionCounts; matched: number } {
     const counts: SelectionCounts = { scanned: users.length, nonOwned: 0, ownershipUnproven: 0, legacyUnqualified: 0, runOwned: 0, fresh: 0, malformed: 0, ambiguous: 0, eligible: 0 };
     if (!RUN_ID_RE.test(runId)) return { eligible: [], counts, matched: 0 };
     const keyCount = (values: string[]) => values.reduce((m, v) => m.set(v, (m.get(v) ?? 0) + 1), new Map<string, number>());
@@ -223,6 +246,10 @@ export function selectRunScopedAccount(users: readonly AuthUserLike[], nowMs: nu
         const created = typeof user.created_at === 'string' ? Date.parse(user.created_at) : Number.NaN;
         if (!UUID_RE.test(id) || !Number.isFinite(created) || created > nowMs) { counts.malformed += 1; continue; }
         if (nowMs - created < minAgeMs) { counts.fresh += 1; continue; }
+        // Provenance: the account was created, and its address minted (the <ms> the generator stamps), inside that run's window.
+        const minted = Number(/-(\d{13})-\d+@/.exec(email)?.[1] ?? Number.NaN);
+        const inside = (t: number) => t >= provenance.startMs && t <= provenance.endMs;
+        if (!inside(created) || !inside(minted)) { counts.ownershipUnproven += 1; continue; }
         if ((idCounts.get(id.toLowerCase()) ?? 0) > 1 || (emailCounts.get(email) ?? 0) > 1 || matches.length > 1) { counts.ambiguous += 1; continue; }
         eligible.push({ id, email, prefix });
     }
@@ -238,7 +265,7 @@ type Cleanup = typeof cleanupRunOwnedAccount;
  */
 export async function recoverInterruptedRuns(params: {
     admin: AdminLike; nowMs: number; ack: string; sha: string; domain: string | null;
-    cleanup?: Cleanup; minAgeMs?: number; perPage?: number; maxPages?: number; runId?: string | null;
+    cleanup?: Cleanup; minAgeMs?: number; perPage?: number; maxPages?: number; runId?: string | null; runProvenance?: RunProvenance | null;
 }): Promise<RecoveryReport> {
     const minAgeMs = params.minAgeMs ?? MIN_AGE_MS;
     const report = (status: RecoveryStatus, counts: SelectionCounts, deleted = 0): RecoveryReport =>
@@ -268,15 +295,20 @@ export async function recoverInterruptedRuns(params: {
 /** Run-scoped recovery: report, and delete only the ONE verified account of `runId` under its run-scoped ack bound to `sha`. */
 async function recoverOneRun(params: {
     admin: AdminLike; nowMs: number; ack: string; sha: string; domain: string | null; runId: string;
-    cleanup?: Cleanup; minAgeMs: number; perPage?: number; maxPages?: number;
+    cleanup?: Cleanup; minAgeMs: number; perPage?: number; maxPages?: number; runProvenance?: RunProvenance | null;
 }): Promise<RecoveryReport> {
     const scoped = (status: RecoveryStatus, counts: SelectionCounts, matched: number, deleted = 0, failureReason?: string): RecoveryReport =>
         ({ status, deleted, minAgeMinutes: Math.round(params.minAgeMs / 60_000), ...counts, runScope: params.runId, runMatched: matched,
             ...(failureReason ? { failureReason } : {}) });
+    const empty: SelectionCounts = { scanned: 0, nonOwned: 0, ownershipUnproven: 0, legacyUnqualified: 0, runOwned: 0, fresh: 0, malformed: 0, ambiguous: 0, eligible: 0 };
+    // No trusted run record, no selection: nothing is listed, nothing deleted.
+    if (!params.runProvenance) return scoped('HOLD_RUN_PROVENANCE_MISSING', empty, 0);
     const { users, complete } = await listAuthUsersBounded(params.admin, params.perPage, params.maxPages);
-    const { eligible, counts, matched } = selectRunScopedAccount(users, params.nowMs, params.runId, params.domain, params.minAgeMs);
+    const { eligible, counts, matched } = selectRunScopedAccount(users, params.nowMs, params.runId, params.domain, params.runProvenance, params.minAgeMs);
     if (!complete) return scoped('HOLD_INCOMPLETE_LISTING', counts, matched);
-    if (matched === 0) return scoped('RUN_ACCOUNT_ABSENT', counts, matched);
+    // The run's account is not in Auth. Its UID is not recoverable from the content-free receipt, so the UID-keyed residue
+    // readbacks cannot run: residue is UNVERIFIED, never zero.
+    if (matched === 0) return scoped('HOLD_RUN_ABSENT_RESIDUE_UNVERIFIED', counts, matched);
     if (eligible.length !== 1) return scoped('HOLD_RUN_NOT_ELIGIBLE', counts, matched);
     if (!SHA_RE.test(params.sha) || params.ack !== runScopedDeleteAck(params.sha, params.runId)) return scoped('HOLD_NO_ACK', counts, matched);
     const cleanup = params.cleanup ?? cleanupRunOwnedAccount;

@@ -11,7 +11,8 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
     MIN_AGE_MS, PROTECTED_DEFAULT_BRANCH, RECOVERY_DELETE_ACK_PREFIX, RECOVERY_DETECT_PREFIX, RWT_JOURNEY_LABELS, deletionDomain, listAuthUsersBounded, ownedPrefixOf, recoverInterruptedRuns,
-    recoveryAuthority, recoveryDeleteAck, recoveryReportLine, runOwnedDomain, runScopedDeleteAck, runScopedDetect, selectInterruptedRunAccounts, selectRunScopedAccount, cleanupFailureReason,
+    recoveryAuthority, recoveryDeleteAck, recoveryReportLine, runOwnedDomain, runScopedDeleteAck, runScopedDetect, selectInterruptedRunAccounts, selectRunScopedAccount, cleanupFailureReason, runProvenanceFrom,
+    MAX_RUN_WINDOW_MS, type RunProvenance,
     type AdminLike, type AuthUserLike,
 } from '../live/helpers/rwtInterruptedRunRecovery';
 
@@ -325,89 +326,142 @@ describe('recovery', () => {
     });
 });
 
-describe('run-scoped recovery: ONE interrupted run\'s account, PO-approved per run', () => {
+describe('run-scoped recovery: ONE interrupted run\'s account, bound to GitHub\'s record of that run', () => {
     const RUN = '42796353079';
-    const mine = (domain = 'example.com') => `rwt-journey-open-mic-1794304007000-${RUN}@${domain}`;
+    const START = NOW - 3 * 60 * 60_000;                       // the run: 3 h ago, 8 min long (older than the 75-min floor)
+    const END = START + 8 * 60_000;
+    const PROV: RunProvenance = { startMs: START, endMs: END };
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const mintedAt = START + 90_000;
+    const mine = (domain = 'example.com', ms = mintedAt, run = RUN, label = 'open-mic') => `rwt-journey-${label}-${ms}-${run}@${domain}`;
+    const created = iso(START + 95_000);
     const base = { ref: 'refs/heads/main', sha: SHA, head: SHA, defaultBranch: 'main', ack: '', attempt: '1' };
+    const DEL = runScopedDeleteAck(SHA, RUN);
     const others = () => [user(1, journey(1), old), user(2, journey(2, 'open-mic', 'example.com'), old), user(3, proof('private-proof-', 3), old)];
+    const scoped = (p: Partial<Parameters<typeof recoverInterruptedRuns>[0]> & { admin: AdminLike }) => recover({ ack: DEL, runId: RUN, runProvenance: PROV, ...p });
+    const record = (over: Record<string, unknown> = {}) => ({ id: Number(RUN), path: '.github/workflows/rc-gates.yml', event: 'workflow_dispatch', status: 'completed',
+        run_attempt: 1, run_started_at: iso(START), updated_at: iso(END), repository: { full_name: 'relativityE/speaksharp' }, ...over });
 
     it('authority: the run-scoped delete value is bound to this sha; the detect value never deletes; malformed scopes refuse', () => {
-        expect(recoveryAuthority({ ...base, ack: runScopedDeleteAck(SHA, RUN) })).toEqual({ ok: true, deleteAuthorized: true, runId: RUN });
+        expect(recoveryAuthority({ ...base, ack: DEL })).toEqual({ ok: true, deleteAuthorized: true, runId: RUN });
         expect(recoveryAuthority({ ...base, ack: runScopedDetect(RUN) })).toEqual({ ok: true, deleteAuthorized: false, runId: RUN });
         expect(recoveryAuthority({ ...base, ack: runScopedDeleteAck(OTHER_SHA, RUN) })).toEqual({ ok: false, reason: 'delete_ack_not_bound_to_this_sha' });
         for (const ack of [`${ACK}/run/`, `${ACK}/run/0${RUN}`, `${ACK}/run/${RUN}x`, `${ACK}/run/${RUN} `, `${ACK}/run/1/run/2`, `${RECOVERY_DETECT_PREFIX}`,
             `${RECOVERY_DETECT_PREFIX}/run/`, `${RECOVERY_DETECT_PREFIX}/run/abc`, `${RECOVERY_DETECT_PREFIX}@${SHA}/run/${RUN}`]) {
             expect({ ack, ok: recoveryAuthority({ ...base, ack }).ok }).toEqual({ ack, ok: false });
         }
-        // every other gate still applies before the scope is read
-        expect(recoveryAuthority({ ...base, ack: runScopedDeleteAck(SHA, RUN), attempt: '2' })).toEqual({ ok: false, reason: 'workflow_rerun_attempt_refused' });
-        expect(recoveryAuthority({ ...base, ack: runScopedDeleteAck(SHA, RUN), ref: 'refs/heads/feature' })).toEqual({ ok: false, reason: 'not_default_branch' });
+        expect(recoveryAuthority({ ...base, ack: DEL, attempt: '2' })).toEqual({ ok: false, reason: 'workflow_rerun_attempt_refused' });
+        expect(recoveryAuthority({ ...base, ack: DEL, ref: 'refs/heads/feature' })).toEqual({ ok: false, reason: 'not_default_branch' });
     });
 
-    it('selection takes ONLY the full grammar for exactly this run id, at the explicit domain or the example.com fallback', () => {
-        const users = [...others(), user(9, mine(), old), user(10, `rwt-journey-open-mic-1794304007000-1${RUN}@example.com`, old),
-            user(11, `rwt-journey-alice-${RUN}@example.com`, old), user(12, `rwt-journey-open-mic-1794304007000-${RUN}@evil.example`, old)];
-        const { eligible, matched, counts } = selectRunScopedAccount(users, NOW, RUN, D);
+    it('provenance is exactly that run of rc-gates here: dispatched, completed, first attempt, bounded window; anything else is null', () => {
+        expect(runProvenanceFrom(record(), RUN)).toEqual(PROV);
+        const bad: [string, unknown][] = [
+            ['another run', record({ id: 42796353078 })], ['another workflow', record({ path: '.github/workflows/cloud-test-live.yml' })],
+            ['another repository', record({ repository: { full_name: 'someone/speaksharp' } })], ['a push', record({ event: 'push' })],
+            ['still running', record({ status: 'in_progress' })], ['a re-run', record({ run_attempt: 2 })], ['no start', record({ run_started_at: null })],
+            ['end before start', record({ updated_at: iso(START - 1) })], ['too long', record({ updated_at: iso(START + MAX_RUN_WINDOW_MS + 1) })],
+            ['missing record', null], ['not an object', 'x'],
+        ];
+        for (const [name, rec] of bad) expect({ name, p: runProvenanceFrom(rec, RUN) }).toEqual({ name, p: null });
+        expect(runProvenanceFrom(record(), 'abc')).toBeNull();
+    });
+
+    it('selection takes ONLY this run\'s full grammar, created and minted inside its window, at the explicit domain or example.com', () => {
+        const users = [...others(), user(9, mine(), created), user(10, mine('example.com', mintedAt, `1${RUN}`), created),
+            user(11, `rwt-journey-alice-${RUN}@example.com`, created), user(12, mine('evil.example'), created)];
+        const { eligible, matched, counts } = selectRunScopedAccount(users, NOW, RUN, D, PROV);
         expect(eligible.map((e) => e.id)).toEqual([uuid(9)]);
         expect([matched, counts.ownershipUnproven]).toEqual([1, 2]);
-        expect(selectRunScopedAccount(users, NOW, RUN, null).eligible.map((e) => e.id)).toEqual([uuid(9)]);
-        expect(selectRunScopedAccount([user(9, mine(D), old)], NOW, RUN, D).eligible.map((e) => e.id)).toEqual([uuid(9)]);
+        expect(selectRunScopedAccount(users, NOW, RUN, null, PROV).eligible.map((e) => e.id)).toEqual([uuid(9)]);
+        expect(selectRunScopedAccount([user(9, mine(D), created)], NOW, RUN, D, PROV).eligible.map((e) => e.id)).toEqual([uuid(9)]);
     });
 
-    it('detect reports the one match and deletes nothing; the scoped ack deletes exactly that account; other accounts are untouched', async () => {
-        const detect = fakeAdmin([...others(), user(9, mine(), old)]);
-        const seen = await recover({ admin: detect.admin, cleanup: detect.cleanup, ack: '', runId: RUN });
+    it('CASUALTY: an account created, or an address minted, outside the run\'s window is not that run\'s account', () => {
+        for (const [name, u] of [['created before', user(9, mine(), iso(START - 1))], ['created after', user(9, mine(), iso(END + 1))],
+            ['minted before', user(9, mine('example.com', START - 1), created)], ['minted after', user(9, mine('example.com', END + 1), created)]] as const) {
+            const r = selectRunScopedAccount([u], NOW, RUN, D, PROV);
+            expect({ name, eligible: r.eligible.length, unproven: r.counts.ownershipUnproven }).toEqual({ name, eligible: 0, unproven: 1 });
+        }
+    });
+
+    it('detect reports the one match and deletes nothing; the scoped ack deletes exactly that account; others are untouched', async () => {
+        const detect = fakeAdmin([...others(), user(9, mine(), created)]);
+        const seen = await scoped({ admin: detect.admin, cleanup: detect.cleanup, ack: '' });
         expect([seen.status, seen.runMatched, seen.deleted, detect.cleanup.mock.calls.length]).toEqual(['HOLD_NO_ACK', 1, 0, 0]);
-        const real = fakeAdmin([...others(), user(9, mine(), old)]);
-        const done = await recover({ admin: real.admin, cleanup: real.cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN });
-        expect([done.status, done.deleted, real.cleanup.mock.calls.map(([p]) => [p.capturedUid, p.runOwnedPrefix])]).toEqual(['RECOVERED', 1, [[uuid(9), 'rwt-journey-']]]);
-        const again = await recover({ admin: real.admin, cleanup: real.cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN });
-        expect([again.status, again.runMatched, real.cleanup.mock.calls.length]).toEqual(['RUN_ACCOUNT_ABSENT', 0, 1]);
+        const real = fakeAdmin([...others(), user(9, mine(), created)]);
+        const done = await scoped({ admin: real.admin, cleanup: real.cleanup });
+        expect([done.status, done.deleted, real.cleanup.mock.calls.map(([p]) => [p.capturedUid, p.createdEmail, p.runOwnedPrefix])])
+            .toEqual(['RECOVERED', 1, [[uuid(9), mine(), 'rwt-journey-']]]);
     });
 
-    it('CASUALTY: the UNSCOPED ack never deletes the example.com account; a scoped run with the unscoped ack does not delete either', async () => {
-        const a = fakeAdmin([user(9, mine(), old)]);
+    it('CASUALTY: an absent account is residue UNVERIFIED (its UID is not recoverable), never clean, and nothing is deleted', async () => {
+        const { admin, cleanup } = fakeAdmin(others());
+        const r = await scoped({ admin, cleanup });
+        expect([r.status, r.runMatched, r.deleted, cleanup.mock.calls.length]).toEqual(['HOLD_RUN_ABSENT_RESIDUE_UNVERIFIED', 0, 0, 0]);
+        expect(recoveryReportLine(r)).toMatch(/status=HOLD_RUN_ABSENT_RESIDUE_UNVERIFIED /);
+    });
+
+    it('CASUALTY: no trusted run record means no listing and no deletion', async () => {
+        const { admin, cleanup, listUsers } = fakeAdmin([user(9, mine(), created)]);
+        const r = await scoped({ admin, cleanup, runProvenance: null });
+        expect([r.status, listUsers.mock.calls.length, cleanup.mock.calls.length]).toEqual(['HOLD_RUN_PROVENANCE_MISSING', 0, 0]);
+    });
+
+    it('CASUALTY: the UNSCOPED ack never deletes the example.com account; a scoped run under the unscoped ack deletes nothing', async () => {
+        const a = fakeAdmin([user(9, mine(), created)]);
         const unscoped = await recover({ admin: a.admin, cleanup: a.cleanup, ack: ACK });
         expect([unscoped.status, a.cleanup.mock.calls.length]).toEqual(['NOTHING_TO_RECOVER', 0]);
-        const b = fakeAdmin([user(9, mine(), old)]);
-        const mismatched = await recover({ admin: b.admin, cleanup: b.cleanup, ack: ACK, runId: RUN });
+        const b = fakeAdmin([user(9, mine(), created)]);
+        const mismatched = await scoped({ admin: b.admin, cleanup: b.cleanup, ack: ACK });
         expect([mismatched.status, b.cleanup.mock.calls.length]).toEqual(['HOLD_NO_ACK', 0]);
+        const c = fakeAdmin([user(9, mine(), created)]);
+        const otherRun = await scoped({ admin: c.admin, cleanup: c.cleanup, ack: runScopedDeleteAck(SHA, '42796353078') });
+        expect([otherRun.status, c.cleanup.mock.calls.length]).toEqual(['HOLD_NO_ACK', 0]);
     });
 
     it('CASUALTY: two matches, a fresh, malformed or duplicated match, or an incomplete listing deletes nothing', async () => {
-        const cases: [string, AuthUserLike[], string][] = [
-            ['two accounts for one run', [user(9, mine(), old), user(10, `rwt-journey-focus-points-1794304007001-${RUN}@example.com`, old)], 'HOLD_RUN_NOT_ELIGIBLE'],
-            ['fresh', [user(9, mine(), fresh)], 'HOLD_RUN_NOT_ELIGIBLE'],
-            ['malformed id', [{ id: 'nope', email: mine(), created_at: old }], 'HOLD_RUN_NOT_ELIGIBLE'],
-            ['duplicate id elsewhere', [user(9, mine(), old), user(9, journey(4), fresh)], 'HOLD_RUN_NOT_ELIGIBLE'],
+        const cases: [string, AuthUserLike[]][] = [
+            ['two accounts for one run', [user(9, mine(), created), user(10, mine('example.com', mintedAt + 1, RUN, 'focus-points'), created)]],
+            ['fresh', [user(9, mine('example.com', NOW - 60_000), iso(NOW - 60_000))]],
+            ['malformed id', [{ id: 'nope', email: mine(), created_at: created }]],
+            ['malformed created_at', [{ id: uuid(9), email: mine(), created_at: 'yesterday' }]],
+            ['duplicate id elsewhere', [user(9, mine(), created), user(9, journey(4), fresh)]],
+            ['duplicate email elsewhere', [user(9, mine(), created), user(10, mine(), fresh)]],
         ];
-        for (const [name, users, status] of cases) {
+        for (const [name, users] of cases) {
             const { admin, cleanup } = fakeAdmin(users);
-            const r = await recover({ admin, cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN });
-            expect({ name, s: r.status, calls: cleanup.mock.calls.length }).toEqual({ name, s: status, calls: 0 });
+            const r = await scoped({ admin, cleanup, ...(name === 'fresh' ? { runProvenance: { startMs: NOW - 120_000, endMs: NOW } } : {}) });
+            expect({ name, s: r.status, calls: cleanup.mock.calls.length }).toEqual({ name, s: 'HOLD_RUN_NOT_ELIGIBLE', calls: 0 });
         }
-        const full = fakeAdmin([user(9, mine(), old), ...others()], 2);
-        const r = await recover({ admin: full.admin, cleanup: full.cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN, perPage: 2, maxPages: 1 });
+        const full = fakeAdmin([user(9, mine(), created), ...others()], 2);
+        const r = await scoped({ admin: full.admin, cleanup: full.cleanup, perPage: 2, maxPages: 1 });
         expect([r.status, full.cleanup.mock.calls.length]).toEqual(['HOLD_INCOMPLETE_LISTING', 0]);
     });
 
-    it('a failed cleanup proof is FAILED (fail closed); the report line stays content-safe and names the scope', async () => {
-        const { admin } = fakeAdmin([user(9, mine(), old)]);
-        const cleanup = vi.fn().mockRejectedValueOnce(new Error('cleanup trial_entitlements pre-delete failed (fail closed): permission denied for x@y.z'));
-        const r = await recover({ admin, cleanup, ack: runScopedDeleteAck(SHA, RUN), runId: RUN });
-        expect([r.status, r.deleted]).toEqual(['FAILED', 0]);
-        const line = recoveryReportLine(r);
-        expect(line).toMatch(new RegExp(`^RWT_INTERRUPTED_RUN_RECOVERY status=FAILED .* run_scope=${RUN} run_matched=1 failure_reason=cleanup_trial_entitlements_pre-delete_failed_\\(fail_closed\\)$`));
-        expect(line).not.toMatch(/@|[0-9a-f]{8}-[0-9a-f]{4}-/i);
+    it('a blocked or unproven cleanup (failed or null residue count) is FAILED with a content-safe reason; it is attempted once', async () => {
+        for (const message of ['cleanup residue count on sessions was not a counted integer — residue UNPROVEN (fail closed)',
+            'cleanup found run-owned residue in sessions (fail closed): count=2', 'cleanup deleteUser failed (fail closed): x@y.z denied']) {
+            const { admin } = fakeAdmin([user(9, mine(), created)]);
+            const cleanup = vi.fn().mockRejectedValue(new Error(message));
+            const r = await scoped({ admin, cleanup });
+            expect([r.status, r.deleted, cleanup.mock.calls.length]).toEqual(['FAILED', 0, 1]);
+            const line = recoveryReportLine(r);
+            expect(line).toMatch(new RegExp(`^RWT_INTERRUPTED_RUN_RECOVERY status=FAILED .* run_scope=${RUN} run_matched=1 failure_reason=cleanup_[a-z_]`));
+            expect(line).not.toMatch(/@|[0-9a-f]{8}-[0-9a-f]{4}-/i);
+        }
         expect(cleanupFailureReason(new Error(`cleanup ${uuid(1)} failed`))).toBe('unknown');
         expect(cleanupFailureReason(new Error('a@b.c leaked'))).toBe('unknown');
         expect(cleanupFailureReason(null)).toBe('unknown');
     });
 
-    it('the spec passes the authorized run scope; the workflow guard accepts only the scoped form bound to this sha', () => {
+    it('the spec reads GitHub\'s run record with a read-only token given only to this spec, and passes scope + provenance', () => {
         const spec = readFileSync(resolve(__dirname, '../live/interrupted-run-recovery.live.spec.ts'), 'utf8');
-        expect(spec).toContain('runId: authority.runId ?? null,');
+        expect(spec).toContain('runId: authority.runId ?? null, runProvenance,');
+        expect(spec).toContain('runProvenanceFrom(await readRunRecord(authority.runId), authority.runId)');
         const wf = readFileSync(resolve(__dirname, '../../.github/workflows/rc-gates.yml'), 'utf8');
         expect(wf).toContain('grep -Eqx "RWT-INTERRUPTED-RUN-RECOVERY-DELETE@$GITHUB_SHA/run/[1-9][0-9]{0,19}"');
+        expect(wf).toContain("RECOVERY_RUN_PROVENANCE_TOKEN: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/interrupted-run-recovery.live.spec.ts' && github.token || '' }}");
+        expect(wf).toMatch(/^permissions:\n {2}contents: read\n(?: {2}#.*\n)* {2}actions: read\n\njobs:/m);
     });
 });
