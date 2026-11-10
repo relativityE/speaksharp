@@ -119,10 +119,13 @@ const BILLING=Object.freeze({name:'20261027192550_account_completion_billing_set
 const baseTuplesSha256 = '601403209858cc31dba0f9125b1feebd535827d7e4bed469e2458e6ff7cda2b0';
 const drain = '20261016180000_account_closure_drain_enforcement.sql';
 const recovery = '20261017200000_checkout_rejection_recovery.sql';
-const physical = readdirSync(join(root, 'backend/supabase/migrations')).filter(name => name.endsWith('.sql')).sort().map(name => ({
+const WITHHELD=Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
+  sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04'});
+const repositoryPhysical = readdirSync(join(root, 'backend/supabase/migrations')).filter(name => name.endsWith('.sql')).sort().map(name => ({
   name, version: name.match(/^(\d{8}|\d{14})_.+\.sql$/)?.[1] ?? null,
   sha256: hash(readFileSync(join(root, 'backend/supabase/migrations', name))),
 }));
+const physical=repositoryPhysical.filter(row=>row.name!==WITHHELD.name);
 const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name, RETENTION.name, BILLING.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
@@ -130,6 +133,41 @@ const fullReceiving=[...analyticsReceiving,...ACCOUNT].sort((a,b)=>a.name.locale
 const fenceReceiving=[...fullReceiving,FENCE].sort((a,b)=>a.name.localeCompare(b.name,'en'));
 const retentionReceiving=[...fenceReceiving,RETENTION].sort((a,b)=>a.name.localeCompare(b.name,'en'));
 const billingReceiving=[...retentionReceiving,BILLING].sort((a,b)=>a.name.localeCompare(b.name,'en'));
+test('reviewed withheld retirement is repository inventory, never historical replay authority',()=>{
+  assert.deepEqual(repositoryPhysical.find(row=>row.name===WITHHELD.name),WITHHELD);
+  for(const [profile,rows] of [['main-120',main],['main-u1-121',receiving],['main-analytics-u1-122',analyticsReceiving],
+    ['main-t2-account-126',fullReceiving],['main-t2-fence-127',fenceReceiving],['main-t2-retention-128',retentionReceiving],
+    ['main-completion-billing-129',billingReceiving]]) {
+    const prior=buildMainU1ReplayPlan(rows,profile),withheld=buildMainU1ReplayPlan([...rows,WITHHELD],profile);
+    assert.deepEqual(withheld.stages,prior.stages);
+    assert.deepEqual(withheld.replayFiles,prior.replayFiles);
+    assert.equal(withheld.migrations,prior.migrations);
+    assert.equal(withheld.repositoryMigrations,prior.migrations+1);
+    assert.deepEqual(withheld.withheld,[{...WITHHELD,status:'NOT REPLAYED'}]);
+    assert.ok(withheld.stages.every(stage=>!stage.versions.includes(WITHHELD.version)));
+    assert.ok(!withheld.replayFiles.includes(WITHHELD.name));
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,{...WITHHELD,sha256:'0'.repeat(64)}],profile),/withheld migration digest changed/);
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,WITHHELD,WITHHELD],profile),/duplicate migration name/);
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,WITHHELD,{...WITHHELD,name:WITHHELD.version+'_alias.sql'}],profile),/duplicate migration version/);
+    assert.throws(()=>buildMainU1ReplayPlan([...rows,{...WITHHELD,name:WITHHELD.version+'_alias.sql'}],profile),/unreviewed migration/);
+  }
+  // Adding the exact withheld pin does not let an old profile accept later applied members.
+  assert.throws(()=>buildMainU1ReplayPlan(repositoryPhysical,'main-t2-retention-128'),/unreviewed migration/);
+  const plan=buildMainU1ReplayPlan(repositoryPhysical,'main-completion-billing-129');
+  assert.equal(plan.migrations,129);assert.equal(plan.repositoryMigrations,130);
+});
+test('runtime stages only replay members and checks withheld ledger/catalog absence',()=>{
+  const driver=read('tests/db/account-closure-full-chain.mjs');
+  assert.ok(driver.includes('for (const file of plan.replayFiles.filter('));
+  assert.ok(driver.includes("'withheld migration was staged'"));
+  assert.ok(driver.includes("'historical final ledger differs from replay profile'"));
+  assert.ok(driver.includes("'withheld retirement catalog must remain absent'"));
+  assert.ok(driver.includes('repositoryMigrations:plan.repositoryMigrations,withheld:plan.withheld'));
+  const workflow=read('.github/workflows/account-closure-full-chain-proof.yml');
+  assert.ok(workflow.includes('node tests/db/account-coaching-local-fence.realpg.mjs'));
+  assert.ok(workflow.includes('artifacts/account-coaching-local-fence/receipts.json'));
+  assert.ok(workflow.includes('[ "$actual_head" = "$PROOF_HEAD_SHA" ]'));
+});
 const versionsWithout = names => receiving.filter(row => row.version !== null && !names.includes(row.name)).map(row => row.version);
 
 test('frozen independent main identity and exact physical source count', () => {
