@@ -1,5 +1,6 @@
 // Real Supabase-local schema proof in an isolated GitHub runner. No remote link,
-// production credentials, provider call, baseline shim or skipped versioned migration.
+// production credentials, provider call, baseline shim or silently skipped migration.
+// Exact reviewed-withheld inventory is reported separately and never replayed here.
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -23,7 +24,7 @@ export function observeC1ReleaseCatalog({ sql, root, stage, retain }) {
   assert.ok([127, 128].includes(stage), 'unreviewed C1 release observation');
   const receipt = { stage, status: 'INCOMPLETE', negatives: [],
     scope: 'separate disposable native post-C1 release verification; no Production/apply/activation proof' };
-  const save = () => retain(structuredClone(receipt));
+  const save = () => retain(globalThis.structuredClone(receipt));
   let contract;
   try {
   contract = t2ReleaseContract(root, sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`),
@@ -810,6 +811,12 @@ function selectedAdditions(profile) {
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
 const MAIN_RECOVERY = '20261017200000_checkout_rejection_recovery.sql';
+// Reviewed repository presence only. These bytes are NOT part of any historical
+// replay/catalog profile and must never enter its staged directory or ledger.
+export const REVIEWED_WITHHELD_MIGRATIONS=Object.freeze([
+  Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
+    sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04'}),
+]);
 
 export function parseMainProofArguments(args) {
   assert.ok(Array.isArray(args), 'proof arguments must be an array');
@@ -834,16 +841,21 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
     return { name: row.name, version, sha256: row.sha256 };
   }).sort((a, b) => a.name.localeCompare(b.name, 'en'));
   assert.equal(new Set(actual.map(row => row.name)).size, actual.length, 'duplicate migration name');
-  const versioned = actual.filter(row => row.version !== null);
-  assert.equal(new Set(versioned.map(row => row.version)).size, versioned.length, 'duplicate migration version');
+  const repositoryVersioned = actual.filter(row => row.version !== null);
+  assert.equal(new Set(repositoryVersioned.map(row => row.version)).size, repositoryVersioned.length, 'duplicate migration version');
+  const withheld=actual.filter(row=>REVIEWED_WITHHELD_MIGRATIONS.some(pin=>pin.name===row.name));
+  for(const row of withheld) assert.equal(row.sha256,REVIEWED_WITHHELD_MIGRATIONS.find(pin=>pin.name===row.name).sha256,
+    'reviewed withheld migration digest changed: '+row.name);
+  const replay=actual.filter(row=>!withheld.some(pin=>pin.name===row.name));
+  const versioned=replay.filter(row=>row.version!==null);
   const additions=selectedAdditions(profile);
   const expected = [...MAIN_MIGRATION_SNAPSHOT,...additions];
   const byName = new Map(expected.map(row => [row.name, row]));
-  for (const row of actual) {
+  for (const row of replay) {
     assert.ok(byName.has(row.name), 'unreviewed migration requires an explicit updated baseline: ' + row.name);
     assert.equal(row.sha256, byName.get(row.name).sha256, 'reviewed migration digest changed: ' + row.name);
   }
-  for (const row of expected) assert.ok(actual.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
+  for (const row of expected) assert.ok(replay.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
   const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name];
   const stages = [
@@ -853,6 +865,8 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
     ...additions.map((row,index)=>({name:row.stage,versions:history(additions.slice(index+1).map(item=>item.name))})),
   ];
   return { mode: 'PLAN_ONLY', profile, migrations: versioned.length,
+    repositoryMigrations:repositoryVersioned.length,replayFiles:replay.map(row=>row.name),
+    withheld:withheld.map(row=>({...row,status:'NOT REPLAYED'})),
     unversioned: actual.filter(row => row.version === null), stages, executed: false };
 }
 
@@ -871,9 +885,8 @@ export function runMainClosureProof() {
     assert.ok(match || ['rotate_sessions.sql', 'test_usage_rpc.sql'].includes(name), `unrecognized migration name: ${name}`);
     return { name, version: match?.[1] ?? null, sha256: createHash('sha256').update(readFileSync(join(root, name))).digest('hex') };
   });
-  const migrations = manifest.filter((row) => row.version !== null);
-  assert.equal(new Set(migrations.map((row) => row.version)).size, migrations.length, 'duplicate migration versions');
   const plan = buildMainU1ReplayPlan(manifest, args.profile);
+  const migrations = manifest.filter(row=>row.version!==null&&plan.replayFiles.includes(row.name));
   const completeT2=T2_PROFILES.includes(args.profile);
   const billingT2=args.profile===BILLING_PROFILE;
   const retentionT2=args.profile==='main-t2-retention-128'||billingT2;
@@ -971,7 +984,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -1259,6 +1272,12 @@ export function runMainClosureProof() {
         scope:'real-chain sequential SQL/ACL/replay compatibility; separate native race and provider/Production proof'},null,2));
       console.log('ACCOUNT COMPLETION BILLING FULL-CHAIN CATALOG PASSED');
     }
+    assert.deepEqual(history(),plan.stages.at(-1).versions,'historical final ledger differs from replay profile');
+    for(const row of plan.withheld) assert.equal(existsSync(join(directory,'migrations',row.name)),false,'withheld migration was staged');
+    assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname IN ('finish_account_coaching_local_v1','fence_account_coaching_expired_v1'))
+      AND to_regclass('public.account_coaching_local_fences') IS NULL
+      AND to_regclass('public.account_coaching_expiry_fences') IS NULL;`),'t','withheld retirement catalog must remain absent');
   } catch (error) {
     primaryError = error;
   } finally {
@@ -1289,6 +1308,7 @@ export function runMainClosureProof() {
     writeFileSync(join(evidence, 'verdict.json'), JSON.stringify({
       status: primaryError || cleanupError ? 'FAIL' : 'PASS',
       candidate: migrations.at(-1), migrations: migrations.length, realSupabaseSchema,
+      repositoryMigrations:plan.repositoryMigrations,withheld:plan.withheld,
       profile: args.profile, stagedVersions: plan.stages,
       testedCommit: run('git', ['rev-parse', 'HEAD']), requestedHead: process.env.PROOF_HEAD_SHA,
       t2NativeCatalog: nativeT2Catalog?.report() ?? null,
