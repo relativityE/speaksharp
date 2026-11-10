@@ -17,6 +17,47 @@ import { createNativeT2CatalogProof } from './t2-native-catalog-proof.mjs';
 import { finalizeEditedTakeProof, runRequiredEditedTakeProof } from './retention-edited-take-full-chain.mjs';
 import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery, t2ExpectedCatalog, assertT2Catalog,
   t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from '../../scripts/lib/t2MigrationPostflight.mjs';
+import { retirementContract, retirementSnapshotQuery, assertRetirementSnapshot } from '../../scripts/lib/retirementMigrationPostflight.mjs';
+
+// Installed successor evidence is separate from every historical replay. The
+// operational pre/post verifier is used unchanged, including its before receipt.
+export function observeRetirementReleaseCatalog({ sql, root, apply, retain }) {
+  const version = '20261110173548';
+  const before = retirementContract(root, 'before', version, 'native-replay');
+  const after = retirementContract(root, 'after', version, 'native-replay');
+  const receipt = { status: 'INCOMPLETE', profile: 'post-128-retirement', negatives: [] };
+  const save = () => retain(globalThis.structuredClone(receipt));
+  try {
+    const rows = sql(retirementSnapshotQuery(before)).trim().split('\n');
+    assertRetirementSnapshot(before, rows);
+    receipt.before = { version, targetSha256: before.targetSha256, catalogContext: 'native-replay', rows };
+    save();
+    apply();
+    receipt.after = sql(retirementSnapshotQuery(after)).trim().split('\n');
+    save();
+    receipt.result = assertRetirementSnapshot(after, receipt.after, receipt.before);
+    assert.throws(() => assertT2ReleaseSnapshot(before.release, receipt.after), /ledger changed/);
+    const snapshot = retirementSnapshotQuery(after).replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+    for (const [name, mutation] of [
+      ['public-execute', 'GRANT EXECUTE ON FUNCTION public.finish_account_coaching_local_v1(uuid,uuid,uuid) TO PUBLIC;'],
+      ['private-audit-readable', 'GRANT SELECT ON public.account_coaching_local_fences TO authenticated;'],
+      ['audit-rls-disabled', 'ALTER TABLE public.account_coaching_expiry_fences DISABLE ROW LEVEL SECURITY;'],
+      ['phase-constraint-removed', 'ALTER TABLE public.account_coaching_operations DROP CONSTRAINT account_coaching_operations_phase_check;'],
+      ['digest-constraint-removed', 'ALTER TABLE public.account_coaching_local_fences DROP CONSTRAINT account_coaching_local_fences_user_sha256_check;'],
+      ['known-billing-family', 'CREATE FUNCTION public.settle_account_completion_billing_v1(text) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;'],
+    ]) {
+      const changed = sql(`BEGIN; ${mutation}\n${snapshot}\nROLLBACK;`).trim().split('\n');
+      assert.throws(() => assertRetirementSnapshot(after, changed, receipt.before), /catalog mismatch|known129/);
+      receipt.negatives.push({ name, refused: true, rollback: true, rows: changed }); save();
+    }
+    const restored = sql(retirementSnapshotQuery(after)).trim().split('\n');
+    assertRetirementSnapshot(after, restored, receipt.before);
+    assert.deepEqual(restored, receipt.after, 'retirement catalog negative controls did not restore');
+    receipt.status = 'PASS'; receipt.restored = true; save(); return receipt;
+  } catch (error) {
+    receipt.status = 'FAIL'; receipt.reason = error.message; save(); throw error;
+  }
+}
 
 // Separate post-C1 observations. The historical stage0..6 observer is unchanged.
 // This uses the SAME contract/query/validator as the operational executable.
@@ -798,15 +839,19 @@ export const MAIN_T2_RETENTION_MIGRATION=Object.freeze({name:'20261025021046_con
 export const MAIN_COMPLETION_BILLING_MIGRATION=Object.freeze({name:'20261027192550_account_completion_billing_settlement.sql',
   version:'20261027192550',sha256:'398aa50b8db168acc0cee68a11a433b40bd3101af03e3051dcdc2c87b2bef45d',stage:'completion-billing'});
 const BILLING_PROFILE='main-completion-billing-129';
-const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE];
-const T2_PROFILES=['main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE];
+const RETIREMENT_PROFILE='main-coaching-retirement-129';
+const RETIREMENT_MIGRATION=Object.freeze({name:'20261110173548_account_coaching_local_retirement.sql',version:'20261110173548',
+  sha256:'cc3ee4369dec74d2926557128a06265fb3019077b018cdc5dc848f055a6f8e04',stage:'coaching-local-retirement'});
+const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE];
+const T2_PROFILES=['main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE];
 function selectedAdditions(profile) {
   const rows=[...(profile!=='main-120'?[{...MAIN_U1_MIGRATION,stage:'heartbeat-u1'}]:[]),
     ...(['main-analytics-u1-122',...T2_PROFILES].includes(profile)?[{...MAIN_ANALYTICS_MIGRATION,stage:'analytics-observed-rate'}]:[]),
     ...(T2_PROFILES.includes(profile)?MAIN_T2_ACCOUNT_MIGRATIONS:[]),
-    ...(['main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE].includes(profile)?[MAIN_T2_FENCE_MIGRATION]:[]),
-    ...(['main-t2-retention-128',BILLING_PROFILE].includes(profile)?[MAIN_T2_RETENTION_MIGRATION]:[]),
-    ...(profile===BILLING_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION]:[])];
+    ...(['main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE].includes(profile)?[MAIN_T2_FENCE_MIGRATION]:[]),
+    ...(['main-t2-retention-128',BILLING_PROFILE,RETIREMENT_PROFILE].includes(profile)?[MAIN_T2_RETENTION_MIGRATION]:[]),
+    ...(profile===BILLING_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION]:[]),
+    ...(profile===RETIREMENT_PROFILE?[RETIREMENT_MIGRATION]:[])];
   return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
@@ -843,8 +888,9 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   assert.equal(new Set(actual.map(row => row.name)).size, actual.length, 'duplicate migration name');
   const repositoryVersioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(repositoryVersioned.map(row => row.version)).size, repositoryVersioned.length, 'duplicate migration version');
-  const withheld=actual.filter(row=>REVIEWED_WITHHELD_MIGRATIONS.some(pin=>pin.name===row.name));
-  for(const row of withheld) assert.equal(row.sha256,REVIEWED_WITHHELD_MIGRATIONS.find(pin=>pin.name===row.name).sha256,
+  const withheldPins=profile===RETIREMENT_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION]:REVIEWED_WITHHELD_MIGRATIONS;
+  const withheld=actual.filter(row=>withheldPins.some(pin=>pin.name===row.name));
+  for(const row of withheld) assert.equal(row.sha256,withheldPins.find(pin=>pin.name===row.name).sha256,
     'reviewed withheld migration digest changed: '+row.name);
   const replay=actual.filter(row=>!withheld.some(pin=>pin.name===row.name));
   const versioned=replay.filter(row=>row.version!==null);
@@ -857,7 +903,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(replay.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
@@ -889,7 +935,8 @@ export function runMainClosureProof() {
   const migrations = manifest.filter(row=>row.version!==null&&plan.replayFiles.includes(row.name));
   const completeT2=T2_PROFILES.includes(args.profile);
   const billingT2=args.profile===BILLING_PROFILE;
-  const retentionT2=args.profile==='main-t2-retention-128'||billingT2;
+  const retirementT2=args.profile===RETIREMENT_PROFILE;
+  const retentionT2=args.profile==='main-t2-retention-128'||billingT2||retirementT2;
   const fenceT2=args.profile==='main-t2-fence-127'||retentionT2;
   const hasAnalytics=['main-analytics-u1-122',...T2_PROFILES].includes(args.profile);
   if (args.plan) {
@@ -984,7 +1031,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of plan.replayFiles.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name,RETIREMENT_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -1272,9 +1319,18 @@ export function runMainClosureProof() {
         scope:'real-chain sequential SQL/ACL/replay compatibility; separate native race and provider/Production proof'},null,2));
       console.log('ACCOUNT COMPLETION BILLING FULL-CHAIN CATALOG PASSED');
     }
+    if(retirementT2) {
+      observeRetirementReleaseCatalog({ sql, root: process.cwd(),
+        apply: () => {
+          cpSync(join(root,RETIREMENT_MIGRATION.name),join(directory,'migrations',RETIREMENT_MIGRATION.name));
+          cli(['migration','up','--local']);
+          assert.deepEqual(history(),plan.stages.at(-1).versions,'retirement installed ledger differs');
+        },
+        retain: receipt => writeFileSync(join(evidence,'retirement-installed-catalog.json'),JSON.stringify(receipt,null,2)) });
+    }
     assert.deepEqual(history(),plan.stages.at(-1).versions,'historical final ledger differs from replay profile');
     for(const row of plan.withheld) assert.equal(existsSync(join(directory,'migrations',row.name)),false,'withheld migration was staged');
-    assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    if(!retirementT2) assert.equal(sql(`SELECT NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname='public' AND p.proname IN ('finish_account_coaching_local_v1','fence_account_coaching_expired_v1'))
       AND to_regclass('public.account_coaching_local_fences') IS NULL
       AND to_regclass('public.account_coaching_expiry_fences') IS NULL;`),'t','withheld retirement catalog must remain absent');
