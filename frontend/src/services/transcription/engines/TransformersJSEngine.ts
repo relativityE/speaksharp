@@ -15,19 +15,23 @@
  */
 
 import { Result, TranscriptionModeOptions } from '@/services/transcription/modes/types';
-import { EngineType } from '@/contracts/IPrivateSTTEngine';
+import { EngineType, type PrivateRuntimeEvidence } from '@/contracts/IPrivateSTTEngine';
 import { MicStream } from '@/services/transcription/utils/types';
 
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
 import { STTEngine } from '@/contracts/STTEngine';
-import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
-import { resolvePrivateModel, publishPrivateModelTelemetry } from '../utils/privateModelFlag';
+import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
+import { publishPrivateModelTelemetry } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 import { acquisitionComponentGroupsFor, acquisitionScopeFor } from '../candidateAssetRequests';
 import { effectiveCandidate } from '../candidateSelection';
+import type { Candidate } from '../candidateRegistry';
+import { modelResponsePins } from '../candidateAssetRequests';
+import { installVerifiedAssetFetch, type AssetResponsePin } from '../verifiedAssetFetch';
+import { buildWhisperDecodeOptions } from '../decodeOptions';
 import {
     mintAcquisitionAttempt, receiptMatches,
     type AcquisitionAttempt, type AcquisitionReceipt,
@@ -42,6 +46,7 @@ type WorkerRequest =
         type: 'init'; isE2E: boolean;
         model?: { key: string; localId: string; remoteId: string };
         assetPrefixes?: string[];
+        responsePins?: AssetResponsePin[];
         expectedComponentGroups?: Array<{
             prefixes: string[];
             minimumUniqueCount: number;
@@ -199,9 +204,32 @@ function summarizeRawResult(result: unknown): UnknownRecord {
 export class TransformersJSEngine extends STTEngine {
     public readonly type: EngineType = 'transformers-js';
     private transcriber: Pipeline | null = null;
+    /** Main-thread pipeline calls in flight. Teardown disposes the pipeline only after these settle (review of c8b04e5f): releasing an
+     *  ONNX session underneath an active run is not safe. */
+    private readonly mainThreadRuns = new Set<Promise<unknown>>();
+    private trackMainThreadRun<T>(run: Promise<T>): Promise<T> {
+        this.mainThreadRuns.add(run);
+        const settled = () => { this.mainThreadRuns.delete(run); };
+        run.then(settled, settled);
+        return run;
+    }
     private worker: Worker | null = null;
     private workerRequestId: number = 0;
+    private activeLoadRequestId: number | null = null;
     private pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
+    private restorePackageFetch: (() => void) | null = null;
+
+    private resolvedModel() {
+        const candidate = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate
+            ?? effectiveCandidate().candidate;
+        const localId = candidate.execution.localModelId;
+        if (candidate.engine !== 'transformers-js' || !localId ||
+            candidate.assets.provenance !== 'self_hosted') {
+            throw new Error('Xenova Whisper requires an explicit self-hosted descriptor');
+        }
+        return { key: localId, localId, remoteId: candidate.model.id,
+            approxMB: candidate.execution.expectedDownloadMb ?? 0 };
+    }
 
     private async warmUpTranscriber(): Promise<void> {
         if (!this.transcriber || ENV.isTest || ENV.isE2E) return;
@@ -213,7 +241,7 @@ export class TransformersJSEngine extends STTEngine {
             return_timestamps: false,
         };
 
-        await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(warmupAudio, options);
+        await this.trackMainThreadRun((this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(warmupAudio, options));
     }
 
     constructor(options?: TranscriptionModeOptions) {
@@ -221,14 +249,25 @@ export class TransformersJSEngine extends STTEngine {
     }
 
     protected override async onInit(): Promise<Result<void, Error>> {
+        // Release review of 12552563: a teardown that lands while loadModel runs (for example one queued from the 100% progress
+        // callback) owns the engine; this lifetime never reports ready afterwards.
+        const generation = this.lifecycleGeneration;
         const result = await this.loadModel(ENV.isE2E);
         if (!result.isOk) return result;
-        
+        if (generation !== this.lifecycleGeneration || this.isTerminated) {
+            return Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate.'));
+        }
         (this.options as TranscriptionModeOptions).onReady?.();
         return Result.ok(undefined);
     }
 
     protected async loadModel(isMock?: boolean): Promise<Result<void, Error>> {
+        // Reviews of 38253831 and c1585147: this attempt's lifetime, captured before ANY await. A destroy/terminate advances
+        // the generation, so after each await a superseded attempt stops: it never publishes, never calls back and never
+        // runs the shared failure cleanup, which by then may belong to the attempt that followed.
+        const generation = this.lifecycleGeneration;
+        const superseded = () => generation !== this.lifecycleGeneration || this.isTerminated;
+        const cancelled = () => Result.err(new Error('[TransformersJS] init cancelled by destroy/terminate.'));
         const options = (this.options || {}) as TranscriptionModeOptions;
         if (this.transcriber || this.worker) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
@@ -246,9 +285,12 @@ export class TransformersJSEngine extends STTEngine {
         try {
             if (this.shouldUseWorker()) {
                 await this.initWorker(isMock);
+                // App-developer review of c1585147: a worker attempt superseded while it started reports nothing ready.
+                if (superseded()) return cancelled();
                 if (options.onModelLoadProgress) {
                     options.onModelLoadProgress(100);
                 }
+                if (superseded()) return cancelled();   // the progress callback itself may have torn the engine down
                 this.updateHeartbeat();
                 options.onReady?.();
                 return Result.ok(undefined);
@@ -256,6 +298,7 @@ export class TransformersJSEngine extends STTEngine {
 
             // Lazy import transformers.js
             const transformers = await import('@xenova/transformers');
+            if (superseded()) return cancelled();
             const { pipeline, env } = transformers;
 
             if (ENV.debug) {
@@ -289,6 +332,13 @@ export class TransformersJSEngine extends STTEngine {
                 !navigator.userAgent.includes('HappyDOM');
 
             env.useBrowserCache = isBrowser && !ENV.isE2E;
+            const packageCandidate = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate;
+            if (packageCandidate?.modelPackage) {
+                env.useBrowserCache = false;
+                this.restorePackageFetch?.();
+                this.restorePackageFetch = installVerifiedAssetFetch(modelResponsePins(packageCandidate),
+                    [new URL(packageCandidate.assets.servedFrom + '/', window.location.origin).href]);
+            }
 
             if (ENV.debug) {
                 logger.debug({
@@ -304,6 +354,8 @@ export class TransformersJSEngine extends STTEngine {
             }
 
             const progress_callback = (data: { progress?: number }) => {
+                // The download cannot be aborted: a superseded attempt keeps reporting after teardown (review of 29c088e4).
+                if (superseded()) return;
                 if (options.onModelLoadProgress && data.progress !== undefined) {
                     options.onModelLoadProgress(data.progress);
                 }
@@ -311,11 +363,13 @@ export class TransformersJSEngine extends STTEngine {
 
             // Selected-model-aware: honor the resolved Private model's LOCAL asset dir (base.en default /
             // tiny.en fallback), not a hardcoded model — mirrors the worker path.
-            const selectedModel = resolvePrivateModel();
-            const localModelId = PRIV_STT_MODELS.CANDIDATES[selectedModel].localId;
+            const localModelId = this.resolvedModel().localId;
             const loadStart = performance.now();
+            // Release and app-developer reviews of 38253831: pipeline() cannot be aborted, so a load that completes after a destroy/terminate
+            // is disposed below instead of being published.
+            let loaded: Pipeline;
             try {
-                this.transcriber = await pipeline(
+                loaded = await pipeline(
                     'automatic-speech-recognition',
                     localModelId, // local directory name in public/models/ — local-only (allowRemoteModels=false)
                     {
@@ -342,6 +396,18 @@ export class TransformersJSEngine extends STTEngine {
                     `Original: ${localError instanceof Error ? localError.message : String(localError)}`,
                 );
             }
+            if (superseded()) {
+                // Teardown already ran for this lifetime; a successor may own `transcriber`. Release the late pipeline
+                // and leave the successor's state alone.
+                try {
+                    await (loaded as { dispose?: () => Promise<unknown> }).dispose?.();
+                } catch (disposeError) {
+                    logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
+                        '[TransformersJS] Disposing a pipeline that completed after teardown failed.');
+                }
+                return cancelled();
+            }
+            this.transcriber = loaded;
 
             const loadTime = performance.now() - loadStart;
             logger.info({
@@ -356,6 +422,8 @@ export class TransformersJSEngine extends STTEngine {
 
             const warmupStart = performance.now();
             await this.warmUpTranscriber();
+            // Teardown during warm-up already released this lifetime; report nothing ready to whoever follows.
+            if (superseded()) return cancelled();
             logger.info({
                 sId: this.serviceId,
                 rId: this.runId,
@@ -368,6 +436,7 @@ export class TransformersJSEngine extends STTEngine {
             if (options.onModelLoadProgress) {
                 options.onModelLoadProgress(100);
             }
+            if (superseded()) return cancelled();   // the progress callback itself may have torn the engine down
 
             this.updateHeartbeat();
 
@@ -378,6 +447,9 @@ export class TransformersJSEngine extends STTEngine {
             return Result.ok(undefined);
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
+            // A superseded attempt's teardown already ran; the fetch hook, worker and requests now belong to its successor.
+            if (superseded()) return Result.err(e);
+            this.restorePackageFetch?.(); this.restorePackageFetch = null;
 
             // Check for common SPA 404 error (HTML returned instead of JSON)
             if (e.message.includes("Unexpected token '<'") || e.message.includes("Unexpected token <")) {
@@ -401,6 +473,8 @@ export class TransformersJSEngine extends STTEngine {
                 reject(e);
             });
             this.pendingWorkerRequests.clear();
+            this.activeLoadRequestId = null;
+            this.runtimeEvidence = null;
             return Result.err(e);
         }
     }
@@ -430,8 +504,30 @@ export class TransformersJSEngine extends STTEngine {
     }
 
     protected async onDestroy(): Promise<void> {
+        this.restorePackageFetch?.(); this.restorePackageFetch = null;
+        this.activeLoadRequestId = null;
+        this.runtimeEvidence = null;
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Destroying engine resources...');
+        // App-developer review of 12552563: release the published main-thread pipeline, not only the reference to it. A failed dispose is
+        // logged and never fails the teardown (the reference is gone either way).
+        const published = this.transcriber as { dispose?: () => Promise<unknown> } | null;
         this.transcriber = null;
+        if (published) {
+            // A decode or warm-up still running on it keeps the session until it settles; teardown does not wait for it.
+            const inFlight = [...this.mainThreadRuns];
+            // Release review of 403e2cda: this lifetime's runs leave with it, so a later lifetime's dispose never waits for them.
+            this.mainThreadRuns.clear();
+            const release = async () => {
+                await Promise.allSettled(inFlight);
+                try {
+                    await published.dispose?.();
+                } catch (disposeError) {
+                    logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: disposeError },
+                        '[TransformersJS] Disposing the main-thread pipeline at teardown failed.');
+                }
+            };
+            if (inFlight.length) void release(); else await release();
+        }
         if (this.worker) {
             try {
                 await this.sendWorkerRequest({ type: 'destroy' });
@@ -463,7 +559,12 @@ export class TransformersJSEngine extends STTEngine {
         try {
             if (this.worker) {
                 const workerAudio = audio.slice(0);
-                const decodeOptions = readPrivateDecodeOptionsOverride();
+                const candidate = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate
+                    ?? effectiveCandidate().candidate;
+                const profile = candidate.execution.decode;
+                if (profile.kind !== 'whisper') throw new Error('Whisper adapter requires a Whisper decode profile');
+                const decodeOptions = buildWhisperDecodeOptions(profile,
+                    samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ), readPrivateDecodeOptionsOverride());
                 const captureEvidence = window.__PRIVATE_V2_WORKER_EVIDENCE_ENABLED__ === true;
                 const response = await this.sendWorkerRequest(
                     { type: 'transcribe', audio: workerAudio, decodeOptions, captureEvidence },
@@ -519,19 +620,12 @@ export class TransformersJSEngine extends STTEngine {
 
             const start = performance.now();
             const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
-            const modelName = 'whisper-tiny.en';
-            const isEnglishOnly = modelName.endsWith('.en');
-            const options: Record<string, unknown> = {
-                chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
-                stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
-                return_timestamps: true,
-            };
-            Object.assign(options, readPrivateDecodeOptionsOverride());
-            if (!isEnglishOnly) {
-                options.task = 'transcribe';
-                options.language = 'english';
-            }
-            const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
+            const candidate = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate
+                ?? effectiveCandidate().candidate;
+            const profile = candidate.execution.decode;
+            if (profile.kind !== 'whisper') throw new Error('Whisper adapter requires a Whisper decode profile');
+            const options = buildWhisperDecodeOptions(profile, audioLengthSeconds, readPrivateDecodeOptionsOverride());
+            const result = await this.trackMainThreadRun((this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options));
 
             const latency = performance.now() - start;
             logger.info({
@@ -577,11 +671,23 @@ export class TransformersJSEngine extends STTEngine {
     /** The worker message handler. Extracted from the constructor closure so it can be driven directly. */
     private handleWorkerMessage(response: WorkerResponse, options: TranscriptionModeOptions): void {
         if (response.type === 'progress') {
-            options.onModelLoadProgress?.(response.progress);
+            // During a teardown's round trip to the worker, its progress belongs to no live attempt (review of 29c088e4).
+            if (!this.isTerminated) options.onModelLoadProgress?.(response.progress);
             return;
         }
 
         if (response.type === 'loaded') {
+                // Loaded precedes ready on the same init request. Receipt presence is irrelevant
+                // for cached loads; request ownership and single publication are mandatory.
+                if (response.id !== this.activeLoadRequestId ||
+                    !this.pendingWorkerRequests.has(response.id) || this.runtimeEvidence !== null) return;
+            this.runtimeEvidence = {
+                initSucceeded: true,
+                // The worker reports a legacy short key, not an introspected repository identity.
+                modelId: null,
+                backend: response.device?.startsWith('wasm') ? 'wasm' : null,
+                fallbackOccurred: false,
+            };
             // #1259: THE RECEIPT IS CAPTURED HERE, where the worker reports it. The main window's
             // Resource Timing never saw these fetches — they happened on the worker's timeline —
             // so this message is the only observation of the real transfer that exists.
@@ -623,16 +729,16 @@ export class TransformersJSEngine extends STTEngine {
                 modelLoadTimeMs: response.loadTimeMs,
             };
             // Model-eval: record the ACTUAL model load time for the A/B download/latency trade-off.
-            const loadedModelKey = resolvePrivateModel();
+            const loadedModel = this.resolvedModel();
             publishPrivateModelTelemetry({
-                model: loadedModelKey,
+                model: response.model,
                 runtime: 'transformers-js',
-                approxMB: PRIV_STT_MODELS.CANDIDATES[loadedModelKey].approxMB,
+                approxMB: loadedModel.approxMB,
                 overridden: false,
                 selectionSource: 'default',
                 loadTimeMs: response.loadTimeMs,
                 // Default tiny is bundled (local→remote fallback); candidates are remote-only.
-                fallbackPath: loadedModelKey === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
+                fallbackPath: 'local-only',
                 // Privacy invariant: Private STT never routes to Cloud.
                 cloudFallbackAttempted: false,
             });
@@ -642,6 +748,10 @@ export class TransformersJSEngine extends STTEngine {
         const pending = this.pendingWorkerRequests.get(response.id);
         if (!pending) return;
         this.pendingWorkerRequests.delete(response.id);
+        if (response.id === this.activeLoadRequestId) {
+            this.activeLoadRequestId = null;
+            if (response.type === 'error') this.runtimeEvidence = null;
+        }
         clearTimeout(pending.timeoutId);
 
         if (response.type === 'error') {
@@ -668,6 +778,8 @@ export class TransformersJSEngine extends STTEngine {
 
     /** #1259: the worker's own acquisition observation, or null when it could not be taken. */
     private acquisitionReceipt: AcquisitionReceipt | null = null;
+    private runtimeEvidence: PrivateRuntimeEvidence | null = null;
+    public getRuntimeEvidence(): PrivateRuntimeEvidence | null { return this.runtimeEvidence; }
     /** The attempt currently in flight. Retired the moment the load settles, so a late receipt has
      *  nothing to match against. */
     private activeAttempt: AcquisitionAttempt | null = null;
@@ -699,20 +811,27 @@ export class TransformersJSEngine extends STTEngine {
         // #1259: assigned through a NAMED method so the acceptance decision below is addressable by
         // test. An inline closure can only be exercised by constructing a real Worker, which means the
         // receipt-authority rules could only ever be asserted about the source rather than run.
-        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.handleWorkerMessage(event.data, options);
+        const currentWorker = this.worker;
+        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+            if (this.worker !== currentWorker) return;
+            this.handleWorkerMessage(event.data, options);
+        };
         this.worker.onerror = (event) => {
+            if (this.worker !== currentWorker) return;
             const error = new Error(event.message || 'TransformersJS worker failed.');
             this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
                 clearTimeout(timeoutId);
                 reject(error);
             });
             this.pendingWorkerRequests.clear();
+            this.activeLoadRequestId = null;
+            this.runtimeEvidence = null;
         };
 
         // Model-eval flag (OFF by default => production whisper-tiny.en, byte-identical).
         // A flag-selected candidate is resolved on the main thread and passed to the worker.
-        const selectedModel = resolvePrivateModel();
-        const modelCfg = PRIV_STT_MODELS.CANDIDATES[selectedModel];
+        const modelCfg = this.resolvedModel();
+        const selectedModel = modelCfg.key;
         publishPrivateModelTelemetry({
             model: selectedModel,
             runtime: 'transformers-js',
@@ -720,15 +839,17 @@ export class TransformersJSEngine extends STTEngine {
             overridden: false,
             selectionSource: 'default',
             loadTimeMs: null,
-            fallbackPath: selectedModel === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
+            fallbackPath: 'local-only',
             cloudFallbackAttempted: false,
         });
         // MINTED BEFORE ANYTHING IS FETCHED, from the candidate frozen at this instant.
-        const candidateForAttempt = effectiveCandidate().candidate;
+        const candidateForAttempt = (this.options as { resolvedCandidate?: Candidate }).resolvedCandidate
+            ?? effectiveCandidate().candidate;
         const attempt = mintAcquisitionAttempt(candidateForAttempt.id);
         this.activeAttempt = attempt;
         this.settledAttempt = attempt;
         this.acquisitionReceipt = null;
+        this.runtimeEvidence = null;
         let response;
         try {
             response = await this.sendWorkerRequest({
@@ -739,6 +860,7 @@ export class TransformersJSEngine extends STTEngine {
                 // the main window's Resource Timing cannot see a worker's requests. It needs to know
                 // which requests are the model's.
                 assetPrefixes: acquisitionScopeFor(candidateForAttempt),
+                responsePins: candidateForAttempt.modelPackage ? modelResponsePins(candidateForAttempt) : undefined,
                 expectedComponentGroups: acquisitionComponentGroupsFor(candidateForAttempt),
                 attempt,
             });
@@ -764,10 +886,18 @@ export class TransformersJSEngine extends STTEngine {
         }
 
         const id = ++this.workerRequestId;
+        if (request.type === 'init') {
+            this.activeLoadRequestId = id;
+            this.runtimeEvidence = null;
+        }
         return new Promise((resolve, reject) => {
             const timeoutId = setTimeout(() => {
                 if (!this.pendingWorkerRequests.has(id)) return;
                 this.pendingWorkerRequests.delete(id);
+                if (this.activeLoadRequestId === id) {
+                    this.activeLoadRequestId = null;
+                    this.runtimeEvidence = null;
+                }
                 reject(new Error(`TransformersJS worker request timed out after ${TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS}ms (${request.type}).`));
             }, TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS);
             this.pendingWorkerRequests.set(id, { resolve, reject, timeoutId });

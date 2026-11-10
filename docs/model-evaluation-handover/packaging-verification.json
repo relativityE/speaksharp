@@ -1,0 +1,24 @@
+{
+  "at": "2026-10-31T14:03:32.350676+00:00",
+  "scope": "documentation packaging only; no test host or live run",
+  "checks": {
+    "runnerNodeSyntax": "PASS",
+    "documentationJsonParsing": "PASS",
+    "unappliedPatchDigest": "PASS",
+    "unappliedPatchGitApplyCheck": "PASS",
+    "documentationPrivateMarkerScan": "PASS",
+    "gitDiffCheck": "PASS for original working edits only",
+    "incumbentSelectorMatchesReceivingHead": "PASS",
+    "fullBaseToHeadWhitespace": "FAIL: preserved vendored runtime/CRLF and unapplied patch context whitespace",
+    "mergePreservingRebase": "PASS: latest main, candidate unchanged"
+  },
+  "notRun": [
+    "integrated unit tests",
+    "build",
+    "quality",
+    "model/browser/account execution",
+    "Code/Security review"
+  ],
+  "qualification": "NOT MERGE READY",
+  "hooks": "Disabled for packaging commit/push; no implicit suites"
+}

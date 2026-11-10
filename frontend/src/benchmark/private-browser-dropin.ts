@@ -1,3 +1,4 @@
+/** Bare-runtime scientific control. Does not qualify the SpeakSharp product recording/save path. */
 import { TransformersJSEngine } from '@/services/transcription/engines/TransformersJSEngine';
 import logger from '@/lib/logger';
 

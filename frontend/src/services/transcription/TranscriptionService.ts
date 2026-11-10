@@ -29,6 +29,7 @@ import { publishTelemetry } from '../telemetry/sessionTelemetryBus';
 import { isShadowMetricsEngineEnabled } from '../telemetry/shadowMetricsEngine';
 import { MicStream } from './utils/types';
 import { STT_CONFIG } from '@/config';
+import { privatePreparationBudgetMs } from './preparationBudget';
 import { ENV } from '@/config/TestFlags';
 import { PRIV_CLOUD_AUDIO } from './sttConstants';
 import { toFinalizeEngineKey, type FinalizeEngineKey } from './finalizeRateStore';
@@ -916,7 +917,7 @@ export default class TranscriptionService {
       // population that measures what a user actually waits for.
       const acquiring = this.strategy as { setAcquisitionTrigger?: (t: 'warmup' | 'explicit-setup') => void };
       acquiring.setAcquisitionTrigger?.(isExplicitInit ? 'explicit-setup' : 'warmup');
-      const initResult = await this.strategy.init(STT_CONFIG.STRATEGY_INIT_TIMEOUT_MS, isMock);
+      const initResult = await this.strategy.init(privatePreparationBudgetMs(mode,isMock), isMock);
 
       if (version !== this.strategyVersion) {
         logger.debug('[TranscriptionService] initializeStrategy aborted: strategy version mismatch');
