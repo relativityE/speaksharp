@@ -16,14 +16,15 @@ import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount } from './runOwnedCleanup';
 export const RECOVERY_DELETE_ACK_PREFIX = 'RWT-INTERRUPTED-RUN-RECOVERY-DELETE';
 export const recoveryDeleteAck = (sha: string): string => `${RECOVERY_DELETE_ACK_PREFIX}@${sha}`;
 /**
- * RUN-SCOPED recovery (one interrupted run's account, PO-approved per run): `<delete ack>/run/<GitHub run id>` deletes at most
- * the ONE account that run minted, and `RWT-INTERRUPTED-RUN-RECOVERY-DETECT/run/<id>` only reports whether it exists. The run id
- * in the full generator grammar is the ownership proof, so a run-scoped selection also covers the generators' legacy
- * `example.com` fallback (used when LIVE_TEST_EMAIL_DOMAIN is unset); an unscoped recovery still never deletes those.
+ * RUN-SCOPED DETECTION ONLY (#1258 cleanup of AHT-01 run 42796353079, review RETURN on 4d5a4f5b):
+ * `RWT-INTERRUPTED-RUN-RECOVERY-DETECT/run/<GitHub run id>` reports whether accounts matching that run's generator grammar and
+ * window exist. It never deletes. The run's public id and window plus a user-choosable address are CORRELATION, not a binding
+ * of the run to one UID and email, so they cannot authorize deletion (an unrelated in-window signup could match). Deletion
+ * needs trusted evidence that binds the run to the exact UID and email; this route has none, so a run-scoped delete value is
+ * refused before any credential is used.
  */
 export const RECOVERY_DETECT_PREFIX = 'RWT-INTERRUPTED-RUN-RECOVERY-DETECT';
 const RUN_ID_RE = /^[1-9]\d{0,19}$/;
-export const runScopedDeleteAck = (sha: string, runId: string): string => `${recoveryDeleteAck(sha)}/run/${runId}`;
 export const runScopedDetect = (runId: string): string => `${RECOVERY_DETECT_PREFIX}/run/${runId}`;
 /** `gate-3-dast` job timeout plus a safety margin: a younger account may still belong to a live run. */
 export const GATE3_JOB_TIMEOUT_MS = 45 * 60_000;
@@ -145,11 +146,7 @@ export function recoveryAuthority(p: { ref: string; sha: string; head: string; d
         if (!p.ack.startsWith(`${RECOVERY_DETECT_PREFIX}/run/`) || !RUN_ID_RE.test(runId)) return { ok: false, reason: 'run_scope_malformed' };
         return { ok: true, deleteAuthorized: false, runId };
     }
-    if (p.ack.startsWith(`${recoveryDeleteAck(p.sha)}/run/`)) {
-        const runId = p.ack.slice(`${recoveryDeleteAck(p.sha)}/run/`.length);
-        if (!RUN_ID_RE.test(runId)) return { ok: false, reason: 'run_scope_malformed' };
-        return { ok: true, deleteAuthorized: true, runId };
-    }
+    if (p.ack.startsWith(RECOVERY_DELETE_ACK_PREFIX) && p.ack.includes('/run/')) return { ok: false, reason: 'run_scoped_delete_unbound' };
     if (p.ack.startsWith(RECOVERY_DELETE_ACK_PREFIX) && p.ack !== recoveryDeleteAck(p.sha)) {
         return { ok: false, reason: 'delete_ack_not_bound_to_this_sha' };
     }
@@ -179,7 +176,7 @@ export async function listAuthUsersBounded(admin: AdminLike, perPage = 200, maxP
 }
 
 export type RecoveryStatus = 'HOLD_NO_DOMAIN' | 'HOLD_NO_ACK' | 'HOLD_INCOMPLETE_LISTING' | 'NOTHING_TO_RECOVER' | 'RECOVERED' | 'FAILED'
-    | 'HOLD_RUN_PROVENANCE_MISSING' | 'HOLD_RUN_ABSENT_RESIDUE_UNVERIFIED' | 'HOLD_RUN_NOT_ELIGIBLE';
+    | 'HOLD_RUN_PROVENANCE_MISSING' | 'HOLD_RUN_ABSENT_RESIDUE_UNVERIFIED' | 'HOLD_RUN_NOT_ELIGIBLE' | 'HOLD_RUN_MATCH_UNBOUND';
 
 /** The interrupted run's own window, from GitHub's record of that run: the only evidence that binds an account to it. */
 export interface RunProvenance { startMs: number; endMs: number }
@@ -204,17 +201,7 @@ export function runProvenanceFrom(run: unknown, runId: string): RunProvenance | 
     return { startMs, endMs };
 }
 export interface RecoveryReport extends SelectionCounts {
-    status: RecoveryStatus; deleted: number; minAgeMinutes: number; runScope?: string; runMatched?: number; failureReason?: string;
-}
-
-/**
- * The cleanup's own reason code, content-safe: the text before the first ':' (its throw sites put any database detail after it),
- * reduced to a closed character set, never carrying an address or a UUID.
- */
-export function cleanupFailureReason(error: unknown): string {
-    const head = String((error as { message?: unknown } | null)?.message ?? 'unknown').split(':')[0];
-    const safe = head.replace(/[^a-z0-9_ ()-]/gi, '').trim().slice(0, 120);
-    return safe && !/@|[0-9a-f]{8}-[0-9a-f]{4}-/i.test(head) ? safe.replace(/ /g, '_') : 'unknown';
+    status: RecoveryStatus; deleted: number; minAgeMinutes: number; runScope?: string; runMatched?: number;
 }
 
 /**
@@ -270,7 +257,10 @@ export async function recoverInterruptedRuns(params: {
     const minAgeMs = params.minAgeMs ?? MIN_AGE_MS;
     const report = (status: RecoveryStatus, counts: SelectionCounts, deleted = 0): RecoveryReport =>
         ({ status, deleted, minAgeMinutes: Math.round(minAgeMs / 60_000), ...counts });
-    if (params.runId != null) return recoverOneRun({ ...params, runId: params.runId, minAgeMs });
+    if (params.runId != null) {
+        return recoverOneRun({ admin: params.admin, nowMs: params.nowMs, domain: params.domain, runId: params.runId, minAgeMs,
+            perPage: params.perPage, maxPages: params.maxPages, runProvenance: params.runProvenance });
+    }
     // No explicit domain still DETECTS and reports (legacy items included); it can never delete.
     const domain = deletionDomain(params.domain);
     const { users, complete } = await listAuthUsersBounded(params.admin, params.perPage, params.maxPages);
@@ -292,16 +282,18 @@ export async function recoverInterruptedRuns(params: {
     return report('RECOVERED', counts, deleted);
 }
 
-/** Run-scoped recovery: report, and delete only the ONE verified account of `runId` under its run-scoped ack bound to `sha`. */
+/**
+ * Run-scoped DETECTION: report, never delete. Exactly one old, in-window, unambiguous match is still only HOLD_RUN_MATCH_UNBOUND:
+ * nothing binds it to the run's own UID and email.
+ */
 async function recoverOneRun(params: {
-    admin: AdminLike; nowMs: number; ack: string; sha: string; domain: string | null; runId: string;
-    cleanup?: Cleanup; minAgeMs: number; perPage?: number; maxPages?: number; runProvenance?: RunProvenance | null;
+    admin: AdminLike; nowMs: number; domain: string | null; runId: string;
+    minAgeMs: number; perPage?: number; maxPages?: number; runProvenance?: RunProvenance | null;
 }): Promise<RecoveryReport> {
-    const scoped = (status: RecoveryStatus, counts: SelectionCounts, matched: number, deleted = 0, failureReason?: string): RecoveryReport =>
-        ({ status, deleted, minAgeMinutes: Math.round(params.minAgeMs / 60_000), ...counts, runScope: params.runId, runMatched: matched,
-            ...(failureReason ? { failureReason } : {}) });
+    const scoped = (status: RecoveryStatus, counts: SelectionCounts, matched: number): RecoveryReport =>
+        ({ status, deleted: 0, minAgeMinutes: Math.round(params.minAgeMs / 60_000), ...counts, runScope: params.runId, runMatched: matched });
     const empty: SelectionCounts = { scanned: 0, nonOwned: 0, ownershipUnproven: 0, legacyUnqualified: 0, runOwned: 0, fresh: 0, malformed: 0, ambiguous: 0, eligible: 0 };
-    // No trusted run record, no selection: nothing is listed, nothing deleted.
+    // No trusted run record, no selection: nothing is listed.
     if (!params.runProvenance) return scoped('HOLD_RUN_PROVENANCE_MISSING', empty, 0);
     const { users, complete } = await listAuthUsersBounded(params.admin, params.perPage, params.maxPages);
     const { eligible, counts, matched } = selectRunScopedAccount(users, params.nowMs, params.runId, params.domain, params.runProvenance, params.minAgeMs);
@@ -310,15 +302,7 @@ async function recoverOneRun(params: {
     // readbacks cannot run: residue is UNVERIFIED, never zero.
     if (matched === 0) return scoped('HOLD_RUN_ABSENT_RESIDUE_UNVERIFIED', counts, matched);
     if (eligible.length !== 1) return scoped('HOLD_RUN_NOT_ELIGIBLE', counts, matched);
-    if (!SHA_RE.test(params.sha) || params.ack !== runScopedDeleteAck(params.sha, params.runId)) return scoped('HOLD_NO_ACK', counts, matched);
-    const cleanup = params.cleanup ?? cleanupRunOwnedAccount;
-    const [account] = eligible;
-    try {
-        await cleanup({ admin: params.admin as never, capturedUid: account.id, createdEmail: account.email, runOwnedPrefix: account.prefix });
-    } catch (error) {
-        return scoped('FAILED', counts, matched, 0, cleanupFailureReason(error));
-    }
-    return scoped('RECOVERED', counts, matched, 1);
+    return scoped('HOLD_RUN_MATCH_UNBOUND', counts, matched);
 }
 
 /** The one content-safe line a run prints. */
@@ -326,6 +310,5 @@ export function recoveryReportLine(r: RecoveryReport): string {
     return `RWT_INTERRUPTED_RUN_RECOVERY status=${r.status} scanned=${r.scanned} run_owned=${r.runOwned} `
         + `ownership_unproven=${r.ownershipUnproven} legacy_unqualified=${r.legacyUnqualified} eligible=${r.eligible} fresh=${r.fresh} malformed=${r.malformed} `
         + `ambiguous=${r.ambiguous} deleted=${r.deleted} min_age_min=${r.minAgeMinutes}`
-        + (r.runScope ? ` run_scope=${r.runScope} run_matched=${r.runMatched ?? 0}` : '')
-        + (r.failureReason ? ` failure_reason=${r.failureReason}` : '');
+        + (r.runScope ? ` run_scope=${r.runScope} run_matched=${r.runMatched ?? 0}` : '');
 }
