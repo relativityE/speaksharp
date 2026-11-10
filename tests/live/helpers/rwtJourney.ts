@@ -25,7 +25,7 @@ import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
 import { documentTrackerOf } from './rwtDocumentIdentity';
 import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
-    UNAVAILABLE_HEADLINE,
+    isCoachingUnavailableHeadline,
 } from './coachingExternal';
 import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
@@ -2282,12 +2282,13 @@ export function visibleCoachingAbsence(well: PhraseObservation, next: PhraseObse
  */
 export async function readCoachingFailureUi(card: Locator): Promise<{ unavailableShown: boolean; retryEnabled: boolean }> {
     const headline = card.getByTestId('ai-suggestions-headline');
-    const shown = (await headline.innerText({ timeout: 5_000 }).catch(() => '')).trim();
+    const headlineVisible = await headline.isVisible().catch(() => false);
+    const shown = headlineVisible ? (await headline.innerText({ timeout: 5_000 }).catch(() => '')).trim() : '';
     const retry = card.getByTestId('ai-suggestions-retry');
     const visible = await retry.isVisible().catch(() => false);
     const enabled = visible && await retry.isEnabled({ timeout: 5_000 }).catch(() => false);
     const label = visible ? (await retry.innerText({ timeout: 5_000 }).catch(() => '')).trim() : '';
-    return { unavailableShown: shown === UNAVAILABLE_HEADLINE, retryEnabled: enabled && label === 'Try again' };
+    return { unavailableShown: headlineVisible && isCoachingUnavailableHeadline(shown), retryEnabled: enabled && label === 'Try again' };
 }
 
 /**
