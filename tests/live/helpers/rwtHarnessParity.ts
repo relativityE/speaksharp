@@ -3,9 +3,10 @@
  * The cloud-test harness asserts these on every case (its catalog rows `no-cloud-stt`, `start-press-budget`, `owned-pages-closed`
  * and, for AHT-01..03, `probe-save-isolation`); the suites did not. Same definitions as the harness's draft adapters:
  * - no-cloud-stt: no HTTP request AND no WebSocket to the Cloud STT provider (`/assemblyai/i`) from any page of the journey's context;
- * - start-press-budget: Start attempts on every page of the context, counted two independent ways — clicks on the `mic-start`
- *   control, and the recording-lease acquisitions every Start path makes (`rpc/acquire_recording_lease`, which also covers Starts
- *   from other controls such as Practice again) — and judged on the larger count;
+ * - start-press-budget: presses of the harness's Start controls (START_CONTROLS: mic-start, mic-download, mic-retry,
+ *   verdict-practice-again, focus-points-retry), counted directly at the DOM click on every page, per control. Recording-lease
+ *   acquisitions are reported as a separate diagnostic only: a lease is not a press (Retry setup and pre-lease refusals acquire
+ *   none). Until a journey's cap is settled from its mapped press total, the row is HOLD with the counts;
  * - probe-save-isolation: after the repeat probes, the account's completed sessions are exactly the journey's saved takes;
  * - owned-pages-closed: every page the context opened closes without error at the end.
  * Rows carry counts and closed reasons only.
@@ -13,7 +14,10 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
 export const CLOUD_STT_URL = /assemblyai/i;
-export const START_CONTROL = '[data-testid="mic-start"]';
+/** The cloud-test harness's Start controls (draft-adapters/browser-actions.cjs START_CONTROLS), exactly. */
+export const START_CONTROLS = Object.freeze(['mic-start', 'mic-download', 'mic-retry', 'verdict-practice-again', 'focus-points-retry'] as const);
+export type StartControl = typeof START_CONTROLS[number];
+export const START_CONTROL = START_CONTROLS.map((id) => `[data-testid="${id}"]`).join(',');
 export const LEASE_ACQUIRE_URL = /\/rest\/v1\/rpc\/acquire_recording_lease(?:\?|$)/;
 
 interface RowSink { row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, string | number | boolean | null>) => void }
@@ -21,12 +25,12 @@ interface RowSink { row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detai
 export class HarnessParityTap {
     cloudSttRequests = 0;
     cloudSttSockets = 0;
-    startClicks = 0;
+    readonly startPressesByControl: Record<StartControl, number> = { 'mic-start': 0, 'mic-download': 0, 'mic-retry': 0, 'verdict-practice-again': 0, 'focus-points-retry': 0 };
     leaseAcquisitions = 0;
     private readonly pages = new Set<Page>();
 
-    /** The journey's Start attempts: the larger of the two independent counts. */
-    get startPresses(): number { return Math.max(this.startClicks, this.leaseAcquisitions); }
+    /** Presses of the harness's Start controls, counted directly. */
+    get startPresses(): number { return Object.values(this.startPressesByControl).reduce((a, b) => a + b, 0); }
 
     private track(p: Page): void {
         if (this.pages.has(p)) return;
@@ -42,13 +46,14 @@ export class HarnessParityTap {
             if (CLOUD_STT_URL.test(r.url())) this.cloudSttRequests += 1;
             if (r.method() === 'POST' && LEASE_ACQUIRE_URL.test(r.url())) this.leaseAcquisitions += 1;
         });
-        await context.exposeBinding('__rwtStartPress', () => { this.startClicks += 1; });
+        await context.exposeBinding('__rwtStartPress', (_source, id: unknown) => {
+            if (typeof id === 'string' && (START_CONTROLS as readonly string[]).includes(id)) this.startPressesByControl[id as StartControl] += 1;
+        });
         await context.addInitScript((selector: string) => {
             document.addEventListener('click', (e) => {
                 const t = e.target as Element | null;
-                if (t && typeof t.closest === 'function' && t.closest(selector)) {
-                    void (window as unknown as { __rwtStartPress?: () => Promise<void> }).__rwtStartPress?.();
-                }
+                const control = t && typeof t.closest === 'function' ? t.closest(selector) : null;
+                if (control) void (window as unknown as { __rwtStartPress?: (id: string | null) => Promise<void> }).__rwtStartPress?.(control.getAttribute('data-testid'));
             }, true);
         }, START_CONTROL);
     }
@@ -60,12 +65,18 @@ export class HarnessParityTap {
             { cloudSttRequests: this.cloudSttRequests, cloudSttSockets: this.cloudSttSockets });
     }
 
-    /** `cap` is the journey's Start-press budget; at least one press is required (a journey that never started proves nothing). */
-    startPressRow(receipt: RowSink, cap: number): void {
-        const ok = this.startPresses >= 1 && this.startPresses <= cap;
+    /**
+     * `cap` is the journey's settled Start-press budget, or null while it is not yet settled from the journey's mapped press total
+     * (then HOLD with the counts). At least one press is required: a journey that never started proves nothing.
+     */
+    startPressRow(receipt: RowSink, cap: number | null): void {
+        const evidence = { startPresses: this.startPresses, ...Object.fromEntries(Object.entries(this.startPressesByControl).map(([k, v]) => [`presses:${k}`, v])),
+            leaseAcquisitionsDiagnostic: this.leaseAcquisitions, cap };
+        if (this.startPresses === 0) { receipt.row('Start presses within budget', 'FAIL', 'no Start press was observed', evidence); return; }
+        if (cap === null) { receipt.row('Start presses within budget', 'HOLD', 'the journey\'s Start-press cap is not yet settled; presses counted per control', evidence); return; }
+        const ok = this.startPresses <= cap;
         receipt.row('Start presses within budget', ok ? 'PASS' : 'FAIL',
-            ok ? 'every Start press fit the journey\'s budget' : this.startPresses === 0 ? 'no Start press was observed' : 'the journey pressed Start more often than its budget',
-            { startPresses: this.startPresses, startClicks: this.startClicks, leaseAcquisitions: this.leaseAcquisitions, cap });
+            ok ? 'every Start press fit the journey\'s budget' : 'the journey pressed Start more often than its budget', evidence);
     }
 
     /** Close every page the context opened; PASS only when all closed without error. Call last, before account cleanup. */
@@ -74,10 +85,13 @@ export class HarnessParityTap {
         let failedCloses = 0;
         for (const p of pages) {
             if (p.isClosed()) continue;
+            let timer: ReturnType<typeof setTimeout> | undefined;
             try {
-                await Promise.race([p.close(), new Promise((_, reject) => setTimeout(() => reject(new Error('close timeout')), closeMs))]);
+                await Promise.race([p.close(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('close timeout')), closeMs); })]);
             } catch {
                 failedCloses += 1;
+            } finally {
+                if (timer) clearTimeout(timer);
             }
         }
         const closed = pages.filter((p) => p.isClosed()).length;

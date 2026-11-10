@@ -182,8 +182,11 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: WEBGPU }) },
 });
 
-/** Harness parity: the catalog's AHT-01 minimum is 4 Starts (first take, two Practice-again entries, next Start); 2 presses of headroom. */
-const AHT01_START_PRESS_CAP = 6;
+/**
+ * Harness parity: AHT-01's Start-press cap is NOT yet settled. The full catalog's minimum of 4 Starts and the smoke route's cap of 2
+ * describe different journeys; this journey's press total is mapped first (the counts are reported per control), then the cap is set.
+ */
+const AHT01_START_PRESS_CAP: number | null = null;
 /** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
 const PARITY_CLOSE_STEP_MS = 60_000;
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */

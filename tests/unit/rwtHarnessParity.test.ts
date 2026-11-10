@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { CLOUD_STT_URL, HarnessParityTap, LEASE_ACQUIRE_URL, START_CONTROL, probeSaveIsolationRow } from '../live/helpers/rwtHarnessParity';
+import { CLOUD_STT_URL, HarnessParityTap, LEASE_ACQUIRE_URL, START_CONTROL, START_CONTROLS, probeSaveIsolationRow } from '../live/helpers/rwtHarnessParity';
 
 type Row = { step: string; verdict: string; detail: string; evidence?: Record<string, unknown> };
 const sink = () => { const rows: Row[] = []; return { rows, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, unknown>) => rows.push({ step, verdict, detail, evidence }) }; };
@@ -14,7 +14,7 @@ const sink = () => { const rows: Row[] = []; return { rows, row: (step: string, 
 /** A fake BrowserContext: emits pages and requests, records the exposed binding and the init script. */
 function fakeContext() {
     const handlers: Record<string, Array<(x: unknown) => void>> = {};
-    let binding: (() => void) | null = null;
+    let binding: ((source: unknown, id: unknown) => void) | null = null;
     let init: { fn: unknown; arg: unknown } | null = null;
     const page = (closeFails = false) => {
         let closed = false;
@@ -26,10 +26,11 @@ function fakeContext() {
     const ctx = {
         pages: () => [first],
         on: (ev: string, h: (x: unknown) => void) => { (handlers[ev] ??= []).push(h); },
-        exposeBinding: vi.fn(async (_n: string, fn: () => void) => { binding = fn; }),
+        exposeBinding: vi.fn(async (_n: string, fn: (source: unknown, id: unknown) => void) => { binding = fn; }),
         addInitScript: vi.fn(async (fn: unknown, arg: unknown) => { init = { fn, arg }; }),
     };
-    return { ctx, first, page, emit: (ev: string, x: unknown) => (handlers[ev] ?? []).forEach((h) => h(x)), press: () => binding?.(), init: () => init };
+    return { ctx, first, page, emit: (ev: string, x: unknown) => (handlers[ev] ?? []).forEach((h) => h(x)),
+        press: (id: unknown = 'mic-start') => binding?.({}, id), init: () => init };
 }
 
 describe('HarnessParityTap', () => {
@@ -38,6 +39,7 @@ describe('HarnessParityTap', () => {
         const tap = new HarnessParityTap();
         await tap.attach(f.ctx as never);
         expect(f.init()?.arg).toBe(START_CONTROL);
+        expect(START_CONTROLS).toEqual(['mic-start', 'mic-download', 'mic-retry', 'verdict-practice-again', 'focus-points-retry']);
         f.emit('request', { url: () => 'https://xyz.supabase.co/functions/v1/get-ai-suggestions', method: () => 'POST' });
         f.press(); f.press(); f.press(); f.press();
         const r = sink();
@@ -49,8 +51,8 @@ describe('HarnessParityTap', () => {
         const r2 = sink();
         tap.noCloudSttRow(r2);
         tap.startPressRow(r2, 6);
-        expect(r2.rows.map((x) => [x.verdict, x.evidence])).toEqual([['FAIL', { cloudSttRequests: 1, cloudSttSockets: 0 }],
-            ['FAIL', { startPresses: 7, startClicks: 7, leaseAcquisitions: 0, cap: 6 }]]);
+        expect(r2.rows.map((x) => x.verdict)).toEqual(['FAIL', 'FAIL']);
+        expect(r2.rows[1].evidence).toMatchObject({ startPresses: 7, 'presses:mic-start': 7, leaseAcquisitionsDiagnostic: 0, cap: 6 });
         expect(CLOUD_STT_URL.test('https://streaming.assemblyai.com')).toBe(true);
     });
     it('review: a Cloud STT WebSocket (no HTTP request) FAILs no-cloud-stt, on the first page and on a later page', async () => {
@@ -66,19 +68,44 @@ describe('HarnessParityTap', () => {
         tap.noCloudSttRow(r);
         expect(r.rows[0]).toMatchObject({ verdict: 'FAIL', evidence: { cloudSttRequests: 0, cloudSttSockets: 2 } });
     });
-    it('review: Starts from controls other than mic-start count through the lease acquisition every Start makes', async () => {
+    it('review RETURN: every harness Start control is counted directly (mixed controls); leases are a diagnostic, never presses', async () => {
         const f = fakeContext();
         const tap = new HarnessParityTap();
         await tap.attach(f.ctx as never);
         const lease = { url: () => 'https://xyz.supabase.co/rest/v1/rpc/acquire_recording_lease', method: () => 'POST' };
-        f.press();                                                      // one mic-start click
-        for (let i = 0; i < 7; i++) f.emit('request', lease);           // seven Starts in all (Practice again, retries, ...)
-        f.emit('request', { url: () => 'https://xyz.supabase.co/rest/v1/rpc/heartbeat_recording_lease', method: () => 'POST' });
-        f.emit('request', { ...lease, method: () => 'GET' });
+        // Sam's reproduction: four mic-start presses with four leases, plus three mic-retry presses that acquire none
+        for (let i = 0; i < 4; i++) { f.press('mic-start'); f.emit('request', lease); }
+        for (let i = 0; i < 3; i++) f.press('mic-retry');
         const r = sink();
         tap.startPressRow(r, 6);
-        expect(r.rows[0]).toMatchObject({ verdict: 'FAIL', evidence: { startPresses: 7, startClicks: 1, leaseAcquisitions: 7 } });
+        expect(r.rows[0]).toMatchObject({ verdict: 'FAIL', evidence: { startPresses: 7, 'presses:mic-start': 4, 'presses:mic-retry': 3, leaseAcquisitionsDiagnostic: 4 } });
+        // every control on the list counts; an unknown id never does
+        const g = fakeContext();
+        const t2 = new HarnessParityTap();
+        await t2.attach(g.ctx as never);
+        for (const id of START_CONTROLS) g.press(id);
+        g.press('analytics-practice-again'); g.press(null); g.press(7);
+        expect(t2.startPresses).toBe(5);
+    });
+    it('review RETURN: a press refused before any lease (usage, lock, stale client, cancel) still counts; a lease alone never does', async () => {
+        const f = fakeContext();
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        f.press('mic-start'); f.press('mic-start');                       // two presses refused before the lease
+        f.emit('request', { url: () => 'https://xyz.supabase.co/rest/v1/rpc/acquire_recording_lease', method: () => 'POST' });
+        f.emit('request', { url: () => 'https://xyz.supabase.co/rest/v1/rpc/acquire_recording_lease', method: () => 'POST' });
+        f.emit('request', { url: () => 'https://xyz.supabase.co/rest/v1/rpc/acquire_recording_lease', method: () => 'POST' });
+        expect([tap.startPresses, tap.leaseAcquisitions]).toEqual([2, 3]);
         expect(LEASE_ACQUIRE_URL.test('https://x/rest/v1/rpc/acquire_recording_lease?select=*')).toBe(true);
+    });
+    it('an unsettled cap is HOLD with the per-control counts, never PASS', async () => {
+        const f = fakeContext();
+        const tap = new HarnessParityTap();
+        await tap.attach(f.ctx as never);
+        f.press('mic-download'); f.press('mic-start');
+        const r = sink();
+        tap.startPressRow(r, null);
+        expect(r.rows[0]).toMatchObject({ verdict: 'HOLD', evidence: { startPresses: 2, 'presses:mic-download': 1, 'presses:mic-start': 1, cap: null } });
     });
     it('CASUALTY: a journey that never pressed Start is not a pass', async () => {
         const tap = new HarnessParityTap();
@@ -103,6 +130,22 @@ describe('HarnessParityTap', () => {
         const r2 = sink();
         await t2.ownedPagesClosedRow(r2);
         expect(r2.rows[0]).toMatchObject({ verdict: 'FAIL', evidence: { ownedPages: 2, closedPages: 1, failedCloses: 1 } });
+    });
+});
+
+describe('owned-page close timers', () => {
+    it('a successful close leaves no close-timeout timer scheduled', async () => {
+        vi.useFakeTimers();
+        try {
+            const f = fakeContext();
+            const tap = new HarnessParityTap();
+            await tap.attach(f.ctx as never);
+            const r = sink();
+            await tap.ownedPagesClosedRow(r);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
@@ -143,6 +186,6 @@ describe('AHT-01 wiring', () => {
         const block = spec.slice(counts, close);
         expect(block.split('aliveReceipt(receipt, alive)').join('')).not.toMatch(/\breceipt\b/);
         expect(spec).toContain('probeSaveIsolationRow(aliveReceipt(receipt, alive), admin as never, capturedUid, [persistedId, repeatSessionId])');
-        expect(spec).toContain('const AHT01_START_PRESS_CAP = 6;');
+        expect(spec).toContain('const AHT01_START_PRESS_CAP: number | null = null;');
     });
 });
