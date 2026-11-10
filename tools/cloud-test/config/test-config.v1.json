@@ -1,7 +1,7 @@
 {
  "aggregateReceiver": {
   "activated": true,
-    "manifestSha256": "4ae05045af602db2196c07d5454427077fdf0430faf9e4b6fb85213d134ab859",
+    "manifestSha256": "d89f67323a09b3b9302d3f1b4860e7f8ef0b2d7663a946c489d5c6076f604236",
   "bundleRootSha256": "f6b59edbfcc20593cd13a87f362a6c68f5a37cfe424da87c0671881584afed19",
   "note": "Active fail-closed receiver for the reviewed retained four-file aggregate. Current request, served-release identity, journal head and reconciliation remain occurrence-bound runtime evidence and are never admitted from this retained bundle."
  },
@@ -32,10 +32,10 @@
   ],
   "harness": {
     "packetDir": "tools/cloud-test/harness",
-    "expectedCodeManifestSha256": "2f02772fc5b13ac1967af23ca6026bd6af973c2e73d16eed1af0ec686b487ba3",
+    "expectedCodeManifestSha256": "7c44ebe55c11425ab7828332a902bf201d1d673d99144d3957e05e8ab77100c1",
     "note": "r15 candidate hash, pending Product Owner approval. Vendor the packet (README section 3); the execute job recomputes CODE.sha256 and refuses to run on any difference. Changing this value is a versioned config change.",
     "planBuilder": "tools/cloud-test/harness-adapter/build_plan.py",
-    "expectedPacketManifestSha256": "4216cf70c3d4e631afb0dc31bab937d38f3726e928543c6ae94578491e7c5d78"
+    "expectedPacketManifestSha256": "c2b18afd49f2cf76c2bcb52cac1b210b2f9fd92a42443a1e2b7a590181f82cc0"
   },
   "credentials": {
     "note": "Names only. The GitHub control plane (preflight and report) uses NO credentials and its workflow references none. The credentials below exist only in the run environment (the Claude task environment where the harness admission accepts the runtime attestation), and each stage receives only what it needs. Values are never written to this package.",

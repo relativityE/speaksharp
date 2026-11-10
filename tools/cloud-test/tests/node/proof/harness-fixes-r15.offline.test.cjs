@@ -226,6 +226,26 @@ test('S3 a selected run dispatches only the selected cases, in the approved orde
   assert.equal(x.calls.filter(s=>s.startsWith('identity:')).length,2*5+1,'before/after each selected case plus the campaign-end read; the admission read is the 12th (2k+2)');assert.equal(r.report.identityPlan.requiredCap,12);assert.equal(r.report.driverPreflight,'SELECTED_5_BOUND');
   for(const id of core.IDS.filter(i=>!SEL.includes(i))){const row=r.report.cases.find(c=>c.caseId===id);assert.equal(row.notSelected,true);assert.equal(row.requestsUsed,0);assert.match(row.reason,/Not selected/);assert.ok(!x.calls.some(s=>s.includes(id)));}
   assert.equal(r.report.result,'NOT RUN','a subset can never be an all-journey PASS');assert.deepEqual(r.report.selection.order,SEL);assert.equal(r.report.selection.unselected.length,10);
+  // #1788 review of 3200d722: every selected case passed, so the selected verdict is PASS and the run exits 0
+  assert.equal(r.report.selectedResult,'PASS');assert.equal(r.exitCode,0);
+});
+test('S3c one selected case (AHT-01): PASS exits 0 with 14 unselected NOT RUN; a selected non-PASS row, a FAIL or a final identity drift does not',async()=>{
+  const one=()=>plan({selection:selection(['AHT-01']),identityCap:4});
+  const x=io(),r=await core.runCampaign(one(),x,{executeR0:true});
+  assert.deepEqual(x.calls.filter(s=>s.startsWith('run:')),['run:AHT-01']);
+  assert.equal(r.report.cases.find(c=>c.caseId==='AHT-01').result,'PASS');
+  const others=r.report.cases.filter(c=>c.caseId!=='AHT-01');assert.equal(others.length,14);
+  assert.ok(others.every(c=>c.notSelected===true&&c.result==='NOT RUN'&&c.requestsUsed===0));
+  assert.equal(r.report.result,'NOT RUN','still never an all-journey PASS');assert.equal(r.report.fullAcceptance,'NOT RUN');
+  assert.equal(r.exitCode,0);assert.equal(r.report.selectedResult,'PASS');
+  // a selected row that is not PASS (for example, missing coaching evidence) keeps the run non-zero
+  const nr=await core.runCampaign(one(),io({'AHT-01':{pending:'NOT RUN'}}),{executeR0:true});
+  assert.notEqual(nr.report.cases.find(c=>c.caseId==='AHT-01').result,'PASS');assert.equal(nr.report.selectedResult,'NOT RUN');assert.equal(nr.exitCode,78);
+  const f=await core.runCampaign(one(),io({'AHT-01':{denial:'FAIL'}}),{executeR0:true});
+  assert.equal(f.report.selectedResult,'FAIL');assert.equal(f.exitCode,1);
+  // the campaign-end identity must still MATCH
+  const d=io();const id=d.identity;d.identity=async phase=>phase==='campaign-end'?{result:'BLOCKED',servedSha:'c'.repeat(40)}:id(phase);
+  const dr=await core.runCampaign(one(),d,{executeR0:true});assert.equal(dr.report.selectedResult,'NOT RUN');assert.equal(dr.exitCode,78);
 });
 test('S3b full campaign consumes the one genuine admission identity and exactly 31 later reads; no second admission dispatch occurs',async()=>{
  const runner=require(P+'/bundle/harness/campaign-runner.cjs'),p=plan(),x=io(),steps=['A0.config','A1.bundle','A2.source','A3.tools','A4.credentials','A5.browser','A6.guard-selftest','A7.identity'];

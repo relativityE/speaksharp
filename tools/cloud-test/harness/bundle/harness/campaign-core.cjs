@@ -220,7 +220,14 @@ async function runCampaign(plan,io,{executeR0=false}={}) {
  }else{report.finalIdentity='NOT RUN: admission/window unavailable';report.finalIdentityReceipt={phase:'campaign-end',result:'NOT RUN',reason:'Admission/window unavailable'};safetyStopped=true;}
 
  for(const row of report.cases)if(row.reason==='Not dispatched')row.reason=safetyStopped?'Campaign stopped before this case; not omitted':'No case result returned';
- report.result=report.cases.some(c=>c.result==='FAIL')?'FAIL':report.cases.every(c=>c.result==='PASS')&&!safetyStopped&&report.finalIdentity==='MATCH'?'PASS':'NOT RUN';report.safetyStopped=safetyStopped;applyRequirementMappings(report,plan);await save();
- return{exitCode:report.result==='PASS'?0:report.result==='FAIL'?1:78,report};
+ report.result=report.cases.some(c=>c.result==='FAIL')?'FAIL':report.cases.every(c=>c.result==='PASS')&&!safetyStopped&&report.finalIdentity==='MATCH'?'PASS':'NOT RUN';
+ // #1788 review of 3200d722: the run's exit is the verdict over the SELECTED cases (all fifteen without a selection, so unchanged there). A
+ // passing selected subset exits 0; report.result stays the all-journey verdict (a subset is never an all-journey PASS), unselected rows stay
+ // NOT RUN/notSelected, and any selected case that is not PASS (missing coaching or cleanup evidence included), a safety stop or a final
+ // identity other than MATCH keeps the exit non-zero.
+ const chosen=new Set(selectedOrder(plan)),selectedRows=report.cases.filter(c=>chosen.has(c.caseId));
+ report.selectedResult=selectedRows.some(c=>c.result==='FAIL')?'FAIL':selectedRows.length>0&&selectedRows.every(c=>c.result==='PASS')&&report.cases.every(c=>chosen.has(c.caseId)||(c.notSelected===true&&c.result==='NOT RUN'))&&!safetyStopped&&report.finalIdentity==='MATCH'?'PASS':'NOT RUN';
+ report.safetyStopped=safetyStopped;applyRequirementMappings(report,plan);await save();
+ return{exitCode:report.selectedResult==='PASS'?0:report.selectedResult==='FAIL'?1:78,report};
 }
 module.exports={selectedOrder,unselectedIds,validateSelection,validateRunIdentity,safeReason,validateRequestBudget,budgetBindingErrors,IDS,IDENTITY_MAX_MS,requiredIdentityCap,supervisorSlackMs,caseWorstCaseMs,validateCampaignPlan,initialReport,initializeMatrix,applyRequirementMappings,runCampaign};
