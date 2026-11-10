@@ -221,6 +221,7 @@ function mockSupabase(options: MockOptions = {}) {
     quotaCount: 0,
     admissionArgs: null as Record<string, unknown> | null,
     settlementArgs: null as Record<string, unknown> | null,
+    localRetirementArgs: null as Record<string, unknown> | null,
     legacyUpdateCount: 0,
     sessionColumns: [] as string[],
   };
@@ -239,6 +240,10 @@ function mockSupabase(options: MockOptions = {}) {
       if (name === 'begin_account_coaching_v1') {
         state.admissionArgs = args ?? null;
         return Promise.resolve({ data: options.admission ?? { admitted: true, operationId: args?.p_operation_id }, error: options.admissionError ?? null });
+      }
+      if (name === 'finish_account_coaching_local_v1') {
+        state.localRetirementArgs = args ?? null;
+        return Promise.resolve({ data: !options.settlementError, error: options.settlementError ?? null });
       }
       if (name === 'finish_account_coaching_failure_v1') {
         state.settlementArgs = args ?? null;
@@ -439,7 +444,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     fetchThrows = true;
     const mock = mockSupabase();
     assertEquals((await handler(request(), mock.create)).status, 502);
-    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs);
+    assertEquals(mock.state.settlementArgs, null);
     assertEquals(mock.state.legacyUpdateCount, 0);
   });
 
@@ -447,7 +453,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     resetProvider();
     const mock = mockSupabase({ updateError: { code: 'PGRST202' } });
     assertEquals((await handler(request(), mock.create)).status, 503);
-    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs);
+    assertEquals(mock.state.settlementArgs, null);
     assertEquals(mock.state.legacyUpdateCount, 0);
   });
 
@@ -459,6 +466,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(typeof mock.state.authorityArgs?.p_operation_id, 'string');
     assertEquals(mock.state.authorityArgs?.p_provider_settled, true);
     assertEquals(mock.state.settlementArgs, null);
+    assertEquals(mock.state.localRetirementArgs, null);
     assertEquals(mock.state.legacyUpdateCount, 0);
   });
 
@@ -469,7 +477,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((await handler(request(), mock.create)).status, 200);
     assertEquals(fetchCount, 2);
     assertEquals(mock.state.authorityArgs?.p_provider_settled, false);
-    assertEquals(mock.state.settlementArgs, null, 'the atomic persistence RPC retains unknown');
+    assertEquals(mock.state.settlementArgs, null, 'remote uncertainty is never relabelled refused');
+    assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs, 'the completed handler retires only local write authority');
   });
 
   await t.step('#1643 an admitted valid answer completes after caller navigation', async () => {
@@ -489,7 +498,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     abortDuringFetch = caller;
     const mock = mockSupabase();
     assertEquals((await handler(request({ sessionId: 'session-a' }, caller.signal), mock.create)).status, 499);
-    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs);
+    assertEquals(mock.state.settlementArgs, null);
     assertEquals(mock.state.updated, null);
     assertEquals(fetchCount, 1);
   });
@@ -906,7 +916,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(skewed.state.authorityRpcCount, 1);
     assertEquals(skewed.state.filters, []);
     assertEquals(skewed.state.legacyUpdateCount, 0);
-    assertEquals(skewed.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(skewed.state.localRetirementArgs, skewed.state.admissionArgs);
+    assertEquals(skewed.state.settlementArgs, null);
 
     resetProvider();
     const realFailure = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
@@ -931,7 +942,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((await handler(request(), recovered.create)).status, 503);
     assertEquals(fetchCount, 2);
     assertEquals(recovered.state.authorityArgs?.p_provider_settled, false);
-    assertEquals(recovered.state.settlementArgs?.p_outcome, 'unknown', 'earlier provider uncertainty survives the rejection');
+    assertEquals(recovered.state.localRetirementArgs, recovered.state.admissionArgs, 'earlier provider uncertainty survives in the local-retirement audit');
+    assertEquals(recovered.state.settlementArgs, null);
   });
 
   await t.step('#1643 every other persistence failure stays unknown and never succeeds', async () => {
@@ -951,7 +963,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       const mock = mockSupabase(options);
       const status = (await handler(request(), mock.create)).status;
       assertEquals(status >= 500, true, `${label}: never reported as success`);
-      assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown', label);
+      assertEquals(mock.state.localRetirementArgs, mock.state.admissionArgs, label);
+      assertEquals(mock.state.settlementArgs, null, label);
     }
 
     resetProvider();
