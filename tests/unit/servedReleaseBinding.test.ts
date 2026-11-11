@@ -42,6 +42,14 @@ describe('wiring', () => {
         expect(spec.match(/servedReleaseVerdict\(/g)?.length).toBe(2);
         expect(spec).toContain('DEFAULT_AUTH_LANDING');
     });
+    it('the sign-in spec produces no trace, video or screenshot (no credential-bearing artifact), and cannot re-enable them', () => {
+        const spec = readFileSync('tests/live/auth.live.spec.ts', 'utf8');
+        expect(spec).toContain("test.use({ trace: 'off', video: 'off', screenshot: 'off' });");
+        expect(spec).not.toMatch(/trace:\s*'(on|retain-on-failure|on-first-retry|on-all-retries)'/);
+        expect(spec).not.toMatch(/video:\s*'(on|retain-on-failure|on-first-retry)'/);
+        expect(spec).not.toMatch(/screenshot:\s*'(on|only-on-failure)'/);
+        expect(spec).not.toMatch(/\.screenshot\(|tracing\.start\(|recordVideo/);
+    });
     it('the exact-SHA proof workflow runs the sign-in smoke with the same expect_sha input', () => {
         const wf = readFileSync('.github/workflows/private-recording-proof.yml', 'utf8');
         const step = wf.slice(wf.indexOf('Run existing-account sign-in smoke'));

@@ -7,6 +7,9 @@ import { requiresReleaseBinding, servedReleaseVerdict } from './helpers/servedRe
 // Skip this test if running against a mock backend
 
 test.describe('Real Authentication Flow', () => {
+    // No credential-bearing artifacts (review on 978f4722): this signs in a persistent account, so a trace would hold the
+    // token response, and a video/screenshot the filled form. The exact-SHA proof workflow promises no such artifact.
+    test.use({ trace: 'off', video: 'off', screenshot: 'off' });
     // Verify we are running in the Live environment context
     test.beforeAll(() => {
         if (process.env.VITE_USE_LIVE_DB !== 'true') {
