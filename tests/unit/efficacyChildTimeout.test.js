@@ -9,10 +9,13 @@ import { fileURLToPath } from 'node:url';
 const { test } = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const fixture = path.join(root, 'tests/fixtures/efficacy/child-timeout');
-const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { if (error.code === 'ESRCH') return false; throw error; } };
-// Members of the group that can still run. A zombie has exited and cannot write (same rule as drainOwnedPhase).
-const liveMembers = group => execFileSync('ps', ['-axo', 'pid=,pgid=,stat='], { encoding: 'utf8' }).trim().split('\n')
-  .map(line => line.trim().split(/\s+/)).filter(([, pgid, stat]) => Number(pgid) === group && !/^[ZX]/.test(stat));
+// Processes that can still run. A zombie has exited and cannot write (same rule as drainOwnedPhase); where PID 1
+// does not reap orphans, an exited coordinator or phase member can stay a zombie indefinitely.
+const liveProcesses = () => execFileSync('ps', ['-axo', 'pid=,pgid=,stat='], { encoding: 'utf8' }).trim().split('\n')
+  .map(line => line.trim().split(/\s+/).map((field, index) => (index < 2 ? Number(field) : field)))
+  .filter(([, , stat]) => !/^[ZX]/.test(stat));
+const liveMembers = group => liveProcesses().filter(([, pgid]) => pgid === group);
+const running = pid => liveProcesses().some(([candidate]) => candidate === pid);
 
 // Negative control for runEfficacyChild (tests/unit/userHarmControls.test.js). A real Vitest run, on the
 // unit suite's forks pool, times its test out while the coordinator's detached phase is still writing.
@@ -51,7 +54,7 @@ test('a Vitest test timeout mid-phase leaves the coordinator to drain its phase 
     assert.equal(fs.existsSync(witness.temporary), false, 'temporary copy removed');
     assert.deepEqual(liveMembers(witness.group), [], 'no phase process survives');
     const exitDeadline = Date.now() + 5000;
-    while (alive(witness.coordinatorPid) && Date.now() < exitDeadline) await new Promise(resolve => setTimeout(resolve, 50));
-    assert.equal(alive(witness.coordinatorPid), false, 'coordinator exits after cleanup');
+    while (running(witness.coordinatorPid) && Date.now() < exitDeadline) await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(running(witness.coordinatorPid), false, 'coordinator exits after cleanup');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
