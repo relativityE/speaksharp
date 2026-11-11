@@ -84,32 +84,70 @@ export async function authorizeProductionRelease(input, readGithub) {
     }
 }
 
-// HOLD always fails closed. `reason` only says WHICH hold it is, so an empty binding is never misread as
-// production drift (canary runs from 27 Oct to 10 Nov all held on an EMPTY PRODUCTION_RELEASE_SHA):
-//   binding-missing        the expected SHA is empty or not a full 40-character SHA; production was not read
-//   production-unreadable  production could not be read, or did not carry exactly one release marker
-//   served-mismatch        production serves another release; `observedSha` is that public value
-export async function verifyServedRelease(expectedSha, fetchImpl = globalThis.fetch) {
-    if (!SHA.test(expectedSha ?? '')) return { allowed: false, state: 'HOLD', reason: 'binding-missing' };
-    let observed;
+// One read of production's public page: exactly one `window.__APP_RELEASE__` marker carrying a full lowercase SHA.
+//   production-unreadable  the page could not be fetched, or it does not carry exactly one release marker
+//   served-sha-invalid     the one marker is present, but its value is not a full 40-character SHA
+async function readServedMarker(fetchImpl) {
+    let html;
     try {
         const response = await fetchImpl(`${CANONICAL_PRODUCTION_ORIGIN}/`, {
             redirect: 'error', signal: AbortSignal.timeout(15_000),
             headers: { accept: 'text/html', 'cache-control': 'no-cache' },
         });
         if (!response.ok) throw new Error('unavailable');
-        const html = await boundedBody(response);
-        const markers = [...html.matchAll(/window\.__APP_RELEASE__\s*=/g)];
-        if (markers.length !== 1) throw new Error('unbound');
-        observed = extractDeployedRelease(html);
-        if (!observed) throw new Error('unbound');
+        html = await boundedBody(response);
     } catch {
-        return { allowed: false, state: 'HOLD', reason: 'production-unreadable' };
+        return { reason: 'production-unreadable' };
     }
+    const markers = [...html.matchAll(/window\.__APP_RELEASE__\s*=\s*(["'])([^"'\n]{0,200})\1/g)];
+    if ([...html.matchAll(/window\.__APP_RELEASE__\s*=/g)].length !== 1 || markers.length !== 1) {
+        return { reason: 'production-unreadable' };
+    }
+    const value = markers[0][2];
+    if (!SHA.test(value)) return { reason: 'served-sha-invalid' };
+    // Same reading the release receipts use; kept so both paths agree on the identity they report.
+    if (extractDeployedRelease(html) !== value) return { reason: 'production-unreadable' };
+    return { observed: value };
+}
+
+// HOLD always fails closed. `reason` only says WHICH hold it is, so an empty binding is never misread as
+// production drift (canary runs from 27 Oct to 10 Nov all held on an EMPTY PRODUCTION_RELEASE_SHA):
+//   binding-missing        the expected SHA is empty or not a full 40-character SHA; production was not read
+//   production-unreadable  production could not be read, or did not carry exactly one release marker
+//   served-sha-invalid     production's one marker is not a full 40-character SHA
+//   served-mismatch        production serves another release; `observedSha` is that public value
+// Used by production-release.yml to read back the exact release it just uploaded.
+export async function verifyServedRelease(expectedSha, fetchImpl = globalThis.fetch) {
+    if (!SHA.test(expectedSha ?? '')) return { allowed: false, state: 'HOLD', reason: 'binding-missing' };
+    const { observed, reason } = await readServedMarker(fetchImpl);
+    if (!observed) return { allowed: false, state: 'HOLD', reason };
     if (observed !== expectedSha) {
         return { allowed: false, state: 'HOLD', reason: 'served-mismatch', observedSha: observed };
     }
     return { allowed: true, state: 'SERVED', releaseSha: expectedSha };
+}
+
+// Outcome 10 (#1806 follow-up): the scheduled canary binds to whatever production serves NOW, read from the page at
+// run time. A hand-maintained repository variable drifted after every frontend release and held every canary.
+//
+// The page is public, and the canary checks this SHA out in a job that holds the database password. So the value
+// is only trusted once GitHub confirms it is a commit already on `main` (an ancestor of, or equal to, main): a
+// commit from another branch or a fork in the network never reaches that job. Any read failure holds.
+//   production-unreadable / served-sha-invalid   as above
+//   served-not-on-main     the served SHA is not a commit on main, or GitHub could not confirm that it is
+export async function discoverServedRelease(fetchImpl = globalThis.fetch, readGithubImpl = readGithub) {
+    const { observed, reason } = await readServedMarker(fetchImpl);
+    if (!observed) return { allowed: false, state: 'HOLD', reason };
+    try {
+        const comparison = await readGithubImpl(`/repos/${REPOSITORY}/compare/${observed}...main`);
+        const onMain = (comparison?.status === 'ahead' || comparison?.status === 'identical')
+            && comparison?.behind_by === 0
+            && comparison?.base_commit?.sha === observed;
+        if (!onMain) return { allowed: false, state: 'HOLD', reason: 'served-not-on-main', observedSha: observed };
+    } catch {
+        return { allowed: false, state: 'HOLD', reason: 'served-not-on-main', observedSha: observed };
+    }
+    return { allowed: true, state: 'SERVED', releaseSha: observed };
 }
 
 export function inputFromEnvironment(env) {
@@ -133,7 +171,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const result = command === 'authorize'
         ? await authorizeProductionRelease(inputFromEnvironment(process.env), readGithub)
         : command === 'served' ? await verifyServedRelease(process.env.EXPECTED_RELEASE_SHA)
-            : { allowed: false, state: 'HOLD' };
+            : command === 'discover' ? await discoverServedRelease()
+                : { allowed: false, state: 'HOLD' };
     if (process.env.GITHUB_OUTPUT) {
         appendFileSync(process.env.GITHUB_OUTPUT, `allowed=${result.allowed}\nrelease_sha=${result.releaseSha ?? ''}\n`
             + `reason=${result.reason ?? ''}\nobserved_sha=${result.observedSha ?? ''}\n`);
