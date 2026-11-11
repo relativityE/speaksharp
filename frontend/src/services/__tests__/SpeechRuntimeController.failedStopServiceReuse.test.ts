@@ -26,6 +26,8 @@ import type { TranscriptionServiceOptions } from '@/services/transcription/Trans
 import { completeSession, saveSession } from '../../lib/storage';
 import { __resetRecordingIntentForTests } from '../recordingIntent';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
+import { beginRecordingAttempt, currentAttemptId } from '../telemetry/journeyIdentity';
+import { __resetSavedTakesForTests, savedTakeAttempt } from '../telemetry/savedTakeTarget';
 
 type FakeService = {
     isServiceDestroyed: () => boolean;
@@ -524,6 +526,45 @@ describe('#1258 C — a recovered save enters the review; nothing else does', ()
         expect(st.completedSessionId).toBe('session-A');
         expect(st.sttStatus.type, 'the failed save no longer masks the review').toBe('info');
         expect(st.pendingResolutionKind).toBeNull();
+    });
+
+    /*
+     * AHT-01 Option 1 (PO 2026-11-10) — the review card names the take that SAVED its session. Both publication sites
+     * (first-pass save and recovered save) record that take's FROZEN subject, so a newer ambient take never renames it.
+     */
+    it('Option 1: a first-pass save publishes its session with the take that recorded it', async () => {
+        __resetSavedTakesForTests();
+        const c = newController() as Retrying;
+        c.state = 'READY';
+        factory.queue.push(recordingService('A'));
+        enterProduct('open_mic', BRIEF_A);
+        await c.startRecording(POLICY, []);
+        const takeA = currentAttemptId();
+        expect(takeA, 'precondition: the recording take has an attempt').not.toBeNull();
+        await c.stopRecording();
+        await settle();
+        expect(useSessionStore.getState().completedSessionId).toBe('session-A');
+        expect(savedTakeAttempt('session-A')).toBe(takeA);
+    });
+
+    it('Option 1: a recovered save names the take that recorded it, even after a newer take opened', async () => {
+        __resetSavedTakesForTests();
+        const c = newController() as Retrying;
+        c.state = 'READY';
+        factory.queue.push(recordingService('A'));
+        enterProduct('open_mic', BRIEF_A);
+        await c.startRecording(POLICY, []);
+        const takeA = currentAttemptId();
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await expect(c.stopRecording()).rejects.toThrow('SESSION_COMPLETION_FAILED');
+        await settle();
+        expect(savedTakeAttempt('session-A'), 'a failed save publishes no take').toBeNull();
+        const newer = beginRecordingAttempt();               // an ambient newer take must not rename A's session
+        expect(newer).not.toBe(takeA);
+        await expect(c.retryRecordingSave()).resolves.toBe(true);
+        await settle();
+        expect(useSessionStore.getState().completedSessionId).toBe('session-A');
+        expect(savedTakeAttempt('session-A')).toBe(takeA);
     });
 
     it('a recovered save clears its own finalized recovery draft, as a first-pass save does', async () => {
