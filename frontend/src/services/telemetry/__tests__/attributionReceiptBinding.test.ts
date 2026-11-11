@@ -219,8 +219,10 @@ describe('#1421 P1 `3984043475` — the readback reaches the receipt that names 
             producer_ts: 'producer-wire', persisted: false, diagnostic_request_id: 'diagnostic-wire', origin_attempt_id: 'origin-attempt-wire',
             end_reason: 'reason-wire', origin_boot_id: 'origin-boot-wire', intent_kind: 'kind-wire', intent_outcome: 'intent-outcome-wire',
             step: 'step-wire', option_selected: 'option-wire',
+            // AHT-01 Option 1: the displayed review's take, carried by name like every other field.
+            render_target_attempt_id: 'render-target-wire',
         };
-        expect(columns).toHaveLength(45);
+        expect(columns).toHaveLength(46);
         expect([...columns].sort()).toEqual(Object.keys(sent).sort());
         const responseColumns = [...columns].reverse();
         const decoded = readbackRowsByName(responseColumns, [responseColumns.map((name) => sent[name])]);
