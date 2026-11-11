@@ -20,6 +20,7 @@ import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
+import { HarnessParityTap, type StartPressBudget } from './rwtHarnessParity';
 import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
 import { coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture, readSavedReviewPair } from './rwtCoachingCollector';
@@ -127,6 +128,26 @@ const SETUP_FIELD_READ_FAILED = '(setup field read failed)';
 const meetsExpectation = (expected: string, got: RailStatus | null): boolean => focusPointMeetsExpectation(expected, got);
 
 /**
+ * Harness parity (PO route 2026-11-10), from the journey's DESIGN (not a run's count). Each take is one Start press; the
+ * first take presses `mic-download` on a cold first use (the one activation also starts the take), otherwise `mic-start`.
+ * AHT-03 (partial fixture) — 4 presses:
+ *   1. first take — rwtFocusPointsJourney.ts:453 cold (`mic-download`, benchmark-utils.ts:609) or :456 warm (`mic-start`);
+ *   2. Practice again's save take from Analytics — rwtJourney.ts:1657 (`mic-start`);
+ *   3. the completed review's Retry this set — rwtJourney.ts:1719 (`focus-points-retry`);
+ *   4. next Start without a hold — rwtJourney.ts:1390 (`mic-start`).
+ * AHT-02 (PO corpus) — those 4 plus the full journey's three `mic-start` takes:
+ *   5. the Open Mic take before the product switch — rwtFocusPointsJourney.ts:802;
+ *   6. the Focus take right after the switch — rwtFocusPointsJourney.ts:829;
+ *   7. the take on the edited set — rwtFocusPointsJourney.ts:942.
+ * The `mic-start` cap counts the warm first take too (one fewer when the first take downloads), `mic-download` at most 1,
+ * `focus-points-retry` exactly the one Retry; no `mic-retry` and no `verdict-practice-again` press is designed.
+ */
+const AHT02_START_PRESS_BUDGET: StartPressBudget = { total: 7, perControl: { 'mic-start': 6, 'mic-download': 1, 'focus-points-retry': 1 } };
+const AHT03_START_PRESS_BUDGET: StartPressBudget = { total: 4, perControl: { 'mic-start': 3, 'mic-download': 1, 'focus-points-retry': 1 } };
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
+
+/**
  * @param coachingMaximum #1593 (Sam 1792317800 §6): the selected whole-scenario browser coaching-request maximum for THIS
  *   suite — 7 for the full PO-corpus journey, 4 for the partial fixture. It bounds the `coaching request budget` row.
  */
@@ -160,6 +181,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const generations = new CoachingGenerationTap();
     generations.attach(page);
     await installMicAcquisitionCounter(page);
+    // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this journey's one context
+    // (the main page and the review tabs it opens), attached before the first navigation.
+    const parity = new HarnessParityTap();
+    await parity.attach(page.context());
+    const startPressBudget = fixtureKey === 'focus_points_tts' ? AHT02_START_PRESS_BUDGET : AHT03_START_PRESS_BUDGET;
     await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
     await suppressPageSnapshot(testInfo);
     // #1258: the coaching request as sent (its product marker only) and every coaching request of the journey —
@@ -289,6 +315,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
             acquisitionTimingRow(receipt, tap, tap.journeyIds());
         });
+        // Harness parity rows (catalog AHT-02 / AHT-03: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
+        // deleted. Bounded steps, rows only while each step is alive, and the page close in its own step so a slow row never skips it.
+        await steps.step('harness parity counts', (alive) => {
+            parity.noCloudSttRow(aliveReceipt(receipt, alive));
+            parity.startPressRow(aliveReceipt(receipt, alive), startPressBudget);
+        });
+        await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
         // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. The full run's retention proof and the partial run's own
         // cleanup verdict (#1532 Codex P1 r4126745141) both delete through it; the deletion's own settlement then decides —
         // a stalled readback never deletes again, and a body that ended early still has its account deleted, here only.
