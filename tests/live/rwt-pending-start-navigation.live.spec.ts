@@ -21,7 +21,8 @@ import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { RETURN_SETTLE_DEFAULTS, returnControlSample, settleReturnControlState, type ReturnControlState } from './helpers/rwtReturnControlState';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
-import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 
 const SUITE = 'pending-start-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -67,6 +68,18 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }) },
 });
 
+/**
+ * Harness parity (catalog AHT-04), from the journey's DESIGN as it is today (not a run's count). The journey presses one Start:
+ *   1. the cold Start it abandons — `mic-download` (`page.getByTestId('mic-download').click`, rwt-pending-start-navigation.live.spec.ts:190);
+ *      the return to Open Mic only reads the controls (`settleReturnControlState`) and presses none.
+ * So: 1 press in all, `mic-download` at most 1, nothing else. The catalog's AHT-04 minimum is 2 because it also counts the
+ * deliberate recovery take (`deliberate-recovery-saved`), which this journey does not yet run: when that take lands, this
+ * budget MUST be raised to cover its Start press.
+ */
+const AHT04_START_PRESS_BUDGET: StartPressBudget = { total: 1, perControl: { 'mic-download': 1 } };
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
+
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
 test.afterEach(async () => {
@@ -79,6 +92,9 @@ test('leaving during a cold Start does not leave a recording or session behind @
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     tap.attach(page); generations.attach(page);
+    // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this journey's context;
+    // attached in the body below, before the first navigation.
+    const parity = new HarnessParityTap();
     let email = '';
     let uid = '';
     let claimed = false;
@@ -98,6 +114,13 @@ test('leaving during a cold Start does not leave a recording or session behind @
         await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
         // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
         await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
+        // Harness parity rows (catalog AHT-04: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
+        // deleted. Bounded steps, rows only while each step is alive, and the page close in its own step, last before cleanup.
+        await steps.step('harness parity counts', (alive) => {
+            parity.noCloudSttRow(aliveReceipt(receipt, alive));
+            parity.startPressRow(aliveReceipt(receipt, alive), AHT04_START_PRESS_BUDGET);
+        });
+        await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
         // A signup that died before its uid was read is still found by its created email.
         if ((uid || email) && !accountDeleted) {
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
@@ -118,6 +141,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
             receipt.halt('preflight', `HOLD before Production writes: ${missing.join('; ')}`);
             return;
         }
+        // Before the first navigation: the click recorder is an init script.
+        await parity.attach(page.context());
         await installMicAcquisitionCounter(page);
         await page.goto('/auth/signup');
         await requireApprovedSurface(page, receipt);

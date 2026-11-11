@@ -21,7 +21,8 @@ import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAc
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
-import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 import { openProductsItem } from './helpers/productsMenu';
 import {
     expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
@@ -74,6 +75,20 @@ async function transcriptOnPageLength(page: Page): Promise<number> {
 
 const persistedId = (page: Page) => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
 
+/**
+ * Harness parity (catalog AHT-05 = `request-lost`, AHT-06 = `response-lost`: draft-adapters/save-fault-binding.cjs:66), from the
+ * journey's DESIGN (not a run's count). Each variant records two takes, each with one Start press:
+ *   1. the faulted take — on a cold model `mic-download` (`preparePrivateModelIfPrompted`, helpers/benchmark-utils.ts:609, whose one
+ *      press downloads AND starts the take), otherwise `mic-start` (`startBenchmarkRecording` at ready, helpers/benchmark-utils.ts:862);
+ *      exactly one of the two, since the start helper is skipped when setup already started the take;
+ *   2. the next take — the completed review's `verdict-practice-again` (`again.click()`, rwt-save-retry-recovery.live.spec.ts:227).
+ * Retry Save (`session-retry-save`) is not a Start control. So: 2 presses in all; `mic-download` at most 1, `mic-start` at most 1,
+ * `verdict-practice-again` at most 1, and no Retry press. Same for both variants.
+ */
+const SAVE_RETRY_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 1, 'mic-start': 1, 'verdict-practice-again': 1 } };
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
+
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
 
@@ -83,6 +98,9 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     tap.attach(page); generations.attach(page);
+    // Harness parity (PO route 2026-11-10): Cloud STT requests and Start presses on every page of this variant's context;
+    // attached in the body below, before the first navigation.
+    const parity = new HarnessParityTap();
     const owner: RunOwner = { email: '', uid: '' };
     // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
     const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
@@ -110,6 +128,13 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
         // Two saved takes: at most one coaching request each.
         await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes }));
+        // Harness parity rows (catalog AHT-05/AHT-06: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is
+        // deleted. Bounded steps, rows only while each step is alive, and the page close in its own step, last before cleanup.
+        await steps.step('harness parity counts', (alive) => {
+            parity.noCloudSttRow(aliveReceipt(receipt, alive));
+            parity.startPressRow(aliveReceipt(receipt, alive), SAVE_RETRY_START_PRESS_BUDGET);
+        });
+        await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
         // A signup that died before its uid was read is still found by its created email.
         if ((owner.uid || owner.email) && !accountDeleted) {
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
@@ -122,6 +147,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     });
     try {
         await suppressPageSnapshot(testInfo);
+        // Before the first navigation (the signup below): the click recorder is an init script.
+        await parity.attach(page.context());
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await page.goto('/practice');
