@@ -197,7 +197,7 @@ test.describe('#1258 MOCKED — coaching failure → Share Feedback journey', ()
         };
         const verdict = validateFeedbackDiagnostics(lookup, {
             reportId: row.idempotencyKey ?? '', association: 'current_take', sessionId: saved, requestId: 'unknown-until-diagnostics-land',
-            outcome: 'provider_error', attemptId: null, failureCategory: 'unavailable', serverReason: 'provider_http_5xx', configuredModel: 'gemini-3.8-flash',
+            outcome: 'provider_error', attemptId: null, failureCategory: 'unavailable', serverReason: 'provider_http_5xx', configuredModel: 'gemini-3.6-flash',
             currentRequestId: 'unknown-until-diagnostics-land',
         });
         expect(verdict.verdict).toBe('HOLD');

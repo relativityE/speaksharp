@@ -91,7 +91,7 @@ describe('R11 — a failure report is bound to ITS request by the page\'s emissi
         sent: { requestId, attemptId: `${requestId}-att`, sessionId }, status: 502, clientMs: 41_000, suggestions: null, at,
         diagnostics: { request_id: requestId, attempt_id: `${requestId}-att`, outcome: 'failure', reason: 'provider_timeout', provider_status: null,
             provider_attempts: 2, retry_count: 1, provider_duration_ms: 40_009, total_duration_ms: 40_603,
-            configured_model: 'gemini-3.8-flash', observed_model: null, source: 'fresh' },
+            configured_model: 'gemini-3.6-flash', observed_model: null, source: 'fresh' },
     });
     const diag = (requestId: string, capturedAt: number, bootId = 'boot-1', outcome = 'failure') =>
         ({ event: 'ai_coaching_diagnostic', at: capturedAt + 3_000, capturedAt, bootId, diagnosticRequestId: requestId, diagnosticOutcome: outcome });
@@ -107,7 +107,7 @@ describe('R11 — a failure report is bound to ITS request by the page\'s emissi
         await feedbackDiagnosticChainRow({
             receipt: receipt as never, admin: admin as never, userId: 'u1', reportId: 'r1', currentSessionId: opts.currentSession,
             reportedSessionId: opts.reportSession, acknowledgementVisible: true, exchanges: opts.exchanges as never,
-            observedEvents: opts.events as never, configuredModel: 'gemini-3.8-flash', product: 'open_mic',
+            observedEvents: opts.events as never, configuredModel: 'gemini-3.6-flash', product: 'open_mic',
         });
         const row = rows.find((r) => r.step === 'feedback diagnostic chain');
         return { verdict: row?.verdict, reasons: String(row?.evidence?.reasons ?? '') };
@@ -302,10 +302,10 @@ describe('R11 — a failure report is bound to ITS request by the page\'s emissi
         const request = (over: Record<string, unknown> = {}) => ({
             requestId: 'A', attemptId: 'A-att', sessionId: 's1', outcome: 'timeout', failureCategory: null, serverReason: 'provider_timeout',
             statusClass: '5xx', providerStatusClass: 'none', retryCount: 1, totalMs: 40_603, providerMs: 40_009,
-            configuredModel: 'gemini-3.8-flash', observedModel: null, source: 'fresh', ...over,
+            configuredModel: 'gemini-3.6-flash', observedModel: null, source: 'fresh', ...over,
         });
         const expectation = (over: Record<string, unknown> = {}) => ({ reportId: 'r1', association: 'current_take', sessionId: 's1', requestId: 'A', attemptId: 'A-att',
-            currentRequestId: 'A', outcome: null, failureCategory: null, serverReason: null, configuredModel: 'gemini-3.8-flash', ...over });
+            currentRequestId: 'A', outcome: null, failureCategory: null, serverReason: null, configuredModel: 'gemini-3.6-flash', ...over });
         const verdict = (r: Record<string, unknown>, e: Record<string, unknown> = expectation(), rep: Record<string, unknown> = base) =>
             validateFeedbackDiagnostics({ report: rep, requests: [r] } as never, e as never);
 
@@ -337,7 +337,7 @@ describe('R11 — a failure report is bound to ITS request by the page\'s emissi
 
         it('CONTROL: with no contradiction, an unobserved category is HOLD (not FAIL), and success settlement is unchanged', () => {
             expect(verdict(request())).toEqual({ verdict: 'HOLD', reasons: ['telemetry_not_received', 'failure_category_not_observed'] });
-            const success = request({ outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', providerStatusClass: '2xx', observedModel: 'gemini-3.8-flash' });
+            const success = request({ outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', providerStatusClass: '2xx', observedModel: 'gemini-3.6-flash' });
             expect(verdict(success)).toEqual({ verdict: 'HOLD', reasons: ['telemetry_not_received'] });
         });
     });
