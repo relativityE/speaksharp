@@ -18,7 +18,7 @@ export const HERO_TERMS = Object.freeze({ lead: 'Free for 30 days, ', price: '$1
 export const LANDING_TRIAL_CTA = 'Start your session';
 
 /** Closing band: its value sentence only — no trial claim, no price. */
-export const CLOSING_VALUE = 'Your recordings stay Private on this device.';
+export const CLOSING_VALUE = 'Your audio is transcribed on your device and never uploaded.';
 
 /** The repository's signed-out signup destination (see the `/auth/signup` route in App.tsx). */
 export const LANDING_SIGNUP_ROUTE = '/auth/signup';
@@ -86,7 +86,7 @@ export function landingDisclosureChips(
 ): readonly [string, string, string] | readonly [string, string] {
     const factual: readonly [string, string] = [
         'Private transcription keeps audio local',
-        'Transcript data supports SpeakSharp features',
+        'AI coaching sends saved transcripts to Google Gemini',
     ];
     return paymentsEnabled ? [...factual, 'Pro continues only after Stripe confirmation'] : factual;
 }

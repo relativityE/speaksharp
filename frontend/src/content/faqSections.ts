@@ -60,6 +60,7 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 question: 'What is saved after a session?',
                 answer: [
                     'The session’s text transcript and its measurements — words, fillers, pace — plus your review, so you can come back to them. Audio is never saved.',
+                    'The transcript is stored in your account, and AI coaching sends it to Google Gemini to write your review.',
                 ],
             },
         ],

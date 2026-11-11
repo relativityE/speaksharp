@@ -76,6 +76,11 @@ describe('FAQ claims match the shipped contracts', () => {
         expect(text).not.toMatch(/audio is not recorded/i);
     });
 
+    it('what is saved: the transcript is stored in the account and AI coaching sends it to Google Gemini', () => {
+        expect(answerOf('what-is-saved')).toMatch(/stored in your account/i);
+        expect(answerOf('what-is-saved')).toMatch(/Google Gemini/);
+    });
+
     it('CASUALTY: claims no retention schedule while newest-one retention is only installed, not activated', () => {
         expect(text).not.toMatch(/newest[- ](one|two)|deleted after|kept for \d+|automatically deleted/i);
     });

@@ -81,6 +81,23 @@ describe('Private-only public product copy contract (#1254)', () => {
     expect(surfaces.landingFeatures).toContain('Trial and paid access provide the same complete product');
   });
 
+  // Privacy copy must match the code: audio is transcribed on-device and never uploaded, but a saved transcript is
+  // stored in the user's account (Supabase) and AI coaching sends it to Google Gemini (get-ai-suggestions,
+  // MAX_TRANSCRIPT_CHARS = 8000), automatically after a take is saved.
+  it('states where a saved transcript goes instead of implying it never leaves the device', () => {
+    expect(surfaces.legal).toContain('The audio is never uploaded or saved.');
+    expect(surfaces.legal).toContain('its transcript text, measurements, and coaching results are stored with the session in your account');
+    expect(surfaces.legal).toContain('to Google Gemini to write your review');
+    expect(surfaces.legal).toContain('up to 8,000 characters');
+    expect(surfaces.legal).toContain('Coaching currently starts automatically after a session is saved.');
+    expect(surfaces.faq).toContain('AI coaching sends it to Google Gemini');
+    const landingPrivate = read('frontend/src/components/landing/PrivateRepeatSection.tsx');
+    expect(landingPrivate).toContain('Saved transcripts are stored in your account, and AI coaching sends them to Google Gemini.');
+    expect(landingPrivate).not.toMatch(/>\s*Never uploaded\s*</);
+    expect(customerCopy).not.toMatch(/minimum text required|may be stored with saved session|no recording to leak|stays? Private on this device|private transcript on this device/i);
+    expect(customerCopy).not.toMatch(/practice privately/i);
+  });
+
   // #1470, in the shape PO + PM accepted for G17 (2026-09-19): the live hero pairs "Free for 30 days" with
   // "$10/month", and the closing band makes neither a trial claim nor a price claim — so no free-trial claim on the
   // homepage ships without its post-trial price. G17 supersedes #1470's closing-band copy requirement.

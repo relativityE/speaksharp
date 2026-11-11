@@ -20,10 +20,10 @@ export const PrivateRepeatSection = () => (
         <div className="flex flex-wrap items-start gap-[30px]">
             <div className="min-w-0 flex-[1_1_220px]">
                 <h3 className="mb-[9px] text-[22px] font-extrabold tracking-[-0.03em] text-neutral-heading md:text-[26px]">
-                    Never uploaded
+                    Audio never uploaded
                 </h3>
                 <p className="text-[17px] font-medium leading-[1.6] text-neutral-body">
-                    Your practice audio stays on your device. There is no recording to leak or delete.
+                    Your speech is transcribed on your device, and the audio is never uploaded or saved. Saved transcripts are stored in your account, and AI coaching sends them to Google Gemini.
                 </p>
             </div>
             <div

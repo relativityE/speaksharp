@@ -34,8 +34,8 @@ unavailable checkout never grants access.
 
 ## Privacy
 
-Customer recordings use on-device Private transcription. Audio is not sent to a transcription provider.
-Transcript text is retained only for the newest transcript-bearing saved session; older transcript text expires while derived practice metrics and the structured next action remain. Saved transcript text can be processed on the server for automatic Practice Loop coaching. On-device transcription does not mean every downstream text operation is local.
+Customer recordings use on-device Private transcription. Audio is never uploaded or saved.
+When a session is saved, its transcript is stored in your account, and AI coaching sends it to Google Gemini; today coaching starts automatically after a session is saved. Retention duration and deletion timing are still being finalized, so saved transcript text is currently kept. On-device transcription does not mean every downstream text operation is local.
 
 ## Recording tips
 
@@ -58,6 +58,5 @@ For support, use **Share Feedback** inside SpeakSharp.
 
 - **Audio used for Private transcription is not uploaded to a transcription provider.** Transcription runs locally in your browser; downstream text processing has a separate boundary.
 - **Your transcript is saved to your account** when you save a session, so you can review it and export a report.
-  Only the newest transcript-bearing saved session keeps its transcript text.
-- **AI coaching processes transcript text on the server.** Completing a practice take can automatically request the saved Practice Loop suggestions; opening a separate coaching control is not required. On-device transcription does not make downstream text processing local.
+- **AI coaching sends transcript text to Google Gemini.** Completing a practice take automatically requests the saved Practice Loop suggestions, which sends up to 8,000 characters of the transcript plus its speaking measurements (and, for Focus Points, its topic, points and results); opening a separate coaching control is not required. On-device transcription does not make downstream text processing local.
 - **Your session measurements** (word count, filler counts, clarity, pace, pauses) are saved to your account.

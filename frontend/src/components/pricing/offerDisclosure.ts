@@ -5,7 +5,7 @@
 export function offerDisclosureChips(paymentsEnabled: boolean): readonly [string, string, string] {
     return [
         'Private transcription keeps audio local',
-        'Transcript data supports SpeakSharp features',
+        'AI coaching sends saved transcripts to Google Gemini',
         paymentsEnabled ? 'Pro continues only after Stripe confirmation' : 'No card is collected until paid continuation opens',
     ];
 }

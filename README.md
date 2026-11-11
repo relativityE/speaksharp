@@ -3,7 +3,7 @@
 
 # SpeakSharp
 
-SpeakSharp is a private speaking-practice application. Customer speech-to-text runs on-device; the saved Practice Loop provides concise feedback, one next action and comparable personal progress.
+SpeakSharp is a speaking-practice application. Customer speech-to-text runs on-device and audio is never uploaded; the saved Practice Loop provides concise feedback, one next action and comparable personal progress. A saved transcript is stored in the user's account (Supabase) and sent to Google Gemini for AI coaching.
 
 ### 🎙️ Core Features
 
@@ -13,7 +13,7 @@ SpeakSharp is a private speaking-practice application. Customer speech-to-text r
     ten-minute technical cap.
 -   **Practice Loop:** Open Mic is primary; Focus Points is optional; saved review carries delivery evidence and one next action.
 -   **Personal progress:** comparisons are between eligible sessions from the same user, mode and STT cohort. A user may explicitly accept an action and see the directional outcome of the linked repeat.
--   **Bounded retention:** transcript text is retained only for the newest transcript-bearing session; every older transcript expires while session history and derived metrics remain.
+-   **Retention (not yet active):** newest-one transcript retention is installed but not activated in production (`product_release/OPERATIONS_AND_SECURITY.md` §2.6), so saved transcript text is currently kept. Once activated, only the newest transcript-bearing session keeps its text in the user-readable session.
 -   **Fail-closed commercial path:** the product contract is 30 days then $10/month, but payments remain disabled until separately qualified and authorized.
 
 ---

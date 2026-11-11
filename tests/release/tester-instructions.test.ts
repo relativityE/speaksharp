@@ -18,7 +18,8 @@ describe('canonical tester and customer instructions', () => {
       expect(doc).toMatch(/Private/i);
     }
     expect(testerGuide).toMatch(/Every customer practice session uses Private transcription on your device/i);
-    expect(userGuide).toMatch(/audio is not sent to a transcription provider/i);
+    expect(userGuide).toMatch(/audio is never uploaded or saved/i);
+    expect(userGuide).toMatch(/transcript is stored in your account, and AI coaching sends it to Google Gemini/i);
   });
 
   it('states the complete 30-day product then the same product for $10/month', () => {

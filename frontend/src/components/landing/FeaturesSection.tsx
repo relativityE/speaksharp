@@ -52,7 +52,7 @@ const features = [
   {
     icon: <ShieldCheck className="size-8" />,
     title: "Private by design",
-    description: "Every customer recording uses on-device Private transcription. Trial and paid access provide the same complete product.",
+    description: "Every customer recording uses on-device Private transcription, and the audio is never uploaded. Saved transcripts are stored in your account, and AI coaching sends them to Google Gemini. Trial and paid access provide the same complete product.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-signature-text",
   }
@@ -74,7 +74,7 @@ export const FeaturesSection = () => {
               How it works
             </span>
             <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight mt-3">
-              Practice privately. Improve with <span className="text-amber-700">clear feedback</span>.
+              Practice with on-device transcription. Improve with <span className="text-amber-700">clear feedback</span>.
             </h2>
             <p className="mt-3 max-w-[760px] text-lg font-medium leading-relaxed text-foreground/70">
               Use Open Mic as your default, add Focus Points when useful, and leave each session with one next action.
