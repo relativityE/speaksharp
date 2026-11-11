@@ -21,7 +21,8 @@ import { coachingRequestBudgetRow } from './rwtCoachingCollector';
 import { openProductsItem } from './productsMenu';
 import { selectBenchmarkMode, stopBenchmarkRecording } from './benchmark-utils';
 import { noCloudVerdict } from './rwtAbandonTakeover';
-import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './rwtWatchdog';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './rwtWatchdog';
+import { HarnessParityTap, type StartPressBudget } from './rwtHarnessParity';
 import {
     ADVERSE_SUITE, type AdverseVariant, MIC_BLOCKED_COPY, MODEL_ASSETS, MODEL_FAILED_STATES, downloadFailureVerdict, armModelStatusLog, readModelStatusLog, AttemptFaultCounter,
     deniedAfterPress, micDeniedVerdict, recoveredTakeVerdict,
@@ -103,6 +104,26 @@ async function saveRecoveredTake(page: Page, uid: string, label: string, takes: 
     return recoveredTakeVerdict({ recorded, savedId, savedStatus });
 }
 
+/**
+ * Harness parity (PO route 2026-11-10), from the journey's DESIGN (not a run's count). Every variant presses Start once to meet
+ * its adverse state, then `saveRecoveredTake` → `pressUntilRecording` presses whichever of mic-start / mic-retry / mic-download
+ * the page offers, at most twice (its own loop bound), until a take records. So 3 presses in all, as the catalog's minimum.
+ * The recovery's control depends on what the page offers (not bounded by the code), so each control's cap is the presses
+ * that could land on it.
+ *  AHT-12 mic denied: the denied press, `mic-download` or `mic-start` (rwtAdverseJourney.ts:209) + up to 2 recovery presses
+ *   in the allowing browser (rwtAdverseJourney.ts:82, loop bound :77).
+ *  AHT-13 download fails: `mic-download` (rwtAdverseJourney.ts:260) + up to 2 recovery presses (rwtAdverseJourney.ts:82).
+ *  AHT-14 offline mid-download: `mic-download` (rwtAdverseJourney.ts:265) + up to 2 recovery presses (rwtAdverseJourney.ts:82).
+ */
+const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 3, 'mic-start': 3, 'mic-retry': 2 } };
+const AHT13_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 3, 'mic-start': 2, 'mic-retry': 2 } };
+const AHT14_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 3, 'mic-start': 2, 'mic-retry': 2 } };
+const START_PRESS_BUDGET: Record<AdverseVariant, StartPressBudget> = {
+    'mic-denied': AHT12_START_PRESS_BUDGET, 'download-fails': AHT13_START_PRESS_BUDGET, 'offline-mid-download': AHT14_START_PRESS_BUDGET,
+};
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
+
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 export const finalizer = new JourneyFinalizer();
 
@@ -113,6 +134,8 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
     const generations = new CoachingGenerationTap();
     const cloud = { requests: 0 };
     tap.attach(page); generations.attach(page); observeCloudStt(page, cloud);
+    // Harness parity: Cloud STT (HTTP and WebSocket) and Start presses on every page of BOTH browser contexts the journey opens.
+    const parity = new HarnessParityTap();
     const owner: RunOwner = { email: '', uid: '' };
     const takes: string[] = [];
     let claimed = false;
@@ -139,6 +162,13 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         });
         await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
         await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 1, oneRequestPerSession: takes }));
+        // Harness parity rows (catalog: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is deleted. The
+        // 'no Cloud STT request' row above counts only the journey's own pages; this one is the harness's context-wide definition.
+        await steps.step('harness parity counts', (alive) => {
+            parity.noCloudSttRow(aliveReceipt(receipt, alive));
+            parity.startPressRow(aliveReceipt(receipt, alive), START_PRESS_BUDGET[variant]);
+        });
+        await steps.step('owned pages closed', (alive) => parity.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
         // A signup that died before its uid was read is still found by its created email.
         if (owner.uid || owner.email) {
             // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
@@ -150,6 +180,8 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
         receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
     });
     try {
+        // Before the first navigation (signup): the Start-press recorder runs in every later document of this context.
+        await parity.attach(context);
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `adverse-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
@@ -193,6 +225,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             recoveryBrowser = await chromium.launch({ args: rwtLaunchArgs(fixture, { webgpu: false }) });
             const baseURL = new URL(page.url()).origin;
             const allowed = await recoveryBrowser.newContext({ baseURL, permissions: ['microphone'] });
+            await parity.attach(allowed);
             await routeVercelBypass(allowed, baseURL);
             const allowedPage = await allowed.newPage();
             await applyRwtIdentity(allowed, allowedPage, await rwtIdentityFor(recoveryBrowser));
