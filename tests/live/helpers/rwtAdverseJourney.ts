@@ -29,8 +29,8 @@ import {
 } from './rwtAdverse';
 import type { SessionRowFacts } from './rwtSaveRetry';
 import {
-    type RecoveryAttempt, type RecoveryControl, RECOVERY_CONTROLS, isRecoveryControl, recoverySavedVerdict, retrySetupOutcome,
-    savedTranscriptDigest,
+    type RecoveryAttempt, type RecoveryControl, type ReopenObservation, RECOVERY_CONTROLS, isRecoveryControl, recoverySavedVerdict,
+    retrySetupOutcome, reviewReopenVerdict, savedTranscriptDigest,
 } from './rwtAdverseRecovery';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -200,22 +200,65 @@ async function saveRecoveredTake(page: Page, variant: AdverseVariant, preconditi
 }
 
 /**
+ * SHA-256 of the rendered `session-detail-transcript`'s trimmed text, computed IN THE PAGE (the harness's `fingerprint`): only the
+ * digest leaves the browser. Null when the element is unreadable.
+ */
+const detailTranscriptDigest = (page: Page): Promise<string | null> => page.getByTestId('session-detail-transcript').evaluate(async (el) => {
+    const bytes = new TextEncoder().encode((el as HTMLElement).innerText.trim());
+    return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))).map((b) => b.toString(16).padStart(2, '0')).join('');
+}, undefined, { timeout: 15_000 }).catch(() => null);
+
+/**
+ * review-reopen, as the harness does it (browser-actions.cjs `reopen`): open `/analytics`, open THIS take through its own
+ * `open-session-detail-<id>` control, digest the detail's transcript, reload, digest again. Case-local: rwtJourney.ts's
+ * `analyticsThroughActions` starts from the post-save action and digests untrimmed text, so it is not reused here.
+ */
+async function reopenSavedTake(page: Page, sessionId: string): Promise<ReopenObservation> {
+    const seen: ReopenObservation = { listed: false, detailShown: false, before: null, reloadShown: false, after: null };
+    const detail = page.getByTestId('session-detail-transcript');
+    await page.goto('/analytics', { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    const open = page.getByTestId(`open-session-detail-${sessionId}`).or(page.getByTestId(`open-session-detail-mobile-${sessionId}`)).first();
+    seen.listed = await open.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true, () => false);
+    if (!seen.listed) return seen;
+    await open.click();
+    seen.detailShown = await detail.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true, () => false);
+    if (seen.detailShown) seen.before = await detailTranscriptDigest(page);
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 45_000 });
+    seen.reloadShown = await detail.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true, () => false);
+    if (seen.reloadShown) seen.after = await detailTranscriptDigest(page);
+    return seen;
+}
+
+/** The review-reopen row for the recovery take; HOLD without navigating when there is no saved take or saved transcript. */
+async function reopenRow(receipt: RwtReceipt, page: Page, recovered: { savedId: string | null; savedDigest: string | null }): Promise<void> {
+    const seen = recovered.savedId && recovered.savedDigest
+        ? await reopenSavedTake(page, recovered.savedId)
+        : { listed: false, detailShown: false, before: null, reloadShown: false, after: null };
+    const verdict = reviewReopenVerdict({ ...seen, savedId: recovered.savedId, savedDigest: recovered.savedDigest });
+    receipt.row('the recovered take reopens from Analytics', verdict.status, verdict.detail, {
+        listed: seen.listed, detailShown: seen.detailShown, reloadShown: seen.reloadShown,
+        reopenedMatchesSaved: seen.before !== null && seen.before === recovered.savedDigest,
+        reloadedMatchesSaved: seen.after !== null && seen.after === recovered.savedDigest,
+    });
+}
+
+/**
  * Harness parity (PO route 2026-11-10), from the journey's DESIGN (not a run's count). Start presses are counted by control
  * test id (mic-start, mic-download, mic-retry, verdict-practice-again). Every variant presses once to meet its adverse state;
  * the recovery (`pressRecovery`) then presses only its variant's designed control (`RECOVERY_CONTROLS`), never in a loop, and
  * presses nothing when the page offers anything else. Each press, by its line:
  *  AHT-12 mic denied — at most 2:
- *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:314);
+ *   1. the denied press, `mic-download` or `mic-start` (whichever is offered): `await control.click()` (rwtAdverseJourney.ts:357);
  *   2. the allowing browser's ONE recovery press of its offered `mic-download` (cold: download, then recording) or `mic-start`:
  *      `await control.click()` (rwtAdverseJourney.ts:145). No Retry: a `mic-retry` offer there is a FAIL, not pressed.
  *   So `mic-download` and `mic-start` may each take both presses; `mic-retry` none. The catalog's minimumStarts 3 assumes
  *   the harness's same-context Allow → Start route, which this two-browser design does not take (a `=deny` browser never
  *   grants; see the mic-denied branch).
  *  AHT-13 download fails — exactly 3:
- *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:366);
+ *   1. `mic-download` with the model route aborted (rwtAdverseJourney.ts:410);
  *   2. `mic-retry` once the cause is removed (rwtAdverseJourney.ts:133);
  *   3. `mic-start` only after Retry's setup published `ready` (rwtAdverseJourney.ts:139).
- *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:371), then the same `mic-retry` and
+ *  AHT-14 offline mid-download — exactly 3: `mic-download` (rwtAdverseJourney.ts:415), then the same `mic-retry` and
  *   `mic-start` as AHT-13 (rwtAdverseJourney.ts:133, :139).
  */
 const AHT12_START_PRESS_BUDGET: StartPressBudget = { total: 2, perControl: { 'mic-download': 2, 'mic-start': 2 } };
@@ -349,6 +392,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             receipt.row('after allowing the microphone a take saves', recovered.verdict.status,
                 `${recovered.verdict.detail} (same account, fresh allowing browser; not Allow→Retry in the denied page)`,
                 { recoveryScope: 'same_account_fresh_browser', ...recovered.evidence });
+            await reopenRow(receipt, allowedPage, recovered);
         } else {
             // Sam's ACCEPT of PM 731eb5c0: only this download attempt's model-WEIGHT failures while the fault is armed count,
             // and the fault is armed BEFORE it is induced (a failure delivered during the awaited injection still counts).
@@ -398,6 +442,7 @@ export async function runVariant(page: Page, browser: Browser, testInfo: TestInf
             receipt.row('Retry downloads the model and a take saves', recovered.verdict.status, recovered.verdict.detail,
                 { ...recovered.evidence, sawReadyAfterRetry: after.observed && after.statuses.includes('ready'), statusesObserved: after.observed,
                     mode: await sttMode(page) });
+            await reopenRow(receipt, page, recovered);
         }
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');

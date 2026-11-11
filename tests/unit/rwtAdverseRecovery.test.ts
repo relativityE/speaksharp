@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    RECOVERY_CONTROLS, type RecoveryAttempt, isRecoveryControl, recoverySavedVerdict, retrySetupOutcome, savedTranscriptDigest,
+    RECOVERY_CONTROLS, type RecoveryAttempt, type ReopenObservation, isRecoveryControl, recoverySavedVerdict, retrySetupOutcome,
+    reviewReopenVerdict, savedTranscriptDigest,
 } from '../live/helpers/rwtAdverseRecovery';
 import type { SessionRowFacts } from '../live/helpers/rwtSaveRetry';
 
@@ -171,5 +172,73 @@ describe('rwtAdverseJourney.ts — Start-press budgets cite every press', () => 
         for (const c of ['AHT13', 'AHT14']) {
             expect(src).toContain(`const ${c}_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-download': 1, 'mic-retry': 1, 'mic-start': 1 } };`);
         }
+    });
+});
+
+describe('reviewReopenVerdict — the recovery take reopens from Analytics with its saved transcript, before and after reload', () => {
+    const SAVED = 'a'.repeat(64);
+    const seen = (over: Partial<ReopenObservation & { savedId: string | null; savedDigest: string | null }> = {}) => ({
+        listed: true, detailShown: true, before: SAVED, reloadShown: true, after: SAVED, savedId: ID, savedDigest: SAVED, ...over,
+    });
+    it('PASS: listed, opened, digest equal before and after reload', () => expect(reviewReopenVerdict(seen()).status).toBe('PASS'));
+    it('HOLD: no saved take, or no readable saved transcript to compare (the harness NOT RUN)', () => {
+        expect(reviewReopenVerdict(seen({ savedId: null })).status).toBe('HOLD');
+        expect(reviewReopenVerdict(seen({ savedDigest: null })).status).toBe('HOLD');
+        expect(reviewReopenVerdict(seen({ savedDigest: 'not-a-digest' })).status).toBe('HOLD');
+    });
+    it('FAIL: Analytics does not list the take', () => expect(reviewReopenVerdict(seen({ listed: false })).detail).toMatch(/does not list/));
+    it('FAIL: the detail showed no readable transcript', () => {
+        expect(reviewReopenVerdict(seen({ detailShown: false })).status).toBe('FAIL');
+        expect(reviewReopenVerdict(seen({ before: null })).status).toBe('FAIL');
+    });
+    it('FAIL: the reopened transcript differs, before or after reload', () => {
+        expect(reviewReopenVerdict(seen({ before: 'b'.repeat(64) })).detail).toMatch(/reopened transcript differs/);
+        expect(reviewReopenVerdict(seen({ after: 'b'.repeat(64) })).detail).toMatch(/after reload the transcript differs/);
+    });
+    it('FAIL: nothing readable after reload', () => {
+        expect(reviewReopenVerdict(seen({ reloadShown: false })).status).toBe('FAIL');
+        expect(reviewReopenVerdict(seen({ after: null })).status).toBe('FAIL');
+    });
+    it('the page digest and the saved digest agree on trimming (same SHA-256 of the trimmed text)', async () => {
+        const text = '  the take words \n';
+        const page = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text.trim()))))
+            .map((b) => b.toString(16).padStart(2, '0')).join('');
+        expect(savedTranscriptDigest({ transcript_state: 'available', transcript: text })).toBe(page);
+    });
+});
+
+describe('rwtAdverseJourney.ts — review-reopen, in source order', () => {
+    const src = aj();
+    const at = src.indexOf('async function reopenSavedTake(');
+    const body = src.slice(at, src.indexOf('\n}\n', at));
+    it('opens /analytics, the take\'s own detail control, digests, reloads, digests again', () => {
+        const order = [
+            "await page.goto('/analytics',",
+            'page.getByTestId(`open-session-detail-${sessionId}`)',
+            'await open.click();',
+            'seen.before = await detailTranscriptDigest(page);',
+            'await page.reload(',
+            'seen.after = await detailTranscriptDigest(page);',
+        ].map((m) => body.indexOf(m));
+        expect(order.filter((i) => i < 0)).toEqual([]);
+        expect([...order].sort((a, b) => a - b)).toEqual(order);
+    });
+    it('the rendered transcript is trimmed and digested in the page; only the digest leaves', () => {
+        const from = src.indexOf('const detailTranscriptDigest');
+        const digest = src.slice(from, src.indexOf('.catch(() => null);', from));
+        expect(digest).toContain("getByTestId('session-detail-transcript').evaluate(");
+        expect(digest).toContain('innerText.trim()');
+        expect(digest).toContain("crypto.subtle.digest('SHA-256'");
+    });
+    it('each variant writes the reopen row right after its recovery row, on the page that saved the take', () => {
+        const allowed = src.indexOf("receipt.row('after allowing the microphone a take saves'");
+        expect(src.indexOf('await reopenRow(receipt, allowedPage, recovered);', allowed)).toBeGreaterThan(allowed);
+        const retry = src.indexOf("receipt.row('Retry downloads the model and a take saves'");
+        expect(src.indexOf('await reopenRow(receipt, page, recovered);', retry)).toBeGreaterThan(retry);
+    });
+    it('rwtJourney.ts is only imported; its analyticsThroughActions is not used', () => {
+        expect(src).not.toContain('analyticsThroughActions(');
+        const journeyImport = src.slice(src.lastIndexOf('import {', src.indexOf("} from './rwtJourney';")), src.indexOf("} from './rwtJourney';"));
+        expect(journeyImport).not.toContain('analyticsThroughActions');
     });
 });
