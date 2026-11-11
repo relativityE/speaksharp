@@ -20,6 +20,26 @@ describe('TrialEndedPanel', () => {
         expect(screen.getByTestId('trial-ended-account')).toHaveAttribute('href', '/account');
     });
 
+    it('matches newest-one retention: never claims every transcript or review is still there', () => {
+        // Retention keeps only the newest saved transcript (and its coaching); history and measurements survive.
+        renderPanel(true);
+        const text = screen.getByTestId('trial-ended-panel').textContent ?? '';
+        expect(text).toMatch(/most recent saved transcript/i);
+        expect(text).toMatch(/keeps only the newest one/i);
+        expect(text).not.toMatch(/\beverything\b/i);
+        expect(text).not.toMatch(/\ball (of )?your\b/i);
+        expect(text).not.toMatch(/\breviews\b/i);
+        expect(text).not.toMatch(/\bany saved session\b/i);
+    });
+
+    it('uses neutral paid-access wording, never a tier name', () => {
+        for (const paymentsEnabled of [true, false]) {
+            const { unmount } = renderPanel(paymentsEnabled);
+            expect(screen.getByTestId('trial-ended-panel').textContent ?? '').not.toMatch(/\bPro\b/);
+            unmount();
+        }
+    });
+
     it('with payments closed, points to Pricing without promising an upgrade', () => {
         renderPanel(false);
         expect(screen.getByTestId('trial-ended-continuation')).toHaveTextContent(PAID_CONTINUATION_UNAVAILABLE.title);

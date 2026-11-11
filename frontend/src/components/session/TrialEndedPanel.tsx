@@ -1,10 +1,10 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart3, FileDown, UserRound } from 'lucide-react';
+import { BarChart3, FileDown, FileText, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TRIAL_ENDED_COPY, type TrialEndedKeep } from './trialStatus';
 
-const KEEP_ICONS = { history: BarChart3, export: FileDown, account: UserRound } as const satisfies Record<TrialEndedKeep, unknown>;
+const KEEP_ICONS = { history: BarChart3, transcript: FileText, export: FileDown, account: UserRound } as const satisfies Record<TrialEndedKeep, unknown>;
 
 /**
  * Replaces the recorder in the before state when the trial has ended. It says what happened, what still works,

@@ -60,17 +60,23 @@ export function isTrialExpiredRefusal(usage: TrialUsage | null | undefined): boo
 /**
  * Copy for the practice page once the server refuses recording with `trial_expired` (#1282). Exported so tests
  * assert the real strings. The title matches the refusal message `useSessionLifecycle` already shows.
+ *
+ * Retention is `newest_one_v1`: saving a newer eligible session replaces the previous transcript, and a saved
+ * session's coaching is removed with its transcript. Session history, measurements and the next action survive
+ * for every session. So this copy never says "everything" or "all your reviews" stays; it names what does.
+ * Paid wording is neutral ("paid access"), never a tier name.
  */
 export const TRIAL_ENDED_COPY = Object.freeze({
     title: 'Your 30-day free trial has ended',
-    body: 'Recording new sessions is closed on this account. Everything you already saved is still yours.',
+    body: 'Recording new sessions is closed on this account. What you already saved stays in your account:',
     keeps: [
-        { key: 'history' as const, label: 'Your saved sessions and their reviews, in Progress' },
-        { key: 'export' as const, label: 'PDF export of any saved session, from Progress' },
+        { key: 'history' as const, label: 'Your session history, measurements and next steps, in Progress' },
+        { key: 'transcript' as const, label: 'Your most recent saved transcript and its coaching. SpeakSharp keeps only the newest one.' },
+        { key: 'export' as const, label: 'PDF export of your saved sessions, from Progress' },
         { key: 'account' as const, label: 'Your account settings, including deleting your account' },
     ],
     /** Payments open: Pricing shows checkout. */
-    continueOpen: 'Continue with Pro to keep recording.',
+    continueOpen: 'Continue with paid access to keep recording.',
     /** Payments closed (the fail-closed default): Pricing shows its "not open yet" notice, never a checkout. */
     continueClosed: PAID_CONTINUATION_UNAVAILABLE.title,
     pricingCta: 'See pricing',
