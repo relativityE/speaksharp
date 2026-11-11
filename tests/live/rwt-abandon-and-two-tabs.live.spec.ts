@@ -26,7 +26,8 @@ import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAc
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
-import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { HarnessParityTap, type StartPressBudget } from './helpers/rwtHarnessParity';
 import { openProductsItem } from './helpers/productsMenu';
 import type { RecoveryRead } from './helpers/rwtRecoveryFence1593';
 import {
@@ -88,9 +89,33 @@ async function startFirstPrivateTake(page: Page, label: string): Promise<void> {
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
 
+/**
+ * Harness parity (PO route 2026-11-10), from each journey's DESIGN (not a run's count). A first Private take is ONE press:
+ * `mic-download` on a cold model (benchmark-utils.ts:609, the one activation that downloads AND starts), otherwise `mic-start`
+ * (startBenchmarkRecording, benchmark-utils.ts:862, after waitForPrivateEngineReady). Refusal-then-take-over presses count.
+ * AHT-09 (navigate away) and AHT-10 (close the tab), the same path through `abandonAndReturn`:
+ *   1. the first take — startFirstPrivateTake (this file:199): `mic-download` cold, else `mic-start`;
+ *   2. the return Start — `mic-start` (this file:314);
+ *   3. only after the product's refusal copy, the person's second press — `mic-start` (this file:325).
+ * So: 3 in all; `mic-start` at most 3, `mic-download` at most 1, no Retry press.
+ */
+const AHT09_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-start': 3, 'mic-download': 1 } };
+const AHT10_START_PRESS_BUDGET: StartPressBudget = { total: 3, perControl: { 'mic-start': 3, 'mic-download': 1 } };
+/**
+ * AHT-11 (one account, two places):
+ *   1. tab A's first take — startFirstPrivateTake (this file:413): `mic-download` cold, else `mic-start`;
+ *   2. the same-browser tab's Start — `mic-start` (this file:429);
+ *   3. the other device's first press — pressPrivateStartForLease (rwtAbandonTakeover.ts:59): `mic-download` cold, else `mic-start`;
+ *   4. the explicit take-over press — `mic-start` or the still-cold `mic-download` (this file:501).
+ * So: 4 in all; `mic-start` at most 4, `mic-download` at most 3 (tab A, then both device-B presses, all cold), no Retry press.
+ */
+const AHT11_START_PRESS_BUDGET: StartPressBudget = { total: 4, perControl: { 'mic-start': 4, 'mic-download': 3 } };
+/** The page-close step's own bound: each page close is itself bounded at 15 s inside it. */
+const PARITY_CLOSE_STEP_MS = 60_000;
+
 async function finishJourney(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
     owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null,
-    steps: FinalizationSteps, beforeReport?: () => Promise<void>): Promise<void> {
+    parity: { tap: HarnessParityTap; budget: StartPressBudget }, steps: FinalizationSteps, beforeReport?: () => Promise<void>): Promise<void> {
     await steps.step('no cloud row', () => {
         const cloudVerdict = noCloudVerdict(cloud.requests);
         receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
@@ -100,6 +125,15 @@ async function finishJourney(receipt: RwtReceipt, testInfo: TestInfo, tap: Analy
         const sessionIdsVerified = await refreshCompletedTakeIds(takes, takeBaseline, () => readRows(owner.uid));
         coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes, sessionIdsVerified });
     });
+    // Harness parity rows (catalog: no-cloud-stt, start-press-budget, owned-pages-closed), before the account is deleted. The
+    // journey's own 'no Cloud STT request' row above counts only the pages it observes; the harness's definition is every page
+    // of every context the journey opened (context-level requests and per-page sockets), so its parity row is written too.
+    // Rows only while each bounded step is alive; the page close in its own step so a slow read can never skip it.
+    await steps.step('harness parity counts', (alive) => {
+        parity.tap.noCloudSttRow(aliveReceipt(receipt, alive));
+        parity.tap.startPressRow(aliveReceipt(receipt, alive), parity.budget);
+    });
+    await steps.step('owned pages closed', (alive) => parity.tap.ownedPagesClosedRow(aliveReceipt(receipt, alive)), PARITY_CLOSE_STEP_MS);
     // A signup that died before its uid was read is still found by its created email.
     if (owner.uid || owner.email) {
         // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
@@ -120,6 +154,10 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
     const generations = new CoachingGenerationTap();
     const cloud = { requests: 0 };
     observe(page, tap, generations, cloud);
+    // Harness parity: Cloud STT and Start presses on every page of this journey's one context (the close-tab variant's reopened
+    // tab is a page of the same context, so it is covered too). Attached in the body, before the first navigation.
+    const parity = new HarnessParityTap();
+    const parityBudget = variant === 'navigate-away' ? AHT09_START_PRESS_BUDGET : AHT10_START_PRESS_BUDGET;
     const owner: RunOwner = { email: '', uid: '' };
     // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
     const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
@@ -145,9 +183,10 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         // (bounded; page-independent, since a finalizer may run after its tabs closed).
         await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
-        await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, steps);
+        await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, { tap: parity, budget: parityBudget }, steps);
     });
     try {
+        await parity.attach(page.context());
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `abandon-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
@@ -191,6 +230,10 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
             const asked = leavePromptVerdict({ ...dialogs, arrived });
             receipt.row('leave prompt answered Leave', asked.status, asked.detail, { ...dialogs, arrived });
             if (asked.status !== 'PASS') return;
+            // The leave destination's route shell must have committed visible content (the product's own
+            // `data-app-visible-ready`, App.tsx route effect) before its microphone state is read. Bounded; never a silent pass.
+            const leaveReady = await page.locator('html[data-app-visible-ready="true"]').waitFor({ state: 'attached', timeout: 30_000 }).then(() => true, () => false);
+            if (!leaveReady) throw new Error('the Focus Points page never became visibly ready (data-app-visible-ready) within 30 s after leaving');
             await page.waitForTimeout(3_000);
             const afterLeaving = await tabState(page);
             const left = releasedVerdict(afterLeaving, 'after leaving');
@@ -332,6 +375,9 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
         const generations = new CoachingGenerationTap();
         const cloud = { requests: 0 };
         observe(tabA, tap, generations, cloud);
+        // Harness parity across BOTH places: tab A's context (and its same-browser tab) and the other device's context, each
+        // attached before its first navigation.
+        const parity = new HarnessParityTap();
         const owner: RunOwner = { email: '', uid: '' };
         const takes: string[] = [];
         let claimed = false;
@@ -352,12 +398,13 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // Sam, #1662 RETURN on f527a033 (item 2): each close is its own bounded, isolated step — a hung first close can
             // neither block the drain nor skip the second close. Codex P2 on 76a0bf6e: they run after the coaching settle
             // and cleanup but BEFORE the report, so a failed or timed-out close is in the receipt.
-            await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, steps, async () => {
+            await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, { tap: parity, budget: AHT11_START_PRESS_BUDGET }, steps, async () => {
                 await steps.step('same-browser tab close', () => sameBrowserTab?.close());
                 await steps.step('other device close', () => otherDevice?.close());
             });
         });
         try {
+            await parity.attach(tabA.context());
             await suppressPageSnapshot(testInfo);
             claimed = await prepareRunOwnedAccount(tabA, receipt, owner, 'two-tab', admin, SERVICE_ROLE);
             if (!claimed) return;
@@ -393,6 +440,8 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // (2) ANOTHER DEVICE: an isolated context, signed in normally to the SAME run-owned account. Only here does the
             // server's account lease decide: refused first, then the person's explicit second press takes over.
             otherDevice = await browser.newContext({ baseURL, permissions: ['microphone'] });
+            // Harness parity: the other device's context, before its first page and navigation.
+            await parity.attach(otherDevice);
             await routeVercelBypass(otherDevice, baseURL);
             const deviceB = await otherDevice.newPage();
             // From here every long wait (sign-in, the cold press, the refusal, the take-over recording) runs on device B.
