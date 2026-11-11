@@ -176,7 +176,15 @@ describe('production workflow admission before production environments and secre
         const wf = workflow('canary');
         expect(wf.on.push).toBeUndefined();
         expect(wf.on.schedule).toHaveLength(2);
-        expect(wf.jobs['release-binding'].steps.find((step) => step.id === 'served').env.EXPECTED_RELEASE_SHA).toBe('${{ vars.PRODUCTION_RELEASE_SHA }}');
+        // Outcome 10: bound to what production serves at run time, confirmed on main; no repository variable.
+        const served = wf.jobs['release-binding'].steps.find((step) => step.id === 'served');
+        expect(served.run).toBe('node scripts/production-release-policy.mjs discover');
+        expect(served.env).toEqual({ GH_TOKEN: '${{ github.token }}' });
+        expect(wf.jobs['release-binding'].permissions).toEqual({ contents: 'read' });
+        expect(JSON.stringify(wf)).not.toContain('PRODUCTION_RELEASE_SHA');
+        // The password-using readiness job stays behind production-db and main-only.
+        expect(wf.jobs['migration-readiness'].environment).toBe('production-db');
+        expect(wf.jobs['migration-readiness'].if).toContain("github.ref == 'refs/heads/main'");
         for (const name of ['migration-readiness', 'canary-check']) {
             expect(wf.jobs[name].needs).toContain('release-binding');
             expect(wf.jobs[name].steps.find((step) => step.uses === 'actions/checkout@v6').with.ref).toBe('${{ needs.release-binding.outputs.release_sha }}');

@@ -20,12 +20,15 @@ concurrency:
 
 jobs:
   release-binding:
-    name: verify last released production identity
+    name: read the release production serves
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    # Read-only: the compare call below needs only repository contents.
+    permissions:
+      contents: read
     outputs:
       release_sha: ${{ steps.served.outputs.release_sha }}
-      # Which HOLD it is (binding-missing | production-unreadable | served-mismatch), so canary-result can name it.
+      # Which HOLD it is (production-unreadable | served-sha-invalid | served-not-on-main), so canary-result can name it.
       reason: ${{ steps.served.outputs.reason }}
       observed_sha: ${{ steps.served.outputs.observed_sha }}
     steps:
@@ -35,11 +38,14 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      # The canary tests whatever production serves at run time, read from window.__APP_RELEASE__ on the live page.
+      # No hand-maintained variable is involved. The page is public, so the SHA is accepted only when GitHub
+      # confirms it is a commit on main; the password-using jobs below check out nothing else.
       - id: served
-        name: Require the separately controlled last-served SHA to match production
+        name: Read the served release from production and require it to be a commit on main
         env:
-          EXPECTED_RELEASE_SHA: ${{ vars.PRODUCTION_RELEASE_SHA }}
-        run: node scripts/production-release-policy.mjs served
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs discover
 
   migration-readiness:
     needs: release-binding
@@ -272,7 +278,6 @@ jobs:
           BINDING_RESULT: ${{ needs.release-binding.result }}
           BINDING_REASON: ${{ needs.release-binding.outputs.reason }}
           OBSERVED_SHA: ${{ needs.release-binding.outputs.observed_sha }}
-          EXPECTED_SHA: ${{ vars.PRODUCTION_RELEASE_SHA }}
           READINESS_RESULT: ${{ needs.migration-readiness.result }}
           MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
           PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
@@ -283,22 +288,22 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$BINDING_RESULT" != 'success' ]; then
-            # Name WHICH hold it is. "Doesn't match" was printed for an EMPTY variable from 27 Oct to 10 Nov.
+            # Name WHICH hold it is, so a hold is never misread as a product failure.
             case "${BINDING_REASON:-}" in
-              binding-missing)
-                why='PRODUCTION_RELEASE_SHA is not set (empty or not a full 40-character SHA); production was not read'
-                todo='Owner action: set the repository variable PRODUCTION_RELEASE_SHA to the release production serves (window.__APP_RELEASE__), per RELEASE_PROCESS.md.' ;;
-              served-mismatch)
-                why="production serves ${OBSERVED_SHA:-an unknown release}, but PRODUCTION_RELEASE_SHA is ${EXPECTED_SHA:-empty}"
-                todo='Owner action: after a verified promotion, advance PRODUCTION_RELEASE_SHA to the served release; otherwise investigate the drift.' ;;
               production-unreadable)
                 why='the release production serves could not be read'
                 todo='Check that the production site is up and carries exactly one window.__APP_RELEASE__ marker.' ;;
+              served-sha-invalid)
+                why='production carries a window.__APP_RELEASE__ value that is not a full 40-character SHA'
+                todo='Check the production build: it must stamp the full lowercase commit SHA it was built from.' ;;
+              served-not-on-main)
+                why="production serves ${OBSERVED_SHA:-an unknown release}, which GitHub could not confirm is a commit on main"
+                todo='Investigate what production serves: only a release of a commit on main may be canaried.' ;;
               *)
                 why='the release binding job did not report a reason'
                 todo='Open the release-binding job log.' ;;
             esac
-            echo "## HOLD — last-served release binding: $why; NO product qualification ran" >> "$GITHUB_STEP_SUMMARY"
+            echo "## HOLD — served release binding: $why; NO product qualification ran" >> "$GITHUB_STEP_SUMMARY"
             echo "- $todo" >> "$GITHUB_STEP_SUMMARY"
             echo "::error::CANARY HELD — $why. $todo"
             exit 1
