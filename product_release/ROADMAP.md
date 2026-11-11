@@ -214,3 +214,100 @@ duplicate — for the parked enterprise/team and demand-validation workstreams, 
 
 The dated code/strategy audit found an implemented acceptance-to-next-session association and same-cohort movement calculation, not causal coaching efficacy. Preserve the distinction between browser-local STT and separately disclosed server-side text/coaching processing. Progress/source coverage, waitlist infrastructure, compliance tests and local-inference cost hypotheses do not establish demand, willingness to pay, lower churn or defensibility. Any derived longitudinal dataset must remain consented and privacy-preserving; technical availability does not grant reuse authority. Customer validation and independent qualification remain necessary, but strategic importance does not silently reorder the owner’s release sequence.
 <!-- /clause-closeout:2026-10-28 -->
+
+
+## Outside-review intake: privacy, configuration and bounded qualification
+
+This numbered register captures the 11 November 2026 outside-review intake.
+Sam owns triage and closure evidence; implementation owners must explicitly accept
+their bounded paths before edits. Existing billing, coaching and acceptance owners
+are not reassigned here. The owning PR carries dated verification and the execution
+checklist; production observations and release posture belong in
+`RELEASE_STATUS.md`. Capturing a gap is not implementing it, a new launch waiver,
+or authorization to mutate configuration, run a live test or spend money.
+
+### Deliverables and expected outcome
+
+Deliver a traceable disposition for every item below: evidence-backed verification
+or a separately reviewed implementation, acceptance controls, and canonical copy
+where appropriate. The expected outcome is explicit privacy choice, truthful
+retention and entitlement claims, bounded security hardening, and an evidence-led
+STT decision without duplicating the existing MVP qualification work.
+
+1. **F01 — Trial-trigger wiring and entitlement admission.** Verify the enabled
+   `auth.users` signup trigger, its function binding and applied migration state
+   through read-only production metadata. Retain sanitized evidence, not account
+   contents. If the chain is correctly wired, close the alleged missing-trigger
+   finding rather than create a redundant migration. Separate metadata proof from
+   end-to-end fresh-signup entitlement proof; reuse existing qualified evidence or
+   obtain exact authority before a new production account operation.
+2. **F02 — Retention activation, behavior and truthful copy.** Verify the
+   `transcript_retention_activation` state and reconcile the actual transcript,
+   coaching and derived-content expiry behavior with the newest-one promise.
+   Activation alone does not prove every purge path. Reuse the existing AHT-01
+   retention investigation; do not infer its failed row's cause from a migration
+   filename. Specify retention/deletion timing, remaining logs/backups and provider
+   handling before replacing unfinished privacy copy. Any discrepancy requires a
+   bounded correction, not a silent change of promise.
+3. **F03 — Separate transcript-storage and AI-coaching choices.** Capture the
+   requested two unchecked controls: “Save my transcript to my SpeakSharp account”
+   and “Send my transcript to Google Gemini for AI coaching.” Explain Supabase
+   storage and provider purpose without implying model training. With storage
+   disabled, coaching is disabled and visibly unavailable; never silently enable
+   storage. Neither selected means no transcript upload or provider request;
+   storage-only permits saving without a provider call. Enforce this on the server,
+   bind consent to the user/session and version, and test old clients, wrong-session
+   requests, retries and revocation. Define storage-off behavior for existing data
+   without implying prior transmissions can be recalled. A future coaching-only
+   transient path or training/product-research use needs its own explicit decision
+   and consent. Fix any inaccurate transcript-local-only claim while preserving
+   the distinct on-device-audio guarantee.
+4. **F04 — Effective application security headers.** Inspect deployed responses,
+   not just `vercel.json`, on app and protected routes. Establish appropriate CSP,
+   framing protection and referrer policy, retain effective HSTS where present, and
+   test normal recording/model workers, authentication, payments and error routes
+   against the proposed policy. Do not blindly add directives that break required
+   WebAssembly/worker or cross-origin behavior. Treat configuration changes and
+   deployment as separate reviewed actions.
+5. **F05 — Ops-status authentication hardening.** Review the password comparison
+   and fail-closed behavior; use a supported constant-time comparison and verify
+   explicit throttling at the effective boundary rather than assume upstream
+   protection exists. Cover missing/wrong credentials, comparison behavior,
+   rate-limit recovery and sensitive logging. Do not run production brute-force
+   tests or expose credentials.
+6. **F06 — Controlled v2 anti-repetition experiment.** Compare the current v2
+   baseline with `condition_on_previous_text: false` and
+   `no_repeat_ngram_size: 6`, individually and combined, in an isolated offline
+   experiment. First prove the deployed runtime accepts and applies those options.
+   Freeze the corpus/scorer/model and report WER, loops/hallucinations, legitimate
+   repeated-word/filler preservation, latency, memory and device coverage. Do not
+   hide loops by output deduplication. Tuning is not a zero-risk fix or promotion;
+   change production defaults only after review and Product Owner selection.
+7. **F07 — Complete test-mode checkout-to-product proof (existing billing lane).**
+   Route to #1795/#1813, not a new billing initiative. Existing Stripe lifecycle
+   evidence is not browser checkout, authentic webhook delivery and paid product
+   access together. Use the existing Stripe test account and disposable local
+   stack; preserve the protected environment/reviewer requirements. Do not add a
+   recurring hosted Supabase charge, enable live payments or charge a real card.
+8. **F08 — Real coaching usefulness evidence (existing evaluation lane).** Route
+   to #1816 and the current coaching qualification protocol. Preserve the
+   20-session sample, two independent reviewers, at least four consenting speakers,
+   fixed coaching version, diagnostic correlation and separately reported quality,
+   failure, reopen and timing criteria. Do not create a duplicate evaluation or
+   treat source checks as human usefulness.
+9. **F09 — Reconcile transcription, latency and download claims.** Use
+   representative speech and supported-device evidence with frozen scoring.
+   Distinguish a tiny app-path fixture from a larger corpus and compressed network
+   transfer from stored model size. Do not reuse a superseded headline error rate
+   or infer current production quality from either sample alone. Feed gaps into the
+   existing release-evidence checklist.
+10. **F10 — Explicitly deferred or rejected expansion.** Do not turn this intake
+    into a model replacement, giant-file refactor or workflow-consolidation project.
+    A missing source declaration is a verification gap, not proof a deployed
+    feature is absent. Historical PR ownership does not restart writers. Retain
+    these observations as background unless independently reproduced as a current
+    blocker. A suggested real-money checkout is outside this test-mode intake.
+
+Completion of this documentation increment means all ten dispositions and their
+acceptance boundaries are recorded. It does not close the implementation,
+production-verification or release-acceptance obligations.
