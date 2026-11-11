@@ -8,11 +8,13 @@
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { expectedReleaseSha } from '../live/helpers/rwtJourney';
 
 const req = createRequire(__filename);
 const numeric = req(resolve(__dirname, '../../tools/cloud-test/harness/draft-adapters/progress-numeric.cjs')) as {
     SOURCE_SHA: string;
+    REVALIDATED_SHAS: readonly string[];
     observe: (a: Record<string, unknown>) => Promise<{ result: string; facts: Record<string, unknown> }>;
     expectedText: (v: unknown) => string;
     readExpected: (a: Record<string, unknown>) => Promise<{ result?: string; value?: unknown }>;
@@ -110,5 +112,37 @@ describe('progress-numeric observe() through the installed Supabase client (offl
         expect((await run(d, (w) => w)).r.result).toBe('NOT RUN');
         expect((await run(fixture(), (w) => w, { deny: 'session_progress_evaluations' })).r.result).toBe('NOT RUN');
         expect((await run(fixture(), (w) => w, { release: '0'.repeat(40) })).r.result).toBe('NOT RUN');
+    });
+});
+
+/**
+ * Review RETURN on 66b588dc: the module refused the served release (5a7bf6a1) before any read, so the journey row could only
+ * HOLD. 5a7bf6a1's four consumer files are byte-identical to the revalidated snapshots (source/receiving-numeric-source-
+ * 5a7bf6a1.json). This drives observe() with the values the AHT-01 caller actually passes: sourceSha = expectedReleaseSha()
+ * (rc-gates sets EXPECTED_RELEASE_SHA from diagnostic_release_sha) and servedSha = the page's window.__APP_RELEASE__.
+ */
+describe('the AHT-01 caller\'s real release binding (5a7bf6a1)', () => {
+    const SERVED = '5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2';
+    afterEach(() => vi.unstubAllEnvs());
+    const callerRun = async (served: string | null) => {
+        const t = offlineFetch(fixture());
+        const expected = await numeric.readExpected({ db: client(offlineFetch(fixture()).fetch as typeof fetch),
+            caseConfig: { ...CASE, sourceSha: numeric.SOURCE_SHA, servedSha: numeric.SOURCE_SHA }, sourceSessionId: 'A', repeatSessionId: 'B' });
+        const want = numeric.expectedText(expected.value);
+        return numeric.observe({ page: page(want), db: client(t.fetch as typeof fetch), sourceSessionId: 'A', repeatSessionId: 'B',
+            caseConfig: { sourceSha: expectedReleaseSha(), servedSha: served, account: { id: 'owner' } } })
+            .catch((e: { code?: string }) => ({ result: e?.code === 'NOT_RUN' ? 'NOT RUN' : 'THREW', facts: {} }));
+    };
+    it('PASS with the dispatch input and the served page both 5a7bf6a1', async () => {
+        vi.stubEnv('EXPECTED_RELEASE_SHA', SERVED);
+        expect(numeric.REVALIDATED_SHAS).toContain(SERVED);
+        expect((await callerRun(SERVED)).result).toBe('PASS');
+    });
+    it('CASUALTY: a served page on another release, no served release, or an unrevalidated release is NOT RUN', async () => {
+        vi.stubEnv('EXPECTED_RELEASE_SHA', SERVED);
+        expect((await callerRun(numeric.SOURCE_SHA)).result).toBe('NOT RUN');
+        expect((await callerRun(null)).result).toBe('NOT RUN');
+        vi.stubEnv('EXPECTED_RELEASE_SHA', 'c'.repeat(40));
+        expect((await callerRun('c'.repeat(40))).result).toBe('NOT RUN');
     });
 });

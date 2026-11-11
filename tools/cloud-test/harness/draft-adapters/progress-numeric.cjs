@@ -1,16 +1,19 @@
 'use strict';
-// G03 numeric comparison; selected d100 snapshots revalidated byte-for-byte at 66328703.
+// G03 numeric comparison; selected d100 snapshots revalidated byte-for-byte at 66328703 and at served 5a7bf6a1
+// (source/receiving-numeric-source*.json: all four consumer files, identical Git blobs and sha256).
 // Source qualification does not establish live product PASS.
 const pure=require('./oracles/pure/progressNumericSelected.cjs');
 const SOURCE_SHA='66328703bf47e865b730e229005411e78481d34c';
 const ROW='same-target-numeric';
+// Exact releases whose consumer files were compared with the snapshots. Source and served must be the SAME listed release.
+const REVALIDATED_SHAS=Object.freeze([SOURCE_SHA,'5a7bf6a1cbd0fb2f4a1c2b363d891c8fcc462bd2']);
 const SELECT=Object.freeze({
  recommendation:'id,user_id,source_session_id,formula_version,target_metric,target_direction,target_value,target_units,source_metric_value,shown_text',
  attempt:'id,user_id,recommendation_id,practice_session_id,next_comparable_session_id,lifecycle,outcome,accepted_at',
  evaluation:pure.EVAL_FIELDS+',user_id,formula_version'
 });
 function notRun(reason){const e=new Error(reason);e.code='NOT_RUN';e.trustedBlocker=reason;throw e;}
-function preflight(c){if(c?.sourceSha!==SOURCE_SHA||c?.servedSha!==SOURCE_SHA)notRun('G03 numeric source requires the exact revalidated 66328703 source/served binding');return {ready:true,sourceSha:SOURCE_SHA};}
+function preflight(c){if(typeof c?.sourceSha!=='string'||c.sourceSha!==c.servedSha||!REVALIDATED_SHAS.includes(c.sourceSha))notRun('G03 numeric source requires the exact revalidated 66328703 or 5a7bf6a1 source/served binding');return {ready:true,sourceSha:c.sourceSha};}
 function answer(result,reason,more={}){return {result,facts:{sourceNumericContract:true,reason,...more}};}
 const normalize=x=>typeof x==='string'?x.replace(/\s+/gu,' ').trim():null;
 function expectedText(value){const f=pure.formatRepeatValues(value.metric,value.before,value.after);return normalize(`${pure.TARGET_METRIC_LABELS[value.metric]}: ${f.before} → ${f.after} ${value.units} (original session → linked repeat).${f.belowPrecision?' The stored values differ by less than the displayed precision.':''}`);}
@@ -56,4 +59,4 @@ async function observe({page,db,caseConfig,sourceSessionId,repeatSessionId,expec
  let observation;try{observation=await page.evaluate(route=>{const panel=document.querySelector('[data-testid="progress-panel"]'),nodes=panel?Array.from(panel.querySelectorAll('[data-testid="progress-attempt-values"]')):[],node=nodes[0],style=node?getComputedStyle(node):null;return {readable:true,pathMatches:location.pathname===route,settled:!!panel?.querySelector('[data-testid="progress-direction"]')&&!panel?.querySelector('[data-testid="progress-loading"]'),count:nodes.length,visible:!!node&&style?.visibility!=='hidden'&&style?.display!=='none'&&node.getClientRects().length>0,text:node?.textContent??null};},'/progress/'+sourceSessionId);}catch{return answer('NOT RUN','numeric-ui-observation-unavailable');}
  return verify(expected,observation);
 }
-module.exports={SOURCE_SHA,ROW,SELECT,preflight,readExpected,observe,verify,expectedText};
+module.exports={SOURCE_SHA,REVALIDATED_SHAS,ROW,SELECT,preflight,readExpected,observe,verify,expectedText};

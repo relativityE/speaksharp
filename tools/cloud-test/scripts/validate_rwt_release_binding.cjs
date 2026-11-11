@@ -25,7 +25,7 @@ const TEST_PINS=Object.freeze({
  'tests/unit/rwtCoachingExternal1258.test.ts':'fc2433029dc15dec55e815eab3ba61c3f4f56169ec99ac8724e028c627a2c57a',
  'tests/unit/rwtFinalization1532.test.ts':'83056c871a2980d7058541852f03006d19d3234dbab709aa4a1698c4c4082100',
  'tests/unit/rwtHarnessParity.test.ts':'9f6c162ebaa3dba70c23b2200108611cb6c3260cbe41aa57b755b5aa7462bd65',
- 'tests/unit/rwtNumericObserveSupabase.test.ts':'365b15fbd6579820d894b77d2d3b0dd2f4021c368bc9143e54563db9d9e45c83',
+ 'tests/unit/rwtNumericObserveSupabase.test.ts':'01eda25dec7a5e348402203a2255e59979ea9d394cb07f53112340d4ebd93ad8',
  'tests/unit/rwtReceivedFailureChain1593.test.ts':'1e347ad68f0c7daa08a6ccff2208620ce9595b6f7f6836333eec048d47bfc405',
  'tests/unit/rwtRunBoundCleanup.test.ts':'7a62a798a19e8d89e7db8bf02288595bf2ea73ec5ad5aecfcc21e73aea715eac',
 });
